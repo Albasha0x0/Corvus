@@ -4,9 +4,7 @@ using System.Text.RegularExpressions;
 namespace Corvus.Services.Analysis.Endpoints;
 
 /// <summary>
-/// An endpoint the code names: the HTTP method (<c>*</c> when the code does not say), the URL or path template (values the
-/// code computes as {name} or {}), the client that sends it (retrofit, okhttp, ktor, refit, httpclient, grpc, nsurl, url),
-/// the file, and the method (DEX id, .NET member or native function) and location that build it.
+/// An endpoint the code names; Verb is <c>*</c> when unknown, and computed values in Url are {name} or {}.
 /// </summary>
 public sealed record CodeEndpoint(string Verb, string Url, string Client, string File, string? Member, string? Location)
 {
@@ -31,10 +29,7 @@ public static partial class EndpointTemplates
         "purl.org", "schemas.xmlsoap.org", "java.sun.com", "xml.apache.org", "apache.org", "www.apple.com", "json-schema.org",
     };
 
-    /// <summary>
-    /// Joins a base URL and a relative path as Retrofit and System.Uri resolve them: an absolute path keeps only the base's
-    /// origin, a relative one is appended after the base's last '/'.
-    /// </summary>
+    /// <summary>Joins a base URL and a path as System.Uri resolves them: an absolute path keeps only the origin, a relative one follows the last '/'.</summary>
     public static string Join(string baseUrl, string path)
     {
         if (path.Length == 0) return baseUrl;
@@ -52,11 +47,8 @@ public static partial class EndpointTemplates
     /// <summary>printf and NSString formats (%@, %d, %s, %lu, %.2f) as {}.</summary>
     public static string FoldFormat(string s) => FormatSpec().Replace(s, m => m.Value == "%%" ? "%" : "{}");
 
-    /// <summary>
-    /// What a code template and a capture template are matched on: host (empty when the code leaves it open), path segments
-    /// with every {…} segment open, the query left out. A capture's {n} / {id} segments are concrete-value folds and only an
-    /// open code segment matches them.
-    /// </summary>
+    /// <summary>The match key of a template: verb, host (null when open) and path segments, without the query.</summary>
+    // A capture's {n} and {id} segments are folded values; only an open code segment matches them.
     public static (string Verb, string? Host, string[] Segments) Key(string text)
     {
         int space = text.IndexOf(' ');
@@ -78,7 +70,8 @@ public static partial class EndpointTemplates
         else if (url.StartsWith('{'))
         {
             int slash = url.IndexOf('/');
-            url = slash < 0 ? "/" : url[slash..]; // {base}/path: the host is open
+            // {base}/path: the host is open.
+            url = slash < 0 ? "/" : url[slash..];
         }
         var segments = url.Split('/', StringSplitOptions.RemoveEmptyEntries);
         return (verb, host, segments);
@@ -109,8 +102,7 @@ public static partial class EndpointTemplates
     {
         var parts = Placeholder().Split(segment);
         if (parts.Length == 1) return segment.Equals(text, StringComparison.Ordinal);
-        // Each literal part taken at its first place after the previous one: a
-        // linear match, where a regex of lazy wildcards backtracks polynomially.
+        // Greedy first-place matching is linear; a regex of lazy wildcards backtracks polynomially.
         if (!text.StartsWith(parts[0], StringComparison.Ordinal)) return false;
         int at = parts[0].Length;
         for (int i = 1; i < parts.Length - 1; i++)

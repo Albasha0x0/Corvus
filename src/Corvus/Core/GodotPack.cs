@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A Godot resource pack (.pck, or embedded at the end of an exported executable): "GDPC", the pack format version, the
-/// engine version, then the file directory (path, offset, size, MD5 per file). Format 1 (Godot 3) has absolute offsets;
-/// format 2 (Godot 4.0-4.3) adds pack flags, a file base and per-file flags; format 3 and later place the directory at an offset.
-/// </summary>
+/// <summary>A Godot resource pack ("GDPC", .pck or appended to an executable), pack formats 1 to 3 and later.</summary>
 public static class GodotPack
 {
     public const string Kind = "Godot resource pack (PCK)";

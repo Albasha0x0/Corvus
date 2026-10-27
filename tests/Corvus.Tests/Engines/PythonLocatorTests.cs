@@ -12,8 +12,7 @@ public class PythonLocatorTests
         using var fake = new FakeTool();
         var python = fake.CopyAs("python");
         fake.On("^-I -c ", stdout: $"3 12 64\n{python}\n");
-        // A fixed 3 s answer reached a probe starved past its cap in a loaded quick set (after f0035bbb): the
-        // interpreter answers only once the gate exists, after the first search ends.
+        // Regression (f0035bbb): a fixed 3 s answer reached a starved probe; the interpreter answers only after the first search ends.
         var gate = Path.Combine(fake.Directory, "gate");
         fake.Set("barriers", new System.Text.Json.Nodes.JsonObject
         {
@@ -37,8 +36,7 @@ public class PythonLocatorTests
     [Fact]
     public void A_capped_wait_outlasts_its_limit_while_the_tree_uses_CPU_and_names_the_limit_that_stops_it()
     {
-        // Regression: e0381416's push run, where both idalib Python probes got no answer within 15 s under load.
-        // A virtual clock: each wait advances it by the wait's length.
+        // Regression (e0381416): idalib Python probes got no answer in 15 s under load. A virtual clock advances by each wait.
         var limit = TimeSpan.FromSeconds(1);
         bool Wait(Func<TimeSpan, bool> exited, Func<TimeSpan, TimeSpan?> cpu, TimeSpan cap, out string? stopped, out TimeSpan at)
         {

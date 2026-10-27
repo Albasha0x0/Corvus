@@ -84,7 +84,7 @@ public sealed partial class MinidumpFile
             if (type != 0 && size > 0 && (long)rva + size > FileSize)
                 Issue("directory", $"stream {i} ({StreamTypeName(type)}) at 0x{rva:X}, 0x{size:X} bytes, runs past the end of the file ({FileSize} bytes)", DirectoryRva + i * 12L);
         }
-        // overlapping streams: reported, each still read on its own
+        // Overlapping streams are reported; each is still read on its own.
         var placed = streams.Where(s => s.Type != 0 && s.Size > 0).OrderBy(s => s.Rva).ToList();
         for (int i = 1; i < placed.Count; i++)
             if (placed[i].Rva < (long)placed[i - 1].Rva + placed[i - 1].Size)
@@ -213,9 +213,7 @@ public sealed partial class MinidumpFile
         Threads = threads;
     }
 
-    /// <summary>
-    /// Entries to read: the declared count, cut to what the stream holds (<paramref name="fit"/>) and to the limit.
-    /// </summary>
+    /// <summary>Entries to read: the declared count, cut to what the stream holds (<paramref name="fit"/>) and to the limit.</summary>
     private long Capped(long declared, long fit, int limit, DumpStream stream)
     {
         long count = declared;
@@ -256,7 +254,7 @@ public sealed partial class MinidumpFile
             if (size == 0) Issue("ModuleList", $"module {path} has a size of 0");
         }
         MainModule = modules.FirstOrDefault();
-        // a 64-bit writer lists a WoW64 program's image in both its 64-bit and 32-bit module lists
+        // A 64-bit writer lists a WoW64 program's image in both its 64-bit and 32-bit module lists.
         modules = [.. modules.DistinctBy(m => (m.Base, m.Size, m.Path.ToUpperInvariant()))];
         modules.Sort((x, y) => x.Base.CompareTo(y.Base));
         for (int i = 1; i < modules.Count; i++)
@@ -306,7 +304,8 @@ public sealed partial class MinidumpFile
                 ulong available = Math.Min(size, (ulong)FileSize - fileOffset);
                 if (available < size) cut++;
                 if (available > 0 && start + available > start) ranges.Add(new DumpMemoryRange(start, available, (long)fileOffset));
-                if (size > (ulong)FileSize) { cut++; break; } // a size past any file: the rest of the table is garbage
+                // A size past any file means the rest of the table is garbage.
+                if (size > (ulong)FileSize) { cut++; break; }
                 fileOffset += size;
             }
             if (cut > 0) Issue("Memory64List", "captured memory runs past the end of the file (a truncated dump); later ranges are missing or cut", s64!.Rva);

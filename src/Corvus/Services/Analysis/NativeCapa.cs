@@ -8,21 +8,11 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// A capa rule that matched: its name and namespace, its static scope (file, function, basic block, instruction), its
-/// ATT&amp;CK and MBC labels as capa prints them ("Execution::Command and Scripting Interpreter [T1059]"), and where it
-/// matched: function starts (VAs; .NET method tokens), or the match address where capa's layout names no function.
-/// Addresses is empty for a rule matched at no address (a file-scope rule).
-/// </summary>
+/// <summary>A matched capa rule; Addresses are function starts (VA or .NET token) or match addresses, empty for a file-scope rule.</summary>
 public sealed record CapaLabel(string Name, string? Namespace, string Scope, IReadOnlyList<string> Attack, IReadOnlyList<string> Mbc,
     IReadOnlyList<ulong> Addresses);
 
-/// <summary>
-/// capa's labels for a PE, ELF or .NET file. State is "matched" (capa read the file; Labels may be empty), "not checked"
-/// (capa is not set up, or does not read the file's format) or "unknown" (capa failed or its result could not be read);
-/// Notes say why and name capa's own file limitations. Format is capa's name for the file's format (pe, elf, dotnet);
-/// Tested is false when the capa that ran is not <see cref="NativeCapa.TestedVersion"/>.
-/// </summary>
+/// <summary>capa's labels for a file; State is "matched", "not checked" (no capa or unread format) or "unknown" (capa failed); Notes say why; Tested is false when capa is not <see cref="NativeCapa.TestedVersion"/>.</summary>
 public sealed record CapaReport(string State, string? Checker, bool Tested, string? Format, IReadOnlyList<CapaLabel> Labels, IReadOnlyList<string> Notes)
 {
     /// <summary>The image base capa loaded a PE or ELF file at; null for .NET and when the document states none.</summary>
@@ -32,11 +22,7 @@ public sealed record CapaReport(string State, string? Checker, bool Tested, stri
     public ulong Rebase(ulong va, ulong imageBase) => BaseAddress is { } b ? va - b + imageBase : va;
 }
 
-/// <summary>
-/// capa's behaviour labels of a whole file, from the standalone capa (<see cref="ExternalTools.Capa"/>) run in the worker
-/// host. Reports are kept per file (path, size and write time) for the server's lifetime, so a function dossier reads
-/// the labels a survey already found without running capa again.
-/// </summary>
+/// <summary>Runs capa in the worker host; reports are kept per path, size and write time for the server's lifetime.</summary>
 internal sealed partial class NativeCapa : IWorkerOps
 {
     public const string AnalyzeOp = "capa_analyze";
@@ -68,11 +54,7 @@ internal sealed partial class NativeCapa : IWorkerOps
         lock (Reports) return key != null && Reports.TryGetValue(key, out var hit) ? hit : null;
     }
 
-    /// <summary>
-    /// capa's labels for the PE, ELF or .NET file at <paramref name="path"/>: kept from an earlier run, else from capa run
-    /// in the worker host (in this process when the host is off). Not checked when capa is not set up; unknown, with the
-    /// reason, when capa or its worker failed. Only a report capa produced is kept.
-    /// </summary>
+    /// <summary>capa's labels for the file, kept or from a new run; not checked without capa, unknown with the reason on failure.</summary>
     public static CapaReport Analyze(string path, CancellationToken ct)
     {
         if (Cached(path) is { } hit) return hit;
@@ -116,8 +98,7 @@ internal sealed partial class NativeCapa : IWorkerOps
         return Read(run, Checker(version), version == TestedVersion);
     }
 
-    // capa 10.0.0's vivisect reads getpass.getuser() on import; on Windows that needs USERNAME, as Python's fallback (the
-    // pwd module) does not exist there, so the minimal environment gets a neutral name rather than the user's own.
+    // capa 10.0.0's vivisect calls getpass.getuser(), which needs USERNAME on Windows; a neutral name hides the user's.
     private static readonly Dictionary<string, string?> UserName = new() { ["USERNAME"] = "capa" };
 
     private static string Checker(string? version) => $"capa {version ?? "(version unknown)"}";
@@ -139,11 +120,7 @@ internal sealed partial class NativeCapa : IWorkerOps
     // capa's exit codes for a file it does not read: E_INVALID_FILE_TYPE, E_INVALID_FILE_ARCH and E_INVALID_FILE_OS.
     private static readonly int[] UnreadFormat = [16, 17, 18];
 
-    /// <summary>
-    /// The labels of capa's JSON result document, as capa's own report lists them: library rules, rules capa adds for a
-    /// subscope, and malware-classification rules are left out, and rules under internal/limitation become notes.
-    /// Block and instruction matches are mapped to their function through the blocks the document's layout lists.
-    /// </summary>
+    /// <summary>Labels from capa's JSON document as capa's report lists them; internal/limitation rules become notes.</summary>
     internal static CapaReport Read(ExternalTools.RunResult run, string checker, bool tested)
     {
         string Untested(string note) => tested ? note : $"{note}; the result format was checked with capa {TestedVersion}";
@@ -205,10 +182,7 @@ internal sealed partial class NativeCapa : IWorkerOps
             [.. labels.OrderBy(l => l.Namespace, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal)], notes) { BaseAddress = baseAddress };
     }
 
-    /// <summary>
-    /// The function of the block that starts at or last before <paramref name="at"/>; null when none does. capa's layout
-    /// lists the block of every block and instruction match, so the last block start at or before a match holds it.
-    /// </summary>
+    /// <summary>The function of the last block starting at or before <paramref name="at"/>; null when none does.</summary>
     private static ulong? Containing(SortedList<ulong, ulong> blocks, ulong at)
     {
         var starts = blocks.Keys;
@@ -258,10 +232,7 @@ internal sealed partial class NativeCapa : IWorkerOps
 
     private static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
-    /// <summary>
-    /// capa's first logged message in <paramref name="stderr"/>, its wrapped lines joined and source locations and rules
-    /// dropped, else the last line; at most 500 characters.
-    /// </summary>
+    /// <summary>capa's first logged message in <paramref name="stderr"/>, else its last line; at most 500 characters.</summary>
     internal static string Message(string stderr)
     {
         var lines = stderr.ReplaceLineEndings("\n").Split('\n');

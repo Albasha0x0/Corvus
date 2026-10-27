@@ -7,10 +7,7 @@ internal sealed partial class IlEvaluator
 {
     private readonly Dictionary<MethodDef, byte[]> _nativeCode = new();
 
-    /// <summary>
-    /// A native method of the module (no P/Invoke import): static, int32 / uint32 parameters and result, x86 code of a
-    /// 32-bit image (the code runs as 32-bit code only there), run by <see cref="NativeRoutine"/> within the budget.
-    /// </summary>
+    /// <summary>Runs a static native method of a 32-bit x86 image with 32-bit integer parameters and result; bails native-code otherwise.</summary>
     private object? RunNative(MethodDef method, object?[] args)
     {
         if (method.ImplMap != null || !method.IsStatic || !method.IsUnmanaged)

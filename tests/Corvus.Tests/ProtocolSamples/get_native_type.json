@@ -7,8 +7,8 @@
   },
   "isError": true,
   "content": [
-    "Error (not_found) in get_native_type: No type named or containing 'Game' in typed.dll (PDB loaded, RTTI read, no Il2Cpp names applied, engine not read).\nNext: list_native_types lists the engine's types; source=engine reads them",
-    "\n\nerror (json): {\"code\":\"not_found\",\"retryable\":false,\"message\":\"No type named or containing 'Game' in typed.dll (PDB loaded, RTTI read, no Il2Cpp names applied, engine not read).\",\"next\":\"list_native_types lists the engine's types; source=engine reads them\",\"partial\":null,\"details\":null}\n\n",
+    "Error (not_found) in get_native_type: No type named or containing 'Game' in typed.dll (PDB loaded, RTTI read, no metadata names applied, engine not read).\nNext: list_native_types lists the engine's types; source=engine reads them",
+    "\n\nerror (json): {\"code\":\"not_found\",\"retryable\":false,\"message\":\"No type named or containing 'Game' in typed.dll (PDB loaded, RTTI read, no metadata names applied, engine not read).\",\"next\":\"list_native_types lists the engine's types; source=engine reads them\",\"partial\":null,\"details\":null}\n\n",
     "[workspace] loaded typed.dll from <fixtures>/samples/typed.dll"
   ],
   "structuredContent": null

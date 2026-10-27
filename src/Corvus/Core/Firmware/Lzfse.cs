@@ -4,11 +4,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// LZFSE and LZVN decoding, ported from Apple's reference decoder (lzfse 1.0): raw (bvx-), LZVN (bvxn) and FSE-coded
-/// LZFSE blocks with uncompressed (bvx1) or compressed (bvx2) frequency tables. Damaged input is an
-/// <see cref="InvalidDataException"/>; nothing reads outside the spans.
-/// </summary>
+/// <summary>LZFSE and LZVN decoding from lzfse 1.0; damaged input throws <see cref="InvalidDataException"/>, nothing reads outside the spans.</summary>
 internal static class Lzfse
 {
     private const uint EndOfStream = 0x24787662, Raw = 0x2d787662, V1 = 0x31787662, V2 = 0x32787662, Lzvn = 0x6e787662;
@@ -87,10 +83,7 @@ internal static class Lzfse
         }
     }
 
-    /// <summary>
-    /// The decoded size an LZFSE stream's block headers declare, or null when a header is damaged, an unknown block
-    /// magic appears or the stream ends without its end-of-stream block.
-    /// </summary>
+    /// <summary>The decoded size the block headers declare; null on a damaged header, unknown magic or missing end block.</summary>
     public static long? DecodedSize(ReadOnlySpan<byte> src)
     {
         long total = 0;
@@ -392,10 +385,7 @@ internal static class Lzfse
         else for (int i = 0; i < m; i++) dst[o + i] = dst[o + i - d];
     }
 
-    /// <summary>
-    /// One LZVN stream into <paramref name="dst"/> from <paramref name="o"/> up to <paramref name="end"/>: true at its
-    /// end-of-stream opcode, false when the output reached <paramref name="end"/> first. <paramref name="used"/> is the input read.
-    /// </summary>
+    /// <summary>Decodes one LZVN stream; true at its end opcode, false when output reaches <paramref name="end"/> first.</summary>
     private static bool LzvnBlock(ReadOnlySpan<byte> src, Span<byte> dst, ref int o, int end, ref int dPrev, out int used)
     {
         int p = 0, d = dPrev;

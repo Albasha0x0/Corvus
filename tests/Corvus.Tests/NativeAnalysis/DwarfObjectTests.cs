@@ -7,10 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The DWARF of relocatable objects (clang -c from CORVUS_LLVM_BIN): its .rela / .rel.debug_* applied, it reads like the
-/// same source linked into a shared object: functions, types, and the lines and inlined frames of every code byte.
-/// </summary>
+/// <summary>DWARF of relocatable objects, with .rela / .rel.debug_* applied, reads like the same source linked (clang -c from CORVUS_LLVM_BIN).</summary>
 [Trait("Speed", "Slow")]
 public sealed class DwarfObjectTests(ITestOutputHelper output)
 {

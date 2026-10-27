@@ -10,11 +10,7 @@ namespace Corvus.Services;
 /// <summary>A function of a loaded native image.</summary>
 public readonly record struct NativeNode(LoadedNative Image, uint Start);
 
-/// <summary>
-/// A call from <see cref="From"/> to <see cref="To"/> at <see cref="Site"/> (in From's image). Edge: call, tail, import
-/// (through an import bound to the other image), virtual_exact, virtual_possible, pointer (a call through a function
-/// pointer held in data, a global or a register) or engine (a call reference only the open IDA / Ghidra session has).
-/// </summary>
+/// <summary>A call from <see cref="From"/> to <see cref="To"/> at <see cref="Site"/>; Edge is call, tail, import, virtual_exact, virtual_possible, pointer or engine.</summary>
 public sealed record NativeHop(NativeNode From, NativeNode To, string Edge, uint Site);
 
 /// <summary>A chain of calls from a start to the goal; <see cref="Root"/> says why the first function is a start.</summary>
@@ -27,10 +23,7 @@ public sealed record NativeChain(string Root, NativeNode First, IReadOnlyList<Na
 /// <summary>A managed method bound to native code on the way to the goal (P/Invoke, C++/CLI native body), <see cref="Distance"/> calls from it.</summary>
 public sealed record ManagedEntry(NativeLinkService.ManagedLink Link, NativeNode Node, int Distance);
 
-/// <summary>
-/// The callers of a goal explored backward: each function's distance in calls, its hops one call closer, the roots met
-/// and the managed methods bound to the code on the way. <see cref="Chains"/> enumerates the shortest chains from starts.
-/// </summary>
+/// <summary>A goal's callers explored backward: distances, hops one call closer, roots and managed bindings met.</summary>
 public sealed class NativeCallGraph
 {
     private const int MaxFanOut = 16;
@@ -51,10 +44,7 @@ public sealed class NativeCallGraph
     /// <summary>The roots met: entry point, exports, TLS callbacks, address-taken or data-referenced functions, uncalled functions.</summary>
     public IEnumerable<(NativeNode Node, string Root)> Roots => RootKinds.Where(r => r.Key != Goal).Select(r => (r.Key, r.Value));
 
-    /// <summary>
-    /// Up to <paramref name="max"/> shortest chains from the starts to the goal: nearer starts first, cheapest edges first, a
-    /// bounded fan-out per function; ranked by calls, uncertain hops (virtual_possible, pointer), image changes, root.
-    /// </summary>
+    /// <summary>Up to <paramref name="max"/> shortest chains to the goal, ranked by calls, uncertain hops, image changes and root; Truncated when cut.</summary>
     public (List<NativeChain> Chains, bool Truncated) Chains(IEnumerable<(NativeNode Node, string Root)> starts, int max, CancellationToken ct)
     {
         var ordered = starts.Where(s => Distance.ContainsKey(s.Node)).OrderBy(s => Distance[s.Node]).ThenBy(s => RootRank(s.Root))
@@ -106,12 +96,7 @@ public sealed class NativeCallGraph
     };
 }
 
-/// <summary>
-/// Shortest call chains to a native function across loaded images: a backward search over the in-memory call graph
-/// (direct and tail calls, imports bound between images, the open engine session's call references, RTTI virtual calls
-/// and calls through function pointers when asked), then a bounded enumeration over distance-decreasing edges
-/// (<see cref="NativeCallGraph.Chains"/>).
-/// </summary>
+/// <summary>Shortest call chains to a native function across loaded images, by a backward search over the call graph.</summary>
 public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService code)
 {
     public const int MaxVisited = 50_000;
@@ -140,10 +125,7 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
             return result;
         };
 
-    /// <summary>
-    /// Explores the callers of <paramref name="goal"/> backward up to <paramref name="maxDepth"/> calls and <see cref="MaxVisited"/> functions;
-    /// <paramref name="goalCallers"/> replaces the goal's own callers (an import of a library that is not loaded: the calls through it).
-    /// </summary>
+    /// <summary>Explores callers of <paramref name="goal"/> up to <paramref name="maxDepth"/> calls; <paramref name="goalCallers"/> replaces the goal's own.</summary>
     public NativeCallGraph Explore(NativeNode goal, int maxDepth, bool indirect, CancellationToken ct, IReadOnlyList<NativeHop>? goalCallers = null)
     {
         var g = new NativeCallGraph { Goal = goal };
@@ -181,7 +163,7 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
         if (g.Cut) g.Notes.Add($"the search stopped at {MaxVisited:N0} functions");
         if (unscanned.Count > 0)
             g.Notes.Add($"calls through function pointers were searched in part in {string.Join(", ", unscanned.Order(StringComparer.Ordinal))}: " +
-                        "resolve_call_targets scope=image resolves them once per image, and later searches use them");
+                        "resolve_call_targets scope=image resolves them for later searches");
         return g;
     }
 
@@ -215,7 +197,7 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
         }
         if (index == null)
         {
-            if (notes.Count < 10) notes.Add($"{n.Image.Id}: the code index is not built yet; its callers are not known");
+            if (notes.Count < 10) notes.Add($"{n.Image.Id}: code index not built yet; callers unknown");
             return result;
         }
         if (index.FunctionByStart(n.Start) is not { } fn) return result;
@@ -242,11 +224,8 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
         return result;
     }
 
-    /// <summary>
-    /// Calls through pointers to <paramref name="fn"/>, found from its references: the data holding its address (a global, a table
-    /// entry and the table's start) and the code taking it; the functions reading those places have their call sites resolved
-    /// and the ones reaching <paramref name="fn"/> are kept. Bounded by <see cref="MaxPointerUsers"/> functions.
-    /// </summary>
+    // Users are the code taking the address and the readers of data holding it (a global, a table entry, the table start).
+    /// <summary>Calls through pointers to <paramref name="fn"/>, resolved in up to <see cref="MaxPointerUsers"/> functions that use its address.</summary>
     private static List<(uint Site, uint Caller)> Targeted(NativeCodeIndex index, NativeFunction fn, HashSet<string> cut, string image, CancellationToken ct)
     {
         var cache = TargetedPointers.GetValue(index, _ => []);
@@ -268,13 +247,13 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
             if (x.Kind is XrefKind.Call or XrefKind.TailCall or XrefKind.Jump or XrefKind.ConditionalJump) continue;
             if (index.FunctionAt(x.From) is { } taker)
             {
-                // the address taken in code: called there, or stored to a global that is read elsewhere
+                // The address taken in code: called there, or stored to a global read elsewhere.
                 Use(taker);
                 foreach (var (s, e) in index.Ranges(taker))
                     foreach (var w in index.RefsFrom(s, e).Where(r => r.Kind == XrefKind.Write && index.FunctionAt(r.To) == null)) places.Add(w.To);
                 continue;
             }
-            // a pointer in data, and the start of the table it is in
+            // A pointer in data, and the start of its table.
             places.Add(x.From);
             for (uint at = x.From, k = 0; k < 64 && at >= (uint)ptr && index.RefsFrom(at - (uint)ptr, at).Any(r => r.Kind == XrefKind.Pointer); k++)
             {
@@ -300,10 +279,7 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
         return result;
     }
 
-    /// <summary>
-    /// Callers through function pointers that resolve_call_targets resolved (writers of globals, tables, constants), by target;
-    /// null until its image-wide scan has run, which can take long on a large image.
-    /// </summary>
+    /// <summary>Pointer callers resolve_call_targets resolved, by target; null until its image-wide scan has run.</summary>
     private static Dictionary<uint, List<(uint Site, uint Caller)>>? Pointers(CallAnalysis a)
     {
         int version = a.Index.Sourced.Version;

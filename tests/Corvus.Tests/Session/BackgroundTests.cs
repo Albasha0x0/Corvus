@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 public class BackgroundTests
 {
     [Fact]
-    public void IndexingWarmsCachesAndBuildsTheCallGraph()
+    public void Indexing_warms_caches_and_builds_the_call_graph()
     {
         using var ws = new AssemblyWorkspace();
         var graph = new CallGraphService(ws);
@@ -19,7 +19,7 @@ public class BackgroundTests
     }
 
     [Fact]
-    public void EditsAreNotBlockedOrBrokenByIndexing()
+    public void Edits_are_not_blocked_or_broken_by_indexing()
     {
         using var env = new Env(typeof(ModuleDefMD).Assembly.Location);
         var graph = new CallGraphService(env.Workspace);
@@ -32,7 +32,7 @@ public class BackgroundTests
     }
 
     [Fact]
-    public async Task FileChangesReloadCleanAssembliesAndProtectEditedOnes()
+    public async Task File_changes_reload_clean_assemblies_and_protect_edited_ones()
     {
         using var dir = new TempDir();
         var path = dir.File("TestFixture.dll");
@@ -49,7 +49,7 @@ public class BackgroundTests
         ws.Load(path);
         File.Copy(patched, path, overwrite: true);
         Assert.True(await Eventually(() => ws.Read(() => ws.Assemblies.Single().Module.Find("Fixture.Model.Shop", false)?.FindMethod("DescribeV2") != null)));
-        // the notice follows the reload, so the new assembly can be seen a moment before it
+        // The notice follows the reload, so the new assembly can be seen a moment before it.
         var notices = new List<string>();
         Assert.True(await Eventually(() => { notices.AddRange(ws.DrainNotices()); return notices.Any(n => n.Contains("reloaded")); }), string.Join("\n", notices));
 
@@ -62,7 +62,7 @@ public class BackgroundTests
     }
 
     [WindowsFact]
-    public async Task NativeImagesReloadOnChangeUnlessPatched()
+    public async Task Native_images_reload_on_change_unless_patched()
     {
         using var dir = new TempDir();
         var system = Environment.GetFolderPath(Environment.SpecialFolder.System);

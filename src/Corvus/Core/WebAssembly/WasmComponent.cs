@@ -1,9 +1,6 @@
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>
-/// A WebAssembly component (the component model's binary format: version 0x0d, layer 1): its core modules, each a
-/// complete core module binary in a core module section (id 1), found also inside nested components (id 4).
-/// </summary>
+/// <summary>The core modules of a WebAssembly component (version 0x0d, layer 1), nested components included.</summary>
 public static class WasmComponent
 {
     private const int MaxDepth = 16, MaxModules = 10_000;

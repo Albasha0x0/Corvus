@@ -18,10 +18,7 @@ internal struct Decoded
     public ulong Writes;
 }
 
-/// <summary>
-/// The decoded basic blocks of one function (Iced instructions plus confirmed addresses and written registers), the
-/// unit the call-argument resolver walks backward over.
-/// </summary>
+/// <summary>The decoded basic blocks of one function, which the call-argument resolver walks backward.</summary>
 internal sealed class FunctionCode
 {
     public required NativeFunction Function { get; init; }

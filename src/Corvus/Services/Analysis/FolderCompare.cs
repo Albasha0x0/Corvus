@@ -9,11 +9,9 @@ using Blob = Corvus.Core.Blob;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// Two folders, zip-family archives or files compared entry by entry: streaming hashes (an archive's central directory CRC-32
-/// and size, so archive entries are not read), moves by content, case-only renames, links reported and never followed, and an
-/// incomplete or unreadable side never reported as unchanged. Inventories stay in a small LRU so paging does not re-hash.
-/// </summary>
+/// <summary>Compares two folders, archives or files entry by entry; an incomplete or unreadable side is never reported unchanged.</summary>
+// Archives compare by central directory CRC-32 and size; links are never followed. A small LRU of inventories keeps
+// paging from re-hashing.
 public sealed class FolderCompare
 {
     public const int DefaultLimit = 100, MaxLimit = 2000, DefaultMaxEntries = 200_000, MaxEntriesCap = 1_000_000;
@@ -112,7 +110,8 @@ public sealed class FolderCompare
             StreamingInventory.Hash(oldInv, oldPrevious, ref budget, d => progress?.Invoke(d, toHash), ct);
             hashedBefore = oldInv.Hashed + oldInv.Reused;
             StreamingInventory.Hash(newInv, newPrevious, ref budget, d => progress?.Invoke(hashedBefore + d, toHash), ct);
-            progress?.Invoke(toHash, toHash); // reused hashes are not reported one by one
+            // Reused hashes are not reported one by one.
+            progress?.Invoke(toHash, toHash);
         }
         Remember(Key(oldRoot, exclude, maxEntries), oldInv);
         Remember(Key(newRoot, exclude, maxEntries), newInv);
@@ -408,7 +407,7 @@ public sealed class FolderCompare
         var name = Path.GetFileName(b);
         var load = $"load_assembly path=\"{a}\"; load_assembly path=\"{b}\"; ";
         if (name.Equals("global-metadata.dat", StringComparison.OrdinalIgnoreCase))
-            return $"Il2Cpp metadata changed: load both build folders, then update_to_new_build oldImage=GameAssembly.dll newImage=GameAssembly.dll#2 (Il2Cpp mapping)";
+            return "global-metadata.dat changed: load both build folders, then update_to_new_build oldImage=GameAssembly.dll newImage=GameAssembly.dll#2";
         return kind switch
         {
             "dotnet" => load + $"compare_assemblies oldAssembly={name} newAssembly={name}#2",

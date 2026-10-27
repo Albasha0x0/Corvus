@@ -3,7 +3,7 @@ using Acornima.Ast;
 
 namespace Corvus.Services.Web;
 
-/// <summary>analyze_js view=secrets: a key-like literal, masked; Kind is the provider rule or named (a secret-named, high-entropy value).</summary>
+/// <summary>A masked key-like literal of the analyze_js secrets view; Kind is the provider rule, or named for a secret-named high-entropy value.</summary>
 public sealed record JsSecret(string Kind, string? Name, string Masked, int Length, double Entropy, int Line, int Column, string? Module);
 
 /// <summary>Key-like literals of a parsed file: provider patterns, cloud config objects, and named high-entropy values.</summary>
@@ -69,7 +69,8 @@ internal static partial class JsSecrets
     {
         var v = value.Value;
         if (v.Length is < 16 or > 512 || v.Any(char.IsWhiteSpace) || !SecretName().IsMatch(name) || Entropy(v) < 3.5) return;
-        if (Rules.Any(r => r.Pattern.IsMatch(v))) return; // the provider rule names it
+        // The provider rule names it.
+        if (Rules.Any(r => r.Pattern.IsMatch(v))) return;
         if (v.StartsWith("http", StringComparison.Ordinal) || v.Contains("${", StringComparison.Ordinal)) return;
         add("named", name, v, value);
     }

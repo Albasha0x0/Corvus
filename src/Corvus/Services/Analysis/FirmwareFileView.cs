@@ -3,11 +3,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=firmware: known formats found at offsets inside a file (a firmware image is formats laid end to end): boot and
-/// kernel headers, filesystems, archives, compressed streams, executables, keys and media, each checked against its
-/// header's own fields (<see cref="FirmwareSignatures"/>).
-/// </summary>
+/// <summary>view=firmware: known formats at offsets inside a file, each checked against its header's fields (<see cref="FirmwareSignatures"/>).</summary>
 internal sealed class FirmwareFileView : IFileSummaryView
 {
     private const int MaxHits = 1000;
@@ -48,10 +44,7 @@ internal sealed class FirmwareFileView : IFileSummaryView
     internal static bool Applies(FileInput file) =>
         file.Length >= 4096 && file.Kind == "data" && !Core.Pcap.PcapReader.Looks(file.Head) && !SqliteDatabase.Looks(file.Head);
 
-    /// <summary>
-    /// The regions of at least <see cref="MinGap"/> bytes that no signature claims, in file order: before the first one and
-    /// after each sized one. An unsized format runs to the next signature, as unpack_container carves it.
-    /// </summary>
+    /// <summary>Regions of at least <see cref="MinGap"/> bytes no signature claims, in file order; an unsized format runs to the next.</summary>
     internal static List<Gap> Gaps(IReadOnlyList<SignatureHit> hits, long length)
     {
         var gaps = new List<Gap>();
@@ -73,14 +66,14 @@ internal sealed class FirmwareFileView : IFileSummaryView
         if (!Applies(file)) return null;
         var found = Hits(file, ct);
 
-        // the file's own format at offset 0 alone is not firmware
+        // The file's own format at offset 0 alone is not firmware.
         if (found.Count == 0 || found.All(h => h.Offset == 0)) return null;
         var sorted = found.OrderBy(h => h.Offset).Select(h => new Hit($"0x{h.Offset:X}", h.Format, h.Size, h.Detail)).ToList();
         var notes = new List<string>();
         if (found.Count >= MaxHits) notes.Add($"stopped at {MaxHits} signatures");
         if (file.Streamed) notes.Add($"read in {Window >> 20} MiB windows");
-        notes.Add($"{FirmwareSignatures.Count} formats are checked, each against its own header; inside a filesystem, boot image or archive with a known size nothing more is searched.");
-        notes.Add("unpack_container carves out the filesystems, boot images and archives and reads each with its own reader; headerless code loads with load_assembly format=raw (arch, base, entry).");
+        notes.Add($"{FirmwareSignatures.Count} formats checked; the inside of a sized filesystem, boot image or archive is not searched.");
+        notes.Add("unpack_container extracts filesystems, boot images and archives; load_assembly format=raw (arch, base, entry) loads headerless code.");
         foreach (var g in Gaps(found, file.Length).Take(RawCodeFileView.MaxRegions))
             notes.Add($"0x{g.Offset:X}-0x{g.Offset + g.Size:X} ({g.Size:N0} bytes): no signature; view=raw reads it for an instruction set and load base.");
         var formats = sorted.GroupBy(h => h.Format).Select(g => g.Count() > 1 ? $"{g.Count()} {g.Key}" : $"{g.Key} at {g.First().Offset}");

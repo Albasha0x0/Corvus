@@ -3,9 +3,9 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// An export's output directory, written whole or not at all: the export fills a sibling staging folder, and
-/// <see cref="Commit"/> moves it into place. Disposed without a commit, the staging folder is deleted. With overwrite, a
-/// directory holding a previous export (its <see cref="Marker"/> lists every file) is replaced; any other content is refused.
+/// An export's output directory, written whole or not at all through a sibling staging folder; overwrite replaces only a
+/// previous export, whose <see cref="Marker"/> lists every file, and refuses other content. Disposed without a commit,
+/// the staging folder is deleted.
 /// </summary>
 public sealed class ExportDirectory : IDisposable
 {

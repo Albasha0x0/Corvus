@@ -4,12 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Flash;
 
-/// <summary>
-/// A SWF file as the SWF File Format Specification (version 19) lays it out: "FWS" (uncompressed), "CWS" (zlib from
-/// byte 8) or "ZWS" (LZMA from byte 12), the version, the uncompressed length, the frame rectangle in twips, the frame
-/// rate (8.8 fixed) and count, then tag records (code and length, long form past 62 bytes) to the End tag. DefineSprite
-/// tags hold their own tag lists, read in place.
-/// </summary>
+/// <summary>A SWF file per the SWF File Format Specification 19: FWS, CWS (zlib) or ZWS (LZMA), header and tag records.</summary>
 internal sealed class SwfFile
 {
     /// <summary>One tag: code, name, where its body starts in <see cref="Body"/>, its length, and the sprite it belongs to (0 for the file).</summary>

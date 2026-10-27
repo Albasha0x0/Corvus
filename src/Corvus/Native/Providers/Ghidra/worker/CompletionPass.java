@@ -17,16 +17,12 @@ import ghidra.util.classfinder.ClassSearcher;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * After a standard-profile open: the analyzers that profile caps at a 10 s decompiler timeout run again at 60 s, and stack
- * analysis, which it leaves out, runs; a slice of
- * functions at a time. A slice starts when the worker is idle and holds the read lock, so reads run beside it as they do
- * beside the GUI's analysis; a request for the write lock cancels it once it is GRACE old, and it is redone. Slices are
- * large because each one starts the analyzers' decompilers (seconds). Measured on e_sqlite3: 773 to 789 references to
- * sqlite3_free and 3,094 to 3,098 functions in 266 s after a 114 s first answer, decompiles meanwhile at most 0.3 s.
+ * Reruns the standard profile's capped analyzers at 60 s, plus stack analysis, in slices while the worker is idle.
+ * A slice holds the read lock; a writer cancels it once GRACE old and it is redone. Slices are large: each starts decompilers.
  */
 final class CompletionPass {
     static final String STAMP = "completion";
-    // Stack is off in the first analysis when this pass follows (GhidraOptions.AnalyzerOptions)
+    // Stack is off in the first analysis when this pass follows (GhidraOptions.AnalyzerOptions).
     private static final Set<String> ANALYZERS = Set.of("Decompiler Parameter ID", "Decompiler Switch Analysis", "Call Convention ID", "Stack");
     private static final String TIMEOUT = ".Analysis Decompiler Timeout (sec)";
     private static final int SLICE = 64;
@@ -99,7 +95,7 @@ final class CompletionPass {
             }
         }
         catch (InterruptedException e) {
-            // the worker is exiting
+            // The worker is exiting.
         }
     }
 
@@ -188,7 +184,7 @@ final class CompletionPass {
             int tx = program.startTransaction("completion pass");
             try {
                 AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(program);
-                // whole bodies: switch analysis looks at the jumps inside a function, not at its entry
+                // Whole bodies: switch analysis looks at the jumps inside a function, not at its entry.
                 AddressSet set = new AddressSet();
                 for (Address a : entries)
                     if (program.getFunctionManager().getFunctionAt(a) instanceof Function f) set.add(f.getBody());

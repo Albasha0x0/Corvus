@@ -6,12 +6,7 @@ using Corvus.Native;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Test-only <see cref="INativeImage"/>: a PE file read with System.Reflection.PortableExecutable headers plus a
-/// minimal directory parser (exports, imports, delay imports, relocations, TLS callbacks, .pdata), or a synthetic
-/// image built from code and data bytes. The code analysis tests use it for synthetic images; real files go through PeFile
-/// (NativeAdapterConsistencyTests checks that both give the same index).
-/// </summary>
+/// <summary>Test-only <see cref="INativeImage"/> over a minimal PE directory parser or synthetic bytes; real files go through PeFile.</summary>
 public sealed class CodeTestImage : INativeImage
 {
     private readonly List<(NativeSection Section, byte[] Raw)> _sections = [];
@@ -241,7 +236,7 @@ public sealed class CodeTestImage : INativeImage
         {
             uint attributes = U32(d), name = U32(d + 4), iat = U32(d + 12), lookup = U32(d + 16);
             if (name == 0) break;
-            // attribute bit 0 clear: old descriptors hold VAs instead of RVAs
+            // Attribute bit 0 clear: old descriptors hold VAs instead of RVAs.
             uint Fix(uint v) => (attributes & 1) != 0 || v == 0 ? v : (uint)(v - ImageBase);
             name = Fix(name); iat = Fix(iat); lookup = Fix(lookup);
             string module = AsciiZ(name) ?? "?";

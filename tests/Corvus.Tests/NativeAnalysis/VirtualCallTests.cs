@@ -61,7 +61,7 @@ public class VirtualCallTests(ITestOutputHelper output)
             return tds[name] = at;
         }
         foreach (var n in new[] { "Base", "Mid", "Leaf", "Other", "Shape", "Circle", "Second", "Multi" }) TypeDescriptor(n);
-        // hierarchy: (class, [(base, mdisp, contained)])
+        // Hierarchy: (class, [(base, mdisp, contained)]).
         uint Hierarchy(string name, (string Base, int Mdisp, int Contained)[] bases)
         {
             d.Align(8);
@@ -119,7 +119,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         // this->f(), a tail call: Base and every derived class
         Put("Base_g", a => { a.mov(rax, __qword_ptr[rcx]); a.jmp(__qword_ptr[rax]); });
         Put("Mid_f", a => { a.mov(eax, 1); a.ret(); });
-        // this spilled to the home slot and reloaded: Leaf has no derived class, slot 0 is Mid::f
+        // This spilled to the home slot and reloaded: Leaf has no derived class, slot 0 is Mid::f.
         Put("Leaf_g", a =>
         {
             a.push(rbx); a.sub(rsp, 0x20);
@@ -131,7 +131,7 @@ public class VirtualCallTests(ITestOutputHelper output)
             a.add(rsp, 0x20); a.pop(rbx); a.ret();
         });
         Put("Other_f", a => { a.mov(eax, 2); a.ret(); });
-        // the vftable stored, then a call through it: Mid's slot 1
+        // The vftable stored, then a call through it: Mid's slot 1.
         Put("StoreThenCall", a =>
         {
             a.sub(rsp, 0x28);
@@ -148,7 +148,7 @@ public class VirtualCallTests(ITestOutputHelper output)
             a.mov(rax, rcx);
             a.ret();
         });
-        // a constructor called on the object, then a call through its vftable: Leaf's slot 1
+        // A constructor called on the object, then a call through its vftable: Leaf's slot 1.
         Put("ConstructThenCall", a =>
         {
             a.push(rbx); a.sub(rsp, 0x20);
@@ -159,13 +159,13 @@ public class VirtualCallTests(ITestOutputHelper output)
             a.call(__qword_ptr[rax + 8]);
             a.add(rsp, 0x20); a.pop(rbx); a.ret();
         });
-        // an argument's vftable: no class known
+        // An argument's vftable: no class known.
         Put("UnknownReceiver", a => { a.sub(rsp, 0x28); a.mov(rax, __qword_ptr[rdx]); a.mov(rcx, rdx); a.call(__qword_ptr[rax + 8]); a.add(rsp, 0x28); a.ret(); });
         Put("purecall", a => a.ud2());
         // this->area(): Shape's slot is pure, Circle's is the only implementation
         Put("Shape_name", a => { a.mov(rax, __qword_ptr[rcx]); a.jmp(__qword_ptr[rax]); });
         Put("Circle_area", a => { a.mov(eax, __dword_ptr[rcx + 8]); a.ret(); });
-        // an inlined Circle constructor: the vftable at +0, then the field at +8
+        // An inlined Circle constructor: the vftable at +0, then the field at +8.
         Put("MakeCircle", a =>
         {
             a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RAX, vftables["Circle"]));
@@ -173,14 +173,14 @@ public class VirtualCallTests(ITestOutputHelper output)
             a.mov(__dword_ptr[rcx + 8], 0x31);
             a.ret();
         });
-        // this adjusted to the Second subobject (+8): Multi's vftable there
+        // This adjusted to the Second subobject (+8): Multi's vftable there.
         Put("Multi_g", a => { a.lea(rcx, __[rcx + 8]); a.mov(rax, __qword_ptr[rcx]); a.jmp(__qword_ptr[rax]); });
         Put("Multi_h", a => { a.mov(eax, 4); a.ret(); });
         Put("Second_h", a => { a.mov(eax, 5); a.ret(); });
-        // a Base* parameter: g in Base and every derived class
+        // A Base* parameter: g in Base and every derived class.
         Put(CallBase, a => { a.mov(rax, __qword_ptr[rcx]); a.jmp(__qword_ptr[rax + 8]); });
         Put(GetLeaf, a => { a.xor(eax, eax); a.ret(); });
-        // the Leaf* GetLeaf returns: f in Leaf (Mid's)
+        // The Leaf* GetLeaf returns: f in Leaf (Mid's).
         Put("UseGetLeaf", a =>
         {
             a.sub(rsp, 0x28);
@@ -222,14 +222,14 @@ public class VirtualCallTests(ITestOutputHelper output)
         var s = index.VirtualCalls.Stats;
         Assert.Equal((9, 6, 2, 1, 12, 8, 1), (s.Sites, s.Exact, s.Possible, s.Unresolved, s.Edges, s.RttiClasses, s.PureTargetsExcluded));
 
-        // receivers: this of a virtual method, a known vftable, or a class from a decorated name
+        // Receivers: this of a virtual method, a known vftable, or a class from a decorated name.
         var receivers = index.VirtualCalls.Sites.ToDictionary(x => Name(index, x.Function), x => VirtualCallSet.ReceiverCode(x.Receiver));
         Assert.Equal(("this", "vftable", "vftable", "this", "name", "name"),
             (receivers["Leaf_g"], receivers["StoreThenCall"], receivers["ConstructThenCall"], receivers["Multi_g"], receivers[CallBase], receivers["UseGetLeaf"]));
         Assert.True(index.VirtualCalls.Sites.Single(x => Name(index, x.Function) == "Base_g").TailCall);
         Assert.Equal(8, index.VirtualCalls.Sites.Single(x => Name(index, x.Function) == "Multi_g").VfptrOffset);
 
-        // the call graph: callers of Mid::f include both virtual sites; direct-only and virtual-only filters
+        // The call graph: callers of Mid::f include both virtual sites; direct-only and virtual-only filters.
         var midF = index.FunctionByStart(At("Mid_f"))!;
         Assert.Equal([("Base_g", XrefKind.VirtualPossible), ("Leaf_g", XrefKind.VirtualExact), ("UseGetLeaf", XrefKind.VirtualExact)],
             index.Callers(midF).Select(c => (Name(index, c.Caller!.Start), c.Kind)));
@@ -238,10 +238,10 @@ public class VirtualCallTests(ITestOutputHelper output)
         Assert.Equal(["Leaf_ctor"], index.Callees(construct, CallEdgeFilter.Direct).Select(c => c.Function!.Name));
         Assert.Equal(["Leaf_g"], index.Callees(construct, CallEdgeFilter.Virtual).Select(c => c.Function!.Name));
         Assert.Equal(["Leaf_ctor", "Leaf_g"], index.Callees(construct).Select(c => c.Function!.Name));
-        // the instruction cross-references do not change
+        // The instruction cross-references do not change.
         Assert.DoesNotContain(index.RefsTo(At("Mid_f")), x => x.IsVirtualCall);
 
-        // without the option: nothing
+        // Without the option: nothing.
         var plain = NativeCodeIndex.Build(image, new CodeIndexOptions { ResolveVirtualCalls = false });
         Assert.Empty(plain.VirtualCalls.Sites);
         Assert.Empty(plain.Callers(midF));
@@ -254,13 +254,13 @@ public class VirtualCallTests(ITestOutputHelper output)
         string Locations(string name, bool is64 = true) =>
             string.Join(", ", VirtualCallResolver.ParameterLocations(VirtualCallResolver.Signature(name, is64 ? x64 : new MsvcDemangleOptions { X86 = true })!, is64)
                 .Select(l => $"{(l.Reg >= 0 ? $"r{l.Reg}" : $"[{l.Slot}]")}={VirtualCallResolver.PointerClass(l.Type) ?? l.Type ?? "this"}"));
-        // a constructor: this in rcx, then rdx, r8
+        // A constructor: this in rcx, then rdx, r8.
         Assert.Equal("r2=QString, r8=QWidget", Locations("??0QCheckBox@@QEAA@AEBVQString@@PEAVQWidget@@@Z"));
-        // a record returned by value: its hidden pointer comes after this
+        // A record returned by value: its hidden pointer comes after this.
         Assert.Equal("r8=QByteArray", Locations("?toHtml@QTextDocument@@QEBA?AVQString@@AEBVQByteArray@@@Z"));
         // x86 __thiscall: the parameters on the stack
         Assert.Equal("[4]=QString, [8]=QWidget", Locations("??0QCheckBox@@QAE@ABVQString@@PAVQWidget@@@Z", is64: false));
-        // a static member returning a class pointer
+        // A static member returning a class pointer.
         var sig = VirtualCallResolver.Signature("?instance@QApp@@SAPEAV1@XZ", x64)!;
         Assert.Equal((false, "QApp"), (sig.Member, VirtualCallResolver.PointerClass(sig.Return)));
         Assert.Null(VirtualCallResolver.Signature("?staticMetaObject@QPlatformMenuItem@@2UQMetaObject@@B", x64));
@@ -276,7 +276,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         var loaded = NativeCodeIndex.ReadPayload(stream.ToArray(), image, null, default);
         CodeIndexCacheTests.AssertSameIndex(built, loaded, graphs: int.MaxValue);
         Assert.Equal(Describe(built), Describe(loaded));
-        // a damaged edge kind is rejected
+        // A damaged edge kind is rejected.
         var bytes = stream.ToArray();
         int kindAt = bytes.Length - built.VirtualEdges.Count;
         Assert.Equal((byte)XrefKind.VirtualPossible, bytes[kindAt]);
@@ -359,16 +359,16 @@ public class VirtualCallTests(ITestOutputHelper output)
         // this->f() in Base::g: every implementation; in Leaf::g: Mid's only
         Assert.Contains("Base::g: possible Base::f|Mid::f|Other::f", sites);
         Assert.Contains("Leaf::g: exact Mid::f", sites);
-        // the pure slot is left out
+        // The pure slot is left out.
         Assert.Contains("Shape::name: exact Circle::area", sites);
-        // through the Second subobject of Multi
+        // Through the Second subobject of Multi.
         Assert.Contains("Multi::g: exact Multi::h", sites);
-        // an argument of unknown class
+        // An argument of unknown class.
         Assert.Contains("CallAny: unresolved receiver_unknown", sites);
-        // the object constructed in the function (constructor inlined or called): Leaf's g, then its deleting destructor
+        // The object constructed in the function (constructor inlined or called): Leaf's g, then its deleting destructor.
         Assert.Contains("UseLeaf: exact Leaf::g", sites);
         Assert.Contains("UseLeaf: exact Leaf::`vector deleting destructor'", sites);
-        // the CRT's own virtual calls (exception objects) have no known receiver
+        // The CRT's own virtual calls (exception objects) have no known receiver.
         Assert.Equal(["Base::g"], sites.Where(s => s.Contains(": possible", StringComparison.Ordinal)).Select(s => s[..s.IndexOf(": ", StringComparison.Ordinal)]));
         Assert.All(sites.Where(s => s.Contains(": unresolved", StringComparison.Ordinal)), s => Assert.EndsWith("receiver_unknown", s));
     }
@@ -417,10 +417,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         Assert.Equal(0, c.Disagree);
     }
 
-    /// <summary>
-    /// The acceptance run on a real C++ image named by CORVUS_VCALL_IMAGE (skipped when unset): call graph edges before and after,
-    /// site counts, and the agreement with IDA on a sample.
-    /// </summary>
+    /// <summary>Call graph edges and site counts on CORVUS_VCALL_IMAGE before and after, with IDA agreement on a sample.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact(RealData.VirtualCallImage)]
     public async Task Real_image_virtual_edges_and_agreement_with_IDA()

@@ -3,29 +3,19 @@ using System.Text.Json;
 
 namespace Corvus.Core.Ark;
 
-/// <summary>
-/// An ability or extension ability a module declares: name, type (page, service, form, ...), entry source, whether
-/// other applications may start it, the actions, entities and URIs its skills accept, and the permissions it requires.
-/// </summary>
+/// <summary>An ability or extension ability a module declares, with its skills and required permissions.</summary>
 public sealed record HarmonyAbility(string Name, string Type, string? SrcEntry, bool Exported, IReadOnlyList<string> Actions,
     IReadOnlyList<string> Entities, IReadOnlyList<string> Uris, IReadOnlyList<string> Permissions);
 
 /// <summary>A permission a module requests: name, reason resource and when it is used (abilities, inuse or always); null for not stated.</summary>
 public sealed record HarmonyPermission(string Name, string? Reason, string? UsedWhen);
 
-/// <summary>
-/// One HarmonyOS module (.hap or .hsp): its path in the bundle, application model (stage or FA), bundle name and
-/// version, API levels, module name and type, device types, abilities, requested permissions, Ark bytecode files and
-/// native libraries. Null fields were not stated.
-/// </summary>
+/// <summary>One HarmonyOS module (.hap or .hsp); null fields were not stated.</summary>
 public sealed record HarmonyModule(string Path, string Model, string? Bundle, string? VersionName, long? VersionCode, int? MinApi, int? TargetApi,
     string? Name, string? Type, IReadOnlyList<string> DeviceTypes, IReadOnlyList<HarmonyAbility> Abilities, IReadOnlyList<HarmonyPermission> Permissions,
     IReadOnlyList<string> Bytecode, IReadOnlyList<string> NativeLibraries);
 
-/// <summary>
-/// HarmonyOS packages: a module (.hap, .hsp; a zip with module.json or config.json at its root) or an application
-/// bundle (.app; a zip of modules with pack.info). Unreadable profiles are reported in <see cref="Issues"/>.
-/// </summary>
+/// <summary>A HarmonyOS module (.hap, .hsp) or application bundle (.app); unreadable profiles go to <see cref="Issues"/>.</summary>
 public sealed class HarmonyPackage
 {
     public IReadOnlyList<HarmonyModule> Modules { get; }

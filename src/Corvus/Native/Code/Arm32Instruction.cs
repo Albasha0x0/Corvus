@@ -46,10 +46,7 @@ internal struct ArmOperands
     private ArmOperand _element;
 }
 
-/// <summary>
-/// A decoded A32 or T32 instruction: mnemonic parts, operands, the core registers it reads and writes (bit n = rn) and
-/// its control flow. Addresses are 32-bit virtual addresses.
-/// </summary>
+/// <summary>A decoded A32 or T32 instruction; register masks use bit n for rn, addresses are 32-bit virtual addresses.</summary>
 internal struct ArmInstruction
 {
     public const byte Always = 14, Unconditional = 15;
@@ -93,7 +90,6 @@ internal struct ArmInstruction
     public static readonly string[] RegisterNames = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "sp", "lr", "pc"];
     public static readonly string[] ConditionNames = ["eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc", "hi", "ls", "ge", "lt", "gt", "le", "", ""];
 
-    // builders used by the decoder
 
     internal void Reg(int r, bool write = false)
     {
@@ -117,7 +113,8 @@ internal struct ArmInstruction
         o.Value = value;
     }
 
-    /// <summary>A pc-relative address; <paramref name="branch"/>: the branch or call target.</summary>
+    /// <summary>A pc-relative address operand.</summary>
+    /// <param name="branch">The address is a branch or call target.</param>
     internal void Label(uint target, bool thumb, bool branch = true)
     {
         ref var o = ref Operands[Next()];
@@ -223,10 +220,8 @@ internal struct ArmInstruction
         Reads = Writes = 0;
     }
 
-    /// <summary>
-    /// Text in the style of the ARM disassemblers: mnemonic with flags, condition and width padded to 6 columns, then
-    /// the operands. <paramref name="label"/> names branch targets and ADR / literal addresses (null: hex address).
-    /// </summary>
+    /// <summary>Text in ARM disassembler style, mnemonic padded to 6 columns.</summary>
+    /// <param name="label">Names branch targets and ADR / literal addresses; null prints hex.</param>
     public readonly string Format(Func<uint, string?>? label = null)
     {
         if (Flow == ArmFlow.Invalid) return "(bad)";

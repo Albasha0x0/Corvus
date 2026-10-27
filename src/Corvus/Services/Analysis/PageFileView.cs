@@ -3,11 +3,7 @@ using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=page: a saved web page (.html with the files saved beside it): each script and integrity-bearing link with where
-/// its bytes are and its Subresource Integrity checked, the import maps, and the meta Content Security Policy with each
-/// inline script's verdict under it (<see cref="SavedPage"/>). Nothing is fetched or run.
-/// </summary>
+/// <summary>view=page: a saved web page's scripts with Subresource Integrity checked, import maps and meta CSP; nothing is fetched or run.</summary>
 internal sealed class PageFileView : IFileSummaryView
 {
     private const long MaxPage = 16L << 20;

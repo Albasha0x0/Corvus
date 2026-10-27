@@ -9,7 +9,7 @@ public partial class RealPackageDeclarationTests
     private static readonly HashSet<string> Transitive = ["microsoft.codecoverage"];
 
     [Fact]
-    public void EveryPackageReadIsDeclared()
+    public void Every_package_read_is_declared()
     {
         var tests = Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests");
         var project = File.ReadAllText(Path.Combine(tests, "Corvus.Tests.csproj"));

@@ -10,10 +10,7 @@ namespace Corvus.Services.Analysis;
 /// <summary>Where a scan found matches: the file or member path, the rules that matched there.</summary>
 public sealed record YaraHit(string Path, IReadOnlyList<YaraRuleMatch> Rules);
 
-/// <summary>
-/// A worker scan's answer: rules compiled and files read, the rules that did not compile, the hits in scan order, and notes
-/// naming what was not read.
-/// </summary>
+/// <summary>A worker scan's answer: rule counts, compile errors, hits in scan order, and notes naming what was not read.</summary>
 public sealed record YaraScanResult(int Rules, int RuleFiles, IReadOnlyList<YaraRuleError> Errors, IReadOnlyList<YaraHit> Hits, IReadOnlyList<string> Notes,
     long ElapsedMs)
 {
@@ -37,12 +34,7 @@ internal sealed class YaraOps : IWorkerOps
     /// <summary>Largest file whose container members are read; a larger one is scanned as one file.</summary>
     public static long MaxWalkBytes => AnalysisLimits.Default.MaxItemBytes;
 
-    /// <summary>
-    /// Scans the file <c>path</c> with the rules at <c>rules</c> (a file or folder) or the rule text <c>source</c>, then each member of the container it
-    /// is, nested containers opened and compressed members decompressed; a folder (a Blazor or ClickOnce deployment) is
-    /// scanned by its members only, and a dump file by its captured memory (<see cref="YaraMemoryScan"/>). With
-    /// <c>capture</c> (a memory capture's index), <c>path</c> is the capture's bytes and is scanned as process memory.
-    /// </summary>
+    /// <summary>Scans <c>path</c> and its container members; a folder by members only, a dump or <c>capture</c> as process memory.</summary>
     public static Task<JsonNode?> Scan(JsonObject args, CancellationToken cancellationToken)
     {
         var source = args["source"]?.GetValueKind() == JsonValueKind.String ? args["source"]!.GetValue<string>() : null;

@@ -70,7 +70,7 @@ public sealed class CodeIndexCacheTests : IDisposable
         Assert.True(cache.Save(built, null));
         var file = Directory.GetFiles(_dir.File("cache"), "*.cidx").Single();
 
-        // one byte of the image (the header time stamp), and other symbol starts: other keys
+        // One byte of the image (the header time stamp), and other symbol starts: other keys.
         var changed = (byte[])bytes.Clone();
         changed[BitConverter.ToInt32(bytes, 0x3C) + 8] ^= 1;
         Assert.Null(cache.TryLoad(PeFile.FromBytes(changed, path), null));
@@ -84,7 +84,7 @@ public sealed class CodeIndexCacheTests : IDisposable
             Array.Empty<byte>(), good[..50], good[..(good.Length / 2)], good[..^1], Flip(good, 8), Flip(good, 120), Flip(good, good.Length - 3),
             Enumerable.Repeat((byte)0xAB, good.Length).ToArray(),
         };
-        // another format version
+        // Another format version.
         var version = (byte[])good.Clone();
         BitConverter.GetBytes(NativeCodeIndex.PersistFormatVersion + 1).CopyTo(version, 8);
         damaged.Add(version);
@@ -96,7 +96,7 @@ public sealed class CodeIndexCacheTests : IDisposable
         Assert.Equal(damaged.Count, cache.Status().Rejected);
         Assert.NotNull(cache.Status().LastError);
 
-        // the next build overwrites the entry
+        // The next build overwrites the entry.
         Assert.True(cache.Save(NativeCodeIndex.Build(image), null));
         Assert.NotNull(cache.TryLoad(image, null));
     }
@@ -147,7 +147,7 @@ public sealed class CodeIndexCacheTests : IDisposable
         if (VersionDll(wow: true) is not { } path) return;
         var image = PeFile.Open(path);
         var built = NativeCodeIndex.Build(image);
-        // two caches over one directory stand for two server processes
+        // Two caches over one directory stand for two server processes.
         var caches = new[] { NewCache(), NewCache() };
         var tasks = Enumerable.Range(0, 8).Select(i => Task.Run(() =>
         {
@@ -190,7 +190,7 @@ public sealed class CodeIndexCacheTests : IDisposable
             var index = await code.Index(native, null, default);
             Assert.True(index.LoadedFromCache);
             Assert.Equal("my_function", index.FunctionByStart(rva)!.Name);
-            // the saved index holds the analysis' names only
+            // The saved index holds the analysis' names only.
             index.SetUserName(rva, null);
             Assert.Equal($"sub_{rva:X}", index.FunctionByStart(rva)!.Name);
         }

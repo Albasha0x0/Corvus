@@ -14,7 +14,7 @@ public class ApkSigningTests
         SignBlocks(Zip(SignV1(Entries, key)), (ApkSigning.V2BlockId, false, [new(key)]), (ApkSigning.V3BlockId, true, [new(key, MinSdk: 24)]));
 
     [Fact]
-    public void V1V2V3_AreVerified_WithCertificateDetails()
+    public void V1_v2_and_v3_are_verified_with_certificate_details()
     {
         var report = ApkSigning.Verify(FullySigned(Signer));
         Assert.True(report.Verdict == ApkSigning.Verified, Describe(report));
@@ -33,7 +33,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void EcdsaAndRsaPss_AndPerSectionV1Digests_AreVerified()
+    public void ECDSA_RSA_PSS_and_per_section_v1_digests_are_verified()
     {
         var pss = Rsa(algorithm: 0x0102);
         var apk = SignBlocks(Zip(SignV1(Entries, EcSigner, apkSigned: "2", wholeManifestDigest: false)),
@@ -45,7 +45,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void ChangedContent_IsAMismatchInEveryScheme()
+    public void Changed_content_is_a_mismatch_in_every_scheme()
     {
         var apk = FullySigned(Signer);
         // The stored classes.dex payload follows its local header; flip one of its bytes.
@@ -58,7 +58,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void AddedEntry_AndBrokenSignature_AreMismatches()
+    public void Added_entry_and_broken_signature_are_mismatches()
     {
         var apk = SignBlocks(Zip([.. SignV1(Entries, Signer, apkSigned: null), ("extra.txt", "x"u8.ToArray())]),
             (ApkSigning.V2BlockId, false, [new(Signer, BreakSignature: true)]));
@@ -68,7 +68,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void StrippedNewerSchemes_AreDetected()
+    public void Stripped_newer_schemes_are_detected()
     {
         // v1 says v2 and v3 were made, the v2 signer says v3 was made; only v2 is present.
         var apk = SignBlocks(Zip(SignV1(Entries, Signer)), (ApkSigning.V2BlockId, false, [new(Signer, StrippingProtection: true)]));
@@ -79,7 +79,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void Rotation_V3AndV31_LineageIsVerified()
+    public void Rotation_v3_and_v31_lineage_is_verified()
     {
         var lineage = Lineage(Signer, EcSigner);
         var apk = SignBlocks(Zip(Entries),
@@ -101,7 +101,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void V4_IdsigIsVerified_AndAWrongRootIsAMismatch()
+    public void V4_idsig_is_verified_and_a_wrong_root_is_a_mismatch()
     {
         var apk = SignBlocks(Zip(Entries), (ApkSigning.V2BlockId, false, [new(Signer)]));
         var (cd, eocd) = Layout(Zip(Entries));
@@ -116,7 +116,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void Unsigned_UnknownAlgorithm_AndNotAZip()
+    public void Unsigned_unknown_algorithm_and_non_zip_inputs_get_their_verdicts()
     {
         Assert.Equal(ApkSigning.Unsigned, ApkSigning.Verify(Zip(Entries)).Verdict);
         var notZip = ApkSigning.Verify(new byte[100]);
@@ -149,7 +149,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void Verity_ContentDigestIsRecomputed_InV2V3AndV4()
+    public void Verity_content_digest_is_recomputed_in_v2_v3_and_v4()
     {
         var zip = AlignForVerity(Zip(Entries));
         var apk = SignBlocks(zip, (ApkSigning.V2BlockId, false, [new(Signer, Verity: true)]), (ApkSigning.V3BlockId, true, [new(EcSigner, Verity: true)]));
@@ -169,7 +169,7 @@ public class ApkSigningTests
 
     [Trait("Smoke", "push")]
     [Fact]
-    public void MultipleSigners_V3RangesV31RotationAndV4Blocks()
+    public void Multiple_signers_v3_ranges_v31_rotation_and_v4_blocks_verify()
     {
         var third = Rsa("CN=Third");
         var lineage = Lineage(Signer, EcSigner);
@@ -208,7 +208,7 @@ public class ApkSigningTests
     }
 
     [Fact]
-    public void PackageFacts_ListEverySigner_WithTheIdsigBesideTheFile()
+    public void Package_facts_list_every_signer_with_the_idsig_beside_the_file()
     {
         using var dir = new TempDir();
         var zip = AndroidSamples.Apk();
@@ -231,11 +231,11 @@ public class ApkSigningTests
 
     [Fact]
     [FuzzEntry(typeof(ApkSigning))]
-    public void MutatedApks_NeverThrow() => Fuzz(60, 120);
+    public void Mutated_APKs_never_throw() => Fuzz(60, 120);
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void MutatedApks_NeverThrow_Long() => Fuzz(1000, 2000);
+    public void Mutated_APKs_never_throw_over_a_long_run() => Fuzz(1000, 2000);
 
     private static void Fuzz(int whole, int block)
     {

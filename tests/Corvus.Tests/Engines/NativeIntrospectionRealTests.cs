@@ -55,10 +55,7 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
         Assert.DoesNotContain("error:", text);
     }
 
-    /// <summary>
-    /// The ARM64 single-file host calls GetProcAddress over 200 times from two functions nothing calls, with names it does not
-    /// pass in: finding the late-bound imports costs less than indexing, not a slice or a whole-function analysis per call.
-    /// </summary>
+    /// <summary>200+ GetProcAddress calls with computed names: finding late-bound imports costs less than indexing.</summary>
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [Fact]

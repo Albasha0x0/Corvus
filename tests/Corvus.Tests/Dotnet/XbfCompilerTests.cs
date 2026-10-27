@@ -6,10 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// XAML pages compiled to XBF by the Windows App SDK's XAML compiler read back with view=xbf. Opt-in:
-/// CORVUS_WINDOWS_APP_SDK names the Microsoft.WindowsAppSDK package version the app is built with.
-/// </summary>
+/// <summary>XBF pages from the Windows App SDK's XAML compiler read back with view=xbf (opt-in: CORVUS_WINDOWS_APP_SDK names the package version).</summary>
 [Trait("Speed", "Slow")]
 public sealed partial class XbfCompilerTests(ITestOutputHelper output) : IDisposable
 {

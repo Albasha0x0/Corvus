@@ -11,7 +11,8 @@ public static partial class ToolEffects
     {
         // Notes (kept per user beside the annotation sidecars)
         ["record_note"] = Changes(destructive: false, idempotent: false),
-        ["update_note"] = Changes(destructive: true, idempotent: true), // replaces text or status; a repeat with the same revision is a conflict
+        // Replaces text or status; a repeat with the same revision is a conflict.
+        ["update_note"] = Changes(destructive: true, idempotent: true),
         ["list_notes"] = Reads(),
     };
 }

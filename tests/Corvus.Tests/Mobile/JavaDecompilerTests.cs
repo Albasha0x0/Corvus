@@ -38,7 +38,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     /// </summary>
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task DiskCache_AnswersAcrossServers_WithoutJadx()
+    public async Task The_disk_cache_answers_a_later_server_without_JADX()
     {
         var (first, env) = Fake();
         using (env)
@@ -50,7 +50,8 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
             int hashed = first.Cache!.InputsHashed;
             var dex = new DexService();
             using var second = new JavaDecompilerService(dex) { Environment = _fake.Environment, Cache = first.Cache };
-            await second.Decompile(apk, "com.example.app.Main", true, default); // the JIT's first pass
+            // The JIT's first pass.
+            await second.Decompile(apk, "com.example.app.Main", true, default);
             var before = MachineLoad.Factor();
             // The read's cost is the best of 5 calls: one call can also hold a blocking GC or a descheduled thread that
             // the suite beside it causes (up to 420 ms on a 3-core macOS runner, where the read's median is 0.4 ms).
@@ -75,7 +76,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
-    public async Task ClassesAndExactOverloads_OneSessionPerPackage()
+    public async Task Classes_and_exact_overloads_share_one_session_per_package()
     {
         var (service, env) = Fake();
         using (env)
@@ -91,7 +92,8 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
             Assert.Single(calls, c => (string?)c["tool"] == "load_apk");
             Assert.Equal(apk, (string?)calls.First(c => (string?)c["tool"] == "load_apk")["arguments"]!["path"]);
             Assert.False((bool)calls.Last(c => (string?)c["tool"] == "get_method_body")["arguments"]!["smali_fallback"]!);
-            Assert.Single(_fake.ArgumentLists, a => a.Contains("-jar")); // one server process
+            // One server process.
+            Assert.Single(_fake.ArgumentLists, a => a.Contains("-jar"));
 
             Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => service.Decompile(apk, "Landroid/util/Log;->d(Ljava/lang/String;Ljava/lang/String;)I", true, default))).Code);
             Assert.Equal(ErrorCode.Ambiguous, (await Assert.ThrowsAsync<ToolError>(() => service.Decompile(apk, "com.example.app.Main::compute", true, default))).Code);
@@ -99,7 +101,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
-    public async Task Mapping_ResolvesOriginalNames_AndHeadsTheSourceWithACount()
+    public async Task Mapping_resolves_original_names_and_heads_the_source_with_a_count()
     {
         var (service, env) = Fake();
         using (env)
@@ -150,7 +152,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER")]
-    public async Task RealJadx_MappingNamesInTheSource()
+    public async Task Real_JADX_writes_mapping_names_into_the_source()
     {
         using var service = new JavaDecompilerService(new DexService());
         var (apk, mapping) = Obfuscated();
@@ -172,7 +174,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     /// named b told apart by the member after them; a call whose candidates disagree stays as written and is named in the header.
     /// </summary>
     [Fact]
-    public async Task Mapping_NamesGoIntoTheJavaText()
+    public async Task Mapping_names_go_into_the_Java_text()
     {
         var (service, env) = Fake();
         using (env)
@@ -215,7 +217,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
             });
             var (apk, mapping) = Obfuscated();
             var text = await service.Decompile(apk, "a.a", true, default, mapping);
-            Assert.Equal("// original names from r8-mapping.txt: 15 identifier(s) replaced; kept as JADX wrote them (the code's references name more than one): a (setRetries | send | log)",
+            Assert.Equal("// original names from r8-mapping.txt: 15 identifier(s) replaced; kept as JADX wrote them (ambiguous): a (setRetries | send | log)",
                 text[..text.IndexOf('\n')]);
             Assert.Contains("package com.example.net;", text);
             Assert.Contains("public class ApiClient {", text);
@@ -247,7 +249,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
-    public async Task NestedClasses_ComeFromWhereJadxWritesThem()
+    public async Task Nested_classes_come_from_where_JADX_writes_them()
     {
         var (service, env) = Fake();
         using (env)
@@ -275,7 +277,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
 
     /// <summary>A jar of .class files goes to JADX by name, without a DEX index.</summary>
     [Fact]
-    public async Task ClassFileJar_DecompilesByName()
+    public async Task Class_file_jar_decompiles_by_name()
     {
         var (service, env) = Fake();
         using (env)
@@ -291,7 +293,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
 
     /// <summary>engine=vineflower gets the class with its nested classes and the jar as a library; DEX code stays JADX's.</summary>
     [Fact]
-    public async Task Vineflower_DecompilesClassFiles_WithTheirNestedClasses()
+    public async Task Vineflower_decompiles_class_files_with_their_nested_classes()
     {
         var vineflower = Path.Combine(_fake.Directory, "vineflower-1.11.2.jar");
         File.WriteAllBytes(vineflower, [0x50, 0x4B, 3, 4]);
@@ -307,7 +309,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
-    public async Task SmaliFallbackHint_NamesOurParameter()
+    public async Task The_smali_fallback_hint_names_our_parameter()
     {
         var (service, env) = Fake();
         using (env)
@@ -320,11 +322,11 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         }
     }
 
-    /// <summary>decompile_java asks JADX for smali where Java fails unless javaOnly (the default of the former smaliFallback=true).</summary>
+    /// <summary>decompile_java asks JADX for smali where Java fails unless javaOnly.</summary>
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task DecompileJava_SmaliFallbackByDefault_JavaOnlyTurnsItOff()
+    public async Task Decompile_Java_smali_fallback_by_default_Java_only_turns_it_off()
     {
         var (service, env) = Fake();
         using (env)
@@ -343,7 +345,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
-    public async Task ServerCrash_IsProviderUnavailable_AndTheNextCallStartsAgain()
+    public async Task Server_crash_is_provider_unavailable_and_the_next_call_starts_again()
     {
         var (service, env) = Fake();
         using (env)
@@ -360,7 +362,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
-    public async Task WithoutJadx_NamesTheVariable()
+    public async Task Without_JADX_names_the_variable()
     {
         using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
         using var service = new JavaDecompilerService(new DexService());
@@ -378,7 +380,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER2")]
-    public async Task RealVineflower()
+    public async Task Real_Vineflower_decompiles_a_class_of_a_jar()
     {
         using var service = new JavaDecompilerService(new DexService()) { Cache = null };
         var jar = Save(_dir, "lib.jar", ContainerFixtures.Zip(("p/Shape.class", JvmClassTests.Shape())));
@@ -393,7 +395,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER")]
-    public async Task RealJadx()
+    public async Task Real_JADX_decompiles_the_sample_and_picks_the_overload()
     {
         using var service = new JavaDecompilerService(new DexService());
         var apk = Apk();

@@ -2,10 +2,7 @@ using System.ComponentModel;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// One node of a native call tree, flat in tree order (a node, then its children): native_call_tree's rows, and the native rows of find_callees and
-/// get_call_tree. A node with <see cref="Flags"/> "more" was not expanded; passing its address as the root continues there.
-/// </summary>
+/// <summary>One node of a native call tree, in tree order; a node flagged "more" was not expanded; pass its address as the root to continue there.</summary>
 public sealed record NativeTreeNode(
     [property: Description("Node id, 0 for the root.")] int Id,
     [property: Description("Parent node id; absent on the root.")] int? Parent,

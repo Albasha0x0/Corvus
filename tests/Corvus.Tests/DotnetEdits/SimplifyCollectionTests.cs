@@ -6,11 +6,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods with Dictionary and List: helpers that memoize their result in a static dictionary fold to the
-/// literal on first and repeated calls; collections built and enumerated by the code fold; each way a collection falls
-/// outside the cache rule is reported and the call kept. The fixture runs before and after.
-/// </summary>
+/// <summary>Dictionary and List helpers fold to the literal; collections outside the cache rule are reported and kept.</summary>
 public sealed class SimplifyCollectionTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -209,7 +205,7 @@ public sealed class SimplifyCollectionTests : IDisposable
     [InlineData("Built")]
     [InlineData("Ordered")]
     [InlineData("OrdinalComparer")]
-    public void HelpersThroughCachesAndCollectionsFoldToTheLiteral(string method)
+    public void Helpers_through_caches_and_collections_fold_to_the_literal(string method)
     {
         using var env = new Env(Fixture());
         var expected = (string)Run(env.Fixture.OriginalBytes, method)!;
@@ -227,7 +223,7 @@ public sealed class SimplifyCollectionTests : IDisposable
     [InlineData("Public", "cache-dependent", "is visible to other assemblies")]
     [InlineData("Written", "mutable-static", "reads mutable static field Coll.BadWritten::Reset")]
     [InlineData("AfterRemoval", "platform-dependent", "after a removal")]
-    public void CollectionsOutsideTheModelAreKeptAndReported(string method, string code, string why)
+    public void Collections_outside_the_model_are_kept_and_reported(string method, string code, string why)
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Coll.Use::" + method);

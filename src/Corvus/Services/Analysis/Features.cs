@@ -20,14 +20,9 @@ public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> L
     public int? Library { get; init; }
 }
 
-/// <summary>
-/// Capability rules over a module's code, shared by managed assemblies and native images. Feature kinds:
-/// "api:Ns.Type::Name" (managed calls; wildcards; a parameter list matches the signature), "native:module!Entry"
-/// (P/Invoke, or a native image's static and late-bound imports; extension ignored, A / W suffix accepted), "str:"
-/// (regex over strings), and for native images "arg:module!Api#i=ENTRY" (a call whose argument i is a constant with that
-/// flag or enumeration value), "section:entropy>x" / "section:name=regex" / "section:wx" and "rtti:regex" (MSVC RTTI class
-/// names). A rule matches when every group has a matching feature.
-/// </summary>
+/// <summary>Capability rules over managed assemblies and native images; a rule matches when every group has a matching feature.</summary>
+// Kinds: api:Ns.Type::Name (wildcards, optional signature); native:module!Entry (A/W suffix accepted); str:regex.
+// Native images only: arg:module!Api#i=CONSTANT; section:entropy>x, section:name=regex, section:wx; rtti:regex (MSVC RTTI class names).
 public static class Features
 {
     /// <summary>All groups must match; within a group, any feature.</summary>
@@ -149,7 +144,7 @@ public static class Features
         Any("have a writable and executable section", "system changes", "section:wx"),
         Any("detect virtual machines and instrumented environments", "environment checks",
             @"str:(?i)\b(?:vbox\w*|virtualbox|vmware|qemu|parallels)\b|\bsbiedll\.dll\b|\bwine_get_unix_file_name\b",
-            // CPUID hypervisor vendor ids
+            // CPUID hypervisor vendor ids.
             @"str:VMwareVMware|KVMKVMKVM|Microsoft Hv|XenVMMXenVMM|prl hyperv|VBoxVBoxVBox|TCGTCGTCGTCG"),
         Any("reference diagnostic tool names", "environment checks",
             @"str:(?i)\b(?:ollydbg|x64dbg|x32dbg|windbg|immunitydebugger|idaq64|ida64|procmon\d*|processhacker|wireshark|fiddler|dnspy|ghidra)(?:\.exe)?\b"),
@@ -340,7 +335,7 @@ public static class Features
                 break;
             }
             default:
-                // arg / section / rtti: native images only
+                // arg, section and rtti apply to native images only.
                 return null;
         }
         return count == 0 ? null : new Evidence(feature, count, locations);
@@ -368,20 +363,13 @@ public static class Features
         return RulePatterns.Count;
     });
 
-    /// <summary>
-    /// Builds every rule's regular expression once per process and returns how many are kept; a timed survey calls it
-    /// first, so its budget measures its own scan, not this one-time work.
-    /// </summary>
+    /// <summary>Builds every rule's regex once per process and returns the count; timed surveys call it first to exclude this cost.</summary>
     internal static int Prepare() => Prepared.Value;
 
-    /// <summary>
-    /// A rule's regular expression (str:, rtti:, sym:, section:name=, a dex string), parsed once. Throws
-    /// NotSupportedException for a construct NonBacktracking does not take; a test keeps every rule clear of them.
-    /// </summary>
+    /// <summary>A rule's cached regex; throws NotSupportedException for a construct NonBacktracking rejects.</summary>
     internal static Regex RulePattern(string pattern)
     {
-        // Rules run over every string and name of a file: NonBacktracking
-        // matches in linear time, so they take no match timeout.
+        // NonBacktracking matches in linear time, so rules need no match timeout.
         lock (RulePatterns)
         {
             if (!RulePatterns.TryGetValue(pattern, out var regex))

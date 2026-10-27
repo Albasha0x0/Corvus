@@ -8,7 +8,7 @@ public sealed partial class ElfFile
     /// <summary>e_phentsize (the standard size when the field is zero).</summary>
     public int ProgramHeaderEntrySize => view.U16(Is64Bit ? 54 : 42) is var s and > 0 ? s : Is64Bit ? 56 : 32;
 
-    /// <summary>e_phnum as stored; 0xFFFF means PN_XNUM (extended numbering), where the field cannot simply be incremented.</summary>
+    /// <summary>e_phnum as stored; 0xFFFF means PN_XNUM (extended numbering), where the field cannot be incremented.</summary>
     public int ProgramHeaderCountField => view.U16(Is64Bit ? 56 : 44);
 
     /// <summary>File offset of the e_phnum u16, for a header edit.</summary>

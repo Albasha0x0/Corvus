@@ -4,12 +4,7 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// Original names (mapping or Kotlin metadata) put into JADX's Java text. Each identifier is matched to the DEX class, field
-/// or method it names by its place in the code (declaration with its parameter types, call with its argument count, field
-/// access, type position, import) and by the references of the method around it; it is replaced only when every candidate
-/// agrees on one original. Strings, comments and local names are never touched.
-/// </summary>
+/// <summary>Puts original names into JADX's Java text; an identifier is replaced only when every DEX candidate agrees, never strings, comments or locals.</summary>
 internal sealed partial class JavaSourceNames
 {
     private enum Kind : byte { Ident, Punct, Other }
@@ -23,7 +18,8 @@ internal sealed partial class JavaSourceNames
 
     private sealed class Scope(char kind, string? cls, string? method)
     {
-        public char Kind { get; } = kind; // 'c' class body, 'm' method body, 'b' block
+        // 'c' class body, 'm' method body, 'b' block.
+        public char Kind { get; } = kind;
         public string? Class { get; } = cls;
         public string? Method { get; } = method;
     }
@@ -44,16 +40,20 @@ internal sealed partial class JavaSourceNames
     private readonly DexNames _names;
     private readonly DexIndex _index;
     private readonly List<Token> _tokens;
-    private readonly HashSet<string> _context; // class descriptors the source writes
+    // Class descriptors the source writes.
+    private readonly HashSet<string> _context;
     private readonly List<Member> _declared = [];
-    private readonly Dictionary<string, List<Member>> _refsFrom = new(StringComparer.Ordinal); // method id -> members it references
+    // Method id to the members it references.
+    private readonly Dictionary<string, List<Member>> _refsFrom = new(StringComparer.Ordinal);
     private readonly List<Member> _allRefs = [];
     private readonly Dictionary<string, List<string>> _typesBySimple = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _imports = new(StringComparer.Ordinal); // simple -> descriptor
+    // Simple name to descriptor.
+    private readonly Dictionary<string, string> _imports = new(StringComparer.Ordinal);
     private readonly bool[] _generic;
     private readonly Dictionary<int, (int Length, string Text)> _edits = [];
     private readonly SortedSet<string> _undecided = new(StringComparer.Ordinal);
-    private readonly Dictionary<int, string> _typeAt = []; // token index -> descriptor it was resolved to
+    // Token index to the descriptor it resolved to.
+    private readonly Dictionary<int, string> _typeAt = [];
 
     private JavaSourceNames(string source, DexNames names, DexIndex index, HashSet<string> context, CancellationToken ct)
     {
@@ -89,7 +89,8 @@ internal sealed partial class JavaSourceNames
 
     private void Collect(CancellationToken ct)
     {
-        _index.EnsureCode(ct); // code keys exist once the code is indexed
+        // Code keys exist once the code is indexed.
+        _index.EnsureCode(ct);
         var fromKeys = new Dictionary<int, string>();
         foreach (var d in _context)
         {
@@ -277,7 +278,8 @@ internal sealed partial class JavaSourceNames
     {
         var scopes = new Stack<Scope>();
         (int Brace, char Kind, string? Class, string? Method)? pending = null;
-        bool typeList = false; // after extends / implements / throws, until { or ;
+        // After extends / implements / throws, until { or ;.
+        bool typeList = false;
         for (int i = 0; i < _tokens.Count; i++)
         {
             if ((i & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
@@ -385,7 +387,7 @@ internal sealed partial class JavaSourceNames
                 Decide(i, fields, name);
                 continue;
             }
-            // a value: a field of this class or one the method reads or writes
+            // A value: a field of this class or one the method reads or writes.
             Rename(i, Decode(text, 'f'), m => !m.IsMethod, inMethod ? method : null, declaredFallback: !inMethod);
         }
     }
@@ -539,7 +541,7 @@ internal sealed partial class JavaSourceNames
             int i = segment[k];
             if (T(i) == "@")
             {
-                // an annotation: its name and arguments
+                // Skips an annotation's name and arguments.
                 k++;
                 while (k + 2 < segment.Count && T(segment[k + 1]) == ".") k += 2;
                 if (k + 1 < segment.Count && T(segment[k + 1]) == "(") { int c = Matching(segment[k + 1]); while (k + 1 < segment.Count && segment[k + 1] <= c) k++; }
@@ -547,7 +549,8 @@ internal sealed partial class JavaSourceNames
             }
             if (T(i) != "final" && !_generic[i]) kept.Add(i);
         }
-        if (kept.Count > 0 && _tokens[kept[^1]].Kind == Kind.Ident) kept.RemoveAt(kept.Count - 1); // the parameter's name
+        // Drops the parameter's name.
+        if (kept.Count > 0 && _tokens[kept[^1]].Kind == Kind.Ident) kept.RemoveAt(kept.Count - 1);
         int type = kept.LastOrDefault(i => _tokens[i].Kind == Kind.Ident, -1);
         int dims = kept.Count(i => T(i) is "[" or "...");
         return (type < 0 ? "" : Decode(T(type), 'c')) + string.Concat(Enumerable.Repeat("[]", dims));

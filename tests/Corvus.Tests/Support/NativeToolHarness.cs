@@ -65,9 +65,9 @@ internal sealed class NativeToolHarness : IDisposable
         Analysis = new NativeAnalysisTools(Workspace, Engines, Pager);
         Functions = new NativeFunctionTools(Workspace, Code, Pager);
         Features = new NativeFeatureTools(Workspace, Code, Pager);
-        var il2cpp = new Il2CppService(Workspace);
+        var aot = new AotMetadataService(Workspace);
         Resources = new ResourceTools(Workspace, new ResourceService(), new DecompilerService(Workspace, Options), Pager);
-        WorkspaceTools = new WorkspaceTools(Workspace, il2cpp, new IndexingService(Workspace, new CallGraphService(Workspace), Options), new UnpackService(Workspace));
+        WorkspaceTools = new WorkspaceTools(Workspace, aot, new IndexingService(Workspace, new CallGraphService(Workspace), Options), new UnpackService(Workspace));
     }
 
     /// <summary>Runs one tool call and records it; returns the text, or null when it failed.</summary>
@@ -81,13 +81,11 @@ internal sealed class NativeToolHarness : IDisposable
         ErrorCode? error = null;
         string? errorText = null;
         Exception? unexpected = null;
-        // the server's budget for this tool, so list pages are cut as a client receives them
+        // The server's budget for this tool, so list pages are cut as a client receives them.
         Core.OutputCall.Begin(new Core.OutputCall(tool, Mcp.CallFilter.FitTokens(Mcp.CallFilter.Budget(tool, null, null)), null));
         // Lock waits end at the cancel and name their holder, as the server makes them for every call.
         using var waits = AssemblyWorkspace.CancelWaitsWith(cts.Token, tool);
-        // A call still running when it is cancelled has the stacks it runs or waits in taken, so its failure names them.
-        // They are taken from the cancel itself, not a timer of their own, so a wait the snapshot releases already sees
-        // its token cancelled.
+        // A call running at cancellation has its stacks taken from the cancel itself, so a released wait already sees its token cancelled.
         using var answered = new CancellationTokenSource();
         var late = Task.Delay(Timeout.Infinite, cts.Token).ContinueWith(_ =>
         {
@@ -316,16 +314,14 @@ public class NativeToolHarnessTests
     {
         using var harness = new NativeToolHarness(backgroundIndexing: false);
         using var held = new ManualResetEventSlim();
-        // Another thread holds the workspace's exclusive lock until the stacks are taken at the cancel, so a snapshot
-        // that runs late under load still finds the call waiting; that wait takes no token.
+        // Another thread holds the exclusive lock until the stacks are taken, so a late snapshot still finds the call waiting.
         var holder = Task.Factory.StartNew(() => harness.Workspace.Write(() =>
         {
             held.Set();
             return SpinWait.SpinUntil(() => harness.StacksTaken > 0, TimeSpan.FromSeconds(30));
         }), TaskCreationOptions.LongRunning);
         held.Wait();
-        // A thread of its own: a pool work item queued behind a loaded pool was still waiting to start when the stacks were
-        // taken (host tier, 270c1082).
+        // Its own thread: a queued pool item had not started when the stacks were taken (host tier, 270c1082).
         await harness.Run("image", "read", "", ct => Task.Factory.StartNew(() =>
         {
             harness.Workspace.Read(() => 0, CancellationToken.None);

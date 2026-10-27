@@ -2,11 +2,8 @@ using Microsoft.CodeAnalysis;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// An edit merges twice, into a scratch copy and then into the module (EditService.MergeSafely). The inputs of both runs
-/// are the same, so the second takes the first run's decompiled source, bound models and compiled images instead of
-/// computing them again; only the merge into the module is repeated.
-/// </summary>
+/// <summary>Reuses the scratch merge's source, models and images in the second merge of an edit
+/// (EditService.MergeSafely).</summary>
 public sealed partial class CSharpPatcher
 {
     private sealed class ReplayCache
@@ -19,10 +16,7 @@ public sealed partial class CSharpPatcher
 
     private static readonly AsyncLocal<ReplayCache?> Replay = new();
 
-    /// <summary>
-    /// Until disposed, operations on this thread reuse each other's compile work (see <see cref="ReplayCache"/>). With
-    /// <paramref name="join"/>, a scope already open on this thread is kept and the returned scope does nothing.
-    /// </summary>
+    /// <summary>Shares compile work on this thread until disposed; with <paramref name="join"/>, an open scope is kept.</summary>
     public IDisposable ReuseCompiles(bool join = false)
     {
         var previous = Replay.Value;

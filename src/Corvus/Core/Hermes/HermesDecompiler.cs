@@ -4,12 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Hermes;
 
-/// <summary>
-/// A function's bytecode as structured JavaScript-like code: instructions become statements over registers, values used
-/// once are folded into their user, object and array literals are rebuilt, and the control-flow graph is structured into
-/// if/else, loops (while, do-while), switch and try/catch, with labelled break/continue and goto only where it is not
-/// reducible. Closures are named fnN_name; closure variables vF_S (function F's environment slot S).
-/// </summary>
+/// <summary>A function's bytecode as structured JavaScript-like code; goto appears only where the graph is not reducible.</summary>
 public static class HermesDecompiler
 {
     /// <summary>Functions larger than this are listed as disassembly instead (the structurer is quadratic in blocks).</summary>
@@ -69,7 +64,8 @@ public static class HermesDecompiler
     {
         private readonly HermesFile _file = index.File;
         private readonly List<string> _notes = [];
-        private readonly Dictionary<long, int> _envDepth = []; // register -> -1 own environment, d for GetEnvironment d
+        // Register to depth: -1 for the own environment, d for GetEnvironment d.
+        private readonly Dictionary<long, int> _envDepth = [];
         private List<HermesInstruction> _code = [];
         private readonly List<HermesSwitch> _switches = [];
         private IReadOnlyList<HermesHandler> _handlers = [];
@@ -99,7 +95,7 @@ public static class HermesDecompiler
             try { _result = Structure(); }
             catch (InvalidOperationException ex) { _notes.Add("not structured: " + ex.Message); _result = Flat(); }
             Rewrite(_result);
-            // a module factory's dependencyMap[n] names the module it resolves to
+            // A module factory's dependencyMap[n] names the module it resolves to.
             if (index.ModuleOf(f.Index) is { } module && module.Function == f.Index && module.Dependencies.Count > 0)
                 _result = MapTree(_result, x => x is IndexEx { Obj: LitEx { Text: "dependencyMap" }, Key: LitEx k }
                     && int.TryParse(k.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n < module.Dependencies.Count
@@ -131,7 +127,8 @@ public static class HermesDecompiler
 
         private string[] ParamNames()
         {
-            int n = Math.Clamp(f.ParamCount - 1, 0, 1024); // a damaged large header may claim billions
+            // A damaged large header may claim billions.
+            int n = Math.Clamp(f.ParamCount - 1, 0, 1024);
             var module = index.ModuleOf(f.Index);
             if (module?.Function == f.Index && n >= 7)
                 return ["global", "require", "importDefault", "importAll", "module", "exports", "dependencyMap", .. Enumerable.Range(7, n - 7).Select(i => $"a{i}")];
@@ -295,7 +292,7 @@ public static class HermesDecompiler
                 case "JmpUndefined" or "JmpUndefinedLong": return new BranchSt(new BinEx("===", R(ins.B), new LitEx("undefined"), 9), (int)ins.A);
                 case "SwitchImm":
                     return _switches.FirstOrDefault(s => s.Offset == ins.Offset) is { } table ? new SwitchSt(R(ins.A), table) : new RawSt("/* SwitchImm without a table */");
-                // iteration writes its state registers too: the iterator (undefined when done), the for-in index and size
+                // Iteration writes its state registers too: the iterator (undefined when done), the for-in index and size.
                 case "IteratorBegin": return new AssignSt(ins.A, new CallEx(new LitEx("$iteratorBegin"), null, [R(ins.B)], false), [ins.B]);
                 case "IteratorNext": return new AssignSt(ins.A, new CallEx(new LitEx("$iteratorNext"), null, [R(ins.B), R(ins.C)], false), [ins.B]);
                 case "IteratorClose": return new ExprSt(new CallEx(new LitEx("$iteratorClose"), null, [R(ins.A)], false));
@@ -306,7 +303,7 @@ public static class HermesDecompiler
                 case "Debugger": return new RawSt("debugger;");
                 case "AsyncBreakCheck" or "DebuggerCheckBreak" or "ProfilePoint" or "ThrowIfUndefinedInst" or "ThrowIfHasRestrictedGlobalProperty": return null;
             }
-            // generators and anything newer: kept as the instruction, reading and writing its register operands
+            // Generators and anything newer stay as the instruction, reading and writing its register operands.
             var regs = Enumerable.Range(0, ins.Op.Operands.Length).Where(i => ins.Op.Operands[i].IsRegister).Select(i => (Ex)R(ins[i])).ToArray();
             return new OpaqueSt($"/* {HermesCode.Text(_file, ins)} */", regs);
         }
@@ -328,7 +325,7 @@ public static class HermesDecompiler
             return new ObjEx([.. k.Select((key, i) => (key.Text(_file, key: true), (Ex)new LitEx(i < v.Count ? v[i].Text(_file) : "undefined")))]);
         }
 
-        // ---- blocks and liveness ----
+        // Blocks and liveness.
 
         private void BuildBlocks()
         {
@@ -356,10 +353,11 @@ public static class HermesDecompiler
                 }
                 if (current == null) continue;
                 current.End = ins.End;
-                if (current.Exit != null) continue; // dead code after a terminator in the same block
+                // Dead code after a terminator in the same block.
+                if (current.Exit != null) continue;
                 if (ins.Name is "SaveGenerator" or "SaveGeneratorLong") { resume = (int)ins.A; continue; }
                 var st = Translate(ins);
-                // a generator suspends with SaveGenerator then Ret: the value is yielded and the code goes on at the resume point
+                // A generator suspends with SaveGenerator then Ret: the value is yielded and code resumes at the resume point.
                 if (resume >= 0 && st is ExitSt { Keyword: "return" } yielded)
                 {
                     current.Body.Add(new ExprSt(new UnEx(_awaits ? "await " : "yield ", yielded.Value)));
@@ -401,10 +399,7 @@ public static class HermesDecompiler
             }
         }
 
-        /// <summary>
-        /// Short-circuit conditions: a branch whose fall-through is an empty block that only branches again, to one of the
-        /// same targets, becomes one branch on a || b (and, through negation, a &amp;&amp; b).
-        /// </summary>
+        /// <summary>Merges a branch whose empty fall-through branches again to a shared target into one branch on a || b or a &amp;&amp; b.</summary>
         private void Conditions()
         {
             var handlerTargets = new HashSet<int>(_handlers.Select(h => h.Target));
@@ -422,7 +417,7 @@ public static class HermesDecompiler
                     if (b2.Target == b1.Target) (cond, target, fall) = (Or(b1.Cond, b2.Cond), b1.Target, next.Fall);
                     else if (next.Fall == b1.Target) (cond, target, fall) = (Or(b1.Cond, UnEx.Not(b2.Cond)), b1.Target, b2.Target);
                     else continue;
-                    // pure assignments before the second test move above the first when the shared target does not read them
+                    // Pure assignments before the second test move above the first when the shared target does not read them.
                     if (next.Body.Count != 0)
                     {
                         if (!_blocks.TryGetValue(b1.Target, out var shared)) continue;
@@ -507,7 +502,7 @@ public static class HermesDecompiler
                     var b = blocks[i];
                     var o = new HashSet<long>();
                     foreach (var s in b.Succ.Concat(b.Throws)) o.UnionWith(liveIn[s]);
-                    // a handler may run from any point of the protected range: what it reads stays live through the block
+                    // A handler may run from any point of the protected range: what it reads stays live through the block.
                     foreach (var h in b.Throws) use[b].UnionWith(liveIn[h]);
                     var inn = new HashSet<long>(o);
                     inn.ExceptWith(def[b]);
@@ -519,10 +514,7 @@ public static class HermesDecompiler
             }
         }
 
-        /// <summary>
-        /// Registers that hold the same constant on every path (the global object, a parameter, a literal) read as that
-        /// constant everywhere: a forward data flow over the blocks; a handler sees what holds at both ends of every block it covers.
-        /// </summary>
+        /// <summary>Replaces registers holding the same constant on every path with that constant, by forward data flow.</summary>
         private void Constants()
         {
             var blocks = _blocks.Values.ToList();
@@ -587,7 +579,7 @@ public static class HermesDecompiler
 
         private static bool SameConstant(Ex a, Ex b) => a is GlobalEx && b is GlobalEx || a is LitEx la && b is LitEx lb && la.Text == lb.Text;
 
-        // ---- folding ----
+        // Folding.
 
         /// <summary>Object and array literals rebuilt from the stores that follow their allocation.</summary>
         private static bool Literals(List<St> body)
@@ -742,7 +734,7 @@ public static class HermesDecompiler
                     changed = true;
                     i--;
 
-                    // read again before the next assignment, or live out of the block (unknown past the window)
+                    // Read again before the next assignment, or live out of the block (unknown past the window).
                     bool UsedLater(int from)
                     {
                         int end = Math.Min(total, from + Window);
@@ -757,7 +749,7 @@ public static class HermesDecompiler
             }
         }
 
-        // ---- structuring ----
+        // Structuring.
 
         private sealed class Context
         {
@@ -803,7 +795,7 @@ public static class HermesDecompiler
                     }
             _loopNodes = loops;
             var result = Emit(entry, null, new Context());
-            // code not reached from the entry (generator resume points, handlers of unreached ranges)
+            // Code not reached from the entry (generator resume points, handlers of unreached ranges).
             foreach (var b in blocks)
                 if (!_emitted.Contains(b) && b.Order > 0)
                 {
@@ -893,7 +885,7 @@ public static class HermesDecompiler
             var pred = new Dictionary<Block, List<Block>> { [exit] = [] };
             foreach (var b in blocks) pred[b] = [];
             foreach (var (b, ss) in succ) foreach (var s in ss) pred[s].Add(b);
-            // reverse post order of the reverse graph from the exit; blocks that never reach it (endless loops) get no post-dominator
+            // Reverse post order of the reverse graph from the exit; blocks that never reach it get no post-dominator.
             var seen = new HashSet<Block> { exit };
             var post = new List<Block>();
             var stack = new Stack<(Block B, int I)>();
@@ -996,7 +988,7 @@ public static class HermesDecompiler
                     first = false;
                     continue;
                 }
-                // a try statement: the handlers with one target form it; the one whose ranges start here and reach furthest opens first
+                // Handlers with one target form a try; the one starting here and reaching furthest opens first.
                 if (TryAt(n) is { } group)
                 {
                     _opened.Add(group.Target);
@@ -1027,7 +1019,7 @@ public static class HermesDecompiler
                         var taken = At(br.Target);
                         var fall = At(n.Fall);
                         var join = Join(n, ctx);
-                        // no join (one arm leaves): the arm that cannot reach the other is the if body, and the other continues here
+                        // No join: the arm that cannot reach the other is the if body, and the other continues here.
                         if (join == null && taken != null && fall != null && taken != fall)
                         {
                             if (!Reaches(taken, fall, ctx)) { output.Add(new IfSt(br.Cond, Emit(taken, fall, ctx), [])); n = fall; break; }
@@ -1154,7 +1146,7 @@ public static class HermesDecompiler
             return output;
         }
 
-        // ---- rewrites on the structured tree ----
+        // Rewrites on the structured tree.
 
         private void Rewrite(List<St> list)
         {
@@ -1162,7 +1154,7 @@ public static class HermesDecompiler
             {
                 switch (list[i])
                 {
-                    // a generator's resume checks for return(): protocol, not the program's code
+                    // A generator's resume checks for return() are protocol, not the program's code.
                     case IfSt { Cond: LitEx { Text: "$returning" } } r1:
                         list.RemoveAt(i);
                         list.InsertRange(i--, r1.Else);
@@ -1175,20 +1167,20 @@ public static class HermesDecompiler
                         Rewrite(s.Then);
                         Rewrite(s.Else);
                         if (Trim(s.Then).Count == 0 && Trim(s.Else).Count > 0) { s.Cond = UnEx.Not(s.Cond); (s.Then, s.Else) = (s.Else, s.Then); }
-                        // the branch that leaves (return, throw, break) first, and what follows it out of the else
+                        // The branch that leaves goes first, and what follows it moves out of the else.
                         if (Terminal(s.Else) && (!Terminal(s.Then) || Trim(s.Else).Count < Trim(s.Then).Count)) { s.Cond = UnEx.Not(s.Cond); (s.Then, s.Else) = (s.Else, s.Then); }
                         if (Terminal(s.Then) && Trim(s.Else).Count > 0)
                         {
                             list.InsertRange(i + 1, s.Else);
                             s.Else = [];
                         }
-                        // rN = a; if (rN) rN = b  ->  rN = a && b (and ||, and the ternary form)
+                        // rN = a; if (rN) rN = b becomes rN = a && b (and ||, and the ternary form).
                         if (i > 0 && list[i - 1] is AssignSt prev && Trim(s.Else).Count == 0 && Trim(s.Then) is [AssignSt only] && only.Reg == prev.Reg && !Reads(only.Value, prev.Reg))
                         {
                             if (s.Cond is RegEx c && c.Reg == prev.Reg) { list[i - 1] = new AssignSt(prev.Reg, new BinEx("&&", prev.Value, only.Value, 5)); list.RemoveAt(i--); continue; }
                             if (s.Cond is UnEx { Op: "!", Operand: RegEx c2 } && c2.Reg == prev.Reg) { list[i - 1] = new AssignSt(prev.Reg, new BinEx("||", prev.Value, only.Value, 4)); list.RemoveAt(i--); continue; }
                         }
-                        // rN = a; if (c) rN = b  ->  rN = c ? b : a, when a has no side effect
+                        // rN = a; if (c) rN = b becomes rN = c ? b : a when a has no side effect.
                         if (i > 0 && list[i - 1] is AssignSt p0 && p0.Value.Pure && Trim(s.Else).Count == 0 && Trim(s.Then) is [AssignSt only2] && only2.Reg == p0.Reg
                             && !Reads(s.Cond, p0.Reg) && !Reads(only2.Value, p0.Reg))
                         {
@@ -1205,13 +1197,13 @@ public static class HermesDecompiler
                     case LoopSt l:
                         Rewrite(l.Body);
                         var body = Trim(l.Body);
-                        // while (true) { if (c) break; ... }  ->  while (!c) { ... }
+                        // while (true) { if (c) break; ... } becomes while (!c) { ... }.
                         if (body.Count > 0 && body[0] is IfSt { Else.Count: 0 } head && Trim(head.Then) is [JumpOutSt { Keyword: "break", Label: null }])
                         {
                             l.While = UnEx.Not(head.Cond);
                             l.Body.Remove(head);
                         }
-                        // while (true) { ...; if (c) continue; break; }  ->  do { ... } while (c)
+                        // while (true) { ...; if (c) continue; break; } becomes do { ... } while (c).
                         else if (body.Count >= 2 && body[^1] is JumpOutSt { Keyword: "break", Label: null } && body[^2] is IfSt { Else.Count: 0 } tail
                                  && Trim(tail.Then) is [JumpOutSt { Keyword: "continue", Label: null }])
                         {
@@ -1240,7 +1232,7 @@ public static class HermesDecompiler
 
         private static bool Terminal(List<St> list) => Trim(list) is [.., ExitSt or JumpOutSt or GotoSt];
 
-        // ---- printing ----
+        // Printing.
 
         public void Print(StringBuilder sb)
         {
@@ -1253,7 +1245,7 @@ public static class HermesDecompiler
                   _ => "function ",
               }).Append(name).Append('(').AppendJoin(", ", _params).Append(") {\n");
             if (Trim(_result) is [.., ExitSt { Keyword: "return", Value: LitEx { Text: "undefined" } } last]) _result.Remove(last);
-            // a generator's first resume value is never the program's
+            // A generator's first resume value is never the program's.
             if (Trim(_result) is [AssignSt { Value: LitEx { Text: "$sent" } } start, ..] && !ReadsAnywhere(_result.Where(x => x != start), start.Reg)) _result.Remove(start);
             MarkLabels(_result);
             PrintList(sb, _result, 1);
@@ -1302,7 +1294,7 @@ public static class HermesDecompiler
                     i.Cond.Write(sb, 2);
                     sb.Append(") {\n");
                     PrintList(sb, i.Then, depth + 1);
-                    // else if chains stay flat
+                    // Else-if chains stay flat.
                     while (Trim(i.Else) is [IfSt next] && i.Else.Count >= 1)
                     {
                         sb.Append(pad).Append("} else if (");

@@ -5,10 +5,7 @@ using Corvus.Core;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// Evidence as input: a kept result (r-…), one of this session's latest calls (last:N) or an evidence bundle entry
-/// (bundle.json#r-…), read instead of running its producer again; comparisons of two of them by item or by line.
-/// </summary>
+/// <summary>Reads a kept result, recent call (last:N) or bundle entry instead of re-running it, and compares two of them by item or line.</summary>
 public static class EvidenceInput
 {
     public const string ReferenceDescription = "a kept result (r-...), last:N (recent call) or bundle entry (file.json#r-...)";
@@ -62,7 +59,7 @@ public static class EvidenceInput
         $"{s.Ref} ({s.Kind} {s.Tool}{(s.Inputs.Count > 0 ? " of " + string.Join(", ", s.Inputs.Select(i => $"{i.Id} {i.Sha256[..Math.Min(12, i.Sha256.Length)]}")) : "")}" +
         $"{(s.Created is { } t ? $", {t:yyyy-MM-dd HH:mm}Z" : "")})";
 
-    // fields that name an item, in order of preference; the first every item of both sides has is the key
+    // Fields that name an item, in order of preference; the first every item of both sides has is the key.
     private static readonly string[] KeyFields = ["address", "rva", "start", "token", "fullName", "member", "symbol", "name", "path", "id", "target", "input", "offset", "value", "text"];
 
     private const int MaxValueChars = 300;
@@ -71,7 +68,7 @@ public static class EvidenceInput
     public static (EvidenceSummary EvidenceSummary, IReadOnlyList<EvidenceChange> Changes) Compare(Item a, Item b)
     {
         var (ra, rb) = (Parse(a.Record), Parse(b.Record));
-        // a facet either side lacks: what it would show is unknown on both
+        // A facet either side lacks: what it would show is unknown on both.
         var gaps = FacetGaps(ra, rb);
         if (ra?["items"] is JsonArray ia && rb?["items"] is JsonArray ib)
         {
@@ -120,7 +117,7 @@ public static class EvidenceInput
         var sb = new System.Text.StringBuilder($"{c.Old.Tool} results compared by {(c.Basis == "items" ? c.By != null ? $"item {c.By}" : "whole item" : "line")}:\n" +
             $"  old: {Describe(c.Old)}\n  new: {Describe(c.New)}\n" +
             $"{c.Same} same, {c.Changed} changed, {c.Removed} removed, {c.Added} added{(c.Unknown > 0 ? $", {c.Unknown} unknown" : "")}; {c.Completeness}.\n");
-        if (c.Completeness == "partial") sb.Append("Note: a side holds one page of its result, is not complete, or lacks a facet; what it does not show is unknown, not removed, added or changed.\n");
+        if (c.Completeness == "partial") sb.Append("Note: a side is partial; rows it does not show are unknown, not removed, added or changed.\n");
         return sb.ToString();
     }
 
@@ -132,10 +129,7 @@ public static class EvidenceInput
         _ => $"? {r.Key}  {r.Old ?? r.New}",
     };
 
-    /// <summary>
-    /// The comparison of <paramref name="oldRef"/> and <paramref name="newRef"/> when given (both, and not with the tool's
-    /// own inputs, named in <paramref name="sides"/>); null when neither is given.
-    /// </summary>
+    /// <summary>The comparison of two kept results when both are given without the tool's own inputs; null when neither is given.</summary>
     public static (EvidenceSummary EvidenceSummary, IReadOnlyList<EvidenceChange> Changes)? FromArguments(string? oldRef, string? newRef, bool sidesGiven, string sides, IServiceProvider? services)
     {
         bool o = !string.IsNullOrWhiteSpace(oldRef), n = !string.IsNullOrWhiteSpace(newRef);
@@ -157,7 +151,7 @@ public static class EvidenceInput
         catch (JsonException) { return null; }
     }
 
-    // one page of a longer result, or a result that says it is not complete: the items past it are not known
+    // One page of a longer result, or one that says it is not complete: the items past it are unknown.
     private static bool Partial(JsonObject record, JsonArray items) =>
         (record["total"] is JsonValue t && t.TryGetValue(out int total) && total > items.Count) ||
         (record["hasMore"] is JsonValue h && h.TryGetValue(out bool more) && more) || record["nextOffset"] is JsonValue || Incomplete(record);

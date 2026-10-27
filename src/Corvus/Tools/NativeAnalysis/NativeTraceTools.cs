@@ -14,7 +14,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>Interprocedural value tracing in native code (x86 / x64 / ARM64).</summary>
+/// <summary>Interprocedural value tracing in native code (x86, x64, ARM).</summary>
 [McpServerToolType]
 public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeNamePush? names = null,
     NativeLinkService? link = null)
@@ -85,16 +85,15 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                                         "or result (the call's return)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
-    [Description("Trace a value through native code (x86, x64, ARM) across functions and images. Backward: constants, strings, function pointers, API " +
-                 "results, via copies, stack, merges, loops; parameters bind to caller arguments, results to returns, globals to writers. Forward: " +
-                 "API and callee arguments, global readers, returns, compares, switches, dereferences.")]
+    [Description("Trace a value through native code across functions and images: backward to the constants, strings, pointers and API " +
+                 "results that reach it, or forward to its uses.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, call, function start (with argument) or writable global: " + NativeTools.AddressDescription)] string address,
         [Description("The value at address: a register (rdx, xmm1, x1, w2, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call return).")] string? location = null,
         [Description("Argument of the call or parameter of the function at address: 1-based or API name.")]
         string? argument = null,
-        [Description("backward (default: the values that reach it), forward (its uses) or both.")] string? direction = null,
+        [Description("backward (default): values reaching it; forward: its uses.")] string? direction = null,
         [Description("Function boundaries to cross (0-8).")] int maxDepth = 3,
         [Description("Functions to slice (1-256).")] int maxFunctions = 32,
         [Description("Nodes in the graph (1-5000).")] int maxNodes = 500,
@@ -103,7 +102,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Stop at writable globals instead of following writers / readers.")] bool stopAtGlobals = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Nodes per page (max 1000).")] int limit = 200,
-        [Description("ida or ghidra: its IR (ours where it cannot place the seed); ours; auto (default): an analyzing engine, else ours.")] string? engine = null,
+        [Description("Slice engine (default auto: an engine that analyzed the image, else ours).")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -150,10 +149,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     /// <summary>Engine and fallback slice counts of a built graph, recorded by the call that built it.</summary>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ValueTraceGraph, Tuple<int, int>> SliceCounts = new();
 
-    /// <summary>
-    /// "ida answered N slices; M fell back": a graph is built once per key and reused (pages, repeats), so its counts are kept
-    /// with it and every call on it says the same.
-    /// </summary>
+    /// <summary>"ida answered N slices; M fell back", kept with the graph so every call reusing it says the same.</summary>
     internal static string? SliceNote(ValueTraceGraph graph, EngineSliceProvider provider)
     {
         var counts = SliceCounts.GetValue(graph, _ => new Tuple<int, int>(provider.EngineSlices, provider.Fallbacks));
@@ -351,7 +347,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     private static ValueTraceReport Report(NativeCodeIndex index, ValueTraceGraph g, int offset, int limit)
     {
         string Va(uint r, int image = 0) => NativeAddress.Va(g.Images[image].Image, r);
-        // a node without an instruction of its own (address 0) is in its function, at no offset
+        // A node without an instruction of its own (address 0) is in its function, at no offset.
         string? Where(TraceNode n) => n.Function is { } f ? Format.Within(f.Name, f.Start, n.Address) : null;
         int start = Math.Clamp(offset, 0, g.Nodes.Count);
         var page = g.Nodes.Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
@@ -395,7 +391,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             sb.Append(' ', indent).Append('#').Append(n.Id).Append(' ').Append(arrow).Append(n.Kind).Append(": ").Append(Format.Clip(n.Text, 200));
             if (n.Decoded != null && !n.Text.Contains(n.Decoded, StringComparison.Ordinal)) sb.Append(" [").Append(n.Decoded).Append(']');
             if (n.Function != null && node.Kind != TraceNodeKind.Seed) sb.Append("  @").Append(n.Image != null ? $"[{n.Image}] " : "").Append(n.Function);
-            // the edge to the parent rides on the node's line; the rest are listed after the nodes
+            // The edge to the parent rides on the node's line; the rest are listed after the nodes.
             if (n.Parent >= 0 && r.Edges.FirstOrDefault(e => (e.From, e.To) == (n.Id, n.Parent) || (e.From, e.To) == (n.Parent, n.Id)) is { } up && shown.Add(up))
                 sb.Append("  (").Append(Edge(up)).Append(')');
             sb.AppendLine();

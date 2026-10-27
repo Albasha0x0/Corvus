@@ -6,17 +6,10 @@ namespace Corvus.Services.Web;
 /// <summary>A React component of a bundle: its name, kind (function, class, memo or forwardRef), site, the hooks it calls and the components it renders.</summary>
 public sealed record JsComponent(string Name, string Kind, int Line, int Column, string? Module, int Elements, IReadOnlyList<string> Hooks, IReadOnlyList<string> Renders);
 
-/// <summary>
-/// analyze_js view=react: the React versions found, the components (a page of them) and their total, element calls
-/// found and the number components hold, and notes. The tool returns it as text; its record carries the total only.
-/// </summary>
+/// <summary>The analyze_js react view: React versions, a page of components with their total, element call counts and notes.</summary>
 public sealed record JsReactResult(IReadOnlyList<string> Versions, IReadOnlyList<JsComponent> Components, int Total, int Calls, int Attributed, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// React structure of a compiled bundle, read from its element factory calls: a component is a function that creates
-/// elements (callbacks inside it count as it), or a class whose superclass is Component or PureComponent. Names come
-/// from declarations, the bindings a function is assigned to (through memo and forwardRef) and displayName.
-/// </summary>
+/// <summary>React components of a compiled bundle, read from its element factory calls and Component or PureComponent classes.</summary>
 internal static class JsReact
 {
     public const int MaxComponents = 5000;
@@ -65,7 +58,7 @@ internal static class JsReact
         var p = s.P;
         var all = s.Components.Values.Where(i => string.IsNullOrEmpty(filter) || (i.Name ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Node.Start).ToList();
         var notes = new List<string>();
-        if (all.Count == 0) notes.Add("no element factory calls (jsx, jsxs, createElement) were found: not React code, or the factory is called through a renamed property");
+        if (all.Count == 0) notes.Add("no element factory calls (jsx, jsxs, createElement): not React code, or the factory is renamed");
         if (all.Count > MaxComponents) notes.Add($"only the first {MaxComponents} components are read");
         var rows = all.Take(MaxComponents).Skip(Math.Max(0, offset)).Take(Math.Max(0, limit)).Select(i => Row(s, i)).ToList();
         return new JsReactResult(Versions(p, ct), rows, Math.Min(all.Count, MaxComponents), s.Calls, s.Components.Values.Sum(i => i.Elements), notes);

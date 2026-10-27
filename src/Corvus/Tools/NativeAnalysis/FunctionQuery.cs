@@ -2,10 +2,7 @@ using Corvus.Core;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// list_functions selection and order, shared by the built-in index and the engines: name filter, size bounds, a start
-/// address range, a type requirement (engines only) and a sort with an optional direction.
-/// </summary>
+/// <summary>list_functions filter and sort, shared by the built-in index and the engines.</summary>
 internal sealed record FunctionQuery(NameFilter? Filter, long? MinSize, long? MaxSize, uint? From, uint? To, bool? HasType, string Sort, bool? Descending)
 {
     public static readonly string[] Sorts = ["address", "name", "size", "callers"];

@@ -30,7 +30,7 @@ public class ItaniumEhTests
     {
         var image = Open(build);
         var table = ItaniumEh.Of(image);
-        // the same sources in every build: about 110 functions with handlers, all through the C++ personality
+        // The same sources in every build: about 110 functions with handlers, all through the C++ personality.
         var handlers = table.Functions.Where(f => f.Lsda != null).ToList();
         Assert.InRange(handlers.Count, 100, 130);
         Assert.All(handlers, f => Assert.Equal("__gxx_personality_v0", f.Personality));
@@ -85,7 +85,7 @@ public class ItaniumEhTests
         w.Symbols.Add(new ElfWriter.Symbol("__gxx_personality_v0", Text + 0x1C | 1, 2, Type: 2));
         // pr0 in .ARM.extab: vsp += 12; pop {r4, lr}; finish
         w.Extab.Add((Text | 1, null, [0x8002A8B0]));
-        // generic personality: pop {r4, lr}; then an LSDA with one call site [+4, +8) landing at +8 (cleanup)
+        // Generic personality: pop {r4, lr}; then an LSDA with one call site [+4, +8) landing at +8 (cleanup).
         w.Extab.Add((Text + 0x10 | 1, Text + 0x1C, [0x00A8B0B0, 0x0401FFFF, 0x00080404]));
         w.Exidx.Add((Text + 0x18 | 1, true));
         var image = ElfFile.FromBytes(w.Build(), "lib.so");
@@ -113,7 +113,7 @@ public class ItaniumEhTests
         const uint Text = ElfWriter.TextRva;
         var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = new byte[0x20] };
         w.Symbols.Add(new ElfWriter.Symbol("__gxx_personality_v0", Text + 0x1C | 1, 2, Type: 2));
-        // a 127-byte call-site table whose first site starts 0x40 past the function, then a site that would be valid
+        // A 127-byte call-site table whose first site starts 0x40 past the function, then a site that would be valid.
         w.Extab.Add((Text + 0x10 | 1, Text + 0x1C, [0x00A8B0B0, 0x7F01FFFF, 0x00080440, 0x00080404]));
         w.Exidx.Add((Text + 0x18 | 1, true));
         var table = ItaniumEh.Of(ElfFile.FromBytes(w.Build(), "lib.so"));
@@ -178,7 +178,7 @@ public class ItaniumEhTests
         new byte[] { 0x10, 0xB5, 0x00, 0xBF, 0x10, 0xBD, 0x01, 0x20, 0x10, 0xBD }.CopyTo(code, 0);
         var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = code };
         w.Symbols.Add(new ElfWriter.Symbol("__gxx_personality_v0", Text + 0x1C | 1, 2, Type: 2));
-        // generic personality: pop {r4, lr}; LSDA with one call site [+0, +4) landing at +6 (cleanup)
+        // Generic personality: pop {r4, lr}; LSDA with one call site [+0, +4) landing at +6 (cleanup).
         w.Extab.Add((Text | 1, Text + 0x1C, [0x00A8B0B0, 0x0401FFFF, 0x00060400]));
         var index = Corvus.Native.Code.NativeCodeIndex.Build(ElfFile.FromBytes(w.Build(), "lib.so"));
         var f = index.FunctionByStart(Text)!;

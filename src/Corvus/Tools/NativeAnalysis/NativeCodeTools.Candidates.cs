@@ -22,10 +22,7 @@ public sealed partial class NativeCodeTools
         _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use functions or candidates"),
     };
 
-    /// <summary>
-    /// list_functions view=candidates: runs of code the engine decoded that no function holds, ranked by the calls, then the
-    /// jumps and data references, to their start; define_native kind=function makes one a function.
-    /// </summary>
+    /// <summary>list_functions view=candidates: engine-decoded code in no function, ranked by references to its start.</summary>
     private async Task<string> FunctionCandidates(string image, (EngineMode Mode, bool Named) mode, int offset, int limit,
         RequestContext<CallToolRequestParams>? context, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {

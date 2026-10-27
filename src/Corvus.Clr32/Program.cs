@@ -9,13 +9,8 @@ using Corvus.Native.Dump.Managed;
 
 namespace Corvus.Clr32;
 
-/// <summary>
-/// Decodes the CLR of a 32-bit dump or running process for the 64-bit server: arguments are the dump (or --pid and the
-/// process id), the DAC the server found and verified, that file's SHA-256 (checked again here before the library is
-/// loaded) and the image folders. Then one request per stdin line (facts, exception, frames, walk, object; for a
-/// process also refresh, method_at, live_frames, code_of, module_image, prepared; exit), one JSON line per answer:
-/// {"ok":true,"value":...} or {"ok":false,"error":"..."}. The first line answers the open.
-/// </summary>
+/// <summary>Decodes the CLR of a 32-bit dump or process for the 64-bit server: one JSON request and answer per line.</summary>
+/// <remarks>Arguments: the dump (or --pid and the id), the verified DAC, its SHA-256 (checked again before loading) and the image folders. Answers are {"ok":true,"value":...} or {"ok":false,"error":"..."}; the first answers the open.</remarks>
 internal static class Program
 {
     private static int Main(string[] args)
@@ -57,7 +52,7 @@ internal static class Program
 
     private static (DataTarget, ClrReads) Open(bool live, string source, string dac, string sha256, string imageDirectories)
     {
-        // a running process is read through a reader whose thread contexts are those the server sends (a held thread's own is in the backend's code)
+        // A running process's thread contexts are the ones the server sends.
         var target = live
             ? new DataTarget(new CustomDataTarget(new HeldThreadReader(DataTarget.AttachToProcess(int.Parse(source, CultureInfo.InvariantCulture), suspend: false))))
             : DataTarget.LoadDump(source);
@@ -65,7 +60,7 @@ internal static class Program
         {
             target.FileLocator = new FolderLocator(imageDirectories.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries));
             var clr = target.ClrVersions.FirstOrDefault() ?? throw new InvalidOperationException("no CLR in the dump");
-            // held open without write sharing from the hash check until the library is loaded
+            // Held open without write sharing from the hash check until the library is loaded.
             using var file = new FileStream(dac, FileMode.Open, FileAccess.Read, FileShare.Read);
             using (var sha = SHA256.Create())
             {
@@ -208,10 +203,7 @@ internal static class Program
         sb.Append('"');
     }
 
-    /// <summary>
-    /// A running process as ClrMD's own reader sees it, except thread contexts: only those set from a stop's registers,
-    /// never a running thread's.
-    /// </summary>
+    /// <summary>ClrMD's process reader, except thread contexts come only from a stop's registers.</summary>
     private sealed class HeldThreadReader(DataTarget process) : IDataReader, IDisposable
     {
         private readonly IDataReader _inner = process.DataReader;

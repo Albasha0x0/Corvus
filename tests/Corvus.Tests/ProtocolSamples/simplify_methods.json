@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] Dry run — simplify Fixture.Model.Account (fold,cfg,inline): 2 of 31 method(s) would change.\nTotals: 2 of 31 method(s) changed; 2 unreachable block(s) removed.\n\nFixture.Model.Account/<LoadAsync>d__17::MoveNext()  [70 -> 68 instructions]\n  collapsed 1 branch chain(s), removed 1 unreachable block(s) (1 instructions)\nFixture.Model.Account/<Range>d__18::MoveNext()  [39 -> 35 instructions]\n  collapsed 3 branch chain(s), removed 1 unreachable block(s) (3 instructions)\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 1a4d610f8eed0728 (the applied edit and the save report the same)."
+    "[TestFixture] Dry run — simplify Fixture.Model.Account (fold,cfg,inline): 2 of 31 method(s) would change.\nTotals: 2 of 31 method(s) changed; 2 unreachable block(s) removed.\n\nFixture.Model.Account/<LoadAsync>d__17::MoveNext()  [70 -> 68 instructions]\n  collapsed 1 branch chain(s), removed 1 unreachable block(s) (1 instructions)\nFixture.Model.Account/<Range>d__18::MoveNext()  [39 -> 35 instructions]\n  collapsed 3 branch chain(s), removed 1 unreachable block(s) (3 instructions)\nNothing changed (dry run); pass dryRun=false to apply.\nDigest bca80e2a29647871 (the applied edit and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -17,6 +17,6 @@
       }
     ],
     "editIds": [],
-    "digest": "1a4d610f8eed0728"
+    "digest": "bca80e2a29647871"
   }
 }

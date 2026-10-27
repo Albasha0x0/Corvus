@@ -5,10 +5,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// S12.2 recorded samples: ProtocolSamples/&lt;tool&gt;.json holds a call on the fixture and its normalized response; a change
-/// of shape shows as a diff. CORVUS_UPDATE_DOCS=1 records every sample again (and the <see cref="Seed"/> calls).
-/// </summary>
+/// <summary>ProtocolSamples/&lt;tool&gt;.json holds a call and its normalized response; CORVUS_UPDATE_DOCS=1 records them again with the <see cref="Seed"/> calls.</summary>
 // Runs alone: its in-process server rebuilds samples/ beside the fixtures, which the full set's classes share.
 [Collection(nameof(SerialTimingTests))]
 public partial class ProtocolSampleTests
@@ -47,9 +44,9 @@ public partial class ProtocolSampleTests
         ["survey_features"] = new() { ["assembly"] = "TestFixture", ["category"] = "all" },
         ["extract_strings"] = new() { ["assembly"] = "TestFixture", ["limit"] = 5 },
         ["extract_embedded"] = new() { ["assembly"] = "TestFixture" },
-        ["get_il2cpp_info"] = new() { ["symbol"] = "NativeThing" },
+        ["get_method_addresses"] = new() { ["symbol"] = "NativeThing" },
         ["find_method_by_address"] = new() { ["address"] = "0x1000", ["kind"] = "rva" },
-        ["export_il2cpp_symbols"] = new() { ["outputDirectory"] = "sample-il2cpp", ["assembly"] = "TestFixture", ["formats"] = "header" },
+        ["export_method_symbols"] = new() { ["outputDirectory"] = "sample-aot", ["assembly"] = "TestFixture", ["formats"] = "header" },
         ["generate_cpp_binding"] = new() { ["type"] = "Account", ["style"] = "mono" },
         ["symbolize_stack_text"] = new() { ["text"] = "System.Exception: boom\n   at Fixture.Model.Account.Charge(Int32 amount)" },
         // Edits preview by default; stub_method applies, so undo_edit (recorded after it) has an edit to undo.
@@ -93,10 +90,10 @@ public partial class ProtocolSampleTests
         ["compare_assemblies"] = new() { ["oldAssembly"] = In + "v1.dll", ["newAssembly"] = In + "v2.dll" },
         ["find_counterpart"] = new() { ["symbol"] = "Gauge::Read", ["oldAssembly"] = In + "v1.dll", ["newAssembly"] = In + "v2.dll", ["diff"] = true },
         ["compare_folders"] = new() { ["oldPath"] = In + "folders-old", ["newPath"] = In + "folders-new", ["caseSensitive"] = true },
-        // Containers and Android packages
+        // Containers and Android packages.
         ["search_container"] = new() { ["path"] = In + "lz4.nupkg", ["query"] = "LZ4Codec", ["kind"] = "type" },
         ["unpack_container"] = new() { ["path"] = In + "lz4.nupkg", ["outputDirectory"] = In + "unpack", ["extractOnly"] = true, ["limit"] = 5 },
-        ["unity_overview"] = new() { ["path"] = In + "MonoApp" },
+        ["summarize_build"] = new() { ["path"] = In + "MonoApp" },
         ["analyze_js"] = new() { ["path"] = In + "bundle.js" },
         ["get_android_manifest"] = new() { ["path"] = In + "app.apk" },
         ["list_android_resources"] = new() { ["path"] = In + "app.apk", ["type"] = "string" },
@@ -115,7 +112,7 @@ public partial class ProtocolSampleTests
         ["bucket_minidumps"] = new() { ["folder"] = In + "dumps" },
         // A running process differs per run and per machine: the sample is a refused view, answered alike on every platform.
         ["inspect_process"] = new() { ["process"] = "1", ["view"] = "heap" },
-        // Live sessions: refused here, as the sample server runs without --allow-live
+        // Live sessions: refused here, as the sample server runs without --allow-live.
         ["live_session"] = new() { ["action"] = "attach", ["program"] = "app.exe" },
         ["live_break"] = new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "kernel32!CreateFileW" },
         ["live_read"] = new() { ["session"] = "live-1" },
@@ -125,7 +122,7 @@ public partial class ProtocolSampleTests
         ["live_coverage"] = new() { ["session"] = "live-1", ["action"] = "start" },
         ["live_timeline"] = new() { ["session"] = "live-1", ["action"] = "start" },
         ["live_console"] = new() { ["action"] = "start", ["program"] = "prompt.exe", ["script"] = new[] { "wait name?", "send Ada\\r" } },
-        // Native reading (build A is never edited)
+        // Native reading (build A is never edited).
         ["get_pe_info"] = new() { ["image"] = BuildA },
         ["get_nativeaot_info"] = new() { ["image"] = In + "aot.dll" },
         ["list_imports"] = new() { ["image"] = BuildA },
@@ -155,8 +152,8 @@ public partial class ProtocolSampleTests
         ["load_pdb"] = new() { ["image"] = In + "tiny.dll" },
         ["search_pdb_symbols"] = new() { ["image"] = In + "tiny.dll", ["query"] = "Foo" },
         ["get_native_type"] = new() { ["image"] = In + "typed.dll", ["name"] = "Team", ["at"] = "0xD8" },
-        ["apply_il2cpp_names"] = new() { ["image"] = In + "il2cpp.dll", ["assembly"] = "TestFixture" },
-        // Native edits (edit.dll has a fresh hash every run, so its sidecar starts empty)
+        ["apply_metadata_names"] = new() { ["image"] = In + "metadata.dll", ["assembly"] = "TestFixture" },
+        // Native edits (edit.dll has a fresh hash every run, so its sidecar starts empty).
         ["comment_native"] = new() { ["image"] = In + "edit.dll", ["address"] = "First", ["text"] = "entry", ["dryRun"] = false },
         ["export_native_annotations"] = new() { ["image"] = In + "edit.dll", ["outputPath"] = In + "annotations.py", ["format"] = "ida" },
         ["list_native_edits"] = new() { ["image"] = In + "edit.dll" },
@@ -178,7 +175,7 @@ public partial class ProtocolSampleTests
     }
 
     [Fact]
-    public async Task SamplesMatch()
+    public async Task Recorded_samples_match_the_server()
     {
         bool update = Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1";
         var calls = Directory.Exists(Folder)
@@ -252,7 +249,7 @@ public partial class ProtocolSampleTests
     private static partial Regex Volatile();
 
     /// <summary>Tools whose written file holds the machine's image path, so its size differs per checkout.</summary>
-    private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations", "export_il2cpp_symbols"];
+    private static readonly HashSet<string> PathSized = ["export_native_patches", "export_native_annotations", "export_method_symbols"];
 
     /// <summary>A note only a non-Windows host adds (it has no Windows system DLLs to check against), in text or as a record entry.</summary>
     [GeneratedRegex(@"\nNote: This host has no Windows system DLLs[^\n]*|,\s*""This host has no Windows system DLLs[^""]*""|""This host has no Windows system DLLs[^""]*""\s*,?")]

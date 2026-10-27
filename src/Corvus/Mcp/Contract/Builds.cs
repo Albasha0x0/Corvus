@@ -15,14 +15,20 @@ public static partial class ToolEffects
         ["find_counterpart"] = Reads(longRunning: true),
 
         // Native builds
-        ["compare_native_images"] = Reads(longRunning: true, openWorld: true), // engine= starts an engine session
+        // engine= starts an engine session.
+        ["compare_native_images"] = Reads(longRunning: true, openWorld: true),
         ["map_address_between_builds"] = Reads(longRunning: true),
-        ["diff_function"] = Reads(longRunning: true, openWorld: true), // view=pseudocode runs IDA
-        ["make_code_pattern"] = Reads(longRunning: true, openWorld: true), // anchor=xrefs with engine=ida runs IDA
+        // view=pseudocode runs IDA.
+        ["diff_function"] = Reads(longRunning: true, openWorld: true),
+        // anchor=xrefs with engine=ida runs IDA.
+        ["make_code_pattern"] = Reads(longRunning: true, openWorld: true),
         ["search_code_pattern"] = Reads(longRunning: true),
-        ["migrate_native_names"] = Changes(destructive: false, idempotent: true, longRunning: true), // never replaces a name; saved to the sidecar
-        ["migrate_native_patches"] = Changes(destructive: true, idempotent: false, longRunning: true), // patches the new build; matches through both code indexes
-        ["update_to_new_build"] = Changes(destructive: true, idempotent: true, longRunning: true), // dryRun=false patches the new build and replaces its imported layers; a re-run reports already_present
+        // Never replaces a name; saved to the sidecar.
+        ["migrate_native_names"] = Changes(destructive: false, idempotent: true, longRunning: true),
+        // Patches the new build; matches through both code indexes.
+        ["migrate_native_patches"] = Changes(destructive: true, idempotent: false, longRunning: true),
+        // dryRun=false patches the new build and replaces its imported layers; a re-run reports already_present.
+        ["update_to_new_build"] = Changes(destructive: true, idempotent: true, longRunning: true),
     };
 }
 
@@ -33,14 +39,14 @@ public static partial class ParameterDomains
         ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs", "range"]), ["engine"] = Engine, ["format"] = Of(["ida", "x64dbg", "mask", "bitmask"]) },
         ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]), ["engine"] = Of(["ida", "ghidra"]) },
         ["compare_assemblies"] = new Dictionary<string, Domain> { ["changes"] = Of(Services.AssemblyComparer.ChangeKinds, "all") },
-        ["migrate_native_names"] = new Dictionary<string, Domain> { ["sources"] = Of(["user", "pdb", "il2cpp"]) },
+        ["migrate_native_names"] = new Dictionary<string, Domain> { ["sources"] = Of(["user", "pdb", "metadata"]) },
         ["compare_folders"] = new Dictionary<string, Domain> { ["change"] = Of(Services.Analysis.FolderCompare.Views) },
         ["diff_function"] = new Dictionary<string, Domain> { ["side"] = Of(["old", "new"]), ["view"] = Of(["asm", "pseudocode"]), ["engine"] = DecompilerEngine },
         ["update_to_new_build"] = new Dictionary<string, Domain>
         {
             ["stubPlacement"] = Placement,
-            ["include"] = Of(["names", "pdb", "il2cpp", "patches", "patterns", "notes", "all"], "il2cpp_names", "il2cpp_mapping"),
-            ["category"] = Of(["names", "pdb", "il2cpp_names", "patches", "patterns", "il2cpp_mapping", "notes", "dotnet"]),
+            ["include"] = Of(["names", "pdb", "metadata", "patches", "patterns", "notes", "all"], "metadata_names", "method_mapping"),
+            ["category"] = Of(["names", "pdb", "metadata_names", "patches", "patterns", "method_mapping", "notes", "dotnet"]),
             ["outcome"] = Of(["carried", "would_carry", "already_present", "refused", "not_applicable", "ambiguous"]),
         },
     };

@@ -14,7 +14,7 @@ public class KeySortTests
         var items = new int[n];
         for (int i = 0; i < n; i++)
         {
-            // many equal keys, and a wide spread
+            // Many equal keys, and a wide spread.
             keys[i] = (ulong)random.Next(0, 50_000) << 32 | (uint)random.Next(0, 4);
             items[i] = i;
         }
@@ -32,7 +32,7 @@ public class KeySortTests
     [Fact]
     public void Owner_map_gives_overlapping_code_to_the_lowest_function()
     {
-        // function 0: [10, 20) and [40, 50); function 1: [15, 30); function 2: [40, 45)
+        // Function 0: [10, 20) and [40, 50); function 1: [15, 30); function 2: [40, 45).
         ulong Key(uint start, int f) => (ulong)start << 32 | (uint)f;
         var (starts, ends, owners) = KeySort.OwnerMap([Key(10, 0), Key(40, 0), Key(15, 1), Key(40, 2)], [20, 50, 30, 45], 1);
         Assert.Equal([10u, 20u, 40u], starts);

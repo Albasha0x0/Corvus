@@ -71,12 +71,7 @@ internal sealed class TpiBuilder
     }
 }
 
-/// <summary>
-/// A PDB with types: enum Color (flags-like, declared out of value order), struct Vec, Header (bit fields), union Value,
-/// Sensor (nested structs, an array, a self pointer), Team (an array of Sensor), Dup twice (different unique names and
-/// sizes), a forward-only Opaque, class Base with a vftable pointer and Derived from it, procedure and member function types,
-/// the S_UDT typedef PSensor, and the global g_Team (a Team at rva 0x3010) beside <see cref="PdbBuilder.Sample"/>'s symbols.
-/// </summary>
+/// <summary>A PDB with enums, structs, bit fields, unions, nested and duplicate types, a forward-only type, classes with vftables, function types, a typedef and global g_Team at rva 0x3010.</summary>
 internal static class PdbTypeFixture
 {
     public const uint TeamRva = 0x3010;

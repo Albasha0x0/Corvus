@@ -11,8 +11,8 @@ namespace Corvus.Tools;
 public sealed class FolderTools(FolderCompare folders)
 {
     [McpServerTool(Name = "compare_folders", Title = "Compare two folders or packages", UseStructuredContent = true)]
-    [Description("Two folders, zip-family archives or files: modified, added, removed, moved, case renames, links, unreadable; binaries with MVID " +
-                 "and version, text with a diff, package findings. oldResult / newResult: kept results.")]
+    [Description("Compare two folders, zip-family archives or files: modified, added, removed and moved entries, binary versions, text " +
+                 "diffs and package findings. oldResult / newResult compare two kept results instead.")]
     public Task<FolderCompare.Comparison> CompareFolders(
         [Description("Old folder, archive or file.")] string? oldPath = null,
         [Description("New folder, archive or file.")] string? newPath = null,
@@ -44,11 +44,7 @@ public sealed class FolderTools(FolderCompare folders)
     // A folder is reviewed only with a package manifest at its root: the review reads every file in it.
     private static readonly string[] FolderManifests = ["package.json", "pyproject.toml", "setup.py", "manifest.json"];
 
-    /// <summary>
-    /// <paramref name="comparison"/> with the review findings and policy facts added or removed as its changes, and a policy
-    /// line first in its notes, when both paths are packages the review reads (npm, PyPI wheel, VS Code or browser extension,
-    /// or a folder with a manifest); unchanged otherwise.
-    /// </summary>
+    /// <summary>Adds package review changes and a policy note when both paths are packages; returns the comparison unchanged otherwise.</summary>
     private static FolderCompare.Comparison WithPackageChanges(FolderCompare.Comparison comparison, string oldPath, string newPath, CancellationToken ct)
     {
         static bool Package(string p) => File.Exists(p) && PackageExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase))

@@ -7,11 +7,7 @@ public sealed partial class ElfFile
 {
     private ImageArea<List<DeclaredFunction>> unwind = null!;
 
-    /// <summary>
-    /// Function starts in code from .eh_frame_hdr (or a walk of .eh_frame), .ARM.exidx, function symbols and the
-    /// initializer and finalizer arrays, one per address (the first source in that order wins), sorted. ARM Thumb bits
-    /// are cleared.
-    /// </summary>
+    /// <summary>Sorted function starts from .eh_frame, .ARM.exidx, symbols and init/fini arrays; the first source wins, Thumb bits cleared.</summary>
     public IReadOnlyList<DeclaredFunction> DeclaredFunctions => unwind.Value;
 
     private List<DeclaredFunction> ParseUnwind(IssueLog log)
@@ -32,7 +28,7 @@ public sealed partial class ElfFile
         }
 
         foreach (var (start, range) in ReadEhFrame(log)) Add(start, range, DeclaredSource.Unwind);
-        // the linker merges neighbors with the same unwinding into one entry, so an entry may span several functions: no extent
+        // The linker merges neighbors with the same unwinding, so an entry may span several functions: no extent.
         foreach (var (start, _) in ReadExidx(log)) Add(start, null, DeclaredSource.Unwind);
         foreach (var s in DynamicSymbols.Concat(StaticSymbols))
             if (s.IsDefined && s.IsFunction && s.Value != 0) Add(CodeAddress(s.Value), s.Size, DeclaredSource.Symbol);

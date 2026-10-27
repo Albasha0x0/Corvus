@@ -11,10 +11,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Hermes bytecode (React Native): the reader and disassembler on fixtures from every released compiler (versions 59–96),
-/// the decompiled view, the Metro module table, the analyze_js views, and (with CORVUS_HBC_DISASSEMBLER) equality with hbcdump.
-/// </summary>
+/// <summary>Hermes bytecode from every released compiler (59-96): reader, disassembler and views; hbcdump with CORVUS_HBC_DISASSEMBLER.</summary>
 public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -239,7 +236,7 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_HBC_DIR")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void Real_bundles_read_fast_and_decompile_whole()
+    public void Real_bundles_index_within_a_second_and_decompile_whole()
     {
         foreach (var file in Directory.EnumerateFiles(RealData.Path("CORVUS_HBC_DIR"), "*", SearchOption.AllDirectories).Where(p => HermesBundles.Applies(p)))
         {

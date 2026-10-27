@@ -2,11 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// What install would change, per client, computed before any write. Existing registrations are always refreshed (only
-/// the command is re-pointed); named clients are added; other detected clients are new and need consent: --yes,
-/// --all-detected or a confirmation. With refresh only (update) new clients are never added.
-/// </summary>
+/// <summary>What install would change per client: registrations refreshed, named clients added, other detected ones need consent.</summary>
 internal static class SetupPlan
 {
     public static List<ClientReport> Build(IReadOnlyList<McpClient> clients, ServerLaunch launch, IReadOnlyCollection<McpClient> named, bool refreshOnly)

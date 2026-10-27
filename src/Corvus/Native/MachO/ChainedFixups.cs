@@ -1,10 +1,6 @@
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// What a fixed-up pointer location holds. <see cref="Rebase"/>: a pointer into the image (<see cref="Rebase.TargetVm"/>
-/// as a virtual address, PAC bits stripped). <see cref="Bind"/>: a pointer bound to <see cref="Bind.Symbol"/> of the
-/// library with two-level ordinal <see cref="Bind.Ordinal"/> (0 self, -1 main executable, -2 flat lookup, -3 weak lookup).
-/// </summary>
+/// <summary>What a fixed-up pointer holds: a rebase into the image (PAC stripped), or a bind (ordinal 0 self, -1 main, -2 flat, -3 weak).</summary>
 public abstract record MachOFixup(ulong Location)
 {
     public sealed record Rebase(ulong Location, ulong TargetVm, bool Authenticated = false) : MachOFixup(Location);

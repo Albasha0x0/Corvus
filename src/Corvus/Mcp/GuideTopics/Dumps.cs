@@ -3,38 +3,29 @@ namespace Corvus.Mcp;
 public static partial class Guide
 {
     private const string DumpsTopic = """
-        Crash dumps and live processes.
-        open_minidump (user-mode .dmp; view=summary: exception, faulting module+function, instruction and thread; view=modules:
-        whether the binaries exist locally; threads, memory, unloaded), dump_stack (x64 unwind data, x86 frame pointers; scanned
-        frames carry basis inferred), read_dump_memory. Linux / Android ELF cores open the same way: threads and registers, the signal,
-        modules matched to local files by GNU build id, .eh_frame CFI unwinding with a frame-pointer fallback; a .NET core's heap and
-        exception through the Windows-hosted DAC for Linux targets (pass the runtime's folder in imageDirectories for its version check).
-        macOS Mach-O cores too: modules matched by UUID, stacks through the frame records. A region-set manifest (JSON
-        {"format": 1, "arch": "x64", "regions": [{"file", "base", "size", "protect"}], "modules": [{"name", "base", "size"}]},
-        region files beside it) opens as a dump of memory saved by any tool: summary, modules, memory and read_dump_memory at the
-        regions' addresses; its threads and exception are unknown, and a missing region file reads as unknown.
-        Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories when they are not at
-        their recorded paths. .NET dumps: the runtime's DAC (found locally: dacPath, the same runtime installed here, symbol stores;
-        downloadDac=true fetches it, never under CORVUS_OFFLINE=1; always signature-checked) decodes the managed exception and its
-        inner chain, and gives managed frames a token, IL offset, the C# statement and the loaded assembly of that build (load the
-        app's assemblies first; decompile_member assembly=<id> member=<token>); .NET Framework and 32-bit dumps too. Unity Mono:
-        the runtime's report beside the dump (Player.log, error.log) names the JIT frames. With heap memory in the dump:
-        dump_heap (stats per type, or objects by type) and dump_object (fields, strings, arrays; the exception's address works).
-        No dump, only text (Player.log, error.log, Report.wer, event text, an exception's ToString, a debugger stack):
-        symbolize_stack_text names each frame in the loaded build; check buildCheck before trusting a name (mismatch: another build).
-        A folder of dumps: bucket_minidumps groups them by signature; open the largest bucket's representative.
-        inspect_process does the same for a running local process (Windows), read-only: view=summary, modules, regions, threads, stacks. It
-        opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the target
-        by pid or name (a shared name is refused with the candidate pids).
-        Sessions (off unless the server runs with --allow-live-attach, --allow-live-spawn, --live-scripting or --allow-live; Python with Frida's bindings): live_session attaches to a local
-        program (--allow-live-attach), or spawns one suspended (--allow-live-spawn), both limited to --live-allow paths when set, and matches its modules to loaded images; live_break sets stop
-        points by name, module!export, address or file:line, continue resumes held threads (and starts a spawned program), and
-        wait returns the next stop with a named stack; live_read reads a held thread's registers and memory as typed values;
-        live_watch records every call of a function with its arguments decoded (PDB or DWARF prototype, or known API) as call events;
-        live_coverage counts which functions ran, drawn on the static call graph, and diffs two runs;
-        live_timeline traces the files, registry keys, endpoints and child processes the program opens (event tracing, Windows);
-        live_console (--allow-live-spawn) runs a program under a console with a script of send, wait, resize and delay steps, transcript paged;
-        live_script (--live-scripting) loads your own script; live_events pages the event ring with a cursor. Close sessions
-        when done: held threads are released, a spawned program ends.
+        Crash dumps and running processes.
+        - open_minidump reads a user-mode .dmp: view=summary (exception, faulting function, thread), modules, threads, memory, unloaded.
+        - dump_stack unwinds a thread (scanned frames carry basis inferred); read_dump_memory reads its memory.
+        - Linux / Android ELF cores and macOS Mach-O cores open the same way; modules match local files by build id or UUID.
+        - A .NET Linux core reads through the Windows-hosted DAC; pass the runtime's folder in imageDirectories.
+        - A region-set manifest (JSON: format, arch, regions, modules; region files beside it) opens as a dump; its threads and exception are unknown.
+        - Load the crashed binaries first so frames get your names; pass imageDirectories when they moved.
+        - .NET dumps: the runtime's DAC decodes the managed exception and gives frames a token, IL offset and C# statement; load the app's assemblies first.
+        - The DAC is found locally (dacPath, installed runtime, symbol stores); downloadDac=true fetches it, never under CORVUS_OFFLINE=1; its signature is always checked.
+        - Mono: the runtime's log beside the dump (Player.log, error.log) names JIT frames.
+        - With heap memory in the dump: dump_heap (per-type stats or objects) and dump_object (fields, strings, arrays).
+        - Text only (a log, Report.wer, an exception's ToString, a debugger stack): symbolize_stack_text names frames in the loaded build.
+        - symbolize_stack_text: check buildCheck before trusting a name; a mismatch means another build.
+        - A folder of dumps: bucket_minidumps groups them by signature; open the largest bucket's representative.
+        - inspect_process reads a running local Windows process (view=summary, modules, regions, threads, stacks) with query and read handles only; nothing is written or suspended.
+        - inspect_process refuses a name several processes share and lists their pids.
+        - Sessions are off unless the server runs with --allow-live-attach, --allow-live-spawn, --live-scripting or --allow-live; they need Python with Frida's bindings.
+        - live_session attaches (--allow-live-attach) or spawns suspended (--allow-live-spawn), limited to --live-allow paths when set.
+        - live_break sets stop points (name, module!export, address, file:line); continue resumes (and starts a spawned program); wait returns the next stop with a stack.
+        - live_read reads a held thread's registers and memory; live_watch records calls with decoded arguments.
+        - live_coverage counts which functions ran and diffs two runs; live_timeline traces files, registry keys, endpoints and child processes (Windows).
+        - live_console (--allow-live-spawn) runs a console program with a send / wait / resize / delay script.
+        - live_script (--live-scripting) loads your own script; live_events pages the event ring with a cursor.
+        - Close sessions when done: held threads are released and a spawned program ends.
         """;
 }

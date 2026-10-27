@@ -37,7 +37,7 @@ internal sealed class XarReader : IContainerReader
     {
         int headerSize = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(4));
         long tocCompressed = (long)BinaryPrimitives.ReadUInt64BigEndian(data.AsSpan(8));
-        // the length is unsigned on disk: one past 2^63 reads negative
+        // The length is unsigned on disk: one past 2^63 reads negative.
         if (headerSize < 28 || tocCompressed < 0 || tocCompressed > data.Length || headerSize + tocCompressed > data.Length)
             throw new ToolError(ErrorCode.MalformedInput, $"{name}: the xar table of contents runs past the end.");
         var doc = new XmlDocument { XmlResolver = null };
@@ -72,7 +72,7 @@ internal sealed class XarReader : IContainerReader
                 byte[] bytes = data.AsSpan((int)(heap + offset), (int)length).ToArray();
                 if (encoding.Contains("gzip", StringComparison.Ordinal))
                 {
-                    // xar's "gzip" style is a zlib stream
+                    // xar's "gzip" style is a zlib stream.
                     using var z = new ZLibStream(new MemoryStream(bytes), CompressionMode.Decompress);
                     using var copy = new MemoryStream();
                     var buffer = new byte[81920];
@@ -92,10 +92,7 @@ internal sealed class XarReader : IContainerReader
     }
 }
 
-/// <summary>
-/// cpio archives, odc (070707), newc / crc (070701, 070702) and old binary (either byte order): .pkg Payloads, initramfs,
-/// RPM payloads; read entry by entry from a stream.
-/// </summary>
+/// <summary>cpio archives (odc, newc, crc, old binary in either byte order), read entry by entry from a stream.</summary>
 internal sealed class CpioReader : IContainerReader
 {
     public string Kind => "cpio";
@@ -146,7 +143,7 @@ internal sealed class CpioReader : IContainerReader
             if (path == "TRAILER!!!") break;
             if (dataAt + fileSize > src.Length) { tree.Notes.Add($"{path}: data runs past the end"); break; }
             bool usable = path.Length > 0 && !path.Split('/').Contains("..");
-            // regular files and symbolic links; directories and devices are skipped
+            // Regular files and symbolic links; directories and devices are skipped.
             if (usable && (mode & 0xF000) == 0x8000)
             {
                 long at = dataAt, size = fileSize;

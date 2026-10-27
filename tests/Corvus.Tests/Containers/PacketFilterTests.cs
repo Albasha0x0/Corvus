@@ -30,7 +30,7 @@ public sealed class PacketFilterTests : IDisposable
     [InlineData("tcp.flags.syn==1 and tcp.flags.ack==0", new long[] { 3 })]
     [InlineData("tcp.dstport in {80, 443} and tcp.len > 0", new long[] { 5, 6, 7, 8 })]
     [InlineData("(udp.port == 53) or (tcp.dstport == 80)", new long[] { 1, 2, 8 })]
-    public void Addresses_ports_and_protocols(string filter, long[] frames) => Assert.Equal(frames, Frames(filter));
+    public void Filters_on_addresses_ports_and_protocols_select_their_frames(string filter, long[] frames) => Assert.Equal(frames, Frames(filter));
 
     [Theory]
     [InlineData("dns.qry.name contains \"example\"", new long[] { 1, 2 })]
@@ -43,7 +43,7 @@ public sealed class PacketFilterTests : IDisposable
     [InlineData("tls.handshake.extensions_alpn_str == h2", new long[] { 7 })]
     [InlineData("tls.handshake.ja4 == \"t12d0103h2_0f2cb44170f4_4298e3b3ed58\" and tls.handshake.ja3 contains \"\"", new long[] { 7 })]
     [InlineData("tls", new long[] { 7 })]
-    public void Dns_http_and_tls_fields(string filter, long[] frames) => Assert.Equal(frames, Frames(filter));
+    public void Filters_on_DNS_HTTP_and_TLS_fields_select_their_frames(string filter, long[] frames) => Assert.Equal(frames, Frames(filter));
 
     [Fact]
     public void Rows_carry_time_endpoints_and_the_named_fields_paged()
@@ -91,7 +91,7 @@ public sealed class PacketFilterSpeedTests(ITestOutputHelper output) : IDisposab
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public void One_gigabyte_pcapng_filters_at_200_megabytes_per_second()
     {
-        // one round: the 8 frames of a DNS lookup, a split ClientHello and an HTTP request, then 40 bulk segments of 1,400 bytes
+        // One round: the 8 frames of a DNS lookup, a split ClientHello and an HTTP request, then 40 bulk segments of 1,400 bytes.
         var frames = EthernetFrames(splitHello: true);
         for (int i = 0; i < 40; i++) frames.Add(Ethernet(Tcp(Web, 443, Client, 50000, 0x10, (uint)(5001 + i * 1400), new byte[1400])));
         var round = new MemoryStream();

@@ -3,17 +3,13 @@ using Corvus.Native.MachO;
 
 namespace Corvus.Native.Dump;
 
-/// <summary>
-/// A module of a Mach-O core as the namer reads it: the function symbols of the file matched by UUID, else of the
-/// LC_SYMTAB the core's memory holds (through the image's __LINKEDIT). Apple's ABIs keep frame records, so the walk
-/// needs no unwind data.
-/// </summary>
+/// <summary>Function symbols of a Mach-O core module, from the file matched by UUID, else from LC_SYMTAB in memory; Apple ABIs keep frame records, so no unwind data is read.</summary>
 internal static class MachOCoreImage
 {
     private const int MaxHeaderBytes = 0x8000;
     private const int MaxSymbols = 1 << 18;
 
-    /// <summary>The module's file: its recorded path (on macOS), then each folder by file name and as a sysroot; a file whose LC_UUID equals the core's matches.</summary>
+    /// <summary>The module's file matched by LC_UUID (by name when the core has none); else the first file found, or null.</summary>
     public static (string? Path, bool Matches, string Detail) Find(CoreModule module, IReadOnlyList<string> directories, Func<string, MachOFile?> open)
     {
         string name = module.Module.Path.Split('/')[^1];
@@ -80,8 +76,7 @@ internal static class MachOCoreImage
             {
                 byte type = t.U8(e + 4);
                 ulong value = t.U64(e + 8);
-                // Keep N_SECT entries inside __TEXT that are not debug (stab)
-                // entries.
+                // Keep non-stab N_SECT entries inside __TEXT.
                 if ((type & 0xE0) != 0 || (type & 0x0E) != 0x0E || value < textVm || value - textVm >= textSize) continue;
                 if (s.CString(t.U32(e), 1024) is not { Length: > 0 } text) continue;
                 symbols.Add(new CoreSymbol(value + slide, 0, Name(text), (type & 1) != 0 ? "export" : "symbol"));

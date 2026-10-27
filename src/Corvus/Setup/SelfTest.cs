@@ -73,8 +73,7 @@ internal static class SelfTest
 
     private static Result Fail(string message, System.Text.StringBuilder stderr, Process p)
     {
-        // Stdout can end before the async stderr reader delivers the exit message; an exited server's
-        // streams are drained first (the parameterless WaitForExit waits for them).
+        // Stdout can end before the stderr reader delivers the exit message; the parameterless WaitForExit drains it.
         if (p.WaitForExit(TimeSpan.FromSeconds(2))) p.WaitForExit();
         string log;
         lock (stderr) log = stderr.ToString().Trim();

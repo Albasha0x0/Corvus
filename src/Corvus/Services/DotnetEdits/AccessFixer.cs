@@ -5,11 +5,8 @@ using static Corvus.Core.MetadataUtil;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Makes patched code (compiled with accessibility checks off) pass runtime access checks: inaccessible members and
-/// nested types in the same assembly are relaxed to internal; other assemblies get
-/// <c>[assembly: IgnoresAccessChecksTo("Other")]</c>, honored by the .NET and Mono runtimes.
-/// </summary>
+/// <summary>Makes patched code pass runtime access checks: relaxes same-assembly members to internal and adds
+/// <c>IgnoresAccessChecksTo</c>, honored by .NET and Mono, for other assemblies.</summary>
 internal static class AccessFixer
 {
     private const string IgnoresAccessChecksTo = "System.Runtime.CompilerServices.IgnoresAccessChecksToAttribute";

@@ -6,11 +6,7 @@ namespace Corvus.Core.Documents;
 /// <summary>One VBA module: its stream, kind (standard, class, form or document) and source text.</summary>
 internal sealed record VbaModule(string Name, string Stream, string Type, string Source, bool SourceMissing);
 
-/// <summary>
-/// A VBA project of a compound file (MS-OVBA): the compressed dir stream read for the project name, code page, references
-/// and modules, and each module's source decompressed from its text offset. The p-code before the offset is not
-/// disassembled, so source replaced after compiling is not detected; a module with no readable source at its offset is marked.
-/// </summary>
+/// <summary>A VBA project (MS-OVBA) and its module sources; p-code is not read, so source replaced after compiling is not detected.</summary>
 internal sealed class VbaProject
 {
     public required string Storage { get; set; }
@@ -66,7 +62,8 @@ internal sealed class VbaProject
             int id = BinaryPrimitives.ReadUInt16LittleEndian(dir.AsSpan(pos));
             int size = BinaryPrimitives.ReadInt32LittleEndian(dir.AsSpan(pos + 2));
             pos += 6;
-            if (id == 0x0009) size = 6; // PROJECTVERSION: its size field reads 4 for 6 bytes of data
+            // PROJECTVERSION: its size field reads 4 for 6 bytes of data.
+            if (id == 0x0009) size = 6;
             if (size < 0 || pos + size > dir.Length) { notes.Add($"dir stream: record 0x{id:X4} runs past the end"); break; }
             var d = dir.AsSpan(pos, size);
             pos += size;
@@ -94,7 +91,7 @@ internal sealed class VbaProject
             }
         }
         EndModule();
-        // the PROJECT stream names document modules (Document=ThisDocument/&H00000000)
+        // The PROJECT stream names document modules (Document=ThisDocument/&H00000000).
         if (cf.Find(root + "PROJECT") is { } projectStream)
         {
             var text = enc.GetString(cf.Read(projectStream, Math.Min(max, 1 << 20)));
@@ -155,7 +152,8 @@ internal sealed class VbaProject
                         int length = (token & lengthMask) + 3;
                         int offset = (token >> (16 - bitCount)) + 1;
                         int from = output.Count - offset;
-                        if (from < chunkStart) return output.ToArray(); // a copy before the chunk: damaged, keep what was read
+                        // A copy from before the chunk is damage: keep what was read.
+                        if (from < chunkStart) return output.ToArray();
                         for (int i = 0; i < length; i++) output.Add(output[from + i]);
                     }
                 }

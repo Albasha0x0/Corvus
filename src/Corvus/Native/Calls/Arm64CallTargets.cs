@@ -5,13 +5,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// Targets of ARM64 call and tail-jump sites: bl / b to functions and PLT or stub thunks, blr / br through registers loaded
-/// from GOT and import slots, constant function addresses (adr, adrp + add, literal pools, relocated pointers in read-only
-/// data), writable function pointer globals (their writers and initial contents), relocated pointer tables indexed by a
-/// bounded register, and with deep the function pointers callers pass in. Loads from an object's field (vtable-style
-/// dispatch) stay unresolved with the trace to follow.
-/// </summary>
+/// <summary>Targets of ARM64 call and tail-jump sites: direct, import and GOT slots, constant addresses, pointer globals and tables; field loads stay unresolved.</summary>
 internal static class Arm64CallTargets
 {
     private const int MaxWriters = 32;
@@ -191,10 +185,7 @@ internal static class Arm64CallTargets
         return site("memory_pointer", distinct == 1 ? "resolved" : "possible", distinct == 1 ? targets : targets.Select(t => t with { Confidence = "possible" }).ToList(), null, null);
     }
 
-    /// <summary>
-    /// ldr xT, [xTab, xIdx, lsl #3] then blr xT with xTab a known address: consecutive relocated entries that are function
-    /// starts, bounded by a cmp of the index and a b.hi / b.hs before it.
-    /// </summary>
+    /// <summary>Targets of ldr xT, [xTab, xIdx, lsl #3]; blr xT: relocated function entries of the table, bounded by a cmp / b.hi before it.</summary>
     private static (List<CallTarget> Targets, bool Bounded)? PointerTable(Arm64Trace a, A64Function code, Arm64Resolver resolver, int b, int i, int reg)
     {
         var steps = code.Blocks[b];
@@ -218,7 +209,7 @@ internal static class Arm64CallTargets
         }
         if (targets.Count == 0) return null;
         int idx = m.Accessor.IndexRegister.Index;
-        // cmp idx, #n; b.hi / b.hs in this block, or ending the single predecessor
+        // cmp idx, #n; b.hi / b.hs in this block or ending the single predecessor.
         foreach (var (block, upTo) in new[] { (b, k) }.Concat(code.Predecessors(b).Take(1).Select(p => (p, code.Blocks[p].Length))))
         {
             var bs = code.Blocks[block];

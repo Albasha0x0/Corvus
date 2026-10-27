@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// Reads Objective-C and Swift metadata of a Mach-O image by virtual address. Pointer slots go through the fixup table:
-/// a bind names its symbol (a raw read would give 0), a rebase gives its target; slots no fixup covers read as stored.
-/// </summary>
+/// <summary>Reads a Mach-O image by virtual address with pointer slots resolved through fixups: a bind names its symbol, a rebase gives its target.</summary>
 internal sealed class AppleObjcImage(MachOFile image)
 {
     /// <summary>Longest C string read (selectors, type encodings, mangled names).</summary>
@@ -71,10 +68,7 @@ internal sealed class AppleObjcImage(MachOFile image)
         return offset == 0 ? 0 : unchecked(va + (ulong)(long)offset);
     }
 
-    /// <summary>
-    /// A relative pointer whose low bit marks indirection (Swift's RelativeIndirectablePointer): direct to its target,
-    /// or through a pointer slot (often a bind to another image's symbol).
-    /// </summary>
+    /// <summary>A RelativeIndirectablePointer: direct to its target, or through a pointer slot when the low bit is set.</summary>
     public Pointer RelativeIndirectable(ulong va)
     {
         int offset = I32(va);
@@ -104,10 +98,7 @@ internal sealed class AppleObjcImage(MachOFile image)
         return null;
     }
 
-    /// <summary>
-    /// A Swift mangled name at <paramref name="va"/> as one char per byte (symbolic references keep their 4- or 8-byte
-    /// payloads), with the address of every char so references resolve; null when unreadable.
-    /// </summary>
+    /// <summary>A Swift mangled name at <paramref name="va"/>, one char per byte with each char's address; null when unreadable.</summary>
     public string? MangledName(ulong va)
     {
         if (va == 0 || !Image.TryVaToRva(va, out uint rva)) return null;

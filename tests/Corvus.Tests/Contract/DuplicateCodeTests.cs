@@ -3,10 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Static gates (E19): the dead-code analyzers are errors in the build, and copied blocks of source are counted per file
-/// pair against Ratchets/duplicate-lines.txt, which may only fall.
-/// </summary>
+/// <summary>Dead-code analyzers are build errors, and copied blocks per file pair only fall (Ratchets/duplicate-lines.txt).</summary>
 public partial class DuplicateCodeTests
 {
     /// <summary>Significant lines (no blanks, comments, lone braces or usings) a copy must span to count.</summary>
@@ -21,7 +18,7 @@ public partial class DuplicateCodeTests
     private static partial Regex Space();
 
     [Fact]
-    public void DeadCodeAnalyzersAreErrors()
+    public void Dead_code_analyzers_are_errors()
     {
         var editorconfig = File.ReadAllText(Path.Combine(Root, ".editorconfig"));
         Assert.Contains("dotnet_diagnostic.IDE0051.severity = error", editorconfig, StringComparison.Ordinal);
@@ -31,14 +28,14 @@ public partial class DuplicateCodeTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void DuplicateLinesOnlyFall()
+    public void Duplicate_lines_only_fall()
     {
         var measured = Measure(Path.Combine(Root, "src"));
         CountRatchet.Check("duplicate-lines", $"no new copied block of {Window} or more significant lines under src/", measured, floor: false);
     }
 
     [Fact]
-    public void ACopiedBlockIsFound()
+    public void A_copied_block_is_found()
     {
         using var dir = new TempDir();
         var body = string.Join("\n", Enumerable.Range(0, Window).Select(i => $"var v{i} = Compute({i}) + offset;"));

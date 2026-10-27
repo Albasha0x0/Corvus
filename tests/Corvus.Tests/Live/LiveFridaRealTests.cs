@@ -27,10 +27,7 @@ public sealed class FridaFactAttribute : FactAttribute, IRunTimeSkip
         Missing.Value ?? (_elevated && !Environment.IsPrivilegedProcess ? "An event tracing session needs an elevated test run." : null);
 }
 
-/// <summary>
-/// The session tools by name on a program built here with its PDB: started suspended, stop points by name and file:line,
-/// a stop's stack named by the PDB with source lines, typed reads, events, a saved record verified, and close ending it.
-/// </summary>
+/// <summary>The session tools on a program built here with its PDB: stops by name and file:line, named stacks with lines, typed reads, events, a verified record.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -134,7 +131,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("[1] 0", regs);
         Assert.Matches(@"pc +0x[0-9a-f]+  orders\.exe!AddLine", regs);
 
-        // the next stop is s2, in the same call: its stack is named within the target once the stop is held
+        // The next stop is s2, in the same call: its stack is named within the target once the stop is held.
         await Call(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
         await Task.Delay(500);
         sw.Restart();
@@ -217,7 +214,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var (file, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["from"] = "w2" });
         Assert.Matches(@"CreateFileA\(lpFileName=""[^""]*orders\.exe"", dwDesiredAccess=GENERIC_READ, dwShareMode=FILE_SHARE_READ, lpSecurityAttributes=0x0, dwCreationDisposition=OPEN_EXISTING, dwFlagsAndAttributes=FILE_ATTRIBUTE_NORMAL, hTemplateFile=0x0\) -> 0x", file);
 
-        // a low limit: the rest are counted, not recorded
+        // A low limit: the rest are counted, not recorded.
         await Spawn(server, exe, "live-2", "20000", "0");
         await Call(server, "live_watch", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "AddLine", ["rateLimit"] = 1_000 });
         await Call(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
@@ -252,7 +249,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var (loaded, failed) = await Call(server, "live_script", new()
         {
             ["session"] = "live-1", ["action"] = "load",
-            // Frida lists modules in no fixed order on Windows (its mainModule can be a system DLL): the script picks the .exe
+            // Frida lists modules in no fixed order on Windows (its mainModule can be a system DLL): the script picks the .exe.
             ["source"] = "send({ pid: Process.id, main: Process.enumerateModules().find(m => m.name.endsWith('.exe')).name });",
         });
         Assert.False(failed, loaded);

@@ -3,11 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Live;
 
-/// <summary>
-/// Statically linked ELF programs: Frida loads its agent through the program's dynamic loader and C library, which a
-/// static program has neither of, so a session can neither start one nor attach to one (Frida 17 reports "loader crashed
-/// with signal 11" or "refused to load frida-agent"; frida/frida#2533).
-/// </summary>
+/// <summary>Statically linked ELF programs, which a session can neither start nor attach to (frida/frida#2533, Frida 17).</summary>
 internal static class StaticProgram
 {
     private const uint PtLoad = 1, PtInterp = 3;
@@ -42,7 +38,6 @@ internal static class StaticProgram
     }
 
     public static ToolError Refusal(string path) => new(ErrorCode.Unsupported,
-        $"{path} is statically linked (no program interpreter): Frida loads its agent through the program's dynamic loader and C library, " +
-        "so a session can neither start this program nor attach to it.",
+        $"{path} is statically linked (no program interpreter); Frida needs a dynamic loader to start or attach to it.",
         "read it statically (load_assembly path=<file>), or write a core of the running program with gcore and open it with open_minidump");
 }

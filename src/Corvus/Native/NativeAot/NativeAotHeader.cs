@@ -10,10 +10,7 @@ public sealed record NativeAotSection(int Id, uint Flags, uint StartRva, uint En
     public bool IsBlob => Id is >= SectionId.BlobBase and <= SectionId.BlobLast;
 }
 
-/// <summary>
-/// A NativeAOT module header (ModuleHeaders.h): "RTR\0", major/minor version, flags and the section rows
-/// {i32 id; i32 flags; ptr start; ptr end}.
-/// </summary>
+/// <summary>A NativeAOT module header ("RTR\0") with its section rows.</summary>
 public sealed class NativeAotHeader(uint rva, ushort major, ushort minor, uint flags, IReadOnlyList<NativeAotSection> sections, bool relocated)
 {
     public uint Rva { get; } = rva;

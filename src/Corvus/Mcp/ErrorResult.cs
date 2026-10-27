@@ -4,14 +4,8 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Tool errors as call results: IsError=true and two text blocks. The first is the error text agents read
-/// ("Error (code[, retryable]) in tool: message\nNext: ..."); the second starts with <see cref="JsonMarker"/> followed by
-/// the error as one line of JSON: { code, retryable, message, next, partial, details }.
-/// The JSON is not sent as structuredContent: clients validate structuredContent against the tool's output schema, some
-/// even on error results (the TypeScript SDK validates whatever structuredContent is present), and an error object never
-/// matches a success schema.
-/// </summary>
+/// <summary>Tool errors as call results: IsError=true, the error text ("Error (code[, retryable]) in tool: message\nNext: ..."), then <see cref="JsonMarker"/> and the error as one JSON line.</summary>
+// Not sent as structuredContent: some clients validate it against the success schema even on errors.
 internal static class ErrorResult
 {
     /// <summary>The start of the second text block; the rest of the block is the JSON object.</summary>
@@ -24,13 +18,10 @@ internal static class ErrorResult
         return Create(Format.EscapeInvisible(error.Render(tool)), error.ToJson(tool, store == null ? null : partial => Keep(store, tool, partial)));
     }
 
-    /// <summary>Estimated tokens of the first block: the error budget (S1.3) less a tenth, for text the estimate counts low.</summary>
+    /// <summary>Estimated tokens of the first block: the error budget less a tenth, for text the estimate counts low.</summary>
     public static int MaxTokens => OutputClasses.Budget(OutputClass.Error) * 9 / 10;
 
-    /// <summary>
-    /// An error longer than <see cref="MaxTokens"/> (160 compiler diagnostics): the head of its message, whole lines, and the
-    /// full error kept for read_result (details.resultId); null when it fits.
-    /// </summary>
+    /// <summary>The head of an error over <see cref="MaxTokens"/>, whole lines, with the full error kept for read_result; null when it fits.</summary>
     private static ToolError? Shorten(ToolError error, string? tool, ResultStore store)
     {
         var text = error.Render(tool);
@@ -56,7 +47,7 @@ internal static class ErrorResult
     private static string NextFor(Exception ex) => ex switch
     {
         // dnlib (internal type): its metadata list locks are not re-entrant, so a retry fails the same way.
-        _ when ex.GetType().FullName == "dnlib.Threading.LockException" => "please report it with the tool and arguments; other members of the assembly can still be read, and reload_assembly gives it a fresh metadata reader (in-memory edits are dropped)",
+        _ when ex.GetType().FullName == "dnlib.Threading.LockException" => "report it with the tool and arguments; reload_assembly gives a fresh metadata reader (drops in-memory edits)",
         _ => ToolError.InternalNext,
     };
 
@@ -75,10 +66,8 @@ internal static class ErrorResult
         Content = [new TextContentBlock { Text = text }, new TextContentBlock { Text = JsonMarker + json }],
     };
 
-    /// <summary>
-    /// Adds workspace notices to a result. On an error they follow the two error blocks: some clients show the model only
-    /// the first block of an error. On a success they lead.
-    /// </summary>
+    /// <summary>Adds workspace notices to a result: after the error blocks on an error, first on a success.</summary>
+    // Some clients show the model only the first block of an error.
     public static void AddNotices(CallToolResult result, IReadOnlyCollection<string> notices)
     {
         if (notices.Count == 0) return;

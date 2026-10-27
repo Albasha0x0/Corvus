@@ -2,11 +2,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// An exports-trie entry. <see cref="Address"/> is the offset from the image base (an absolute value for
-/// <see cref="IsAbsolute"/>); re-exports name a library ordinal and the symbol there (empty when it is the same name);
-/// stub-and-resolver exports have the stub at <see cref="Address"/> and the resolver at <see cref="Resolver"/>.
-/// </summary>
+/// <summary>An exports-trie entry; <see cref="Address"/> is an image-base offset, absolute for <see cref="IsAbsolute"/>, the stub for resolver exports.</summary>
 public sealed record MachOExport(string Name, ulong Flags, ulong Address, ulong Resolver, int ReexportOrdinal, string? ImportName)
 {
     public bool IsReexport => (Flags & 0x08) != 0;

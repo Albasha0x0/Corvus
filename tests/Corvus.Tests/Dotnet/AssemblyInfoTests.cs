@@ -12,7 +12,7 @@ namespace Corvus.Tests;
 public class AssemblyInfoTests
 {
     [Fact]
-    public void Provenance_FileSha256AndMvid_InTextAndStructured()
+    public void The_report_names_the_file_SHA256_and_MVID_in_text_and_structured_output()
     {
         using var env = new Env();
         var sha = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Env.FixturePath)));
@@ -29,7 +29,7 @@ public class AssemblyInfoTests
 
     /// <summary>Row counts and heap sizes agree with System.Reflection.Metadata reading the same file.</summary>
     [Fact]
-    public void TableRowsAndHeapSizes_MatchAnIndependentReader()
+    public void Table_rows_and_heap_sizes_match_an_independent_reader()
     {
         using var env = new Env();
         AssemblyReport.Summary summary = null!;
@@ -55,7 +55,7 @@ public class AssemblyInfoTests
 
     /// <summary>No false positives on the fixture and on large runtime assemblies.</summary>
     [Fact]
-    public void RowSweep_CleanAssemblies_HaveNoIssues()
+    public void The_row_sweep_finds_no_issues_in_clean_assemblies()
     {
         var runtime = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         foreach (var path in new[] { Env.FixturePath, typeof(object).Assembly.Location, Path.Combine(runtime, "System.Linq.dll"),
@@ -70,7 +70,7 @@ public class AssemblyInfoTests
 
     /// <summary>Rows broken the way transformation tools break them: each is reported with its column, reason and file offset; get_assembly_info lists them.</summary>
     [Fact]
-    public void RowSweep_BadIndexes_ReportedWithReasonAndOffset()
+    public void The_row_sweep_reports_bad_indexes_with_reason_and_offset()
     {
         var image = File.ReadAllBytes(Env.FixturePath);
         var (typeDef, typeDefSize) = MetadataPatcher.Row(image, TableIndex.TypeDef, 2);

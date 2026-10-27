@@ -6,11 +6,8 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// In-memory edits on the dnlib module; nothing is written until <see cref="Save"/>.
-/// Each edit is recorded as a replayable <see cref="EditRecord"/>; <see cref="Undo"/> and edit scripts rebuild from
-/// the original image and replay records. Callers must hold the workspace write lock, or the read lock for dry runs.
-/// </summary>
+/// <summary>In-memory edits recorded as replayable <see cref="EditRecord"/>s, written only by <see cref="Save"/>;
+/// callers hold the write lock, or the read lock for dry runs.</summary>
 public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler assembler, CSharpPatcher csharp)
 {
     public string Rename(ResolvedSymbol symbol, string newName, bool dryRun = false)
@@ -56,9 +53,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return description;
     }
 
-    /// <summary>
-    /// A generic type keeps its arity suffix (`N): reflection names, the decompiled source and later C# edits depend on it.
-    /// </summary>
+    /// <summary>Keeps a generic type's arity suffix (`N), which reflection names and later C# edits depend on.</summary>
     internal static string KeepArity(string oldName, string newName)
     {
         int tick = oldName.LastIndexOf('`');
@@ -98,10 +93,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return description;
     }
 
-    /// <summary>
-    /// Replaces a method body with "return value;" (or "return;" for void).
-    /// value: true/false, integers, floats, "string" literals, null, or default.
-    /// </summary>
+    /// <summary>Replaces a method body with "return value;": a bool, number, "string", null or default.</summary>
     public string StubMethod(ResolvedSymbol symbol, string? value, bool dryRun = false)
     {
         var m = RequireBodyMethod(symbol);
@@ -202,10 +194,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     private static string Unquote(string v) =>
         v.Length >= 2 && v[0] == '"' && v[^1] == '"' ? System.Text.RegularExpressions.Regex.Unescape(v[1..^1]) : v;
 
-    /// <summary>
-    /// Replaces (mode=replace) or prefixes (mode=prepend) a method body with IL assembled from text.
-    /// Everything is validated before the method is touched; dryRun only reports the resulting body.
-    /// </summary>
+    /// <summary>Replaces or prepends a method body with assembled IL, validated before the method changes.</summary>
     public string PatchMethodIL(ResolvedSymbol symbol, string il, string mode, bool dryRun)
     {
         var m = RequireBodyMethod(symbol);
@@ -219,10 +208,8 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         var oldBody = MetadataUtil.SafeBody(m);
         if (prepend && oldBody == null)
             throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} has no existing body to prepend to; use mode=replace.");
-        // The loaded body is not valid IL (e.g. encrypted) and no edit has replaced it.
         if (prepend && symbol.Assembly.BodyHealth.IsInvalid(m) && !symbol.Assembly.Edits.Any(e => e.Description.Contains(symbol.Label, StringComparison.Ordinal)))
-            throw new ToolError(ErrorCode.Unsupported, $"The body of {symbol.Label} is not valid IL (encrypted, or dumped from memory before decryption): there is no code to " +
-                                "prepend to. Use mode=replace (or patch_method_csharp / stub_method), or load the decrypted image.");
+            throw new ToolError(ErrorCode.Unsupported, $"The body of {symbol.Label} is not valid IL (encrypted, or dumped before decryption): there is nothing to prepend to; use mode=replace, patch_method_csharp or stub_method, or load the decrypted image.");
 
         var assembled = assembler.Assemble(m, il, oldBody?.Instructions);
         MethodUtils.SimplifyBranches(assembled.Instructions); // new instructions only; the original body is untouched until applied
@@ -320,11 +307,8 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return description + Relaxed(outcome);
     }
 
-    /// <summary>
-    /// Runs <paramref name="edit"/>, an applying C# edit, only as far as its merge into a scratch copy, so the compile work
-    /// is left in the open <see cref="ReuseCompiles"/> scope and nothing changes; errors in the code are thrown as the
-    /// edit throws them. Runs under the shared lock.
-    /// </summary>
+    /// <summary>Runs a C# edit up to its scratch merge under the shared lock, leaving the compile work in the open
+    /// <see cref="ReuseCompiles"/> scope; code errors are thrown.</summary>
     public void Prepare(Func<string> edit)
     {
         Preparing.Value = true;
@@ -341,13 +325,10 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
     /// <summary>Ends a prepared edit after its scratch merge, before anything is recorded.</summary>
     private sealed class PreparedSignal : Exception;
 
-    /// <summary>
-    /// Runs a C# merge on a scratch copy of the module first (validation; enough for a dry run), then on the real
-    /// module. If the real merge fails half-way, the assembly is rebuilt from its recorded edits so nothing half-applied remains.
-    /// </summary>
+    /// <summary>Merges into a scratch copy, then the module; a failed real merge rebuilds from the recorded edits.</summary>
     private CSharpPatcher.Outcome MergeSafely(LoadedAssembly asm, bool dryRun, Func<ModuleDef, CSharpPatcher.Outcome> merge, CancellationToken ct)
     {
-        // A replayed edit compiled before: it merges once, into the module; a rebuild in progress rolls a failure back itself.
+        // A replayed edit merges once; a rebuild in progress rolls back a failure itself.
         if (_replaying && !dryRun)
         {
             if (_rebuilding) return merge(asm.Module);
@@ -362,7 +343,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             }
         }
         CSharpPatcher.Outcome preview;
-        // Joined: a merge prepared under the shared lock (Prepare) left its compile work in the scope.
+        // Join the scope a Prepare call left its compile work in.
         using var reuse = csharp.ReuseCompiles(join: true);
         CallProgress.Report(1, 3, $"compiling against {asm.Id} (decompiled context, references)");
         using (var scratch = ModuleDefMD.Load(asm.GetImageBytes(), workspace.DnlibContext))
@@ -400,10 +381,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return sep >= 0 ? label[(sep + 2)..] : label;
     }
 
-    /// <summary>
-    /// Runs the simplification passes over a method, the methods of a type (nested types included), or the whole
-    /// assembly (<paramref name="symbol"/> null). Dry runs only report.
-    /// </summary>
+    /// <summary>Simplifies a method, a type's methods, or the whole assembly when <paramref name="symbol"/> is null.</summary>
     public string SimplifyMethods(LoadedAssembly asm, ResolvedSymbol? symbol, SimplifyOptions options, bool dryRun, CancellationToken ct)
     {
         var scope = symbol?.Label ?? asm.Id;
@@ -412,8 +390,8 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             var (unreadable, total) = asm.BodyCensus;
             return $"{(dryRun ? "Dry run — simplify" : "Simplify")} {scope} ({options.Label()}): 0 of {methods.Count} method(s) {(dryRun ? "would change" : "changed")}.\n" +
-                   $"Nothing is rewritten: {unreadable} of {total} method bodies of {asm.AssemblyName} cannot be read as IL. They are stored in another form on " +
-                   "disk and restored at run time (an integrity check): bodies that happen to decode are not the code that runs, and a rewritten image would not run. [unreadable-bodies]";
+                   $"Nothing is rewritten: {unreadable} of {total} method bodies of {asm.AssemblyName} are not IL; they are restored at run time, " +
+                   "so a rewritten image would not run. [unreadable-bodies]";
         }
         var simplifier = new MethodSimplifier(asm.Module, options);
         var changes = simplifier.Run(methods, ct, (done, total) => CallProgress.Report(done, total, $"{done} of {total} methods simplified"));
@@ -492,10 +470,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return sb.ToString();
     }
 
-    /// <summary>
-    /// One line summing up a multi-method run, whatever the lists above left out: the effects of the methods that changed,
-    /// and every fallback by reason code.
-    /// </summary>
+    /// <summary>One line totalling a run's effects and fallbacks by reason code.</summary>
     internal static string SimplifyTotals(List<MethodChange> changes, IReadOnlyList<ExtendedInitializer>? extended = null)
     {
         var changed = changes.Where(c => c.Changed).ToList();
@@ -532,10 +507,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         if (items.Count > MaxReportedIssues) sb.Append($"\n  … {items.Count - MaxReportedIssues} more");
     }
 
-    /// <summary>
-    /// Maps a recorded symbol that no longer exists by name to its counterpart in the target build (set while a script
-    /// is replayed onto another build whose original is loaded); null when there is none.
-    /// </summary>
+    /// <summary>Maps a recorded symbol missing by name to its counterpart in another build; null when there is none.</summary>
     internal Func<EditRecord, string, ResolvedSymbol?>? Remap { get; set; }
 
     // Set while recorded edits are replayed (Apply) and while an assembly is rebuilt from its edits (Rebuild).
@@ -595,10 +567,8 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return $"Reverted {asm.Id} to its loaded state ({count} edit(s) discarded).";
     }
 
-    /// <summary>
-    /// Resets the module to the original image and replays <paramref name="records"/>. On failure the previous module and
-    /// edit list are restored unchanged. Caller holds the write lock.
-    /// </summary>
+    /// <summary>Resets to the original image and replays <paramref name="records"/>, restoring the previous state on
+    /// failure; caller holds the write lock.</summary>
     public void Rebuild(LoadedAssembly asm, IReadOnlyList<EditRecord> records, CancellationToken ct)
     {
         var (previousModule, previousEdits) = asm.ResetToOriginal(workspace.DnlibContext);
@@ -653,10 +623,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         [key + "Signature"] = Signature(symbol.Member),
     };
 
-    /// <summary>
-    /// A method's or indexer's signature without tokens (generic arity, return and parameter types): it tells overloads of
-    /// one label apart on another build, where the recorded token may name something else.
-    /// </summary>
+    /// <summary>A method or indexer signature without tokens, to tell overloads apart on another build; null for others.</summary>
     internal static string? Signature(IMemberDef member) => (member switch { MethodDef m => (MethodBaseSig?)m.MethodSig, PropertyDef p => p.PropertySig, _ => null }) is { } sig
         ? $"{sig.GenParamCount}:{sig.RetType?.FullName}({string.Join(",", sig.Params.Select(t => t?.FullName))})"
         : null;
@@ -670,8 +637,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             var label = Required(record, key);
             var all = SymbolResolver.Resolve(workspace, asm.Id, label, SymbolResolver.ParseKind(record.Arg(key + "Kind")), legacyLabels: record.LegacyLabels);
-            // A label shared by overloads (a legacy label names generic and plain ones alike): the recorded token, often
-            // stable between builds, picks among them.
+            // Overloads share a label: the recorded token, often stable between builds, picks one.
             if (all.Count > 1 && SymbolResolver.TryParseToken(record.Arg(key + "Token") ?? "", out uint recorded)
                 && all.Where(r => r.Member.MDToken.Raw == recorded).ToList() is [var byToken])
                 return byToken;
@@ -682,8 +648,8 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
             }
             else if (all.Count > 1 && record.LegacyLabels)
                 throw new ToolError(ErrorCode.Ambiguous, $"'{label}' names {all.Count} members in {asm.Id}: the script predates generic arity in labels and " +
-                    "recorded no signature, and its recorded token matches none of them:\n" + string.Join("\n", all.Take(30).Select(r => "  " + r)),
-                    "load the build the script was made from too (its recorded tokens then identify each target), or export the script again from that build");
+                    "recorded no signature or matching token:\n" + string.Join("\n", all.Take(30).Select(r => "  " + r)),
+                    "load the script's source build too, or export the script again from it");
             return SymbolResolver.Single(all, label);
         }
         catch (ToolError) when (Remap?.Invoke(record, key) is { } renamed)
@@ -736,12 +702,8 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return string.Join("\n", instructions.Select(i => "  " + i));
     }
 
-    /// <summary>
-    /// Writes the (edited) module. Refuses to replace the original file without replaceOriginal; when replacing it, the original
-    /// is first copied to &lt;file&gt;.bak (<see cref="SaveTarget"/>). Whatever no edit touched is written as in the original; the result lists what
-    /// could not be (and what is invalid in the original). <paramref name="strict"/>: refuse the save instead when
-    /// anything would be written differently without an edit asking for it. Nothing is written when the save fails.
-    /// </summary>
+    /// <summary>Writes the module, keeping untouched data as in the original; replacing the original needs replaceOriginal and
+    /// backs it up to &lt;file&gt;.bak. <paramref name="strict"/> refuses any unrequested change. A failed save writes nothing.</summary>
     public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false, bool replaceOriginal = false, bool versioned = false) =>
         Save(asm, outputPath, overwrite, strict, out _, replaceOriginal, versioned);
 
@@ -764,16 +726,16 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             (image, report) = asm.IsDirty ? asm.GetImage() : (asm.OriginalBytes, asm.SurveyOriginal());
         }
+        // Other writer exceptions are server faults and reach the client as internal.
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Anything else the writer throws is a fault of this server: it reaches the client as "internal".
             throw new ToolError(ErrorCode.IoError, $"Could not write {asm.Id}: {ex.GetType().Name}: {ex.Message.TrimEnd('.')}. Nothing was written.");
         }
         if (strict && report.HasChanges)
-            throw new ToolError(ErrorCode.Conflict, $"Not saved (strict=true): {report.Changed.Count()} member(s) would be written differently from the original " +
-                                $"without an edit asking for it. Nothing was written; save without strict to accept the changes listed.{report.Describe()}");
+            throw new ToolError(ErrorCode.Conflict, $"Not saved (strict=true): {report.Changed.Count()} member(s) would differ from the original without an edit. " +
+                                $"Nothing was written; save without strict to accept the changes listed.{report.Describe()}");
 
-        // A .wasm target is written as Blazor ships assemblies (Webcil), to replace the file in a _framework folder.
+        // A .wasm target is written as Webcil, to replace the file in a _framework folder.
         bool webcil = target.EndsWith(".wasm", StringComparison.OrdinalIgnoreCase);
         if (webcil) image = Webcil.FromPe(image);
         string? backup = isOriginal ? SaveTarget.Backup(target, asm.OriginalBytes) : null;
@@ -785,7 +747,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +
                $"{(backup != null ? $" Original backed up to {backup}." : "")}" +
-               (webcil ? " Written as Webcil (Blazor WebAssembly); the app's boot manifest (blazor.boot.json or dotnet.boot.js) holds an integrity hash per file: update or remove this file's." : "") +
+               (webcil ? " Written as Webcil; update or remove this file's integrity hash in blazor.boot.json or dotnet.boot.js." : "") +
                (saved.EditList.Count > 0 ? $"\nEdits written: {string.Join(", ", saved.EditList.Select(e => $"{e.Id} ({e.Digest})"))}." : "") +
                $"{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}";
     }
@@ -798,12 +760,12 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         {
             using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(asm.OriginalBytes, writable: false));
             if (pe.PEHeaders.PEHeader?.CertificateTableDirectory.Size > 0)
-                notes.Add("The original is Authenticode-signed; the signature is not carried over (it covers the original bytes), so the saved file is unsigned.");
+                notes.Add("The original is Authenticode-signed; the signature covers the original bytes, so the saved file is unsigned.");
         }
         catch (BadImageFormatException) { }
         if (asm.Module.Assembly?.PublicKey is { IsNullOrEmpty: false } && (asm.Module.Cor20HeaderFlags & dnlib.DotNet.MD.ComImageFlags.StrongNameSigned) != 0)
-            notes.Add("The assembly is strong-name signed, and its signature no longer matches: .NET Framework refuses it where strong names are " +
-                      "verified (the GAC, signed hosts) unless it is re-signed with the original key or verification is skipped (sn -Vr). .NET (Core) does not verify strong names.");
+            notes.Add("The strong-name signature no longer matches: .NET Framework refuses it where strong names are verified unless " +
+                      "re-signed with the original key or skipped (sn -Vr); .NET does not verify them.");
         return notes.Count == 0 ? "" : "\n\nSignatures:\n" + string.Join("\n", notes.Select(n => "  " + n));
     }
 }

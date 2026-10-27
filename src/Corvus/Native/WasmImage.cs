@@ -6,12 +6,9 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// A WebAssembly module as a native image: addresses are file offsets (as browsers' devtools and wasm-objdump give them),
-/// a function's address is its body's offset, an import's or global's is its section entry's. Sections map one to one;
-/// the code section is the executable one. Function names come from the name section, exports, imports and an
-/// Emscripten symbol map beside the module (&lt;name&gt;.js.symbols), in that order.
-/// </summary>
+/// <summary>A WebAssembly module as a native image; addresses are file offsets, as wasm-objdump gives them.</summary>
+/// <remarks>A function's address is its body's offset. Names come from the name section, exports, imports, then an
+/// Emscripten symbol map beside the module (&lt;name&gt;.js.symbols).</remarks>
 public sealed class WasmImage : INativeImage
 {
     private readonly byte[] _data;
@@ -64,7 +61,7 @@ public sealed class WasmImage : INativeImage
         ParseIssue? component = null;
         if (WasmComponent.Looks(bytes))
         {
-            // a component holds no code of its own: its largest core module (the program; the others are adapters and shims) is the view
+            // A component holds no code of its own; its largest core module is the program.
             var modules = WasmComponent.CoreModules(bytes);
             if (modules.Count > 0)
             {
@@ -85,7 +82,8 @@ public sealed class WasmImage : INativeImage
         Imports = [.. m.Imports.Where(i => i.Kind == WasmExternal.Func).Select(i => new NativeImport(i.Module, i.Name, null, 0, (uint)i.Offset, false))];
 
         var symbols = SymbolMap(path, Math.Max(m.FunctionCount, m.ImportedFunctions + m.Bodies.Count));
-        int count = Math.Max(m.FunctionCount, m.ImportedFunctions + m.Bodies.Count); // a body without a declaration still gets a name
+        // A body without a declaration still gets a name.
+        int count = Math.Max(m.FunctionCount, m.ImportedFunctions + m.Bodies.Count);
         var names = new string[count];
         var sources = new string[count];
         var exportNames = new Dictionary<uint, string>();

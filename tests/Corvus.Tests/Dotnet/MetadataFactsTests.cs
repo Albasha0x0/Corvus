@@ -30,7 +30,7 @@ public class MetadataFactsTests : IDisposable
     }
 
     [Fact]
-    public void GlobalFunctions_ResolveByModuleTypeName_AndAreCounted()
+    public void Global_functions_resolve_by_module_type_name_and_are_counted()
     {
         using var env = new Env(GlobalFunctions());
         Assert.Equal("<Module>::Init()", env.One("<Module>::Init").Label);
@@ -46,7 +46,7 @@ public class MetadataFactsTests : IDisposable
     }
 
     [Fact]
-    public void NativeCppCliBodies_AreNotInvalidIl()
+    public void Native_CPP_CLI_bodies_are_not_invalid_IL()
     {
         var wrapper = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"Microsoft.NET\Framework64\v4.0.30319\System.EnterpriseServices.Wrapper.dll");
         if (!File.Exists(wrapper)) return; // a mixed-mode C++/CLI module shipped with .NET Framework
@@ -62,7 +62,7 @@ public class MetadataFactsTests : IDisposable
         File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Api",
             "[assembly: System.Runtime.CompilerServices.ReferenceAssembly] public class Client { public string Get() => throw null; }"));
         using var env = new Env(path);
-        Assert.Contains("Reference assembly: metadata only", env.Workspace.Read(() => env.Report.Build(env.Fixture)));
+        Assert.Contains("Reference assembly: method bodies are `throw null`", env.Workspace.Read(() => env.Report.Build(env.Fixture)));
         Assert.Contains("// Note: reference assembly", env.Decompile("Client::Get"));
         using var normal = new Env();
         Assert.DoesNotContain("Reference assembly", normal.Workspace.Read(() => normal.Report.Build(normal.Fixture)));

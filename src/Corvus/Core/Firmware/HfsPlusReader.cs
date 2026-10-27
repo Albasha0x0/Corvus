@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// HFS+ and HFSX volumes (Apple TN1150): the catalog's directory tree, file data forks through their extents and the
-/// extents overflow file, symbolic links, hard links resolved to their file, and files compressed with decmpfs zlib, LZVN
-/// or LZFSE (see <see cref="Decmpfs"/>); other compression types are listed and named, not read.
-/// </summary>
+/// <summary>HFS+ and HFSX volumes (Apple TN1150); decmpfs files are read through <see cref="Decmpfs"/>.</summary>
 internal sealed class HfsPlusReader : IContainerReader
 {
     public string Kind => "hfs+";

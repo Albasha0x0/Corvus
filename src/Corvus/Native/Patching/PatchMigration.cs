@@ -32,14 +32,7 @@ public sealed record PatchMigrationStep(
     string Detail,
     byte[]? NewReplacement);
 
-/// <summary>
-/// Carries byte patches of an old build to a new build. Each patch's old address is mapped through the build matcher
-/// (<see cref="AddressMapper"/>: function match + instruction alignment), its expected pre-patch bytes are checked
-/// against the new build's original bytes at the mapped address (exact for raw patches; masking relocated / RIP-relative
-/// / branch-displacement bytes for patch_asm patches, whose replacement is re-assembled at the new address), and the
-/// survivors are prepared through the normal patch path (safety checks and relocations). Nothing is applied here; the
-/// caller applies the prepared patches of the steps whose <see cref="PatchMigrationStep.Apply"/> is set.
-/// </summary>
+/// <summary>Maps byte patches to a new build, verifies their original bytes (address bytes masked for patch_asm patches) and prepares them through the normal patch path; applies nothing itself.</summary>
 public static class PatchMigration
 {
     /// <summary>Reads the patches of an exported JSON patch set (<see cref="PatchExport"/> json), by old RVA.</summary>
@@ -87,13 +80,7 @@ public static class PatchMigration
             Grown = patch.Growth != null,
         };
 
-    /// <summary>
-    /// Plans every patch's migration from the old build to the new build. <paramref name="prepare"/> runs the normal
-    /// patch path (PreparePatch) at the new address with the given replacement bytes and origin assembly text; it throws
-    /// <see cref="ToolError"/> when the patch cannot be prepared (e.g. no relocation slot, mid-instruction).
-    /// <paramref name="prepareStub"/> re-creates a stub-extended patch at its mapped site (the extend path, cave or new
-    /// section) and returns the new site bytes; without it such patches are refused with extended_patch.
-    /// </summary>
+    /// <summary>Plans each patch's migration; without <paramref name="prepareStub"/> stub patches are refused extended_patch.</summary>
     public static List<PatchMigrationStep> Plan(
         MatchResult match,
         IReadOnlyList<MigratablePatch> patches,
@@ -105,10 +92,7 @@ public static class PatchMigration
         return Plan(mapper.Map, match.Old.Index, match.New.Index, patches, prepare, ct, prepareStub);
     }
 
-    /// <summary>
-    /// Replays a patch set on the build it was made for (a journal or an export): every patch at its own address, the
-    /// original bytes checked against the image as it is now (a patch already there is already_present).
-    /// </summary>
+    /// <summary>Replays a patch set on its own build; a patch already there is already_present.</summary>
     public static List<PatchMigrationStep> PlanSameBuild(NativeCodeIndex index, IReadOnlyList<MigratablePatch> patches, Action<uint, byte[], string?> prepare,
         CancellationToken ct) =>
         Plan((rva, _) => new MappedAddress(rva, rva, 1, "same_build", "the build the patch set was made for", null, []), index, index, patches, prepare, ct, null);
@@ -147,8 +131,7 @@ public static class PatchMigration
             }
             if (patch.IsStub)
             {
-                // Without prepareStub: a stub patch maps neither its jump nor its stub byte-for-byte, so it must be
-                // re-created on the new build.
+                // A stub patch does not map byte-for-byte, so it must be re-created on the new build.
                 steps.Add(Refuse(patch, null, 0, null, "extended_patch", "a patch-site extension (relocation stub) must be re-applied on the new build with patch_asm/patch_bytes extend=true"));
                 continue;
             }
@@ -156,7 +139,7 @@ public static class PatchMigration
             int? tier = mapped.Pair?.Tier;
             if (mapped.NewRva is not { } newRva)
             {
-                // the mapper's reason doubles as the refusal reason (function_not_matched, ambiguous, changed_region, ...)
+                // The mapper's reason is the refusal reason.
                 steps.Add(Refuse(patch, null, mapped.Confidence, tier, mapped.Reason, mapped.Detail));
                 continue;
             }
@@ -213,16 +196,12 @@ public static class PatchMigration
         return steps;
     }
 
-    /// <summary>
-    /// A stub-extended patch: its site is mapped, the displaced original instructions there are verified (address bytes
-    /// masked), and the extension is re-created at the new site by <paramref name="prepareStub"/>; its failure codes
-    /// (no_space, no_header_space, branch_target_in_site, ...) become the refusal reason.
-    /// </summary>
+    /// <summary>Migrates a stub-extended patch through <paramref name="prepareStub"/>, whose failure code is the refusal reason.</summary>
     private static PatchMigrationStep PlanStub(Func<uint, CancellationToken, MappedAddress> map, NativeCodeIndex newIndex, MaskedDecoder? oldDecoder, MaskedDecoder? newDecoder,
         MigratablePatch patch, Func<uint, MigratablePatch, byte[]> prepareStub, CancellationToken ct)
     {
         if (patch.StubCode == null)
-            return Refuse(patch, null, 0, null, "stub_code_unknown", "the patch set does not record the stub's new code (exported before it was saved); re-apply it with extend=true");
+            return Refuse(patch, null, 0, null, "stub_code_unknown", "the patch set does not record the stub's new code; re-apply it with extend=true");
         var mapped = map(patch.Rva, ct);
         int? tier = mapped.Pair?.Tier;
         if (mapped.NewRva is not { } newRva) return Refuse(patch, null, mapped.Confidence, tier, mapped.Reason, mapped.Detail);
@@ -260,11 +239,7 @@ public static class PatchMigration
         catch (NotSupportedException) { return null; }
     }
 
-    /// <summary>
-    /// Whether the old and new byte spans are equal after masking the bytes each decoder marks as an address (branch
-    /// displacements, RIP-relative displacements, relocated / in-image absolute operands). The union of both masks is
-    /// ignored. Falls back to an exact comparison when either side does not decode.
-    /// </summary>
+    /// <summary>Whether two byte spans match with address bytes masked; exact when either side does not decode.</summary>
     private static (bool Equal, bool[]? Mask) MaskedEqual(MaskedDecoder? oldDec, uint oldRva, byte[] oldBytes, MaskedDecoder? newDec, uint newRva, byte[] newBytes)
     {
         if (oldDec == null || newDec == null) return (oldBytes.AsSpan().SequenceEqual(newBytes), null);

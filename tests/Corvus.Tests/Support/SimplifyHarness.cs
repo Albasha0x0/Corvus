@@ -11,11 +11,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Runs the simplify_methods engine over every method of an assembly, as the tool does, and checks the result: no
-/// crash, each method within its limits, and an image that the product's writer saves and both dnlib and the
-/// decompiler's reader load back with exactly the bodies that were written.
-/// </summary>
+/// <summary>Runs simplify_methods over every method and checks limits, and that dnlib and the decompiler read back exactly the written bodies.</summary>
 internal static class SimplifyHarness
 {
     /// <summary>Per-method allocation ceiling: far above the evaluator's 16 MB simulated memory, far below a runaway.</summary>

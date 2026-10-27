@@ -61,10 +61,7 @@ internal sealed record PdfObject(int Number, int Generation, long Offset, PdfVal
     public PdfDict? Dict => Value as PdfDict;
 }
 
-/// <summary>
-/// A PDF tokenizer and object parser over the file bytes: names with #xx escapes, literal strings with escapes and nesting,
-/// hex strings, numbers, references, arrays and dictionaries. Nesting is bounded; damaged input ends a value early.
-/// </summary>
+/// <summary>A PDF tokenizer and object parser; nesting is bounded and damaged input ends a value early.</summary>
 internal sealed class PdfLexer(byte[] data, int start = 0, int end = -1)
 {
     private readonly int _end = end < 0 ? data.Length : end;
@@ -119,7 +116,7 @@ internal sealed class PdfLexer(byte[] data, int start = 0, int end = -1)
                     if (Pos >= _end) break;
                     if (data[Pos] == ']') { Pos++; break; }
                     int before = Pos;
-                    // past the kept items (glyph widths, coordinates) values are stepped over, not kept
+                    // Values past the kept items (glyph widths, coordinates) are stepped over.
                     if (items.Count >= MaxArrayItems)
                     {
                         Skip(depth + 1);

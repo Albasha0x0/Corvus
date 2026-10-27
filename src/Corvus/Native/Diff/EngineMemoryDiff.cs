@@ -11,9 +11,8 @@ public sealed record MemoryRange(
     [property: Description("Offset in the file; absent where the file has no bytes (zero fill).")] string? FileOffset,
     [property: Description("The address in the engine's database.")] string EngineAddress,
     uint Length,
-    [property: Description("patched (an edit in the database or this session), engine_fixup (the engine's loader wrote it), relocation_applied " +
-                           "(a relocation slot the file declares: rebased, or written by the engine's loader without a fixup record), differs (nothing above explains it), unclassified (differs; the engine's fixups could not be " +
-                           "read), uninitialized (no file bytes and no engine bytes), unknown (the file has bytes the engine does not hold).")] string Kind,
+    [property: Description("patched (database or session edit), engine_fixup (written by the engine's loader), relocation_applied (a declared relocation slot), differs (unexplained), " +
+                           "unclassified (engine fixups unreadable), uninitialized (no bytes on either side), unknown (file bytes the engine does not hold).")] string Kind,
     [property: Description("The edit, fixup type and symbol, or why there are no bytes.")] string? Detail,
     [property: Description("The first 16 bytes on each side, in hex.")] string? FileBytes,
     string? EngineBytes);
@@ -27,22 +26,14 @@ public sealed record MemorySection(string Name, string EngineAddress, long Size,
     [property: Description("Bytes past the file data (zero fill).")] long ZeroFill,
     IReadOnlyList<MemoryKindCount> Kinds);
 
-/// <summary>
-/// The file's bytes compared with an engine's memory: per section counts, the differing ranges in address order and notes
-/// on what could not be compared. <see cref="FixupsListed"/> is false when the engine's fixups could not be read, so no
-/// range is classified as a fixup.
-/// </summary>
+/// <summary>The file's bytes compared with an engine's memory; <see cref="FixupsListed"/> false means no range is classified as a fixup.</summary>
 public sealed record EngineMemoryReport(string Engine,
     [property: Description("The image base in the engine's database.")] string EngineBase,
     [property: Description("The image base in the file's header.")] string FileBase,
     bool FixupsListed, int Fixups,
     IReadOnlyList<MemorySection> Sections, IReadOnlyList<MemoryRange> Ranges, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// Compares an engine's memory with the file's bytes section by section. Pages are compared by digest and only differing
-/// pages are read back; each differing byte is attributed to an edit of this session, a patch the database records, an
-/// engine fixup, a relocation slot the file declares, or nothing (differs).
-/// </summary>
+/// <summary>Compares an engine's memory with the file by page digest, reading back and attributing only differing pages.</summary>
 public static class EngineMemoryDiff
 {
     /// <summary>Digest page size in bytes.</summary>
@@ -57,11 +48,7 @@ public static class EngineMemoryDiff
     /// <summary>Bytes shown per side of a range.</summary>
     private const int ShownBytes = 16;
 
-    /// <summary>
-    /// Compares <paramref name="fileBytes"/> (the image's own file, mapped as <paramref name="image"/> maps it) with the
-    /// memory <paramref name="control"/> reads, an engine whose image base is <paramref name="engineBase"/>.
-    /// <paramref name="edits"/> are this session's byte patches, which the database holds.
-    /// </summary>
+    /// <summary>Compares <paramref name="fileBytes"/> with the engine memory <paramref name="control"/> reads; <paramref name="edits"/> are this session's patches.</summary>
     public static async Task<EngineMemoryReport> CompareAsync(string engine, INativeImage image, ReadOnlyMemory<byte> fileBytes, ulong engineBase,
         INativeEngineControl control, IReadOnlyList<NativePatch> edits, CancellationToken ct)
     {

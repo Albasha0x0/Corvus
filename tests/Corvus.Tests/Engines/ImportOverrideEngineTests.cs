@@ -46,10 +46,7 @@ public sealed class ImportOverrideEngineTests(Xunit.Abstractions.ITestOutputHelp
     [GhidraFact]
     public Task Compiler_seeds_and_analyzers_before_analysis_in_Ghidra() => Seeded("ghidra", "borlandcpp");
 
-    /// <summary>
-    /// compilerSpec=borlandcpp opens the PE with Borland's compiler; the seeded function and label carry their names; another
-    /// override set is another database, and the first one is reused when its overrides come back.
-    /// </summary>
+    /// <summary>compilerSpec=borlandcpp opens the PE as Borland; seeds carry their names; another override set is another database, reused when it returns.</summary>
     private async Task Seeded(string engine, string compiler)
     {
         var path = Pe($"borland-{engine}.exe");
@@ -71,7 +68,7 @@ public sealed class ImportOverrideEngineTests(Xunit.Abstractions.ITestOutputHelp
         Assert.Contains("seeded_table", code.Text);
         var first = Database(status.Text);
 
-        // another override: the image reloads and the engine makes a database of its own
+        // Another override: the image reloads and the engine makes a database of its own.
         Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["compilerSpec"] = "windows" })).IsError);
         await Call(server, "list_functions", new() { ["image"] = image, ["engine"] = engine });
         var other = await Call(server, "get_engine_status", new() { ["image"] = image, ["engine"] = engine });
@@ -79,7 +76,7 @@ public sealed class ImportOverrideEngineTests(Xunit.Abstractions.ITestOutputHelp
         Assert.NotEqual(first, Database(other.Text));
         Assert.DoesNotContain("borland", Database(other.Text), StringComparison.OrdinalIgnoreCase);
 
-        // back to the first set: its saved database is opened again
+        // Back to the first set: its saved database is opened again.
         Assert.False((await Call(server, "load_assembly", new()
         {
             ["path"] = path, ["compilerSpec"] = "borlandcpp", ["seeds"] = new[] { "label:0x402000=seeded_table", "0x401020=seeded_func" },

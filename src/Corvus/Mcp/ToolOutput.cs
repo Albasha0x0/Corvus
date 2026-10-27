@@ -7,15 +7,11 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Builds tool results: readable text and a structured record that each carry the whole answer, fitted to the call's
-/// token budget per part, with one continuation (nextOffset or resultId). The builders return the text and hand the record
-/// to the call filter, which fits both parts together (<see cref="Finish"/>); called outside the filter (tests) they return
-/// the same text and the record is dropped. Tools that still build their own text and record go through the same fitting.
-/// </summary>
+/// <summary>Builds tool results: text and a record that each carry the whole answer, fitted to the budget with one continuation.</summary>
+// Outside the call filter (tests) the builders return the same text and drop the record.
 public static partial class ToolOutput
 {
-    /// <summary>The list envelope fields every list record carries (S2.1).</summary>
+    /// <summary>The list envelope fields every list record carries.</summary>
     public static readonly string[] ListFields = ["offset", "limit", "total", "totalExact", "hasMore", "nextOffset", "notEvaluated"];
 
     /// <summary>Hands <paramref name="record"/> over as the call's structured content and returns <paramref name="text"/>.</summary>
@@ -25,10 +21,7 @@ public static partial class ToolOutput
         return text;
     }
 
-    /// <summary>
-    /// A page of rows: as many from <paramref name="offset"/> (at most <paramref name="limit"/>) as fit the budget in both parts,
-    /// the same rows in the text and in the record, and one footer. <paramref name="page"/> holds the rows from offset.
-    /// </summary>
+    /// <summary>A page of rows from <paramref name="offset"/> that fits the budget in both parts, the same rows in text and record, with one footer.</summary>
     /// <param name="record">The tool's record for the rows shown; the list envelope fields are set on it.</param>
     /// <param name="totalExact">False when the enumeration stopped early: <paramref name="total"/> is a lower bound.</param>
     public static string List<TRow>(IReadOnlyList<TRow> page, int offset, int limit, int total, Func<TRow, string> renderRow,
@@ -54,10 +47,7 @@ public static partial class ToolOutput
         Func<IReadOnlyList<TRow>, object> record, string noun, string? header = null) =>
         List(all.Skip(Math.Max(0, offset)).Take(Math.Max(0, limit)).ToList(), offset, limit, all.Count, renderRow, record, noun, header);
 
-    /// <summary>
-    /// Code or bytes text from <paramref name="offset"/> (characters), cut at a line boundary to the budget; the record, when
-    /// given, carries the same page as "code" with offset, nextOffset and totalChars (D3).
-    /// </summary>
+    /// <summary>Code or bytes text from <paramref name="offset"/> characters, cut at a line to the budget; the record carries the same page as "code".</summary>
     public static string Text(OutputPager pager, string body, int offset, object? record = null, int? maxTokens = null)
     {
         var text = pager.Page(body, offset, maxTokens);
@@ -72,7 +62,7 @@ public static partial class ToolOutput
     /// <summary>A report: past the budget, its head with the whole result kept under a resultId.</summary>
     public static string Report(string text, object record) => With(text, record);
 
-    /// <summary>A mutating tool's outcome (S4.2): the record is <paramref name="outcome"/>.</summary>
+    /// <summary>A mutating tool's outcome: the record is <paramref name="outcome"/>.</summary>
     public static string Edit(EditOutcome outcome, string text) => With(text, outcome);
 
     /// <summary>Collects the record of direct tool calls (tests) without a budget: pages stay the server's character page.</summary>
@@ -92,14 +82,14 @@ public static partial class ToolOutput
     {
         if (OutputCall.Current is not { } call) return;
         call.Facets ??= new(StringComparer.Ordinal);
-        // unavailable on any part of a batch stays unavailable
+        // Unavailable on any part of a batch stays unavailable.
         if (!call.Facets.TryGetValue(name, out var was) || was == null) call.Facets[name] = unavailable;
     }
 
     /// <summary>Which engine answered, and why.</summary>
     public static void Engine(string engine, string? note) => OutputCall.Current?.Engine = (engine, note);
 
-    // a row's own line breaks continue it, indented; file text in a row cannot start a marker line (a type named "x\nNext: ...")
+    // A row's line breaks continue it, indented, so file text cannot start a marker line (a type named "x\nNext: ...").
     internal static string Line(string row) => Format.EscapeMarkers(row).Replace("\r\n", "\n").TrimEnd('\r').Replace('\r', '\n').Replace("\n", "\n    ");
 
     private static string RowsText(List<string> lines, int offset, int shown, int total, bool totalExact, string noun)

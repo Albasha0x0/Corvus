@@ -3,11 +3,7 @@ namespace Corvus.Core.Protobuf;
 /// <summary>A descriptor found in a file: where (byte offset, or the code site that builds it) and how it was stored.</summary>
 public sealed record FoundDescriptor(ProtoFile File, string Source, string Encoding, long Offset, string? Site = null);
 
-/// <summary>
-/// Finds serialized FileDescriptorProto blobs by their wire format: field 1 (tag 0x0A) holding a name ending in ".proto",
-/// then fields in number order (<see cref="ProtoFile.Read"/>). C++ and Go keep them as raw bytes, Java as Latin-1 string
-/// constants, C# as base64 string constants.
-/// </summary>
+/// <summary>Finds serialized FileDescriptorProto blobs, raw (C++, Go), Latin-1 strings (Java) or base64 strings (C#).</summary>
 public static class ProtoScan
 {
     private static readonly byte[] Suffix = ".proto"u8.ToArray();
@@ -27,7 +23,7 @@ public static class ProtoScan
             int end = from + hit + Suffix.Length;
             from = end;
             if ((found.Count & 63) == 0) ct.ThrowIfCancellationRequested();
-            // 0x0A, a one- or two-byte length, then the name that ends here
+            // 0x0A, a one- or two-byte length, then the name that ends here.
             for (int length = 7; length <= 1024 && length <= end - 2; length++)
             {
                 int name = end - length;

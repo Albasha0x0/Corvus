@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] Dry run — Fixture.Model.Account::Score() would become (2 instructions, maxstack 1):\n  IL_0000: ldc.i4.7\n  IL_0001: ret\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 93c8ef272863af0d (the applied edit and the save report the same)."
+    "[TestFixture] Dry run — Fixture.Model.Account::Score() would become (2 instructions, maxstack 1):\n  IL_0000: ldc.i4.7\n  IL_0001: ret\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 507411f93db0fc0c (the applied edit and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -18,6 +18,6 @@
       }
     ],
     "editIds": [],
-    "digest": "93c8ef272863af0d"
+    "digest": "507411f93db0fc0c"
   }
 }

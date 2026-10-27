@@ -1,15 +1,14 @@
 <Project>
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
 
-  <!-- Samples are decompiler input for the guides: one optimized build in bin/ whatever the configuration, so the
-       guides' paths and the IL the tools read are the same for every reader and for the tests. -->
+  <!-- One optimized build in bin/ for every configuration, so guide paths and IL match for readers and tests. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Optimize>true</Optimize>
     <Deterministic>true</Deterministic>
-    <!-- Mapped, the PDB path an image embeds is the same in every clone, and so are its bytes and size. -->
+    <!-- The embedded PDB path, and so the image bytes, are the same in every clone. -->
     <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
     <OutputPath>$(MSBuildProjectDirectory)/bin/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -17,7 +16,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
-  <!-- A patched copy saved to bin/patched/ runs with `dotnet bin/patched/Notes.dll`, which needs the runtime config beside it. -->
+  <!-- `dotnet bin/patched/Notes.dll` needs the runtime config beside the patched copy. -->
   <Target Name="StagePatchedFolder" AfterTargets="Build">
     <Copy SourceFiles="$(OutputPath)$(AssemblyName).runtimeconfig.json" DestinationFolder="$(OutputPath)patched/" SkipUnchangedFiles="true" />
   </Target>

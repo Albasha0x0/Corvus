@@ -4,11 +4,7 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// The bridges of hybrid web apps, joined from the web code (assets/www, assets/public) to the DEX classes that serve
-/// them: Cordova's exec(success, fail, service, action, args) through the features of config.xml, and Capacitor's
-/// registerPlugin(name) through the classes annotated @CapacitorPlugin and their @PluginMethod methods.
-/// </summary>
+/// <summary>Joins hybrid app web code to DEX classes: Cordova exec() through config.xml features, Capacitor registerPlugin() through @CapacitorPlugin.</summary>
 internal static partial class WebBridges
 {
     private const long MaxScript = 64L << 20, MaxTotal = 256L << 20;
@@ -31,7 +27,7 @@ internal static partial class WebBridges
             ct.ThrowIfCancellationRequested();
             var bytes = package.Read(path);
             if (bytes == null || bytes.Length > MaxScript) continue;
-            if ((total += bytes.Length) > MaxTotal) { notes.Add($"web code: scripts past {MaxTotal >> 20} MB not read"); break; }
+            if ((total += bytes.Length) > MaxTotal) { notes.Add($"Web code: scripts past {MaxTotal >> 20} MB are not read."); break; }
             texts.Add((path, Encoding.UTF8.GetString(bytes)));
         }
         layers.Add(new("web", texts.Count, $"scripts under {(scripts[0].StartsWith("assets/www/", StringComparison.Ordinal) ? "assets/www" : "assets/public")}"));
@@ -73,10 +69,7 @@ internal static partial class WebBridges
             missing.Count == 0 ? null : $"{calls.Count - bound} call(s) unbound: " + string.Join(", ", missing.Take(10))));
     }
 
-    /// <summary>
-    /// The exec calls of a script whose service is a string literal: exec( or .exec( followed by five arguments,
-    /// split at top-level commas; the action is kept when it is a literal too.
-    /// </summary>
+    /// <summary>A script's exec() calls whose service is a string literal; the action is kept when it is a literal too.</summary>
     public static IEnumerable<ExecCall> ExecCalls(string path, string text)
     {
         for (int at = text.IndexOf("exec(", StringComparison.Ordinal); at >= 0; at = text.IndexOf("exec(", at + 5, StringComparison.Ordinal))
@@ -117,10 +110,7 @@ internal static partial class WebBridges
     private static string? Literal(string arg) =>
         arg.Length >= 2 && arg[0] is '"' or '\'' && arg[^1] == arg[0] && arg.IndexOf('\\') < 0 && arg.IndexOf(arg[0], 1) == arg.Length - 1 ? arg[1..^1] : null;
 
-    /// <summary>
-    /// Feature name to Java class from config.xml (res/xml/config.xml, or the compiled XML whose root is &lt;widget&gt; when
-    /// resource names were shortened): &lt;feature name&gt; with &lt;param name="android-package" value&gt;.
-    /// </summary>
+    /// <summary>Feature name to Java class (android-package param) from config.xml, or the compiled &lt;widget&gt; XML when names are shortened.</summary>
     private static Dictionary<string, string> Features(AndroidPackage package, IReadOnlyList<string> entries, List<string> notes)
     {
         var features = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -199,15 +189,11 @@ internal static partial class WebBridges
         // Each registered name and each method call found is a candidate; only names can stay unbound.
         int joined = edges.Count(e => e.Kind == "capacitor_plugin");
         kinds.Add(new("capacitor_plugin", joined, joined + unbound.Count, unbound.Count == 0 ? "complete" : "partial",
-            "the name registerPlugin() takes bound to the class whose @CapacitorPlugin names it; its @PluginMethod methods called by name in the web code",
-            unbound.Count == 0 ? null : $"{unbound.Count} plugin(s) with no native class (web-only plugins, or classes not in the DEX code): " + string.Join(", ", unbound.Take(10))));
+            "the registerPlugin() name bound to its @CapacitorPlugin class; @PluginMethod methods called by name in the web code",
+            unbound.Count == 0 ? null : $"{unbound.Count} plugin(s) with no native class (web-only, or not in the DEX code): " + string.Join(", ", unbound.Take(10))));
     }
 
-    /// <summary>
-    /// The plugin names the web code reaches: registerPlugin("Name" (also behind a bundler's (0, x.registerPlugin) wrapper),
-    /// a renamed registerPlugin recognised by its ("Name", { web: ... }) arguments, Capacitor.Plugins.Name and
-    /// isPluginAvailable("Name").
-    /// </summary>
+    /// <summary>Plugin names the web code reaches through registerPlugin (also renamed or wrapped), Capacitor.Plugins.Name and isPluginAvailable.</summary>
     public static IEnumerable<string> RegisteredPlugins(string text)
     {
         foreach (var marker in new[] { "registerPlugin", "isPluginAvailable" })

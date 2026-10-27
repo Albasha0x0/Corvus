@@ -15,7 +15,7 @@ internal static class StringDetector
         if (n < MinLength + 1) return null;
         var span = buffer.AsSpan(0, n);
 
-        // UTF-16LE: printable character, then a zero high byte for ASCII-range text
+        // UTF-16LE: a printable character with a zero high byte.
         if (n >= (MinLength + 1) * 2 && span[1] == 0 && IsPrintable(span[0]))
         {
             int chars = 0;
@@ -38,7 +38,7 @@ internal static class StringDetector
         return null;
     }
 
-    /// <summary>True when <paramref name="bytes"/> are valid UTF-8 text of at least <see cref="MinLength"/> bytes with no control characters but tab and line ends.</summary>
+    /// <summary>True for valid UTF-8 of at least <see cref="MinLength"/> bytes without control characters other than tab and line ends.</summary>
     public static bool IsText(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length < MinLength || bytes.Contains((byte)0)) return false;

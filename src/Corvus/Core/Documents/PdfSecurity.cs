@@ -2,11 +2,7 @@ using System.Security.Cryptography;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// The PDF standard security handler opened with the empty user password, which a document that opens without asking for
-/// one carries: RC4 (40 to 128 bits, revisions 2 to 4), AES-128 (AESV2) and AES-256 (AESV3, revisions 5 and 6). A file
-/// that needs a password stays encrypted, with a note.
-/// </summary>
+/// <summary>The PDF standard security handler (RC4, AESV2, AESV3) opened with the empty user password; a file that needs a password stays encrypted, with a note.</summary>
 internal sealed class PdfSecurity
 {
     private static readonly byte[] Pad =
@@ -78,7 +74,7 @@ internal sealed class PdfSecurity
         }
         int length = r == 2 ? 5 : Math.Clamp(Int(pdf.Resolve(e["Length"]), 40) / 8, 5, 16);
         var id = pdf.Resolve(trailer["ID"]) is PdfArray { Items.Count: > 0 } ids && pdf.Resolve(ids.Items[0]) is PdfString first ? first.Bytes : [];
-        // /P is a signed 32-bit value; some writers store its unsigned form
+        // /P is a signed 32-bit value; some writers store its unsigned form.
         int p = pdf.Resolve(e["P"]) is PdfNumber pn ? unchecked((int)(long)pn.Value) : 0;
         bool metadata = pdf.Resolve(e["EncryptMetadata"]) is not PdfKeyword { Value: "false" };
         var input = new List<byte>(Pad);
@@ -89,7 +85,7 @@ internal sealed class PdfSecurity
         var hash = MD5.HashData([.. input]);
         if (r >= 3) for (int i = 0; i < 50; i++) hash = MD5.HashData(hash.AsSpan(0, length));
         var fileKey = hash[..length];
-        // the empty user password checks against /U
+        // The empty user password checks against /U.
         bool ok;
         if (r == 2) ok = Rc4(fileKey, Pad).AsSpan().SequenceEqual(u.AsSpan(0, Math.Min(32, u.Length)));
         else

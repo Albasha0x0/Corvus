@@ -21,7 +21,7 @@ public sealed record GlobalEntry(
     [property: Description("C type when a source records one (PDB, the user's types, define_native data).")] string? Type,
     [property: Description("Size in bytes when known; -1 otherwise.")] long Size,
     string? Section,
-    [property: Description("user, pdb, nativeaot, il2cpp, objc, swift, ida, ghidra, export or symbol.")] IReadOnlyList<string> Sources)
+    [property: Description("user, pdb, nativeaot, metadata, objc, swift, ida, ghidra, export or symbol.")] IReadOnlyList<string> Sources)
 {
     [Description("The engine's text of the value (engine=ida or ghidra).")] public string? Value { get; init; }
 }
@@ -37,8 +37,8 @@ public sealed partial class NativeCodeTools
     private const int MaxEngineData = 300_000;
 
     [McpServerTool(Name = "list_globals", Title = "List native globals", UseStructuredContent = true, OutputSchemaType = typeof(GlobalList))]
-    [Description("Named data of a native image outside code, from every name source (PDB with type and size, user names and types, Il2Cpp, NativeAOT, " +
-                 "exports, symbol tables); an engine adds its defined data with type and value. get_native_type read=true reads fields.")]
+    [Description("Named data of a native image outside code, from every name source, with type and size when known. An engine adds its " +
+                 "defined data with values; get_native_type read=true reads fields.")]
     public Task<string> ListGlobals(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
@@ -72,10 +72,7 @@ public sealed partial class NativeCodeTools
                                      pager.PageRows(rows, offset, limit, "global"), result);
     });
 
-    /// <summary>
-    /// Every named address outside functions and code sections, merged by address, in address order; with <paramref name="data"/>
-    /// also every item the engine defined (our names win, unnamed ones keep the engine's).
-    /// </summary>
+    /// <summary>Named addresses outside code in address order, plus the engine's items from <paramref name="data"/>; our names win.</summary>
     private List<GlobalEntry> Globals(LoadedNative native, NativeCodeIndex index, EngineDataList? data = null, string? engine = null)
     {
         var image = native.Image;
@@ -105,11 +102,11 @@ public sealed partial class NativeCodeTools
             foreach (var (rva, name) in layer.Names) if (Data(rva)) Add(rva, name, layer.Source.Id());
         foreach (var e in image.Exports) if (e.Rva is { } r && Data(r)) Add(r, e.Name, "export");
         foreach (var s in image.Symbols) if (s.Kind == ImageSymbolKind.Object && Data(s.Rva)) Add(s.Rva, s.Name, "symbol", null, (long)s.Size);
-        // the engine's items wherever it defined them (also jump tables and strings in code sections)
+        // The engine's items wherever it defined them (also jump tables and strings in code sections).
         var values = new Dictionary<uint, string>();
         foreach (var d in data?.Items ?? [])
         {
-            // alignment and int3 / nop / zero fill between functions are no globals
+            // Alignment and int3 / nop / zero fill between functions are no globals.
             if (d.Label == null && image.SectionAt(d.Rva) is { IsExecutable: true } && (d.Type == "align" || d.Value is { } v && CodePadding().IsMatch(v))) continue;
             Add(d.Rva, d.Label, engine!, d.Type, d.Size);
             if (d.Value != null) values[d.Rva] = d.Value;

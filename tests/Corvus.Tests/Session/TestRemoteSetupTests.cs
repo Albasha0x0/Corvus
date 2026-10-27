@@ -81,7 +81,7 @@ public sealed class TestRemoteSetupTests : IDisposable
         var lines = TestReuseTests.Run($$"""
             $env:CORVUS_TEST_SSH = {{Quote(ssh)}}; $env:CORVUS_TEST_SCP = {{Quote(scp)}}
             Get-ChildItem Env:CORVUS_* | Where-Object Name -notlike 'CORVUS_TEST_*' | ForEach-Object { Remove-Item "Env:$($_.Name)" }
-            $env:CORVUS_ASSEMBLY_DIR = {{Quote(assemblies)}}; $env:CORVUS_BUNDLE_PAIRS = {{Quote(bundles)}}; $env:CORVUS_IL2CPP_STRINGS_DIR = {{Quote(dummy)}}
+            $env:CORVUS_ASSEMBLY_DIR = {{Quote(assemblies)}}; $env:CORVUS_BUNDLE_PAIRS = {{Quote(bundles)}}; $env:CORVUS_AOT_STRINGS_DIR = {{Quote(dummy)}}
             Set-Content {{Quote(free)}} 100
             & {{Script}} -Target tester@host2 -Data
             'refused=' + $LASTEXITCODE
@@ -102,8 +102,8 @@ public sealed class TestRemoteSetupTests : IDisposable
         Assert.DoesNotContain(lines, l => l.StartsWith("scp ") && l.Contains("asm"));
         Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains("Remove-Item") && l.Contains(@"corvus-data\CORVUS_BUNDLE_PAIRS"));
         // The folder above a DummyDll folder travels, and the variable names the DummyDll folder in the copy.
-        Assert.Contains("scp -q dumper CORVUS_IL2CPP_STRINGS_DIR", lines);
-        Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains(@"SetEnvironmentVariable('CORVUS_IL2CPP_STRINGS_DIR', (Join-Path $HOME 'corvus-data\CORVUS_IL2CPP_STRINGS_DIR\dumper\DummyDll'), 'User')") && l.Contains(@"'3 dumper\DummyDll'"));
+        Assert.Contains("scp -q dumper CORVUS_AOT_STRINGS_DIR", lines);
+        Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains(@"SetEnvironmentVariable('CORVUS_AOT_STRINGS_DIR', (Join-Path $HOME 'corvus-data\CORVUS_AOT_STRINGS_DIR\dumper\DummyDll'), 'User')") && l.Contains(@"'3 dumper\DummyDll'"));
         Assert.Contains(lines, l => l.StartsWith("ssh ") && l.Contains(@"SetEnvironmentVariable('CORVUS_BUNDLE_PAIRS', (Join-Path $HOME 'corvus-data\CORVUS_BUNDLE_PAIRS\pairs'), 'User')") && l.Contains("'5 pairs'"));
     }
 

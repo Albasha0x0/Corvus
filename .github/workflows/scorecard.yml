@@ -1,8 +1,6 @@
 name: Scorecard
 
-# OpenSSF Scorecard: the repository's supply-chain checks (pinned dependencies, token permissions, branch protection,
-# code scanning, signed releases), weekly and after branch protection changes. Results go to code scanning and to
-# the public Scorecard API.
+# OpenSSF Scorecard supply-chain checks; results go to code scanning and the public Scorecard API.
 on:
   branch_protection_rule:
   schedule:

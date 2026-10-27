@@ -32,18 +32,10 @@ public sealed record ApkSigner(IReadOnlyList<ApkCertificate> Certificates, IRead
 /// <summary>One signature scheme found in the file: "v1", "v2", "v3", "v3.1" or "v4".</summary>
 public sealed record ApkSchemeResult(string Scheme, string Verdict, IReadOnlyList<ApkSigner> Signers, IReadOnlyList<string> Reasons);
 
-/// <summary>
-/// The signatures of an APK. <see cref="Verdict"/> is "verified", "mismatch", "unsigned" or "unsupported_algorithm"
-/// (the worst over the schemes present); <see cref="BlockIds"/> lists every entry of the APK Signing Block.
-/// </summary>
+/// <summary>An APK's signatures; <see cref="Verdict"/> (verified, mismatch, unsigned, unsupported_algorithm) is the worst over the schemes present.</summary>
 public sealed record ApkSignatureReport(string Verdict, IReadOnlyList<ApkSchemeResult> Schemes, IReadOnlyList<uint> BlockIds, IReadOnlyList<ParseIssue> Issues);
 
-/// <summary>
-/// Verifies APK signatures: JAR signing (v1), the APK Signature Scheme v2, v3 and v3.1 blocks (signatures over the signed
-/// data, certificates, SDK ranges, rotation lineage, and the chunked content digests recomputed from the file), and a v4
-/// .idsig beside it (signature and the Merkle root of the file). Says what was checked; never claims trust in a
-/// certificate. Never throws on malformed input.
-/// </summary>
+/// <summary>Verifies APK signature schemes v1 to v4; never claims trust in a certificate, never throws on malformed input.</summary>
 public static class ApkSigning
 {
     public const string Verified = "verified", Mismatch = "mismatch", Unsigned = "unsigned", Unsupported = "unsupported_algorithm";
@@ -75,10 +67,7 @@ public static class ApkSigning
     public static ApkSignatureReport Verify(byte[] apk, byte[]? idsig = null, AnalysisLimits? limits = null) =>
         Verify(new MemoryStream(apk, writable: false), idsig, limits);
 
-    /// <summary>
-    /// Verifies the APK in a seekable stream, read in ranges: the end record, the signing block, the content digests in
-    /// 1 MiB chunks and the JAR entries; the file is never held whole.
-    /// </summary>
+    /// <summary>Verifies the APK in a seekable stream, read in ranges; the file is never held whole.</summary>
     public static ApkSignatureReport Verify(Stream apk, byte[]? idsig = null, AnalysisLimits? limits = null)
     {
         var v = new Verifier(apk, limits ?? AnalysisLimits.Default);
@@ -150,11 +139,11 @@ public static class ApkSigning
             return all.Contains(Mismatch) ? Mismatch : all.Contains(Unsupported) ? Unsupported : all.Count == 0 ? Mismatch : Verified;
         }
 
-        // ---- ZIP layout ----
+        // ZIP layout.
 
         private bool FindCentralDirectory()
         {
-            // the end record, its comment and the zip64 locator before it lie in the last 64 KiB + 42 bytes
+            // The end record, its comment and the zip64 locator lie in the last 64 KiB + 42 bytes.
             long tailStart = Math.Max(0, _length - 22 - 0xFFFF - 20);
             var tail = Bytes(tailStart, (int)(_length - tailStart));
             ReadOnlySpan<byte> At(long offset) => tail.AsSpan((int)(offset - tailStart));
@@ -221,7 +210,7 @@ public static class ApkSigning
             return result;
         }
 
-        // ---- v2, v3, v3.1 ----
+        // Schemes v2, v3 and v3.1.
 
         private ApkSchemeResult SchemeV2V3(string scheme, byte[] value, bool v3, bool v3Present)
         {
@@ -412,10 +401,7 @@ public static class ApkSigning
             catch (CryptographicException) { return false; }
         }
 
-        /// <summary>
-        /// The content digest of the file over the entries, the central directory and the end record pointing at the
-        /// signing block: chunked SHA-256 / SHA-512, or the verity root (8 zero bytes of salt) followed by the length.
-        /// </summary>
+        /// <summary>The content digest over entries, central directory and end record: chunked SHA-256/512 or the verity root.</summary>
         private byte[] Content(ContentDigest kind)
         {
             if (_digests.TryGetValue(kind, out var done)) return done;
@@ -449,7 +435,7 @@ public static class ApkSigning
             return _digests[kind] = top.GetHashAndReset();
         }
 
-        // ---- v4 ----
+        // Scheme v4.
 
         private ApkSchemeResult V4(byte[] idsig)
         {
@@ -559,10 +545,7 @@ public static class ApkSigning
 
         private const int MerkleBlock = 4096;
 
-        /// <summary>
-        /// fs-verity Merkle root of the data in <paramref name="chunks"/>: salted SHA-256 of 4 KiB blocks (zero padded), level
-        /// by level, until one block remains. The first level is hashed as the data streams by; the levels above are 1/128 of it.
-        /// </summary>
+        /// <summary>The fs-verity Merkle root of <paramref name="chunks"/>: salted SHA-256 over 4 KiB blocks, level by level.</summary>
         private static byte[] MerkleRoot(IEnumerable<ReadOnlyMemory<byte>> chunks, byte[] salt)
         {
             const int Block = MerkleBlock;
@@ -574,7 +557,7 @@ public static class ApkSigning
                 if (block.Length < Block) sha.AppendData(new byte[Block - block.Length]);
                 return sha.GetHashAndReset();
             }
-            // blocks span chunk edges: gather each 4 KiB before hashing it
+            // Blocks span chunk edges, so each 4 KiB is gathered before hashing.
             var first = new MemoryStream();
             var pending = new byte[Block];
             int filled = 0;
@@ -598,7 +581,7 @@ public static class ApkSigning
             return Hash(level);
         }
 
-        // ---- v1 (JAR signing) ----
+        // Scheme v1 (JAR signing).
 
         private void V1(List<(uint Id, byte[]? Value)> blocks)
         {
@@ -608,7 +591,8 @@ public static class ApkSigning
             {
                 apk.Position = 0;
                 zip = new ZipArchive(apk, ZipArchiveMode.Read, leaveOpen: true);
-                foreach (var e in zip.Entries) entries.TryAdd(e.FullName, e); // the central directory is read here
+                // The central directory is read here.
+                foreach (var e in zip.Entries) entries.TryAdd(e.FullName, e);
             }
             catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException)
             {
@@ -747,7 +731,7 @@ public static class ApkSigning
         private static bool Base64Equals(byte[] digest, string base64) =>
             Convert.ToBase64String(digest) == base64.Trim();
 
-        // ---- shared ----
+        // Shared helpers.
 
         /// <summary>A parsed certificate and its SubjectPublicKeyInfo (empty when the key cannot be read).</summary>
         private sealed record LoadedCert(ApkCertificate Info, byte[] Spki);
@@ -813,10 +797,7 @@ public static class ApkSigning
             return items;
         }
 
-        /// <summary>
-        /// A sequence of length-prefixed (uint32 id, value) pairs. Digests and signatures wrap the value in another length
-        /// prefix (<paramref name="prefixed"/>); additional attributes do not.
-        /// </summary>
+        /// <summary>Length-prefixed (id, value) pairs; <paramref name="prefixed"/> when the value has its own length prefix.</summary>
         private static List<(uint Id, byte[] Value)> Pairs(ReadOnlySpan<byte> s, bool prefixed = true)
         {
             var pairs = new List<(uint, byte[])>();

@@ -119,7 +119,7 @@ public sealed class IntegerEmulationElfTests(ITestOutputHelper output, IntegerEm
     [MemberData(nameof(Arches))]
     public async Task A_record_copy_through_vector_registers_keeps_every_field(string arch)
     {
-        // struct record { u64 id; u32 flags; u32 size; u64 a, b, c, d; } is 48 bytes; x86 aligns u64 to 4, the same layout.
+        // Struct record { u64 id; u32 flags; u32 size; u64 a, b, c, d; } is 48 bytes; x86 aligns u64 to 4, the same layout.
         var record = new byte[48];
         BitConverter.GetBytes(0x1122334455667788UL).CopyTo(record, 0);
         BitConverter.GetBytes(0x10u).CopyTo(record, 8);

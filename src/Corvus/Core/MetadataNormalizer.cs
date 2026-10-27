@@ -2,11 +2,7 @@ using dnlib.DotNet;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A copy of an image that the decompiler's reader can read: loaded by dnlib (which reads malformed metadata leniently)
-/// into a private module, cleaned of what dnlib cannot write validly either, and written with PreserveAll so tokens are
-/// unchanged. Only for viewing: saving always writes from the workspace module.
-/// </summary>
+/// <summary>A dnlib-rewritten copy of an image the decompiler can read, tokens unchanged; for viewing only.</summary>
 public static class MetadataNormalizer
 {
     /// <summary>The normalized image, and what was dropped (empty when nothing).</summary>

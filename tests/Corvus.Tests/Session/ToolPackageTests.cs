@@ -13,7 +13,7 @@ public partial class ToolPackageTests
     private static string Property(string name) => Regex.Match(Project, $"<{name}>([^<]+)</{name}>").Groups[1].Value;
 
     [Fact]
-    public void PackageAndRegistryEntryAgreeWithTheProject()
+    public void Package_and_registry_entry_agree_with_the_project()
     {
         Assert.Equal(Installation.PackageId, Property("PackageId"));
         Assert.Equal("corvus", Property("ToolCommandName"));
@@ -34,7 +34,7 @@ public partial class ToolPackageTests
     }
 
     [Fact]
-    public void UpdateNamesTheCommandOfEachInstallKind()
+    public void Update_names_the_command_of_each_install_kind()
     {
         Assert.Equal("corvus update", Installation.UpdateCommand("script"));
         Assert.Equal("dotnet tool update -g CorvusRE --version 1.3.0", Installation.UpdateCommand("dotnet-tool", "v1.3.0"));
@@ -52,7 +52,7 @@ public partial class ToolPackageTests
     }
 
     [Fact]
-    public void UpdateWarnsOnADowngrade()
+    public void Update_warns_on_a_downgrade()
     {
         Assert.Contains("a downgrade", Installation.DowngradeWarning("2.0.0", "v1.3.0"));
         Assert.Null(Installation.DowngradeWarning("1.3.0", "v2.0.0"));
@@ -62,7 +62,7 @@ public partial class ToolPackageTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task PacksInstallsAndRunsFromALocalFeed()
+    public async Task Packs_installs_and_runs_from_a_local_feed()
     {
         using var dir = new TempDir();
         var feed = Path.Combine(dir.Path, "feed");
@@ -77,10 +77,10 @@ public partial class ToolPackageTests
             ["NUGET_PACKAGES"] = Path.Combine(dir.Path, "packages"),
             ["DOTNET_NOLOGO"] = "1",
             ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
-            // else the first run under this home appends its tools folder to the user's PATH (the registry, on Windows)
+            // Else the first run under this home appends its tools folder to the user's PATH (the registry, on Windows).
             ["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false",
         };
-        // the CLI stages tool installs and restores in random folders of the temporary folder and leaves them: one of its own, deleted with dir
+        // The CLI stages tool installs and restores in random folders of the temporary folder and leaves them: one of its own, deleted with dir.
         var temp = Directory.CreateDirectory(Path.Combine(dir.Path, "tmp")).FullName;
         foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" }) env[name] = temp;
         var version = Property("Version");

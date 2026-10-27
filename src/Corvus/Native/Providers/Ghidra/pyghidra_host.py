@@ -1,11 +1,5 @@
-"""The Ghidra worker hosted by PyGhidra, so Python GhidraScripts run inside it.
-
-PyGhidra runs Python only in a JVM it starts itself (JPype in this process): this host starts that JVM with Ghidra's
-and the server's VM arguments, lets PyGhidra register its script runner, then starts the same boot class the plain
-JVM starts. The worker's protocol stays on this process's stdin and stdout; nothing is printed here.
-
-argv[1]: a JSON file: ghidra (install directory), java_home, vmargs (the server's, after Ghidra's), boot_jar.
-"""
+"""Hosts the Ghidra worker in PyGhidra's JVM so Python GhidraScripts run; argv[1]: JSON with ghidra, java_home, vmargs, boot_jar."""
+# The protocol uses this process's stdin and stdout: nothing is printed here.
 import json
 import sys
 
@@ -19,7 +13,7 @@ def main():
     launcher.java_home = config["java_home"]
     launcher.add_vmargs(*config["vmargs"])
     launcher.add_classpaths(config["boot_jar"])
-    # the JVM, Ghidra's class loader and PyGhidra's script runner; the worker initializes the application itself
+    # Starts the JVM, Ghidra's class loader and PyGhidra's script runner; the worker initializes the application.
     launcher.start()
 
     import jpype

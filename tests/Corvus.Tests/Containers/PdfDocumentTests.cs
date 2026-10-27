@@ -87,7 +87,7 @@ public sealed class PdfDocumentTests
     [Fact]
     public void Objects_in_object_streams_and_incremental_updates_are_read()
     {
-        // object 3 lives in object stream 4; an update replaces the catalog to point its OpenAction at it
+        // Object 3 lives in object stream 4; an update replaces the catalog to point its OpenAction at it.
         var inner = "3 0 << /S /JavaScript /JS (app.launchURL\\('http://example.test'\\)) >>";
         var header = "3 0 ";
         var objstm = Encoding.Latin1.GetBytes("3 0\n" + inner[header.Length..]);
@@ -119,7 +119,7 @@ public sealed class PdfDocumentTests
     [Fact]
     public void Filters_decode_the_spec_examples()
     {
-        // ISO 32000-1 7.4.4.2: "-----A---B" with early change
+        // ISO 32000-1 7.4.4.2: "-----A---B" with early change.
         Assert.Equal("-----A---B"u8.ToArray(), PdfFilters.Lzw([0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01], true, 1 << 20));
         Assert.Equal("Hello"u8.ToArray(), PdfFilters.Ascii85("87cURDZ~>"u8.ToArray()));
         Assert.Equal("abc\0\0\0\0\0"u8.ToArray(), PdfFilters.Ascii85("@:E^Hz~>"u8.ToArray()));

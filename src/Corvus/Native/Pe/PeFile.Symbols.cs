@@ -4,11 +4,7 @@ namespace Corvus.Native.Pe;
 
 public sealed partial class PeFile
 {
-    /// <summary>
-    /// The COFF symbol table an image keeps when its linker did not strip it (MinGW and Clang GNU-style links): its
-    /// functions (type 0x20) and data in sections, external or static, sorted by RVA. i386 C names lose their leading
-    /// underscore, as the PDB and DWARF name the same functions.
-    /// </summary>
+    /// <summary>Unstripped COFF symbols by RVA; i386 C names lose their leading underscore, as in PDB and DWARF.</summary>
     private IReadOnlyList<ImageSymbol> ParseSymbols(IssueLog log)
     {
         long table = Coff.PointerToSymbolTable;
@@ -40,7 +36,7 @@ public sealed partial class PeFile
             byte storage = U8(at + 16);
             uint value = U32(at + 8);
             i += aux;
-            // IMAGE_SYM_CLASS_EXTERNAL or STATIC, defined in a section
+            // IMAGE_SYM_CLASS_EXTERNAL or STATIC, defined in a section.
             if (storage is not (2 or 3) || section <= 0 || section > sections.Count) continue;
             var name = SymbolName(at, strings);
             if (name.Length == 0 || name[0] == '.' || name.StartsWith("__imp_", StringComparison.Ordinal)) continue;
@@ -48,7 +44,7 @@ public sealed partial class PeFile
             var s = sections[section - 1];
             bool function = (type & 0x30) == 0x20; // IMAGE_SYM_DTYPE_FUNCTION
             if (!function && s.IsExecutable) continue; // a code label, not data
-            // function definition auxiliary record: TotalSize at +4
+            // Function definition auxiliary record: TotalSize at +4.
             ulong size = function && aux > 0 ? U32(at + 18 + 4) : 0;
             symbols.Add(new ImageSymbol(name, s.Rva + value, size, function ? ImageSymbolKind.Function : ImageSymbolKind.Object,
                 storage == 2 ? ImageSymbolBinding.Global : ImageSymbolBinding.Local, s.Name));

@@ -4,16 +4,13 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Thumb discovery without unwind tables: code right after a function's literal pool, literal pools that end flow, tail
-/// jumps to PLT stubs while a candidate is verified, no start inside an IT block, the state of code next to decoded code.
-/// </summary>
+/// <summary>Thumb function discovery without unwind tables: literal pools, PLT tail jumps and IT blocks.</summary>
 public class NativeArm32DiscoveryTests
 {
     private const uint Text = ElfWriter.TextRva;
     private const uint Data = ElfWriter.DataRva;
     private const uint Got = ElfWriter.GotRva;
-    // a literal that reads as Thumb code: movs r0, #1; movs r0, #1
+    // A literal that reads as Thumb code: movs r0, #1; movs r0, #1.
     private const uint CodeLikeLiteral = 0x20012001;
 
     private static NativeCodeIndex Build(A32Code a, Action<ElfWriter>? configure = null)
@@ -165,7 +162,7 @@ public class NativeArm32DiscoveryTests
         modes.HintNeighbor(Text, thumb: false);
         Assert.False(modes.StartMode(Text));
         Assert.False(modes.IsUnsure(Text));
-        // a halfword-aligned start is Thumb whatever the neighbour
+        // A halfword-aligned start is Thumb whatever the neighbour.
         modes.HintNeighbor(Text + 2, thumb: false);
         Assert.True(modes.StartMode(Text + 2));
     }

@@ -33,14 +33,14 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
     }
 
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
-    [Description("Re-run IDA or Ghidra auto-analysis over an image (or from-to) and save; a full run completes an analysis the open budget cut " +
-                 "short. options= sets analyzers for this run; analyzers=true lists them.")]
+    [Description("Re-run IDA or Ghidra auto-analysis over an image or a range and save; completes an analysis cut short when opened. " +
+                 "analyzers=true lists the analyzer options.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
         [Description("List analyzer options and values instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
-        [Description("name=value per option (AF_FLIRT=false, Decompiler Parameter ID=true).")] string[]? options = null,
+        [Description("name=value per analyzer option for this run (AF_FLIRT=false).")] string[]? options = null,
         [Description("full (Ghidra defaults) or a preset in analysis-presets.json.")] string? preset = null,
         [Description("Run with no caller waiting; other engine calls conflict until done.")] bool background = false,
         [Description("Range start (default: whole image).")] string? from = null,

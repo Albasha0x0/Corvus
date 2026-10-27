@@ -10,7 +10,7 @@ namespace Corvus.Tests;
 public class LoadRaceTests
 {
     [Fact]
-    public async Task LoadReloadUnloadOfOneFileRaceSafely()
+    public async Task Load_reload_and_unload_of_one_file_race_safely()
     {
         using var dir = new TempDir();
         var managed = dir.File("TestFixture.Consumer.dll");
@@ -21,8 +21,8 @@ public class LoadRaceTests
 
         using var ws = new AssemblyWorkspace();
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
-        var il2cpp = new Il2CppService(ws);
-        var tools = new WorkspaceTools(ws, il2cpp, new IndexingService(ws, new CallGraphService(ws), options), new UnpackService(ws));
+        var aot = new AotMetadataService(ws);
+        var tools = new WorkspaceTools(ws, aot, new IndexingService(ws, new CallGraphService(ws), options), new UnpackService(ws));
         var unexpected = new ConcurrentBag<Exception>();
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
 

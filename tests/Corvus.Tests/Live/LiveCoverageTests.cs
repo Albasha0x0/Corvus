@@ -33,7 +33,7 @@ public sealed class LiveCoverageTests : IDisposable
         lock (_backend.Ops) return _backend.Ops.Count(o => o == op);
     }
 
-    // waits for an event, not a duration: a loaded machine took over 2 s to place a load's points
+    // Waits for an event, not a duration: a loaded machine took over 2 s to place a load's points.
     private async Task Until(Func<bool> done)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -41,10 +41,7 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.True(done());
     }
 
-    /// <summary>
-    /// A managed run's last read waits for a periodic read in progress instead of skipping, and a read that ends after the
-    /// run is complete adds nothing: the counts reported complete stay as reported.
-    /// </summary>
+    /// <summary>A managed run's last read waits for a periodic read in progress, and a read ending after completion adds nothing.</summary>
     [Fact]
     public async Task Last_read_of_a_managed_run_waits_for_the_one_in_progress()
     {
@@ -70,7 +67,7 @@ public sealed class LiveCoverageTests : IDisposable
         var n = int.Parse(Regex.Match(start, @"cov-1 counting (\d+) functions of e_sqlite3\.dll").Groups[1].Value);
         Assert.True(n >= 2, start);
         Assert.Equal(n, Count("set"));
-        // a coverage stop needs no stack or registers
+        // A coverage stop needs no stack or registers.
         lock (_backend.Bare) Assert.Equal(n, _backend.Bare.Count(id => id.StartsWith("cov-1.", StringComparison.Ordinal)));
         // sqlite3_open_v2 is one jmp: a stop point there lands in the function it leads to, counting every caller of that one
         Assert.Contains("1 function left out: a single jump", start);
@@ -80,7 +77,7 @@ public sealed class LiveCoverageTests : IDisposable
         var id = $"cov-1.{open.i + 1}";
         for (int i = 0; i < 3; i++) _backend.Hit(id, 7, Base + 0x10);
         await Until(() => Count("resume") == 3 && Count("clear") == 1);
-        // the third stop came after the point reached its limit, so it is not counted
+        // The third stop came after the point reached its limit, so it is not counted.
         var report = await _tools.LiveCoverage(action: "report", run: "cov-1");
         Assert.True(report.Contains($"cov-1 e_sqlite3.dll: 1 of {n} functions ran"), report);
         Assert.Matches(@"\s2\+\s+0x[0-9A-F]+\s+sqlite3_open\n", report);
@@ -166,7 +163,7 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.True(second < 16);
         await _tools.LiveBreak("live-1", "set", at: $"sqlite3_complete+0x{second:X}");
         await _tools.LiveCoverage("live-1", "start", match: "sqlite3_complete");
-        Assert.Equal($"s1 sits {second} bytes in, inside the bytes a hook at the start rewrites", _service.GetCoverage("cov-1").Unplaced[rva]);
+        Assert.Equal($"s1 sits {second} bytes in, inside the hook's bytes", _service.GetCoverage("cov-1").Unplaced[rva]);
         await _tools.LiveCoverage(action: "stop", run: "cov-1");
         await _tools.LiveBreak("live-1", "clear", stopPoint: "s1");
 
@@ -244,7 +241,7 @@ public sealed class LiveCoverageTests : IDisposable
         await Until(() => Count("release_load") == 1);
         List<string> ops;
         lock (_backend.Ops) ops = [.. _backend.Ops];
-        // the loading thread goes on only once every point is set
+        // The loading thread goes on only once every point is set.
         Assert.True(ops.LastIndexOf("set") < ops.IndexOf("release_load"), string.Join(",", ops));
         Assert.Contains("undefer_module", ops);
         var run = _service.GetCoverage("cov-1");
@@ -273,10 +270,7 @@ public sealed class LiveCoverageTests : IDisposable
         Assert.Contains("/nowhere/system.dll", missing.Message);
     }
 
-    /// <summary>
-    /// A leading endbr64 stays in place under a hook, so a function whose first block leaves under 5 bytes after it is
-    /// left out before any point is set; a point the backend refuses is left out with the instructions at its start.
-    /// </summary>
+    /// <summary>A function whose first block leaves under 5 bytes after endbr64 is left out before any point is set; a refused point is left out with its instructions.</summary>
     [Fact]
     public async Task Points_too_short_after_their_landing_pad_or_refused_name_their_instructions()
     {
@@ -319,7 +313,7 @@ public sealed class LiveCoverageTests : IDisposable
         var start = await _tools.LiveCoverage("live-1", "start", match: "libplug.so!fn_");
         Assert.Contains("cov-1 counting 1 function of libplug.so", start);
         var unplaced = _service.GetCoverage("cov-1").Unplaced;
-        Assert.Equal("too short to count with stop-based coverage: endbr64; xor eax, eax; ret leaves 3 byte(s) for the 5-byte jump a hook writes", unplaced[T]);
+        Assert.Equal("too short to count: endbr64; xor eax, eax; ret leaves 3 byte(s) for the 5-byte hook jump", unplaced[T]);
         Assert.False(unplaced.ContainsKey(T + 0x10));
         Assert.Equal("the stop point was refused: the function is 15 bytes long (endbr64; push rbp; mov rbp, rsp; mov eax, 1; pop rbp; ret), " +
             "too short for the jump a hook writes over its start after its endbr64.", unplaced[T + 0x20]);

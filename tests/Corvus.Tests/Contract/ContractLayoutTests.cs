@@ -20,7 +20,7 @@ public class ContractLayoutTests
     }
 
     [Fact]
-    public void EachFamilyFileListsOnlyItsTools()
+    public void Each_family_file_lists_only_its_tools()
     {
         AssertFamilies("ToolEffects", ToolEffects.ByFamily, rows => rows.Keys);
         AssertFamilies("ParameterDomains", ParameterDomains.ByFamily, rows => rows.Keys);

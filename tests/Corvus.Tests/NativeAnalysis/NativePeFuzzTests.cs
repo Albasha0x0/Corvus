@@ -7,16 +7,12 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Mutation fuzzing of the native PE parser: real and synthetic images with bytes flipped or overwritten in the headers,
-/// the section table and the directories (seeded, so a failure names the iteration that reproduces it).
-/// CORVUS_PE_FUZZ_ITERATIONS sets the iteration count; CORVUS_PE_FUZZ_SEED the base seed.
-/// </summary>
+/// <summary>Seeded mutation of real and synthetic PE headers, section tables and directories; CORVUS_PE_FUZZ_ITERATIONS and CORVUS_PE_FUZZ_SEED.</summary>
 public sealed class NativePeFuzzTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait("Speed", "Slow")]
-    public void MutatedImages_NeverThrowAndStayBounded()
+    public void Mutated_images_never_throw_and_stay_bounded()
     {
         int iterations = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_ITERATIONS"), out int n) ? n : 20_000;
         int seed = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_SEED"), out int s) ? s : 20251010;
@@ -59,10 +55,7 @@ internal static class PeFuzzer
 {
     public sealed record Result(List<string> Failures, TimeSpan Elapsed, double MaxMilliseconds, long MaxAllocatedBytes, int NotPe);
 
-    /// <summary>
-    /// A single parse (and full read) may use this much of its thread's CPU time and allocate this much before it counts
-    /// as a failure; CPU time, so that a parse descheduled on a loaded machine is not counted for the time it waited.
-    /// </summary>
+    /// <summary>Per-parse limits of thread CPU time and allocation; CPU time, so descheduling does not count.</summary>
     private static readonly TimeSpan TimeBound = TimeSpan.FromMilliseconds(int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_TIME_BOUND_MS"), out int ms) ? ms : 10_000);
     private const long AllocationBound = 512L << 20;
     // A hang guard: a parse that blocks without using CPU still fails.

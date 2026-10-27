@@ -10,10 +10,7 @@ public static class OutputSchema
 
     private static readonly Lazy<SortedDictionary<string, JsonElement>> Described = new(Corvus.Mcp.Catalog.DescribedOutputSchemas);
 
-    /// <summary>
-    /// Violations of <paramref name="tool"/>'s advertised (compact) schema, then of its described form: the compact form keeps
-    /// required lists only at the root and opens deep objects, so the described form holds the rest of the promise.
-    /// </summary>
+    /// <summary>Violations of <paramref name="tool"/>'s compact schema, then of its described form, which holds what the compact form leaves open.</summary>
     public static List<string> ValidateTool(string tool, JsonElement advertised, JsonElement value)
     {
         var errors = Validate(advertised, value);

@@ -25,10 +25,8 @@ public sealed record SaveIssue(SaveIssueReason Reason, uint Token, string Member
     public override string ToString() => $"{Member}: {Detail} [{SaveManifest.CodeOf(Reason)}]";
 }
 
-/// <summary>
-/// The outcome of writing a module: members kept as they were although the original is invalid there, and members the
-/// writer could not keep. Everything else that no edit touched is written byte-for-byte as in the original.
-/// </summary>
+/// <summary>The outcome of writing a module: members kept though invalid, and members that could not be kept.</summary>
+/// <remarks>Everything else no edit touched is written byte-for-byte as in the original.</remarks>
 public sealed class SaveReport
 {
     public static readonly SaveReport Empty = new([]);
@@ -61,10 +59,7 @@ public sealed class SaveReport
     }
 }
 
-/// <summary>
-/// The contract of save_assembly: what is written as in the original and the closed set of reasons for which a member
-/// is reported. docs/saving.md is generated from this class (see <see cref="Markdown"/>).
-/// </summary>
+/// <summary>The save_assembly contract and its closed set of report reasons; generates docs/saving.md.</summary>
 public static class SaveManifest
 {
     public sealed record ReasonInfo(SaveIssueReason Reason, string Code, bool ChangesBytes, string Description);

@@ -143,7 +143,7 @@ public class NativeProviderTests(ITestOutputHelper output)
         File.WriteAllBytes(input, [1, 2, 3, 4, 5]);
         var sha = AnalysisCache.HashFile(input);
 
-        // an entry of the full-hash layout is moved to the short key with its database
+        // An entry of the full-hash layout is moved to the short key with its database.
         var legacy = Path.Combine(cache.Root, "test", sha);
         Directory.CreateDirectory(Path.Combine(legacy, "input"));
         File.WriteAllText(Path.Combine(legacy, "db.i64"), "saved");
@@ -157,7 +157,7 @@ public class NativeProviderTests(ITestOutputHelper output)
             Assert.Equal(entry.Directory, cache.Find("test", sha));
         }
 
-        // another input's entry under the same prefix: the key gets longer
+        // Another input's entry under the same prefix: the key gets longer.
         var other = tmp.File("other.bin");
         File.WriteAllBytes(other, [9]);
         var otherSha = AnalysisCache.HashFile(other);
@@ -170,7 +170,7 @@ public class NativeProviderTests(ITestOutputHelper output)
             Assert.Equal(entry.Directory, cache.Find("test", otherSha));
         }
         Assert.Null(cache.Find("test", new string('f', 64)));
-        // without short keys the full hash stays the key
+        // Without short keys the full hash stays the key.
         using var plain = new AnalysisCache(cache.Root).Acquire("plain", input, null);
         Assert.Equal(Path.Combine(cache.Root, "plain", sha), plain.Directory);
     }
@@ -227,7 +227,7 @@ public class NativeProviderTests(ITestOutputHelper output)
         using (var entry = cache.Acquire("test", input, null))
         {
             File.WriteAllText(Path.Combine(entry.Directory, "db.i64"), "saved");
-            // as if another server process held it
+            // As if another server process held it.
             File.WriteAllText(Path.Combine(entry.Directory, ".owner"), "4242");
             var e = Assert.Throws<ToolError>(() => cache.Acquire("test", input, null));
             Assert.Equal(ErrorCode.Conflict, e.Code);
@@ -254,7 +254,7 @@ public class NativeProviderTests(ITestOutputHelper output)
         using var reader = new StreamReader(child.StandardOutput);
         Assert.Equal(child.Id, int.Parse(reader.ReadLine()!)); // the worker's own id, not its shell parent's
         int grandchild = int.Parse(reader.ReadLine()!);
-        // also without a controlling terminal (CI, MCP clients), where dash ignores set -m
+        // Also without a controlling terminal (CI, MCP clients), where dash ignores set -m.
         if (OperatingSystem.IsLinux()) Assert.Equal(child.Id, ProcessGroup(child.Id));
         Assert.True(Running(grandchild));
         stand.Kill();
@@ -282,8 +282,7 @@ public class NativeProviderTests(ITestOutputHelper output)
     [Fact]
     public void A_childs_CPU_time_grows_while_it_computes()
     {
-        // Half a second of CPU time, then a wait on stdin so the tree is still running when it is read. The fake tool logs
-        // each call to the script ADB_FAKE_SCRIPT names, which another class may have set process-wide, so it is unset.
+        // Half a second of CPU, then a stdin wait keeps the tree running; ADB_FAKE_SCRIPT, which another class may set, is unset.
         using var child = ChildProcess.Start(new ChildProcessStart(FakeTool.Executable, ["spin", "500"])
         {
             Environment = new Dictionary<string, string?> { [FakeTool.ScriptVariable] = null },
@@ -352,8 +351,7 @@ public class NativeProviderTests(ITestOutputHelper output)
     [Fact, Trait("Speed", "Slow")]
     public async Task A_disposed_worker_has_no_process_of_its_tree_running_when_Dispose_returns()
     {
-        // The worker's child holds 256 MB, so its exit after the kill takes measurable time: a Dispose that waited for the
-        // worker alone returned while the child still ran. The fake tool's script variable is unset, as above.
+        // The child holds 256 MB, so its exit takes measurable time; ADB_FAKE_SCRIPT is unset, as above.
         var child = ChildProcess.Start(new ChildProcessStart(FakeTool.Executable, ["job-parent", FakeTool.Executable, "hold", "256"])
         {
             Environment = new Dictionary<string, string?> { [FakeTool.ScriptVariable] = null },
@@ -380,7 +378,7 @@ public class NativeProviderTests(ITestOutputHelper output)
         var child = ChildProcess.Start(new ChildProcessStart(cmd, ["/d", "/c", "ping -n 30 127.0.0.1 >nul"]));
         IReadOnlyList<int> tree = [];
         var clock = Stopwatch.StartNew();
-        // cmd starts ping whenever it gets scheduled: wait for that (the minute only guards against a hang).
+        // Cmd starts ping whenever it gets scheduled: wait for that (the minute only guards against a hang).
         while ((tree = child.TreeProcessIds()).Count < 2 && !child.HasExited && clock.Elapsed < TimeSpan.FromMinutes(1)) Thread.Sleep(10);
         Assert.True(tree.Count >= 2, $"expected cmd and ping in the job, saw {tree.Count}");
         Assert.Contains(child.Id, tree);
@@ -402,8 +400,7 @@ public class NativeProviderTests(ITestOutputHelper output)
         WindowsJobProcess.PipesCreated = start =>
         {
             if (!start.Arguments.Contains("echo sample-pipes")) return;
-            // Process.Start on another thread while our child ends are inheritable: it either waits for them to close
-            // (blocked on the shared lock) or starts at once and inherits them.
+            // Process.Start on another thread while our child ends are inheritable either waits for them or inherits them.
             var starter = new Thread(() => other = Process.Start(new ProcessStartInfo(cmd, "/d /c ping -n 30 127.0.0.1 >nul") { UseShellExecute = false, CreateNoWindow = true }));
             starter.Start();
             while ((starter.ThreadState & (System.Threading.ThreadState.WaitSleepJoin | System.Threading.ThreadState.Stopped)) == 0) Thread.Sleep(1);

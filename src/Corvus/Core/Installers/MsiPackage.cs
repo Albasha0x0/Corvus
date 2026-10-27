@@ -13,12 +13,7 @@ internal sealed record MsiCustomAction(string Action, int Type, string Kind, str
     public bool System => (Type & 0x400) != 0 && (Type & 0x800) != 0;
 }
 
-/// <summary>
-/// What a Windows Installer package does: its product properties and summary, the files with their install paths (the
-/// Directory table resolved, long names), the embedded cabinets that hold them, the custom actions with their code
-/// (Binary-table DLLs, EXEs and scripts, inline scripts), when they run (sequence tables and conditions), registry
-/// values, services and shortcuts.
-/// </summary>
+/// <summary>What a Windows Installer package does: properties, files, cabinets, custom actions and when they run, registry, services.</summary>
 internal sealed class MsiPackage
 {
     public required MsiDatabase Database { get; init; }
@@ -80,7 +75,7 @@ internal sealed class MsiPackage
             if (StandardFolders.TryGetValue(key, out var standard)) return paths[key] = standard;
             if (depth > 64 || !names.TryGetValue(key, out var name)) return key;
             var up = parent.GetValueOrDefault(key);
-            // a root (no parent, or itself) is named by its key, as SourceDir for TARGETDIR
+            // A root (no parent, or itself) is named by its key, as SourceDir for TARGETDIR.
             string path = string.IsNullOrEmpty(up) || up == key ? (key == "TARGETDIR" ? "SourceDir" : key)
                 : name is "." or "" ? Resolve(up, depth + 1) : Resolve(up, depth + 1) + "/" + name;
             return paths[key] = path;
@@ -185,11 +180,7 @@ internal sealed class MsiPackage
     public static string ScriptExtension(string kind) => kind switch { "JScript" => ".js", "VBScript" => ".vbs", _ => ".txt" };
 }
 
-/// <summary>
-/// Windows Installer packages as containers: the installed files out of the embedded cabinets under their install paths
-/// (SourceDir/...), Binary-table streams (custom action DLLs, EXEs, scripts) under Binary/, inline custom action scripts
-/// under CustomAction/, and with allFiles every table as tab-separated text under tables/ and every other stream under streams/.
-/// </summary>
+/// <summary>Windows Installer packages as containers: files by install path, Binary/ and CustomAction/, plus tables/ and streams/ with allFiles.</summary>
 internal sealed class MsiReader : IContainerReader
 {
     public string Kind => "msi";

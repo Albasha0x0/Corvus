@@ -15,11 +15,7 @@ public enum AddressOperand : byte
     Absolute,
 }
 
-/// <summary>
-/// One decoded instruction with the bytes that change when code moves masked: branch displacements, RIP-relative
-/// displacements, relocated or in-image absolute addresses in displacements and immediates; on ARM64 branch and literal
-/// offsets, ADRP / ADR pages and the low 12 bits ADD / LDR / STR add to a page. Addresses are RVAs.
-/// </summary>
+/// <summary>One decoded instruction with the bytes that change when code moves masked; addresses are RVAs.</summary>
 public sealed class MaskedInsn
 {
     public uint Rva { get; init; }
@@ -59,7 +55,7 @@ public sealed class MaskedDecoder
     private byte[] _buffer = new byte[4096];
     private readonly Arm64Decoder? _arm;
     private readonly Arm32Decoder? _arm32;
-    // ARM: the address after the last decoded instruction; decoding on from there keeps address-forming pairs
+    // ARM: the address after the last decoded instruction; decoding on from there keeps address-forming pairs.
     private uint _armNext = uint.MaxValue;
 
     /// <summary>ARM32 mnemonics are numbered from here.</summary>
@@ -88,10 +84,7 @@ public sealed class MaskedDecoder
 
     public INativeImage Image => _image;
 
-    /// <summary>
-    /// Linear decode of [<paramref name="start"/>, <paramref name="end"/>), at most <paramref name="max"/> instructions;
-    /// stops at bytes that do not decode or are not mapped.
-    /// </summary>
+    /// <summary>Linear decode of [<paramref name="start"/>, <paramref name="end"/>) up to <paramref name="max"/> instructions; stops at undecodable or unmapped bytes.</summary>
     public int Decode(uint start, uint end, List<MaskedInsn> output, int max = int.MaxValue)
     {
         if (end <= start) return 0;
@@ -158,7 +151,7 @@ public sealed class MaskedDecoder
             if (!i.Thumb) Bytes(0, 1, 2);
             else if (i.Length == 2) Bytes(0, 1);
             else Bytes(0, 1, 2, 3);
-            // keep the opcode byte of a 16-bit conditional branch and of a literal load
+            // Keep the opcode byte of a 16-bit conditional branch and of a literal load.
             if (i.Thumb && i.Length == 2 && (i.Mnemonic == "b" && i.IsConditional || i.Mnemonic == "ldr")) wild &= 1;
         }
         long? constant = null;
@@ -229,14 +222,15 @@ public sealed class MaskedDecoder
             {
                 case AsmArm64.Arm64InstructionId.B_only_branch_imm or AsmArm64.Arm64InstructionId.BL_only_branch_imm: Bits(0, 25); break;
                 case AsmArm64.Arm64InstructionId.ADRP_only_pcreladdr or AsmArm64.Arm64InstructionId.ADR_only_pcreladdr: Bits(5, 30); break;
-                default: Bits(5, 23); break; // imm19 of b.cond, cbz / cbnz, literal loads; imm14 of tbz / tbnz
+                // imm19 of b.cond, cbz / cbnz, literal loads; imm14 of tbz / tbnz.
+                default: Bits(5, 23); break;
             }
             kind = AddressOperand.Relative;
             target = insn.HasTarget ? insn.Target : insn.HasMem ? insn.MemTarget : insn.HasImm ? insn.ImmTarget : null;
         }
         else if (insn.HasImm || insn.HasMem)
         {
-            // the low 12 bits added to an ADRP page (add #imm12; ldr / str / ldp offsets): bits 10-21 at most
+            // The low 12 bits added to an ADRP page (add #imm12; ldr / str / ldp offsets): bits 10-21 at most.
             Bits(10, 21);
             kind = AddressOperand.RipRelative;
             target = insn.HasImm ? insn.ImmTarget : insn.MemTarget;
@@ -257,7 +251,7 @@ public sealed class MaskedDecoder
             Mnemonic = Arm64Mnemonics + (int)i.Mnemonic,
             Flow = insn.Flow,
             Token = Arm64Token(i),
-            // ARM64 address fields are not whole bytes: no operand position to read the address back from
+            // ARM64 address fields are not whole bytes, so there is no operand position to read back.
             OperandOffset = 0,
             OperandSize = 0,
             OperandKind = AddressOperand.None,

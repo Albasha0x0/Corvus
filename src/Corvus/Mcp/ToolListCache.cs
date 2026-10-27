@@ -10,10 +10,8 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// tools/list answered from a serialized copy per listed profile, built once and dropped when the tool collection changes
-/// (listChanged). The SDK otherwise turns every tool into a JSON tree on each request (≈ 200 ms for the full catalog).
-/// </summary>
+/// <summary>Answers tools/list from a serialized copy per profile, dropped when the tool collection changes.</summary>
+// The SDK otherwise builds a JSON tree per request, about 200 ms for the full catalog.
 public static class ToolListCache
 {
     /// <summary>One profile's tools/list result as UTF-8 JSON, and the catalog digest of what it lists.</summary>
@@ -46,10 +44,7 @@ public static class ToolListCache
     public static string Digest(McpServer server) =>
         For(server.ServerOptions, Profile(server.Services, server.ClientInfo?.Name)).Digest;
 
-    /// <summary>
-    /// The profile listed to a client: its default from <see cref="ClientProfiles.Resolve"/> (lean for clients that cap tool
-    /// counts) when the server was started without --toolsets, else null (every registered tool).
-    /// </summary>
+    /// <summary>The profile listed to a client started without --toolsets (lean for clients that cap tool counts), else null for every tool.</summary>
     internal static string? Profile(IServiceProvider? services, string? clientName)
     {
         if (services?.GetService<ServerOptions>() is not { } options || options.ToolsetsText != null) return null;

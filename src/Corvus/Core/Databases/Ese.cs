@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Databases;
 
-/// <summary>
-/// An Extensible Storage Engine database (.edb), read from its pages without esent.dll: the header, the catalog's tables
-/// with their columns, indexes and long-value trees, each table's records in B+ tree order with long values joined and
-/// compression undone, and the records that deleted nodes and pages no tree reaches still hold. The constructor throws
-/// <see cref="InvalidDataException"/> when neither header copy is readable; later damage becomes <see cref="Notes"/>.
-/// </summary>
+/// <summary>An ESE database (.edb) read without esent.dll; no readable header throws <see cref="InvalidDataException"/>, later damage is noted.</summary>
 public sealed class Ese : IDisposable
 {
     private const uint Magic = 0x89ABCDEF;
@@ -48,11 +43,7 @@ public sealed class Ese : IDisposable
 
     public sealed record Table(int ObjectId, string Name, uint Root, IReadOnlyList<Column> Columns, IReadOnlyList<IndexEntry> Indexes, uint LongValueRoot, string? Template);
 
-    /// <summary>
-    /// One column of a record: the instances (one, or more for a multi-valued column) decoded with long values joined and
-    /// compression undone; Stored the same before decompression; Null for a null column; Problem names what was not read;
-    /// Separated when a value came from the long-value tree.
-    /// </summary>
+    /// <summary>One column's decoded instances; Stored before decompression, Problem names what was not read.</summary>
     public sealed record Field(Column Column, IReadOnlyList<byte[]> Values, IReadOnlyList<byte[]> Stored, bool Null, string? Problem, bool Separated = false);
 
     /// <summary>A record: its key in the table's tree, its fields in column order, the page that holds it and, for a recovered one, where it was found.</summary>
@@ -107,9 +98,7 @@ public sealed class Ese : IDisposable
 
     public void Dispose() => _s.Dispose();
 
-    // The checksum is the XOR of the header's 32-bit words from offset 4, seeded with the signature value; the rest of
-    // the page is zero, so the 668-byte header record and the whole page give the same result unless a later format
-    // extends the record.
+    // XOR of the 32-bit words from offset 4, seeded with the signature; the 668-byte record suffices as the rest is zero.
     private static bool HeaderValid(ReadOnlySpan<byte> h)
     {
         uint stored = BinaryPrimitives.ReadUInt32LittleEndian(h), x = Magic, record = 0;
@@ -145,9 +134,8 @@ public sealed class Ese : IDisposable
         return p;
     }
 
-    // Tag i sits 4 * (i + 1) bytes from the page end: the value size, then its offset after the page header. Small pages
-    // keep the tag flags in the offset's top 3 bits; 16 and 32 KiB pages keep them in the top 3 bits of the value's
-    // second byte, which are masked off here.
+    // Tag i sits 4 * (i + 1) bytes from the page end: size, then offset; flags are the offset's top 3 bits on small pages,
+    // the value's second byte's top 3 bits on 16 and 32 KiB pages.
     private (byte[] Value, int Flags)? Value(Page p, int i)
     {
         if (i >= p.Count) return null;
@@ -255,9 +243,8 @@ public sealed class Ese : IDisposable
         public int MinEnd { get; set; }
     }
 
-    // Record layout: last fixed column id, last variable column id, end of the fixed data; the fixed columns in id order
-    // ending in their null bitmap (a set bit is a null column); 2-byte end offsets of the variable columns (top bit: null),
-    // their data; then the tagged columns: (id, offset) pairs whose offsets count from the first pair, and their data.
+    // Record: last fixed id, last variable id, fixed end; fixed columns and null bitmap; variable end offsets (top bit null)
+    // and data; tagged (id, offset) pairs, offsets from the first pair, and data.
     private Decoded? Decode(byte[] rec, Func<int, int> fixedSize, out string? problem)
     {
         problem = null;
@@ -358,9 +345,8 @@ public sealed class Ese : IDisposable
         return new Row(n.Key, fields, n.Page, source);
     }
 
-    // Header bits: 0x01 long-value column, 0x02 compressed, 0x04 separated (the data is a long-value id), 0x08 multi-value
-    // (2-byte offsets, top bit: that instance is separated), 0x10 two values (set with 0x08; the first byte is the first
-    // value's size), 0x40 encrypted. Of a compressed multi-value only the first instance is compressed.
+    // Header bits: 0x01 long value, 0x02 compressed (first instance only), 0x04 separated, 0x08 multi-value, 0x10 two values,
+    // 0x40 encrypted; multi-value offsets are 2 bytes, top bit separated.
     private Field Tagged(Table t, Column c, byte[] data, int header)
     {
         if ((header & 0x40) != 0) return new Field(c, [], [data], false, "encrypted; not read");
@@ -411,10 +397,7 @@ public sealed class Ese : IDisposable
         return new Field(c, values, stored, false, problem, instances.Any(i => i.Separated));
     }
 
-    /// <summary>
-    /// A separated long value by its id (4 bytes, or 8 with the 64-bit flag): its chunks joined as stored, and the
-    /// decoded bytes when a chunk is compressed (shorter than its share of the value's size).
-    /// </summary>
+    /// <summary>A separated long value's chunks joined, and the decoded bytes when a chunk is compressed.</summary>
     private (byte[] Stored, string? Problem, byte[]? Decoded) LongValue(Table t, byte[] lid)
     {
         if (lid.Length is not (4 or 8)) return (lid, $"long-value id of {lid.Length} bytes", null);
@@ -455,8 +438,7 @@ public sealed class Ese : IDisposable
         return (joined.ToArray(), problem, anyCompressed ? decoded.ToArray() : null);
     }
 
-    // Descends from the root to the leaf that would hold the key (a branch entry's key is at least every key under it;
-    // an empty key bounds the rest), then yields nodes from there on through the leaves' next-page links.
+    // Descends to the leaf that would hold the key, then yields nodes along the leaves' next-page links.
     private IEnumerable<Node> Seek(uint root, byte[] key)
     {
         uint number = root;
@@ -481,10 +463,7 @@ public sealed class Ese : IDisposable
         }
     }
 
-    /// <summary>
-    /// Undoes ESE column compression by the scheme in the first byte's top 5 bits: 7-bit ASCII and Unicode, Xpress
-    /// (MS-XCA plain LZ77) and LZ4; Xpress9, Xpress10 and scrubbed data return null with the reason.
-    /// </summary>
+    /// <summary>Undoes ESE column compression (7-bit, Xpress, LZ4); Xpress9, Xpress10 and scrubbed data return null with the reason.</summary>
     public static (byte[]? Data, string? Problem) Decompress(ReadOnlySpan<byte> d)
     {
         if (d.Length == 0) return ([], null);
@@ -521,8 +500,7 @@ public sealed class Ese : IDisposable
         }
     }
 
-    // MS-XCA 2.4: 32-bit flag words, a set bit a 2-byte match (offset - 1 in the top 13 bits, length - 3 in the low 3),
-    // longer lengths in a shared half byte, a byte, then 2 or 4 bytes.
+    // MS-XCA 2.4: 32-bit flag words; a match is offset - 1 (13 bits) and length - 3 (3 bits), longer lengths extended.
     private static (byte[]? Data, string? Problem) PlainLz77(ReadOnlySpan<byte> src, int size)
     {
         var o = new byte[size];
@@ -586,11 +564,8 @@ public sealed class Ese : IDisposable
         return op == size ? (o, null) : (null, $"Xpress data ends after {op:N0} of {size:N0} bytes");
     }
 
-    // A deleted node leaves its bytes in the page until the page is reorganized. Free space is the part of the data area
-    // no tag covers; a node there is accepted where its record header matches the table's fixed layout exactly and its
-    // offsets stay inside the gap, and it ends where the next accepted node starts; the gap's last node with tagged data
-    // has no known end. Small pages lose the node's flags with its tag, so a key with and without a common-prefix size
-    // is tried.
+    // A node in untagged space is accepted when its header matches the table's fixed layout and ends at the next one.
+    // Small pages lose the flags with the tag, so keys with and without a common-prefix size are tried.
     private IEnumerable<(Node Node, bool Whole)> Carve(Page p, Table t, Dictionary<int, Column> byId)
     {
         int top = PageSize - 4 * p.Count;
@@ -673,10 +648,7 @@ public sealed class Ese : IDisposable
     public static string Id(Row r) =>
         string.Join("|", r.Fields.Select(f => f.Null ? "-" : string.Join(",", f.Stored.Select(Convert.ToHexStringLower))));
 
-    /// <summary>
-    /// Records of a table that deleted nodes in its reachable leaves or its leaf pages no tree reaches still hold, other
-    /// than the live ones (by <see cref="Id"/>); each names its source.
-    /// </summary>
+    /// <summary>A table's records that deleted nodes and unreached leaf pages still hold, live ones left out.</summary>
     public List<Row> Recover(Table t, HashSet<string> live, HashSet<uint> reached, int max, CancellationToken ct)
     {
         var found = new List<Row>();

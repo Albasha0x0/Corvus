@@ -3,12 +3,7 @@ using Corvus.Native.Elf;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>
-/// The relocations of a relocatable object's (ET_REL) DWARF sections: .rela.debug_* and .rel.debug_* applied as the
-/// linker would, with each symbol's value plus its section's address (0 in an object, so code addresses are section
-/// offsets). The absolute data relocations compilers emit into debug sections are applied on x64, x86, AArch64, ARM,
-/// RISC-V (with the ADD/SUB/SET pairs of .debug_line), PowerPC64 and s390x; other types are reported.
-/// </summary>
+/// <summary>Applies the absolute data relocations of an ET_REL object's DWARF sections (x64, x86, AArch64, ARM, RISC-V, PowerPC64, s390x); other types are reported.</summary>
 internal sealed class DebugRelocations
 {
     /// <summary>One section header of the object, by index.</summary>
@@ -78,7 +73,7 @@ internal sealed class DebugRelocations
     /// <summary>One relocation: false when its type is not known.</summary>
     private bool Patch(byte[] data, ulong offset, uint type, ulong s, long addend, bool rela)
     {
-        // (width in bytes, operation): 0 S + A, 1 add S + A to the stored value, 2 subtract it, 3 six-bit set, 4 six-bit subtract
+        // Width in bytes and operation: 0 S + A, 1 add S + A to the stored value, 2 subtract it, 3 six-bit set, 4 six-bit subtract.
         (int Width, int Op) how = (_machine, type) switch
         {
             (ElfNames.EmX64, 1) => (8, 0), // R_X86_64_64

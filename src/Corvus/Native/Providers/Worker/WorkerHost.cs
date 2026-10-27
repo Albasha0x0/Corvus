@@ -15,12 +15,9 @@ public interface IWorkerOps
     IReadOnlyDictionary<string, WorkerOp> Ops { get; }
 }
 
-/// <summary>
-/// The <c>corvus worker</c> process: answers <see cref="WorkerProtocol"/> requests for the ops it registers, so untrusted
-/// work that crashes, overflows the stack or exhausts memory ends this process and not the server. It writes the
-/// <c>ready</c> event first; an op that runs out of memory is answered with <c>limit_exceeded</c> after an
-/// <see cref="OutOfMemoryEvent"/>, then the process exits, as its state is no longer trusted.
-/// </summary>
+/// <summary>The <c>corvus worker</c> process: runs untrusted ops so a crash ends it, not the server.</summary>
+/// <remarks>Writes <c>ready</c> first. An op that runs out of memory is answered with <c>limit_exceeded</c>, then the
+/// process exits, as its state is no longer trusted.</remarks>
 public static class WorkerHost
 {
     public const string Command = "worker";
@@ -45,8 +42,7 @@ public static class WorkerHost
     internal static int Serve(IReadOnlyDictionary<string, WorkerOp> ops, string? endOp = null)
     {
         var protocol = Console.OpenStandardOutput();
-        // Only requests' answers go to stdout: anything else a library prints
-        // goes to stderr, which the server keeps for its error messages.
+        // Stdout carries answers only; anything a library prints goes to stderr, kept for error messages.
         Console.SetOut(Console.Error);
         using var input = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
         return Run(input, protocol, ops, endOp);
@@ -76,11 +72,7 @@ public static class WorkerHost
     private static Task<JsonNode?> Ping(JsonObject args, CancellationToken cancellationToken) =>
         Task.FromResult<JsonNode?>(new JsonObject { ["pid"] = Environment.ProcessId, ["echo"] = args["echo"]?.DeepClone() });
 
-    /// <summary>
-    /// Keeps allocating 16 MB blocks, each page written, until an allocation fails; <c>native: true</c> allocates outside
-    /// the managed heap, where no GC limit applies. Native blocks are never freed: the worker exits after the failure.
-    /// <c>hang: true</c> (native) waits forever after the failure instead, never answering.
-    /// </summary>
+    /// <summary>Allocates written 16 MB blocks until one fails; <c>native</c> uses the native heap, <c>hang</c> then never answers.</summary>
     private static Task<JsonNode?> Allocate(JsonObject args, CancellationToken cancellationToken)
     {
         const int size = 16 << 20;
@@ -92,7 +84,6 @@ public static class WorkerHost
             cancellationToken.ThrowIfCancellationRequested();
             if (native)
             {
-                // AllocHGlobal throws OutOfMemoryException when the allocation fails.
                 IntPtr block;
                 try { block = System.Runtime.InteropServices.Marshal.AllocHGlobal(size); }
                 catch (OutOfMemoryException) when (hang) { Thread.Sleep(Timeout.Infinite); throw; }
@@ -171,7 +162,6 @@ public static class WorkerHost
                 break;
             }
         }
-        // stdin closed: the server is gone or asked the worker to end.
         Task.WaitAll([.. tasks], TimeSpan.FromSeconds(5));
         return 0;
     }

@@ -4,11 +4,7 @@ using Corvus.Native.MachO;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=nib: a compiled nib (NIBArchive or keyed archive): its classes, outlets and actions; inside an .app, each action's
-/// selector is resolved to its implementation in the main executable through the Objective-C metadata: on the
-/// destination's own class (and its superclasses), else on the one class that implements it, else the candidates.
-/// </summary>
+/// <summary>view=nib: a compiled nib's classes, outlets and actions; inside an .app, actions resolve to the main executable's methods.</summary>
 internal sealed class NibFileView : IFileSummaryView
 {
     private const int MaxRows = 500;
@@ -30,10 +26,11 @@ internal sealed class NibFileView : IFileSummaryView
         NibArchive.Graph? read;
         if (!file.Streamed) read = NibArchive.Read(file.Bytes);
         else
-            using (var stream = file.OpenRead()) read = NibArchive.Read(stream, 1 << 20); // a keyed archive's values kept to 1 MiB
+            // A keyed archive's values are kept to 1 MiB.
+            using (var stream = file.OpenRead()) read = NibArchive.Read(stream, 1 << 20);
         if (read is not { } graph) return null;
         var connectors = graph.Objects.Where(o => OutletClasses.Contains(o.Class) || ActionClasses.Contains(o.Class)).ToList();
-        // a keyed archive that is not a nib (no connector, no UI or AppKit classes) belongs to view=plist
+        // A keyed archive with no connector and no UI or AppKit class belongs to view=plist.
         if (graph.Format != "NIBArchive" && connectors.Count == 0 && !graph.Objects.Any(o => o.Class.StartsWith("UI", StringComparison.Ordinal) || o.Class.StartsWith("NSNib", StringComparison.Ordinal)))
             return null;
         var notes = new List<string>(graph.Issues);

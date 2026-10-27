@@ -8,12 +8,8 @@ using Corvus.Native.Patching;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// A session file (corvus-session/1): the loaded files by path and SHA-256, each assembly's edit script (the
-/// export_edits format), each native image's patch set (the export_native_patches json) and user names and comments,
-/// notes, the Il2Cpp builds read by the built-in reader (their input, binary and metadata, not the generated dummy assemblies)
-/// and the open minidumps. Everything is re-derived from the files themselves on load; nothing in it is executed.
-/// </summary>
+/// <summary>Builds and reads session files: loaded files by path and SHA-256, edits, patches, annotations, notes, AOT
+/// builds and open dumps. Load re-derives everything from the files; nothing is executed.</summary>
 public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryService history, NativeCodeService code, NotesService? notes = null,
     MinidumpService? dumps = null)
 {
@@ -63,11 +59,8 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         public JsonElement? Journal { get; init; }
     }
 
-    /// <summary>
-    /// An Il2Cpp build read by the built-in reader: <see cref="Input"/> is what load_assembly reads again (the package, else
-    /// the metadata, which finds the binary beside it); the binary is checked by SHA-256 after the read.
-    /// </summary>
-    public sealed record SessionIl2Cpp(SessionFile Input, string Binary, string BinarySha256, string? Slice);
+    /// <summary>An AOT build: <see cref="Input"/> is what load_assembly reads again; the binary is checked by SHA-256.</summary>
+    public sealed record SessionAotBuild(SessionFile Input, string Binary, string BinarySha256, string? Slice);
 
     /// <summary>An open minidump, reopened under the same file name id.</summary>
     public sealed record SessionDump(SessionFile File);
@@ -75,7 +68,12 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
     public sealed record Document(string Format, DateTime Created, string ServerVersion, List<string> SearchDirectories, List<SessionFile> Files,
         List<SessionEdits> DotNet, List<SessionNative> Native, List<Note>? Notes)
     {
-        public List<SessionIl2Cpp>? Il2Cpp { get; init; }
+        public List<SessionAotBuild>? AotBuilds { get; init; }
+
+        /// <summary>The AOT builds of a session file written before 2.7.0; read only, never written.</summary>
+        [JsonPropertyName("il2Cpp")]
+        public List<SessionAotBuild>? EarlierAotBuilds { get => null; init => AotBuilds ??= value; }
+
         public List<SessionDump>? Dumps { get; init; }
     }
 
@@ -108,14 +106,15 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         var files = new List<SessionFile>();
         var dotnet = new List<SessionEdits>();
         var native = new List<SessionNative>();
-        var builds = new Dictionary<string, Il2CppRawLoader.Marker>(StringComparer.OrdinalIgnoreCase); // cache entry -> what it was read from
+        // Cache entry to what it was read from.
+        var builds = new Dictionary<string, AotBuildLoader.Marker>(StringComparer.OrdinalIgnoreCase);
         workspace.Read(() =>
         {
             foreach (var asm in workspace.Assemblies)
             {
-                // Dummy assemblies of the built-in Il2Cpp reader are regenerated from the build, which the session records instead.
-                if (Path.GetDirectoryName(asm.FilePath) is { } folder && Path.GetFileName(folder) == Il2CppRawLoader.DummyFolder
-                    && Path.GetDirectoryName(folder) is { } entry && (builds.ContainsKey(entry) || Il2CppRawLoader.ReadMarker(entry) is { } marker && builds.TryAdd(entry, marker)))
+                // Dummy assemblies of the built-in AOT metadata reader are regenerated from the build, which the session records instead.
+                if (Path.GetDirectoryName(asm.FilePath) is { } folder && Path.GetFileName(folder) == AotBuildLoader.DummyFolder
+                    && Path.GetDirectoryName(folder) is { } entry && (builds.ContainsKey(entry) || AotBuildLoader.ReadMarker(entry) is { } marker && builds.TryAdd(entry, marker)))
                 {
                     if (include.Contains("edits") && asm.IsDirty) dotnet.Add(new SessionEdits(asm.Id, asm.OriginalSha256, history.BuildScript(asm)));
                     continue;
@@ -163,17 +162,17 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
                 .Append("global");
             noteList = notes.All(keys);
         }
-        var il2cpp = new List<SessionIl2Cpp>();
+        var aot = new List<SessionAotBuild>();
         foreach (var (entry, marker) in builds)
         {
             string input = marker.Package ?? marker.Metadata;
-            if (marker.Binary.Length > 0 && SessionFileOf("il2cpp", input, dir) is { } file && Sha256(marker.Binary) is { } binarySha)
+            if (marker.Binary.Length > 0 && SessionFileOf("aot", input, dir) is { } file && Sha256(marker.Binary) is { } binarySha)
             {
-                il2cpp.Add(new SessionIl2Cpp(file, marker.Binary, binarySha, marker.Slice));
+                aot.Add(new SessionAotBuild(file, marker.Binary, binarySha, marker.Slice));
                 continue;
             }
             // The build's files are gone: the dummy assemblies are listed like other files.
-            var dummy = Path.Combine(entry, Il2CppRawLoader.DummyFolder) + Path.DirectorySeparatorChar;
+            var dummy = Path.Combine(entry, AotBuildLoader.DummyFolder) + Path.DirectorySeparatorChar;
             files.AddRange(workspace.Read(() => workspace.Assemblies.Where(a => a.FilePath.StartsWith(dummy, StringComparison.OrdinalIgnoreCase))
                 .Select(a => new SessionFile(a.Id, "dotnet", a.FilePath, Path.GetRelativePath(dir, a.FilePath), a.OriginalSha256, a.OriginalBytes.LongLength, a.Module.Mvid?.ToString()))
                 .ToList()));
@@ -183,7 +182,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
             if (dumps!.PathOf(id) is { } dumpPath && SessionFileOf(id, dumpPath, dir) is { } file)
                 dumpList.Add(new SessionDump(file));
         return new Document(Format, DateTime.UtcNow, typeof(SessionService).Assembly.GetName().Version?.ToString(3) ?? "?", [.. workspace.SearchDirectories],
-            files, dotnet, native, noteList) { Il2Cpp = il2cpp.Count > 0 ? il2cpp : null, Dumps = dumpList.Count > 0 ? dumpList : null };
+            files, dotnet, native, noteList) { AotBuilds = aot.Count > 0 ? aot : null, Dumps = dumpList.Count > 0 ? dumpList : null };
     }
 
     /// <summary>A file recorded by path, relative path and SHA-256; null when it cannot be read now.</summary>
@@ -212,11 +211,8 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         return doc with { DotNet = doc.DotNet ?? [], Native = doc.Native ?? [], SearchDirectories = doc.SearchDirectories ?? [] };
     }
 
-    /// <summary>
-    /// Where a recorded file is now: <paramref name="Path"/> holds the same bytes (the recorded path, the path relative to
-    /// the session file, or a file of the same size under a search root); <paramref name="Other"/> is a file at the
-    /// recorded or relative path with other bytes (another build).
-    /// </summary>
+    /// <summary>Where a recorded file is now: <paramref name="Path"/> has the same bytes; <paramref name="Other"/> is a file
+    /// with other bytes at its path.</summary>
     public sealed record Located(string? Path, string How, string? Other);
 
     public static Located Locate(SessionFile file, string sessionDir, IReadOnlyList<string> roots, CancellationToken ct)

@@ -2,10 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// Which string forms besides NUL-terminated text an image's compiler emits: Rust &amp;str (a pointer and a byte length,
-/// no terminator) and Swift small strings (held in two 64-bit immediates). PE and ELF only.
-/// </summary>
+/// <summary>Whether a PE or ELF image holds Rust &amp;str or Swift small strings besides NUL-terminated text.</summary>
 internal static partial class StringForms
 {
     /// <summary>Read-only data read for the rustc commit at most.</summary>

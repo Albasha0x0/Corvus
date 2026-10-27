@@ -115,14 +115,7 @@ public sealed class AnnotationDocument
     public bool IsEmpty => Names.Count == 0 && Comments.Count == 0 && !HasUserTypes && !HasFormat4;
 }
 
-/// <summary>
-/// Per-user sidecar storage for native annotations: one JSON file per image SHA-256 under
-/// <c>&lt;LocalAppData&gt;/Corvus/annotations/&lt;sha256&gt;.json</c> (the same per-user root the analysis
-/// cache uses, a sibling folder), written atomically. A different file hash is a different sidecar, so a changed file
-/// starts clean; <see cref="FindOtherHashesForPath"/> reports when a sidecar already exists for the same path.
-/// Imported name layers (load_pdb, apply_il2cpp_names) live beside it, one compressed file per source
-/// (&lt;sha256&gt;.&lt;source&gt;.names, <see cref="SavedNameLayer"/>).
-/// </summary>
+/// <summary>Per-user annotation sidecars under &lt;LocalAppData&gt;/Corvus/annotations: &lt;sha256&gt;.json and name layers &lt;sha256&gt;.&lt;source&gt;.names, written atomically; a changed file starts clean.</summary>
 public sealed class AnnotationStore
 {
     public const string RootVariable = "CORVUS_ANNOTATIONS_DIR";
@@ -144,19 +137,13 @@ public sealed class AnnotationStore
 
     private string FileFor(string sha256) => System.IO.Path.Combine(Root, sha256.ToLowerInvariant() + ".json");
 
-    /// <summary>
-    /// A loaded sidecar. <paramref name="Warning"/> reports a sidecar that could not be used; <paramref name="WriteBlocked"/>
-    /// means it is still in place (locked, or a newer format) and must not be overwritten.
-    /// </summary>
+    /// <summary>A loaded sidecar; <paramref name="WriteBlocked"/> means it is still in place and must not be overwritten.</summary>
     public sealed record LoadResult(AnnotationDocument? Document, string? Warning, bool WriteBlocked);
 
     /// <summary>The saved document for <paramref name="sha256"/>, or null when none exists or it could not be used.</summary>
     public AnnotationDocument? Load(string sha256) => Open(sha256).Document;
 
-    /// <summary>
-    /// Reads the sidecar of <paramref name="sha256"/>. One that is malformed, unreadable or locked is moved aside to
-    /// &lt;sha256&gt;.json.corrupt-&lt;utc&gt;-&lt;guid&gt; so a later save cannot destroy it; if it cannot be moved it is left in place and writes are blocked.
-    /// </summary>
+    /// <summary>Reads the sidecar; an unreadable one is moved aside (.corrupt-&lt;utc&gt;-&lt;guid&gt;) so a save cannot destroy it, or blocks writes when it cannot be moved.</summary>
     public LoadResult Open(string sha256)
     {
         var file = FileFor(sha256);
@@ -170,8 +157,7 @@ public sealed class AnnotationStore
                 var doc = JsonSerializer.Deserialize<AnnotationDocument>(fs, Json);
                 if (doc == null) { problem = "the document is null"; break; }
                 if (doc.FormatVersion > FormatVersion)
-                    return new(null, $"The annotation sidecar {file} has format version {doc.FormatVersion} (this build writes {FormatVersion}); " +
-                                     "it is left untouched and names and comments of this image are not saved this session.", true);
+                    return new(null, $"The annotation sidecar {file} has format {doc.FormatVersion}, newer than {FormatVersion}; it is left untouched and this session saves no annotations.", true);
                 return new(doc, null, false);
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return new(null, null, false); }
@@ -180,31 +166,26 @@ public sealed class AnnotationStore
             {
                 problem = ex.Message;
                 if (attempt >= 4) break;
-                Thread.Sleep(20 << attempt); // a transient lock (antivirus, a backup) usually clears quickly
+                // A transient lock (antivirus, a backup) usually clears quickly.
+                Thread.Sleep(20 << attempt);
             }
         }
         var aside = $"{file}.corrupt-{DateTime.UtcNow:yyyyMMddTHHmmssZ}-{Guid.NewGuid():N}";
         try
         {
             File.Move(file, aside);
-            return new(null, $"The annotation sidecar {file} could not be read ({problem}); it was moved to {aside} and this image starts with no saved names or comments.", false);
+            return new(null, $"The annotation sidecar {file} could not be read ({problem}); it was moved to {aside}; this image starts with no saved annotations.", false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return new(null, $"The annotation sidecar {file} could not be read ({problem}) or moved aside ({ex.Message}); it is left untouched " +
-                             "and names and comments of this image are not saved this session.", true);
+            return new(null, $"The annotation sidecar {file} could not be read ({problem}) or moved aside ({ex.Message}); it is left untouched and this session saves no annotations.", true);
         }
     }
 
     /// <summary>How long a save waits for another process's write of the same sidecar.</summary>
     public TimeSpan LockTimeout { get; init; } = LockedJsonFile.DefaultTimeout;
 
-    /// <summary>
-    /// Saves under the cross-process lock: re-reads the sidecar fresh (through <see cref="Open"/>, so a corrupt one is
-    /// still moved aside), passes it to <paramref name="merge"/> and writes the result with the next revision, or deletes
-    /// the sidecar when the result is empty. A sidecar that must not be overwritten is left untouched. Returns the
-    /// document written (empty when deleted) or the problem (persistence is best-effort; in-memory annotations still work).
-    /// </summary>
+    /// <summary>Merges into the fresh sidecar under the cross-process lock and writes the next revision; deletes it when empty; best-effort, in-memory annotations still work.</summary>
     public SaveResult Update(string sha256, Func<LoadResult, AnnotationDocument> merge)
     {
         var file = FileFor(sha256);
@@ -217,17 +198,14 @@ public sealed class AnnotationStore
             written = merge(current);
             if (written.IsEmpty) return LockedJsonFile.Change.Remove();
             written.Revision = (current.Document?.Revision ?? 0) + 1;
-            // the lowest version that holds the content, so older builds still read and write files they understand
+            // The lowest version that holds the content, so older builds still read and write it.
             written.FormatVersion = written.HasFormat4 ? 4 : written.HasFormat3 ? 3 : written.HasUserTypes ? 2 : 1;
             return LockedJsonFile.Change.Write(JsonSerializer.SerializeToUtf8Bytes(written, Json));
         }, LockTimeout, () => stamp = Stamp(sha256));
         return problem == null ? new(written, stamp, null) : new(null, default, problem);
     }
 
-    /// <summary>
-    /// The outcome of <see cref="Update"/>: the document written (empty when the sidecar was deleted) and the sidecar's
-    /// <see cref="Stamp"/> right after the write, or the problem.
-    /// </summary>
+    /// <summary>The document written (empty when deleted) and the sidecar's stamp after the write, or the problem.</summary>
     public sealed record SaveResult(AnnotationDocument? Written, (long Length, long Ticks) Stamp, string? Problem);
 
     /// <summary>Length and last write time of the sidecar (zeros when absent): a cheap check for a write by another process.</summary>
@@ -241,17 +219,19 @@ public sealed class AnnotationStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return (-1, 0); }
     }
 
-    // ---- imported name layers (load_pdb, apply_il2cpp_names) ----
+    // ---- imported name layers (load_pdb, apply_metadata_names) ----
 
     private readonly object _layerGate = new();
 
     /// <summary>The file of one saved imported layer: &lt;sha256&gt;.&lt;source&gt;.names beside the sidecar.</summary>
-    public string LayerFileFor(string sha256, NativeNameSource source) => System.IO.Path.Combine(Root, $"{sha256.ToLowerInvariant()}.{source.Id()}.names");
+    public string LayerFileFor(string sha256, NativeNameSource source) =>
+        System.IO.Path.Combine(Root, $"{sha256.ToLowerInvariant()}.{source.Id()}.names");
 
-    /// <summary>
-    /// Writes an imported layer atomically; returns null on success, else the problem (persistence is best-effort).
-    /// Layers are whole files re-derivable from their source, so the last writer wins.
-    /// </summary>
+    // Versions up to 2.7 saved metadata layers as <sha256>.il2cpp.names; they are still read and deleted.
+    private string? EarlierLayerFileFor(string sha256, NativeNameSource source) =>
+        source == NativeNameSource.Metadata ? System.IO.Path.Combine(Root, $"{sha256.ToLowerInvariant()}.il2cpp.names") : null;
+
+    /// <summary>Writes an imported layer atomically, last writer wins; null on success, else the problem.</summary>
     public string? SaveLayer(string sha256, string imagePath, NativeNameLayers.Layer layer)
     {
         var file = LayerFileFor(sha256, layer.Source);
@@ -274,7 +254,7 @@ public sealed class AnnotationStore
         var file = LayerFileFor(sha256, source);
         try
         {
-            if (!File.Exists(file)) return null;
+            if (!File.Exists(file) && (EarlierLayerFileFor(sha256, source) is not { } earlier || !File.Exists(file = earlier))) return null;
             using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
             return SavedNameLayer.Read(fs, sha256, ct) is { } layer && layer.Source == source ? layer : null;
         }
@@ -287,14 +267,18 @@ public sealed class AnnotationStore
     /// <summary>Deletes a saved layer; true when there was one.</summary>
     public bool DeleteLayer(string sha256, NativeNameSource source)
     {
-        var file = LayerFileFor(sha256, source);
         try
         {
             lock (_layerGate)
             {
-                if (!File.Exists(file)) return false;
-                File.Delete(file);
-                return true;
+                bool deleted = false;
+                foreach (var file in new[] { LayerFileFor(sha256, source), EarlierLayerFileFor(sha256, source) })
+                {
+                    if (file == null || !File.Exists(file)) continue;
+                    File.Delete(file);
+                    deleted = true;
+                }
+                return deleted;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -303,10 +287,7 @@ public sealed class AnnotationStore
         }
     }
 
-    /// <summary>
-    /// SHA-256 hashes of sidecars that record the same file path as <paramref name="path"/> but a different hash:
-    /// annotations made against an earlier version of a file now changed on disk.
-    /// </summary>
+    /// <summary>Hashes of sidecars for the same path but a different hash: annotations of an earlier version of the file.</summary>
     public IReadOnlyList<string> FindOtherHashesForPath(string path, string currentSha256)
     {
         var result = new List<string>();

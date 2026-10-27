@@ -51,7 +51,7 @@ internal sealed class MinidumpBuilder
     {
         var streams = new List<(uint Type, Func<int, byte[]> Data)>();
         var body = new List<byte>();
-        // stream data is laid out after the header and the directory; each producer gets its own offset
+        // Stream data is laid out after the header and the directory; each producer gets its own offset.
         streams.Add((7, _ => SystemInfo()));
         if (ProcessId is { } pid) streams.Add((15, _ => Misc(pid)));
         streams.Add((4, at => ModuleList(at)));
@@ -178,7 +178,7 @@ internal sealed class MinidumpBuilder
             BinaryPrimitives.WriteUInt64LittleEndian(arr.AsSpan(e + 24), t.StackStart);
             var stack = Memory.FirstOrDefault(m => m.Start == t.StackStart);
             BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 32), (uint)(stack.Data?.Length ?? 0));
-            // the stack memory itself goes in the memory list; the descriptor's RVA is patched in when memory is laid out
+            // The stack memory itself goes in the memory list; the descriptor's RVA is patched in when memory is laid out.
             BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 40), (uint)t.Context.Length);
             BinaryPrimitives.WriteUInt32LittleEndian(arr.AsSpan(e + 44), (uint)(at + result.Count));
             result.AddRange(t.Context);

@@ -19,14 +19,9 @@ public sealed record RelayOptions
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromMinutes(2);
 }
 
-/// <summary>
-/// Development reload. Speaks MCP stdio to the client and forwards JSON-RPC to the real server, run as a child from a
-/// staged copy of the publish folder. When a new publish marker is stable and no client call is in flight, a new child
-/// is brought to the client's session (its initialize repeated, or on per-request-metadata protocols such as 2026-07-28
-/// a server/discover with the client's metadata), replays the workspace-establishing calls, takes over the client's open
-/// subscriptions/listen streams and replaces the old one; the client then gets list_changed notifications (through its
-/// listen streams on 2026-07-28) and a [relay] notice on its next tool result.
-/// </summary>
+/// <summary>Development reload: forwards MCP stdio to a server run from a staged publish copy and swaps in each new publish.</summary>
+// A swap waits for a stable marker and no call in flight, joins the new child to the client's session, replays the workspace
+// calls, moves open listen streams, then sends list_changed and a [relay] notice on the next tool result.
 public sealed partial class DevRelay : IAsyncDisposable
 {
     /// <summary>Tool the relay adds to tools/list: switch to the newer build now.</summary>
@@ -58,14 +53,18 @@ public sealed partial class DevRelay : IAsyncDisposable
     // Guarded by _gate.
     private Child? _active;
     private readonly Dictionary<string, (Child Child, JsonObject Request, bool Stream)> _inFlight = [];
-    private readonly HashSet<string> _movedStreams = []; // the new child's acknowledgement of these is not news to the client
-    private readonly HashSet<string> _cancelledByClient = []; // a late reply to these is dropped, as the protocol asks of the receiver
+    // The new child's acknowledgement of these is not news to the client.
+    private readonly HashSet<string> _movedStreams = [];
+    // A late reply to these is dropped, as the protocol asks of the receiver.
+    private readonly HashSet<string> _cancelledByClient = [];
     private readonly Dictionary<string, (Child Child, JsonNode? Id)> _serverRequests = [];
     private readonly List<(string Method, JsonObject? Params, string Label)> _replay = [];
     private readonly List<string> _notices = [];
     private readonly List<TaskCompletionSource<(bool Ok, string Text)>> _applyWaiters = [];
-    private JsonObject? _initializeParams; // of a successful initialize
-    private JsonObject? _requestMeta; // the client's per-request metadata (2026-07-28 and later)
+    // Of a successful initialize.
+    private JsonObject? _initializeParams;
+    // The client's per-request metadata (2026-07-28 and later).
+    private JsonObject? _requestMeta;
     private string? _protocolVersion;
     private bool _initialized, _swapping, _force, _postponed, _clientSpoke;
     private TaskCompletionSource _swapDone = Done();
@@ -328,7 +327,8 @@ public sealed partial class DevRelay : IAsyncDisposable
             var restart = !child.Retired && child == _active && !_stop.IsCancellationRequested;
             foreach (var (key, entry) in _inFlight.Where(e => e.Value.Child == child).ToList())
             {
-                if (entry.Stream && restart) continue; // taken over by the restarted server
+                // Taken over by the restarted server.
+                if (entry.Stream && restart) continue;
                 _inFlight.Remove(key);
                 if (!_cancelledByClient.Remove(key) && entry.Request["id"] is { } id) failed.Add(id.DeepClone());
             }
@@ -394,7 +394,8 @@ public sealed partial class DevRelay : IAsyncDisposable
                 tools.Add(ApplyToolDefinition());
                 break;
             case "tools/call":
-                _postponed = false; // the call may have saved or reverted the edits that held a swap back
+                // The call may have saved or reverted the edits that held a swap back.
+                _postponed = false;
                 if (_pending != null && !_swapping && SwapBlocker(_force) is { } why && _waitNoticeFor != _pending.Marker + why)
                 {
                     _waitNoticeFor = _pending.Marker + why;
@@ -421,8 +422,8 @@ public sealed partial class DevRelay : IAsyncDisposable
     {
         ["name"] = ApplyTool,
         ["title"] = "Apply the newer server build",
-        ["description"] = "Development relay: switch to the newest published server build now, also when unsaved in-memory edits would be lost " +
-                          "or a workspace call fails to replay (it is then listed). Without a newer build, restarts a server that exited.",
+        ["description"] = "Switch to the newest published server build now, discarding unsaved edits and listing calls that fail to replay. " +
+                          "Without a newer build, restarts an exited server.",
         ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() },
         ["annotations"] = new JsonObject { ["readOnlyHint"] = false, ["destructiveHint"] = true, ["idempotentHint"] = false, ["openWorldHint"] = false },
     };
@@ -519,7 +520,7 @@ public sealed partial class DevRelay : IAsyncDisposable
             if (old is { Gone: false })
             {
                 (discarded, var unknown) = await UnsavedEditsAsync(old, meta);
-                // an edit count the server did not give holds the swap too: switching would lose any edits it has
+                // An edit count the server did not give holds the swap too: switching would lose any edits it has.
                 if ((discarded > 0 || unknown != null) && !force)
                 {
                     var pending = unknown == null ? $"{discarded} unsaved edit(s) pending" : $"its unsaved edits could not be checked ({unknown})";
@@ -627,14 +628,12 @@ public sealed partial class DevRelay : IAsyncDisposable
             }
             done.TrySetResult();
             foreach (var waiter in waiters) waiter.TrySetResult(outcome);
-            TryBeginSwap(); // a newer build that arrived meanwhile
+            // A newer build may have arrived meanwhile.
+            TryBeginSwap();
         }
     }
 
-    /// <summary>
-    /// list_changed for the client: plain on handshake protocols; on 2026-07-28 only on the listen streams that asked
-    /// for that kind, tagged with the stream's subscription id.
-    /// </summary>
+    /// <summary>list_changed for the client: plain on handshake protocols; on 2026-07-28 only on listen streams that asked, with their subscription id.</summary>
     private static IEnumerable<JsonObject> ListChangedNotifications(bool session, List<JsonObject> streams)
     {
         if (session)

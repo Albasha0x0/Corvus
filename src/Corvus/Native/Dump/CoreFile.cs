@@ -27,12 +27,7 @@ public sealed record CoreSegment(ulong Start, ulong MemorySize, ulong FileSize, 
     public bool Contains(ulong address) => address >= Start && address - Start < MemorySize;
 }
 
-/// <summary>
-/// A Linux or Android ELF core dump (ET_CORE): PT_LOAD segments as the process memory, and the PT_NOTE notes
-/// NT_PRSTATUS (threads and registers), NT_SIGINFO, NT_FILE (mapped files, grouped into modules), NT_AUXV and
-/// NT_PRPSINFO; or a macOS Mach-O core (MH_CORE, see CoreFile.MachO.cs) in the same terms. Only the header check
-/// throws; other problems are recorded in <see cref="Issues"/>. Memory is read on demand with positional reads.
-/// </summary>
+/// <summary>An ELF (ET_CORE) or Mach-O (MH_CORE) core dump; only the header check throws, other problems go to <see cref="Issues"/>.</summary>
 public sealed partial class CoreFile : IProcessMemory, IDisposable
 {
     private const int MaxSegments = 1 << 16;
@@ -103,7 +98,7 @@ public sealed partial class CoreFile : IProcessMemory, IDisposable
             return;
         }
         if (!IsCore(head))
-            throw new ToolError(ErrorCode.MalformedInput, $"{(path.Length > 0 ? path : "the file")} is not an ELF core dump (no ELF header of type ET_CORE).",
+            throw new ToolError(ErrorCode.MalformedInput, $"{(path.Length > 0 ? path : "the file")} is not an ELF core dump.",
                 "pass a core file written by the Linux kernel, gcore or lldb process save-core");
         Is64Bit = head[4] == 2;
         BigEndian = head[5] == 2;
@@ -255,7 +250,7 @@ public sealed partial class CoreFile : IProcessMemory, IDisposable
         int phnum = h.U16(Is64Bit ? 56 : 44);
         if (phnum == 0xFFFF)
         {
-            // PN_XNUM: the count is section header 0's sh_info
+            // PN_XNUM: the count is in section header 0's sh_info.
             long shoff = (long)Math.Min(Is64Bit ? h.U64(40) : h.U32(32), long.MaxValue / 2);
             var sh = new ByteView(Block(shoff, 64), BigEndian);
             phnum = (int)Math.Min(sh.U32(Is64Bit ? 44 : 28), MaxSegments);
@@ -368,7 +363,8 @@ public sealed partial class CoreFile : IProcessMemory, IDisposable
             case NtSiginfo:
                 if (d.Length < 12) break;
                 int signo = (int)d.U32(0), errno = (int)d.U32(4), code = (int)d.U32(8);
-                if (signo == 0) break; // a thread that took no signal
+                // A thread that took no signal.
+                if (signo == 0) break;
                 long union = Is64Bit ? 16 : 12;
                 bool fault = signo is 4 or 5 or 7 or 8 or 11 && code > 0; // SIGILL SIGTRAP SIGBUS SIGFPE SIGSEGV raised by the CPU
                 Signal = new ElfCoreSignal(signo, code, errno, fault && d.Has(union, Is64Bit ? 8 : 4) ? d.Word(union, Is64Bit) : null,
@@ -394,7 +390,7 @@ public sealed partial class CoreFile : IProcessMemory, IDisposable
 
     private void Prpsinfo(ByteView d)
     {
-        // 64-bit: 136 bytes, pr_fname at 40; 32-bit (16-bit uid and gid): 124 bytes, pr_fname at 28
+        // 64-bit: 136 bytes, pr_fname at 40; 32-bit (16-bit uid and gid): 124 bytes, pr_fname at 28.
         bool wide = Is64Bit;
         long pidAt = wide ? 24 : 12, nameAt = wide ? 40 : 28;
         if (d.Length < nameAt + 16) return;

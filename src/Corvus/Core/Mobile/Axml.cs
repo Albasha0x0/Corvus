@@ -24,10 +24,7 @@ public sealed class AxmlElement(string? ns, string name, int line)
     public IEnumerable<AxmlElement> Elements(string name) => Children.Where(c => c.Name == name);
 }
 
-/// <summary>
-/// Android binary XML (AndroidManifest.xml and compiled res/*.xml inside an APK). Never throws: what cannot be read
-/// is reported in <see cref="Issues"/> and the tree read so far is kept.
-/// </summary>
+/// <summary>Android binary XML; never throws, problems go to <see cref="Issues"/> and the tree read so far is kept.</summary>
 public sealed class AxmlDocument
 {
     public const string AndroidNamespace = "http://schemas.android.com/apk/res/android";
@@ -147,10 +144,7 @@ public sealed class AxmlDocument
         return element;
     }
 
-    /// <summary>
-    /// The value of an attribute as text: its string, the name of a framework enum or flag value, else its typed value
-    /// through <paramref name="resolve"/>.
-    /// </summary>
+    /// <summary>An attribute value as text: string, framework enum or flag name, else resolved through <paramref name="resolve"/>.</summary>
     public string Text(AxmlAttribute attribute, Func<uint, string?>? resolve = null) =>
         attribute.RawValue != null && attribute.Value.DataType is ResValue.String or ResValue.Null
             ? attribute.RawValue

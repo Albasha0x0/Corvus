@@ -35,10 +35,7 @@ public sealed partial class PeFile
     /// <summary>A page holds 4096 byte offsets; a block far larger than that is damaged.</summary>
     private const int MaxEntriesPerBlock = 0x4000;
 
-    /// <summary>
-    /// Relocation blocks (page RVA, block size, 16-bit entries) across the directory. A block smaller than its header
-    /// ends the walk, as it ends the loader's.
-    /// </summary>
+    /// <summary>Relocation blocks; a block smaller than its header ends the walk, as in the loader.</summary>
     private RelocationTable ParseRelocations(IssueLog log)
     {
         var dir = Directory(PeDirectory.BaseRelocation);

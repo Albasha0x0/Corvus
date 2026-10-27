@@ -8,7 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>get_native_type over the PDB fixture (<see cref="PdbTypeFixture"/>), a synthetic RTTI image and an Il2Cpp dump.</summary>
+/// <summary>get_native_type over the PDB fixture (<see cref="PdbTypeFixture"/>), a synthetic RTTI image and dummy assemblies.</summary>
 public sealed class NativeTypeInfoTests : IDisposable
 {
     private readonly ITestOutputHelper _output;
@@ -71,7 +71,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal(["pdb:PSensor", r.Candidates.Single(c => c.Name == "Sensor").Id], r.Candidates.Select(c => c.Id).Order().Reverse());
         Assert.Contains("2 type(s) contain 'nso'", text);
 
-        // a glob lists every match, also an exact name's type
+        // A glob lists every match, also an exact name's type.
         var (globText, glob) = await Get("Se*");
         Assert.Null(glob.Type);
         Assert.Contains(glob.Candidates, c => c.Name == "Sensor");
@@ -90,7 +90,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.True(opaque.ForwardOnly);
         Assert.Contains(opaque.Notes, n => n.Contains("forward declaration", StringComparison.Ordinal));
 
-        // a typedef of a pointer, and one whose name is its tag's is the struct itself
+        // A typedef of a pointer, and one whose name is its tag's is the struct itself.
         var psensor = (await Get("PSensor")).Report.Type!;
         Assert.Equal(("typedef", 8L), (psensor.Kind, psensor.Size));
         Assert.Equal("Sensor *", (await Get(id: psensor.Referenced)).Report.Type!.Name);
@@ -131,7 +131,7 @@ public sealed class NativeTypeInfoTests : IDisposable
             (sensor + 4, BitConverter.GetBytes(3)), (sensor + 8, BitConverter.GetBytes(0b1011u)), (sensor + 0xC, BitConverter.GetBytes(1.5f)),
             (sensor + 0x24, [.. BitConverter.GetBytes(10), .. BitConverter.GetBytes(-2), .. BitConverter.GetBytes(30), .. BitConverter.GetBytes(40)]),
             (sensor + 0x38, BitConverter.GetBytes(0x140000000UL + PdbTypeFixture.TeamRva)));
-        // pointer values are named from the code index once it is built (a read does not wait for it)
+        // Pointer values are named from the code index once it is built (a read does not wait for it).
         await _code.Index(_env.Workspace.LoadAny(_image).Native!, null, default);
 
         var collector = ToolOutput.Collect();
@@ -149,7 +149,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal("0x140003010 (g_Team)", Value("next"));
         Assert.Contains("pos.x  float  = 1.5", text);
 
-        // a typed address reads its owner from the start; a plain name needs an address
+        // A typed address reads its owner from the start; a plain name needs an address.
         Assert.Null((await Get(address: "g_Team")).Report.Type!.Fields.Single(f => f.Name == "count").Value);
         var owner = ToolOutput.Collect();
         await _tools.GetNativeType(_image, address: $"rva:0x{sensor:X}", read: true);
@@ -189,7 +189,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         var flag = Assert.Single(list.Items, g => g.Address == "0x140003150");
         Assert.Equal(("sample_flag", "int", "user"), (flag.Name, flag.Type, string.Join(",", flag.Sources)));
         Assert.Contains(list.Items, g => g.Address == "0x140003160" && g.Type == "dword[2]");
-        // code is not a global
+        // Code is not a global.
         Assert.DoesNotContain(list.Items, g => g.Section == ".text");
 
         var filtered = ToolOutput.Collect();
@@ -209,8 +209,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal(["g_Team at 0x140003010"], type.Globals);
     }
 
-    // Regression: resolve_address read names only from a finished code index, so a PDB global was unknown while the
-    // build ran (quick set, Typed_address_inside_a_global_gives_the_field_path).
+    // Regression: resolve_address left a PDB global unknown while the code index was building.
     [Fact]
     public async Task A_pdb_name_resolves_before_the_code_index_is_built()
     {
@@ -338,19 +337,19 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Null(catalog.AtAddress(c, 0x1000, default));
     }
 
-    /// <summary>Il2Cpp layouts after the names are applied: the object header, dumped offsets, statics, and the metadata slot typed.</summary>
+    /// <summary>AOT layouts after the names are applied: the object header, dumped offsets, statics, and the metadata slot typed.</summary>
     [Fact]
-    public async Task Il2cpp_layouts_after_apply()
+    public async Task Applied_metadata_names_give_object_header_and_static_layouts()
     {
-        var (dll, binary) = Il2CppNativeNamesTests.CreateDump(_dir);
+        var (dll, binary) = AotNativeNamesTests.CreateDump(_dir);
         using var env = new Env(dll);
         var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("ann2")));
         var native = env.Workspace.LoadAny(binary).Native!;
-        new Il2CppNativeNames(env.Il2Cpp, env.Il2CppNavigator, code).Apply(native, await code.Index(native, null, default), env.Workspace.Assemblies, default);
+        new AotNativeNames(env.AotMetadata, env.AotNavigator, code).Apply(native, await code.Index(native, null, default), env.Workspace.Assemblies, default);
         var catalog = new NativeTypeCatalog(env.Workspace, code);
-        var c = await catalog.Open(native, new HashSet<string> { NativeTypeCatalog.Il2Cpp }, null, false, default);
+        var c = await catalog.Open(native, new HashSet<string> { NativeTypeCatalog.Metadata }, null, false, default);
         var view = (await catalog.Find(c, "Fixture.Native.NativeThing", 0, 10, default)).View!();
-        Assert.Equal(("il2cpp:Fixture.Native.NativeThing", "class", "il2cpp"), (view.Id, view.Kind, view.Source));
+        Assert.Equal(("metadata:Fixture.Native.NativeThing", "class", "metadata"), (view.Id, view.Kind, view.Source));
         Assert.Equal(["+0x0 klass header", "+0x8 monitor header", "+0x10 Counter member"], view.Fields.Select(f => $"+0x{f.Offset:X} {f.Name} {f.Kind}"));
         Assert.Equal("Counter", Assert.Single(NativeTypeCatalog.Paths(c, view, 0x12, default)).Path);
         Assert.Equal(view.Id, (await catalog.Find(c, "NativeThing", 0, 10, default)).View!().Id); // the short name
@@ -427,7 +426,7 @@ public sealed class NativeTypeInfoIdaTests(ITestOutputHelper output) : IDisposab
         Assert.Equal(("ida:SampleTyped", "ida", 24L), (report.Type!.Id, report.Type.Source, report.Type.Size));
         Assert.Equal(["+0x0 length", "+0x4 pair", "+0x8 data"], report.Type.Fields.Select(f => $"+0x{f.Offset:X} {f.Name}"));
         Assert.Equal("pair", Assert.Single(report.Paths).Path);
-        // auto reads the engine once its analysis is complete, for names the other sources lack
+        // Auto reads the engine once its analysis is complete, for names the other sources lack.
         Assert.Contains("[ida:SampleTyped, ida]", await tools.GetNativeType(image, "SampleTyped"));
         Assert.Contains("ida:SampleTyped", await tools.GetNativeType(image, "mpleTyp", source: "engine"));
     }

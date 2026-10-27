@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "TestFixture: 0 P/Invoke declarations\nNote: TestFixture declares no P/Invoke methods.\nNote: A declaration that is unresolved or contradicted statically does not rule out dynamic loading: native code can also be loaded at run time (NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, a DllImportResolver), by this assembly (dynamicLoads lists what its IL does) or by another one in the process.\nNote: Target platform: windows, from requested.\n0 declarations:\n[End: 0 declarations]\n"
+    "TestFixture: 0 P/Invoke declarations\nNote: TestFixture declares no P/Invoke methods.\nNote: Unresolved or contradicted does not rule out run-time loading, by this assembly (dynamicLoads) or another in the process.\nNote: Target platform: windows, from requested.\n0 declarations:\n[End: 0 declarations]\n"
   ],
   "structuredContent": {
     "assembly": "TestFixture",
@@ -20,7 +20,7 @@
     "metadataIssues": [],
     "notes": [
       "TestFixture declares no P/Invoke methods.",
-      "A declaration that is unresolved or contradicted statically does not rule out dynamic loading: native code can also be loaded at run time (NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, a DllImportResolver), by this assembly (dynamicLoads lists what its IL does) or by another one in the process.",
+      "Unresolved or contradicted does not rule out run-time loading, by this assembly (dynamicLoads) or another in the process.",
       "Target platform: windows, from requested."
     ],
     "limit": 100,

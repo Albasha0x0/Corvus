@@ -2,12 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Finds function starts: the roots the image declares (.pdata, exports, entry point, TLS callbacks), then everything
-/// reachable from them by recursive descent (call targets, x64 jumps leaving a .pdata function), then weaker
-/// candidates that must decode cleanly before they are accepted (relocated pointers in data, addresses taken by code,
-/// x86 and ARM prologues in gaps between known code). Every byte is decoded at most once per offset (global bitmaps).
-/// </summary>
+/// <summary>Finds function starts: declared roots, recursive descent from them, then weak candidates that must verify; each offset is decoded at most once.</summary>
 internal sealed partial class FunctionDiscovery
 {
     /// <summary>Instructions a weak candidate may decode during verification.</summary>
@@ -17,7 +12,7 @@ internal sealed partial class FunctionDiscovery
     private readonly ICodeDecoder _dec;
     private readonly ICodeDecoder _peek;
     private readonly ICodeDecoder _thunks;
-    // the peek decoder on x86 / x64, for the heuristics that read x86 instructions (prologues, frames)
+    // The peek decoder on x86 / x64, for the prologue and frame checks.
     private readonly X86Decoder? _x86Peek;
     private readonly CodeBitmap _starts;
     private readonly CodeBitmap _covered;
@@ -31,13 +26,13 @@ internal sealed partial class FunctionDiscovery
     private readonly HashSet<uint> _codeTables = [];
     private readonly SortedSet<uint> _pendingSwitches = [];
     private readonly HashSet<uint> _rejected = [];
-    // ELF only: far jumps ask whether they pass another start
+    // ELF only: far jumps ask whether they pass another start.
     private readonly SortedSet<uint>? _sortedStarts;
     private readonly HashSet<uint> _farJumps = [];
     /// <summary>ARM32: targets of relocated pointers in data that carry the Thumb bit.</summary>
     private readonly HashSet<uint> _thumbPointerTargets = [];
     private readonly Verifier _verifier;
-    // speculative verification of a batch of candidates: results by candidate, and functions added since
+    // Speculative verification results by candidate.
     private readonly Dictionary<uint, (bool Ok, bool Funclet, uint[] Consulted)> _speculated = [];
     private HashSet<uint> _batch = [];
     private readonly Dictionary<uint, uint?> _thunkCache = [];
@@ -90,19 +85,19 @@ internal sealed partial class FunctionDiscovery
         FindThunkSlots(roots.Select(r => r.Rva));
         foreach (var (rva, source) in roots) Add(rva, source, strong: true);
         Drain();
-        // exports that may be data (undecorated or ordinal-only names; data merged into the code section)
+        // Undecorated and ordinal-only exports may be data merged into the code section.
         foreach (var e in exports)
             if (ExportKind(e.Name) == null) TryExport(e.Rva);
         Drain();
         foreach (var (function, pad, _) in _ctx.LandingPads)
             if (_ctx.Code.IsCode(pad) && !_functions.ContainsKey(pad))
             {
-                // a landing pad runs in its function's ARM / Thumb state
+                // A landing pad runs in its function's ARM / Thumb state.
                 if (_ctx.ArmModes is { } modes) modes.Hint(pad, modes.StartMode(function));
                 _direct.Explore(pad, chunk: true);
             }
         Drain();
-        // ARM64 .pdata fragments no function's flow reached stay functions of their own
+        // ARM64 .pdata fragments no function's flow reached stay functions of their own.
         foreach (uint f in _ctx.PdataFragments.Order())
             if (_ctx.Code.BitIndex(f) is var bit and >= 0 && !_covered[bit]) Add(f, FunctionSource.Pdata, strong: true);
         Drain();
@@ -123,8 +118,7 @@ internal sealed partial class FunctionDiscovery
             else if (_ctx.Options.ScanPrologues && image.Arch is NativeArch.Arm or NativeArch.Arm64) ScanArmGaps();
            
             if (_functions.Count != before) continue;
-            // pointers stored inside code sections last: by now the functions owning switch tables there are
-            // decoded, so case labels are covered
+            // Pointers inside code sections go last, once switch tables there are decoded and case labels covered.
             foreach (var t in DataPointerTargets(inCode: true)) TryCandidate(t, FunctionSource.DataPointer);
             Drain();
             changed = _functions.Count != before;
@@ -142,11 +136,7 @@ internal sealed partial class FunctionDiscovery
         _ => FunctionSource.Initializer,
     };
 
-    /// <summary>
-    /// What an export name says about its target: MSVC-decorated names ending in 'Z' (the throw specification) are
-    /// functions (true); other decorated names are data such as vftables or variables (false); undecorated and
-    /// ordinal-only names tell nothing (null).
-    /// </summary>
+    /// <summary>True for an MSVC-decorated function name (ends in 'Z'), false for other decorated names, null when undecorated.</summary>
     internal static bool? ExportKind(string? name)
     {
         if (name is not { Length: > 1 } || name[0] != '?') return null;
@@ -163,7 +153,7 @@ internal sealed partial class FunctionDiscovery
 
     private void Add(uint rva, FunctionSource source, bool strong)
     {
-        // 32-bit ARM: an odd start is a Thumb function one byte lower
+        // 32-bit ARM: an odd start is a Thumb function one byte lower.
         if (_ctx.ArmModes is { } modes && (rva & 1) != 0)
         {
             rva &= ~1u;
@@ -206,10 +196,7 @@ internal sealed partial class FunctionDiscovery
 
     private long _reportedAt = Environment.TickCount64;
 
-    /// <summary>
-    /// Checks cancellation and reports progress at least every half second: verifying candidates and scanning gaps
-    /// decode without adding instructions, which on a large image runs for tens of seconds.
-    /// </summary>
+    /// <summary>Checks cancellation and reports progress every 500 ms; verification and gap scans add no instructions for tens of seconds.</summary>
     private void Heartbeat()
     {
         _ct.ThrowIfCancellationRequested();
@@ -230,8 +217,7 @@ internal sealed partial class FunctionDiscovery
                 else _direct.Explore(_roots.Dequeue());
             }
             if (_farJumps.Count == 0) return;
-            // targets of far jumps that no function's code reached meanwhile: tail calls (a jump back from a function's
-            // cold part lands in code its function already covers)
+            // Far jump targets no function reached are tail calls; a jump back from a cold part lands in covered code.
             foreach (uint t in _farJumps.ToList())
             {
                 long bit = _ctx.Code.BitIndex(t);
@@ -254,16 +240,12 @@ internal sealed partial class FunctionDiscovery
     /// <summary>Jumps longer than this leave an ELF function without unwind ranges: tail calls.</summary>
     private const uint FarJump = 0x10000;
 
-    /// <summary>
-    /// ELF: an unconditional jump far from the jump (and from the function's start) or past another function's start is a
-    /// tail call (a static executable's _start jumping to __libc_start_main 650 KB away); a function's blocks stay together.
-    /// </summary>
+    /// <summary>ELF: a jump farther than <see cref="FarJump"/> or past another function's start is a tail call.</summary>
     private bool IsFarJump(in Insn insn, uint root, Func<uint, uint, bool>? anyStartBetween = null)
     {
         if (_ctx.Image.Format != ImageFormat.Elf) return false;
         uint t = insn.Target;
         if (t > insn.Rva ? t - insn.Rva > FarJump : t < root && root - t > FarJump) return true;
-        // a jump over the start of another known function leaves this one
         return t > insn.Rva + 1 && (anyStartBetween == null ? AnyStartBetween(insn.Rva + 1, t - 1) : anyStartBetween(insn.Rva + 1, t - 1));
     }
 
@@ -279,10 +261,7 @@ internal sealed partial class FunctionDiscovery
         return false;
     }
 
-    /// <summary>
-    /// Targets in code of relocated pointers stored in data: outside executable sections, or inside them but not
-    /// part of a decoded instruction (data merged into the code section, x86 vtables and pointer tables).
-    /// </summary>
+    /// <summary>Code targets of relocated pointers stored in data, outside or (with <paramref name="inCode"/>) inside code sections.</summary>
     private List<uint> DataPointerTargets(bool inCode)
     {
         var result = new List<uint>();
@@ -292,7 +271,7 @@ internal sealed partial class FunctionDiscovery
             if ((bit >= 0) != inCode) continue;
             if (bit >= 0 && (_covered[bit] || tableEntries!.Contains(reloc))) continue;
             uint target = t;
-            // ARM32: bit 0 of a code pointer selects Thumb state
+            // ARM32: bit 0 of a code pointer selects Thumb state.
             if (_ctx.ArmModes is { } modes && (target & 1) != 0)
             {
                 target &= ~1u;
@@ -305,7 +284,7 @@ internal sealed partial class FunctionDiscovery
             foreach (var (_, t) in _ctx.UnrelocatedPointers())
             {
                 uint target = _ctx.ArmModes != null ? t & ~1u : t;
-                // a small integer or an offset where the image base is low: inside a function the image declares, no start
+                // A small integer may look like a pointer when the image base is low.
                 if (_ctx.InsideDeclared(target)) continue;
                 if (target != t) _ctx.ArmModes!.HintUnconfirmed(target, true);
                 result.Add(target);
@@ -327,23 +306,18 @@ internal sealed partial class FunctionDiscovery
         return result;
     }
 
-    /// <summary>
-    /// Accepts a weak candidate when it is not inside known code, not data that code reads or a string, and decodes
-    /// cleanly: no invalid or implausible instruction, no jump into the middle of known instructions, no branch out
-    /// of executable code, every path ends.
-    /// </summary>
+    /// <summary>Accepts a weak candidate outside known code, data and strings that decodes cleanly on every path.</summary>
     private bool TryCandidate(uint rva, FunctionSource source)
     {
         if (_functions.ContainsKey(rva)) { _functions[rva] |= source; return false; }
         long bit = _ctx.Code.BitIndex(rva);
         if (bit < 0 || _covered[bit]) return false;
-        // more known code only adds reasons to reject, so a rejection is final
+        // More known code only adds reasons to reject, so a rejection is final.
         if (_rejected.Contains(rva)) return false;
         Heartbeat();
-        // ARM32: an IT before the address may turn out to be a literal later, so this rejection is not final
+        // ARM32: the IT may turn out to be a literal later, so this rejection is not final.
         if (_ctx.ArmModes != null && InsideItBlock(rva)) return false;
-        // a relocated pointer with the Thumb bit points to code even where the bytes read as text (ldr; str; bx lr is "IjAbpG"), as does
-        // an aligned ARM64 one (cbz x0; str x1 reads as UTF-16)
+        // Thumb-bit and aligned ARM64 pointers mark code even where the bytes read as text.
         bool codePointer = _thumbPointerTargets.Contains(rva) || source == FunctionSource.DataPointer && _ctx.Image.Arch == NativeArch.Arm64 && (rva & 3) == 0;
         if (_dataInCode.Contains(rva) || (!codePointer && StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null)
             || IsLiteral(rva, 2) || !Verify(rva, out bool funclet))
@@ -365,8 +339,7 @@ internal sealed partial class FunctionDiscovery
 
     private bool Verify(uint rva, out bool funclet)
     {
-        // the speculative run took every batch candidate as a function: valid when each address it asked about is a
-        // function now exactly when it is a batch candidate
+        // A speculative result holds when every address it consulted is a function exactly when it is in the batch.
         if (_speculated.Remove(rva, out var spec) && SameAnswers(spec.Consulted))
         {
             funclet = spec.Funclet;
@@ -382,11 +355,7 @@ internal sealed partial class FunctionDiscovery
         return true;
     }
 
-    /// <summary>
-    /// Verifies a large batch of candidates in parallel before they are tried one by one (trying them only adds functions,
-    /// all from the batch): TryCandidate takes a result as it is where the functions it asked about are the same.
-    /// x86 / x64 PE only: elsewhere verification reads more state that a batch changes (ELF far jumps).
-    /// </summary>
+    /// <summary>Verifies a large candidate batch in parallel ahead of TryCandidate; x86 / x64 PE only, as ELF far jumps read more state.</summary>
     private void Speculate(List<uint> targets)
     {
         _speculated.Clear();
@@ -416,10 +385,7 @@ internal sealed partial class FunctionDiscovery
         for (int i = 0; i < batch.Count; i++) _speculated[batch[i]] = results[i];
     }
 
-    /// <summary>
-    /// Instructions legal in compiled code but rare enough that a weak candidate containing them is more likely
-    /// data: pusha / popa, one-byte xchg with eax (PE), ret with an odd or large byte count.
-    /// </summary>
+    /// <summary>Instructions rare enough in compiled code that a weak candidate with them is likely data.</summary>
     private static bool UnlikelyInNewFunction(in Iced.Intel.Instruction x, bool pe)
     {
         switch (x.Mnemonic)
@@ -427,7 +393,7 @@ internal sealed partial class FunctionDiscovery
             case Iced.Intel.Mnemonic.Pusha or Iced.Intel.Mnemonic.Pushad or Iced.Intel.Mnemonic.Popa or Iced.Intel.Mnemonic.Popad:
                 return true;
             case Iced.Intel.Mnemonic.Xchg:
-                // GCC -Os uses the one-byte form for a move it does not need to keep
+                // GCC -Os uses the one-byte form as a move.
                 return pe && x.Length == 1 && x.Op0Register != x.Op1Register;
             case Iced.Intel.Mnemonic.Ret:
                 return x.Op0Kind == Iced.Intel.OpKind.Immediate16 && (x.Immediate16 % 4 != 0 || x.Immediate16 > 0x200);
@@ -443,11 +409,7 @@ internal sealed partial class FunctionDiscovery
         return false;
     }
 
-    /// <summary>
-    /// Verification of weak candidates with its own decoders and scratch, so candidates can be verified on several threads
-    /// against a state nothing writes meanwhile. With a <see cref="Batch"/>, <see cref="Consulted"/> collects the addresses
-    /// not yet functions whose being one the result depended on.
-    /// </summary>
+    /// <summary>Verifies weak candidates with its own decoders, so several threads can verify against unchanging state.</summary>
     private sealed class Verifier
     {
         private readonly FunctionDiscovery d;
@@ -457,9 +419,10 @@ internal sealed partial class FunctionDiscovery
         private readonly ICodeDecoder _thunks;
         private readonly Dictionary<uint, uint?> _thunkCache = [];
         private readonly ScratchSet _seen = new();
-        // ARM32: halfwords of the literals the candidate being verified loads
+        // ARM32: halfwords of the literals the candidate loads.
         private readonly HashSet<uint> _ownLiterals = [];
         private readonly Stack<uint> _work = new();
+        /// <summary>With a <see cref="Batch"/>: the non-function addresses the result depended on.</summary>
         public List<uint>? Consulted;
 
         public Verifier(FunctionDiscovery owner)
@@ -471,7 +434,7 @@ internal sealed partial class FunctionDiscovery
             _thunks = owner._ctx.NewDecoder(computeAccess: false);
         }
 
-        /// <summary>ARM64: the .pdata function the last verified candidate's first run falls into (its code before the prologue), or null.</summary>
+        /// <summary>ARM64: the .pdata function the last candidate's first run falls into, or null.</summary>
         public uint? FellInto { get; private set; }
 
         /// <summary>Speculation: the candidates of the batch, taken as functions already.</summary>
@@ -504,12 +467,12 @@ internal sealed partial class FunctionDiscovery
             return slot;
         }
 
-        /// <summary>ARM32: a branch to an import stub or one that changes state is a tail call (a PLT entry is A32 code after a Thumb "bx pc").</summary>
+        /// <summary>ARM32: a branch to an import stub or one that changes state is a tail call.</summary>
         private bool IsArmTailCall(uint target) =>
             _arm != null && (Slot(target) != null || _arm.LastSwitchesState || _arm.LastIsComputed || _arm.IsStateSwitchStub(target));
 
         /// <param name="funclet">x86: the code runs in another function's frame (exception filter, handler or catch block).</param>
-            public bool Run(uint root, out bool funclet)
+        public bool Run(uint root, out bool funclet)
         {
             funclet = false;
             FellInto = null;
@@ -534,38 +497,38 @@ internal sealed partial class FunctionDiscovery
                     if (!seen.Add(a)) break;
                     long bit = d._ctx.Code.BitIndex(a);
                     if (bit < 0) return false;
-                    // a function never flows into the middle of another one (case labels of an unresolved switch do)
+                    // A function never flows into the middle of another; case labels of an unresolved switch do.
                     if (d._starts[bit]) { if (!Known(a) && !d.InHeadOf(FellInto, a)) return false; break; }
                     if (d._covered[bit]) return false;
                     if (++count > VerifyLimit) return false;
-                    // ARM32: a literal the candidate itself loads ends the path, as in exploring
+                    // ARM32: a literal the candidate itself loads ends the path.
                     if (_arm != null && _ownLiterals.Contains(a & ~1u)) break;
                     if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
                         || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, d._ctx.Image.Format == ImageFormat.Pe)) || d.IsLiteral(a, insn.Length))
                     {
-                        // ARM32: a literal pool or zero fill right after a direct call (and its nop): the call does not return (error(1, ...))
+                        // ARM32: a literal pool or zero fill after a direct call means the call does not return.
                         if (_arm != null && previous == FlowKind.Call) goto endRun;
                         return false;
                     }
-                    // int3 ends code only as padding after a call that does not return
+                    // Int3 ends code only as padding after a call that does not return.
                     if (insn.Flow == FlowKind.Trap && _x86Peek?.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
                     if (!(_arm != null && previous == FlowKind.Call && _arm.Last.Mnemonic == "nop")) previous = insn.Flow;
                     if (_arm != null && insn.HasMem && _arm.LastLiteralSize is > 0 and var size)
                         for (uint l = insn.MemTarget & ~1u; l < insn.MemTarget + (uint)size; l += 2) _ownLiterals.Add(l);
-                    // x86: [ebp+x] before the code sets up ebp is the frame of another function (SEH filter or handler)
+                    // x86: [ebp+x] before ebp is set up reads another function's frame (SEH filter or handler).
                     if (_x86Peek is { Is64: false } && !frame)
                     {
                         ref readonly var x = ref _x86Peek.Last;
                         if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) frame = true;
                         else if (UsesEbpMemory(in x)) funclet = true;
                     }
+                    // Code that reads or writes known instructions as data is no function.
                     if (insn.HasMem && d._ctx.Code.IsCode(insn.MemTarget) && insn.MemAccess != OperandAccess.Address && d._starts[d._ctx.Code.BitIndex(insn.MemTarget)])
-                        return false; // reads or writes known instructions as data
-                    // takes the address of an instruction inside another function (x86 catch blocks return their
-                    // continuation address): part of that function's exception handling, not a function
+                        return false;
+                    // Taking an address inside another function marks that function's exception handling (x86 catch blocks).
                     if ((insn.HasImm && IsInsideFunction(insn.ImmTarget)) || (insn.HasMem && insn.MemAccess == OperandAccess.Address && IsInsideFunction(insn.MemTarget)))
                         return false;
-                    // "mov eax, offset x; ret" returning a code address that is no function: a catch block's continuation
+                    // "mov eax, offset x; ret" with x no function: a catch block returning its continuation.
                     if (returnsAddress && insn.Flow == FlowKind.Return) funclet = true;
                     returnsAddress = insn.HasImm && _x86Peek != null && _x86Peek.Last.Mnemonic == Iced.Intel.Mnemonic.Mov && _x86Peek.Last.Op0Register == Iced.Intel.Register.EAX
                         && d._ctx.Code.IsCode(insn.ImmTarget) && !Known(insn.ImmTarget);
@@ -610,23 +573,19 @@ internal sealed partial class FunctionDiscovery
 
     }
 
-    /// <summary>
-    /// Code nothing references (dead code, functions reached only through metadata such as C++ unwind funclets):
-    /// in each gap between known code, skips alignment padding and accepts a function that verifies where
-    /// x86 PE: a standard prologue starts (right after known code or padding, or 16-byte aligned);
-    /// x86 / x64 PE: anything starts right after known code and its int3 padding; ELF, Mach-O and x64 PE without .pdata: right after
-    /// known code and its nop padding.
-    /// </summary>
+    /// <summary>x86 / x64: tries unreferenced code in gaps, after known code and its padding or at an x86 prologue.</summary>
     private void ScanGaps(bool prologues)
     {
-        // GCC-built PE images (EFI applications, MinGW) have no .pdata and pad with nops, as ELF does
+        // GCC-built PE images (EFI applications, MinGW) have no .pdata and pad with nops, as ELF does.
         bool nopPadding = _ctx.Image.Format != ImageFormat.Pe || (_ctx.Image.Arch == NativeArch.X64 && _ctx.PdataSorted.Length == 0);
         foreach (var region in _ctx.Code.Regions)
         {
             var bytes = region.Bytes;
             int p = 0;
-            bool boundary = true;     // right after known code or padding
-            bool afterCode = false;   // right after known code and int3 padding
+            // Right after known code or padding.
+            bool boundary = true;
+            // Right after known code and int3 padding.
+            bool afterCode = false;
             bool sawCode = false;
             int beat = 0;
             while (p < bytes.Length)
@@ -641,7 +600,7 @@ internal sealed partial class FunctionDiscovery
                 if (!prologues)
                 {
                     if (bytes[p] == 0xCC) { afterCode |= sawCode; sawCode = false; p++; continue; }
-                    // ELF and Mach-O pad with nops (or nothing) instead of int3; NativeAOT pads with int3 then nops
+                    // ELF and Mach-O pad with nops or nothing; NativeAOT pads with int3 then nops.
                     if (nopPadding || afterCode)
                     {
                         if (nopPadding && sawCode) afterCode = true;
@@ -662,7 +621,7 @@ internal sealed partial class FunctionDiscovery
                     boundary = true;
                     continue;
                 }
-                // a standard prologue, or (as on x64) anything right after known code and its int3 padding
+                // A standard prologue, or anything right after known code and its int3 padding.
                 if ((boundary || (p & 15) == 0) && (IsPrologue(bytes, p, bytes.Length) || afterCode) && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap))
                 {
                     Drain();
@@ -674,15 +633,11 @@ internal sealed partial class FunctionDiscovery
         }
     }
 
-    /// <summary>
-    /// ARM32 / ARM64 code nothing references: a standard prologue in a gap between known code starts a function when it
-    /// verifies (A32 push {..., lr} at 4-byte alignment, T32 push {..., lr} at 2, A64 stp x29, x30 after optional pac / bti,
-    /// stack and register saves).
-    /// </summary>
+    /// <summary>ARM32 / ARM64: tries a standard prologue in each gap between known code.</summary>
     private void ScanArmGaps()
     {
         bool arm64 = _ctx.Image.Arch == NativeArch.Arm64;
-        // Windows on ARM is Thumb only
+        // Windows on ARM is Thumb only.
         bool armState = !arm64 && _ctx.Image.Format != ImageFormat.Pe;
         foreach (var region in _ctx.Code.Regions)
         {
@@ -694,7 +649,6 @@ internal sealed partial class FunctionDiscovery
                 {
                     int end = (int)(_covered.NextClear(region.BitBase + p, region.BitBase + bytes.Length) - region.BitBase);
                     if (!arm64 && end >= 4 && end < bytes.Length) TryAfterCode(region, end);
-                    // on to the next even offset past the covered run
                     p = ((end + 1) & ~1) - 2;
                     continue;
                 }
@@ -704,7 +658,8 @@ internal sealed partial class FunctionDiscovery
                 if (_ctx.InsideDeclared(rva) || InDataInCode(rva)) continue;
                 if (!arm64) _ctx.ArmModes?.Hint(rva, t);
                 if (TryCandidate(rva, FunctionSource.CodeGap)) Drain();
-                else if (t == false && !arm64) p += 2; // the A32 word's upper half is no Thumb start
+                // The A32 word's upper half is no Thumb start.
+                else if (t == false && !arm64) p += 2;
             }
         }
     }
@@ -728,16 +683,13 @@ internal sealed partial class FunctionDiscovery
     {
         if (armState && (p & 3) == 0 && (BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p)) & 0xFFFF4000) == 0xE92D4000) return false;
         ushort h = BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(p));
-        // push {r4-r7 subset, lr} with at least one low register: a bare B500 is too common in data
+        // Push {low registers, lr} with at least one low register; a bare B500 is too common in data.
         if ((h & 0xFF00) == 0xB500 && (h & 0xFF) != 0) return true;
-        // push.w {..., lr}: neither sp nor pc in the list
+        // Push.w {..., lr} with neither sp nor pc in the list.
         return h == 0xE92D && (BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(p + 2)) & 0xE000) == 0x4000 ? true : null;
     }
 
-    /// <summary>
-    /// An A64 prologue at <paramref name="p"/>: up to four of pac / bti, sub sp, sp, #imm and stp of registers to the
-    /// stack, one of them stp x29, x30.
-    /// </summary>
+    /// <summary>An A64 prologue at <paramref name="p"/>: up to four of pac / bti, sub sp and stp, one of them stp x29, x30.</summary>
     internal static bool IsArm64Prologue(byte[] b, int p)
     {
         for (int k = 0; k < 4 && p + 4 * k + 4 <= b.Length; k++)
@@ -758,7 +710,7 @@ internal sealed partial class FunctionDiscovery
         byte x = b[p];
         if (x is 0xCC or 0x90 or 0x00) return 1;
         ReadOnlySpan<byte> s = b.AsSpan(p, end - p);
-        // GNU as fill for a long alignment: a short jump over nops to the aligned start
+        // GNU as fill for a long alignment: a short jump over nops.
         if (x == 0xEB && s.Length >= 2 && s[1] is > 0 and < 0x80 && 2 + s[1] <= s.Length)
         {
             int q = p + 2, to = p + 2 + s[1];
@@ -771,12 +723,12 @@ internal sealed partial class FunctionDiscovery
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x49, 0x00])) return 3;                         // lea ecx, [ecx+0]
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x40, 0x00])) return 3;                         // lea eax, [eax+0]
         if (s.StartsWith((ReadOnlySpan<byte>)[0x0F, 0x1F])) return s.Length >= 3 ? NopLength(s) : 0; // nop r/m
-        // GNU as i386 fill: lea esi, [esi+0] / lea edi, [edi+0] in 3, 4, 6 and 7 bytes
+        // GNU as i386 fill: lea esi, [esi+0] / lea edi, [edi+0] in 3, 4, 6 and 7 bytes.
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xB4, 0x26, 0, 0, 0, 0]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xBC, 0x27, 0, 0, 0, 0])) return 7;
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xB6, 0, 0, 0, 0]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xBF, 0, 0, 0, 0])) return 6;
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x74, 0x26, 0x00]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x7C, 0x27, 0x00])) return 4;
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x76, 0x00]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x7F, 0x00])) return 3;
-        // GCC / Clang: 66 90, and 66 / cs prefixes before nop r/m
+        // GCC / Clang: 66 90, and 66 / cs prefixes before nop r/m.
         int prefixes = 0;
         while (prefixes < s.Length && prefixes < 6 && s[prefixes] is 0x66 or 0x2E) prefixes++;
         if (prefixes == 0 || prefixes >= s.Length) return 0;
@@ -787,7 +739,7 @@ internal sealed partial class FunctionDiscovery
 
     private static int NopLength(ReadOnlySpan<byte> s)
     {
-        // 0F 1F /0 with modrm: 00 -> 3, 40 xx -> 4, 44 xx xx -> 5, 80 xx xx xx xx -> 7, 84 xx xx xx xx xx -> 8
+        // 0F 1F /0 length by modrm: 00 is 3, 40 is 4, 44 is 5, 80 is 7, 84 is 8.
         return s[2] switch
         {
             0x00 => 3,
@@ -802,10 +754,7 @@ internal sealed partial class FunctionDiscovery
     private bool StartsWithPrologue(uint rva) =>
         _ctx.Code.RegionAt(rva) is { } region && IsPrologue(region.Bytes, (int)(rva - region.Rva), region.Bytes.Length, hotPatchAlone: true);
 
-    /// <summary>
-    /// push ebp; mov ebp, esp (either encoding), optionally after the hot-patch mov edi, edi; for jump targets
-    /// (<paramref name="hotPatchAlone"/>) the hot-patch mov edi, edi alone, which only ever starts a function.
-    /// </summary>
+    /// <summary>Push ebp; mov ebp, esp, optionally after mov edi, edi; with <paramref name="hotPatchAlone"/>, mov edi, edi alone.</summary>
     private static bool IsPrologue(byte[] b, int p, int end, bool hotPatchAlone = false)
     {
         ReadOnlySpan<byte> s = b.AsSpan(p, end - p);

@@ -7,13 +7,8 @@ namespace Corvus.Core.AutoIt;
 /// <summary>One record of a compiled AutoIt script: its type string, the path stored with it, sizes and file times.</summary>
 public sealed record AutoItRecord(string Type, string Path, bool Compressed, long StoredSize, long Size, DateTime? Created, DateTime? Written, byte[]? Data);
 
-/// <summary>
-/// Reads compiled AutoIt scripts: an .a3x file, or the script data Aut2Exe writes into an executable. The EA05 layout
-/// (AutoIt 3.2.4 and earlier) and the EA06 layout (3.2.6 and later) are read: every record is decrypted with the
-/// format's fixed constants, checked against its Adler-32 and decompressed. The script is recovered as text: source
-/// text as stored by EA05, or rebuilt from the EA06 token stream (comments and layout are not compiled, so they are not
-/// recovered); the other records are the files the script adds with FileInstall.
-/// </summary>
+/// <summary>Compiled AutoIt scripts (.a3x or embedded; EA05 and EA06): the script text and its FileInstall files.</summary>
+/// <remarks>EA05 is AutoIt 3.2.4 and earlier, EA06 3.2.6 and later; EA06 text is rebuilt from tokens, so comments and layout are lost.</remarks>
 public static class AutoItScript
 {
     public const string Kind = "AutoIt compiled script";
@@ -221,10 +216,7 @@ public static class AutoItScript
         s[623] = Mix(s[623], s[0], s[396]);
     }
 
-    /// <summary>
-    /// Expands an EA05 or EA06 compressed block: the tag, a big-endian size, then a bit stream of literals and matches
-    /// (15-bit distance, variable length). Throws InvalidDataException past <paramref name="maxBytes"/> or on damage.
-    /// </summary>
+    /// <summary>Expands an EA05 or EA06 compressed block; throws InvalidDataException past <paramref name="maxBytes"/> or on damage.</summary>
     public static byte[] Decompress(ReadOnlySpan<byte> data, long maxBytes)
     {
         if (data.Length < 8) throw new InvalidDataException("a compressed record shorter than its header");
@@ -287,10 +279,7 @@ public static class AutoItScript
     private static readonly Dictionary<string, string> MacroNames = AutoItNames.Macros.ToDictionary(k => k[1..].ToUpperInvariant(), k => k);
     private static readonly string[] Operators = [",", "=", ">", "<", "<>", ">=", "<=", "(", ")", "+", "-", "/", "*", "&", "[", "]", "==", "^", "+=", "-=", "/=", "*=", "&=", "?", ":"];
 
-    /// <summary>
-    /// Reads an EA06 token stream: a line count, then tokens ending each line with 0x7F. Keywords, built-in functions
-    /// and macros take the vendor's spelling; user names keep the upper case the compiler stores.
-    /// </summary>
+    /// <summary>Reads an EA06 token stream; built-in names take the vendor's spelling, user names stay upper case.</summary>
     public static Tokens Detokenize(ReadOnlySpan<byte> s)
     {
         var lines = new List<List<string>>();

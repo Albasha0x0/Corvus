@@ -3,22 +3,14 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// The output-schema policy (SC-11): what tools/list sends is <see cref="Compact"/>, the record's fields and their types (no
-/// descriptions, titles or required lists, objects below <see cref="MaxDepth"/> left open, the shared optional envelope
-/// fields left to their one declaration in docs/schemas). docs/schemas carries the <see cref="Described"/> form, the full
-/// promise that tests validate results against. Both make a nullable property optional, since results are written
-/// without nulls (<see cref="Catalog.ToolSerializerOptions"/>).
-/// </summary>
+/// <summary>Output schemas: tools/list sends the <see cref="Compact"/> form, docs/schemas the <see cref="Described"/> form tests validate against.</summary>
+// Both make nullable properties optional, since results are written without nulls.
 public static class OutputSchemas
 {
     /// <summary>Object nesting kept in tools/list: the root and its rows.</summary>
     public const int MaxDepth = 2;
 
-    /// <summary>
-    /// Optional fields every record may carry (ToolOutput.Envelope), declared once in docs/schemas/envelope.json instead of
-    /// in each compact schema; a record that has them still validates, since schemas allow further properties.
-    /// </summary>
+    /// <summary>Optional fields every record may carry, declared once in docs/schemas/envelope.json; schemas allow further properties.</summary>
     public static readonly IReadOnlyList<string> SharedEnvelope = ["notices", "warnings", "coverage", "resultId"];
 
     private static readonly string[] Annotations = ["description", "title"];
@@ -46,10 +38,8 @@ public static class OutputSchemas
         return JsonSerializer.SerializeToElement(root);
     }
 
-    /// <summary>
-    /// Replaces each local $ref (the SDK's pointer to a row type it already wrote) with a copy of its target: gateways that
-    /// check output schemas reject $ref (SchemaGate). A reference cycle ends in an open object.
-    /// </summary>
+    /// <summary>Replaces each local $ref with a copy of its target; a reference cycle ends in an open object.</summary>
+    // Gateways that check output schemas reject $ref (SchemaGate).
     private static void InlineReferences(JsonNode? node, JsonNode root, int hops)
     {
         switch (node)
@@ -75,10 +65,7 @@ public static class OutputSchemas
         }
     }
 
-    /// <summary>
-    /// Rewrites <paramref name="node"/> in place. <paramref name="level"/> counts the object schemas down to it, itself included;
-    /// nullability is read from <paramref name="original"/>, so a $ref keeps its target's.
-    /// </summary>
+    /// <summary>Rewrites <paramref name="node"/> in place; <paramref name="level"/> counts object schemas down to it, and nullability comes from <paramref name="original"/>.</summary>
     private static void Visit(JsonNode? node, JsonNode original, bool strip, int maxDepth, int level)
     {
         if (node is not JsonObject o) return;
@@ -96,7 +83,8 @@ public static class OutputSchemas
                     if (required != null) Remove(required, name);
                 }
             }
-            if (required is { Count: 0 } || (strip && level > 1)) o.Remove("required"); // the root's goes after the envelope step reads it
+            // The root's list goes after the envelope step reads it.
+            if (required is { Count: 0 } || (strip && level > 1)) o.Remove("required");
         }
         foreach (var (key, child) in o.ToList())
         {

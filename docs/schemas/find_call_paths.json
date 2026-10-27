@@ -79,7 +79,7 @@
       "type": "boolean"
     },
     "engine": {
-      "description": "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).",
+      "description": "Analysis that produced the result: ours (built-in index), ida or ghidra.",
       "type": "string"
     },
     "limit": {

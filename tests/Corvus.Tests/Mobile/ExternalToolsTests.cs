@@ -21,7 +21,7 @@ public class ExternalToolsTests : IDisposable
     public void Dispose() => ExternalTools.VersionTimeout = _versionTimeout;
 
     [Fact]
-    public void Locate_TakesTheVariableAsFileOrFolder_AndNeverFallsBackFromABadOne()
+    public void Locate_takes_the_variable_as_file_or_folder_and_never_falls_back_from_a_bad_one()
     {
         using var fake = new FakeTool();
         var adb = fake.CopyAs("adb");
@@ -39,13 +39,14 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
-    public void Locate_FindsAJarByPattern_AndOnPath()
+    public void Locate_finds_a_jar_by_pattern_and_on_path()
     {
         using var dir = new TempDir();
         File.WriteAllBytes(dir.File("jadx-headless-mcp-0.7.1-all.jar"), [0x50, 0x4B]);
         using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", dir.Path);
         Assert.Equal(dir.File("jadx-headless-mcp-0.7.1-all.jar"), ExternalTools.Locate(ExternalTools.JavaDecompiler)?.Path);
-        Assert.Equal("0.7.1", ExternalTools.Probe(ExternalTools.JavaDecompiler).Version); // from the file name; nothing is run
+        // From the file name; nothing is run.
+        Assert.Equal("0.7.1", ExternalTools.Probe(ExternalTools.JavaDecompiler).Version);
 
         using var fake = new FakeTool();
         var adb = fake.CopyAs("adb");
@@ -78,7 +79,7 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
-    public void Probe_ReadsVersions_AndChecksTheMinimum()
+    public void Probe_reads_versions_and_checks_the_minimum()
     {
         using var fake = new FakeTool();
         using var env = new EnvironmentScope().Set("CORVUS_ADB", fake.CopyAs("adb")).Set("CORVUS_JAVA", fake.CopyAs("java"));
@@ -115,7 +116,7 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
-    public void Run_GivesTheChildAMinimalEnvironment()
+    public void Run_gives_the_child_a_minimal_environment()
     {
         using var fake = new FakeTool();
         fake.On("secret", printEnv: "CORVUS_TEST_SECRET").On("script", printEnv: FakeTool.ScriptVariable);
@@ -129,7 +130,7 @@ public class ExternalToolsTests : IDisposable
 
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void Run_StopsAtTheOutputBudget_AndAtTheTimeout()
+    public void Run_stops_at_the_output_budget_and_at_the_timeout()
     {
         using var fake = new FakeTool();
         fake.On("flood", stdout: new string('x', 1000) + "\n", repeat: 10_000).On("slow", sleepMs: 20_000, stdout: "late");
@@ -150,7 +151,7 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
-    public void Arguments_FillPlaceholders_FromTheOneOptionTable()
+    public void Arguments_fill_placeholders_from_the_one_option_table()
     {
         Assert.Equal(["-s", "emulator-5554", "shell", "pm", "path", "com.example"],
             ExternalTools.Arguments(ExternalTools.Adb, "path", ("serial", "emulator-5554"), ("package", "com.example")));
@@ -287,7 +288,7 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
-    public void ServerStatus_ListsEachExternalTool_WithItsFix()
+    public void Server_status_lists_each_external_tool_with_its_fix()
     {
         using var fake = new FakeTool();
         using var env = new EnvironmentScope().Set("CORVUS_ADB", fake.CopyAs("adb")).Set("CORVUS_JAVA_DECOMPILER", Path.Combine(fake.Directory, "none.jar"));

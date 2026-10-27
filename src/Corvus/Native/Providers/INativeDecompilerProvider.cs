@@ -1,12 +1,6 @@
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// An external engine that analyzes a native image and decompiles its functions (IDA via idalib, Ghidra via a Java worker).
-/// Addresses in and out are RVAs relative to the image base the engine loaded, which the session verifies against
-/// the PE header. Failures surface as <see cref="Core.ToolError"/>: ProviderUnavailable (engine missing, crashed or
-/// unlicensed), Timeout, Unsupported (architecture or decompiler not available), NotFound, InvalidArgument,
-/// MalformedInput, Conflict (input changed, database in use).
-/// </summary>
+/// <summary>An external engine (IDA, Ghidra) that analyzes and decompiles a native image; addresses are RVAs from the base the engine loaded, which the session checks against the header; failures are <see cref="Core.ToolError"/>.</summary>
 public interface INativeDecompilerProvider : IDisposable
 {
     /// <summary>Stable identifier ("ida", "ghidra").</summary>
@@ -20,21 +14,14 @@ public interface INativeDecompilerProvider : IDisposable
     /// <summary>Static checks plus starting the engine once; reports load and version problems the static checks miss.</summary>
     Task<ProviderAvailability> ProbeAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Opens <paramref name="imagePath"/> for analysis. The provider works on a private copy whose SHA-256 must equal
-    /// <paramref name="sha256"/> (computed from the file when null), and keeps its analysis database per hash so a
-    /// later open of the same bytes skips auto-analysis.
-    /// </summary>
+    /// <summary>Opens a private copy matching <paramref name="sha256"/> (file hash when null); the database is kept per hash for reuse.</summary>
     Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>State of the sessions this provider has open or opening; answered without asking a worker.</summary>
     IReadOnlyList<EngineSessionState> SessionStates() => [];
 }
 
-/// <summary>
-/// One engine session as seen from the server: its worker, what runs and for how long (with the worker's last stage),
-/// requests waiting, edits a restart would replay, restarts, and the database.
-/// </summary>
+/// <summary>One engine session's state: worker, running request and stage, queue, edits a restart would replay, restarts, database.</summary>
 public sealed record EngineSessionState(string Engine, string ImagePath, int? WorkerPid, string State, string? BusyOp, double BusySeconds,
     string? Stage, int Queued, int Unsaved, int Restarts, string? Database, bool ReusedDatabase, string? Note = null)
 {
@@ -42,12 +29,9 @@ public sealed record EngineSessionState(string Engine, string ImagePath, int? Wo
     public string? Analysis { get; init; }
 }
 
-/// <summary>
-/// One analyzed image. Requests that change the database run one at a time in arrival order; an engine may run reads
-/// in parallel (Ghidra). A request that times out or is cancelled stops the engine unless the engine can stop that
-/// request alone; the next request restarts a stopped engine from the saved database and re-applies names and comments
-/// set since the last save. Disposing closes the engine without waiting longer than the shutdown grace period.
-/// </summary>
+/// <summary>One analyzed image; writes run in order, a timed-out request stops the engine, and the next request restarts it replaying unsaved edits.</summary>
+/// <remarks>An engine may run reads in parallel (Ghidra). A timeout stops the engine only when it cannot stop that request
+/// alone. Disposing waits no longer than the shutdown grace period.</remarks>
 public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
 {
     string ProviderId { get; }
@@ -83,11 +67,7 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<DecompiledFunction> DecompileWithinAsync(uint rva, TimeSpan? timeout, CancellationToken cancellationToken = default) =>
         DecompileAsync(rva, cancellationToken);
 
-    /// <summary>
-    /// Pseudocode of the functions containing each RVA, in order, each within <paramref name="secondsPerItem"/> and all within
-    /// <paramref name="budgetSeconds"/>: a failure is that item's, and items the budget does not reach are skipped. The default
-    /// asks <see cref="DecompileAsync"/> once per item.
-    /// </summary>
+    /// <summary>Pseudocode per RVA in order, bounded per item and overall; failures stay per item, items past the budget are skipped.</summary>
     async Task<IReadOnlyList<DecompileOutcome>> DecompileManyAsync(IReadOnlyList<uint> rvas, double secondsPerItem, double budgetSeconds,
         CancellationToken cancellationToken = default)
     {
@@ -137,46 +117,26 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report basic blocks.");
 
-    /// <summary>
-    /// Makes the bytes patched in the database exactly <paramref name="wanted"/> (bytes patched earlier and not wanted
-    /// are restored to their original values) and decodes the touched code again, so the analysis reflects the patched
-    /// image without a new auto-analysis. A result with missing or mismatched bytes means the database could not take
-    /// the patch set; the caller analyzes the patched file instead.
-    /// </summary>
+    /// <summary>Makes the database's patched bytes exactly <paramref name="wanted"/> restoring unwanted ones, and redecodes touched code; missing or mismatched bytes mean it could not, and the caller analyzes the patched file instead.</summary>
     Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not apply byte patches.");
 
-    /// <summary>
-    /// Imports C declarations, applies function prototypes and builds C++ class types (vftable and class structs) in
-    /// one request; failures are counted, not thrown. Stamp and save as in <see cref="ApplyNamesAsync"/>.
-    /// </summary>
+    /// <summary>Imports declarations, prototypes and C++ class types in one request; failures are counted, not thrown; stamp and save as in <see cref="ApplyNamesAsync"/>.</summary>
     Task<TypeBatchResult> ApplyTypesAsync(NativeTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take types.");
 
-    /// <summary>
-    /// What the engine knows about the call instructions at <paramref name="sites"/>: its code references from them, and how its
-    /// decompiler shows them in <paramref name="functions"/> (through a member of a vftable struct type, a function, or an
-    /// untyped pointer), within <paramref name="seconds"/>.
-    /// </summary>
+    /// <summary>Code references from the call <paramref name="sites"/> and how the decompiler shows them in <paramref name="functions"/>, within <paramref name="seconds"/>.</summary>
     Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report call targets.");
 
-    /// <summary>
-    /// Loads <paramref name="pdbPath"/> with the engine's own PDB loader (types, prototypes, names). With
-    /// <paramref name="trustAnalysisLoad"/>, a PDB the engine loaded itself during auto-analysis counts as this one and is
-    /// not loaded again. On success the stamp is recorded under <paramref name="stampKey"/>, the names stamp is dropped
-    /// (pushed names are replaced by the PDB's, so they are pushed again) and the database is saved.
-    /// </summary>
+    /// <summary>Loads a PDB with the engine's loader, then records the stamp, drops the names stamp (the PDB's names replace pushed ones, which are pushed again) and saves.</summary>
+    /// <param name="trustAnalysisLoad">A PDB the engine loaded during auto-analysis counts as this one.</param>
     Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default) =>
         Task.FromResult(new PdbLoadResult(false, false, false, 0, 0, TimeSpan.Zero));
 
-    /// <summary>
-    /// Applies the user's types (see <see cref="NativeUserTypeBatch"/>); each item reports whether it took. User types are kept
-    /// when <see cref="ApplyTypesAsync"/> pushes recovered types later. Stamp and save as in <see cref="ApplyNamesAsync"/>; an
-    /// empty batch only records the stamp.
-    /// </summary>
+    /// <summary>Applies user types, reported per item and kept over later recovered types; an empty batch only records the stamp.</summary>
     Task<UserTypeResult> ApplyUserTypesAsync(NativeUserTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take user types.");
@@ -208,20 +168,12 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list types.");
 
-    /// <summary>
-    /// References to a member of a struct or union (the first of <paramref name="types"/> that exists), by name or by an
-    /// offset it covers: operands typed as the member, and member accesses in the pseudocode of the functions whose type
-    /// names the struct plus <paramref name="functions"/> (and every function from <paramref name="allFrom"/> on), within
-    /// <paramref name="seconds"/>. NotFound for no such type or member.
-    /// </summary>
+    /// <summary>Typed operands and pseudocode accesses of a struct member (first existing of <paramref name="types"/>); NotFound when absent.</summary>
     Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
         uint? allFrom = null, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report struct member references.");
 
-    /// <summary>
-    /// Runs a script in the engine's own language against the database (IDA: Python with IDAPython); its globals persist
-    /// between calls unless <paramref name="reset"/>. Not journaled: a restart loses its unsaved changes.
-    /// </summary>
+    /// <summary>Runs an engine script; globals persist unless <paramref name="reset"/>. Not journaled: a restart loses its unsaved changes.</summary>
     Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not run scripts.");
 
@@ -265,12 +217,7 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// <summary>Sets (or with empty text clears) the comment at <paramref name="rva"/>. Returns the comment now stored.</summary>
     Task<string> SetCommentAsync(uint rva, string text, bool repeatable = false, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Applies many names and comments in one request (imported symbol sets: tens of thousands at once). Names are
-    /// forced (a name taken elsewhere gets an engine-chosen suffix); failures are counted, not thrown. With
-    /// <paramref name="stampKey"/> the database records <paramref name="stamp"/> under it (see <see cref="GetStampAsync"/>);
-    /// <paramref name="save"/> writes the database afterwards.
-    /// </summary>
+    /// <summary>Applies names (forced, suffixed on clash) and comments in one request; failures are counted; records the stamp, optionally saves.</summary>
     Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
         CancellationToken cancellationToken = default);
 
@@ -278,10 +225,7 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeTypeGuess> GuessTypeAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not guess types.");
 
-    /// <summary>
-    /// Sets (empty text: removes) the decompiler comment at each address, on the pseudocode statement generated from it or,
-    /// when none is, from the nearest address before it in the function (<see cref="PseudoCommentOutcome.Anchor"/>).
-    /// </summary>
+    /// <summary>Sets (empty: removes) decompiler comments on the statement from each address or the nearest before it.</summary>
     Task<IReadOnlyList<PseudoCommentOutcome>> SetPseudoCommentsAsync(IReadOnlyList<(uint Rva, string Text)> items, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take pseudocode comments.");
 
@@ -336,15 +280,9 @@ public sealed record NativeOpenOptions
     public IProgress<NativeProviderProgress>? Progress { get; init; }
     /// <summary>Whether the engine runs its auto-analysis on the first open (IDA); without it the database is kept under its own profile.</summary>
     public EngineAnalysis Analysis { get; init; } = EngineAnalysis.Full;
-    /// <summary>
-    /// 32-bit ARM: the server's Thumb code ranges (RVAs, exclusive ends). Without auto-analysis Ghidra decodes code made on
-    /// request in ARM state unless told; null when unknown.
-    /// </summary>
+    /// <summary>32-bit ARM Thumb ranges (exclusive ends) for code made on request without auto-analysis, which Ghidra would otherwise decode as ARM; null when unknown.</summary>
     public Func<CancellationToken, Task<IReadOnlyList<(uint Start, uint End)>>>? ThumbCode { get; init; }
-    /// <summary>
-    /// Whether the server's index has a function starting at an RVA: an engine whose analysis has none there makes it when
-    /// a function request names that address; null when unknown.
-    /// </summary>
+    /// <summary>Whether the server's index has a function at an RVA, so the engine can make one on request; null when unknown.</summary>
     public Func<uint, CancellationToken, Task<bool>>? KnownStart { get; init; }
     /// <summary>Where answers to read requests are kept across processes; null keeps none.</summary>
     public EngineOutputCache? OutputCache { get; init; }
@@ -375,10 +313,7 @@ public enum NativeFunctionFlags
     Typed = 8,
 }
 
-/// <summary>
-/// A function as the engine sees it; <see cref="EndRva"/> is exclusive and covers the main chunk only.
-/// <see cref="References"/>: code references to the start, when asked for.
-/// </summary>
+/// <summary>A function as the engine sees it; <see cref="EndRva"/> is exclusive, main chunk only; <see cref="References"/> when asked.</summary>
 public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name, NativeFunctionFlags Flags, int? References = null);
 
 /// <summary>Pseudocode line (0-based) and the lowest instruction RVA it was generated from.</summary>
@@ -386,19 +321,11 @@ public sealed record PseudocodeLineAddress(int Line, uint Rva);
 
 public sealed record DecompiledFunction(uint StartRva, string Name, string Text, IReadOnlyList<PseudocodeLineAddress> LineAddresses);
 
-/// <summary>
-/// A per-function slice asked of an engine. Seed: location (a register's value before <see cref="Rva"/> backward, from
-/// its definition there forward), argument (<see cref="Index"/> of the call at Rva), parameter (Index of the function),
-/// result (of the call at Rva), returns (the function's returned values), stored (the value the instruction at Rva
-/// stores), loaded (the value the instruction at Rva loads). Registers use the engine's names ("rcx", "x0").
-/// </summary>
+/// <summary>A per-function slice request; Seed: location, argument, parameter, result, returns, stored or loaded; engine register names.</summary>
 public sealed record EngineSliceRequest(uint Function, string Seed, uint Rva, bool Forward, string? Register = null, int Index = -1, int MaxNodes = 256,
     double Seconds = 30);
 
-/// <summary>
-/// One node of an engine slice. Kind: constant, address, global, stack_address, unknown, merge, loop, field, parameter,
-/// call_result; forward: origin, argument, store, field_store, return, compare, switch, dereference, call_target.
-/// </summary>
+/// <summary>One slice node; Kind is a source (constant, global, parameter, call_result...) or, forward, a use (store, return, compare...).</summary>
 public sealed record EngineSliceNode(string Kind, uint Rva, string Text, string Why)
 {
     public ulong? Value { get; init; }
@@ -419,21 +346,14 @@ public sealed record DecompileOutcome(uint Rva, DecompileStatus Status, Decompil
 
 public sealed record DisassembledInstruction(uint Rva, byte[] Bytes, string Text, string? Comment);
 
-/// <summary>
-/// A basic block as the engine splits it: [<see cref="StartRva"/>, <see cref="EndRva"/>), its instruction count, how it
-/// ends (engine kind: normal, indjump, ret, cndret, noret, enoret, error), its successors in the function, and whether
-/// its last instruction is a switch the engine resolved.
-/// </summary>
+/// <summary>An engine basic block [start, end): instruction count, end kind (normal, indjump, ret, cndret, noret, enoret, error), successors, resolved switch.</summary>
 public sealed record NativeBlockInfo(uint StartRva, uint EndRva, int Instructions, string Kind, IReadOnlyList<uint> Successors, bool Switch)
 {
     /// <summary>The engine's switch details, when it reports them.</summary>
     public NativeSwitchInfo? SwitchInfo { get; init; }
 }
 
-/// <summary>
-/// A switch as the engine recovered it: the indirect jump, switched values per target, the default, the jump table (entry
-/// size and count), a byte index table in front of it, and the bias (switched value = table index + bias).
-/// </summary>
+/// <summary>A recovered switch: jump, values per target, default, jump table, optional byte index table; value = table index + bias.</summary>
 public sealed record NativeSwitchInfo(uint? Jump, IReadOnlyList<(uint Target, IReadOnlyList<long> Values)> Cases, uint? Default, uint? Table, int EntrySize, int Entries,
     uint? IndexTable, int? IndexEntries, long Bias);
 
@@ -467,21 +387,13 @@ public sealed record TypeBatchResult(int DeclarationErrors, int Typed, int TypeF
     public IReadOnlyList<string> DeclarationMessages { get; init; } = [];
 }
 
-/// <summary>
-/// What <see cref="INativeDecompilerSession.LoadPdbAsync"/> did: whether the PDB is in the database, whether that was
-/// the engine's own load during auto-analysis, whether the engine's PDB loader ran at all (false: not available), and
-/// the engine's type count before and after.
-/// </summary>
+/// <summary>A PDB load result: loaded, loaded by auto-analysis, loader available, and type counts before and after.</summary>
 public sealed record PdbLoadResult(bool Loaded, bool FromAnalysis, bool LoaderAvailable, int TypesBefore, int TypesAfter, TimeSpan Elapsed);
 
 /// <summary>Bytes wanted at an RVA (a patch's replacement).</summary>
 public sealed record NativeByteRange(uint Rva, byte[] Bytes);
 
-/// <summary>
-/// What <see cref="INativeDecompilerSession.SyncPatchesAsync"/> did: bytes patched and reverted, code ranges decoded
-/// again and functions reanalyzed; bytes not in the database (<see cref="Missing"/>) or that would not take
-/// (<see cref="Mismatches"/>), with up to 20 of their RVAs each in <see cref="Problems"/>.
-/// </summary>
+/// <summary>A patch sync result: counts patched, reverted, redecoded; <see cref="Problems"/> holds up to 20 RVAs each of missing and mismatched bytes.</summary>
 public sealed record PatchSyncResult(int Patched, int Reverted, int Ranges, int Functions, int Missing, int Mismatches, IReadOnlyList<uint> Problems,
     TimeSpan Elapsed)
 {
@@ -505,11 +417,7 @@ public enum NativeXrefKind
     Data,
 }
 
-/// <summary>
-/// One entry of <see cref="INativeDecompilerSession.ApplyNamesAsync"/>: a null name or comment is left as is, an empty
-/// one removed; <see cref="MakeFunction"/> creates a function at <see cref="Rva"/> when none contains it. A comment at
-/// a function start becomes the function comment.
-/// </summary>
+/// <summary>A name or comment to apply: null keeps, empty removes; <see cref="MakeFunction"/> creates a function when none contains the RVA.</summary>
 public sealed record NativeNameItem(uint Rva, string? Name, string? Comment, bool MakeFunction = false)
 {
     /// <summary>The comment's engine kind: eol, pre or plate; null: repeatable (the function comment at a function start).</summary>
@@ -524,11 +432,7 @@ public sealed record PseudoCommentOutcome(uint Rva, bool Applied, uint? Anchor, 
 
 public sealed record NameBatchResult(int Named, int NameFailures, int Commented, int FunctionsCreated, TimeSpan Elapsed, IReadOnlyList<string> Failures);
 
-/// <summary>
-/// What an engine says about one call instruction: Kind "xref" (a code reference to the function at <see cref="Target"/>),
-/// "vftable" (the decompiler calls through member offset <see cref="MemberOffset"/> of struct type <see cref="TypeName"/>),
-/// "direct" (the decompiler calls the function at <see cref="Target"/>) or "other" (an untyped pointer; <see cref="TypeName"/> is the expression kind).
-/// </summary>
+/// <summary>One call site's target; Kind: xref, vftable (struct member offset), direct, or other (untyped; TypeName is the expression kind).</summary>
 public sealed record NativeCallTarget(uint Site, string Kind, uint? Target, string? TypeName, int? MemberOffset);
 
 /// <summary>Result of <see cref="INativeDecompilerSession.GetCallTargetsAsync"/>: functions decompiled, failed (with the reason) and not reached in time.</summary>
@@ -540,26 +444,18 @@ public sealed record NativeCallTargets(IReadOnlyList<NativeCallTarget> Targets, 
     public uint? Next { get; init; }
 }
 
-/// <summary>
-/// A decompiler local of the function at <see cref="Function"/>, found by its stack offset when it has one, else by
-/// <see cref="Local"/> (its name when first edited), else by <see cref="Name"/>; gets <see cref="Name"/> and/or <see cref="Type"/>.
-/// With <see cref="Clear"/> the user's settings of the variable are dropped instead (the decompiler's own name and type return).
-/// <see cref="Storage"/> moves an argument to a register, or back to the calling convention's place (<see cref="AutoStorage"/>).
-/// </summary>
+/// <summary>A decompiler local edit, matched by stack offset, else first-edit name, else name; <see cref="Clear"/> drops user settings.</summary>
 public sealed record NativeLocalEdit(uint Function, string Local, int? Stack, string? Name, string? Type)
 {
     public const string AutoStorage = "auto";
 
     public bool Clear { get; init; }
 
+    /// <summary>Moves an argument to a register, or back to its calling-convention place with <see cref="AutoStorage"/>.</summary>
     public string? Storage { get; init; }
 }
 
-/// <summary>
-/// The stack frame member at <see cref="Offset"/> (bytes from the frame's lowest address) gets <see cref="Name"/> and/or
-/// <see cref="Type"/>; created when none is there. With <see cref="Delete"/> the member is removed instead; with
-/// <see cref="Clear"/> the member the engine had before the user's first edit there is restored.
-/// </summary>
+/// <summary>A frame member edit at <see cref="Offset"/> from the frame's lowest address; <see cref="Delete"/> removes, <see cref="Clear"/> restores the engine's.</summary>
 public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name, string? Type)
 {
     public bool Delete { get; init; }
@@ -575,12 +471,7 @@ public sealed record NativeEnumMemberEdit(string Enum, string Member, long? Valu
 /// <summary>Named type <see cref="Name"/> is renamed to <see cref="NewName"/>, or deleted when that is null.</summary>
 public sealed record NativeTypeEdit(string Name, string? NewName);
 
-/// <summary>
-/// A member of struct or union <see cref="Type"/>, by <see cref="Name"/> and/or byte <see cref="Offset"/>, gets
-/// <see cref="FieldType"/>: placed at Offset (replacing what overlaps), else retyped where the named member is, else
-/// appended; a null FieldType removes the member. With <see cref="Op"/> it is a layout edit of a struct instead (see
-/// <see cref="Insert"/>, <see cref="Resize"/>, <see cref="Gaps"/>).
-/// </summary>
+/// <summary>A struct member edit by name or offset (null FieldType removes), or with <see cref="Op"/> a layout edit.</summary>
 public sealed record NativeFieldEdit(string Type, string? Name, int? Offset, string? FieldType)
 {
     /// <summary>Insert the member at Offset and move the later members down; a null FieldType cuts it and moves them back.</summary>
@@ -604,12 +495,7 @@ public sealed record NativeFieldEdit(string Type, string? Name, int? Offset, str
     }
 }
 
-/// <summary>
-/// A change to the engine's analysis at <see cref="Rva"/>: <see cref="Kind"/> code (instructions from there), function (a
-/// function there, ending at <see cref="End"/> when given), undefine (the items in [Rva, End), or the item at Rva, back to
-/// unknown bytes) or data (an item of <see cref="Type"/>: byte, word, dword, qword, float, double, string, string16 or a C
-/// type, each with an optional [count]; a string without a count ends at End or at its terminator).
-/// </summary>
+/// <summary>An analysis edit at <see cref="Rva"/>: code, function, undefine, flow, or data of <see cref="Type"/> (a scalar, string or C type, optional [count]; a string without a count ends at End or its terminator).</summary>
 public sealed record NativeAnalysisEdit(uint Rva, string Kind, uint? End, string? Type)
 {
     public const string Code = "code", Function = "function", Undefine = "undefine", Data = "data", Flow = "flow";
@@ -618,21 +504,13 @@ public sealed record NativeAnalysisEdit(uint Rva, string Kind, uint? End, string
     public static readonly string[] FlowOverrides = ["none", "branch", "call", "call_return", "return"];
 }
 
-/// <summary>
-/// How operand <see cref="Operand"/> (0-based) of the instruction at <see cref="Rva"/> shows: hex, dec, oct, bin, char,
-/// offset, stack, enum (<see cref="Detail"/>: the enum's name), struct (Detail: the struct's name, optionally +delta) or
-/// default (the engine's own choice).
-/// </summary>
+/// <summary>Display format of a 0-based operand; enum and struct take <see cref="Detail"/> (a name, struct optionally +delta).</summary>
 public sealed record NativeOperandEdit(uint Rva, int Operand, string Display, string? Detail)
 {
     public static readonly string[] Displays = ["hex", "dec", "oct", "bin", "char", "offset", "stack", "enum", "struct", "default"];
 }
 
-/// <summary>
-/// User types, applied in this order: C declarations; type renames and deletions; enum members; struct and union members; analysis edits in the order made; types of functions
-/// (prototypes) and globals by RVA, an empty one clearing it; stack frame members; decompiler locals; stack member
-/// deletions; operand display formats.
-/// </summary>
+/// <summary>User types, applied in order: declarations, type edits, enum members, fields, analysis, prototypes and globals, frame, locals, deletions, operands.</summary>
 public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IReadOnlyList<NativePrototype> Types, IReadOnlyList<NativeStackVarEdit> StackVars,
     IReadOnlyList<NativeLocalEdit> Locals)
 {
@@ -646,18 +524,10 @@ public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IRe
     public IReadOnlyList<NativeOperandEdit> Operands { get; init; } = [];
 }
 
-/// <summary>
-/// One item of a user type batch: <see cref="Kind"/> type, stack, stack_delete, stack_clear, local, local_clear, enum, type_edit or field (at RVA 0), analysis or operand
-/// (with the operand index as <see cref="Stack"/>), at <see cref="Rva"/> (the address or function);
-/// <see cref="Target"/> as asked; for a local the name it had before (<see cref="Resolved"/>) and its stack offset;
-/// <see cref="Text"/>: the type or name now in effect.
-/// </summary>
+/// <summary>A user type item's outcome; for operand items <see cref="Stack"/> is the operand index; <see cref="Resolved"/> is a local's previous name; <see cref="Text"/> is the type or name in effect.</summary>
 public sealed record NativeUserTypeOutcome(string Kind, uint Rva, string Target, bool Applied, string? Error, string? Resolved, int? Stack, string? Text);
 
-/// <summary>
-/// Result of <see cref="INativeDecompilerSession.ApplyUserTypesAsync"/>: declaration errors with the engine's messages, the
-/// type names the declarations made, and each item's outcome.
-/// </summary>
+/// <summary>A user type result: declaration errors and messages, declared type names, and each item's outcome.</summary>
 public sealed record UserTypeResult(int DeclarationErrors, IReadOnlyList<string> DeclarationMessages, IReadOnlyList<string> DeclaredTypes,
     IReadOnlyList<NativeUserTypeOutcome> Items, TimeSpan Elapsed);
 
@@ -687,25 +557,20 @@ public sealed record NativeTypeDetail(string Name, string Kind, long Size, strin
 /// <summary>A stack frame member at <see cref="Offset"/> bytes from the frame's lowest address; <see cref="Kind"/> local, arg or special (return address, saved registers).</summary>
 public sealed record NativeFrameMember(int Offset, string Name, string Type, int Size, string Kind);
 
-/// <summary>A decompiler local: where it lives (a register, "stack" with its <see cref="Stack"/> offset), and whether the user named or typed it.</summary>
+/// <summary>One function's frame, or the error that stopped it.</summary>
 public sealed record NativeFrameOutcome(uint Rva, NativeFrame? Frame, string? Error);
 
+/// <summary>A decompiler local: its location (a register, or "stack" at <see cref="Stack"/>) and whether the user named or typed it.</summary>
 public sealed record NativeLocal(string Name, string Type, string Location, int? Stack, bool IsArgument, bool UserName, bool UserType);
 
-/// <summary>
-/// A function's stack frame (local and saved-register sizes, the return address's frame offset, members) and its decompiler
-/// locals; <see cref="DecompilerError"/> says why there are no locals.
-/// </summary>
+/// <summary>A function's stack frame and decompiler locals; <see cref="DecompilerError"/> says why there are no locals.</summary>
 public sealed record NativeFrame(uint StartRva, string Name, int LocalSize, int SavedRegisters, int ReturnAddressOffset, IReadOnlyList<NativeFrameMember> Members,
     IReadOnlyList<NativeLocal> Locals, string? DecompilerError);
 
 /// <summary>A use of a struct member at <see cref="Rva"/>: Kind operand (typed operand), read, write or address (pseudocode access).</summary>
 public sealed record NativeFieldAccess(uint Rva, string Kind, uint? FunctionRva);
 
-/// <summary>
-/// The member found (type, name, offset, size, type text) and its uses; functions considered for the pseudocode scan,
-/// scanned, failed and not reached in time.
-/// </summary>
+/// <summary>The member found and its uses, with counts of functions considered, scanned, failed and skipped.</summary>
 public sealed record NativeFieldXrefs(string Type, string Member, int Offset, int Size, string MemberType, IReadOnlyList<NativeFieldAccess> Accesses,
     int Candidates, int Scanned, int Failed, int Skipped, bool DecompilerAvailable)
 {
@@ -723,20 +588,12 @@ public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, u
 /// <summary>A memory block (segment) as the engine loaded it: VA, size, permissions (rwx) and whether it has file bytes.</summary>
 public sealed record EngineMemoryBlock(string Name, ulong Start, ulong Size, string Permissions, bool Initialized);
 
-/// <summary>
-/// The engine's description of an open image: engine version, processor and language id, compiler spec, loader format,
-/// pointer size, byte order, function and external function counts, entry point RVAs, the input's MD5 and SHA-256 as the
-/// engine recorded them, memory blocks, unsaved changes (null when the engine does not say) and its analysis state
-/// (complete, partial or running).
-/// </summary>
+/// <summary>The engine's view of an image; <see cref="Changed"/> null when unknown, <see cref="Analysis"/> complete, partial or running.</summary>
 public sealed record EngineImageInfo(string Version, string Processor, string Language, string? Compiler, string Format, int PointerSize, string Endian,
     int Functions, int ExternalFunctions, IReadOnlyList<uint> EntryPoints, string? Md5, string? Sha256, IReadOnlyList<EngineMemoryBlock> Blocks, bool? Changed,
     string? Analysis);
 
-/// <summary>
-/// A data item the engine defined: size in bytes, its type as the engine prints it, its label (null when the engine only has a
-/// generated name for it), the engine's text of its value (clipped) and whether it holds a string.
-/// </summary>
+/// <summary>A defined data item; <see cref="Label"/> null for a generated name, <see cref="Value"/> clipped.</summary>
 public sealed record EngineDataItem(uint Rva, long Size, string Type, string? Label, string? Value, bool IsString);
 
 /// <summary>Defined data items, the first <see cref="Items"/> of <see cref="Total"/>.</summary>
@@ -748,16 +605,9 @@ public sealed record EngineString(uint Rva, long Size, string Type, string Text)
 /// <summary>A parameter as the engine stores it: name, type and storage (register, stack offset).</summary>
 public sealed record EngineParameter(string Name, string Type, string Storage);
 
-/// <summary>
-/// The engine's record of a function: name and namespace, prototype, calling convention, where the signature came from
-/// (user, imported, analysis, default; IDA: user or guessed), body ranges (exclusive ends), the thunked function, external,
-/// no-return and library flags, bytes the callee pops, parameters with storage, the return type and storage, varargs.
-/// </summary>
+/// <summary>The engine's function record; ranges have exclusive ends; SignatureSource user, imported, analysis or default (IDA: user or guessed).</summary>
 public sealed record EngineFunctionRecord(uint Start, string Name, string? Namespace, string? Prototype, string? CallingConvention, string? SignatureSource,
     IReadOnlyList<(uint Start, uint End)> Ranges, uint? ThunkTarget, string? ThunkTargetName, bool External, bool NoReturn, bool Library, int? StackPurge,
     IReadOnlyList<EngineParameter> Parameters, string? ReturnType, string? ReturnStorage, bool VarArgs);
-/// <summary>
-/// A namespace of the engine: qualified name, kind (class, namespace or library), the functions directly in it, and the
-/// vftable (vtable) labeled in it, when one is.
-/// </summary>
+/// <summary>An engine namespace: kind class, namespace or library, its direct function count and labeled vftable.</summary>
 public sealed record EngineNamespace(string Name, string Kind, int Functions, uint? Vftable);

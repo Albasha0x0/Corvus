@@ -151,7 +151,7 @@ public sealed class ApiSurfaceTests : IDisposable
         Has(rows, "* https://ktor.example/api/ping | ktor (renamed) | Lcom/app/Feed;->ping()V +0x2");
         Has(rows, "GET /items/{id}?page=…&term=… | retrofit | Lc/d;->b(Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/Object; annotation");
         Assert.DoesNotContain(rows, r => r.Contains("| url |", StringComparison.Ordinal));
-        // the header counts the code read, not the (absent) assemblies
+        // The header counts the code read, not the (absent) assemblies.
         Assert.Equal(1, found.Searched);
         Assert.Contains("Code searched: 1 dex.", found.Notes);
     }

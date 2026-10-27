@@ -4,11 +4,7 @@ using System.Text;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <summary>
-/// A Chrome extension file's header: CRX3 (a CrxFileHeader protobuf of RSA / ECDSA key proofs and the signed crx_id) or
-/// CRX2 (one RSA key and signature). The extension id comes from the signed header (CRX3) or the key (CRX2); each proof
-/// is verified over the signed data and the zip after the header.
-/// </summary>
+/// <summary>A CRX2 or CRX3 extension header: extension id, key proofs and how many verify over the signed data and zip.</summary>
 public sealed record CrxHeader(int Version, string? ExtensionId, int Proofs, int Verified, IReadOnlyList<string> Notes)
 {
     private const int MaxHeader = 1 << 20;
@@ -78,7 +74,7 @@ public sealed record CrxHeader(int Version, string? ExtensionId, int Proofs, int
         int verified = 0;
         if (signedData != null && proofs.Count > 0)
         {
-            // signed: "CRX3 SignedData\0", the signed header data's length (LE32), the data, then the zip
+            // Signed bytes: "CRX3 SignedData\0", the data length (LE32), the data, then the zip.
             var prefix = new MemoryStream();
             prefix.Write("CRX3 SignedData\0"u8);
             Span<byte> len = stackalloc byte[4];

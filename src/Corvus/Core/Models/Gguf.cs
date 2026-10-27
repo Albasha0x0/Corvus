@@ -5,11 +5,7 @@ using System.Text;
 
 namespace Corvus.Core.Models;
 
-/// <summary>
-/// A GGUF file (versions 1 to 3, either byte order): the metadata key-value pairs and the tensor infos, with each tensor's
-/// type, shape, place in the file and size, as the gguf Python package's GGUFReader reads them. Array values keep their
-/// type, length and first values.
-/// </summary>
+/// <summary>A GGUF file (versions 1 to 3, either byte order): metadata and tensor infos as GGUFReader reads them.</summary>
 public sealed class Gguf
 {
     private const int MaxDepth = 8, Preview = 8, MaxText = 500;

@@ -57,11 +57,7 @@ public sealed class ArscResources(ArscTable table) : IResourceTable
     };
 }
 
-/// <summary>
-/// An Android package opened for reading: an APK, an app bundle (.aab, its base module), or a split set (.apks, .xapk, .apkm)
-/// read through its base APK. Entries are read on demand, each bounded by <see cref="AnalysisLimits.MaxItemBytes"/>.
-/// Paths are given in APK form ("classes.dex", "res/...", "lib/arm64-v8a/..."); a bundle maps them to its base module.
-/// </summary>
+/// <summary>An APK, app bundle or split set opened for reading; entries load on demand by APK-form path.</summary>
 public sealed class AndroidPackage : IDisposable
 {
     public string Path { get; }
@@ -100,7 +96,8 @@ public sealed class AndroidPackage : IDisposable
         try { stream = File.OpenRead(full); zip = new ZipArchive(stream, ZipArchiveMode.Read); _ = zip.Entries; }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            stream?.Dispose(); // a corrupt archive leaves it open until finalization, holding the file
+            // A corrupt archive leaves it open until finalization, holding the file.
+            stream?.Dispose();
             throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a readable zip ({ex.Message}); pass an .apk, .aab, .apks, .xapk or .apkm file.");
         }
         var names = zip.Entries.Select(e => e.FullName).ToHashSet(StringComparer.Ordinal);
@@ -141,7 +138,8 @@ public sealed class AndroidPackage : IDisposable
         if (rest == "manifest/AndroidManifest.xml") return "AndroidManifest.xml";
         if (rest.StartsWith("dex/", StringComparison.Ordinal)) return rest["dex/".Length..];
         if (rest.StartsWith("root/", StringComparison.Ordinal)) return rest["root/".Length..];
-        return rest; // res/, lib/, assets/, resources.pb
+        // res/, lib/, assets/, resources.pb.
+        return rest;
     }
 
     private string ToArchive(string name)

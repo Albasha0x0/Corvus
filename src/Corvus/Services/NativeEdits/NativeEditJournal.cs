@@ -18,10 +18,7 @@ public sealed record NativeAnnotationState(string? Name, string? Comment, string
 /// <summary>One address's annotations before and after an edit.</summary>
 public sealed record NativeAnnotationChange(uint Rva, NativeAnnotationState Before, NativeAnnotationState After);
 
-/// <summary>
-/// One journaled native edit: an id that is never reused, the tool that made it and what it changed: byte patch
-/// (<see cref="Patch"/>), names and comments (<see cref="Annotations"/>) or engine user types (<see cref="UserTypes"/>, made in <see cref="Engine"/>).
-/// </summary>
+/// <summary>One journaled native edit: a never-reused id, its tool, and a byte patch, annotation or user type change.</summary>
 public sealed record NativeJournalEntry(EditId Id, string Tool, string Kind, string Description)
 {
     public const string PatchKind = "patch", AnnotationKind = "annotation", EngineKind = "engine";
@@ -41,11 +38,8 @@ public sealed record NativeJournalEntry(EditId Id, string Tool, string Kind, str
 /// <summary>An undo: the entry taken back, the changes as made by the undo, the engines that received them, and notes.</summary>
 public sealed record NativeUndoResult(NativeJournalEntry Entry, IReadOnlyList<EditChange> Changes, IReadOnlyList<string> PushedTo, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// The native edit journal (EL-6): every native edit of a loaded image (byte patch, name, comment, engine type edit,
-/// migration) gets an <see cref="EditId"/> "&lt;image&gt;#n" with what it replaced, so undo puts the previous state back
-/// and pushes it to the engines. The entries belong to the loaded image (all instances share them); a reload starts a new journal.
-/// </summary>
+/// <summary>Journals each native edit of a loaded image under "&lt;image&gt;#n" with what it replaced, so undo restores it
+/// and pushes it to the engines; a reload starts a new journal.</summary>
 public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null,
     NativeNamePush? names = null, NativeUserTypePush? userTypes = null)
 {
@@ -97,10 +91,8 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         return new(ann.NameAt(rva), ann.CommentAt(rva), ann.CommentKindAt(rva), ann.PseudoCommentAt(rva));
     }
 
-    /// <summary>
-    /// Runs <paramref name="apply"/>, which changes names or comments at <paramref name="rvas"/>, and records what changed
-    /// there as one edit; null when nothing changed. Migrations pass every address they write.
-    /// </summary>
+    /// <summary>Runs <paramref name="apply"/> and records the changes at <paramref name="rvas"/> as one edit; null when
+    /// nothing changed.</summary>
     public EditId? RecordAnnotations(LoadedNative native, string tool, IEnumerable<uint> rvas, Action apply, string? description = null)
     {
         var at = rvas.Distinct().ToList();
@@ -121,10 +113,7 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
             { UserTypes = delta, Engine = engine, Inverse = inverse });
     }
 
-    /// <summary>
-    /// <see cref="NativeUserTypePush.ApplyAsync"/> with the layer change it records journaled as one edit (null when the
-    /// engine took nothing). The before and after layers are the ones swapped under the annotation lock.
-    /// </summary>
+    /// <summary><see cref="NativeUserTypePush.ApplyAsync"/> journaled as one edit; null id when the engine took nothing.</summary>
     public async Task<(UserTypeResult Result, EditId? EditId)> ApplyUserTypesAsync(LoadedNative native, INativeDecompilerSession session, string tool,
         NativeUserTypeBatch edit, Func<UserTypeResult, UserTypeLayer, UserTypeLayer?> record, CancellationToken ct, string? description = null,
         NativeUserTypeBatch? inverse = null)
@@ -148,10 +137,8 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         return (result, id);
     }
 
-    /// <summary>
-    /// The engine's own prototypes of the functions the batch types that have no user type yet: clearing a user type does
-    /// not bring them back in every engine (Ghidra keeps the signature), so undo sets them again.
-    /// </summary>
+    /// <summary>The engine's prototypes of functions without a user type, set again on undo since Ghidra keeps the
+    /// replaced signature.</summary>
     private async Task<IReadOnlyDictionary<uint, string>> EnginePrototypes(LoadedNative native, INativeDecompilerSession session, NativeUserTypeBatch edit, CancellationToken ct)
     {
         var result = new Dictionary<uint, string>();
@@ -163,7 +150,8 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
                 if (await session.GetFunctionRecordAsync(t.Rva, ct).ConfigureAwait(false) is { Start: var start, Prototype: { Length: > 0 } proto } && start == t.Rva)
                     result[t.Rva] = proto;
             }
-            catch (ToolError) { } // no function there, or the engine cannot say: undo clears the type
+            // No function there, or the engine cannot say; undo clears the type.
+            catch (ToolError) { }
         }
         return result;
     }
@@ -176,11 +164,8 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
 
     // ---- undo ----
 
-    /// <summary>
-    /// Takes back edit <paramref name="id"/> (null: the last): restores the previous bytes, names, comments or user types,
-    /// refreshes the code index and pushes the change to the engines with this image open (an engine edit's own engine is
-    /// opened when it is not). Refused when a later edit changed the same item.
-    /// </summary>
+    /// <summary>Takes back edit <paramref name="id"/> (null: the last) and pushes it to the open engines; refused when a later
+    /// edit changed the same item.</summary>
     public async Task<NativeUndoResult> UndoAsync(LoadedNative native, EditId? id, CancellationToken ct)
     {
         var entries = Entries(native);
@@ -208,7 +193,7 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         if (index < 0) throw new ToolError(ErrorCode.NotFound, $"The patch of {entry.Id} is no longer recorded.", "list_native_edits shows the recorded edits");
         if (set.LaterSlotUser(index + 1) is { } later && Entries(native).FirstOrDefault(e => e.Patch == later.Patch) is var by)
             throw new ToolError(ErrorCode.Conflict,
-                $"Native edit {by?.Id.ToString() ?? $"#{later.Number}"} ({later.Patch.Description}) rewrote a relocation entry this edit also rewrote; undoing this one first would leave the table inconsistent.",
+                $"Native edit {by?.Id.ToString() ?? $"#{later.Number}"} ({later.Patch.Description}) also rewrote this relocation entry; undoing this one first would leave the table inconsistent.",
                 $"undo_native_edit editId={by?.Id.ToString() ?? native.Id + "#?"} first");
         set.Remove(index + 1);
         NativeEditService.Rebuild(code, native);
@@ -218,7 +203,7 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
 
     private async Task<NativeUndoResult> UndoAnnotations(LoadedNative native, NativeJournalEntry entry, IReadOnlyList<NativeJournalEntry> entries, CancellationToken ct)
     {
-        // only the parts the edit changed must still hold its values: a later comment does not block undoing a rename there
+        // Only the parts the edit changed must still hold, so a later comment does not block undoing a rename.
         var changed = entry.Annotations.Where(c => !Holds(StateAt(native, c.Rva), c)).ToList();
         if (changed.Count > 0)
         {
@@ -331,10 +316,7 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         return list;
     }
 
-    /// <summary>
-    /// Records <paramref name="records"/> (from <see cref="Export"/>) as edits of this image without applying them: load_session
-    /// restores the values themselves, so after it the restored edits are undoable here.
-    /// </summary>
+    /// <summary>Journals exported records without applying them, so edits restored by load_session can be undone.</summary>
     public IReadOnlyList<EditId> Import(LoadedNative native, JsonArray records)
     {
         var ids = new List<EditId>();
@@ -342,7 +324,8 @@ public sealed class NativeEditJournal(AssemblyWorkspace workspace, NativeCodeSer
         foreach (var node in records)
         {
             var r = node?.Deserialize<JournalRecord>(Options);
-            if (r == null || known.Contains(node!.ToJsonString())) continue; // already journaled: a session loaded twice
+            // Already journaled when a session is loaded twice.
+            if (r == null || known.Contains(node!.ToJsonString())) continue;
             if (r.Kind == NativeJournalEntry.AnnotationKind && r.Annotations is { Count: > 0 } a)
                 ids.Add(Add(native, id => new NativeJournalEntry(id, r.Tool, r.Kind, r.Description) { Annotations = a }));
             else if (r.Kind == NativeJournalEntry.EngineKind && r.UserTypes is { Count: > 0 } u)

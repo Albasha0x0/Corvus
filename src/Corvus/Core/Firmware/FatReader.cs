@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// FAT12, FAT16 and FAT32 volumes: the directory tree with long file names, file data along the allocation table's cluster
-/// chains; deleted entries are skipped; read in ranges.
-/// </summary>
+/// <summary>FAT12, FAT16 and FAT32 volumes with long file names, read in ranges; deleted entries are skipped.</summary>
 internal sealed class FatReader : IContainerReader
 {
     public string Kind => "fat";
@@ -62,7 +59,7 @@ internal sealed class FatReader : IContainerReader
             long dataSectors = sectors - _dataAt / bytesPerSector;
             if (fatSectors <= 0 || dataSectors <= 0) throw src.Malformed("the FAT parameter block leaves no data area");
             _clusters = (uint)Math.Min(dataSectors / bs[13], uint.MaxValue - 16);
-            // the FAT type follows from the cluster count alone
+            // The FAT type follows from the cluster count alone.
             _bits = _clusters < 4085 ? 12 : _clusters < 65525 ? 16 : 32;
             _rootCluster = _bits == 32 ? BinaryPrimitives.ReadUInt32LittleEndian(bs.AsSpan(44)) : 0;
             long fatBytes = Math.Min(fatSectors * bytesPerSector, (_clusters + 2L) * _bits / 8 + 2);
@@ -161,7 +158,7 @@ internal sealed class FatReader : IContainerReader
             var b = d.AsSpan(p, 11).ToArray();
             if (b[0] == 0x05) b[0] = 0xE5;
             string name = Encoding.Latin1.GetString(b, 0, 8).TrimEnd(), ext = Encoding.Latin1.GetString(b, 8, 3).TrimEnd();
-            // the case flags of byte 12 (lower-case base and extension)
+            // The case flags of byte 12 (lower-case base and extension).
             if ((d[p + 12] & 0x08) != 0) name = name.ToLowerInvariant();
             if ((d[p + 12] & 0x10) != 0) ext = ext.ToLowerInvariant();
             return ext.Length > 0 ? name + "." + ext : name;

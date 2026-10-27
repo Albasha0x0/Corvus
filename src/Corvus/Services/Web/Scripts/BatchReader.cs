@@ -3,12 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Services.Web.Scripts;
 
-/// <summary>
-/// Batch files read as cmd.exe expands them: set (quoted, /a arithmetic), %var%, !var!, %var:~start,len% substrings,
-/// %var:old=new% replacement, caret escapes, call's second expansion, goto and labels, if with string tests and for /l.
-/// Every line is shown expanded; a line that starts PowerShell, cmd /c or mshta is read as a layer of that language.
-/// Commands are never run.
-/// </summary>
+/// <summary>Shows each batch line as cmd.exe expands it and reads launched PowerShell, cmd or mshta code as layers; runs nothing.</summary>
 internal sealed partial class BatchReader
 {
     private const int MaxLineSteps = 200_000;
@@ -24,7 +19,8 @@ internal sealed partial class BatchReader
         _ctx = ctx;
         _depth = depth;
         _commandLine = commandLine;
-        _vars = ctx.Environment; // shared with later layers in other languages
+        // Shared with later layers in other languages.
+        _vars = ctx.Environment;
     }
 
     /// <param name="commandLine">A command line (cmd /c, Run, wmic): an undefined %var% stays as written, as cmd leaves it.</param>
@@ -54,11 +50,12 @@ internal sealed partial class BatchReader
             var (shown, jump) = Execute(line.Text, labels, lines.Count);
             if (shown != null)
             {
-                // a line run twice with different expansions is left as written
+                // A line run twice with different expansions is left as written.
                 if (seen.TryGetValue(pc, out var before)) { if (before != shown) seen[pc] = null; }
                 else seen[pc] = shown;
             }
-            if (jump == -2) break; // exit
+            // -2 is exit.
+            if (jump == -2) break;
             pc = jump >= 0 ? jump : pc + 1;
         }
         foreach (var (index, shown) in seen)
@@ -115,7 +112,7 @@ internal sealed partial class BatchReader
         var line = expanded.TrimStart();
         var lead = expanded[..(expanded.Length - line.Length)];
         if (line.StartsWith('@')) { lead += "@"; line = line[1..]; }
-        // a parenthesized block on one line, or commands joined by & / && / ||
+        // A parenthesized block, or commands joined by &, && or ||.
         var parts = SplitCommands(line);
         if (parts.Count > 1)
         {
@@ -149,7 +146,7 @@ internal sealed partial class BatchReader
                 return lead + delayed;
             case "call":
                 if (rest.TrimStart().StartsWith(':')) return lead + delayed;
-                // call expands the line a second time
+                // call expands the line a second time.
                 var again = Expand(rest, delayed: false) ?? rest;
                 return lead + "call " + Command(again, labels, ref jump, nesting + 1).TrimStart();
             case "if":
@@ -175,7 +172,7 @@ internal sealed partial class BatchReader
             else if (!quoted && c == '|' && (i + 1 >= line.Length || line[i + 1] != '|') && (i == 0 || line[i - 1] != '|')) { bar = i; break; }
         }
         if (bar < 0) return null;
-        // echo text, echo.text, echo/text, echo\text, echo(text: the character after echo is a separator
+        // Any of these characters after echo is a separator: echo.text, echo/text, echo(text.
         var echo = Regex.Match(Unescape(line[..bar]), @"^\s*@?echo[\s./\\(:;,=+\[\]](.*)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         if (!echo.Success) return null;
         var text = echo.Groups[1].Value;
@@ -388,7 +385,6 @@ internal sealed partial class BatchReader
             }
             case "wmic":
             {
-                // wmic process call create "command line"
                 var args = Arguments(rest);
                 int create = args.FindIndex(a => a.Trim('\'').Equals("create", StringComparison.OrdinalIgnoreCase));
                 if (create < 0 || create + 1 >= args.Count) return line;
@@ -397,7 +393,7 @@ internal sealed partial class BatchReader
             }
             case "rundll32":
             {
-                // rundll32 shell32.dll,ShellExec_RunDLL program arguments (and the other entry points that start a program)
+                // Entry points that start a program, such as shell32.dll,ShellExec_RunDLL.
                 var args = Arguments(rest);
                 if (args.Count < 2 || !Regex.IsMatch(args[0], @",\s*(ShellExec_RunDLL\w*|FileProtocolHandler|OpenURL|RouteTheCall)$", RegexOptions.IgnoreCase)) return line;
                 var command = string.Join(" ", args.Skip(1).Select(a => a.Trim()));
@@ -406,7 +402,7 @@ internal sealed partial class BatchReader
             }
             case "start":
             {
-                // start ["title"] [/b /min /wait ...] command
+                // start ["title"] [/b /min /wait ...] command.
                 var r = rest.TrimStart();
                 if (r.StartsWith('"')) { int close = r.IndexOf('"', 1); r = close < 0 ? "" : r[(close + 1)..]; }
                 r = Regex.Replace(r, @"^(\s*/\w+(?:\s+[^\s/]+(?=\s+/))?)*", "").TrimStart();
@@ -437,7 +433,7 @@ internal sealed partial class BatchReader
             var a = args[i];
             if (a.Length < 2 || a[0] is not ('-' or '/'))
                 return _ctx.Peel("powershell", string.Join(" ", args.Skip(i)), "powershell", _depth + 1);
-            // options are matched by any unambiguous prefix, as powershell.exe reads them
+            // powershell.exe matches options by any unambiguous prefix.
             var p = a[1..].TrimEnd(':').ToLowerInvariant();
             if (p is "e" or "ec" || p.Length >= 2 && "encodedcommand".StartsWith(p, StringComparison.Ordinal))
             {
@@ -446,9 +442,10 @@ internal sealed partial class BatchReader
             }
             if ("command".StartsWith(p, StringComparison.Ordinal))
                 return i + 1 < args.Count ? _ctx.Peel("powershell", string.Join(" ", args.Skip(i + 1)), "powershell -Command", _depth + 1) : null;
-            if (p is "f" || p.Length >= 2 && "file".StartsWith(p, StringComparison.Ordinal)) return null; // a script file, not code
+            // -File names a script file, not code.
+            if (p is "f" || p.Length >= 2 && "file".StartsWith(p, StringComparison.Ordinal)) return null;
             if (p is "ep" or "ex" or "exec" || ValueOptions.Any(o => o.StartsWith(p, StringComparison.Ordinal)) && !SwitchOptions.Any(o => o.StartsWith(p, StringComparison.Ordinal)))
-                i++; // the option's value
+                i++;
         }
         return null;
     }
@@ -520,9 +517,10 @@ internal sealed partial class BatchReader
         {
             char c = s[i];
             if (c != mark) { sb.Append(c); continue; }
-            if (!delayed && i + 1 < s.Length && s[i + 1] == '%') { sb.Append('%'); i++; continue; } // %% is a literal %
-            if (!delayed && i + 1 < s.Length && (char.IsDigit(s[i + 1]) || s[i + 1] == '*')) { sb.Append(c).Append(s[++i]); continue; } // %1, %*
-            if (!delayed && i + 1 < s.Length && s[i + 1] == '~') // %~dp0 and friends
+            // %% is a literal %; %1, %* and %~dp0 stay as written.
+            if (!delayed && i + 1 < s.Length && s[i + 1] == '%') { sb.Append('%'); i++; continue; }
+            if (!delayed && i + 1 < s.Length && (char.IsDigit(s[i + 1]) || s[i + 1] == '*')) { sb.Append(c).Append(s[++i]); continue; }
+            if (!delayed && i + 1 < s.Length && s[i + 1] == '~')
             {
                 int q = i + 2;
                 while (q < s.Length && char.IsLetter(s[q])) q++;
@@ -535,8 +533,9 @@ internal sealed partial class BatchReader
             var value = Variable(body);
             if (value == null)
             {
-                if (delayed || _commandLine) { sb.Append(c); continue; } // !x! of an unknown name, and %x% on a command line, stay as written
-                i = close; // an undefined %var% in a batch file expands to nothing
+                // Unknown !x!, and %x% on a command line, stay as written; in a batch file %x% expands to nothing.
+                if (delayed || _commandLine) { sb.Append(c); continue; }
+                i = close;
                 continue;
             }
             sb.Append(value);

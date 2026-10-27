@@ -8,10 +8,7 @@ public sealed record PacketRow(long Frame, DateTime? Time, string Source, string
 /// <summary>One filtered pass: frames read, frames matched, the requested page of rows and what the reader reported.</summary>
 public sealed record PacketQueryResult(string Format, long Frames, long Matched, IReadOnlyList<PacketRow> Rows, IReadOnlyList<string> Issues);
 
-/// <summary>
-/// Runs a <see cref="PacketFilter"/> over a capture in one streaming pass: every frame is decoded in place and dropped,
-/// matches are counted and only the page asked for is kept, so memory does not grow with the capture.
-/// </summary>
+/// <summary>Runs a <see cref="PacketFilter"/> over a capture in one pass, keeping only the requested page.</summary>
 public static class PacketQuery
 {
     private const int MaxPending = 10_000, MaxHello = 16 * 1024 + 5, MaxValue = 200;
@@ -60,7 +57,8 @@ public static class PacketQuery
             int ahead = unchecked((int)(v.P.Seq - open.Next));
             if (ahead < 0) return; // a retransmission
             pending.Remove(key);
-            if (ahead > 0) return; // a gap: not reassembled
+            // A gap is not reassembled.
+            if (ahead > 0) return;
             int take = Math.Min(p.Length, open.Buffer.Length - open.Length);
             p[..take].CopyTo(open.Buffer.AsSpan(open.Length));
             open.Length += take;

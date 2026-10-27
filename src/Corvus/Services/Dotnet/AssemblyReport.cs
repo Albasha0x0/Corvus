@@ -5,7 +5,7 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>Assembly overview used by the get_assembly_info tool and the assembly info resource.</summary>
-public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il2cpp)
+public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataService aot)
 {
     /// <summary>A reference of the assembly and where it resolves.</summary>
     public sealed record ReferenceStatus(string Name, [property: System.ComponentModel.Description("Where it resolves, or not found.")] string Status);
@@ -29,13 +29,13 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         int Fields,
         int Resources,
         bool ReferenceAssembly,
-        [property: System.ComponentModel.Description("Il2Cpp dummy DLL: methods with [Address] attributes.")] int Il2CppAddressedMethods,
+        [property: System.ComponentModel.Description("Methods with [Address] attributes (dummy assembly).")] int AddressedMethods,
         [property: System.ComponentModel.Description("Method bodies that are not valid IL.")] int InvalidBodies,
-        [property: System.ComponentModel.Description("Exception clauses of valid bodies with bad flags, ranges outside the code or off instruction boundaries, or a misplaced filter.")] int InvalidExceptionClauses,
+        [property: System.ComponentModel.Description("Exception clauses of valid bodies with bad flags or ranges, or a misplaced filter.")] int InvalidExceptionClauses,
         IReadOnlyList<string> UnsavedEdits,
         [property: System.ComponentModel.Description("Assembly references.")] int ReferenceCount,
         [property: System.ComponentModel.Description("References that resolve to nothing.")] int UnresolvedReferences,
-        [property: System.ComponentModel.Description("Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.")] int MetadataIssueCount)
+        [property: System.ComponentModel.Description("Structural metadata problems in streams, tables, indexes and P/Invoke rows.")] int MetadataIssueCount)
     {
         [System.ComponentModel.Description("The transformation tool, with evidence; view=transforms adds 'layer: ' rows.")] public IReadOnlyList<Analysis.TransformerFinding>? Transformers { get; init; }
         [System.ComponentModel.Description("view=references or all.")] public IReadOnlyList<ReferenceStatus>? References { get; init; }
@@ -78,11 +78,10 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         sb.AppendLine($"Types: {types.Count} ({types.Count(t => t.DeclaringType != null)} nested)  Namespaces: {MetadataUtil.NamespaceCount(types)}  " +
                       $"Methods: {m.GetTypes().Sum(t => t.Methods.Count)}  Fields: {m.GetTypes().Sum(t => t.Fields.Count)}  Resources: {m.Resources.Count}");
         if (MetadataUtil.IsReferenceAssembly(m))
-            sb.AppendLine("Reference assembly: metadata only (compile-time API surface); method bodies are `throw null`. Load the implementation " +
-                          "(the runtime's assembly, or the package's lib/ folder instead of ref/) to read code.");
-        int addressed = il2cpp.GetIndex(asm).Count;
+            sb.AppendLine("Reference assembly: method bodies are `throw null`; load the implementation (lib/, not ref/) to read code.");
+        int addressed = aot.GetIndex(asm).Count;
         if (addressed > 0)
-            sb.AppendLine($"Il2Cpp metadata: {addressed} methods carry [Address] attributes (dummy DLL; method bodies are stubs — use get_il2cpp_info / find_method_by_address).");
+            sb.AppendLine($"AOT metadata: {addressed} methods carry [Address] attributes; bodies are stubs (get_method_addresses, find_method_by_address).");
         var health = asm.BodyHealth;
         if (health.MostlyInvalid)
             sb.AppendLine($"IL: {health.Describe()} Load the decrypted image (e.g. a dump taken after the code ran) to read code.");

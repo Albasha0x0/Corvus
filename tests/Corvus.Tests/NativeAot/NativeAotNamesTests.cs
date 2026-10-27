@@ -13,49 +13,49 @@ namespace Corvus.Tests;
 public class NativeAotNamesTests(ITestOutputHelper output)
 {
     [Fact]
-    public void Priority_NativeAotBelowPdbAboveIl2Cpp()
+    public void NativeAOT_names_rank_below_PDB_and_above_metadata_names()
     {
         var names = new SourcedNames();
         names.SetName(0x10, "ida", NativeNameSource.Ida);
-        names.SetName(0x10, "il2cpp", NativeNameSource.Il2Cpp);
+        names.SetName(0x10, "metadata", NativeNameSource.Metadata);
         names.SetName(0x10, "aot", NativeNameSource.NativeAot);
         Assert.Equal(("aot", NativeNameSource.NativeAot), names.NameAt(0x10));
         names.SetName(0x10, "pdb", NativeNameSource.Pdb);
         Assert.Equal(("pdb", NativeNameSource.Pdb), names.NameAt(0x10));
         names.SetName(0x10, "mine", NativeNameSource.User);
         Assert.Equal(("mine", NativeNameSource.User), names.NameAt(0x10));
-        names.SetComment(0x20, "il2cpp", NativeNameSource.Il2Cpp);
+        names.SetComment(0x20, "metadata", NativeNameSource.Metadata);
         names.SetComment(0x20, "aot", NativeNameSource.NativeAot);
         Assert.Equal(("aot", NativeNameSource.NativeAot), names.CommentAt(0x20));
         Assert.Equal([(0x10u, NativeNameSource.User)], names.AddressesOf("mine"));
 
         var layers = new NativeNameLayers();
-        foreach (var source in new[] { NativeNameSource.Ida, NativeNameSource.NativeAot, NativeNameSource.Pdb, NativeNameSource.Il2Cpp })
+        foreach (var source in new[] { NativeNameSource.Ida, NativeNameSource.NativeAot, NativeNameSource.Pdb, NativeNameSource.Metadata })
             layers.Set(new NativeNameLayers.Layer(source, new Dictionary<uint, string>(), new Dictionary<uint, string>(), "x"), null);
-        Assert.Equal([NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.Ida], layers.Layers.Select(l => l.Source));
+        Assert.Equal([NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Metadata, NativeNameSource.Ida], layers.Layers.Select(l => l.Source));
         Assert.Equal(NativeNameSource.NativeAot, NativeNameSources.Parse("nativeaot"));
         Assert.Equal("nativeaot", NativeNameSource.NativeAot.Id());
     }
 
-    /// <summary>The engine name push takes the nativeaot layer over il2cpp names and leaves addresses the PDB names to the engine.</summary>
+    /// <summary>The engine name push takes the nativeaot layer over metadata names and leaves addresses the PDB names to the engine.</summary>
     [Fact]
-    public void Push_IncludesTheNativeAotLayer()
+    public void Push_includes_the_NativeAOT_layer()
     {
         var image = T.Build(16).Aot.Image;
         NativeNameLayers.Layer L(NativeNameSource s, params (uint, string)[] names) =>
             new(s, names.ToDictionary(n => n.Item1, n => n.Item2), new Dictionary<uint, string> { [T.SpeakCode] = s.Id() }, s.Id());
         var layers = new NativeNameLayers();
-        layers.Set(L(NativeNameSource.Il2Cpp, (T.SpeakCode, "low"), (T.HashCode, "il2cpp")), null);
+        layers.Set(L(NativeNameSource.Metadata, (T.SpeakCode, "low"), (T.HashCode, "metadata")), null);
         layers.Set(L(NativeNameSource.NativeAot, (T.SpeakCode, "Dog__Speak"), (T.EqualsCode, "Object__Equals")), null);
         layers.Set(L(NativeNameSource.Pdb, (T.EqualsCode, "pdb")), null);
         var effective = NativeNamePush.Effective(null, layers.Layers, image);
         Assert.Equal(new NativeNamePush.Entry("Dog__Speak", "nativeaot", true), effective[T.SpeakCode]);
-        Assert.Equal("il2cpp", effective[T.HashCode].Name);
+        Assert.Equal("metadata", effective[T.HashCode].Name);
         Assert.False(effective.ContainsKey(T.EqualsCode));
     }
 
     [Fact]
-    public void SavedLayer_RoundTripsTheNativeAotSource()
+    public void Saved_layer_round_trips_the_NativeAOT_source()
     {
         using var dir = new TempDir();
         var store = new AnnotationStore(dir.File("ann"));
@@ -72,7 +72,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     [Theory]
     [InlineData((ushort)9)]
     [InlineData((ushort)16)]
-    public void Build_NamesBodiesSlotsMethodTablesAndFrozenObjects(ushort major)
+    public void The_build_names_bodies_slots_method_tables_and_frozen_objects(ushort major)
     {
         var w = T.Build(major);
         var built = NativeAotNames.Build(w.Aot);
@@ -100,7 +100,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
 
     /// <summary>The index build names the image without a tool call; the layer is saved and a later load restores it instead of rebuilding.</summary>
     [Fact]
-    public async Task AutoApply_OnIndexBuild_SavedAndRestored()
+    public async Task Names_applied_on_index_build_are_saved_and_restored()
     {
         using var dir = new TempDir();
         var (path, _) = WriteImage(dir);
@@ -129,7 +129,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task AutoApply_NotForOtherImages()
+    public async Task Names_are_not_applied_to_other_images()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -171,7 +171,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task SearchNativeStrings_ListsFrozenStringsByTheObject()
+    public async Task Search_native_strings_lists_frozen_strings_by_the_object()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -186,7 +186,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
 
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task GetNativeAotInfo_Views()
+    public async Task NativeAOT_info_views_return_their_own_sections()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -237,7 +237,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
 
     /// <summary>export_native_annotations: the nativeaot layer beneath the user's names in every format.</summary>
     [Fact]
-    public async Task Export_IncludesTheNativeAotLayer()
+    public async Task Export_includes_the_NativeAOT_layer()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -275,7 +275,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Disassemble_RendersStringLiteralsAndVirtualCalls()
+    public async Task Disassemble_renders_string_literals_and_virtual_calls()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -293,7 +293,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     /// <summary>vtable calls on this and interface calls through a dispatch cell become call edges: find_virtual_calls, callees and callers see them.</summary>
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task VirtualCalls_BecomeCallEdges()
+    public async Task Virtual_calls_become_call_edges()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -320,7 +320,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Equal("receiver_unknown", report.Items[1].Reason);
         Assert.Contains(report.Notes, n => n.StartsWith("NativeAOT: ", StringComparison.Ordinal));
 
-        // a second build (from the saved index) adds nothing twice
+        // A second build (from the saved index) adds nothing twice.
         int sites = index.VirtualCalls.Sites.Count;
         NativeAotCode.AddVirtualCalls(native, index);
         Assert.Equal(sites, index.VirtualCalls.Sites.Count);
@@ -328,7 +328,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
 
     /// <summary>The saved index holds the NativeAOT virtual calls, so a load does not search the MethodTables again.</summary>
     [Fact]
-    public async Task VirtualCalls_AreSavedWithTheIndex()
+    public async Task Virtual_calls_are_saved_with_the_index()
     {
         using var dir = new TempDir();
         var options = new ServerOptions { BackgroundIndexing = false, CodeIndexCache = new CodeIndexCacheOptions(dir.File("cache"), 1L << 30, TimeSpan.FromDays(1), TimeSpan.Zero) };
@@ -356,7 +356,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task ResolveAddress_DescribesMethodTablesFrozenObjectsMethodsAndSections()
+    public async Task Resolve_address_describes_method_tables_frozen_objects_methods_and_sections()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -384,7 +384,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     [Theory]
     [Trait("Speed", "Slow")]
     [MemberData(nameof(NativeAotRealTests.Samples), MemberType = typeof(NativeAotRealTests))]
-    public async Task Real_LoadNamesMostFunctions(string sample)
+    public async Task Loading_a_real_image_names_most_functions(string sample)
     {
         using var dir = new TempDir();
         using var env = new Env();
@@ -420,7 +420,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         if (sample.StartsWith("win-x64", StringComparison.Ordinal)) // the ARM64 index records no adrp/add data references yet
             Assert.True(referenced > strings.Count / 2, $"{referenced} of {strings.Count} frozen strings referenced");
 
-        // statics without field metadata: named where code uses them, once the index is built
+        // Statics without field metadata: named where code uses them, once the index is built.
         var layer = NativeNameLayers.Of(native).Get(NativeNameSource.NativeAot)!;
         var fields = layer.Names.Where(n => n.Value.Contains("__field_0x", StringComparison.Ordinal)).ToList();
         output.WriteLine($"  {fields.Count} static fields named from code references");

@@ -8,12 +8,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A synthetic Linux crash as an ELF core (x64 or AArch64): libcrash.so (ELF header, build id note, PT_DYNAMIC with
-/// .dynsym, .eh_frame_hdr and .eh_frame) where M calls A (frame pointer, no FDE), A calls B (FDE with
-/// remember/restore_state) and B calls crash::null() (FDE), which faults reading 0x10. Two threads, NT_SIGINFO,
-/// NT_FILE, NT_AUXV and NT_PRPSINFO; the stack holds the saved registers and return addresses.
-/// </summary>
+/// <summary>A synthetic Linux ELF core (x64 or AArch64) whose stack unwinds by frame pointer and .eh_frame.</summary>
 internal static class SyntheticCore
 {
     public const ulong Base = 0x7F00_0000_0000, Stack = 0x7FFD_0000_0000;
@@ -30,7 +25,7 @@ internal static class SyntheticCore
     {
         var w = new ByteWriter();
         buildId ??= BuildId;
-        // ELF header
+        // ELF header.
         w.Bytes([0x7F, (byte)'E', (byte)'L', (byte)'F', 2, 1, 1, 0]);
         w.PadTo(16);
         w.U16(3); w.U16(arm64 ? ElfWriter.EmAarch64 : ElfWriter.EmX64); w.U32(1); w.U64(M); w.U64(0x40); w.U64(0); w.U32(0);
@@ -43,7 +38,7 @@ internal static class SyntheticCore
         w.PadTo(0x200);
         w.U32(4); w.U32((uint)buildId.Length); w.U32(3); w.Bytes("GNU\0"u8); w.Bytes(buildId);
 
-        // code: only the x64 crash instruction is decoded (mov dword ptr [rax], ecx)
+        // Code: only the x64 crash instruction is decoded (mov dword ptr [rax], ecx).
         w.PadTo((int)A);
         if (!arm64)
         {
@@ -54,7 +49,7 @@ internal static class SyntheticCore
         }
         w.PadTo((int)M + 0x20);
 
-        // .eh_frame: a CIE, then FDEs for B and C
+        // .eh_frame: a CIE, then FDEs for B and C.
         w.PadTo((int)EhRva);
         int cie = w.Length;
         var c = new ByteWriter();
@@ -78,14 +73,14 @@ internal static class SyntheticCore
             w.Bytes(f.ToArray());
             return at;
         }
-        // B: CFA moves with the prologue; remember_state, a bogus offset, restore_state at the call
+        // B: CFA moves with the prologue; remember_state, a bogus offset, restore_state at the call.
         int fdeB = Fde(B, 0x20, arm64
             ? [0x41, 0x0E, 0x20, 0x41, 0x9D, 0x02, 0x9E, 0x01, 0x41, 0x0C, 29, 0x10, 0x0A, 0x0E, 0x63, 0x0B]
             : [0x41, 0x0E, 0x10, 0x83, 0x02, 0x44, 0x0E, 0x20, 0x0A, 0x0E, 0x63, 0x0B]);
         int fdeC = Fde(C, 0x20, arm64 ? [0x41, 0x0E, 0x10, 0x9D, 0x02, 0x9E, 0x01] : [0x42, 0x0E, 0x10, 0x8C, 0x02]);
         w.U32(0);
 
-        // .eh_frame_hdr: pcrel eh_frame pointer, udata4 count, datarel sdata4 table
+        // .eh_frame_hdr: pcrel eh_frame pointer, udata4 count, datarel sdata4 table.
         w.BytesAt((int)HdrRva, [1, 0x1B, 0x03, 0x3B]);
         w.U32At((int)HdrRva + 4, EhRva - (HdrRva + 4));
         w.U32At((int)HdrRva + 8, 2);
@@ -93,7 +88,7 @@ internal static class SyntheticCore
         w.U32At((int)HdrRva + 12, Rel(B)); w.U32At((int)HdrRva + 16, Rel(fdeB));
         w.U32At((int)HdrRva + 20, Rel(C)); w.U32At((int)HdrRva + 24, Rel(fdeC));
 
-        // .hash, .dynsym, .dynstr, .dynamic
+        // .hash, .dynsym, .dynstr, .dynamic.
         string[] names = ["A", "B", "_ZN5crash4nullEv", "M"];
         uint[] values = [A, B, C, M];
         w.PadTo((int)HashRva);
@@ -457,7 +452,7 @@ public sealed class ElfCoreTests
     [Fact]
     public void Arm64_without_cfi_returns_through_the_link_register_at_a_function_start_then_the_frame_chain()
     {
-        // the frame record at fp is still the caller's: it holds the caller's own return address
+        // The frame record at fp is still the caller's: it holds the caller's own return address.
         var stack = new byte[0x40];
         BitConverter.GetBytes(SyntheticCore.Stack + 0x30).CopyTo(stack, 0x10);
         BitConverter.GetBytes(SyntheticCore.Base + 0x200).CopyTo(stack, 0x18);
@@ -477,8 +472,8 @@ public sealed class ElfCoreTests
         const ulong Code = 0x7E00_0000_0000;
         var p = SyntheticCore.Points(arm64: false);
         var stack = new byte[0x100];
-        // a small value, an address that follows no call, a stale return address (M has no CFI), then B's return address,
-        // whose frame's CFI finds M's return address above it
+        // A small value, an address that follows no call, a stale return address (M has no CFI), then B's return address,
+        // whose frame's CFI finds M's return address above it.
         BitConverter.GetBytes(0x1234UL).CopyTo(stack, 0);
         BitConverter.GetBytes(SyntheticCore.Base + SyntheticCore.A).CopyTo(stack, 8);
         BitConverter.GetBytes(SyntheticCore.Base + p.IntoM).CopyTo(stack, 16);
@@ -501,11 +496,11 @@ public sealed class ElfCoreTests
         const ulong Code = 0x7E00_0000_0000;
         var p = SyntheticCore.Points(arm64: false);
         var module = SyntheticCore.Module(arm64: false);
-        // B calls A, whose entry an interceptor patched (endbr64; jmp [rip]) to the generated code
+        // B calls A, whose entry an interceptor patched (endbr64; jmp [rip]) to the generated code.
         BitConverter.GetBytes((int)SyntheticCore.A - (int)p.IntoB).CopyTo(module, (int)SyntheticCore.B + 6);
         new byte[] { 0xF3, 0x0F, 0x1E, 0xFA, 0xFF, 0x25, 0, 0, 0, 0 }.CopyTo(module, (int)SyntheticCore.A);
         BitConverter.GetBytes(Code + 0x40).CopyTo(module, (int)SyntheticCore.A + 10);
-        // a call in C to C's own code: its return address unwinds by C's CFI, as a saved register's stale value can
+        // A call in C to C's own code: its return address unwinds by C's CFI, as a saved register's stale value can.
         new byte[] { 0xE8, 0, 0, 0, 0 }.CopyTo(module, (int)SyntheticCore.C + 0xB);
         var stack = new byte[0x100];
         BitConverter.GetBytes(0x1234UL).CopyTo(stack, 0);

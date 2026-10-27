@@ -5,9 +5,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Annotations;
 
-/// <summary>Renders the saved names, comments and user types of an image as an IDAPython / Ghidra script or JSON (Ghidra: names and comments). Addresses are
-/// RVAs, rebased to the database's own image base at run time, so the script applies regardless of where the image
-/// is loaded.</summary>
+/// <summary>Renders an image's saved annotations as an IDAPython or Ghidra script or JSON; addresses are RVAs rebased at run time.</summary>
 public static class AnnotationExport
 {
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
@@ -285,7 +283,7 @@ public static class AnnotationExport
         sb.AppendLine("// Ghidra script: apply exported names and comments.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("// @category Corvus");
-        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, type edits, enum and struct members, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
+        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) are in the IDA and JSON exports only.");
         sb.AppendLine("import ghidra.app.script.GhidraScript;");
         sb.AppendLine("import ghidra.program.model.address.Address;");
         sb.AppendLine("import ghidra.program.model.symbol.SourceType;");
@@ -340,14 +338,10 @@ public static class AnnotationExport
     private static string Java(string s) => Py(s);
 }
 
-/// <summary>An imported name or comment at an RVA and the layer it comes from (nativeaot, il2cpp, objc, swift, dart).</summary>
+/// <summary>An imported name or comment at an RVA and the id of the layer it comes from.</summary>
 public readonly record struct ImportedName(uint Rva, string? Name, string? Comment, string Source);
 
-/// <summary>
-/// The names and comments of the image's imported metadata layers (NativeAOT, Il2Cpp, ObjC, Swift), exported beneath the user's: the
-/// higher-ranked layer wins at an address, and what the user named or commented keeps only the user's. PDB names are left
-/// out (engines load the PDB themselves), as are the engines' own layers.
-/// </summary>
+/// <summary>Names and comments of the metadata layers, exported beneath the user's; PDB and engine layers are left out.</summary>
 public sealed record ImportedNames(IReadOnlyList<ImportedName> Entries, string Sources)
 {
     public static readonly ImportedNames None = new([], "");
@@ -357,7 +351,7 @@ public sealed record ImportedNames(IReadOnlyList<ImportedName> Entries, string S
     public static ImportedNames Of(IReadOnlyList<NativeNameLayers.Layer> layers, NativeAnnotations user)
     {
         var merged = new Dictionary<uint, ImportedName>();
-        var used = layers.Where(l => l.Source is NativeNameSource.NativeAot or NativeNameSource.Il2Cpp or NativeNameSource.ObjC or NativeNameSource.Swift or NativeNameSource.Dart).OrderBy(l => l.Source.Rank()).ToList();
+        var used = layers.Where(l => l.Source is NativeNameSource.NativeAot or NativeNameSource.Metadata or NativeNameSource.ObjC or NativeNameSource.Swift or NativeNameSource.Dart).OrderBy(l => l.Source.Rank()).ToList();
         foreach (var layer in used)
         {
             string source = layer.Source.Id();

@@ -5,10 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Code analysis over many Windows DLLs: no exceptions, bounded time, every x64 .pdata function found.
-/// CORVUS_NATIVE_SWEEP_LIMIT caps the number of files per directory (default 400; 0 = all).
-/// </summary>
+/// <summary>Code analysis over many Windows DLLs: no exceptions, bounded time, every x64 .pdata function found (CORVUS_NATIVE_SWEEP_LIMIT, default 400, 0 all).</summary>
 [Trait("Speed", "Slow")]
 public class NativeCodeSweepTests(ITestOutputHelper output)
 {
@@ -94,7 +91,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
             switches += index.Stats.ResolvedSwitches;
             invalid += index.Stats.FunctionsWithInvalidCode;
             mostInvalid.Add((Path.GetFileName(path), index.Stats.FunctionsWithInvalidCode, index.Stats.Functions));
-            // exception metadata: decoded without internal errors, chunks part of their function
+            // Exception metadata: decoded without internal errors, chunks part of their function.
             ehFrames += index.ExceptionInfo.Stats.Frames;
             ehRejects += index.ExceptionInfo.RejectCount;
             ehChunks += index.Functions.Sum(f => f.Chunks.Count);

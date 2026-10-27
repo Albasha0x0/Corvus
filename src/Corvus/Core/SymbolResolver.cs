@@ -28,18 +28,14 @@ public sealed record NativeSymbol(string Image, string Export)
     public override string ToString() => $"{Image}!{Export}";
 }
 
-/// <summary>
-/// Resolves loosely written symbol strings to exact definitions. Accepted forms:
-///   Ns.Type | Ns.Outer+Inner | Ns.Outer/Inner | Ns.Outer.Inner | Type (short name) | List`1 | List&lt;T&gt;
-///   Ns.Type::Member | Ns.Type.Member | Ns.Type::Method(int, string) | Ns.Type::Method<T>(string) (generic arity; Method``1 too) | Ns.Type::.ctor | Ns.Type::ctor
-///   0x06001234 (metadata token; scope it with the assembly parameter when several are loaded)
-/// </summary>
+/// <summary>Resolves loosely written symbol strings to exact definitions.</summary>
+/// <remarks>
+/// Forms: Ns.Type, Ns.Outer+Inner, Ns.Outer/Inner, Ns.Outer.Inner, Type, List`1, List&lt;T&gt;; Ns.Type::Member, Ns.Type.Member,
+/// Ns.Type::Method(int, string), Ns.Type::Method&lt;T&gt;(string), Method``1, Ns.Type::.ctor, Ns.Type::ctor; 0x06001234 (scope a token with the assembly parameter when several are loaded).
+/// </remarks>
 public static partial class SymbolResolver
 {
-    /// <param name="referenced">
-    /// Also match types that are only referenced (not defined) by loaded code, read from their defining file.
-    /// Used by tools that search for usages, overrides or derived types.
-    /// </param>
+    /// <param name="referenced">Also match types loaded code only references, read from their defining file.</param>
     /// <param name="legacyLabels">The symbol is a label saved before labels carried generic arity: Method(int) also means Method<T>(int).</param>
     public static IReadOnlyList<ResolvedSymbol> Resolve(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false,
         bool legacyLabels = false)
@@ -171,7 +167,7 @@ public static partial class SymbolResolver
                  || string.Equals(Dotted(StripAllArity(t.FullName)), Dotted(q), StringComparison.OrdinalIgnoreCase),
             t => !HasNs(q) && (t.Name == q || Format.StripArity(t.Name) == q),
             t => !HasNs(q) && (string.Equals(t.Name, q, StringComparison.OrdinalIgnoreCase) || string.Equals(Format.StripArity(t.Name), q, StringComparison.OrdinalIgnoreCase)),
-            // "Outer.Inner" or "Outer/Inner" without namespace
+            // "Outer.Inner" or "Outer/Inner" without namespace.
             t => HasNs(q) && Dotted(StripAllArity(t.FullName)).EndsWith("." + Dotted(q), StringComparison.Ordinal),
         };
 
@@ -184,10 +180,7 @@ public static partial class SymbolResolver
         return [];
     }
 
-    /// <summary>
-    /// Types referenced but not defined in scope, resolved to their defining file; deduplicated by full name across
-    /// forwarding facades.
-    /// </summary>
+    /// <summary>Types referenced but not defined in scope, from their defining file, deduplicated across forwarding facades.</summary>
     private static IEnumerable<ResolvedSymbol> FindReferencedTypes(AssemblyWorkspace ws, IReadOnlyList<LoadedAssembly> scope, string typeQuery)
     {
         var q = NormalizeTypeName(typeQuery);
@@ -445,12 +438,8 @@ public static partial class SymbolResolver
     [System.Text.RegularExpressions.GeneratedRegex(@"\.so(\.\d+)+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex SoVersioned();
 
-    /// <summary>
-    /// A native export written as 'native:&lt;image&gt;!&lt;export&gt;' (image: a loaded image id, file name or path, or a DLL
-    /// name; export: a name, '#ordinal', or with a loaded image an address or function name) or as
-    /// '&lt;module&gt;.dll!&lt;export&gt;' (also .exe/.sys/.drv/.ocx/.cpl/.dylib/.so/.so.N). Null for .NET symbols: their '!' only appears in
-    /// generic parameters after '(' or '&lt;' ('Method(!!0)').
-    /// </summary>
+    /// <summary>A native export as 'native:&lt;image&gt;!&lt;export&gt;' or '&lt;module&gt;.dll!&lt;export&gt;'; null for .NET symbols.</summary>
+    /// <remarks>Export: a name, '#ordinal', or with a loaded image an address or function name; .NET uses '!' only after '(' or '&lt;'.</remarks>
     public static NativeSymbol? ParseNative(string? symbol)
     {
         if (string.IsNullOrWhiteSpace(symbol)) return null;

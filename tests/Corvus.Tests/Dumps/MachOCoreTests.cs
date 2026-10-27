@@ -7,12 +7,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A synthetic macOS process as a Mach-O core (ARM64 or x86_64): the executable "app" (__TEXT with leaf, work and
-/// main, __LINKEDIT with their symbols, LC_UUID), dyld_all_image_infos listing it, and a stack where main called work
-/// and work called leaf, held at leaf's first instruction (ARM64) or inside it (x86_64). Two threads; optionally
-/// lldb's "all image infos" and "process metadata" notes, and the image's own memory.
-/// </summary>
+/// <summary>A synthetic Mach-O core (ARM64 or x86_64) with a three-frame stack and optional lldb notes.</summary>
 internal static class SyntheticMachOCore
 {
     public const ulong Base = 0x1_0000_0000, Dyld = 0x2_0000_0000, Stack = 0x1_6F00_0000;

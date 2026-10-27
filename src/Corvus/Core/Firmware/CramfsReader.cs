@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// cramfs images in either byte order (at offset 0, or 512 after a boot sector): the directory tree from the inodes,
-/// file data from its zlib-compressed 4 KiB pages, including the direct and uncompressed block pointers of newer images.
-/// </summary>
+/// <summary>cramfs images in either byte order, at offset 0 or after a 512-byte boot sector.</summary>
 internal sealed class CramfsReader : IContainerReader
 {
     public string Kind => "cramfs";
@@ -51,7 +48,7 @@ internal sealed class CramfsReader : IContainerReader
             _tree = tree;
             var (at, big) = Find(src.ReadUpTo(0, 600)) ?? throw src.Malformed("no cramfs superblock");
             _big = big;
-            // offsets count from the start of the image, a 512-byte boot sector before the superblock included
+            // Offsets count from the image start, including a 512-byte boot sector before the superblock.
             _super = at;
             var sb = src.Read(at, 76);
             uint flags = U32(sb, 8);
@@ -67,7 +64,7 @@ internal sealed class CramfsReader : IContainerReader
         {
             int mode = U16(b, at);
             uint w1 = U32(b, at + 4), w2 = U32(b, at + 8);
-            // the bitfields pack from the low bits on little endian and from the high bits on big endian
+            // Bitfields pack from the low bits on little endian, from the high bits on big endian.
             int size = (int)(_big ? w1 >> 8 : w1 & 0xFFFFFF);
             int nameLength = (int)(_big ? w2 >> 26 : w2 & 0x3F) * 4;
             long offset = (long)(_big ? w2 & 0x3FFFFFF : w2 >> 6) * 4;
@@ -127,7 +124,7 @@ internal sealed class CramfsReader : IContainerReader
                 long end = ptr & 0x3FFFFFFF;
                 if (direct)
                 {
-                    // the block's own start; a compressed one begins with its length
+                    // The block's own start; a compressed one begins with its length.
                     long at = end << 2;
                     if (uncompressed) _src.Read(at, want).CopyTo(into);
                     else

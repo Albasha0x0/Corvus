@@ -2,18 +2,14 @@ using System.Diagnostics;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real-client checks (E9): tests/agents/run-tasks.ps1 asks each installed agent client (Claude Code, Codex, Gemini CLI)
-/// one known-answer question about the Notes sample through this build's server and grades the answer. Model calls cost
-/// tokens, so it runs only with CORVUS_CLIENT_CHECKS=1; a client that is not installed is skipped by the script.
-/// </summary>
+/// <summary>Each installed agent client answers a known question about the Notes sample through this build's server; runs only with CORVUS_CLIENT_CHECKS=1.</summary>
 public class ClientCheckTests
 {
     public const string Variable = "CORVUS_CLIENT_CHECKS";
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task EachInstalledClientAnswersTheCheckQuestion()
+    public async Task Each_installed_client_answers_the_check_question()
     {
         if (Environment.GetEnvironmentVariable(Variable) != "1") return; // opt-in: spends model tokens
         var root = DocsTests.RepoRoot();
@@ -28,7 +24,7 @@ public class ClientCheckTests
     }
 
     [Fact]
-    public void TasksAndClientsAreWellFormed()
+    public void Tasks_and_clients_are_well_formed()
     {
         var dir = Path.Combine(DocsTests.RepoRoot(), "tests", "agents");
         var tasks = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "tasks.json")))!["tasks"]!.AsArray();

@@ -2,13 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Native.NativeAot;
 
-/// <summary>
-/// Finds NativeAOT module headers in PE, ELF and Mach-O images: through the module list or symbols the image has, else a
-/// scan of the initialized non-executable sections for "RTR\0" at 4-byte alignment whose shape is a NativeAOT header
-/// (row size 2 pointers + 8, row type 1, 1–127 rows with distinct ids, starts and ends inside the image) and, when the
-/// image has relocations (PE base relocations, ELF RELATIVE, Mach-O rebases), one at every row start. Several headers
-/// (multi-module images) are all returned.
-/// </summary>
+/// <summary>Finds every NativeAOT module header in PE, ELF and Mach-O images, from the module list or symbols, else by scan.</summary>
 public static class NativeAotLocator
 {
     public const uint Signature = 0x00525452; // "RTR\0"
@@ -23,10 +17,7 @@ public static class NativeAotLocator
         return (int)Math.Min(size, Array.MaxLength);
     }
 
-    /// <summary>
-    /// Cheap signs of a NativeAOT image without reading its header: the sections the compiler names (.managed / hydrated in
-    /// PE, __managedcode / __modules / .hydrated in ELF and Mach-O) or the DotNetRuntimeDebugHeader export or symbol.
-    /// </summary>
+    /// <summary>Whether section names or the DotNetRuntimeDebugHeader symbol mark a NativeAOT image, without reading its header.</summary>
     public static bool HasMarkers(INativeImage image) =>
         image.Sections.Any(s => SectionName(s.Name) is ".managed" or "hydrated" or ".hydrated" or "__managedcode" or "__modules")
         || DebugHeaderRva(image) != null;
@@ -38,10 +29,7 @@ public static class NativeAotLocator
     private static bool IsSymbol(string? name, string plain) =>
         name != null && (name == plain || name.Length == plain.Length + 1 && name[0] == '_' && name.AsSpan(1).SequenceEqual(plain));
 
-    /// <summary>
-    /// The module headers: those the image lists (the __modules section of ELF and Mach-O images, a pointer per module, or
-    /// __ReadyToRunHeader symbols), else those a scan finds.
-    /// </summary>
+    /// <summary>The module headers the image lists (__modules or __ReadyToRunHeader), else those a scan finds.</summary>
     public static IReadOnlyList<NativeAotHeader> Find(INativeImage image, CancellationToken ct = default)
     {
         var listed = Listed(image);
@@ -129,10 +117,7 @@ public static class NativeAotLocator
         return new NativeAotHeader(rva, major, minor, flags, sections, relocated);
     }
 
-    /// <summary>
-    /// The major version of the DotNetRuntimeDebugHeader export or symbol ("DNDH" cookie, u16 major), or null when the
-    /// image has none.
-    /// </summary>
+    /// <summary>The DotNetRuntimeDebugHeader major version; null when the image has none.</summary>
     public static int? DebugHeaderMajor(INativeImage image)
     {
         if (DebugHeaderRva(image) is not { } rva) return null;

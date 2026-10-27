@@ -9,10 +9,7 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// The record of one tools/call (S14.1): an information line on stderr with the tool, outcome, milliseconds, estimated
-/// tokens of the text and structured parts and the engine used, never argument values; and the --trace line when tracing.
-/// </summary>
+/// <summary>Logs one tools/call to stderr (tool, outcome, milliseconds, estimated tokens, engine; never argument values) and to the trace when tracing.</summary>
 public sealed class CallLog
 {
     public const string Template = "call tool={Tool} outcome={Outcome} ms={Ms} textTokens={TextTokens} structuredTokens={StructuredTokens} engine={Engine}";

@@ -6,12 +6,7 @@ using Corvus.Core.Installers;
 
 namespace Corvus.Core.Python;
 
-/// <summary>
-/// Frozen Python programs read as containers: PyInstaller (<see cref="PyInstallerArchive"/>), py2exe (the PYTHONSCRIPT
-/// resource and the library zip in the executable or beside it), cx_Freeze (the launcher and lib/library.zip beside it),
-/// Nuitka (the onefile payload; standalone code is compiled to native code) and a library zip of .pyc files on its own.
-/// Files beside the executable are read only when its location on disk is known.
-/// </summary>
+/// <summary>PyInstaller, py2exe, cx_Freeze and Nuitka programs as containers; files beside the executable need its location.</summary>
 public static class FrozenPython
 {
     private const int MaxScanned = 20_000;
@@ -55,13 +50,9 @@ public static class FrozenPython
     public static ContainerContents? Open(byte[] data, string name, string? location, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
         Read(data, name, location, allFiles, limits, ct)?.ToContainer(allFiles, limits, ct);
 
-    // ---- py2exe ----
+    // py2exe.
 
-    /// <summary>
-    /// py2exe: the PYTHONSCRIPT resource (0x78563412, optimize, unbuffered, the code's length, the library zip's name, then
-    /// a marshalled list of code objects: the boot scripts and the program's script last); the library zip is the one named,
-    /// beside the executable, or appended to it when the name is empty.
-    /// </summary>
+    /// <summary>A py2exe program: the PYTHONSCRIPT resource's scripts and the named, adjacent or appended library zip.</summary>
     private static FrozenApp? Py2exe(byte[] data, PeImage pe, string name, string? location, AnalysisLimits limits, CancellationToken ct)
     {
         var read = InstallerPe.Of(data);
@@ -76,7 +67,7 @@ public static class FrozenPython
         var app = new FrozenApp("py2exe", "py2exe executable");
         app.Notes.Add($"PYTHONSCRIPT resource: {codeLength:N0} bytes of code, optimize level {BinaryPrimitives.ReadInt32LittleEndian(script[4..])}.");
 
-        // the library zip: appended to the executable, or the file named beside it
+        // The library zip: appended to the executable, or the file named beside it.
         byte[]? zip = null;
         string zipPath = zipName;
         if (zipName.Length == 0 || zipName.Equals(Path.GetFileName(location ?? name), StringComparison.OrdinalIgnoreCase))
@@ -92,7 +83,7 @@ public static class FrozenPython
         Beside(app, location);
         if (magic != null && PyVersion.FromMagic(magic) is { } v) Version(app, v, $".pyc magic {PyVersion.Magic(magic)}");
 
-        // the scripts: the list's code objects, each saved as its own .pyc
+        // The scripts: the list's code objects, each saved as its own .pyc.
         (int, int)[] versions = app.Version is { } known ? [known] : [.. Enumerable.Range(0, 15).Select(m => (3, 14 - m)), (2, 7)];
         foreach (var version in versions)
         {
@@ -101,7 +92,7 @@ public static class FrozenPython
             var pycMagic = magic ?? PyVersion.MagicOf(version)!;
             foreach (var (s, i) in scripts.Cast<PyCode>().Select((s, i) => (s, i)))
             {
-                // "<bootstrap2>", "<boot hacks>": names py2exe gives its own code, made file names
+                // "<bootstrap2>", "<boot hacks>": names py2exe gives its own code, made file names.
                 var stem = Regex.Replace(Path.GetFileNameWithoutExtension(s.Filename.Replace('\\', '/').Split('/')[^1]), "[^A-Za-z0-9_.-]+", "_").Trim('_');
                 bool main = i == scripts.Length - 1;
                 if (main) app.EntryScripts.Add(stem);
@@ -115,7 +106,7 @@ public static class FrozenPython
         return app;
     }
 
-    // ---- cx_Freeze ----
+    // cx_Freeze.
 
     /// <summary>cx_Freeze: a launcher naming cx_Freeze, its modules in lib/library.zip (6+; lib/library.dat names it) or library.zip beside it, or a zip appended to it.</summary>
     private static FrozenApp CxFreeze(byte[] data, PeImage? pe, string name, string? location, AnalysisLimits limits, CancellationToken ct)
@@ -143,7 +134,7 @@ public static class FrozenPython
         if (found == null) app.Notes.Add($"The modules sit in lib/library.zip beside the launcher{(location == null ? "; it is read when the launcher is opened from its folder" : " and it was not found")}.");
         Beside(app, location);
         if (magic != null && PyVersion.FromMagic(magic) is { } v) Version(app, v, $".pyc magic {PyVersion.Magic(magic)}");
-        // __main__<name>__ runs the program's script (one per executable: the launcher's own name first); __startup__ and __init__<name> start it
+        // __main__<name>__ runs the program's script, the launcher's own name first; __startup__ and __init__<name> start it.
         var own = "__main__" + Regex.Replace(Path.GetFileNameWithoutExtension(location ?? name).ToLowerInvariant(), "[^a-z0-9]", "_");
         var top = (found ?? "") + "_extracted/";
         for (int i = 0; i < app.Entries.Count; i++)
@@ -162,7 +153,7 @@ public static class FrozenPython
         return app;
     }
 
-    // ---- Nuitka ----
+    // Nuitka.
 
     private static readonly byte[] Zstd = [0x28, 0xB5, 0x2F, 0xFD];
 
@@ -209,11 +200,7 @@ public static class FrozenPython
         return app;
     }
 
-    /// <summary>
-    /// Each payload file: its name (UTF-16 on Windows, else UTF-8, zero-terminated), on newer builds a flags byte, the size
-    /// (8 bytes), on builds with checksums a CRC-32, then the data; an empty name ends the list. The layout is fixed from the
-    /// first file, the main binary, whose data must start with an executable header.
-    /// </summary>
+    /// <summary>The Nuitka onefile payload files, layout fixed by the first file, which must start with an executable header.</summary>
     private static void NuitkaFiles(FrozenApp app, Stream s, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         var probe = new byte[4096];
@@ -247,7 +234,8 @@ public static class FrozenPython
             if (size < 0) throw new IOException($"negative size for {fileName}");
             var path = fileName.Replace('\\', '/');
             var role = i == 0 ? "main binary (compiled program)" : FrozenApp.BinaryRole(path);
-            if (PyVersion.FromLibraryName(path) is { } lib) Version(app, lib, Path.GetFileName(path), replace: true); // the runtime outranks the paths in the main binary
+            // The runtime outranks the paths in the main binary.
+            if (PyVersion.FromLibraryName(path) is { } lib) Version(app, lib, Path.GetFileName(path), replace: true);
             // The dependencies view reads names and versions from the metadata and the runtime, so both are kept.
             bool metadata = FrozenApp.IsPackageMetadata(path) && size <= MaxMetadata || role == FrozenApp.Runtime;
             bool keep = size <= limits.MaxItemBytes && total + size <= limits.MaxTotalBytes && (i == 0 || allFiles || Containers.IsInteresting(path) || metadata);
@@ -271,9 +259,7 @@ public static class FrozenPython
     /// <summary>A distribution's metadata file is kept up to this size.</summary>
     private const int MaxMetadata = 1 << 20;
 
-    // Nuitka's constants blob is a chain of sections, one per compiled module: its name, a zero byte, the data's
-    // length (4 bytes, little-endian), then the data, which ends with '.' and holds the string "<module NAME>"; a
-    // module-level "__version__ = '1.2'" keeps the value just before the name.
+    // Nuitka's constants hold one section per module with "<module NAME>"; a __version__ value sits just before the name.
     private static readonly Regex NuitkaModule = new(@"u<module ([A-Za-z_][\w.]{0,200})>\x00", RegexOptions.CultureInvariant);
     private static readonly Regex NuitkaVersion = new(@"u(\d{1,9}(?:\.\d{1,9}){0,5}(?:[-_.]?(?:a|b|rc|c|post|dev)\d{0,9}){0,3}(?:\+[A-Za-z0-9.]{1,64})?)\x00a__version__\x00",
         RegexOptions.CultureInvariant);
@@ -390,12 +376,9 @@ public static class FrozenPython
         return app;
     }
 
-    // ---- shared ----
+    // Shared helpers.
 
-    /// <summary>
-    /// A zip of .pyc modules on its own (a cx_Freeze or py2exe library, an embeddable distribution's pythonXY.zip), or null
-    /// when fewer than half of its files are compiled modules.
-    /// </summary>
+    /// <summary>A standalone zip of .pyc modules; null when fewer than half of its files are compiled modules.</summary>
     public static ContainerContents? OpenLibraryZip(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
         ReadLibraryZip(data, limits, ct)?.ToContainer(allFiles, limits, ct);
 
@@ -421,7 +404,7 @@ public static class FrozenPython
     private static byte[]? Library(FrozenApp app, byte[] data, string prefix, AnalysisLimits limits, CancellationToken ct)
     {
         ZipArchive zip;
-        // left open: the entries' loaders read from it
+        // Left open: the entries' loaders read from it.
         try { zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read); _ = zip.Entries; }
         catch (InvalidDataException ex) { app.Notes.Add($"{prefix.TrimEnd('/')}: unreadable library zip ({ex.Message})."); return null; }
         byte[]? magic = null;
@@ -462,10 +445,7 @@ public static class FrozenPython
         catch (InvalidDataException) { return null; }
     }
 
-    /// <summary>
-    /// The runtime library, native modules and distribution metadata beside the executable, and the .pyc modules under its
-    /// lib folder, listed as files on disk (not extracted: they are already files).
-    /// </summary>
+    /// <summary>Lists the runtime, native modules, metadata and lib/ .pyc files beside the executable, not extracted.</summary>
     private static FrozenApp Beside(FrozenApp app, string? location)
     {
         if (location == null || Path.GetDirectoryName(Path.GetFullPath(location)) is not { } dir || !Directory.Exists(dir)) return app;

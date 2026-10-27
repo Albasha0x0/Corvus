@@ -31,7 +31,7 @@ public sealed class GoRealTests(ITestOutputHelper output)
             files++;
             var go = GoFunctionTable.Of(image)!;
             int own = go.Functions.Count(f => f.OwnSize);
-            // symbol sizes, where the linker kept its symbol table, are the code without alignment padding
+            // Symbol sizes, where the linker kept its symbol table, are the code without alignment padding.
             var symbols = image.Symbols.Where(s => s.Kind == ImageSymbolKind.Function && s.Size > 0).GroupBy(s => s.Rva).ToDictionary(g => g.Key, g => g.First().Size);
             int compared = 0, agree = 0, gapAgree = 0;
             for (int i = 0; i < go.Functions.Count; i++)
@@ -56,7 +56,7 @@ public sealed class GoRealTests(ITestOutputHelper output)
         {
             var go = GoFunctionTable.Of(image)!;
             var index = NativeCodeIndex.Build(image);
-            // walks may end short (padding, literal pools, code after noreturn calls), never past
+            // Walks may end short (padding, literal pools, code after noreturn calls), never past.
             int same = go.Functions.Count(g => g.OwnSize && index.FunctionByStart(g.Rva) is { } f && f.End == g.Rva + g.Size);
             output.WriteLine($"{name}: {same} of {go.Functions.Count} walks end where the table does; {string.Join("; ", index.Issues)}");
             int over = index.Issues.Count == 0 ? 0 : int.Parse(index.Issues.Single().Split(' ')[3]);
@@ -118,12 +118,12 @@ public sealed class GoRealTests(ITestOutputHelper output)
                 output.WriteLine($"{name}: no relocations; {Pointers(index).Count} unconfirmed pointer references");
                 continue;
             }
-            // with the relocations hidden, every pointer reference found must be a relocated slot
+            // With the relocations hidden, every pointer reference found must be a relocated slot.
             var ctx = new CodeContext(image, new ImageCode(image), new CodeIndexOptions());
             var relocated = ctx.Relocations.Where(r => image.SectionAt(r) is { IsExecutable: false } && ctx.TryReadPointer(r, out uint t) && ctx.Code.IsCode(t)).ToHashSet();
             var found = Pointers(NativeCodeIndex.Build(new Unrelocated(image)));
             int hit = found.Count(x => relocated.Contains(x.From));
-            // the Go linker leaves itab slots of dead methods unrebased: real pointers to runtime.unreachableMethod
+            // The Go linker leaves itab slots of dead methods unrebased: real pointers to runtime.unreachableMethod.
             var unreachable = GoFunctionTable.Of(image)!.Functions.Where(f => f.Name == "runtime.unreachableMethod").Select(f => f.Rva).ToHashSet();
             int dead = found.Count(x => !relocated.Contains(x.From) && unreachable.Contains(x.To));
             output.WriteLine($"{name}: relocations hidden; {found.Count} unconfirmed pointer references, {hit} relocated, {dead} unrebased dead methods, " +

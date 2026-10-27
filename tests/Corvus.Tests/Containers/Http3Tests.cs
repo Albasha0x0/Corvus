@@ -7,11 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// HTTP/3 in captures. http3.pcap, http3.keys and the qlog files are built by Http3Fixtures/build.py with aioquic 1.2.0:
-/// one connection (AES-256-GCM), five requests (one an upload, one gzip-encoded, one a 404), a key update after the second;
-/// http3-v2-chacha.* repeats it over QUIC version 2 with ChaCha20-Poly1305.
-/// </summary>
+/// <summary>HTTP/3 in captures built by Http3Fixtures/build.py (aioquic 1.2.0), over QUIC versions 1 and 2.</summary>
 public sealed class Http3Tests(ITestOutputHelper output)
 {
     private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Containers", "Http3Fixtures", name);

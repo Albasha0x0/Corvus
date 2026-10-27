@@ -5,12 +5,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Pe;
 
-/// <summary>
-/// A PE32 / PE32+ image parsed from an in-memory snapshot of the file. Construction throws only when the file is not a
-/// PE at all (no MZ or PE signature); anything else that cannot be read is reported in <see cref="Issues"/> and the rest
-/// is still returned. Headers and sections are read on construction, directories on first use; every area is bounded
-/// by <see cref="PeLimits"/>. Thread-safe for reading.
-/// </summary>
+/// <summary>A PE32/PE32+ image; throws only without MZ or PE signature, reports other damage in <see cref="Issues"/>; directories parse on first use, each bounded by <see cref="PeLimits"/>; thread-safe reads.</summary>
 public sealed partial class PeFile : INativeImage
 {
     private const uint PageSize = 0x1000;

@@ -3,11 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Masks secrets in recorded tool arguments: values of parameters named like secrets, and inside any text: NAME=value
-/// pairs whose name says password, secret, token or key, Bearer / Basic credentials, passwords in URLs, and token shapes
-/// (GitHub, AWS access keys, Slack, JWT, sk- API keys). Best effort: a secret in no recognizable form stays.
-/// </summary>
+/// <summary>Masks secrets in recorded tool arguments: secret-named parameters, NAME=value pairs, credentials, URL passwords and known token shapes.</summary>
+// Best effort: a secret in no recognizable form stays.
 public static partial class Redaction
 {
     public const string Mask = "[redacted]";

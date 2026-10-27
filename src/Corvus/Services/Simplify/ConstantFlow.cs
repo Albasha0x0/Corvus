@@ -3,28 +3,11 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// Constant propagation over one method body, through the stack and the locals and along the control flow (conditional
-/// constant propagation: a branch whose condition is known only passes its state on to the successor it takes). It
-/// finds the conditional branches and switches whose operands are the same on every run, however far apart the
-/// instructions computing them are: <c>int k = 7; ...; if (k * k % 4 == 3)</c>.
-/// <para>
-/// Values are the evaluator's (int, long, native int, float, double, string, null); arithmetic, comparisons and
-/// conversions use the evaluator's own semantics (<see cref="Numeric"/>), and calls with constant arguments and reads of
-/// readonly static fields are evaluated by <see cref="IlEvaluator"/>. Anything else is unknown. Locals whose address is
-/// taken (other than to read them right away, <c>ldloca; ldind</c>), that a filter writes, or that a finally or fault
-/// handler writes and other code uses, are always unknown; a handler starts with the join of the states over its try.
-/// Arguments are unknown. Enum locals hold their underlying integers.
-/// </para>
-/// <para>
-/// <see cref="Dispatch"/> analyzes a flattened switch dispatcher per state: every way into it is run through it, and the
-/// case it selects is analyzed in a context of its own (the values the dispatcher leaves in its locals), so that what a
-/// case computes from the state is known per case.
-/// </para>
-/// </summary>
+/// <summary>Conditional constant propagation over one body: finds branches and switches with the same outcome on every run.</summary>
+/// <remarks>Arguments are unknown, and so are locals whose address escapes or that a filter writes.</remarks>
 internal sealed class ConstantFlow
 {
-    /// <summary>A value that is not the same on every run (or not modelled).</summary>
+    /// <summary>A value that differs between runs or is not modelled.</summary>
     public static readonly object Unknown = new();
 
     /// <summary>Contexts (dispatcher states) explored at most.</summary>
@@ -38,27 +21,21 @@ internal sealed class ConstantFlow
     private readonly IlEvaluator _evaluator;
     private readonly bool _hasReturnValue;
     private readonly IList<Instruction> _code;
-    private readonly bool[] _untracked; // per local
+    private readonly bool[] _untracked;
     private readonly TypeSig?[] _localTypes;
     private readonly Dictionary<(Instruction, string), object?> _calls = new();
     private readonly Dictionary<IField, object?> _fields = new();
 
-    /// <summary>Calls and static field reads whose value was evaluated to a constant (the code may drop them with their result).</summary>
+    /// <summary>Calls and static field reads evaluated to a constant.</summary>
     public HashSet<Instruction> Evaluated { get; } = new();
 
-    /// <summary>
-    /// After <see cref="Decisions"/>: the reads of locals through their address (the ldind of <c>ldloca; ldind</c>, which
-    /// code transformers use to hide constants) that read the same value on every run.
-    /// </summary>
+    /// <summary>After <see cref="Decisions"/>: the ldind of each <c>ldloca; ldind</c> that reads the same value on every run.</summary>
     public Dictionary<Instruction, object?> AddressReads { get; } = new();
 
     /// <summary>The address of a local, pushed by an <c>ldloca</c> that an <c>ldind</c> reads right away.</summary>
     private sealed record LocalAddress(int Index);
 
-    /// <summary>
-    /// A non-null object read from static state the evaluator models (a singleton, say): the loads that reach it,
-    /// <c>ldsfld S</c> then <c>ldfld F</c>.... Reading a number or string field through it evaluates the whole path.
-    /// </summary>
+    /// <summary>A non-null object the evaluator models, as its loads <c>ldsfld S; ldfld F...</c>.</summary>
     private sealed class FieldPath(IReadOnlyList<Instruction> loads)
     {
         public IReadOnlyList<Instruction> Loads { get; } = loads;
@@ -81,9 +58,7 @@ internal sealed class ConstantFlow
         _localTypes = variables.Select(v => ValueType(v.Type)).ToArray();
         for (int i = 0; i < variables.Count; i++)
             _untracked[i] = Initial(_localTypes[i], true) == Unknown;
-        // A local a finally or fault handler writes changes on the way out of its try, which a leave's flow does not show:
-        // it is tracked only when that value is never read outside the handler (nothing outside it uses the local, or it
-        // is written again before any read after every way out of the try and at every handler start).
+        // A leave's flow does not show a finally or fault handler's stores: such a local is tracked only when no read sees them.
         var finallyOf = new int?[variables.Count];
         var usedOutside = new bool[variables.Count];
         var writers = new HashSet<int>?[variables.Count];
@@ -114,10 +89,7 @@ internal sealed class ConstantFlow
         }
     }
 
-    /// <summary>
-    /// Whether a value the finally or fault handler h leaves in local l can be read after it: l is read before being
-    /// written again from a target of a leave out of h's try, or from the start of any handler (exception paths).
-    /// </summary>
+    /// <summary>Whether local l, as handler h leaves it, is read before a store from a leave target or any handler start.</summary>
     private bool Escapes(int h, int l)
     {
         var variables = _body.Variables;
@@ -140,8 +112,9 @@ internal sealed class ConstantFlow
             if (i < 0 || i >= _code.Count || !seen.Add(i)) continue;
             var ins = _code[i];
             bool local = (ins.IsLdloc() || ins.IsStloc() || ins.OpCode.Code is Code.Ldloca or Code.Ldloca_S) && ins.GetLocal(variables)?.Index == l;
-            if (local && !ins.IsStloc()) return true; // read (or address taken) before a write
-            if (local) continue; // written again: the handler's value is gone on this path
+            // A read or address take before a store sees the handler's value; a store ends this path.
+            if (local && !ins.IsStloc()) return true;
+            if (local) continue;
             foreach (var t in BodyGraph.BranchTargets(ins)) work.Push(_graph.IndexOf(t));
             if (BodyGraph.FallsThrough(ins) && ins.OpCode.FlowControl != FlowControl.Branch) work.Push(i + 1);
         }
@@ -206,31 +179,24 @@ internal sealed class ConstantFlow
         public object?[] Stack { get; } = stack;
     }
 
-    /// <summary>The analysis stopped: the dispatcher cannot be analyzed per state (the message says why).</summary>
+    /// <summary>The dispatcher cannot be analyzed per state; the message says why.</summary>
     private sealed class Stop(string why) : Exception(why);
 
-    /// <summary>
-    /// A switch dispatcher to analyze per state: its code (<see cref="Members"/>: the straight-line code before the
-    /// switch at <see cref="Switch"/>, and tails such as <c>stloc state; br dispatcher</c> that only lead into it), and
-    /// its locals (the state and the locals the dispatcher writes).
-    /// </summary>
+    /// <summary>A switch dispatcher: its code (including <c>stloc state; br dispatcher</c> tails) and the locals it writes.</summary>
     public sealed record Dispatcher(int Switch, IReadOnlySet<int> Members, IReadOnlySet<int> Locals);
 
     /// <summary>What <see cref="Dispatch"/> found; <see cref="Failure"/> is set when the dispatcher cannot be removed.</summary>
     public sealed class DispatchResult
     {
         public string? Failure { get; set; }
-        /// <summary>Each way into the dispatcher (from: -1 for the method entry; to: the instruction entered) and the case it selects on every run.</summary>
+        /// <summary>Each way into the dispatcher (From -1: method entry) and the case it always selects.</summary>
         public Dictionary<(int From, int To), Instruction> Edges { get; } = new();
-        /// <summary>Reads of the dispatcher's locals outside it (the ldloc, or the ldind of ldloca; ldind), and the value they read on every run.</summary>
+        /// <summary>Reads of the dispatcher's locals outside it and the value each always reads.</summary>
         public Dictionary<int, object?> Reads { get; } = new();
         public int States { get; set; }
     }
 
-    /// <summary>
-    /// Runs the analysis. Returns the reachable conditional branches and switches whose outcome is known, with the
-    /// instruction they continue at (the branch target, or the next instruction when they fall through).
-    /// </summary>
+    /// <summary>Returns the reachable branches and switches with a known outcome and the instruction each continues at.</summary>
     public List<(Instruction Branch, Instruction Next)> Decisions(MethodMeter? meter)
     {
         var run = new Run(this, null, meter);
@@ -264,8 +230,7 @@ internal sealed class ConstantFlow
             }
             result.Edges[edge] = targets.First();
         }
-        // Bypassing the dispatcher skips only its own stores: a read that none of them reaches (another dispatcher over the
-        // same state, which stores it first, say) still reads what it read before, so only known values are replaced.
+        // Bypassing the dispatcher skips only its own stores, so a read none of them reaches keeps its value.
         var reached = ReachedByStores(dispatcher.Members);
         foreach (var (index, value) in run.Reads)
         {
@@ -291,11 +256,7 @@ internal sealed class ConstantFlow
         return null;
     }
 
-    /// <summary>
-    /// The reads (index, local) that a store among <paramref name="members"/> reaches: some path from the store gets
-    /// there without storing the local again. Paths follow branches, leaves, endfinally to every leave target, and an
-    /// edge from each instruction of a protected region to its handler.
-    /// </summary>
+    /// <summary>The reads (index, local) a store among <paramref name="members"/> reaches, including exception edges.</summary>
     private HashSet<(int, int)> ReachedByStores(IReadOnlySet<int> members)
     {
         var variables = _body.Variables;
@@ -391,10 +352,7 @@ internal sealed class ConstantFlow
 
         private List<int>?[] _handlersOf = [];
 
-        /// <summary>
-        /// An exception at code[i] (or a leave from its try, for a finally) enters the handlers of the trys containing it
-        /// with the locals as they are before code[i]: a handler starts with the join of those states over its try.
-        /// </summary>
+        /// <summary>Flows the locals before code[i] into the handlers of its trys; a handler joins the states over its try.</summary>
         private void Throwing(int i, object?[] locals, int context)
         {
             foreach (int h in _handlersOf[i] ?? [])
@@ -412,7 +370,8 @@ internal sealed class ConstantFlow
             var state = _entry[(start, context)];
             var locals = (object?[])state.Locals.Clone();
             var stack = state.Stack.ToList();
-            bool changed = true; // the locals changed since the handlers last saw them
+            // The locals changed since the handlers last saw them.
+            bool changed = true;
             for (int i = start; i < _n; i++)
             {
                 if (i > start && _leader[i])
@@ -433,7 +392,7 @@ internal sealed class ConstantFlow
                 switch (ins.OpCode.FlowControl)
                 {
                     case FlowControl.Cond_Branch:
-                        // The last visit sees the final (most general) state of its context: it decides.
+                        // The last visit sees the most general state of its context, so it decides.
                         _decisions[(ins, context)] = decided;
                         if (decided != null)
                         {
@@ -456,7 +415,7 @@ internal sealed class ConstantFlow
             }
         }
 
-        /// <summary>The dispatcher local code[i] reads (an ldloc, or the ldind of ldloca; ldind) outside the dispatcher, or -1.</summary>
+        /// <summary>The dispatcher local code[i] reads outside the dispatcher, or -1.</summary>
         private int DispatcherRead(int i, List<object?> stack)
         {
             if (dispatcher!.Members.Contains(i)) return -1;
@@ -495,7 +454,7 @@ internal sealed class ConstantFlow
             if (_queued.Add(key)) _work.Push(key);
         }
 
-        /// <summary>Runs the dispatcher from code[to] for one way into it, and goes on at the case it selects, in that case's context.</summary>
+        /// <summary>Runs the dispatcher from code[to] and continues at the selected case in that case's context.</summary>
         private void Dispatch(int from, int to, object?[] incoming, List<object?> incomingStack)
         {
             string Where(int i) => flow.Where(i);
@@ -503,8 +462,7 @@ internal sealed class ConstantFlow
             var locals = (object?[])incoming.Clone();
             var stack = incomingStack.ToList();
             var code = flow._code;
-            // Through the dispatcher to the case the state selects; a case that only transitions (a tail of the
-            // dispatcher) is run through as well.
+            // A case that only transitions is a dispatcher tail and is run through too.
             int i = to, t;
             for (int guard = 0; ; guard++)
             {
@@ -533,7 +491,7 @@ internal sealed class ConstantFlow
             if (!EdgeTargets.TryGetValue(edge, out var targets)) EdgeTargets[edge] = targets = new HashSet<Instruction>();
             targets.Add(code[t]);
 
-            // The case's context: what the dispatcher leaves in its locals, and the case.
+            // A context is the case plus the values the dispatcher leaves in its locals.
             var name = t + ":" + string.Join(",", dispatcher.Locals.Order().Select(l => Key(locals[l])));
             if (!_contexts.TryGetValue(name, out int context))
             {
@@ -543,8 +501,6 @@ internal sealed class ConstantFlow
             Flow(dispatcher.Switch, t, locals, stack, context);
         }
     }
-
-
 
     /// <summary>Joins <paramref name="incoming"/> into <paramref name="into"/>; true when <paramref name="into"/> changed.</summary>
     private static bool Join(object?[] into, IReadOnlyList<object?> incoming)
@@ -570,10 +526,7 @@ internal sealed class ConstantFlow
 
     private static bool IsConstant(object? v) => v != Unknown;
 
-    /// <summary>
-    /// Applies one instruction to the state. For a conditional branch or switch, returns the instruction execution
-    /// continues at when its operands are known (null otherwise).
-    /// </summary>
+    /// <summary>Applies one instruction; for a branch or switch with known operands, returns where execution continues, else null.</summary>
     private Instruction? Step(Instruction ins, object?[] locals, List<object?> stack)
     {
         object? Pop()
@@ -726,7 +679,6 @@ internal sealed class ConstantFlow
             }
         }
 
-        // Anything else: its results are unknown.
         {
             ins.CalculateStackUsage(_hasReturnValue, out int pushes, out int pops);
             if (pops < 0) stack.Clear();
@@ -742,10 +694,7 @@ internal sealed class ConstantFlow
         return i + 1 < _code.Count ? _code[i + 1] : null;
     }
 
-    /// <summary>
-    /// Whether two known operands compare the same way on every run: numbers, or references of which at least one is
-    /// null (two strings may or may not be the same object, depending on interning).
-    /// </summary>
+    /// <summary>Whether two operands always compare the same: numbers, or references with one null (interning varies).</summary>
     private static bool Comparable(object? a, object? b) =>
         IsConstant(a) && IsConstant(b) && (Numeric.IsNumber(a) && Numeric.IsNumber(b) || (a is null or string or FieldPath && b is null or string or FieldPath && (a == null || b == null)));
 
@@ -791,10 +740,7 @@ internal sealed class ConstantFlow
         return value;
     }
 
-    /// <summary>
-    /// What a path of loads reads, as the evaluator computes it: a number or string, null, or (for an object the evaluator
-    /// models) the path itself; unknown when the evaluator cannot read it.
-    /// </summary>
+    /// <summary>What a path of loads reads: a number, string or null, the path for a modelled object, else unknown.</summary>
     private object? PathValue(FieldPath path)
     {
         var key = path.Key;
@@ -820,7 +766,7 @@ internal sealed class ConstantFlow
         return value;
     }
 
-    /// <summary>The result of a call whose arguments are all known, evaluated by the interpreter (cached per call site and arguments).</summary>
+    /// <summary>The evaluated result of a call with known arguments, cached per call site and arguments; else unknown.</summary>
     private object? CallValue(Instruction ins, IMethod method, object?[] args)
     {
         if (!args.All(IsConstant) || !Modelled(Generics.ReturnType(method))) return Unknown;

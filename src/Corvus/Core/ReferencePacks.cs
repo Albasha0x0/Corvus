@@ -5,11 +5,8 @@ using System.Text.Json;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Downloads a shared framework's reference pack (e.g. Microsoft.NETCore.App.Ref 6.0.x) from nuget.org when neither the
-/// runtime nor the pack is installed, so code targeting that version resolves against its exact API.
-/// Cached under the local application data folder; disabled by CORVUS_OFFLINE=1.
-/// </summary>
+/// <summary>Downloads a missing framework reference pack from nuget.org into local app data; CORVUS_OFFLINE=1 disables it.</summary>
+/// <remarks>Used when neither the runtime nor the pack is installed, so code resolves against that version's exact API.</remarks>
 internal static class ReferencePacks
 {
     private const string FeedBase = "https://api.nuget.org/v3-flatcontainer/";
@@ -63,8 +60,7 @@ internal static class ReferencePacks
             var name = entry.FullName.Replace('\\', '/');
             if (!(name.StartsWith("ref/", StringComparison.OrdinalIgnoreCase) || name.StartsWith("data/", StringComparison.OrdinalIgnoreCase))
                 || name.EndsWith('/') || name.Contains("..", StringComparison.Ordinal)) continue;
-            // The documentation files are 82% of a pack's bytes (6.0.36: 23.6 of 28.6 MB) and nothing reads them; calls
-            // wait on this extraction.
+            // Documentation files are 82% of a pack (6.0.36: 23.6 of 28.6 MB), unread, and calls wait on extraction.
             if (name.StartsWith("ref/", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue;
             var path = Path.Combine(folder, name);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -82,12 +78,8 @@ internal static class ReferencePacks
         return dir;
     }
 
-    /// <summary>
-    /// Downloads the newest release of the pack for <paramref name="major"/> through <paramref name="http"/> and extracts it
-    /// under <paramref name="root"/> once its SHA-512 matches nuget.org's catalog entry. Dir is null when no pack is
-    /// available; Problem then names why (download failed, hash missing or mismatched), or is null when nuget.org lists
-    /// no release of that major.
-    /// </summary>
+    /// <summary>Downloads and extracts the newest pack for <paramref name="major"/> once its SHA-512 matches; null Dir with the problem otherwise.</summary>
+/// <remarks>Problem is null too when nuget.org lists no release of that major.</remarks>
     internal static (string? Dir, string? Problem) Download(HttpClient http, string packId, int major, string root)
     {
         var id = packId.ToLowerInvariant();
@@ -118,7 +110,8 @@ internal static class ReferencePacks
                 Extract(zip, staging);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             try { SafeFile.WhenReleased(() => Directory.Move(staging, target), lost: () => Directory.Exists(target)); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && Directory.Exists(target)) { Directory.Delete(staging, recursive: true); } // another process finished first
+            // Another process finished first.
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && Directory.Exists(target)) { Directory.Delete(staging, recursive: true); }
             var dir = Path.Combine(target, "ref", $"net{major}.0");
             return Directory.Exists(dir) ? (dir, null) : (null, null);
         }
@@ -131,10 +124,7 @@ internal static class ReferencePacks
 
     private static string Refused(string id, string version, string reason) => $"reference pack {id} {version} refused: {reason}";
 
-    /// <summary>
-    /// The SHA-512 nuget.org's catalog records for the package (registration leaf, then its catalog entry); null when the
-    /// entry names no SHA-512 hash or lies outside nuget.org.
-    /// </summary>
+    /// <summary>The package SHA-512 from nuget.org's catalog; null when it names none or lies outside nuget.org.</summary>
     private static byte[]? PackageHash(HttpClient http, string id, string version, CancellationToken ct)
     {
         using var leaf = JsonDocument.Parse(http.GetStringAsync($"{RegistrationBase}{id}/{version.ToLowerInvariant()}.json", ct).GetAwaiter().GetResult());

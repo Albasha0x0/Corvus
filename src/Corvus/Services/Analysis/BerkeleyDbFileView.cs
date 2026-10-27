@@ -3,18 +3,14 @@ using Corvus.Core.Databases;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=berkeleydb: a Berkeley DB file: access method, version, page size, byte order, the databases it holds with
-/// their kind and flags, a page of one database's records (table= names it; offset=, limit=), and when asked for, the
-/// records deleted items, consumed queue records, free space and pages no tree reaches still hold.
-/// </summary>
+/// <summary>view=berkeleydb: format, databases, a page of one database's records (table=, offset=, limit=), and on request the recoverable records.</summary>
 internal sealed class BerkeleyDbFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxRecovered = 200;
 
     public sealed record DatabaseEntry(string Name, string Kind, string Flags, long Keys, long Records);
 
-    /// <summary>A record: key (null in recno and queue databases) and value as text (\xNN for other bytes), its number in a recno or queue database, and for a recovered one its database (null when unknown) and where it was found.</summary>
+    /// <summary>A record as text (\xNN for other bytes); Key is null in recno and queue databases, Database null when unknown.</summary>
     public sealed record Entry(string? Key, string Value, long? Number = null, string? Database = null, string? Source = null);
 
     public sealed record Facts(string Format, int PageSize, string ByteOrder, long Pages, IReadOnlyList<DatabaseEntry> Databases, string Database,
@@ -61,7 +57,7 @@ internal sealed class BerkeleyDbFileView : IFileSummaryView
             var notes = new List<string>(bdb.Notes.Distinct().Take(20));
             if (next != null) notes.Add($"offset={next} lists the next records of {(db!.Name == "" ? "the database" : db.Name)}");
             if (found > MaxRecovered) notes.Add($"recovered: the first {MaxRecovered}; more remain");
-            if (!asked) notes.Add("view=berkeleydb adds the records deleted items, consumed queue records, free space and unreachable pages hold");
+            if (!asked) notes.Add("view=berkeleydb also recovers deleted, consumed and unreachable records");
 
             string method = bdb.Magic switch { 0x053162 => "btree", 0x061561 => "hash", 0x042253 => "queue", _ => "heap" };
             string format = $"{method} version {bdb.Version}";
@@ -73,7 +69,7 @@ internal sealed class BerkeleyDbFileView : IFileSummaryView
                 (named ? $"; {dbs.Count} databases: {string.Join(", ", dbs.Take(8).Select(d => $"{d.Name} ({d.Kind})"))}{(dbs.Count > 8 ? ", ..." : "")}" : "") +
                 (bdb.Encrypted ? "; encrypted" : "") + ".",
             };
-            if (found > 0) highlights.Add($"Recoverable: {found:N0}{(found > MaxRecovered ? "+" : "")} records that deleted items, consumed queue records, free space or unreachable pages hold.");
+            if (found > 0) highlights.Add($"Recoverable: {found:N0}{(found > MaxRecovered ? "+" : "")} deleted, consumed or unreachable records.");
             return new FileView(new Facts(format, bdb.PageSize, bdb.BigEndian ? "big-endian" : "little-endian", bdb.LastPage + 1, dbs,
                 db == null ? "" : db.Name == "" ? "(main)" : db.Name, offset, next, page, recovered, notes), highlights);
         }

@@ -123,10 +123,7 @@ internal sealed class DwarfAbbrev(int tag, bool children, int[] attributes, int[
     public readonly long[] Implicit = implicitValues;
 }
 
-/// <summary>
-/// One debugging information entry, with the attributes the debug-info layer reads. References are absolute section
-/// offsets (<see cref="DwarfReader.TypesFlag"/> marks .debug_types); -1 when absent.
-/// </summary>
+/// <summary>One debugging information entry; references are absolute section offsets (<see cref="DwarfReader.TypesFlag"/> marks .debug_types), -1 when absent.</summary>
 internal sealed class DwarfDie
 {
     public long Offset;
@@ -227,15 +224,7 @@ internal sealed class DwarfUnit
 /// <summary>A unit header found by <see cref="DwarfReader.Headers"/>.</summary>
 internal readonly record struct DwarfUnitHeader(long Offset, long End, int Version, bool InTypes, int UnitType, ulong TypeSignature, long TypeOffset);
 
-/// <summary>
-/// Reads DWARF 2-5 units: headers, abbreviation tables, entries and their attributes (every standard form plus the
-/// GNU index forms), string forms through .debug_str / .debug_line_str / .debug_str_offsets, address indices through
-/// .debug_addr, and range lists (.debug_ranges, .debug_rnglists). Malformed data ends a unit with a
-/// <see cref="DwarfUnit.Problem"/>, never an exception. A unit is parsed on its own (its bytes and entries live
-/// while it is used); references into other units go through a small unit cache. Readers of one read share a
-/// <see cref="DwarfReaders"/> family (a dwz supplementary file, split units): each owns an offset space, and
-/// references, entries and ranges of another space are answered by its reader.
-/// </summary>
+/// <summary>Reads DWARF 2-5 units one at a time; malformed data ends a unit with a <see cref="DwarfUnit.Problem"/>, never an exception.</summary>
 internal sealed class DwarfReader : IDisposable
 {
     /// <summary>Marks offsets in .debug_types (DWARF 4 type units).</summary>
@@ -424,7 +413,7 @@ internal sealed class DwarfReader : IDisposable
         var abbrevs = Abbrevs(u.AbbrevOffset, h.InTypes, problems);
         if (abbrevs == null) { u.Problem = problems.FirstOrDefault(); return u; }
 
-        // the unit entry first, for the bases its own string and address forms need (DWARF 5 puts them after the name)
+        // The unit entry first: its string and address forms need its bases, which DWARF 5 puts after the name.
         int start = c.Pos;
         var probe = new DwarfCursor(bytes.Span, BigEndian) { Pos = start };
         ReadEntries(ref probe, u, abbrevs, bytes.Span, flag, rootOnly: true, ct);
@@ -433,7 +422,7 @@ internal sealed class DwarfReader : IDisposable
         {
             if (u.AddrBase < 0) u.AddrBase = SplitAddrBase;
             if (u.RnglistsBase < 0 && u.Version < 5) u.RnglistsBase = SplitRangesBase;
-            // DWARF 4 split units (GNU) index .debug_str_offsets.dwo from 0; DWARF 5 ones from past its header
+            // DWARF 4 GNU split units index .debug_str_offsets.dwo from 0; DWARF 5 ones from past its header.
             if (u.StrOffsetsBase < 0 && u.Version < 5) u.StrOffsetsBase = 0;
             u.BaseAddress = SplitBaseAddress;
         }
@@ -556,7 +545,7 @@ internal sealed class DwarfReader : IDisposable
         }
         if (root)
         {
-            // only the bases and the line table are needed from the first pass
+            // The first pass needs only the bases and the line table.
             switch (attr)
             {
                 case Dw.AtStrOffsetsBase: u.StrOffsetsBase = (long)value; break;
@@ -747,7 +736,7 @@ internal sealed class DwarfReader : IDisposable
         int lo = 0, hi = _headers.Count - 1, found = -1;
         while (lo <= hi)
         {
-            // headers: .debug_info ones in order, then .debug_types ones in order
+            // Headers: .debug_info ones in order, then .debug_types ones.
             int mid = (lo + hi) >>> 1;
             var h = _headers[mid];
             int cmp = h.InTypes != types ? (h.InTypes ? 1 : -1) : h.End <= raw ? -1 : h.Offset > raw ? 1 : 0;

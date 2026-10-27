@@ -12,10 +12,7 @@ public sealed record LinkHop(string File, string Export, uint Ordinal, uint? Rva
     public string Key => Rva is { } rva ? $"{File.ToLowerInvariant()}|{rva:X}" : $"{File.ToLowerInvariant()}|{Export}";
 }
 
-/// <summary>
-/// Outcome of binding an import or a P/Invoke: <see cref="Status"/> is <see cref="NativeLinker.Resolved"/> with the hops
-/// from the first export to the code (forwarders followed), or an unresolved reason code with <see cref="Detail"/>.
-/// </summary>
+/// <summary>Outcome of binding an import or a P/Invoke: <see cref="NativeLinker.Resolved"/> with the hops to the code, or a reason code with <see cref="Detail"/>.</summary>
 public sealed record LinkResult(string Status, string Module, string? File, IReadOnlyList<LinkHop> Hops, string Detail)
 {
     public bool IsResolved => Status == NativeLinker.Resolved;
@@ -24,12 +21,7 @@ public sealed record LinkResult(string Status, string Module, string? File, IRea
     public string Chain => string.Join(" -> ", Hops.Select(h => h.Label));
 }
 
-/// <summary>
-/// Binds imported names to exports the way the Windows loader does: locates the providing DLL (API set map, the
-/// importer's folder, images the caller has loaded, the system folder of the importer's bitness, the Windows folder),
-/// finds the export by name or ordinal and follows forwarder chains. Images are opened through the given delegate,
-/// which may serve them from a cache; results are memoized per instance. Not thread-safe.
-/// </summary>
+/// <summary>Binds imported names to exports in the Windows loader's search order, following forwarders; memoized per instance, not thread-safe.</summary>
 public sealed partial class NativeLinker
 {
     /// <summary>Statuses: resolved, or the reason binding stopped.</summary>
@@ -48,10 +40,7 @@ public sealed partial class NativeLinker
     private bool _apiSetsLoaded;
 
     /// <param name="open">Opens a PE file by full path; null (or a thrown ToolError / IOException) when it cannot be read.</param>
-    /// <param name="loadedByName">
-    /// The path of an image the caller has loaded under this file name with this bitness (true = 32-bit), or null;
-    /// searched after the importer's folder and before the system folders.
-    /// </param>
+    /// <param name="loadedByName">Path of a loaded image with this file name and bitness (true = 32-bit), or null; searched before the system folders.</param>
     public NativeLinker(Func<string, INativeImage?> open, Func<string, bool, string?>? loadedByName = null)
     {
         _open = open;
@@ -79,11 +68,7 @@ public sealed partial class NativeLinker
         catch (Exception ex) when (ex is Core.ToolError or IOException or UnauthorizedAccessException) { return null; }
     }
 
-    /// <summary>
-    /// The file the loader binds for <paramref name="module"/> imported by <paramref name="requester"/> (a path, or null),
-    /// and the places searched. <paramref name="x86"/> selects SysWOW64 on a 64-bit system; <paramref name="runtimeFolder"/>
-    /// adds the .NET runtime folder last (P/Invoke lookups of runtime-shipped native libraries).
-    /// </summary>
+    /// <summary>The file the loader binds for <paramref name="module"/> (null when not found) and the places searched; <paramref name="x86"/> selects SysWOW64, <paramref name="runtimeFolder"/> adds the .NET runtime folder last.</summary>
     public (string? File, List<string> Searched) Locate(string module, string? requester, bool x86, bool runtimeFolder = false)
     {
         var key = $"{module}|{(requester != null ? Path.GetDirectoryName(requester) : "")}|{Path.GetFileName(requester)}|{x86}|{runtimeFolder}";
@@ -166,17 +151,14 @@ public sealed partial class NativeLinker
     /// <summary>Binds one import of <paramref name="importer"/> (a file path) to the code it reaches.</summary>
     public LinkResult BindImport(string importer, bool x86, NativeImport import)
     {
-        // an unversioned ELF symbol names no library: the first DT_NEEDED library that exports it, as the dynamic loader searches
+        // An unversioned ELF symbol binds to the first DT_NEEDED library that exports it.
         if (import.Module == "*" && import.Name != null && Open(importer) is Elf.ElfFile { Dependencies: { Count: > 0 } needed })
             foreach (var library in needed)
                 if (Bind(library, importer, x86, import.Name, null, "import") is { IsResolved: true } found) return found;
         return Bind(import.Module, importer, x86, import.Name, import.Name == null ? import.Ordinal : null, "import");
     }
 
-    /// <summary>
-    /// Binds <paramref name="name"/> (or <paramref name="ordinal"/>) of <paramref name="module"/> as imported by
-    /// <paramref name="requester"/>, following forwarders.
-    /// </summary>
+    /// <summary>Binds <paramref name="name"/> or <paramref name="ordinal"/> of <paramref name="module"/>, following forwarders.</summary>
     public LinkResult Bind(string module, string? requester, bool x86, string? name, uint? ordinal, string via, bool runtimeFolder = false)
     {
         var (file, searched) = Locate(module, requester, x86, runtimeFolder);
@@ -189,11 +171,7 @@ public sealed partial class NativeLinker
     /// <summary>Binds <paramref name="name"/> in <paramref name="file"/>, already located as <paramref name="module"/>, following forwarders.</summary>
     public LinkResult BindIn(string module, string file, bool x86, string name, string via) => Export(module, file, x86, name, null, via, 0);
 
-    /// <summary>
-    /// Binds the first of <paramref name="candidates"/> that <paramref name="module"/> exports (P/Invoke rules: A/W
-    /// suffixes and stdcall decoration are tried by the caller's candidate list); the result's Detail names the
-    /// spelling found.
-    /// </summary>
+    /// <summary>Binds the first of <paramref name="candidates"/> that <paramref name="module"/> exports, and names the spelling matched.</summary>
     public (LinkResult Result, string? Matched) BindFirst(string module, string? requester, bool x86, IEnumerable<string> candidates, string via, bool runtimeFolder)
     {
         var (file, searched) = Locate(module, requester, x86, runtimeFolder);
@@ -250,8 +228,7 @@ public sealed partial class NativeLinker
         var targetModule = forward[..dot];
         var targetName = forward[(dot + 1)..];
         var (targetFile, searched) = Locate(targetModule, file, x86);
-        // A kernel-mode image's forwarder can name the kernel itself (hal.dll: ntoskrnl.KeStallExecutionProcessor),
-        // which the kernel's loader binds to ntoskrnl.exe; user-mode forwarders name DLLs only.
+        // A kernel-mode forwarder can name ntoskrnl.exe without extension (hal.dll: ntoskrnl.KeStallExecutionProcessor).
         if (targetFile == null && !Path.HasExtension(targetModule) && image is Pe.PeFile { Optional.Subsystem: 1 })
         {
             var (kernelFile, kernelSearched) = Locate(targetModule + ".exe", file, x86);

@@ -6,8 +6,7 @@ namespace Corvus.Tests;
 /// <summary>summarize_file passes table=, columns=, offset= and limit= to every view that reads them.</summary>
 public sealed partial class ViewPagingTests
 {
-    // Regression: view=registry read table=, offset= and limit=, view=python and view=xbf read offset=, and the tool
-    // refused them (1d77b83a, 2ca14eb5, 0bd7ab85).
+    // Regression (1d77b83a, 2ca14eb5, 0bd7ab85): view=registry, view=python and view=xbf refused their paging parameters.
     [Fact]
     public void Every_view_that_reads_a_paging_option_gets_it()
     {

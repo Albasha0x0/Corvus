@@ -23,12 +23,12 @@ public sealed record AndroidPackageFacts(string Kind, string Package, string? Ve
     [property: Description("One line per signer: scheme, certificate, SDK range, verdict with reasons, rotation lineage with capabilities.")] IReadOnlyList<string> Signers,
     IReadOnlyList<string> SplitApks, IReadOnlyList<string> Highlights);
 
-/// <summary>Android packages: manifest, resources and package facts, read natively from .apk / .aab / split sets.</summary>
 /// <summary>One entry or resource read by get_android_resource: its text, or where its bytes were written.</summary>
 public sealed record AndroidResourceRead(string Text,
     [property: Description("The package entry read (res/..., assets/..., AndroidManifest.xml).")] string Entry,
     [property: Description("Where the bytes were written (outputPath).")] string? OutputPath, long? Bytes, string? Sha256);
 
+/// <summary>Reads the manifest, resources and package facts of an .apk, .aab or split set.</summary>
 public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
 {
     /// <summary>The manifest summary; in a .NET for Android package each component names the .NET type that implements it.</summary>
@@ -210,7 +210,7 @@ public sealed class AndroidPackageService(JavaDotNetMap? dotnet = null)
                 bool bundle = p.Kind == "aab";
                 var report = ApkSigning.Verify(package, bundle ? null : Idsig(path));
                 var schemes = report.Schemes.Select(s => $"{s.Scheme} {s.Verdict}").ToList();
-                if (bundle) schemes.Add("an app bundle is signed at upload with a JAR (v1) signature; the store signs the APKs it generates");
+                if (bundle) schemes.Add("a bundle has a JAR (v1) signature only; the store signs the APKs it generates");
                 signature = $"{report.Verdict} ({string.Join(bundle ? "; " : ", ", schemes)})";
                 signers = Signers(report);
                 if (report.Verdict != ApkSigning.Verified && !(bundle && report.Verdict == ApkSigning.Unsigned))

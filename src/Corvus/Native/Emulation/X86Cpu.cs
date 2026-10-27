@@ -4,11 +4,7 @@ using static Iced.Intel.Register;
 
 namespace Corvus.Native.Emulation;
 
-/// <summary>
-/// x86 and x64 integer execution on Iced's decoder: general registers, flags, the stack, string instructions with REP,
-/// and the 128-bit XMM moves and logic that compilers emit for copies and zeroing. Floating point, segment bases (FS,
-/// GS), system instructions and wider vectors are refused by name.
-/// </summary>
+/// <summary>x86 and x64 integer execution on Iced; floating point, FS/GS bases, system instructions and wider vectors are refused by name.</summary>
 public sealed class X86Cpu : IEmulatorCpu
 {
     private readonly bool _is64;

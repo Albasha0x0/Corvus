@@ -3,11 +3,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Elf;
 
-/// <summary>
-/// A symbol table entry. <see cref="Value"/> is the raw st_value (a virtual address for defined symbols, with the Thumb
-/// bit for ARM Thumb functions). <see cref="Version"/>, <see cref="VersionLibrary"/> and <see cref="VersionHidden"/> (a
-/// non-default version, name@VERSION rather than name@@VERSION) come from the GNU version tables.
-/// </summary>
+/// <summary>A symbol table entry: <see cref="Value"/> is the raw st_value (Thumb bit kept); version fields come from the GNU version tables.</summary>
 public sealed record ElfSymbol(int Index, string Name, ulong Value, ulong Size, byte Type, byte Binding, byte Visibility, ushort SectionIndex,
     string? Version = null, string? VersionLibrary = null, bool VersionHidden = false)
 {
@@ -59,10 +55,7 @@ public sealed partial class ElfFile
     /// <summary>.dynsym in table order (index 0, the null symbol, included).</summary>
     public IReadOnlyList<ElfSymbol> DynamicSymbols => dynamic.Value.Symbols;
 
-    /// <summary>
-    /// The dynamic symbol named <paramref name="name"/> (a defined one when several share it), found through
-    /// DT_GNU_HASH or DT_HASH when present; null when there is none.
-    /// </summary>
+    /// <summary>The dynamic symbol named <paramref name="name"/>, preferring a defined one, via DT_GNU_HASH or DT_HASH; null when none.</summary>
     public ElfSymbol? DynamicSymbol(string name)
     {
         var d = dynamic.Value;
@@ -267,7 +260,7 @@ public sealed partial class ElfFile
                 }
                 d.Gnu = new GnuHash(symOffset, bloom, shift, buckets, chains);
                 if (d.Sysv != null) return Math.Max(count, d.Sysv.Chains.Length);
-                // no bucket names a symbol (GNU ld for an executable that exports nothing): the table does not tell the count
+                // No bucket names a symbol (GNU ld, an executable exporting nothing): the table gives no count.
                 if (last >= symOffset) return count;
             }
             else log.Add($"DT_GNU_HASH header (buckets {nbuckets}, symbol offset {symOffset}, bloom {bloomSize}) is not usable");

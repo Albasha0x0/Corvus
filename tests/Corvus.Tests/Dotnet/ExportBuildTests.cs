@@ -10,7 +10,7 @@ public class ExportBuildTests
 {
     private const string Patterns = """
         using System;
-        // the code older compilers emit for span ranges (x[i..]): a ref temporary per slice
+        // The code older compilers emit for span ranges (x[i..]): a ref temporary per slice.
         public static class Slices
         {
             public static int Sum(ReadOnlySpan<byte> input, int from)
@@ -38,7 +38,7 @@ public class ExportBuildTests
             }
             static void Acc(Span<ulong> s, ulong v) { s[0] ^= v; }
 
-            // both branches reuse the temporary; the output span is a parameter (wider escape scope)
+            // Both branches reuse the temporary; the output span is a parameter (wider escape scope).
             public static int Copy(ReadOnlySpan<byte> input, Span<byte> output, bool forward)
             {
                 int i = 0;
@@ -90,7 +90,7 @@ public class ExportBuildTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void Patterns_Decompile_ToCode_ThatBuildsAndBehavesTheSame()
+    public void Patterns_decompile_to_code_that_builds_and_behaves_the_same()
     {
         using var dir = new TempDir();
         var path = dir.File("Patterns.dll");
@@ -121,7 +121,7 @@ public class ExportBuildTests
     {
         /// <summary>Rewritten span code in digests, SCrypt and AEAD modes gives the original results after rebuild.</summary>
         [Fact]
-        public void BouncyCastle_RebuiltFromExport_BehavesTheSame()
+        public void BouncyCastle_rebuilt_from_export_behaves_the_same()
         {
             var path = RealPackages.Lib("BouncyCastle.Cryptography", "2.6.2", "net6.0", "BouncyCastle.Cryptography.dll");
             using var dir = new TempDir();
@@ -194,13 +194,10 @@ public class ExportBuildTests
         Assert.True(failures == Corvus.Services.AstCleanup.Failures, Corvus.Services.AstCleanup.LastError); // no cleanup step failed
     }
 
-    /// <summary>
-    /// A .NET Framework project with an image in its .resx failed under dotnet build (MSB3822, MSB3823; WinForms apps with
-    /// icons): such projects now compile resources preserialized, on 4.6.2 or later.
-    /// </summary>
+    /// <summary>Regression: a .NET Framework project with an image in its .resx failed dotnet build (MSB3822, MSB3823).</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void NetFrameworkExportWithBinaryResources_UsesPreserializedResources()
+    public void NET_Framework_export_with_binary_resources_uses_preserialized_resources()
     {
         using var dir = new TempDir();
         var resources = new MemoryStream();
@@ -223,13 +220,10 @@ public class ExportBuildTests
         Assert.Contains("was net452", project);
     }
 
-    /// <summary>
-    /// A project referencing a library that names its core library 65535.65535.65535.65535 (any version) builds with the
-    /// original file (dotnet build reports MSB3277 only); in-process compilations report CS1705, so patches rewrite such references.
-    /// </summary>
+    /// <summary>A reference to a core library of any version (65535.65535.65535.65535) builds; in-process compilations report CS1705, so patches rewrite it.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void ExportReferencingALibraryWithAnyVersionCoreLibraryBuilds()
+    public void Export_referencing_a_library_with_any_version_core_library_builds()
     {
         using var dir = new TempDir();
         // A .NET Framework library as some transformation tools write it: mscorlib, Version=65535.65535.65535.65535.

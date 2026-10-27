@@ -88,7 +88,7 @@ internal static partial class PyRepr
         sb.Append(quote);
         for (int k = 0; k < s.Length; k++)
         {
-            // a lone surrogate (marshal's surrogatepass) is no rune: it prints escaped
+            // A lone surrogate (marshal's surrogatepass) is no rune: it prints escaped.
             int c = char.IsSurrogatePair(s, k) ? char.ConvertToUtf32(s[k], s[++k]) : s[k];
             if (c == quote || c == '\\') sb.Append('\\').Append((char)c);
             else if (c == '\t') sb.Append("\\t");
@@ -154,7 +154,7 @@ internal static partial class PyRepr
 
     private static void Complex(StringBuilder sb, PyComplex c, Func<double, bool, string> format)
     {
-        // a +0.0 real part prints the imaginary part alone, without parentheses
+        // A +0.0 real part prints the imaginary part alone, without parentheses.
         if (c.Real == 0 && !double.IsNegative(c.Real))
         {
             sb.Append(format(c.Imaginary, false)).Append('j');
@@ -189,7 +189,8 @@ internal static partial class PyRepr
         }
         int dot = r.IndexOf('.');
         var digits = dot >= 0 ? r.Remove(dot, 1) : r;
-        int point = (dot >= 0 ? dot : r.Length) + exp; // digits are 0.d1d2... times 10^point
+        // Digits are 0.d1d2... times 10^point.
+        int point = (dot >= 0 ? dot : r.Length) + exp;
         int lead = 0;
         while (lead < digits.Length - 1 && digits[lead] == '0') lead++;
         digits = digits[lead..].TrimEnd('0');

@@ -5,23 +5,16 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// A Ghidra archive (.gzf) as an input: the file it was made from loads as the native image (the bytes the archive keeps,
-/// else the file of that name beside it), checked against the recorded SHA-256, and Ghidra opens the archive as its database.
-/// A Ghidra project (.gpr) is read through a copy: one program of it is packed into an archive in the cache, which then
-/// loads as above; the user's project is only read.
-/// </summary>
+/// <summary>Loads a Ghidra archive (.gzf) or project (.gpr, packed from a copy) as the original image, verified by SHA-256,
+/// with the archive as Ghidra's database; the user's project is only read.</summary>
 internal static class PackedDatabaseInput
 {
     public static bool Is(string path) => path.EndsWith(".gzf", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
 
     public static bool IsProject(string path) => path.EndsWith(".gpr", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
 
-    /// <summary>
-    /// Packs <paramref name="program"/> (null: the project's only program) of the project at <paramref name="path"/> from a copy
-    /// made in the cache, then loads that archive. A project unchanged since (same files, sizes and write times) reuses the
-    /// archive and so its database. Returns the image and the program's path in the project.
-    /// </summary>
+    /// <summary>Packs one program of a project copy into a cached archive and loads it; returns the image and program
+    /// path. An unchanged project reuses the archive.</summary>
     public static async Task<(LoadedNative Native, string Program)> LoadProjectAsync(AssemblyWorkspace workspace, NativeEngineService? engines, string path,
         string? program, CancellationToken ct)
     {
@@ -71,7 +64,7 @@ internal static class PackedDatabaseInput
         return Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString())));
     }
 
-    // a lock file belongs to the user's own open session; the copy must not inherit it
+    // A lock file belongs to the user's own open session; the copy must not inherit it.
     private static bool IsLock(string file) =>
         Path.GetFileName(file) is var n && (n.EndsWith(".lock", StringComparison.OrdinalIgnoreCase) || n.EndsWith(".lock~", StringComparison.OrdinalIgnoreCase));
 
@@ -82,7 +75,7 @@ internal static class PackedDatabaseInput
             Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, d)));
         foreach (var f in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories).Where(f => !IsLock(f)))
         {
-            // shared read: the user's Ghidra may hold the project open
+            // Shared read: the user's Ghidra may hold the project open.
             using var source = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var target = File.Create(Path.Combine(to, Path.GetRelativePath(from, f)));
             source.CopyTo(target);
@@ -95,7 +88,7 @@ internal static class PackedDatabaseInput
         if (engines?.Ghidra is not { } ghidra)
             throw new ToolError(ErrorCode.ProviderUnavailable, "Reading a Ghidra archive (.gzf) needs Ghidra, which this server has not set up.", "set CORVUS_GHIDRA_DIR, or load the original file");
         var sha = Hash(gzf);
-        // unpacked once per archive content
+        // Unpacked once per archive content.
         var dir = Path.Combine(ghidra.CacheDirectory, "gzf", sha[..16]);
         var manifest = Path.Combine(dir, "original.json");
         Native.Providers.Ghidra.GhidraProvider.ArchiveOriginal original;

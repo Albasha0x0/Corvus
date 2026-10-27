@@ -2,10 +2,7 @@ using System.Reflection;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Implementations of a provider interface found by a type scan of this assembly: every concrete class with a public
-/// parameterless constructor, one instance each, ordered by full type name. A new provider is a new class; nothing is registered.
-/// </summary>
+/// <summary>One instance of each concrete provider class in this assembly, ordered by full type name; nothing is registered.</summary>
 public static class Providers
 {
     private static readonly Dictionary<Type, object> Found = [];
@@ -43,11 +40,7 @@ public static class Providers
             .Select(t => (T)Activator.CreateInstance(t)!)];
 }
 
-/// <summary>
-/// A container format beyond the built-in ones (bundles, zip family, ASAR, Unity web data, captures, Webcil, XALZ / XAZS,
-/// Costura), for unpack_container, list_assemblies, search_container and summarize_file. Asked only about data no
-/// built-in reader takes. Implementations bound their work by <see cref="AnalysisLimits"/> and never run what they read.
-/// </summary>
+/// <summary>A container format beyond the built-in ones, asked only about data no built-in reader takes; bounded by <see cref="AnalysisLimits"/>, never runs what it reads.</summary>
 public interface IContainerReader
 {
     /// <summary>The container kind as reported (e.g. "tar").</summary>
@@ -56,10 +49,7 @@ public interface IContainerReader
     /// <summary>Whether <paramref name="data"/> (the whole file) is this format; <paramref name="name"/> is its file name.</summary>
     bool Accepts(ReadOnlySpan<byte> data, string name);
 
-    /// <summary>
-    /// One level of the container: the files to extract as items (nested containers are opened by the caller) and, for an
-    /// archive, every entry. With <paramref name="allFiles"/> false, items may be limited to assemblies and nested packages.
-    /// </summary>
+    /// <summary>One container level: items to extract and every entry; without <paramref name="allFiles"/> items may be limited.</summary>
     ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct);
 
     /// <summary>The same level read from a seekable stream without holding the file; null when the format needs the bytes.</summary>

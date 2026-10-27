@@ -4,9 +4,8 @@ using Corvus.Core;
 
 namespace Corvus.Tools;
 
-// Structured content of the list, search and info tools that agents chain together. The text block keeps the readable
-// form; these records carry the same facts with names, tokens and addresses as separate fields. Lists are paged: items
-// from offset, total counts every match, truncated says items stop before the end (page on with offset + items.Count).
+// Structured content of list, search and info tools: the text block's facts as separate fields.
+// Lists are paged: items from offset, total counts every match, truncated means more follow.
 
 /// <summary>A type or member: what other tools take as symbol (label or token, with assembly).</summary>
 public sealed record SymbolRef(
@@ -93,10 +92,7 @@ public sealed record XrefList(string Image, string Target, IReadOnlyList<XrefEnt
 /// <summary>A find_xrefs batch target: the target as resolved and its reference count.</summary>
 public sealed record XrefTargetCount(string Resolved, int Total);
 
-/// <summary>
-/// The record of a text tool (code or a long text paged by characters): the page and where the next one starts (D3).
-/// The call filter fills it from the tool's page.
-/// </summary>
+/// <summary>A text tool's page, paged by characters, and where the next starts; the call filter fills it.</summary>
 public sealed record TextPageRecord(
     [property: Description("The page of text.")] string Code,
     int Offset,
@@ -105,17 +101,17 @@ public sealed record TextPageRecord(
 
 internal static class SearchDoc
 {
-    public const string NotEvaluated = "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.";
+    public const string NotEvaluated = "Inputs the regex timed out on (1 s each), left out; non-zero means the results are incomplete.";
 }
 
 /// <summary>Descriptions of the engine fields of native code results.</summary>
 internal static class EngineDoc
 {
-    public const string Engine = "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).";
-    public const string Note = "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).";
+    public const string Engine = "Analysis that produced the result: ours (built-in index), ida or ghidra.";
+    public const string Note = "Why that engine answered: the engine parameter, the server default, or auto and the engine's analysis state.";
 }
 
-public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16, utf8 (a Rust literal, by the length its code or data gives), inline (a Swift string of up to 15 bytes held in instructions; Address is the instruction), il2cpp (a string literal slot), nativeaot (a frozen String object) or engine:type (e.g. ghidra:unicode).")] string Encoding,
+public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16, utf8 (Rust literal), inline (Swift string in instructions; Address is the instruction), metadata, nativeaot or engine:type.")] string Encoding,
     [property: Description("Text, clipped at maxLength.")] string Text, int References, string? FirstFunction)
 {
     [Description("The full length in characters when Text is clipped.")] public int? Length { get; init; }
@@ -135,7 +131,7 @@ public sealed record AddressInfo(
     string? Section,
     [property: Description("rwx of the section.")] string? Access,
     string? Name,
-    [property: Description("user, pdb, il2cpp, ...")] string? NameSource,
+    [property: Description("user, pdb, metadata, ...")] string? NameSource,
     [property: Description("An IAT slot: module!name.")] string? Import,
     string? BoundTo,
     [property: Description("The export at the address, or the nearest before it as name+0xN.")] string? Export)

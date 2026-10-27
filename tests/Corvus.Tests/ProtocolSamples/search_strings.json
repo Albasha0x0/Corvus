@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "2 occurrences (showing 1-2):\n  \"PREVIEW-CODE-42\"\n      in Fixture.Model.Account::CheckPreview() @IL_0000  [TestFixture] 0x0600001C\n  \"PREVIEW-\"\n      in Fixture.Model.Secret::Validate(string) @IL_0001  [TestFixture] 0x06000025\n[End: 2 occurrences]\n"
+    "2 occurrences (showing 1-2):\n  \"PREVIEW-CODE-42\"\n      in Fixture.Model.Account::CheckPreview() @IL_0000  [TestFixture] 0x06000015\n  \"PREVIEW-\"\n      in Fixture.Model.Secret::Validate(string) @IL_0001  [TestFixture] 0x0600001E\n[End: 2 occurrences]\n"
   ],
   "structuredContent": {
     "items": [
@@ -16,7 +16,7 @@
           "kind": "method",
           "label": "Fixture.Model.Account::CheckPreview()",
           "assembly": "TestFixture",
-          "token": "0x0600001C"
+          "token": "0x06000015"
         },
         "ilOffset": 0
       },
@@ -27,7 +27,7 @@
           "kind": "method",
           "label": "Fixture.Model.Secret::Validate(string)",
           "assembly": "TestFixture",
-          "token": "0x06000025"
+          "token": "0x0600001E"
         },
         "ilOffset": 1
       }

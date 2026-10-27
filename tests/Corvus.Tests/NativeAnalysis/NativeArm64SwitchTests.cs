@@ -37,7 +37,7 @@ public class NativeArm64SwitchTests
         int count = cases + 1;
         if (flagsInOtherBlock)
         {
-            // the compare is in this block; the bounding b.hi is in the block the b.ne reaches
+            // The compare is in this block; the bounding b.hi is in the block the b.ne reaches.
             a.Word(CmpImm(8, (uint)count - 1)).Later(at => A64.BCond(at, dispatchBlock, Ne)).Word(A64.MovW(0, 9)).Word(A64.Ret);
             dispatchBlock = a.Here;
             a.Later(at => A64.BCond(at, dflt, Hi));
@@ -129,7 +129,7 @@ public class NativeArm64SwitchTests
     [Fact]
     public void Signed_byte_offsets_and_halfwords_with_b_hs()
     {
-        // gcc: ldrb w11, [x9, w8, uxtw]; add x10, x10, w11, sxtb #2 with the cases before the anchor
+        // Gcc: ldrb w11, [x9, w8, uxtw]; add x10, x10, w11, sxtb #2 with the cases before the anchor.
         var (graph, cases, _) = Build(3, (a, anchor) => a.Word(LdrbUxtw(11, 9, 8)).Later(at => A64.Adr(at, anchor() + 3 * 8 + 8, 10)).Word(AddSxtb(10, 10, 11, 2)).Word(A64.Br(10)),
             (c, anchor, d) => [.. Targets(c, d).Select(t => (byte)(sbyte)(((long)t - (anchor + 3 * 8 + 8)) / 4))]);
         var sw = Assert.Single(graph.Switches);

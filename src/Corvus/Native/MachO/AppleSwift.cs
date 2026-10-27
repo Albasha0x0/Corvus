@@ -6,28 +6,17 @@ namespace Corvus.Native.MachO;
 /// <summary>A stored property or enum case; <see cref="Type"/> is the demangled field type (null for payload-less cases).</summary>
 public sealed record SwiftField(string Name, string? Type, string? MangledType, bool IsVar, bool IsIndirect);
 
-/// <summary>
-/// A vtable entry of a Swift class: kind (method, init, getter, setter, modify, read), instance or static, and the
-/// implementation (0 when it has none). <see cref="DescriptorVa"/> is the method descriptor's own address.
-/// </summary>
+/// <summary>A Swift class vtable entry; the implementation is 0 when it has none.</summary>
 public sealed record SwiftMethod(ulong DescriptorVa, string Kind, bool IsInstance, bool IsAsync, ulong Impl);
 
-/// <summary>
-/// A nominal type (class, struct, enum) or protocol from __swift5_types / __swift5_protos. <see cref="Name"/> is
-/// qualified ("Module.Outer.Inner"); <see cref="Symbol"/> is the type's mangled entity ("12StripeUICore4ViewC")
-/// when its context nests only modules and nominal types.
-/// </summary>
+/// <summary>A nominal type or protocol from __swift5_types / __swift5_protos; <see cref="Name"/> is qualified ("Module.Outer.Inner").</summary>
 public sealed record SwiftType(ulong DescriptorVa, string Kind, string Name, string Module, string? Symbol, bool IsGeneric, ulong AccessorVa, ulong FieldDescriptorVa,
     string? Superclass, IReadOnlyList<SwiftField> Fields, IReadOnlyList<SwiftMethod> Methods);
 
 /// <summary>A protocol conformance record; <see cref="ProtocolExternal"/> when the protocol lives in another image (a bind).</summary>
 public sealed record SwiftConformance(ulong Va, string Type, string? TypeSymbol, string Protocol, string? ProtocolSymbol, bool ProtocolExternal, ulong WitnessTableVa);
 
-/// <summary>
-/// The Swift reflection metadata of a Mach-O image: nominal types with their fields (types demangled, symbolic
-/// references resolved to the types they point at, in this image or through binds), class vtables, protocols and
-/// conformances. Malformed records are skipped and counted in <see cref="Issues"/>.
-/// </summary>
+/// <summary>The Swift reflection metadata of a Mach-O image; malformed records are skipped and counted in <see cref="Issues"/>.</summary>
 public sealed class AppleSwiftMetadata
 {
     private const int MaxRecords = 1 << 18;
@@ -138,11 +127,7 @@ public sealed class AppleSwiftMetadata
             return new SwiftType(d, KindName(kind), name, module, Mangle(node!), generic, accessor, fieldDescriptor, superclass, fields, methods);
         }
 
-        /// <summary>
-        /// The vtable of a non-generic class: after the 44-byte descriptor come the resilient superclass (4 bytes when
-        /// flagged), the metadata initialization record (singleton 12 bytes, foreign 4), then the vtable header and
-        /// method descriptors (flags, relative implementation).
-        /// </summary>
+        /// <summary>The vtable of a non-generic class, read past the 44-byte descriptor and its optional trailing records.</summary>
         private void ReadVtable(ulong d, uint flags, List<SwiftMethod> into)
         {
             uint kindFlags = flags >> 16;
@@ -256,11 +241,7 @@ public sealed class AppleSwiftMetadata
             return null;
         }
 
-        /// <summary>
-        /// The demangling node of the context descriptor at <paramref name="d"/>, wrapped in a Type node as the runtime
-        /// builds it for symbolic references: modules, nominal types and protocols nested by their parents, extensions
-        /// of their extended type; anonymous contexts as their parent.
-        /// </summary>
+        /// <summary>The demangling node of the context descriptor at <paramref name="d"/>, wrapped in a Type node as the runtime builds it.</summary>
         private SwiftNode? ContextNode(ulong d)
         {
             if (contextNodes.TryGetValue(d, out var known)) return known;
@@ -301,7 +282,7 @@ public sealed class AppleSwiftMetadata
                         if (string.IsNullOrEmpty(name) || parent == null) break;
                         var nominal = new SwiftNode(kind switch { 3 => K.Protocol, 16 => K.Class, 17 => K.Structure, _ => K.Enum });
                         nominal.Add(parent);
-                        // ObjC-imported names carry a related-entity tail after a NUL; the name is the first part
+                        // ObjC-imported names carry a related-entity tail after a NUL; the name is the first part.
                         nominal.Add(new SwiftNode(K.Identifier) { Text = name });
                         result = nominal;
                         break;
@@ -391,10 +372,7 @@ public sealed class AppleSwiftMetadata
             return n?.Text ?? "";
         }
 
-        /// <summary>
-        /// The mangled entity of a nominal type or protocol whose contexts are modules and nominal types only
-        /// ("7Combine16ObservableObjectP"); null otherwise.
-        /// </summary>
+        /// <summary>The mangled entity ("7Combine16ObservableObjectP") of a type nested only in modules and nominal types; null otherwise.</summary>
         private static string? Mangle(SwiftNode node)
         {
             var n = Unwrap(node);

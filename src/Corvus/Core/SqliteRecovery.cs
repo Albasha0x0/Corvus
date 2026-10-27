@@ -2,23 +2,12 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A deleted-row candidate: the table it fits (null when several or none fit), its rowid when the cell header survived,
-/// its values in declaration order, where it was found and how: a whole cell (cell), a record whose cell header was
-/// overwritten (record), or a record whose header size and first types were overwritten by a freeblock and are inferred
-/// (record, header inferred).
-/// </summary>
+/// <summary>A deleted-row candidate; Table is null unless exactly one fits, RowId null unless the cell header survived.</summary>
+/// <remarks>Method: cell, record (cell header lost) or record, header inferred (header overwritten by a freeblock).</remarks>
 public sealed record SqliteRecoveredRow(string? Table, long? RowId, IReadOnlyList<object?> Values, string Source, string Method);
 
-/// <summary>
-/// Deleted-row carving: what SQLite leaves behind when rows are deleted and secure_delete is off. Freed cells inside live
-/// table pages and WITHOUT ROWID leaf pages (freeblocks, whose first 4 bytes SQLite overwrites, and the unallocated gap),
-/// freelist pages (trunk tails and whole leaf pages), and -wal frames that are not the applied copy of their page
-/// (superseded, uncommitted, stale). A record too large for its page is read on through its overflow chain. Every candidate
-/// is validated by its record header (serial types against the table's stored columns and affinities, a short record only
-/// when live rows are as short (ALTER TABLE ADD COLUMN), body within the free region, text that decodes) and dropped when
-/// it equals a live row.
-/// </summary>
+/// <summary>Deleted-row carving from free space, freelist pages and unapplied -wal frames when secure_delete is off.</summary>
+/// <remarks>Each candidate is validated against the table's columns and affinities and dropped when it equals a live row.</remarks>
 public sealed partial class SqliteDatabase
 {
     public const int MaxRecovered = 10_000;
@@ -83,7 +72,7 @@ public sealed partial class SqliteDatabase
                 if (Page(pageNo) is not { } p) continue;
                 bool leaf = p.Type == (t.WithoutRowId ? 10 : 13);
                 if (leaf) owner[pageNo] = t;
-                // a WITHOUT ROWID table keeps whole rows in its interior cells too
+                // A WITHOUT ROWID table keeps whole rows in its interior cells too.
                 if (!leaf && !(t.WithoutRowId && p.Type == 2)) continue;
                 for (int i = 0; i < CellCount(p); i++)
                     if (Entry(p, i, interiorIndex: !leaf) is { } row)
@@ -177,10 +166,7 @@ public sealed partial class SqliteDatabase
         return pages;
     }
 
-    /// <summary>
-    /// A page that is not part of a live tree: its cells when it still reads as a table leaf (or a WITHOUT ROWID leaf), then
-    /// its free space.
-    /// </summary>
+    /// <summary>Carves a page off the live trees: its cells while it reads as a leaf, then its free space.</summary>
     private void CarvePage(byte[] d, int header, SqliteTable? owner, string source, Carving carving, CancellationToken ct)
     {
         var p = new PageRef(0, d, header);
@@ -188,7 +174,7 @@ public sealed partial class SqliteDatabase
         var kind = leaf ? carving.Tables.Where(t => t.WithoutRowId != rowid).ToList() : carving.Tables;
         if (owner != null && !kind.Contains(owner)) owner = null;
         int cells = leaf ? CellCount(p) : 0;
-        // a page off every tree belonged to the table its surviving cells fit
+        // A page off every tree belonged to the table its surviving cells fit.
         owner ??= Enumerable.Range(0, cells).Select(i => CellOffset(p, i) is { } at && CellAt(d, at, table: rowid) is { } row ? Match(kind, row.Values) : null)
             .Where(m => m is { Unique: true }).GroupBy(m => m!.Value.Table).OrderByDescending(g => g.Count()).FirstOrDefault()?.Key;
         var tables = owner != null ? [owner, .. kind.Where(t => t != owner)] : kind;
@@ -227,10 +213,7 @@ public sealed partial class SqliteDatabase
         }
     }
 
-    /// <summary>
-    /// Where a freeblock absorbed earlier ones: each kept the 4-byte header SQLite wrote over its first cell (next freeblock,
-    /// size), so a cell boundary is where a header's size fits inside the block and its next pointer lies past its end.
-    /// </summary>
+    /// <summary>Starts of earlier freeblocks absorbed into this one, found by their surviving 4-byte headers.</summary>
     private SortedSet<int> StaleStarts(byte[] d, int fb, int end)
     {
         var starts = new SortedSet<int>();
@@ -242,18 +225,13 @@ public sealed partial class SqliteDatabase
         return starts;
     }
 
-    /// <summary>
-    /// The first cell of a freeblock lost its first 4 bytes (payload length, rowid, and the record header's start when those
-    /// varints are short). Types still in place are read from byte 4; the header size, and a lost first type, are inferred
-    /// from the table's columns (a rowid alias is always NULL) or from the cell's size: the freeblock's, or up to the next
-    /// absorbed freeblock (<paramref name="stale"/>). The record's end, or null.
-    /// </summary>
+    /// <summary>A freeblock's first cell with its lost 4 bytes inferred from the table or cell size; the record's end, or null.</summary>
     private int? Inferred(byte[] d, int fb, int end, SortedSet<int> stale, List<SqliteTable> tables, SqliteTable? owner, string source, Carving carving)
     {
         var ends = new List<int> { end };
-        if (fb + 5 <= end - 1) ends.AddRange(stale.GetViewBetween(fb + 5, end - 1).Take(3)); // the first cell ends at the nearest
-        // hypotheses by cell prefix length: 4 or more (the header intact at byte 4), 3 (the header size lost), 2 (the header
-        // size and first type lost), and 1 in a WITHOUT ROWID table (a short payload: the header size and two types lost)
+        // The first cell ends at the nearest.
+        if (fb + 5 <= end - 1) ends.AddRange(stale.GetViewBetween(fb + 5, end - 1).Take(3));
+        // Cell prefix lengths tried: 4+ (header intact), 3 (header size lost), 2 (and first type), 1 (WITHOUT ROWID, two types).
         var found = new List<(SqliteTable Table, List<object?> Values, int End, string Method)>();
         int at = fb + 4;
         if (Varint(d, ref at, end, out long headerSize) && headerSize >= 2 && Parse(d, at, fb + 4 + (int)headerSize, -1, [], end) is { } r4
@@ -273,7 +251,7 @@ public sealed partial class SqliteDatabase
                 }
             }
         if (found.Count == 0) return null;
-        // a single freed cell fills its freeblock exactly, or reaches the next absorbed one
+        // A single freed cell fills its freeblock exactly, or reaches the next absorbed one.
         var best = found.FirstOrDefault(f => f.End == end || stale.Contains(f.End));
         if (best.Table == null) best = found[0];
         bool sure = best.Table == owner || found.Select(f => f.Table).Distinct().Count() == 1;
@@ -281,11 +259,7 @@ public sealed partial class SqliteDatabase
         return best.End;
     }
 
-    /// <summary>
-    /// A WITHOUT ROWID record whose first two types were lost with its 1-byte payload length and header size: the two sizes
-    /// sum to what fills the freeblock; each split is tried, integers held to the shortest encoding SQLite writes. Of the
-    /// splits that fit, the one whose two values lie within what live rows hold counts, when it is the only one.
-    /// </summary>
+    /// <summary>A WITHOUT ROWID record with its first two types lost; counts only when one split fits within live row values.</summary>
     private (List<object?> Values, int End)? FirstTwo(byte[] d, int fb, int end, SqliteTable t, int n)
     {
         if (n < 2) return null;
@@ -297,7 +271,8 @@ public sealed partial class SqliteDatabase
             body += SerialSize(s);
         }
         long both = end - p - body;
-        if (both < 0 || both > 2 * 57) return null; // a payload under 128 bytes: one-byte types
+        // A payload under 128 bytes: one-byte types.
+        if (both < 0 || both > 2 * 57) return null;
         var profile = _profiles.GetValueOrDefault(t.Name);
         (List<object?> Values, int End)? found = null;
         int best = -1;
@@ -362,21 +337,18 @@ public sealed partial class SqliteDatabase
         };
     }
 
-    /// <summary>
-    /// Records from <paramref name="from"/> to <paramref name="end"/>: tried at every byte, skipped past each one found. A record
-    /// whose header size was overwritten is looked for in a leaf page's free space (<paramref name="headless"/>), where freeblocks
-    /// leave such starts, and elsewhere only right after a record found: on a page of unknown use it fits too much text.
-    /// </summary>
+    /// <summary>Records tried at every byte in the range; headless records only with <paramref name="headless"/> or after a found one.</summary>
     private void Scan(byte[] d, int from, int end, List<SqliteTable> tables, SqliteTable? owner, string source, Carving carving, CancellationToken ct,
         SortedSet<int>? stale = null, bool headless = true)
     {
-        // a record's header holds one type per stored field: its size bounds the field count
+        // A record's header holds one type per stored field: its size bounds the field count.
         int fewest = tables.Count == 0 ? 0 : tables.Min(Shortest), most = tables.Count == 0 ? 0 : tables.Max(t => t.StoredOrder.Count);
-        int last = int.MinValue / 2; // the end of the last record found
+        // The end of the last record found.
+        int last = int.MinValue / 2;
         for (int p = Math.Max(0, from); p < end - 1 && !carving.Full;)
         {
             ct.ThrowIfCancellationRequested();
-            // a freeblock absorbed into this one: its first cell lost 4 bytes like a freeblock's
+            // A freeblock absorbed into this one: its first cell lost 4 bytes like a freeblock's.
             if (stale != null && stale.Contains(p)
                 && Inferred(d, p, Math.Min(p + BinaryPrimitives.ReadUInt16BigEndian(d.AsSpan(p + 2)), end), stale, tables, owner, source, carving) is { } next)
             {
@@ -395,7 +367,7 @@ public sealed partial class SqliteDatabase
             }
             if (!header || Parse(d, at, p + (int)headerSize, -1, [], end) is not { } r || Match(tables, r.Values) is not { } match)
             {
-                // an earlier freeblock absorbed into free space keeps its overwritten start: the types may begin here
+                // An earlier freeblock absorbed into free space keeps its overwritten start: the types may begin here.
                 if ((headless || p == last + 4) && Headless(d, p, end, tables) is { } h)
                 {
                     Add(carving, h.Table, null, h.Values, source, "record, header inferred");
@@ -410,12 +382,7 @@ public sealed partial class SqliteDatabase
         }
     }
 
-    /// <summary>
-    /// A record at <paramref name="start"/> whose body runs past the free region: a freed cell that kept only its first bytes
-    /// on the page and the rest on overflow pages (freed to the freelist, their bytes intact). The payload is read on through
-    /// the chain from the 4-byte page number after the local bytes, for a rowid table and for a WITHOUT ROWID table (their
-    /// local sizes differ); the values, the matched table and the cell's end on the page, or null.
-    /// </summary>
+    /// <summary>A freed record read on through its overflow chain; the values, matched table and cell end, or null.</summary>
     private ((SqliteTable Table, bool Unique) Match, List<object?> Values, int End)? Spill(byte[] d, int start, int typesAt, int headerEnd, int count,
         int end, List<SqliteTable> tables)
     {
@@ -460,10 +427,7 @@ public sealed partial class SqliteDatabase
     /// <summary>Whether the table's first stored column is its rowid alias (stored as NULL).</summary>
     private static bool AliasFirst(SqliteTable t) => t.RowIdAlias >= 0 && t.StoredOrder.Count > 0 && t.StoredOrder[0] == t.RowIdAlias;
 
-    /// <summary>
-    /// A record whose header size byte (and, before a rowid alias, first type) was overwritten: a table's serial types read
-    /// from <paramref name="p"/>. Only a unique fit counts.
-    /// </summary>
+    /// <summary>A record with its header size byte overwritten, read from <paramref name="p"/>; only a unique fit counts.</summary>
     private (SqliteTable Table, List<object?> Values, int End)? Headless(byte[] d, int p, int end, List<SqliteTable> tables)
     {
         (SqliteTable, List<object?>, int)? found = null;
@@ -479,10 +443,7 @@ public sealed partial class SqliteDatabase
         return found;
     }
 
-    /// <summary>
-    /// The rowid when the payload length and rowid varints before the record survive (and agree with its length); in a WITHOUT
-    /// ROWID table (<paramref name="index"/>) the payload length alone.
-    /// </summary>
+    /// <summary>The rowid when the cell header before the record survives; with <paramref name="index"/> the payload length only.</summary>
     private static (long? RowId, string Method) CellHeader(byte[] d, int from, int record, int length, bool index)
     {
         if (index)
@@ -507,11 +468,7 @@ public sealed partial class SqliteDatabase
         return (null, "record");
     }
 
-    /// <summary>
-    /// A record whose serial types start at <paramref name="typesAt"/>: up to <paramref name="headerEnd"/> when the header
-    /// size is known, else exactly <paramref name="count"/> types; <paramref name="leading"/> are types assumed before them.
-    /// The values and the record's end, or null when it is not a well-formed record inside the region.
-    /// </summary>
+    /// <summary>The values and end of a record whose types start at <paramref name="typesAt"/>; null when malformed.</summary>
     private (List<object?> Values, int End)? Parse(byte[] d, int typesAt, int headerEnd, int count, long[] leading, int end)
     {
         var types = new List<long>(leading);
@@ -566,10 +523,7 @@ public sealed partial class SqliteDatabase
     /// <summary>The table a match is credited to: the only one it fits, or the page's owner when that is one it fits.</summary>
     private static SqliteTable? Attributed((SqliteTable Table, bool Unique) match, SqliteTable? owner) => match.Unique || match.Table == owner ? match.Table : null;
 
-    /// <summary>
-    /// Whether stored values fit a table: one per stored column, or fewer down to the shortest live record (rows stored before
-    /// ALTER TABLE ADD COLUMN); the rowid alias NULL, values that suit each column's affinity, at least one other value.
-    /// </summary>
+    /// <summary>Whether values fit a table's stored columns and affinities, short rows allowed down to the shortest live one.</summary>
     private bool Fits(SqliteTable t, IReadOnlyList<object?> values)
     {
         int stored = t.StoredOrder.Count;
@@ -590,7 +544,8 @@ public sealed partial class SqliteDatabase
                 (null, _) => true,
                 (string s, var a) => a is not ('I' or 'R') && Plausible(s),
                 (long or double, 'T') => false,
-                (SqliteBlob, not 'B') => false, // a blob in a typed column is possible but rare: carving keeps to the likely
+                // A blob in a typed column is possible but rare: carving keeps to the likely.
+                (SqliteBlob, not 'B') => false,
                 _ => true,
             };
             if (!ok) return false;

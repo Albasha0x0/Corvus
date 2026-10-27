@@ -8,11 +8,11 @@ namespace Corvus.Tests;
 public class FastIlReaderTests
 {
     [Fact]
-    public void MatchesDnlibOnEveryMethod() => MatchesDnlib(largeRealAssembly: false);
+    public void Matches_dnlib_on_every_method() => MatchesDnlib(largeRealAssembly: false);
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void MatchesDnlibOnEveryMethodOfALargeAssembly() => MatchesDnlib(largeRealAssembly: true);
+    public void Matches_dnlib_on_every_method_of_a_large_assembly() => MatchesDnlib(largeRealAssembly: true);
 
     private static void MatchesDnlib(bool largeRealAssembly)
     {
@@ -60,7 +60,7 @@ public class FastIlReaderTests
     };
 
     [Fact]
-    public void EditedAssembliesUseTheDnlibModule()
+    public void Edited_assemblies_use_the_dnlib_module()
     {
         using var env = new Env();
         env.Edit(() => env.Edits.StubMethod(env.One("Account::Score"), "7"));

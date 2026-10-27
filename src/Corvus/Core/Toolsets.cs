@@ -1,10 +1,7 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// Tool families and profiles. A server registers every tool unless started with --toolsets / CORVUS_TOOLSETS, which lets a
-/// client with a small context see a smaller catalog with full schemas. Every tool is in exactly one family; the profiles
-/// core and lean cross families: Mcp.Profiles reads their members from the contract table.
-/// </summary>
+/// <summary>Tool families and profiles for --toolsets; each tool is in one family, the core and lean profiles cross families.</summary>
+/// <remarks>A smaller catalog keeps full schemas for clients with a small context; Mcp.Profiles reads profile members from the contract table.</remarks>
 public static class Toolsets
 {
     public const string Option = "--toolsets";
@@ -26,13 +23,13 @@ public static class Toolsets
              "decompile_member", "get_il", "search_symbols", "search_strings", "search_constants",
              "search_il", "find_references", "find_callees", "get_call_tree", "find_call_paths", "list_resources", "get_resource",
              "export_project", "get_r2r_code", "find_r2r_method"]),
-        new("containers", "file inspection, containers and wrapped apps, Unity overview",
-            ["summarize_file", "survey_features", "extract_strings", "extract_embedded", "search_container", "unpack_container", "unity_overview"]),
+        new("containers", "file inspection, containers and wrapped apps, build summary",
+            ["summarize_file", "survey_features", "extract_strings", "extract_embedded", "search_container", "unpack_container", "summarize_build"]),
         new("edit", ".NET edits, edit history and saving",
             ["rename_symbol", "rename_namespace", "stub_method", "patch_method_csharp", "patch_method_il", "add_members_csharp", "add_types_csharp",
              "simplify_methods", "list_edits", "diff_edits", "undo_edit", "revert_edits", "export_edits", "apply_edits", "save_assembly"]),
-        new("il2cpp", "Il2Cpp metadata, addresses, symbols and bindings",
-            ["get_il2cpp_info", "find_method_by_address", "export_il2cpp_symbols", "generate_cpp_binding", "apply_il2cpp_names"]),
+        new("aot", "AOT metadata, addresses, symbols and bindings",
+            ["get_method_addresses", "find_method_by_address", "export_method_symbols", "generate_cpp_binding", "apply_metadata_names"]),
         new("native", "native PE analysis, symbols and decompilation",
             ["get_pe_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "convert_number", "list_functions", "list_globals", "disassemble", "inspect_instruction",
              "search_instructions", "get_cfg",
@@ -75,10 +72,8 @@ public static class Toolsets
     /// <summary>The family of a tool, or null for a tool no family lists.</summary>
     public static string? FamilyOf(string tool) => FamilyByTool.GetValueOrDefault(tool);
 
-    /// <summary>
-    /// Family and profile names separated by commas or spaces: all (also full, default), core, lean, or family names, which
-    /// bring the session family along. An unknown name is an <see cref="ArgumentException"/> naming the choices.
-    /// </summary>
+    /// <summary>Parses comma- or space-separated family and profile names; an unknown name is an <see cref="ArgumentException"/>.</summary>
+    /// <remarks>Names: all (also full, default), core, lean, or families, which bring the session family along.</remarks>
     public static IReadOnlySet<string> Parse(string text)
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
@@ -97,10 +92,7 @@ public static class Toolsets
     public const string ToolsFileOption = "--tools-file";
     public const string ToolsFileVariable = "CORVUS_TOOLS_FILE";
 
-    /// <summary>
-    /// Tool lists a --tools-file value names instead of a file. readonly: the analysis tools that change nothing loaded and write
-    /// no file (no device or live-process tools); triage: a first look at a binary, small enough for a small model.
-    /// </summary>
+    /// <summary>Named --tools-file lists: readonly (tools that change and write nothing, no device or live-process tools) and triage (a first look at a binary).</summary>
     public static readonly IReadOnlyDictionary<string, string[]> ToolLists = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["readonly"] =
@@ -108,8 +100,8 @@ public static class Toolsets
             "list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol",
             "decompile_member", "get_il", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
             "find_callees", "get_call_tree", "find_call_paths", "list_resources", "get_r2r_code", "find_r2r_method",
-            "summarize_file", "survey_features", "extract_strings", "search_container", "unity_overview", "analyze_js", "list_edits", "diff_edits",
-            "get_il2cpp_info", "find_method_by_address", "generate_cpp_binding",
+            "summarize_file", "survey_features", "extract_strings", "search_container", "summarize_build", "analyze_js", "list_edits", "diff_edits",
+            "get_method_addresses", "find_method_by_address", "generate_cpp_binding",
             "get_pe_info", "get_engine_status", "get_nativeaot_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "convert_number",
             "list_functions", "list_globals", "disassemble", "search_instructions",
             "inspect_instruction", "get_cfg", "find_xrefs", "native_call_tree", "find_virtual_calls", "search_native_strings", "get_call_arguments",
@@ -127,10 +119,8 @@ public static class Toolsets
         ],
     };
 
-    /// <summary>
-    /// A --tools-file whitelist: a list name of <see cref="ToolLists"/>, or a file of tool names (one or more per line, '#' starts a comment).
-    /// Applied after the toolsets; the session tools stay. An unknown name is an <see cref="ArgumentException"/>.
-    /// </summary>
+    /// <summary>A --tools-file whitelist from a <see cref="ToolLists"/> name or a file; an unknown name is an <see cref="ArgumentException"/>.</summary>
+    /// <remarks>A file holds tool names, '#' starts a comment; applied after the toolsets, session tools stay.</remarks>
     public static IReadOnlySet<string> LoadToolList(string pathOrName)
     {
         var value = pathOrName.Trim();

@@ -3,13 +3,7 @@ using System.Text;
 
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>
-/// Builds a Dart 3.13 AOT program snapshot (product, x64) in an ELF image: one-byte strings, then Code, Function, Class
-/// and ClosureData clusters, and an instructions table that places each code. Strings go in the data image, or in the
-/// stream when <see cref="Features"/> names compressed-pointers. Ref 1 is the only base object (null). With
-/// <see cref="Split"/>, a Dart 3.12 VM snapshot holds the first half of the strings and an isolate snapshot the rest,
-/// numbered on from the VM snapshot's objects; classes with predefined cids lead the Class cluster.
-/// </summary>
+/// <summary>Writes a Dart AOT program snapshot (3.13, x64, or a split 3.12 VM and isolate pair) in an ELF image.</summary>
 internal sealed class DartProgramWriter
 {
     public const string DefaultFeatures = "product no-dwarf_stack_traces x64 linux no-compressed-pointers";
@@ -49,10 +43,7 @@ internal sealed class DartProgramWriter
         return _classes.Count - 1;
     }
 
-    /// <summary>
-    /// Adds a function of <paramref name="kind"/> (UntaggedFunction::Kind) owned by class <paramref name="owner"/>, with
-    /// code of its own unless <paramref name="discarded"/> (code kept only in the instructions table); returns its index.
-    /// </summary>
+    /// <summary>Adds a function of <paramref name="kind"/> owned by <paramref name="owner"/>, with its own code unless <paramref name="discarded"/>; returns its index.</summary>
     public int Function(string name, int owner, int kind = 0, int? closureParent = null, bool discarded = false)
     {
         int data = -1;

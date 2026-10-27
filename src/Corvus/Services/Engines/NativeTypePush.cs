@@ -9,19 +9,8 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Pushes the types the server recovered for an image into its engine session before engine output is shown:
-/// <list type="bullet">
-/// <item>Il2Cpp (after apply_il2cpp_names, 64-bit): the struct layouts of the dummy assemblies as a C header
-/// (<see cref="Il2CppExporter.Header"/>) and each method's C prototype applied to its function.</item>
-/// <item>MSVC RTTI: per class with vftables, a vftable struct (slot function pointers, typed from the target's type
-/// where the engine has one) and a class struct (vftable pointers at their subobject offsets, base subobjects at
-/// theirs; field types beyond that are unknown); the vftables are typed, and virtual methods found in exactly one
-/// class's primary vftable get that class as the type of their first argument.</item>
-/// </list>
-/// One request; a stamp (SHA-256 of the batch) is recorded in the database and saved with it, so a later session on
-/// the same database skips the push when nothing changed.
-/// </summary>
+/// <summary>Pushes recovered types into an image's engine session: AOT struct layouts and method prototypes, and MSVC
+/// RTTI vftable and class structs; a saved stamp skips unchanged pushes.</summary>
 public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
 {
     public const string StampKey = "types";
@@ -49,17 +38,17 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
         await state.Gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var il2cpp = Il2CppNativeNames.Of(native);
-            // a database with the PDB's types has the real classes: the RTTI outlines would replace them
+            var aot = AotNativeNames.Of(native);
+            // A database with PDB types has the real classes, which RTTI outlines would replace.
             var rtti = native.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm && !NativePdbTypes.Applied(session)
                 ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, ct)) : null;
-            object?[] inputs = [il2cpp, rtti, NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Il2Cpp)];
+            object?[] inputs = [aot, rtti, NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Metadata)];
             if (state.Inputs != null && inputs.SequenceEqual(state.Inputs)) return null;
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             // Under the workspace read lock, so the dummy assemblies stay loaded; ones unloaded or reloaded since the names were applied are not used.
-            var batch = await Task.Run(() => workspace == null ? Build(native, il2cpp, rtti, ct) : workspace.Read(() =>
-                Build(native, il2cpp != null && il2cpp.Image.Assemblies.All(workspace.Assemblies.Contains) ? il2cpp : null, rtti, ct)), ct).ConfigureAwait(false);
+            var batch = await Task.Run(() => workspace == null ? Build(native, aot, rtti, ct) : workspace.Read(() =>
+                Build(native, aot != null && aot.Image.Assemblies.All(workspace.Assemblies.Contains) ? aot : null, rtti, ct)), ct).ConfigureAwait(false);
             if (batch.Prototypes.Count == 0 && batch.Classes.Count == 0 && batch.Declarations == null)
             {
                 state.Inputs = inputs;
@@ -84,10 +73,7 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
         finally { state.Gate.Release(); }
     }
 
-    /// <summary>
-    /// Types the virtual method starting at <paramref name="start"/> with its class (first argument) when the last batch
-    /// left it for later (the batch types methods within a time budget); a no-op for other functions. True when sent.
-    /// </summary>
+    /// <summary>Types a virtual method the last batch deferred with its class as first argument; true when sent.</summary>
     public async Task<bool> EnsureMethodAsync(LoadedNative native, INativeDecompilerSession session, uint start, CancellationToken ct)
     {
         if (!States.TryGetValue(session, out var state)) return false;
@@ -102,10 +88,7 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
         finally { state.Gate.Release(); }
     }
 
-    /// <summary>
-    /// <see cref="EnsureMethodAsync"/> for many functions in one request: the virtual methods among <paramref name="starts"/> the
-    /// last batch left for later get their class as the type of their first argument. Returns how many were sent.
-    /// </summary>
+    /// <summary><see cref="EnsureMethodAsync"/> for many functions in one request; returns how many were sent.</summary>
     public async Task<int> EnsureMethodsAsync(LoadedNative native, INativeDecompilerSession session, IEnumerable<uint> starts, CancellationToken ct)
     {
         if (!States.TryGetValue(session, out var state)) return 0;
@@ -125,29 +108,29 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
     /// <summary>The stamp of the types last pushed to <paramref name="session"/>, or "" before any push.</summary>
     public static string CurrentStamp(INativeDecompilerSession session) => States.TryGetValue(session, out var s) ? s.Stamp ?? "" : "";
 
-    /// <summary>The batch for an image: Il2Cpp header and prototypes, MSVC RTTI classes.</summary>
-    internal static NativeTypeBatch Build(LoadedNative native, Il2CppNativeNames.Applied? il2cpp, MsvcRttiResult? rtti, CancellationToken ct)
+    /// <summary>The batch for an image: AOT header and prototypes, MSVC RTTI classes.</summary>
+    internal static NativeTypeBatch Build(LoadedNative native, AotNativeNames.Applied? aot, MsvcRttiResult? rtti, CancellationToken ct)
     {
         string? header = null;
         var prototypes = new List<NativePrototype>();
-        if (il2cpp != null)
+        if (aot != null)
         {
-            // Il2Cpp builds x86 code with the compiler default, __cdecl; Ghidra's x86 default would be __stdcall
-            Il2CppLayout? layout = new(native.Image.Is64Bit ? 8u : 4u) { Convention = native.Image.Arch == NativeArch.X86 ? "__cdecl" : null };
-            Il2CppExporter.LayOut(layout, il2cpp.Image.Assemblies, ct);
-            var names = NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Il2Cpp)?.Names;
-            foreach (var start in il2cpp.Image.Starts)
+            // AOT x86 code uses __cdecl; Ghidra's x86 default would be __stdcall.
+            AotLayout? layout = new(native.Image.Is64Bit ? 8u : 4u) { Convention = native.Image.Arch == NativeArch.X86 ? "__cdecl" : null };
+            AotExporter.LayOut(layout, aot.Image.Assemblies, ct);
+            var names = NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Metadata)?.Names;
+            foreach (var start in aot.Image.Starts)
             {
                 ct.ThrowIfCancellationRequested();
                 if (start >= native.Image.SizeOfImage || native.Image.SectionAt(start) is not { IsExecutable: true }) continue;
-                var (methods, _) = Il2CppNavigator.MethodsSharing(il2cpp.Image, start);
+                var (methods, _) = AotNavigator.MethodsSharing(aot.Image, start);
                 if (methods.Count == 0) continue;
-                // methods of a module replaced since the names were applied (reload, reverted edits): apply_il2cpp_names again first
+                // A module replaced since the names were applied needs apply_metadata_names again first.
                 if (!ReferenceEquals(methods[0].Method.Module, methods[0].Assembly.Module)) { prototypes.Clear(); layout = null; break; }
-                // the prototype's own types are laid out on the way, so the header is written after them
-                prototypes.Add(new NativePrototype(start, Il2CppExporter.Prototype(layout, methods[0].Method, names?.GetValueOrDefault(start) ?? $"f_{start:X}")));
+                // Prototypes lay out their own types, so the header is written after them.
+                prototypes.Add(new NativePrototype(start, AotExporter.Prototype(layout, methods[0].Method, names?.GetValueOrDefault(start) ?? $"f_{start:X}")));
             }
-            header = layout != null ? Il2CppExporter.Header(layout) : null;
+            header = layout != null ? AotExporter.Header(layout) : null;
         }
 
         var classes = new List<NativeClassType>();
@@ -160,13 +143,12 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
             foreach (var c in polymorphic)
             {
                 if (idents.ContainsKey(c.Name)) continue;
-                var id = Il2CppLayout.Identifier(c.Name.Replace("::", "__"));
-                for (int i = 2; !used.Add(id); i++) id = $"{Il2CppLayout.Identifier(c.Name.Replace("::", "__"))}_{i}";
+                var id = AotLayout.Identifier(c.Name.Replace("::", "__"));
+                for (int i = 2; !used.Add(id); i++) id = $"{AotLayout.Identifier(c.Name.Replace("::", "__"))}_{i}";
                 idents[c.Name] = id;
             }
-            // A virtual method's class: of the classes whose primary vftable holds it (a class and the derived classes that
-            // inherit the method without overriding it), the one every other derives from at offset 0. Targets also in a
-            // secondary vftable are skipped (their this is adjusted).
+            // A virtual method's class is the one every primary-vftable holder derives from at offset 0. Targets in a
+            // secondary vftable are skipped, since their this is adjusted.
             var holders = new Dictionary<uint, List<MsvcRttiClass>>();
             var secondary = new HashSet<uint>();
             foreach (var c in polymorphic)
@@ -185,7 +167,7 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
             foreach (var c in polymorphic)
             {
                 ct.ThrowIfCancellationRequested();
-                // a class name with several type descriptors (one per module that defines it) is emitted once
+                // A class with one type descriptor per defining module is emitted once.
                 if (!idents.TryGetValue(c.Name, out var id) || !emitted.Add(id)) continue;
                 var bases = c.Bases.Where(b => b.Depth == 1 && !b.IsVirtual && b.Mdisp > 0 && idents.ContainsKey(b.Name))
                     .Select(b => new NativeBaseType(idents[b.Name], b.Mdisp)).DistinctBy(b => b.Offset).ToList();

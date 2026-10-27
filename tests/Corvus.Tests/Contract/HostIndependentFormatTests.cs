@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 public class HostIndependentFormatTests
 {
     [Fact]
-    public void PercentIgnoresTheCulture()
+    public void Percent_ignores_the_culture()
     {
         var saved = CultureInfo.CurrentCulture;
         try
@@ -27,5 +27,5 @@ public class HostIndependentFormatTests
     [InlineData(@"C:\src\bar.obj", "bar.obj")]
     [InlineData("/build/obj/bar.o", "bar.o")]
     [InlineData("bar.obj", "bar.obj")]
-    public void ForeignFileNameSplitsOnBothSeparators(string path, string name) => Assert.Equal(name, Format.ForeignFileName(path));
+    public void Foreign_file_name_splits_on_both_separators(string path, string name) => Assert.Equal(name, Format.ForeignFileName(path));
 }

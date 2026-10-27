@@ -4,10 +4,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// symbolize_stack_text over hand-written texts in each documented shape, resolved against the test fixture assembly
-/// and the synthetic native module (synth.dll: exports Crash at 0x1000, Outer at 0x1020, Big at 0x1080).
-/// </summary>
+/// <summary>symbolize_stack_text over each documented shape, against the fixture assembly and synth.dll.</summary>
 public sealed class StackTextTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -38,7 +35,7 @@ public sealed class StackTextTests : IDisposable
 
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task DotNetExceptionTextKeepsTheInnerChain()
+    public async Task Dotnet_exception_text_keeps_the_inner_chain()
     {
         var r = await Run("""
             Unhandled exception. System.InvalidOperationException: outer failure
@@ -64,12 +61,13 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal(0, outer.Exception);
         Assert.Contains("Charge(int, string)", outer.Resolved);
         Assert.NotEqual(inner.Token, outer.Token);
-        Assert.Null(r.Items[2].Assembly); // Program is not loaded
+        // Program is not loaded.
+        Assert.Null(r.Items[2].Assembly);
         Assert.Equal(0, r.UnrecognizedLines);
     }
 
     [Fact]
-    public async Task MonoFramesAreMatchedByModuleMvid()
+    public async Task Mono_frames_are_matched_by_module_MVID()
     {
         var mvid = _fixture.Module.Mvid!.Value;
         var other = Guid.NewGuid();
@@ -81,7 +79,7 @@ public sealed class StackTextTests : IDisposable
               at App.Player.Update () [0x00000] in <{unknown:N}>:0
               at (wrapper runtime-invoke) object.runtime_invoke_void (object,intptr,intptr,intptr)
             """);
-        Assert.Equal("unity", r.Format);
+        Assert.Equal("mono", r.Format);
         Assert.Equal("NullReferenceException", r.Exception!.Type);
         Assert.Equal("match", r.Items[0].BuildCheck);
         Assert.Equal(0x1a, r.Items[0].IlOffset);
@@ -94,7 +92,7 @@ public sealed class StackTextTests : IDisposable
     }
 
     [Fact]
-    public async Task UnityBacktraceUsesTheModuleListForLoadAddresses()
+    public async Task A_Mono_backtrace_uses_the_module_list_for_load_addresses()
     {
         var r = await Run("""
             ========== OUTPUTTING STACK TRACE ==================
@@ -106,11 +104,12 @@ public sealed class StackTextTests : IDisposable
             C:\App\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
             C:\App\UnityPlayer.dll:UnityPlayer.dll (00007FFB22220000), size: 1048576 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 2022.3.1.0
             """);
-        Assert.Equal("unity", r.Format);
+        Assert.Equal("mono", r.Format);
         var crash = r.Items[0];
         Assert.Equal("0x1005", crash.Offset);
         Assert.Equal("Crash+0x5", crash.Resolved);
-        Assert.Equal("match", crash.BuildCheck); // the text's own name agrees
+        // The text's own name agrees.
+        Assert.Equal("match", crash.BuildCheck);
         Assert.Equal("synth.dll", crash.Image);
         Assert.StartsWith("decompile_native image=synth.dll address=0x1005", crash.NextStep);
         Assert.StartsWith("Outer+0x", r.Items[1].Resolved);
@@ -118,12 +117,13 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal("UnityPlayer", player.Module);
         Assert.Equal("2022.3.1.0", player.Version);
         Assert.Equal(_fixture.Id, r.Items[3].Assembly);
-        Assert.Equal(2, r.UnrecognizedLines); // the banner lines
+        // The two banner lines.
+        Assert.Equal(2, r.UnrecognizedLines);
     }
 
     /// <summary>compact folds a run of matching native frames of one image into one row that keeps their names; offset and total count rows.</summary>
     [Fact]
-    public async Task CompactFoldsMatchingFramesOfOneImage()
+    public async Task Compact_folds_matching_frames_of_one_image()
     {
         const string text = """
             ========== OUTPUTTING STACK TRACE ==================
@@ -146,7 +146,7 @@ public sealed class StackTextTests : IDisposable
 
     /// <summary>An Android tombstone backtrace: frames resolve in the loaded .so whose GNU build id the line names; another build id is another build.</summary>
     [Fact]
-    public async Task AndroidTombstoneFramesResolveByBuildId()
+    public async Task Android_tombstone_frames_resolve_by_build_id()
     {
         byte[] id = [0x3c, 0x5c, 0x01, 0x9f, 0xaa, 0xbb, 0xcc, 0xdd, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0x12, 0x34];
         var so = _dir.File("libapp.so");
@@ -185,9 +185,9 @@ public sealed class StackTextTests : IDisposable
             frames.Select(f => (f.Symbol, f.SymbolOffset, f.BuildId)));
     }
 
-    /// <summary>Il2Cpp builds print an all-zero MVID: no build identity, so the frame is matched by name and its build is unknown.</summary>
+    /// <summary>AOT builds print an all-zero MVID: no build identity, so the frame is matched by name and its build is unknown.</summary>
     [Fact]
-    public async Task Il2CppZeroMvidIsUnknownNotAnotherBuild()
+    public async Task An_AOT_zero_MVID_is_unknown_not_another_build()
     {
         var r = await Run("""
             NullReferenceException: Object reference not set to an instance of an object.
@@ -198,9 +198,9 @@ public sealed class StackTextTests : IDisposable
         Assert.Empty(r.ModulesMissing);
     }
 
-    /// <summary>Unity writes "Crash!!!" before every crash report: a banner, not a module!function frame.</summary>
+    /// <summary>The runtime writes "Crash!!!" before every crash report: a banner, not a module!function frame.</summary>
     [Fact]
-    public async Task UnityCrashBannerIsNotAFrame()
+    public async Task The_crash_banner_is_not_a_frame()
     {
         var r = await Run("""
             Crash!!!
@@ -214,31 +214,31 @@ public sealed class StackTextTests : IDisposable
 
     /// <summary>The fixture carries dummy-assembly [Address] attributes (NativeThing::First at 0x1000, ::Second at 0x1100): GameAssembly frames get their names.</summary>
     [Fact]
-    public async Task Il2CppFramesAreNamedThroughTheDummyAssemblies()
+    public async Task AOT_frames_are_named_through_the_dummy_assemblies()
     {
         using var env = new Env();
         var binary = _dir.File("GameAssembly.dll");
-        File.WriteAllBytes(binary, Il2CppStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
+        File.WriteAllBytes(binary, AotStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
         env.Workspace.LoadAny(binary);
-        var service = new StackTextService(env.Workspace, null, env.Il2CppNavigator);
+        var service = new StackTextService(env.Workspace, null, env.AotNavigator);
         var r = await service.Symbolize("""
             0x00007FFB00001105 (GameAssembly) (function-name not available)
             Fixture.Native.NativeThing:First ()
             C:\App\GameAssembly.dll:GameAssembly.dll (00007FFB00000000), size: 8192 (result: 0), fileVersion: 0.0.0.0
             """, null, null, null, null, 0, 50, default);
         var native = r.Items[0];
-        Assert.Equal("il2cpp", native.Source);
+        Assert.Equal("metadata", native.Source);
         Assert.Contains("NativeThing", native.Resolved);
         Assert.Contains("Second", native.Resolved);
         Assert.EndsWith("+0x5", native.Resolved);
         var managed = r.Items[1];
-        Assert.Equal("il2cpp", managed.Kind);
-        Assert.StartsWith($"get_il2cpp_info assembly={env.Fixture.Id} symbol=0x06", managed.NextStep);
+        Assert.Equal("aot", managed.Kind);
+        Assert.StartsWith($"get_method_addresses assembly={env.Fixture.Id} symbol=0x06", managed.NextStep);
     }
 
     /// <summary>Runtime code after the last method (::Second at 0x1100) is a function of its own, not Second plus an offset.</summary>
     [Fact]
-    public async Task CodeBetweenIl2CppMethodsIsNotNamedAfterTheMethodBelow()
+    public async Task Code_between_AOT_methods_is_not_named_after_the_method_below()
     {
         using var env = new Env();
         var binary = _dir.File("GameAssembly.dll");
@@ -249,7 +249,7 @@ public sealed class StackTextTests : IDisposable
         pe.Add(".text", text, 0x60000020);
         File.WriteAllBytes(binary, pe.Build());
         env.Workspace.LoadAny(binary);
-        var service = new StackTextService(env.Workspace, new NativeCodeService(env.Workspace, new ServerOptions()), env.Il2CppNavigator);
+        var service = new StackTextService(env.Workspace, new NativeCodeService(env.Workspace, new ServerOptions()), env.AotNavigator);
         var r = await service.Symbolize("""
             0x00007FFB00001205 (GameAssembly) (function-name not available)
             0x00007FFB00001105 (GameAssembly) (function-name not available)
@@ -259,27 +259,27 @@ public sealed class StackTextTests : IDisposable
         Assert.Contains("Second", r.Items[1].Resolved);
     }
 
-    /// <summary>Android tombstones name libil2cpp.so: its frames get the Il2Cpp names too, not only GameAssembly's.</summary>
+    /// <summary>Android tombstones name libil2cpp.so: its frames get the metadata names too, not only GameAssembly's.</summary>
     [Fact]
-    public async Task AndroidTombstoneFramesInLibIl2CppAreNamedThroughTheDummyAssemblies()
+    public async Task Android_tombstone_frames_in_libil2cpp_are_named_through_the_dummy_assemblies()
     {
         using var env = new Env();
         var binary = _dir.File("libil2cpp.so");
-        File.WriteAllBytes(binary, Il2CppStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
+        File.WriteAllBytes(binary, AotStringTests.Pe64([(".text", 0x1000, new byte[0x400], 0x60000020)]));
         env.Workspace.LoadAny(binary);
-        var service = new StackTextService(env.Workspace, null, env.Il2CppNavigator);
+        var service = new StackTextService(env.Workspace, null, env.AotNavigator);
         var r = await service.Symbolize("""
             backtrace:
                   #00 pc 0000000000001105  /data/app/~~x==/com.example.app-1/lib/arm64/libil2cpp.so
             """, null, null, null, null, 0, 50, default);
         var native = Assert.Single(r.Items);
-        Assert.Equal("il2cpp", native.Source);
+        Assert.Equal("metadata", native.Source);
         Assert.Contains("Second", native.Resolved);
         Assert.EndsWith("+0x5", native.Resolved);
     }
 
     [Fact]
-    public async Task WerReportComparesTheFaultingModuleTimestamp()
+    public async Task WER_report_compares_the_faulting_module_timestamp()
     {
         string Report(uint stamp) => $"""
             Version=1
@@ -311,7 +311,7 @@ public sealed class StackTextTests : IDisposable
     }
 
     [Fact]
-    public async Task EventLogTextIsReadLikeWer()
+    public async Task Event_log_text_is_read_like_WER()
     {
         var r = await Run($"""
             Faulting application name: app.exe, version: 1.0.0.0, time stamp: 0x65000000
@@ -328,7 +328,7 @@ public sealed class StackTextTests : IDisposable
     }
 
     [Fact]
-    public async Task DebuggerFramesAreCheckedAgainstOurFunctions()
+    public async Task Debugger_frames_are_checked_against_our_functions()
     {
         var r = await Run("""
             00 000000e0`00010000 00007ff6`10001005 synth!Crash+0x5
@@ -346,7 +346,7 @@ public sealed class StackTextTests : IDisposable
     }
 
     [Fact]
-    public async Task UnrecognizedTextIsCountedNotDropped()
+    public async Task Unrecognized_text_is_counted_not_dropped()
     {
         var r = await Run("hello\nworld\n\nnothing here\n4 5 6\nmore\nlines");
         Assert.Equal(0, r.Total);
@@ -357,7 +357,7 @@ public sealed class StackTextTests : IDisposable
     }
 
     [Fact]
-    public async Task ArgumentsAreChecked()
+    public async Task Arguments_are_checked()
     {
         async Task<ErrorCode> Code(Func<Task> call) => (await Assert.ThrowsAsync<ToolError>(call)).Code;
         Assert.Equal(ErrorCode.InvalidArgument, await Code(() => _service.Symbolize(null, null, null, null, null, 0, 10, default)));
@@ -370,7 +370,7 @@ public sealed class StackTextTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task LargeLogsAreReadFromTheirEnd()
+    public async Task Large_logs_are_read_from_their_end()
     {
         var log = _dir.File("Player.log");
         using (var w = new StreamWriter(log))

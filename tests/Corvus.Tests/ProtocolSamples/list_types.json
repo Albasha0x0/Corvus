@@ -6,21 +6,22 @@
   },
   "isError": false,
   "content": [
-    "24 types (showing 1-3):\n  0x02000002  class        Il2CppDummyDll.AddressAttribute\n  0x02000003  class        Il2CppDummyDll.FieldOffsetAttribute\n  0x02000004  class        Il2CppDummyDll.TokenAttribute\n[More: offset=3]\n"
+    "24 types (showing 1-3):\n  0x02000002  class        Fixture.Model.TagsAttribute\n  0x02000003  class        Fixture.Model.Tagged\n  0x02000004  interface    Fixture.Model.IChargeable\n[More: offset=3]\n"
   ],
   "structuredContent": {
     "items": [
       {
         "token": "0x02000002",
-        "name": "Il2CppDummyDll.AddressAttribute"
+        "name": "Fixture.Model.TagsAttribute"
       },
       {
         "token": "0x02000003",
-        "name": "Il2CppDummyDll.FieldOffsetAttribute"
+        "name": "Fixture.Model.Tagged"
       },
       {
         "token": "0x02000004",
-        "name": "Il2CppDummyDll.TokenAttribute"
+        "name": "Fixture.Model.IChargeable",
+        "kind": "interface"
       }
     ],
     "offset": 0,

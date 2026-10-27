@@ -3,17 +3,11 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services.Analysis.Dependencies;
 
-/// <summary>
-/// An advisory that applies to a component: the OSV id, its aliases (CVE, GHSA), summary, the highest CVSS score of its
-/// group (null when none is given) and the versions that fix it.
-/// </summary>
+/// <summary>An OSV advisory for a component; Severity is the group's highest CVSS score, null when none is given.</summary>
 public sealed record DependencyAdvisory(string Component, string Name, string Version, string Id, IReadOnlyList<string> Aliases, string? Summary,
     string? Severity, IReadOnlyList<string> Fixed);
 
-/// <summary>
-/// The advisory check of a dependency inventory. State is "checked" or "not checked" (never "none found" without a check);
-/// Checked counts the components with a package URL that were matched, NotChecked those without one.
-/// </summary>
+/// <summary>The advisory check of an inventory; State is "checked" or "not checked", never "none found" without a check; Checked counts components matched by package URL, NotChecked those without one.</summary>
 public sealed record DependencyAdvisories(string State, string? Checker, int Checked, int NotChecked, IReadOnlyList<DependencyAdvisory> Findings,
     string? Note);
 

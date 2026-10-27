@@ -4,12 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=request: every request of a HAR, mitmproxy or .saz capture in capture order, streamed at any size:
-/// method and URL template, request header and cookie names, request body type and size, GraphQL operations, status,
-/// HTTP version, time, response type and size, server-sent event and NDJSON message shapes, and WebSocket messages by
-/// direction and shape. Values (header, cookie and query values, message text) only with values=true.
-/// </summary>
+/// <summary>search_container kind=request: each request of a HAR, mitmproxy or .saz capture, streamed; values only with values=true.</summary>
 internal sealed class RequestSearchKind : IContainerSearchKind
 {
     public IReadOnlyList<string> Kinds => ["request"];

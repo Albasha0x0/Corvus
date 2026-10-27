@@ -118,7 +118,7 @@ public class NativeArm64Tests
         a.Word(A64.Adrp(a.Here, slotFree, 16, Base)).Word(A64.LdrX(17, 16, slotFree & 0xFFF)).Word(A64.Blr(17));
         a.Later(at => A64.Bl(at, plt));
         a.Word(0xFFFFFFFF);
-        // second: tail call through the PLT
+        // Second: tail call through the PLT.
         tail = a.Here;
         a.Later(at => A64.B(at, plt));
         plt = a.Here;

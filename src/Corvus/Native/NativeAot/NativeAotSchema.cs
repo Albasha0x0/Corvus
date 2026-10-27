@@ -72,12 +72,7 @@ public enum MdRecord : byte
     TypeVariableSignature,
 }
 
-/// <summary>
-/// Field encodings of each record in schema order. Codes: h handle of any record (type in the low bits), t handle of a
-/// fixed record (offset only), c collection of handles (count, then compressed integers), u / i compressed unsigned /
-/// signed integer (also enums, char, short), l / j unsigned / signed long, b one byte (bool, byte, sbyte), f / d
-/// float / double, s string (byte count, UTF-8), 1 / 2 / 4 / 8 collection of fixed-size primitives of that size.
-/// </summary>
+/// <summary>Field encodings per record: h/t handle, c handle collection, u/i/l/j integer, b byte, f/d float, s string, 1/2/4/8 arrays.</summary>
 internal static class NativeAotSchema
 {
     public sealed record Layout(MdRecord Record, string Codes, string Names)

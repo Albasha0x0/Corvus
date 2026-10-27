@@ -3,11 +3,8 @@ using System.Net.Http.Headers;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// HTTP for the GitHub API. Redirects are followed here: .NET drops the Authorization header on every redirect, so a
-/// renamed or moved private repository (301 to api.github.com/repositories/ID) would answer 404. The token goes only
-/// to GitHub's own hosts, never to the signed download URLs assets redirect to.
-/// </summary>
+/// <summary>HTTP for the GitHub API; the token goes only to GitHub's own hosts, never to asset download URLs.</summary>
+// Redirects are followed here: .NET drops Authorization on redirect, so a moved private repository would answer 404.
 internal sealed class GitHubHttp(HttpMessageHandler inner, string? token) : DelegatingHandler(inner)
 {
     private const int MaxRedirects = 10;

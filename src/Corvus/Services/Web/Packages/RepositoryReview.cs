@@ -39,10 +39,7 @@ public static partial class PackageReview
     private static readonly Regex GradleExec = new(@"\bexec\s*\{|\bcommandLine\b|\bProcessBuilder\b|Runtime\.getRuntime\(\)\.exec|""\s*\.execute\(\)", RegexOptions.Compiled);
     private static readonly Regex CMakeExec = new(@"\bexecute_process\s*\(", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    /// <summary>
-    /// What a repository runs on open, checkout or build: git hooks and config commands, dev container commands, direnv
-    /// files and build steps (MSBuild, Cargo, Gradle, CMake). Null when there is none.
-    /// </summary>
+    /// <summary>What a repository runs on open, checkout or build (git, dev container, direnv, build files); null when none.</summary>
     internal static AgentReview? RepositoryHooks(PackageFiles files, CancellationToken ct)
     {
         var review = new AgentReview([], [], []);
@@ -195,7 +192,7 @@ public static partial class PackageReview
                     case "Exec" when target != null && reader.GetAttribute("Command") is { } command:
                         review.Entries.Add(new AgentEntry("build step", target, Clip(command), path, info.LineNumber));
                         review.Findings.Add(new PackageFinding(designTime ? "noteworthy" : "review", "build step",
-                            $"MSBuild target {target} runs {Clip(command, 200)}" + (designTime ? "; Visual Studio's design-time build, run when the project opens, reaches it" : " at build"), path, info.LineNumber));
+                            $"MSBuild target {target} runs {Clip(command, 200)}" + (designTime ? "; the design-time build runs it when Visual Studio opens the project" : " at build"), path, info.LineNumber));
                         ScanCommand(command, "target " + target, path, info.LineNumber, review, ct);
                         break;
                     case "UsingTask" when reader.GetAttribute("TaskFactory") is { } factory && factory.Contains("CodeTaskFactory", StringComparison.Ordinal):
@@ -228,7 +225,7 @@ public static partial class PackageReview
             if (!GradleExec.IsMatch(lines[i])) continue;
             var command = Clip(lines[i].Trim(), 200)!;
             review.Entries.Add(new AgentEntry("build step", path[(path.LastIndexOf('/') + 1)..], command, path, i + 1));
-            review.Findings.Add(new PackageFinding("review", "build step", $"Gradle script starts a process; an IDE's Gradle sync runs the script when the project opens: {command}", path, i + 1));
+            review.Findings.Add(new PackageFinding("review", "build step", $"Gradle script starts a process; IDE sync runs it when the project opens: {command}", path, i + 1));
             ScanCommand(lines[i], "Gradle script", path, i + 1, review, ct);
         }
     }

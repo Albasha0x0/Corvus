@@ -13,11 +13,7 @@ public sealed record GoModule(string Path, string Version, string? Sum, GoModule
 /// <summary>One build setting (-ldflags, GOOS, GOARCH, CGO_ENABLED, vcs.revision, vcs.time, vcs.modified, ...).</summary>
 public sealed record GoSetting(string Key, string Value);
 
-/// <summary>
-/// The build information the Go linker embeds (runtime/debug.BuildInfo, Go 1.13+): toolchain version, main package path,
-/// main module, dependencies and build settings. Found by section name (.go.buildinfo, __go_buildinfo) or else by its
-/// header magic at 16-byte alignment in the data sections.
-/// </summary>
+/// <summary>Build information the Go linker embeds (Go 1.13+): toolchain version, main package, modules and build settings.</summary>
 public sealed record GoBuildInfo(string GoVersion, string? Path, GoModule? Main, IReadOnlyList<GoModule> Dependencies, IReadOnlyList<GoSetting> Settings)
 {
     private static ReadOnlySpan<byte> Magic => [0xFF, 0x20, 0x47, 0x6F, 0x20, 0x62, 0x75, 0x69, 0x6C, 0x64, 0x69, 0x6E, 0x66, 0x3A]; // "\xff Go buildinf:"
@@ -67,7 +63,7 @@ public sealed record GoBuildInfo(string GoVersion, string? Path, GoModule? Main,
         string? version, modinfo;
         if ((header[15] & 2) != 0)
         {
-            // Go 1.18+: two varint-prefixed strings follow the header
+            // Go 1.18+: two varint-prefixed strings follow the header.
             uint at = rva + 32;
             version = Inline(image, ref at);
             modinfo = version != null ? Inline(image, ref at) : null;
@@ -121,7 +117,7 @@ public sealed record GoBuildInfo(string GoVersion, string? Path, GoModule? Main,
     /// <summary>Parses the module text runtime/debug.BuildInfo.String writes, inside its 16-byte start and end markers.</summary>
     internal static GoBuildInfo Parse(string version, string modinfo)
     {
-        // the linker wraps the text in 16 marker bytes on each side
+        // The linker wraps the text in 16 marker bytes on each side.
         if (modinfo.Length >= 33 && modinfo[^17] == '\n') modinfo = modinfo[16..^16];
         string? path = null;
         GoModule? main = null;

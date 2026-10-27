@@ -10,10 +10,7 @@ public sealed record TransformerFinding(string Name,
     [property: Description("marker (its type or attribute), strong or likely (the shape of its runtime code).")] string Confidence,
     IReadOnlyList<string> Evidence);
 
-/// <summary>
-/// Names the transformation tool of a module from its marker types and attributes and the shapes of the runtime code
-/// it adds. Reads metadata and IL only; no pass runs.
-/// </summary>
+/// <summary>Names a module's transformation tool from its markers and runtime code shapes; reads metadata and IL only.</summary>
 public static partial class Transformers
 {
     private const int MaxEvidence = 4;
@@ -49,7 +46,7 @@ public static partial class Transformers
             if (evidence.Count > 0) found.Add(new TransformerFinding(name, confidence, [.. evidence.Take(MaxEvidence)]));
         }
 
-        // ConfuserEx: its runtime is merged into <Module>, started from <Module>.cctor
+        // ConfuserEx merges its runtime into <Module> and starts it from <Module>.cctor.
         var confuser = new List<string>();
         if (Named("ConfusedByAttribute")) confuser.Add("ConfusedByAttribute");
         foreach (var m in globalMethods.Where(m => m.IsStatic && m.HasGenericParameters && m.MethodSig is { } sig && sig.Params.Count == 1
@@ -63,29 +60,29 @@ public static partial class Transformers
         Add("ConfuserEx", Named("ConfusedByAttribute") ? "marker" : confuser.Any(e => e.StartsWith("constants", StringComparison.Ordinal)) ? "strong" : "likely",
             confuser.Count >= 2 || Named("ConfusedByAttribute") || confuser.Any(e => e.StartsWith("constants", StringComparison.Ordinal)) ? confuser : []);
 
-        // SmartAssembly: its runtime keeps its namespaces
+        // SmartAssembly's runtime keeps its namespaces.
         var smart = types.Where(t => t.Namespace.String.StartsWith("SmartAssembly.", StringComparison.Ordinal)).Select(t => t.FullName).Take(3).ToList();
         if (Named("SmartAssembly.Attributes.PoweredByAttribute")) smart.Insert(0, "SmartAssembly.Attributes.PoweredByAttribute");
         Add("SmartAssembly", "marker", smart.Select(s => s.StartsWith("SmartAssembly.Attributes", StringComparison.Ordinal) ? s : "runtime type " + s).ToList());
 
-        // Dotfuscator: its attribute, PreEmptive's namespaces
+        // Dotfuscator leaves its attribute and PreEmptive's namespaces.
         var dotfuscator = new List<string>();
         if (Named("DotfuscatorAttribute")) dotfuscator.Add("DotfuscatorAttribute");
         dotfuscator.AddRange(types.Where(t => t.Namespace.String.StartsWith("PreEmptive.", StringComparison.Ordinal)).Select(t => "runtime type " + t.FullName).Take(2));
         Add("Dotfuscator", "marker", dotfuscator);
 
-        // Babel: its attributes; its renamed members use private-use characters
+        // Babel leaves its attributes.
         var babel = new List<string>();
         foreach (var n in new[] { "BabelAttribute", "BabelObfuscatorAttribute" }) if (Named(n)) babel.Add(n);
         Add("Babel.NET", "marker", babel);
 
-        // .NET Reactor: <PrivateImplementationDetails>{GUID} holders, NecroBit's empty bodies
+        // .NET Reactor adds <PrivateImplementationDetails>{GUID} holders; NecroBit leaves methods without bodies.
         var reactor = types.Where(t => ReactorHolder().IsMatch(t.Name.String)).Select(t => $"type {Safe(t.Name)}").Take(2).ToList();
         int stubs = types.SelectMany(t => t.Methods).Count(m => m.RVA == 0 && !m.IsAbstract && !m.IsPinvokeImpl && !m.IsInternalCall && !m.IsRuntime && m.DeclaringType?.IsInterface != true);
         if (reactor.Count > 0 && stubs > 0) reactor.Add($"{stubs} method(s) without an IL body (NecroBit moves bodies to native code)");
         Add(".NET Reactor", stubs > 0 ? "strong" : "likely", reactor);
 
-        // Eazfuscator.NET: a string decoder reading an embedded resource, in a type whose name is a single non-printing character
+        // Eazfuscator.NET adds a string decoder reading a resource, in a type with a one- or two-character non-alphanumeric name.
         var eaz = new List<string>();
         foreach (var t in types.Where(t => t.Name.String.Length is 1 or 2 && !t.Name.String.All(char.IsAsciiLetterOrDigit)))
             foreach (var m in t.Methods.Where(m => m.IsStatic && m.MethodSig is { } sig && sig.RetType.ElementType == ElementType.String && sig.Params.Count == 1
@@ -97,7 +94,6 @@ public static partial class Transformers
         return found;
     }
 
-    // <PrivateImplementationDetails>{0F3A6D2B-...}
     [GeneratedRegex(@"^<PrivateImplementationDetails>\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$")]
     private static partial Regex ReactorHolder();
 

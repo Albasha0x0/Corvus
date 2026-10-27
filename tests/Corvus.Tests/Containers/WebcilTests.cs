@@ -5,10 +5,7 @@ using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Blazor WebAssembly's _framework folder holds Webcil (.wasm) assemblies; loading it said "Loaded 0 assemblies" and
-/// nothing else. Folder and file loads now say why, and the container tools convert Webcil to a PE that loads.
-/// </summary>
+/// <summary>Webcil assemblies in a _framework folder: loads name why, and the container tools convert them to PE.</summary>
 public sealed class WebcilTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -61,7 +58,7 @@ public sealed class WebcilTests : IDisposable
 
     /// <summary>A Blazor app's assembly (it has Main) converted as a DLL exported as OutputType Library with a StartupObject: CS2017.</summary>
     [Fact]
-    public void AnAssemblyWithAnEntryPointConvertsToAnExe()
+    public void An_assembly_with_an_entry_point_converts_to_an_EXE()
     {
         var exe = Roslyn.Compile("App", "public static class Program { public static void Main() { } }",
             new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.ConsoleApplication), []);
@@ -74,7 +71,7 @@ public sealed class WebcilTests : IDisposable
     }
 
     [Fact]
-    public void WebcilConvertsToAPeThatLoadsAndFolderLoadsSayWhyNothingLoaded()
+    public void Webcil_converts_to_a_PE_that_loads_and_folder_loads_say_why_nothing_loaded()
     {
         var wasm = ToWasm(File.ReadAllBytes(Env.FixturePath));
         var framework = Path.Combine(_dir.Path, "wwwroot", "_framework");
@@ -85,7 +82,8 @@ public sealed class WebcilTests : IDisposable
         var contents = Containers.Open(wasm, file, AnalysisLimits.Default, default);
         Assert.Equal("Webcil", contents.Kind);
         var pe = Assert.Single(contents.Items);
-        Assert.Equal("TestFixture.dll", pe.Name); // the assembly name, not the fingerprinted file name, so references resolve
+        // The assembly name, not the fingerprinted file name, so references resolve.
+        Assert.Equal("TestFixture.dll", pe.Name);
         Assert.Equal(".NET assembly", Blob.Identify(pe.Bytes));
         var dll = Path.Combine(_dir.Path, "TestFixture.dll");
         File.WriteAllBytes(dll, pe.Bytes);
@@ -116,7 +114,7 @@ public sealed class WebcilTests : IDisposable
     /// could not be unpacked where they resolve each other; and a patched assembly could only be saved as a PE.
     /// </summary>
     [Fact]
-    public void AFrameworkFolderUnpacksInOneGoAndPatchesSaveBackAsWebcil()
+    public void A_framework_folder_unpacks_in_one_go_and_patches_save_back_as_Webcil()
     {
         var lib = ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public static int V() { return 1; } } }");
         var app = ReferenceResolutionTests.Compile("App", "namespace A { public static class Run { public static int Go() { return L.Marker.V(); } } }", lib);
@@ -133,7 +131,8 @@ public sealed class WebcilTests : IDisposable
         var output = Path.Combine(_dir.Path, "out");
         var report = unpacker.Unpack(framework, output, load: true, AnalysisLimits.Default, default);
         Assert.Equal(2, report.Files.Count(f => f.LoadedAs != null));
-        Assert.Equal(output, unpacker.Unpack(framework, output, load: false, AnalysisLimits.Default, default).OutputDirectory); // a repeat reuses it
+        // A repeat reuses it.
+        Assert.Equal(output, unpacker.Unpack(framework, output, load: false, AnalysisLimits.Default, default).OutputDirectory);
 
         var go = env.One("A.Run::Go");
         Assert.NotNull(env.Workspace.LocateReference("Lib", null, null, go.Assembly.FilePath, netFramework: false)?.Loaded);
@@ -145,7 +144,8 @@ public sealed class WebcilTests : IDisposable
 
         var wasm = File.ReadAllBytes(saved);
         Assert.True(System.Runtime.InteropServices.MemoryMarshal.TryGetArray(Webcil.Payload(wasm)!.Value, out var payload));
-        Assert.Equal(0, payload.Offset % 4); // the loader reads the payload as aligned data
+        // The loader reads the payload as aligned data.
+        Assert.Equal(0, payload.Offset % 4);
         using var reloaded = new Env(SaveAsDll(Webcil.ToPe(wasm)!));
         Assert.Contains("return 42;", reloaded.Decompile("A.Run::Go"));
     }
@@ -159,7 +159,7 @@ public sealed class WebcilTests : IDisposable
     [InlineData("net8")]
     [InlineData("net10")]
     [InlineData("none")]
-    public void StaleFingerprintedCopiesYieldToTheOneTheBootManifestLists(string manifest)
+    public void Stale_fingerprinted_copies_yield_to_the_one_the_boot_manifest_lists(string manifest)
     {
         var stale = ToWasm(ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public static int V() { return 1; } } }"));
         var current = ToWasm(ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public static int V() { return 2; } } }"));
@@ -174,7 +174,8 @@ public sealed class WebcilTests : IDisposable
                 File.WriteAllText(Path.Combine(framework, "blazor.boot.json"),
                     """{ "mainAssemblyName": "Lib", "resources": { "fingerprinting": { "Lib.zzzz9999.wasm": "Lib.wasm" }, "assembly": { "Lib.wasm": "sha256-x" } } }""");
                 break;
-            case "net8": // logical names; the copy is identified by its integrity value
+            // Logical names; the copy is identified by its integrity value.
+            case "net8":
                 File.WriteAllText(Path.Combine(framework, "blazor.boot.json"),
                     $$"""{ "mainAssemblyName": "Lib", "resources": { "assembly": { "Lib.wasm": "{{Webcil.Integrity(current)}}" } } }""");
                 break;

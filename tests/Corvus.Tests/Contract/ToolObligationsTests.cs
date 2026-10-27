@@ -12,7 +12,7 @@ public partial class ToolObligationsTests
     private static IEnumerable<string> Names => Tools.Select(t => (string)t["name"]!);
 
     [Fact]
-    public void EveryToolHasAContractRow()
+    public void Every_tool_has_a_contract_row()
     {
         foreach (var name in Names)
         {
@@ -24,7 +24,7 @@ public partial class ToolObligationsTests
     }
 
     [Fact]
-    public void DryRunPolicyMatchesTheSchema()
+    public void Dry_run_policy_matches_the_schema()
     {
         var violations = new Dictionary<string, string>();
         foreach (var tool in Tools)
@@ -40,25 +40,25 @@ public partial class ToolObligationsTests
     }
 
     [Fact]
-    public void EveryToolIsInTheQuickSweep()
+    public void Every_tool_is_in_the_quick_sweep()
     {
         var violations = Names.Where(n => !QuickSweepTests.Covers(n)).ToDictionary(n => n, n => ToolContract.Of(n).Latency == LatencyClass.Long ? "long-running" : "left out");
         Ratchet.Check("quick-sweep", "every tool has a minimal valid and an invalid call in the quick contract sweep (S12.1)", violations);
-        // every reviewed reason there is the Long latency class, which the full-set sweep covers
+        // Every reviewed reason there is the Long latency class, which the full-set sweep covers.
         var notLong = Ratchet.Entries("quick-sweep")!.Keys.Where(n => ToolContract.Of(n).Latency != LatencyClass.Long).ToList();
         Assert.True(notLong.Count == 0, "exempt from the quick sweep but not LatencyClass.Long: " + string.Join(", ", notLong));
     }
 
     /// <summary>The quick sweep leaves out the Long latency class, so only tools that can run past 10 s belong there.</summary>
     [Fact]
-    public void LongLatencyToolsAreLongRunning()
+    public void Long_latency_tools_are_long_running()
     {
         var notLong = Names.Where(n => ToolContract.Of(n).Latency == LatencyClass.Long && !ToolEffects.Of(n).LongRunning).ToList();
         Assert.True(notLong.Count == 0, "latency Long without longRunning in ToolEffects: " + string.Join(", ", notLong));
     }
 
     [Fact]
-    public void EveryToolHasAProtocolSample()
+    public void Every_tool_has_a_protocol_sample()
     {
         var violations = Names.Where(n => !File.Exists(ProtocolSampleTests.SampleFile(n))).ToDictionary(n => n, _ => "no recorded request/response");
         Ratchet.Check("protocol-sample", "every tool has a recorded request/response in tests/Corvus.Tests/ProtocolSamples (S12.2)", violations);
@@ -69,7 +69,7 @@ public partial class ToolObligationsTests
     private static partial Regex RealTrait();
 
     [Fact]
-    public void EveryToolHasARealDataTest()
+    public void Every_tool_has_a_real_data_test()
     {
         var sources = Directory.EnumerateFiles(Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests"), "*.cs", SearchOption.AllDirectories)
             .Select(File.ReadAllText).Where(s => RealTrait().IsMatch(s)).ToList();

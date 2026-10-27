@@ -46,13 +46,14 @@ public sealed class DexNamesTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Fact]
-    public void Mapping_NamesClassesAndMembers_InlinedFramesSkipped()
+    public void A_mapping_names_classes_and_members_and_skips_inlined_frames()
     {
         var dex = new DexService();
         var list = dex.ListClasses(_dex, null, null, 0, 100, default, _mapping);
         Assert.Equal("com.example.app.LoginActivity", list.Items.Single(c => c.Descriptor == Login).Original);
         Assert.Contains(list.Notes, n => n.Contains("2 classes and 4 members are defined in this package", StringComparison.Ordinal));
-        var page = dex.GetClass(_dex, "com.example.app.LoginActivity", default); // original names as input, the mapping kept
+        // Original names as input, the mapping kept.
+        var page = dex.GetClass(_dex, "com.example.app.LoginActivity", default);
         Assert.Equal(Login, page.Descriptor);
         Assert.Equal("com.example.app.LoginActivity.compute(int) : int", page.Methods.Single(m => m.Id == Compute).Original);
         Assert.Equal("com.example.app.LoginActivity.bind(com.example.app.Session) : void", page.Methods.Single(m => m.Id == Bind).Original);
@@ -61,7 +62,7 @@ public sealed class DexNamesTests : IDisposable
     }
 
     [Fact]
-    public void Search_And_Disassembly_ShowOriginals_AndTakeOriginalNames()
+    public void Search_and_disassembly_show_originals_and_take_original_names()
     {
         var dex = new DexService();
         var hits = dex.Search(_dex, "string", "login", 0, 10, default, _mapping);
@@ -74,12 +75,13 @@ public sealed class DexNamesTests : IDisposable
     }
 
     [Fact]
-    public void Without_A_Mapping_KotlinMetadataAndSourceFileNameClasses()
+    public void Without_a_mapping_Kotlin_metadata_and_source_file_names_name_classes()
     {
         var rows = new DexService().ListClasses(_dex, null, null, 0, 100, default).Items.ToDictionary(c => c.Descriptor, c => c.Original);
         Assert.Equal("com.example.app.Repo (kotlin metadata)", rows["Lc/a;"]);
         Assert.Equal("Helper (source file)", rows["Ld/a;"]);
-        Assert.Null(rows[Login]); // "SourceFile" names nothing
+        // "SourceFile" names nothing.
+        Assert.Null(rows[Login]);
         Assert.Equal("Lc/a;", new DexService().GetClass(_dex, "com.example.app.Repo", default).Descriptor);
     }
 
@@ -87,7 +89,7 @@ public sealed class DexNamesTests : IDisposable
     [Trait("Speed", "Slow")]
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void Large_Mapping_IsAppliedFast()
+    public void A_large_mapping_is_applied_within_its_CPU_budget()
     {
         var text = new StringBuilder();
         for (int c = 0; c < 50_000; c++)
@@ -109,7 +111,7 @@ public sealed class DexNamesTests : IDisposable
     }
 
     [Fact]
-    public void Fuzzed_Mapping_NeverThrowsUnexpectedly()
+    public void Fuzzed_mapping_never_throws_unexpectedly()
     {
         var index = new DexService().Index(_dex, default);
         var failures = FormatFuzz.Run(File.ReadAllBytes(_mapping), b =>

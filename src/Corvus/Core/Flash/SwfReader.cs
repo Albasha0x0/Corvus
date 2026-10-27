@@ -4,11 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Flash;
 
-/// <summary>
-/// SWF files as a container: the ActionScript 3 blocks (DoABC) with a class outline each, ActionScript 1 and 2 actions,
-/// images, sounds, binary data and the metadata, named by the SymbolClass and ExportAssets tags where they name a
-/// character.
-/// </summary>
+/// <summary>SWF files as a container: ActionScript blocks, images, sounds and binary data, named by SymbolClass and ExportAssets.</summary>
 internal sealed class SwfReader : IContainerReader
 {
     public const string KindName = "Flash SWF";
@@ -201,10 +197,7 @@ internal sealed class SwfReader : IContainerReader
         return [.. t, .. data];
     }
 
-    /// <summary>
-    /// A DefineBitsLossless bitmap as PNG: format 3 (colormapped, rows padded to 4 bytes), 4 (PIX15) or 5 (XRGB; premultiplied
-    /// ARGB in DefineBitsLossless2), expanded from zlib.
-    /// </summary>
+    /// <summary>A DefineBitsLossless bitmap (format 3, 4 or 5) as PNG.</summary>
     private static byte[] Lossless(ReadOnlySpan<byte> body, bool alpha, long maxBytes)
     {
         int format = body[2], width = BinaryPrimitives.ReadUInt16LittleEndian(body[3..]), height = BinaryPrimitives.ReadUInt16LittleEndian(body[5..]);

@@ -15,11 +15,7 @@ public sealed record DynamicNativeLoad(
     [property: Description("The library name passed, when it is a constant (null otherwise).")] string? Library,
     [property: Description("The export name passed (or, for a delegate, looked up in the same method), when it is a constant.")] string? Export);
 
-/// <summary>
-/// Finds run-time native loading in IL: NativeLibrary.Load / GetExport / SetDllImportResolver, P/Invokes of
-/// LoadLibrary / GetProcAddress (and dlopen / dlsym), and Marshal.GetDelegateForFunctionPointer. Constant library and
-/// export names are recovered from the instructions that push the arguments (ldstr, possibly through a local).
-/// </summary>
+/// <summary>Finds run-time native loading in IL (NativeLibrary, LoadLibrary/dlopen P/Invokes, delegates), with constant names recovered.</summary>
 public static class DynamicNativeLoads
 {
     private const int MaxResults = 2000;
@@ -49,7 +45,8 @@ public static class DynamicNativeLoads
             {
                 CilBody? body;
                 try { body = method.HasBody ? method.Body : null; }
-                catch (Exception ex) when (ex is not OperationCanceledException) { continue; } // unreadable body
+                // An unreadable body is skipped.
+                catch (Exception ex) when (ex is not OperationCanceledException) { continue; }
                 if (body == null) continue;
                 var inMethod = new List<DynamicNativeLoad>();
                 var instructions = body.Instructions;
@@ -68,7 +65,8 @@ public static class DynamicNativeLoads
                         else if (kind is "native_library_get_export" or "get_proc_address")
                             export = ConstantArgument(instructions, body.Variables, i, args, 1);
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException) { } // malformed operands: the name stays unknown
+                    // Malformed operands leave the name unknown.
+                    catch (Exception ex) when (ex is not OperationCanceledException) { }
                     inMethod.Add(new DynamicNativeLoad(kind, Format.MemberLabel(method), $"IL_{ins.Offset:x4}", library, export));
                 }
                 if (inMethod.Count == 0) continue;
@@ -125,14 +123,12 @@ public static class DynamicNativeLoads
 
     private static int ArgumentCount(IMethod method) => method.MethodSig is { } sig ? sig.Params.Count + (sig.HasThis ? 1 : 0) : 0;
 
-    /// <summary>
-    /// The string constant pushed as argument <paramref name="index"/> of the call at <paramref name="call"/>, found by
-    /// walking back over straight-line code while counting stack slots; null when it is not a constant.
-    /// </summary>
+    /// <summary>The string constant pushed as argument <paramref name="index"/>, found by walking back over straight-line code; null otherwise.</summary>
     internal static string? ConstantArgument(IList<Instruction> instructions, IList<Local> locals, int call, int argCount, int index)
     {
         if (index >= argCount) return null;
-        int above = argCount - 1 - index; // values pushed after the wanted one
+        // Values pushed after the wanted one.
+        int above = argCount - 1 - index;
         for (int i = call - 1, steps = 0; i >= 0 && steps < MaxBackward; i--, steps++)
         {
             var ins = instructions[i];

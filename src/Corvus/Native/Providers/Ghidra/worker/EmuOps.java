@@ -47,10 +47,7 @@ import ghidra.program.model.symbol.ExternalLocation;
 import ghidra.program.model.symbol.ExternalReference;
 import ghidra.program.model.symbol.Reference;
 
-/**
- * Static p-code emulation over the open program. Memory is the program's bytes (copy on write) plus a private region
- * holding a stack and scratch buffers; any other address faults. Nothing from the program runs natively and there is no host I/O.
- */
+/** Static p-code emulation: program bytes (copy on write) plus a private stack and scratch region; other addresses fault; nothing runs natively and there is no host I/O. */
 final class EmuOps {
     /** Private region: stack in the low half, scratch buffers in the high half. */
     private static final long REGION = 0x200000, STACK = 0x100000;
@@ -112,7 +109,7 @@ final class EmuOps {
                     else if (inRegion(a)) stop = min(end, ram.getAddress(regionEnd - 1));
                     else {
                         Address next = nextMapped(a, end);
-                        // the decoder reads ahead, so only a data read faults
+                        // The decoder reads ahead, so only a data read faults.
                         if (reason == Reason.EXECUTE_READ) throw new Fault(a, "read of unmapped memory at 0x" + Long.toHexString(a.getOffset()));
                         remains.add(a, next == null ? end : next.previous());
                         a = next;
@@ -125,7 +122,7 @@ final class EmuOps {
                             mem.getBytes(a, data);
                         }
                         catch (MemoryAccessException e) {
-                            // unreadable bytes stay zero
+                            // Unreadable bytes stay zero.
                         }
                     }
                     bytes.setVarInternal(ram, a.getOffset(), data.length, data);
@@ -152,10 +149,7 @@ final class EmuOps {
             return best != null && best.compareTo(end) <= 0 ? best : null;
         }
 
-        /**
-         * Undoes a run for the next one on the same emulator: image bytes it wrote are read again from the program, the
-         * stack and scratch region and the memory= ranges are zeroed.
-         */
+        /** Undoes a run: written image bytes are reread, the stack, scratch and memory= ranges zeroed. */
         void reset(PcodeExecutorState<byte[]> shared) {
             for (AddressRange range : written) {
                 for (Address a = range.getMinAddress(); a != null && a.compareTo(range.getMaxAddress()) <= 0; ) {
@@ -168,7 +162,7 @@ final class EmuOps {
                             mem.getBytes(a, data);
                         }
                         catch (MemoryAccessException e) {
-                            // unreadable bytes stay zero
+                            // Unreadable bytes stay zero.
                         }
                     }
                     if (b != null) shared.setVar(ram, a.getOffset(), data.length, false, data);
@@ -201,7 +195,7 @@ final class EmuOps {
 
         @Override
         public boolean handleMissingUserop(PcodeThread<byte[]> thread, PcodeOp op, PcodeFrame frame, String opName, PcodeUseropLibrary<byte[]> library) {
-            // bus locking has no effect on a single emulated thread
+            // Bus locking has no effect on a single emulated thread.
             return opName.equals("LOCK") || opName.equals("UNLOCK");
         }
     }
@@ -211,10 +205,9 @@ final class EmuOps {
     }
 
     /**
-     * Emulates from start until it returns to the sentinel return address, reaches a stop address, an instruction or time
-     * budget, an unmodelled call, a fault or a cancel. Args: start (VA), registers [[name, value]], args [value], memory
-     * [{va, bytes}], stops [VA], stubs [[name, 0xVA or * (any other call), value]], max_instructions,
-     * seconds, trace, reads [{va or register, length}]; a value is {value: "0x.."} or {bytes: hex} (a pointer to a scratch copy).
+     * Emulates from start until return, a stop, a budget, an unmodelled call, a fault or a cancel.
+     * Args: start, registers [[name, value]], args, memory [{va, bytes}], stops, stubs [[name, 0xVA or *, value]],
+     * max_instructions, seconds, trace, reads [{va or register, length}]; a value is {value: "0x.."} or {bytes: hex} (a pointer to a scratch copy); stub * is any other call.
      */
     static JsonElement emulate(Worker w, Worker.Request r) {
         return run(w, r, r.args, new Engine(w.program));
@@ -236,10 +229,7 @@ final class EmuOps {
         }
     }
 
-    /**
-     * One run per argument set in candidates [[value]], each on a fresh emulator with the other args shared; seconds bounds
-     * the whole batch, and sets left when it is spent answer stop "not_run".
-     */
+    /** One run per argument set in candidates, each on a fresh emulator with other args shared; seconds bounds the batch, the rest answer stop "not_run". */
     static JsonElement emulateBatch(Worker w, Worker.Request r) {
         JsonObject a = r.args;
         double seconds = a.has("seconds") ? a.get("seconds").getAsDouble() : 10;
@@ -294,7 +284,7 @@ final class EmuOps {
         }
         t.overrideCounter(start);
 
-        // stack, sentinel return address and the scratch area
+        // Stack, sentinel return address and scratch area.
         long stackTop = regionBase + STACK;
         long sp = (stackTop - 0x1000) & ~0xFL;
         Address sentinel = ram.getAddress(regionBase + REGION);
@@ -366,7 +356,6 @@ final class EmuOps {
         List<BigInteger> before = new ArrayList<>();
         for (Register reg : shown) before.add(read(state, arith, reg));
 
-        // run
         m.tracking = true;
         long started = System.nanoTime();
         long deadline = started + (long) (seconds * 1e9);
@@ -431,7 +420,7 @@ final class EmuOps {
             Address site = ins.getAddress(), target = t.getCounter(), fall = ins.getFallThrough();
             Callee c = callee(program, site, target);
             String stubValue = stub(stubs, c, target);
-            // a call to the next instruction reads its own address and is never skipped
+            // A call to the next instruction reads its own address and is never skipped.
             String anyValue = stubValue == null && fall != null && !target.equals(fall) ? any(stubs) : null;
             String action;
             BigInteger result = null;
@@ -496,7 +485,7 @@ final class EmuOps {
         o.add("scratch", scratchOut);
         o.addProperty("stack", hex(regionBase) + "-" + hex(stackTop));
 
-        // written memory outside the stack
+        // Written memory outside the stack.
         AddressSet stack = new AddressSet(ram.getAddress(regionBase), ram.getAddress(stackTop - 1));
         o.addProperty("stack_bytes_written", m.written.intersect(stack).getNumAddresses());
         AddressSet data = m.written.subtract(stack);
@@ -577,7 +566,7 @@ final class EmuOps {
                 if (!mem.intersects(ram.getAddress(c), ram.getAddress(c + REGION + 0xfff))) return c;
             }
             catch (ghidra.program.model.address.AddressOutOfBoundsException e) {
-                // too high for this space
+                // Too high for this space.
             }
         }
         throw new Worker.WorkerError("failed", "no free address range for the emulator's stack");
@@ -636,7 +625,7 @@ final class EmuOps {
                     if (Long.parseUnsignedLong(key.substring(2), 16) == target.getOffset()) return s[1];
                 }
                 catch (NumberFormatException e) {
-                    // a name after all
+                    // A name after all.
                 }
             }
             if (c.name == null) continue;

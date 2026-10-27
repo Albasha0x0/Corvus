@@ -1,12 +1,7 @@
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// A small interpreter for native method bodies of 32-bit x86 code that only does integer arithmetic on registers and its
-/// own stack frame: the routines some post-build tools put into a module to compute a key or a constant. It runs the code
-/// on concrete values with the arguments where a 32-bit caller leaves them ([esp+4], [esp+8], ...) and returns eax at ret.
-/// Registers the caller left (all but esp) and stack memory not yet written hold unknown values; anything that would make
-/// the result depend on one, and any instruction outside <see cref="Subset"/>, declines with a <see cref="Declined"/>.
-/// </summary>
+// Caller registers other than esp and unwritten stack memory are unknown; a result that depends on one declines.
+/// <summary>Runs 32-bit x86 native method bodies limited to <see cref="Subset"/> on concrete arguments; returns eax or throws <see cref="Declined"/>.</summary>
 internal sealed class NativeRoutine
 {
     /// <summary>Why the code is outside the subset; the message names the offset and the instruction.</summary>
@@ -20,7 +15,8 @@ internal sealed class NativeRoutine
 
     public const int MaxCodeBytes = 4096;
     private const int FrameBytes = 4096;
-    private const uint Top = 0x0010_0000; // esp at entry, pointing at the return address
+    // Esp at entry, pointing at the return address.
+    private const uint Top = 0x0010_0000;
 
     private const int Eax = 0, Ecx = 1, Edx = 2, Esp = 4;
 
@@ -39,7 +35,7 @@ internal sealed class NativeRoutine
         _tick = tick;
     }
 
-    /// <summary>Runs the routine from its first byte; <paramref name="tick"/> is called once per instruction (the evaluator's budget).</summary>
+    /// <summary>Runs the routine from its first byte, calling <paramref name="tick"/> once per instruction.</summary>
     public static int Run(byte[] code, int[] args, Action tick)
     {
         var routine = new NativeRoutine(code, args.Length, tick);
@@ -172,7 +168,7 @@ internal sealed class NativeRoutine
         }
     }
 
-    /// <summary>The eight two-operand ALU forms: op r/m, r; op r, r/m; op eax, imm32 (add or adc and sbb sub xor cmp).</summary>
+    /// <summary>Decodes the two-operand ALU forms op r/m, r; op r, r/m; and op eax, imm32.</summary>
     private void Arithmetic(byte op)
     {
         int kind = op >> 3;
@@ -202,7 +198,7 @@ internal sealed class NativeRoutine
         }
     }
 
-    /// <summary>One ALU operation (the reg field of 81 / 83: add or adc sbb and sub xor cmp), setting the flags.</summary>
+    /// <summary>Runs ALU operation <paramref name="kind"/> (the 81 / 83 reg field) and sets the flags.</summary>
     private uint? Alu(int kind, uint? a, uint? b, bool same = false)
     {
         // xor r, r and sub r, r give 0 whatever the register held.
@@ -252,7 +248,7 @@ internal sealed class NativeRoutine
         return Result(v);
     }
 
-    /// <summary>inc / dec: the flags of add / sub 1, carry unchanged.</summary>
+    /// <summary>Runs inc or dec: add or sub 1 with carry unchanged.</summary>
     private uint? Inc(uint? a, int delta)
     {
         bool? cf = _cf;
@@ -261,13 +257,14 @@ internal sealed class NativeRoutine
         return r;
     }
 
-    /// <summary>imul: the low 32 bits; carry and overflow tell whether the signed product fits.</summary>
+    /// <summary>Returns the low 32 bits of the signed product; carry and overflow report truncation.</summary>
     private uint? Imul(uint? a, uint? b)
     {
         if (a is not { } x || b is not { } y) return Unknown();
         long wide = (long)(int)x * (int)y;
         _cf = _of = wide != (int)wide;
-        _zf = _sf = null; // undefined after imul
+        // Zero and sign are undefined after imul.
+        _zf = _sf = null;
         return (uint)wide;
     }
 
@@ -275,7 +272,8 @@ internal sealed class NativeRoutine
     {
         if (count is not { } c) return Unknown();
         int n = (int)(c & 31);
-        if (n == 0) return a; // flags unchanged
+        // A zero count leaves the flags unchanged.
+        if (n == 0) return a;
         if (a is not { } x) return Unknown();
         uint r;
         switch (kind)
@@ -287,8 +285,10 @@ internal sealed class NativeRoutine
             case 7: r = (uint)((int)x >> n); _cf = (((int)x >> (n - 1)) & 1) != 0; break;
             default: throw Decline($"unsupported shift or rotate {kind}");
         }
-        _of = null; // defined for single-bit shifts only; the subset does not read it after a shift
-        if (kind is 0 or 1) return r; // rotates leave zero and sign alone
+        // Overflow is defined for single-bit shifts only; the subset never reads it after one.
+        _of = null;
+        // Rotates leave zero and sign alone.
+        if (kind is 0 or 1) return r;
         return Result(r);
     }
 
@@ -384,7 +384,7 @@ internal sealed class NativeRoutine
         else Write(m.Address, value);
     }
 
-    /// <summary>Stack memory: the frame below the return address, the return address and the arguments.</summary>
+    /// <summary>Declines an access outside the frame, the return address and the arguments.</summary>
     private void CheckFrame(uint address, bool write)
     {
         uint low = Top - FrameBytes, high = Top + 4 + 4 * (uint)_arguments;

@@ -214,11 +214,7 @@ public sealed partial class LiveInspectorTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// CORVUS_ELECTRON runs a hidden-window app written here: a preload bridge, an invoke channel, a send channel, a
-    /// main-to-renderer channel and a listener no renderer sends to. Each route is counted with its value shape and the
-    /// code sites on both sides; the unused listener is reported as not seen.
-    /// </summary>
+    /// <summary>CORVUS_ELECTRON: each IPC route of a generated app is counted with its value shape and sites on both sides; an unused listener is reported as not seen.</summary>
     [RequiresRealDataFact("CORVUS_ELECTRON")]
     [Trait("Speed", "Slow")]
     public async Task An_electron_apps_ipc_routes_are_counted_by_shape_and_joined_to_their_code()

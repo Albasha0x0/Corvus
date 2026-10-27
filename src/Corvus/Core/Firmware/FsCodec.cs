@@ -4,10 +4,7 @@ using SharpCompress.Compressors.Xz;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// The block and stream codecs of firmware filesystems and boot images: zlib, raw deflate, gzip, LZMA (the "alone" header),
-/// xz, LZO1X, LZ4 (block and frame), Zstandard and bzip2. Damaged input is an <see cref="InvalidDataException"/>.
-/// </summary>
+/// <summary>Block and stream codecs of firmware filesystems and boot images; damaged input throws <see cref="InvalidDataException"/>.</summary>
 internal static class FsCodec
 {
     /// <summary>Decodes one block into <paramref name="dst"/>; returns the bytes written.</summary>
@@ -94,7 +91,8 @@ internal static class FsCodec
         bool blockSums = (flags & 0x10) != 0;
         var output = new MemoryStream();
         var window = new byte[blockMax + (64 << 10)];
-        int kept = 0; // dictionary bytes at the start of window
+        // Dictionary bytes at the start of window.
+        int kept = 0;
         while (true)
         {
             if (p + 4 > src.Length) throw new InvalidDataException("truncated LZ4 frame");
@@ -173,7 +171,8 @@ internal static class FsCodec
                 }
                 m -= (src[ip] >> 2) + (src[ip + 1] << 6);
                 ip += 2;
-                if (m == op) return op; // end of stream
+                // End of stream.
+                if (m == op) return op;
                 m -= 0x4000;
             }
             else

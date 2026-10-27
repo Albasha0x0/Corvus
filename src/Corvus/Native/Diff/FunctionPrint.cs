@@ -3,10 +3,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Diff;
 
-/// <summary>
-/// Build-independent facts about one function: control-flow shape, instruction mix, masked bytes, what it calls and
-/// references (imports by name, strings by text, constants) and its place in the call graph.
-/// </summary>
+/// <summary>Build-independent facts about one function: graph shape, instruction mix, masked bytes, references and call graph place.</summary>
 public sealed class FunctionPrint
 {
     public required NativeFunction Function { get; init; }
@@ -102,7 +99,7 @@ public sealed class ImagePrints
                 return decoder;
             }, _ => { });
 
-        // call graph edges as print indexes
+        // Call graph edges as print indexes.
         Parallel.For(0, functions.Count, new ParallelOptions { CancellationToken = ct }, i =>
         {
             var f = functions[i];
@@ -130,7 +127,7 @@ public sealed class ImagePrints
             return new FunctionPrint { Function = f, Index = i, Size = f.Size, Instructions = f.InstructionCount, Blocks = f.BlockCount, ThunkImport = thunk, Failed = true };
         }
 
-        // masked bytes and mnemonic histogram
+        // Masked bytes and mnemonic histogram.
         var bytes = new Hash64();
         var histogram = new SortedDictionary<int, int>();
         var constants = new SortedSet<ulong>();
@@ -141,7 +138,7 @@ public sealed class ImagePrints
             if (insn.Constant is { } k) constants.Add(k);
         }
 
-        // canonical depth-first order of blocks from the entry
+        // Canonical depth-first order of blocks from the entry.
         var blocks = graph.Blocks;
         var blockIndex = new Dictionary<uint, int>(blocks.Count);
         for (int b = 0; b < blocks.Count; b++) blockIndex[blocks[b].Start] = b;
@@ -149,7 +146,8 @@ public sealed class ImagePrints
         Array.Fill(order, -1);
         var sequence = new List<int>(blocks.Count);
         int backEdges = 0, edges = 0;
-        var state = new byte[blocks.Count]; // 0 new, 1 on stack, 2 done
+        // 0 new, 1 on stack, 2 done.
+        var state = new byte[blocks.Count];
         var successors = new List<CfgEdge>[blocks.Count];
         for (int b = 0; b < blocks.Count; b++) successors[b] = Sorted(blocks[b].Successors);
         void Dfs(int root)
@@ -176,7 +174,7 @@ public sealed class ImagePrints
         if (blockIndex.TryGetValue(f.Start, out var entry)) Dfs(entry);
         for (int b = 0; b < blocks.Count; b++) if (order[b] < 0) Dfs(b);
 
-        // per-block instruction shapes
+        // Per-block instruction shapes.
         var blockTokens = new ulong[blocks.Count];
         int at = 0;
         for (int b = 0; b < blocks.Count; b++)
@@ -202,7 +200,7 @@ public sealed class ImagePrints
             }
         }
 
-        // imports, strings
+        // Imports and strings.
         var imports = new SortedSet<string>(StringComparer.Ordinal);
         var strings = new SortedSet<string>(StringComparer.Ordinal);
         int calls = 0;

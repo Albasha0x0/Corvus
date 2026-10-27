@@ -11,23 +11,13 @@ public sealed record WorkerConnectionOptions
 {
     /// <summary>Requests run concurrently, matched to responses by id; otherwise one at a time.</summary>
     public bool Concurrent { get; init; }
-    /// <summary>
-    /// A request that times out or is cancelled is first asked to stop with a <see cref="WorkerProtocol.CancelOp"/>
-    /// request; the worker is killed only when no response arrives within this time. Null: killed at once.
-    /// A timed-out request whose worker answers within the grace returns that answer (a result marked partial).
-    /// </summary>
+    /// <summary>Time a stopped request has to answer a <see cref="WorkerProtocol.CancelOp"/> before the worker is killed; null kills at once. An answer within the grace is returned, marked partial.</summary>
     public TimeSpan? CancelGrace { get; init; }
-    /// <summary>
-    /// Called with the worker's process id, then the other processes of its tree, before a worker that missed its start
-    /// or a request's time is stopped: what it was doing (a thread dump summary), or null. Added to the timeout error.
-    /// </summary>
+    /// <summary>Summarizes what a stalled worker tree (worker pid first) was doing, for the timeout error; null when unknown.</summary>
     public Func<IReadOnlyList<int>, string?>? StallReport { get; init; }
     /// <summary>The setting a memory-limit hit names in its error.</summary>
     public string MemoryLimitVariable { get; init; } = EngineMemoryLimit.Variable;
-    /// <summary>
-    /// Times the start wait, request time limits, the quiet limit and the cancel grace; waits for the process to exit
-    /// keep the system clock.
-    /// </summary>
+    /// <summary>Clock for start, request, quiet and cancel limits; process exit waits keep the system clock.</summary>
     public TimeProvider Time { get; init; } = TimeProvider.System;
 }
 
@@ -40,12 +30,9 @@ public sealed record WorkerRequestState(long Id, string Op, DateTime StartedUtc,
     public long LastProgressTicks { get; init; }
 }
 
-/// <summary>
-/// A running worker process and its request channel (see <see cref="WorkerProtocol"/>). By default requests are
-/// serialized, and a request that exceeds its time limit or is cancelled while running kills the worker, because an
-/// engine busy in native code cannot be interrupted; <see cref="WorkerConnectionOptions"/> allows concurrent requests
-/// and cancellation by request. Worker death fails the running requests with ProviderUnavailable and the last stderr lines.
-/// </summary>
+/// <summary>A worker process and its request channel; by default serial, and a timeout kills the worker, as native code cannot be interrupted.</summary>
+/// <remarks><see cref="WorkerConnectionOptions"/> allows concurrent requests and cancellation by request. Worker death fails
+/// the running requests with ProviderUnavailable and the last stderr lines.</remarks>
 public sealed class WorkerConnection : IDisposable
 {
     private readonly ChildProcess _process;
@@ -85,16 +72,15 @@ public sealed class WorkerConnection : IDisposable
         _remediation = remediation;
         _options = options;
         _lastLineTicks = options.Time.GetTimestamp();
-        // The readers are made here, before a Dispose can close the pipes: made on their own threads, a reader that
-        // started after a Dispose threw on the closed stream and ended the whole process.
+        // Make the readers here, before a Dispose can close the pipes: one made on its own thread after a Dispose threw and
+        // ended the process.
         var stdout = new StreamReader(_process.StandardOutput, new UTF8Encoding(false), false, 4096, leaveOpen: true);
         var stderr = new StreamReader(_process.StandardError, new UTF8Encoding(false), false, 4096, leaveOpen: true);
         new Thread(() => ReadStdout(stdout)) { IsBackground = true, Name = name + " stdout" }.Start();
         new Thread(() => ReadStderr(stderr)) { IsBackground = true, Name = name + " stderr" }.Start();
         new Thread(WriteStdin) { IsBackground = true, Name = name + " stdin" }.Start();
-        // Responses and the exit message written just before exit are still in
-        // the pipes: closed means their EOF, or exit plus a short grace for the
-        // case where a surviving grandchild holds a pipe open.
+        // Responses and the exit message may still be in the pipes: closed is their EOF, or exit plus a grace when a
+        // surviving grandchild holds a pipe open.
         _process.Exited.ContinueWith(async _ =>
         {
             await Task.WhenAny(Task.WhenAll(_stdoutDone.Task, _stderrDone.Task), Task.Delay(500)).ConfigureAwait(false);
@@ -163,10 +149,7 @@ public sealed class WorkerConnection : IDisposable
     /// <summary>Completes with the worker's "ready" event; never faults.</summary>
     internal Task Ready => _ready.Task;
 
-    /// <summary>
-    /// Waits for the worker's "ready" event. With <paramref name="idle"/>, the start also stops once the worker's processes
-    /// used less than 1% of a core for that long, or after that long when their CPU time cannot be read.
-    /// </summary>
+    /// <summary>Waits for "ready"; with <paramref name="idle"/>, also stops after that long under 1% of a core (or unreadable CPU time).</summary>
     public async Task<JsonElement> WaitReadyAsync(TimeSpan timeout, CancellationToken cancellationToken, TimeSpan? idle = null)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -186,8 +169,7 @@ public sealed class WorkerConnection : IDisposable
         throw new ToolError(ErrorCode.Timeout, $"{_name} {limit}.{stall}{StderrSuffix()}", _remediation(ErrorCode.Timeout, "start"));
     }
 
-    // Completes once the worker's CPU time grew by less than 1% of idle over the last idle: true when that was
-    // measured, false when the CPU time could not be read and idle simply passed.
+    // True when CPU time grew under 1% over the last idle; false when unreadable and idle passed.
     private async Task<bool> IdleAsync(TimeSpan idle, CancellationToken token)
     {
         var step = idle / 8;
@@ -208,10 +190,7 @@ public sealed class WorkerConnection : IDisposable
         }
     }
 
-    /// <summary>
-    /// What the request reached: written or not, the worker's progress reports and log lines for it, its last stage,
-    /// and how long ago the worker last wrote, so a slow request is told from one the worker never ran.
-    /// </summary>
+    /// <summary>What the request reached (written, progress, stage, log, last message age), telling slow from never run.</summary>
     private string Activity(long id, Task write)
     {
         WorkerRequestState? r;
@@ -234,10 +213,7 @@ public sealed class WorkerConnection : IDisposable
     /// <summary>Starts a stall report that read nothing of the worker; the reason follows.</summary>
     internal const string StateUnknown = "unknown: ";
 
-    /// <summary>
-    /// The stall report of the running worker as a message suffix; "worker state unknown" with the reason when the
-    /// report read nothing, so a stall is never reported silently; empty without a report.
-    /// </summary>
+    /// <summary>The stall report as a message suffix, "worker state unknown" with a reason when it read nothing; empty without a report.</summary>
     private string Stall()
     {
         if (_options.StallReport is not { } report || _process.HasExited) return "";
@@ -262,10 +238,7 @@ public sealed class WorkerConnection : IDisposable
         ? $"Raise {ServerOptions.EngineOpenTimeoutVariable} (seconds for an engine's start and analysis) and call again."
         : $"Retry with a larger time limit (timeoutSeconds where the tool takes it, or {ServerOptions.EngineRequestTimeoutVariable}).";
 
-    /// <summary>
-    /// Sends one request and waits for its response; throws <see cref="ToolError"/> for worker errors. With
-    /// <paramref name="quiet"/>, the request also stops once the worker reports no progress on it for that long.
-    /// </summary>
+    /// <summary>Sends one request and awaits its response; throws <see cref="ToolError"/>; stops after <paramref name="quiet"/> without progress.</summary>
     public async Task<JsonElement> RequestAsync(string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, TimeSpan? quiet = null)
     {
         var serial = !_options.Concurrent;
@@ -304,8 +277,7 @@ public sealed class WorkerConnection : IDisposable
             if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
             if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw await DiedAsync(op).ConfigureAwait(false);
             var cancelled = cancellationToken.IsCancellationRequested;
-            // The quiet wait cancels the timer before it returns, so this code can run first: wait for its answer,
-            // which comes at once now that the timer is cancelled.
+            // The quiet wait cancels the timer before returning, so its answer comes at once.
             var limit = await wentQuiet.ConfigureAwait(false)
                 ? $"reported no progress on '{op}' for {Seconds(quiet!.Value)}"
                 : $"did not finish '{op}' within {Seconds(timeout)}";
@@ -341,8 +313,7 @@ public sealed class WorkerConnection : IDisposable
         }
     }
 
-    // True once request id has gone quiet without a progress event, and then
-    // cancels timer; false when the request ends first or the timer fires.
+    // True (and cancels timer) once the request goes quiet; false when it ends or the timer fires first.
     private async Task<bool> QuietAsync(long id, TimeSpan quiet, CancellationTokenSource timer)
     {
         var token = timer.Token;
@@ -428,7 +399,7 @@ public sealed class WorkerConnection : IDisposable
                 await RequestAsync(op, args, grace, CancellationToken.None).ConfigureAwait(false);
                 await Task.WhenAny(_process.Exited, Task.Delay(grace)).ConfigureAwait(false);
             }
-            catch (ToolError) { /* stopped below */ }
+            catch (ToolError) { }
         }
         Kill("shutdown");
     }
@@ -447,10 +418,7 @@ public sealed class WorkerConnection : IDisposable
         OnClosed();
     }
 
-    /// <summary>
-    /// The error for a worker that went away during <paramref name="op"/>. Every path that sees the death builds it here,
-    /// after waiting up to <see cref="ExitGrace"/> for the exit and the stderr tail, so the error names both.
-    /// </summary>
+    /// <summary>The error for a worker that died during <paramref name="op"/>, built after up to <see cref="ExitGrace"/> for exit code and stderr.</summary>
     private async Task<ToolError> DiedAsync(string op)
     {
         string? reason;
@@ -489,7 +457,8 @@ public sealed class WorkerConnection : IDisposable
                         lock (_sync)
                         {
                             if (r.Id is { } id) _pending.TryGetValue(id, out target);
-                            else if (_pending.Count == 1) target = _pending.Values.First(); // a response the worker could not attribute
+                            // A response without an id goes to the only pending request.
+                            else if (_pending.Count == 1) target = _pending.Values.First();
                         }
                         target?.TrySetResult(r);
                         break;
@@ -508,8 +477,7 @@ public sealed class WorkerConnection : IDisposable
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         _stdoutDone.TrySetResult();
-        // The exit message is read on its own thread: give it a moment, so the
-        // error carries it.
+        // Give the stderr thread a moment, so the error carries the exit message.
         _stderrDone.Task.Wait(1000);
         OnClosed();
     }

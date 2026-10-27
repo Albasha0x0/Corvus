@@ -5,10 +5,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Worker.Yara;
 
-/// <summary>
-/// The YARA-X C API (libyara_x_capi), v1.22.0. Called only inside a <c>corvus worker</c> process: its native faults are
-/// real (VirusTotal/yara-x#663, #720), so the library never loads into the server.
-/// </summary>
+/// <summary>The YARA-X 1.22.0 C API, loaded only in a <c>corvus worker</c> as its native faults are real (VirusTotal/yara-x#663, #720).</summary>
 internal static class YaraX
 {
     /// <summary>Full path of a libyara_x_capi build to load instead of the one shipped under runtimes/&lt;rid&gt;/native.</summary>
@@ -24,18 +21,14 @@ internal static class YaraX
     /// <summary>The library file name on this system.</summary>
     public static string FileName => OperatingSystem.IsWindows() ? "yara_x_capi.dll" : OperatingSystem.IsMacOS() ? "libyara_x_capi.dylib" : "libyara_x_capi.so";
 
-    /// <summary>
-    /// Loads the library once, from <see cref="LibraryVariable"/>, else runtimes/&lt;rid&gt;/native or the program folder.
-    /// Throws provider_unavailable naming the platform when no build is found.
-    /// </summary>
+    /// <summary>Loads the library once from <see cref="LibraryVariable"/>, runtimes/&lt;rid&gt;/native or the program folder; else provider_unavailable.</summary>
     public static void Load()
     {
         lock (Gate)
         {
             if (!_resolverSet)
             {
-                // A framework-dependent tool's deps.json does not list the
-                // per-RID files, so the runtime would not find them itself.
+                // A framework-dependent tool's deps.json omits the per-RID files, so the runtime would not find them.
                 NativeLibrary.SetDllImportResolver(typeof(YaraX).Assembly, Resolve);
                 _resolverSet = true;
             }

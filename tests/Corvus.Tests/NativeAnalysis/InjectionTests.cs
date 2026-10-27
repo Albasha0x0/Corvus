@@ -4,11 +4,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Marker forgery (STANDARDS S10.4): names in the analyzed file and echoed arguments that look like server markers
-/// ("Error (", "Next:", "[More: offset=", "[workspace]") or carry bidi controls come back escaped in error texts.
-/// The quick set covers the same escaping without a server (ErrorContractTests).
-/// </summary>
+/// <summary>File names and echoed arguments that look like server markers or carry bidi controls come back escaped in errors; ErrorContractTests covers the same without a server.</summary>
 [Trait("Speed", "Slow")]
 public sealed class InjectionTests : IAsyncLifetime
 {
@@ -57,7 +53,7 @@ public sealed class InjectionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task EchoedArgumentsAreEscapedInErrors()
+    public async Task Echoed_arguments_are_escaped_in_errors()
     {
         var result = await _client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = Forged });
         AssertNoForgedLines(result);
@@ -65,7 +61,7 @@ public sealed class InjectionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FileDerivedNamesAreEscapedInErrors()
+    public async Task File_derived_names_are_escaped_in_errors()
     {
         var result = await _client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Twin" });
         AssertNoForgedLines(result);

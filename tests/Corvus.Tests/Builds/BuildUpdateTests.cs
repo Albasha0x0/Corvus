@@ -4,10 +4,7 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Moving to a new build: compare_assemblies without compiler-generated noise, and an edit script that follows a
-/// target renamed in the new build.
-/// </summary>
+/// <summary>compare_assemblies without compiler-generated changes, and an edit script that follows a target renamed in the new build.</summary>
 public class BuildUpdateTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -52,7 +49,7 @@ public class BuildUpdateTests : IDisposable
 
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task Compare_HidesCompilerGeneratedChanges_AndCountsThem()
+    public async Task Compare_hides_compiler_generated_changes_and_counts_them()
     {
         var (oldPath, newPath) = Builds();
         using var env = new Env(oldPath);
@@ -67,7 +64,7 @@ public class BuildUpdateTests : IDisposable
     }
 
     [Fact]
-    public void EditScript_IsBoundToItsBuild_CrossBuildOnlyWhenAskedFor()
+    public void An_edit_script_is_bound_to_its_build_and_crosses_builds_only_when_asked()
     {
         var (oldPath, newPath) = Builds();
         var script = _dir.File("bound.json");
@@ -116,7 +113,7 @@ public class BuildUpdateTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void EditScript_FollowsATargetRenamedInTheNewBuild()
+    public void Edit_script_follows_a_target_renamed_in_the_new_build()
     {
         var (oldPath, newPath) = Builds();
         var script = _dir.File("edits.json");
@@ -146,7 +143,7 @@ public class BuildUpdateTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task RealLibraryUpgrade_ShowsTheApiChangesFirst()
+    public async Task Real_library_upgrade_shows_the_API_changes_first()
     {
         var v12 = RealPackages.Lib("Newtonsoft.Json", "12.0.2", "netstandard2.0", "Newtonsoft.Json.dll");
         var v13 = RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll");

@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Writes an ELF64 little-endian debug file: the given sections (data streamed from a writer, so files of any size can be
-/// made), section headers and a name table; no program headers. Sections can be compressed (SHF_COMPRESSED with zlib or
-/// zstd, or the GNU .zdebug_ form).
-/// </summary>
+/// <summary>Writes an ELF64 little-endian debug file of streamed sections, optionally compressed (SHF_COMPRESSED zlib or zstd, or .zdebug_).</summary>
 internal static class DebugFileWriter
 {
     public enum Packing { None, Zlib, Zstd, GnuZlib }

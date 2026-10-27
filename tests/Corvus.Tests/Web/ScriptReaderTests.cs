@@ -81,7 +81,8 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
     {
         var r = ScriptReader.Read(File.ReadAllText(Fixture("javascript", "obfuscator-preset-high.js")), "javascript");
         Assert.Contains("='corvus marker';", r.Plain);
-        Assert.DoesNotContain("function _0x", r.Plain); // decoder, rotation, wrappers and aliases gone
+        // Decoder, rotation, wrappers and aliases gone.
+        Assert.DoesNotContain("function _0x", r.Plain);
         Assert.Contains(r.Notes, n => n.StartsWith("obfuscator.io string array of ", StringComparison.Ordinal) && n.Contains(" strings decoded (rc4)", StringComparison.Ordinal));
     }
 
@@ -102,7 +103,7 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
         // Steps far above what the loop reaches in 250 ms, so only the cap can stop it.
         var r = ScriptReader.Read("$i = 0; while ($true) { $i++ }", "powershell", steps: 1L << 40, milliseconds: 250);
         Assert.False(r.Complete);
-        Assert.Contains("The 0.25 s time limit ran out before the step budget: the reading is partial.", r.Notes);
+        Assert.Contains("The 0.25 s time limit ran out: the reading is partial.", r.Notes);
     }
 
     [Fact]

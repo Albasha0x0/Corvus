@@ -6,13 +6,7 @@ namespace Corvus.Native.Diff;
 /// <summary>Where an address of the old build is in the new build, how sure that is, and why.</summary>
 public sealed record MappedAddress(uint OldRva, uint? NewRva, double Confidence, string Reason, string Detail, FunctionMatch? Pair, IReadOnlyList<uint> Candidates);
 
-/// <summary>
-/// Maps addresses of an old build to the new build through a <see cref="MatchResult"/>: function starts to the matched
-/// function; addresses inside a function to the corresponding instruction after aligning the two instruction sequences
-/// by shape (common prefix and suffix, then LCS, or unique-token anchors for long sequences); data addresses by the
-/// same string literal, or by following the old build's references through matched instructions and reading what the
-/// new instructions reference. One instance caches decoded functions and alignments; not thread-safe.
-/// </summary>
+/// <summary>Maps old-build addresses to the new build by matched functions, aligned instructions, strings or followed references; not thread-safe.</summary>
 public sealed class AddressMapper(MatchResult match)
 {
     private const int MaxReferences = 64;
@@ -61,7 +55,7 @@ public sealed class AddressMapper(MatchResult match)
             return new(oldRva, n.Rva + Math.Min(into, (uint)n.Length - 1), Math.Round(pair.Confidence * (same ? 1 : 0.9), 3), "aligned_instruction",
                 $"instruction {k} of {oldFn.Name} -> instruction {map[k]} of {newFn.Name}{(same ? "" : " (operands differ)")}", pair, []);
         }
-        // between the nearest aligned neighbors
+        // Between the nearest aligned neighbors.
         int p = k - 1;
         while (p >= 0 && map[p] < 0) p--;
         int q = k + 1;
@@ -128,7 +122,7 @@ public sealed class AddressMapper(MatchResult match)
             var o = olds[k];
             var n = news[map[k]];
             if (o.Target is not { } ot || n.Target is not { } nt) continue;
-            // the reference may name the address directly, or at an offset into it (folded into the displacement)
+            // The reference may name an offset into the address, folded into the displacement.
             uint target = nt + (oldRva - ot);
             votes[target] = votes.GetValueOrDefault(target) + 1;
         }
@@ -189,7 +183,7 @@ public static class InstructionAlignment
         if ((long)n * m <= MaxDpCells) { Lcs(a, b, a0, a1, b0, b1, map); return; }
         if (depth > 32) return;
 
-        // anchors: tokens occurring exactly once on each side, kept in increasing order (longest increasing subsequence)
+        // Anchors: tokens unique on each side, kept as the longest increasing subsequence.
         var countA = new Dictionary<int, int>();
         var posA = new Dictionary<int, int>();
         for (int i = a0; i < a1; i++) { countA[a[i]] = countA.GetValueOrDefault(a[i]) + 1; posA[a[i]] = i; }
@@ -256,7 +250,7 @@ public static class MatchCache
     {
         var inner = Table.GetValue(oldIndex, _ => new());
         var byKey = inner.GetValue(newIndex, _ => new());
-        // names count for tier 1, so a change of either side's names makes a new result
+        // Names count for tier 1, so a name change on either side makes a new result.
         string key = $"{options.Key}|{oldIndex.Sourced.Version}|{newIndex.Sourced.Version}";
         lock (byKey)
             if (byKey.TryGetValue(key, out var hit)) return hit;

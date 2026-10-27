@@ -4,12 +4,8 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// An Unreal Engine pak file (.pak, pak versions 1-11): the footer at the end names the version, the index and its
-/// encryption; the index holds the mount point and each file's entry (offset, sizes, compression, blocks, flags), as a
-/// list of named entries before version 10 and as encoded entries named by a full directory index from version 10.
-/// Each file's data follows a copy of its entry at the entry's offset.
-/// </summary>
+/// <summary>An Unreal Engine pak file (versions 1-11): footer, index with mount point, and each file's entry.</summary>
+/// <remarks>From version 10 entries are encoded and named by a full directory index.</remarks>
 public static class UnrealPak
 {
     public const string Kind = "Unreal pak";

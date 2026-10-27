@@ -1,10 +1,6 @@
 namespace Corvus.Native.Patching;
 
-/// <summary>
-/// A read-only view of an image with a window of replacement bytes overlaid at one RVA, used to disassemble a
-/// candidate patch before it is applied. Everything but <see cref="Read"/> delegates to the underlying image, so
-/// branch and RIP-relative targets are resolved against the real layout and image base.
-/// </summary>
+/// <summary>An image with replacement bytes overlaid at one RVA, to disassemble a patch before it is applied.</summary>
 internal sealed class ByteImage(INativeImage inner, uint windowRva, byte[] window) : INativeImage
 {
     public string Path => inner.Path;
@@ -32,8 +28,7 @@ internal sealed class ByteImage(INativeImage inner, uint windowRva, byte[] windo
     public int Read(uint rva, Span<byte> destination)
     {
         int n = inner.Read(rva, destination);
-        // Overlay the window where it intersects the request, and serve it even past what the inner image maps (the
-        // window can describe a stub in a new section that is not yet part of the image).
+        // Serve the window even past what the inner image maps: it can hold a stub in a section not yet added.
         int filled = n;
         for (int i = 0; i < destination.Length; i++)
         {

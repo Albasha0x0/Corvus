@@ -3,11 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// export_project frameworks and references: an assembly without a TargetFrameworkAttribute exported as .NET Framework 4.0
-/// (netstandard1.x contracts, a Unity Assembly-CSharp), references of the referenced libraries were missing (CS0012), and
-/// a .NET Standard library's dependencies bound to .NET Framework or runtime copies (Vector&lt;T&gt; not found, CS1705).
-/// </summary>
+/// <summary>Frameworks and references of exported projects (regressions: CS0012, CS1705, wrong .NET Framework 4.0 inference).</summary>
 public sealed class ExportFrameworkTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -35,7 +31,7 @@ public sealed class ExportFrameworkTests : IDisposable
     [InlineData("mscorlib", "4.0.0.0", "UnityEngine.CoreModule", ".NETFramework,Version=v4.8", "net48")]
     [InlineData("mscorlib", "4.0.0.0", "netstandard", ".NETFramework,Version=v4.8", "net48")]
     [InlineData("mscorlib", "4.0.0.0", null, null, null)]
-    public void FrameworkIsInferredFromTheCoreAssemblies(string core, string version, string? other, string? expected, string? shortName)
+    public void Framework_is_inferred_from_the_core_assemblies(string core, string version, string? other, string? expected, string? shortName)
     {
         var refs = new List<(string, Version)> { (core, Version.Parse(version)) };
         if (other != null) refs.Add((other, new Version(2, 0, 0, 0)));
@@ -50,7 +46,7 @@ public sealed class ExportFrameworkTests : IDisposable
     /// <summary>A netstandard1.0 library: exported as such, and its contracts bind to .NET Framework, not to the newest runtime.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void NetStandardOneLibraryExportsAsSuchAndBindsLikeNetFramework()
+    public void NET_Standard_one_library_exports_as_such_and_binds_like_NET_Framework()
     {
         using var env = new Env(RealPackages.Lib("System.Collections.Immutable", "1.3.1", "netstandard1.0", "System.Collections.Immutable.dll"));
         var project = File.ReadAllText(env.Decompiler.ExportProject(env.Fixture, _dir.File("out"), null, default).ProjectFile!);
@@ -62,7 +58,7 @@ public sealed class ExportFrameworkTests : IDisposable
     }
 
     [Fact]
-    public void NetStandardDependenciesBindToTheirPackages()
+    public void NET_Standard_dependencies_bind_to_their_packages()
     {
         using var env = new Env(RealPackages.Lib("System.Text.Json", "10.0.1", "netstandard2.0", "System.Text.Json.dll"));
         var module = env.Fixture.Module;
@@ -81,13 +77,10 @@ public sealed class ExportFrameworkTests : IDisposable
         Assert.Null(Frameworks.ReferencePackMajor(Path.Combine(_dir.Path, "system.text.json", "10.0.1", "lib", "net10.0", "a.dll")));
     }
 
-    /// <summary>
-    /// A .NET Standard 1.x library with a TargetFrameworkAttribute kept references to .NET Framework facades (CS1069: forwarded
-    /// to mscorlib); its contracts outside the standard library are their 4.3.0 packages instead.
-    /// </summary>
+    /// <summary>Regression: a .NET Standard 1.x library referenced .NET Framework facades (CS1069) instead of its 4.3.0 packages.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void NetStandardOneContractsArePackagesNotFrameworkFacades()
+    public void NET_Standard_one_contracts_are_packages_not_framework_facades()
     {
         using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard1.3", "Newtonsoft.Json.dll"));
         var project = File.ReadAllText(env.Decompiler.ExportProject(env.Fixture, _dir.File("out"), null, default).ProjectFile!);
@@ -97,13 +90,10 @@ public sealed class ExportFrameworkTests : IDisposable
         Assert.Contains("<PackageReference Include=\"System.Runtime.Serialization.Primitives\" Version=\"4.3.0\" />", project);
     }
 
-    /// <summary>
-    /// A .NET Framework 4.6.2 library got the installed runtime's System.ValueTuple facade (forwarding to an mscorlib the 4.6.2
-    /// reference assemblies do not have: CS8179) and its System.Numerics.Vectors 4.0 (no Vector&lt;T&gt;).
-    /// </summary>
+    /// <summary>Regression: a .NET Framework 4.6.2 library got the installed runtime's System.ValueTuple and System.Numerics.Vectors facades (CS8179).</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void NetFrameworkLibrariesDoNotReferenceRuntimeFacadesOrOlderFrameworkCopies()
+    public void NET_Framework_libraries_do_not_reference_runtime_facades_or_older_framework_copies()
     {
         using var env = new Env(RealPackages.Lib("System.Text.Json", "10.0.1", "net462", "System.Text.Json.dll"));
         var project = File.ReadAllText(env.Decompiler.ExportProject(env.Fixture, _dir.File("out"), null, default).ProjectFile!);
@@ -115,7 +105,7 @@ public sealed class ExportFrameworkTests : IDisposable
     /// <summary>A portable library the SDK project writer refuses (Profile328) failed as an internal error.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void PortableProfilesWithoutAnSdkFrameworkAreUnsupported()
+    public void Portable_profiles_without_an_sdk_framework_are_unsupported()
     {
         using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "12.0.2", "portable-net40+sl5+win8+wp8+wpa81", "Newtonsoft.Json.dll"));
         var error = Assert.Throws<ToolError>(() => env.Decompiler.ExportProject(env.Fixture, _dir.File("out"), null, default));
@@ -126,7 +116,7 @@ public sealed class ExportFrameworkTests : IDisposable
     /// <summary>App uses Mid only; Mid exposes a type of Base, which the project then needs too (CS0012).</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void DependenciesOfReferencedLibrariesAreReferenced()
+    public void Dependencies_of_referenced_libraries_are_referenced()
     {
         var app = Directory.CreateDirectory(_dir.File("app")).FullName;
         var lowest = ReferenceResolutionTests.Compile("Base", "namespace Base { public class Shape { } }");

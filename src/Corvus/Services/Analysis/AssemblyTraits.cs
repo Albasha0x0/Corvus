@@ -16,16 +16,9 @@ public static class AssemblyTraits
         return pe != null && pe.IsReadyToRun(image);
     }
 
-    /// <summary>
-    /// Describes a merged assembly, or null when there is no sign of merging.
-    /// <list type="bullet">
-    /// <item>ILRepack embeds an "ILRepack.List" resource naming the inputs.</item>
-    /// <item>ILMerge renames clashing non-public types to "Input.Old" (compiler-generated) or "Input&lt;key&gt;.Old".
-    /// C# type names cannot contain dots, so a dotted name beside its undotted twin indicates a merge. The count is a
-    /// lower bound.</item>
-    /// <item>Several distinct "&lt;PrivateImplementationDetails&gt;{MVID}" types (pre-Roslyn) indicate several modules.</item>
-    /// </list>
-    /// </summary>
+    /// <summary>Describes a merged assembly, or null when there is no sign of merging.</summary>
+    // Signs: an ILRepack.List resource; ILMerge "Input.Old" renames of clashing types (C# names have no dots, so the
+    // count is a lower bound); several pre-Roslyn "<PrivateImplementationDetails>{MVID}" types.
     public static string? MergeNote(ModuleDef module)
     {
         try
@@ -35,14 +28,15 @@ public static class AssemblyTraits
             {
                 var names = repack is EmbeddedResource er ? ReadRepackList(er.CreateReader().ToArray()) : null;
                 return names == null
-                    ? "Merged by ILRepack (ILRepack.List resource present, but its list is unreadable)."
+                    ? "Merged by ILRepack; its ILRepack.List resource is unreadable."
                     : $"Merged by ILRepack from {names.Count} assemblies: {string.Join(", ", names.Select(ShortName))}.";
             }
 
             var inputs = IlMergeInputs(module);
             var pidModules = module.Types.Select(t => PidGuid.Match(t.Name)).Where(m => m.Success).Select(m => m.Groups[1].Value.ToUpperInvariant()).Distinct().Count();
             if (inputs.Count == 0 && pidModules < 2) return null;
-            int atLeast = Math.Max(inputs.Count + 1, pidModules); // +1 for the input that kept the original names
+            // +1 for the input that kept the original names.
+            int atLeast = Math.Max(inputs.Count + 1, pidModules);
             var from = inputs.Count > 0 ? $" (renamed types from {string.Join(", ", inputs)})" : "";
             return $"Merged assembly (ILMerge-style): at least {atLeast} original modules{from}.";
         }
@@ -59,8 +53,9 @@ public static class AssemblyTraits
     {
         var names = new HashSet<(string Namespace, string Name)>();
         foreach (var t in module.Types) names.Add((t.Namespace.String, t.Name.String));
-        var exact = new HashSet<string>(StringComparer.Ordinal); // compiler-generated renames: bare input name
-        var keyed = new List<string>();                           // other renames: input name + numeric key
+        // Compiler-generated renames carry the bare input name; others append a numeric key.
+        var exact = new HashSet<string>(StringComparer.Ordinal);
+        var keyed = new List<string>();
         foreach (var t in module.Types)
         {
             string name = t.Name.String;
@@ -87,9 +82,7 @@ public static class AssemblyTraits
 
     private static string ShortName(string fullName) => fullName.Split(',')[0].Trim();
 
-    /// <summary>
-    /// Parses a BinaryFormatter string[]: 17-byte header, 0x11 + id + count, then per item 0x06 + id + 7-bit-length UTF-8.
-    /// </summary>
+    /// <summary>Parses a BinaryFormatter string[] (17-byte header, 0x11 id count, then 0x06 id 7-bit-length UTF-8 per item), or null.</summary>
     internal static List<string>? ReadRepackList(byte[] data)
     {
         const int header = 17;

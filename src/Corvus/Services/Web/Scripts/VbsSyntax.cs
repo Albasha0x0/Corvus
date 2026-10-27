@@ -22,7 +22,7 @@ internal static class VbLexer
             if (!budget.Step()) break;
             char c = s[p];
             if (c is ' ' or '\t' or ' ' or '\f') { p++; continue; }
-            if (c == '_' && Rest(s, p + 1)) { p = SkipLine(s, p) ; continue; } // continuation
+            if (c == '_' && Rest(s, p + 1)) { p = SkipLine(s, p) ; continue; }
             if (c is '\r' or '\n' or ':')
             {
                 if (list.Count == 0 || list[^1].Kind != VbTok.Newline) list.Add(new VbToken(VbTok.Newline, "\n", null, p, p + 1));
@@ -57,8 +57,10 @@ internal static class VbLexer
                 while (p < s.Length && (hex ? Uri.IsHexDigit(s[p]) : s[p] is >= '0' and <= '7')) p++;
                 long v = 0;
                 try { v = Convert.ToInt64(s[q..p], hex ? 16 : 8); } catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException) { }
-                if (p < s.Length && s[p] == '&') p++; // long suffix
-                else if (hex && p - q <= 4 && v > 0x7FFF) v -= 0x10000; // &HFFFF is -1 as an Integer
+                // A long suffix.
+                if (p < s.Length && s[p] == '&') p++;
+                // &HFFFF is -1 as an Integer.
+                else if (hex && p - q <= 4 && v > 0x7FFF) v -= 0x10000;
                 list.Add(new VbToken(VbTok.Number, s[start..p], v, start, p));
                 continue;
             }
@@ -84,7 +86,8 @@ internal static class VbLexer
                     continue;
                 }
                 while (p < s.Length && IsIdent(s[p])) p++;
-                if (p < s.Length && s[p] is '$' or '%' or '&' or '#' or '!' && (p + 1 >= s.Length || !IsIdent(s[p + 1]))) p++; // type suffix
+                // A type suffix.
+                if (p < s.Length && s[p] is '$' or '%' or '&' or '#' or '!' && (p + 1 >= s.Length || !IsIdent(s[p + 1]))) p++;
                 list.Add(new VbToken(VbTok.Ident, s[start..p].TrimEnd('$', '%', '&', '#', '!'), null, start, p));
                 continue;
             }
@@ -371,7 +374,7 @@ internal sealed class VbParser
                 return new VbExit(start, T.Start, what);
             case "select":
             {
-                // Select Case: read the cases as blocks of their own, followed in the fold pass only
+                // Select Case blocks are read on their own and followed in the fold pass only.
                 _i++;
                 if (T.Is("case")) _i++;
                 var subject = Expr();
@@ -440,14 +443,14 @@ internal sealed class VbParser
             var value = Expr();
             return new VbAssign(start, value.End, target, value);
         }
-        // a call statement: Foo a, b  or  Foo(a)  or  obj.Method a
+        // A call statement: Foo a, b or Foo(a) or obj.Method a.
         if (AtLineEnd || T.Is("else"))
             return target is VbCall c ? new VbCallStatement(start, c.End, c.Callee, c.Args) : new VbCallStatement(start, target.End, target, []);
         var args = new List<VbExpr?>();
         var callee = target;
         if (target is VbCall paren && paren.Args.Count == 1 && _t[_i - 1].Is(")"))
         {
-            // Foo (a), b: the parenthesized first argument
+            // Foo (a), b: the parenthesized first argument.
             callee = paren.Callee;
             args.Add(paren.Args[0]);
             if (T.Is(",")) _i++;
@@ -471,7 +474,7 @@ internal sealed class VbParser
         var clauses = new List<(VbExpr, List<VbStatement>)>();
         if (!AtLineEnd)
         {
-            // single-line If: statements separated by ':' were turned into line breaks, so read one statement each side
+            // Single-line If: ':' became line breaks, so one statement is read each side.
             var then = Statement() is { } s1 ? new List<VbStatement> { s1 } : [];
             clauses.Add((cond, then));
             List<VbStatement>? other = null;
@@ -555,7 +558,8 @@ internal sealed class VbParser
     {
         var kind = T.Text.ToLowerInvariant();
         _i++;
-        if (kind == "property") _i++; // Get / Let / Set
+        // Get, Let or Set.
+        if (kind == "property") _i++;
         var name = T.Text;
         _i++;
         var parameters = new List<string>();
@@ -588,7 +592,8 @@ internal sealed class VbParser
 
     private static readonly string[][] Levels =
     [
-        ["imp"], ["eqv"], ["xor"], ["or"], ["and"], [], // Not sits between And and the comparisons
+        // Not sits between And and the comparisons.
+        ["imp"], ["eqv"], ["xor"], ["or"], ["and"], [],
         ["=", "<>", "<", ">", "<=", ">=", "is", "like"], ["&"], ["+", "-"], ["mod"], ["\\"], ["*", "/"],
     ];
 
@@ -674,7 +679,8 @@ internal sealed class VbParser
                     _i++;
                     return new VbCall(t.Start, _t[_i - 1].End, new VbName(t.Start, t.Start, null, "("), [inner]);
                 }
-                case VbTok.Op when t.Text == ".": // inside With: .Member
+                // Inside With: .Member.
+                case VbTok.Op when t.Text == ".":
                 {
                     _i++;
                     var name = T;

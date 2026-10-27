@@ -61,7 +61,7 @@ public sealed class FridaEnvironmentTests : IDisposable
             var list = FridaVersions.Requirements(platform)!;
             Assert.StartsWith($"frida=={FridaVersions.Pinned} ", list);
             Assert.All(hashes, h => Assert.Contains("--hash=sha256:" + h, list));
-            // no other platform's wheel is accepted
+            // No other platform's wheel is accepted.
             Assert.All(FridaVersions.WheelHashes.Where(o => o.Key != platform).SelectMany(o => o.Value), h => Assert.DoesNotContain(h, list));
             Assert.Contains("typing_extensions==", list);
         }
@@ -132,14 +132,14 @@ public sealed class FridaEnvironmentTests : IDisposable
 
         // CORVUS_FRIDA_PYTHON wins, even over the private environment and on an untested Frida
         Assert.Equal(FridaBackend.PythonVariable, FridaBackend.Choose([variable, tested], install: true, made).Python!.Source);
-        // the private environment, once made, before a user Python with a tested Frida
+        // The private environment, once made, before a user Python with a tested Frida.
         Assert.Equal(FridaEnvironment.Source, FridaBackend.Choose([tested], install: true, made).Python!.Source);
         Assert.Equal(FridaEnvironment.Source, FridaBackend.Choose([], install: true, made).Python!.Source);
-        // without the switch the private environment is not used
+        // Without the switch the private environment is not used.
         Assert.Equal("PATH", FridaBackend.Choose([tested], install: false, made).Python!.Source);
-        // a tested Frida after an untested one
+        // A tested Frida after an untested one.
         Assert.Equal("PATH", FridaBackend.Choose([untested, none, tested], install: false, null).Python!.Source);
-        // no tested Frida: the switch makes the private environment, else the untested Frida is used
+        // No tested Frida: the switch makes the private environment, else the untested Frida is used.
         Assert.Equal((null, true), FridaBackend.Choose([untested, none], install: true, null) is var c ? (c.Python, c.CreatePrivate) : default);
         Assert.Equal("py -3", FridaBackend.Choose([untested, none], install: false, null).Python!.Source);
         Assert.Equal((null, false), FridaBackend.Choose([none], install: false, null) is var d ? (d.Python, d.CreatePrivate) : default);

@@ -8,12 +8,7 @@ using SymbolKind = Corvus.Core.SymbolKind;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods, calls through delegate fields: the evaluator runs the fields' type initializers (method groups,
-/// and reflection-based initializers as SmartAssembly emits them: field names that encode the target's token, resolved
-/// through a ModuleHandle into Delegate.CreateDelegate or a DynamicMethod) and the call sites call the targets directly.
-/// The fixture runs before and after.
-/// </summary>
+/// <summary>Calls through delegate fields, set by method groups or by reflection from encoded tokens, become direct calls.</summary>
 public sealed class SimplifyDelegateTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -65,8 +60,7 @@ public sealed class SimplifyDelegateTests : IDisposable
             internal delegate int ObjInt(object box);
             internal delegate string StrDelegate(int k);
 
-            // SmartAssembly-style: each field's name encodes its target's token (base 58, least significant digit
-            // first; '~' first for callvirt).
+            // Each field's name encodes its target's token: base 58, least significant digit first, '~' first for callvirt.
             internal static class ProxyInit
             {
                 private static readonly char[] Digits = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345".ToCharArray();
@@ -241,7 +235,7 @@ public sealed class SimplifyDelegateTests : IDisposable
     [InlineData("Proxies.Calls", "UseNeg", 2, "Proxies.Targets::Neg(int)")]
     [InlineData("Proxies.Calls", "UseGet", 1, "Proxies.Box::Get()")]
     [InlineData("Proxies.Calls", "UseTwice", 2, "Proxies.Box::Twice()")]
-    public void CallsThroughDelegateFieldsCallTheTarget(string type, string method, int calls, string target)
+    public void Calls_through_delegate_fields_call_the_target(string type, string method, int calls, string target)
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, $"{type}::{method}");
@@ -258,7 +252,7 @@ public sealed class SimplifyDelegateTests : IDisposable
     }
 
     [Fact]
-    public void VirtualTargetsStayVirtual()
+    public void Virtual_targets_stay_virtual()
     {
         using var env = new Env(Fixture());
         Simplify(env, "Proxies.Calls::UseTwice");
@@ -269,7 +263,7 @@ public sealed class SimplifyDelegateTests : IDisposable
     }
 
     [Fact]
-    public void StringDelegatesBecomeCallsAndThenLiterals()
+    public void String_delegates_become_calls_and_then_literals()
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Proxies.Strings::Use");
@@ -286,7 +280,7 @@ public sealed class SimplifyDelegateTests : IDisposable
     }
 
     [Fact]
-    public void NavigationFollowsCallsThroughDelegateFields()
+    public void Navigation_follows_calls_through_delegate_fields()
     {
         // The original IL calls Invoke; references, callees and the call graph show the method the delegate calls.
         using var env = new Env(Fixture());
@@ -309,7 +303,7 @@ public sealed class SimplifyDelegateTests : IDisposable
     [InlineData("UseSwapped", "Swapped", "reads mutable static field Proxies.Unprovable::Swapped")]
     [InlineData("UseVisible", "Visible", "reads mutable static field Proxies.Unprovable::Visible")]
     [InlineData("UseBound", "Bound", "creates a delegate bound to an object")]
-    public void UnprovableDelegateCallsAreKeptAndReported(string method, string field, string why)
+    public void Unprovable_delegate_calls_are_kept_and_reported(string method, string field, string why)
     {
         using var env = new Env(Fixture());
         var before = string.Join("\n", Body(env, "Proxies.Unprovable::" + method));

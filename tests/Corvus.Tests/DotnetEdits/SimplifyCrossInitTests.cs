@@ -5,12 +5,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A static constructor that writes another type's static field: modelled when every read of the field is ordered
-/// against the write (the target's own initialization runs first, the writer's initialization runs precisely, and the
-/// field is read only by the target's initialization, the writer's, or the writer's own methods); otherwise the read
-/// keeps the mutable-static bail-out. The program runs the same before and after.
-/// </summary>
+/// <summary>A static constructor writing another type's field is modelled when every read is ordered against the write; otherwise the bail-out stays.</summary>
 public sealed class SimplifyCrossInitTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -129,7 +124,7 @@ public sealed class SimplifyCrossInitTests : IDisposable
         env.Edit(() => env.Edits.SimplifyMethods(env.One(scope).Assembly, env.One(scope), SimplifyOptions.Parse(null, null, null), dryRun, default));
 
     [Fact]
-    public void OrderedWritesFromAnotherInitializerFold()
+    public void Ordered_writes_from_another_initializer_fold()
     {
         using var env = new Env(Fixture());
         var before = Run(env.Fixture.OriginalBytes);
@@ -143,12 +138,11 @@ public sealed class SimplifyCrossInitTests : IDisposable
     }
 
     [Fact]
-    public void UnorderedWritesKeepTheBailout()
+    public void Unordered_writes_keep_the_bailout()
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Cross.Use");
-        // Store.Other is read by Store.Peek, which can run before Writer2's initializer: the write and the reads keep the
-        // bail-outs they had.
+        // Store.Peek can read Store.Other before Writer2's initializer, so the bail-outs stay.
         Assert.Contains("Cross.Writer2::Get(): static constructor of Cross.Writer2 cannot be evaluated: writes static field Cross.Store::Other outside its static constructor [static-initializer]", report);
         Assert.Contains("Cross.Store::Peek(): reads mutable static field Cross.Store::Other [mutable-static]", report);
         // Two writers; a writer without a static constructor of its own; a write outside any initializer.
@@ -159,7 +153,7 @@ public sealed class SimplifyCrossInitTests : IDisposable
     }
 
     [Fact]
-    public void TheWritersOwnInitializerKeepsCallsThatWriteTheField()
+    public void The_writers_own_initializer_keeps_calls_that_write_the_field()
     {
         using var env = new Env(Fixture());
         var before = Run(env.Fixture.OriginalBytes);

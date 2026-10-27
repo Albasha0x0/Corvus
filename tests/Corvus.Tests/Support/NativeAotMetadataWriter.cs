@@ -4,11 +4,7 @@ using Corvus.Native.NativeAot;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Writes NativeFormat metadata blobs in a given dialect for reader tests. Field values follow the schema codes:
-/// h <see cref="MdHandle"/>, t uint offset or <see cref="Fwd"/>, c list of offsets or handles, u uint, i int, s string,
-/// b byte, 1 byte[]. Collections of fixed-kind handles take offsets (uint), handle collections take handles. A <see cref="Fwd"/> is written as a 5-byte integer and patched in <see cref="ToArray"/>.
-/// </summary>
+/// <summary>Writes NativeFormat metadata blobs for reader tests; field codes follow the schema, and a <see cref="Fwd"/> is a 5-byte integer patched in <see cref="ToArray"/>.</summary>
 internal sealed class NativeAotMetadataWriter
 {
     public sealed class Fwd

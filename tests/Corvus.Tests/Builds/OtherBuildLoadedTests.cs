@@ -24,7 +24,7 @@ public sealed class OtherBuildLoadedTests : IDisposable
     }
 
     [Fact]
-    public void IlOperandsBindToThePatchedAssembly()
+    public void IL_operands_bind_to_the_patched_assembly()
     {
         var describe = SymbolResolver.ResolveOne(_env.Workspace, _env.Fixture.Id, "Fixture.Model.Shop::Describe");
         var result = _env.Edit(() => _env.Edits.PatchMethodIL(describe,
@@ -33,7 +33,7 @@ public sealed class OtherBuildLoadedTests : IDisposable
     }
 
     [Fact]
-    public async Task CallPathStartsResolveInTheGivenAssembly()
+    public async Task Call_path_starts_resolve_in_the_given_assembly()
     {
         var tools = new CallGraphTools(_env.Workspace, new CallGraphService(_env.Workspace));
         var paths = await tools.FindCallPaths("Fixture.Model.Shop::PriceOf(string)", from: "Fixture.Model.Shop::PriceOf(string, int)", assembly: _env.Fixture.Id);

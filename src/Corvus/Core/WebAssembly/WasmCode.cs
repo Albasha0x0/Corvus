@@ -1,22 +1,14 @@
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>
-/// One decoded instruction: its file offset and length, the opcode (prefixed ones as prefix &lt;&lt; 16 | sub) and its
-/// immediates. <see cref="A"/> and <see cref="B"/> hold indexes (function, type and table, local, label, data and memory...);
-/// <see cref="Value"/> a constant's bits; variable-length immediates (br_table, typed select, v128, shuffle, try_table)
-/// are read again from <see cref="ImmStart"/>.
-/// </summary>
+/// <summary>One decoded instruction; variable-length immediates are read again from <see cref="ImmStart"/>.</summary>
 internal struct WasmInstr
 {
     public int Offset, Length;
     public int Op;
     public uint A, B;
     public long Value;
-    /// <summary>
-    /// Block type: -0x40 empty, a negative one-byte value type code (-0x01 for i32 = 0x7F...), a type index, or at or below
-    /// <see cref="WasmCode.TypedBlock"/> a reference type with a heap type (<see cref="WasmBinary.BlockResult"/>). br_on_cast
-    /// keeps its second heap type here, its first in <see cref="Value"/> and its flags in <see cref="Lane"/>.
-    /// </summary>
+    /// <summary>Block type: -0x40 empty, a negative value type code, a type index, or a reference type at or below <see cref="WasmCode.TypedBlock"/>.</summary>
+    /// <remarks>br_on_cast keeps its second heap type here, the first in <see cref="Value"/>, its flags in <see cref="Lane"/>.</remarks>
     public long BlockType;
     public uint Align, Memory;
     public ulong MemOffset;

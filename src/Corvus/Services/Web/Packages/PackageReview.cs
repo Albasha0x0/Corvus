@@ -4,7 +4,7 @@ using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <param name="Level">noteworthy (worth a close look before installing) or review (expected in some packages, worth a look).</param>
+/// <param name="Level">noteworthy (look before installing) or review (expected in some packages).</param>
 /// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code, hidden text, agent configuration, repository hook, build step, rule match (GuardDog), provenance.</param>
 /// <param name="Line">1-based line in <paramref name="Path"/>, when the finding has one.</param>
 public sealed record PackageFinding(string Level, string Category, string Detail, string? Path = null, int? Line = null);
@@ -40,10 +40,10 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     [Description("noteworthy, worth reviewing, or none: the strongest finding.")]
     public string Review { get; init; } = "none";
 
-    [Description("What runs without being asked, at file and line: agent files, hooks, MCP servers, folder-open tasks, git hooks and config, dev container commands, build steps.")]
+    [Description("What runs unprompted, at file and line: agent files, hooks, MCP servers, tasks, git hooks, build steps.")]
     public IReadOnlyList<AgentEntry>? Agents { get; init; }
 
-    [Description("Signed provenance beside the package file (Sigstore bundle, npm attestations, PyPI provenance): digest, signature, certificate chain and log entry, checked offline.")]
+    [Description("Sigstore, npm or PyPI provenance beside the file: digest, signature, chain and log entry, checked offline.")]
     public IReadOnlyList<PackageAttestation>? Provenance { get; init; }
 
     public IReadOnlyList<PackageFinding> Findings { get; init; } = [];
@@ -53,12 +53,7 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     internal IReadOnlyList<string>? Hosts { get; init; }
 }
 
-/// <summary>
-/// Reviews npm, PyPI, VS Code (VSIX) and browser extension packages without installing or running them: install-time
-/// scripts and what their code reaches (network, processes, dynamic code, credential files), entry points, permissions,
-/// native binaries, transformed code (its layers peeled by the script readers) and names close to popular packages; and
-/// the agent configuration a package or repository carries (hidden text in instruction files, hooks, MCP servers, tasks).
-/// </summary>
+/// <summary>Reviews npm, PyPI, VSIX and browser extension packages and agent configuration without installing or running them.</summary>
 public static partial class PackageReview
 {
     public static PackageReport? Review(string path, CancellationToken ct) => Review(path, ct, hosts: false);
@@ -101,7 +96,7 @@ public static partial class PackageReview
         return report with { Findings = findings, Review = review, Files = files.Count, Notes = [.. files.Notes, .. report.Notes], Hosts = hosts ? Hosts(files, ct) : null };
     }
 
-    // an sdist holds one top folder; some archives carry setup.py at their root
+    // An sdist holds one top folder; some archives carry setup.py at their root.
     private static bool IsSdistFile(string p) => Regex.IsMatch(p, @"^[^/]+/(setup\.py|pyproject\.toml|PKG-INFO|setup\.cfg)$|^(setup\.py|PKG-INFO)$");
 
     /// <summary>The shallowest path ending in <paramref name="name"/> (a package's root folder may be named anything).</summary>
@@ -127,9 +122,7 @@ public static partial class PackageReview
     /// <summary>A rule level: noteworthy in a hand-sized file, review in a bundle (bundles encode their own endpoints).</summary>
     private const string Small = "small";
 
-    // Rules run over whole files, bundles included: NonBacktracking matches in
-    // linear time, so they take no match timeout. Patterns that need lookarounds
-    // are generated regexes with bounded work per start, or code.
+    // NonBacktracking matches in linear time, so whole-file rules take no match timeout.
     private static Regex R(string pattern) => new(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
 
     /// <summary>What code reaches, by pattern: each rule names what it found. Levels are raised by the install-time context.</summary>
@@ -172,19 +165,15 @@ public static partial class PackageReview
         new("transformed code", "noteworthy", R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
     ];
 
-    /// <summary>
-    /// Findings for one file's text; <paramref name="install"/> marks code the package manager runs at install time,
-    /// <paramref name="entry"/> the file a program loads first; <paramref name="peel"/> reads transformed code through its layers.
-    /// </summary>
+    /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
     internal static IEnumerable<PackageFinding> Scan(string path, string text, bool install, CancellationToken ct, bool entry = false, bool peel = true)
     {
         var plain = text;
         var language = ScriptReader.Detect(path, text);
-        // transformed scripts: read through their layers so the rules see the plain text
         if (peel && language != null && text.Length <= 4 << 20 && Transformed.IsMatch(text.Length > 200_000 ? text[..200_000] : text))
         {
             var reading = ScriptReader.Read(text, language, ct, milliseconds: ScriptBudget.OverviewMilliseconds);
-            // decoded layers and obfuscator machinery, not ordinary eval or object-of-functions code
+            // Decoded layers and obfuscator machinery count; ordinary eval does not.
             bool transformed = reading.Recovered.Any(r => r is "obfuscator.io string array" or "control-flow flattening")
                                || reading.Layers.Any(l => l.Via.Contains(" of ", StringComparison.Ordinal) || l.Via.Contains("EncodedCommand", StringComparison.Ordinal));
             if (transformed)
@@ -208,17 +197,18 @@ public static partial class PackageReview
                 _ => rule.Level,
             };
             if (install && rule.Category == "network") level = "review";
-            if (!install && rule.Category == "credentials") level = "review"; // tools read these paths for their own work; at install they are a reason to look
+            // Tools read credential paths for their own work; only at install are they noteworthy.
+            if (!install && rule.Category == "credentials") level = "review";
             yield return new PackageFinding(level, rule.Category, (install ? "at install: " : "") + rule.What, path);
         }
         if (install && BundledProgram.IsMatch(plain))
             yield return new PackageFinding("noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1)", path);
         if (install && CompiledEval().IsMatch(plain))
             yield return new PackageFinding("noteworthy", "dynamic code", "at install: evaluates code compiled from a string (eval(compile(...)))", path);
-        // a collector's host name outside a URL (https.request options, dns.lookup, HTTPSConnection), at install or beside connections
+        // A collector host outside a URL (request options, dns.lookup), at install or beside connections.
         if ((install || hits.Contains("network")) && CollectorHost.IsMatch(plain))
             yield return new PackageFinding("noteworthy", "exfiltration", (install ? "at install: " : "") + "contacts a collection endpoint (request catcher, out-of-band test host)", path);
-        // install-time code that reaches the network (or builds a URL from values) and collects host details or secrets, or runs decoded code
+        // Install-time code that reaches the network and collects host details or secrets, or runs decoded code.
         var with = hits.Where(h => h is "credentials" or "host details" or "transformed code").ToList();
         if (install && (hits.Contains("network") || with.Contains("host details") && FormattedUrl.IsMatch(plain))
             && (with.Count > 0 || plain.Contains("exec(", StringComparison.Ordinal) && hits.Contains("dynamic code")))
@@ -235,14 +225,14 @@ public static partial class PackageReview
             yield return new PackageFinding("noteworthy", "remote code", "runs code it fetches through an interpreter's standard input", path);
         if (ChatWebhook.IsMatch(plain) && (WebhookSecret.IsMatch(plain) || WalletSecret.IsMatch(plain)))
             yield return new PackageFinding("noteworthy", "exfiltration", "sends passwords, keys, tokens or wallet secrets to a chat webhook", path);
-        // a beacon at load: host identity or every environment variable sent from the code a program loads
+        // A beacon at load: host identity or the environment sent from entry code.
         if (entry && hits.Contains("network") && LoadBeacon.IsMatch(plain))
             yield return new PackageFinding("noteworthy", "host details", "sends host identity or the environment when loaded", path);
         if (SelfPublish.IsMatch(plain) && plain.Contains("package.json", StringComparison.Ordinal))
             yield return new PackageFinding("noteworthy", "publishing", "rewrites package.json and runs npm publish from its own code", path);
     }
 
-    // a binary installer runs its own executable; these start a shell or outlive the installer
+    // A binary installer runs its own executable; these start a shell or outlive the installer.
     private static readonly Regex Launch = R(@"\bdetached\s*:\s*true|\.unref\(\)|\b(?:spawn|exec|execSync|execFile)\s*\(\s*['""`](?:cmd(?:\.exe)?|powershell(?:\.exe)?|/bin/(?:ba)?sh|sh|bash|start)\b|\bshell\s*=\s*True|\bos\.(?:system|startfile|popen)\s*\(|\bsubprocess\.Popen\s*\(");
     private const string Socket = @"\bnew\s+net\.Socket\b|\bnet\.(?:connect|createConnection)\s*\(|\bsocket\.socket\s*\(";
     private static readonly Regex Detached = R(@"\bdetached\s*:\s*(?:true|!0)|\bstart_new_session\s*=\s*True|\bDETACHED_PROCESS\b|\bnohup\s");
@@ -252,22 +242,19 @@ public static partial class PackageReview
     private static readonly Regex WebhookSecret = R(@"(?i)\b\w*webhook\w*\s*\([^()\n]{0,200}?\b(?:password|passwd|api[_ ]?key|token|secret|cookies?)\b");
     private static readonly Regex WalletSecret = R(@"(?i)\bprivate_?keys?\b|\bmnemonic\b|\bseed_?phrase\b");
     private const string Shell = @"\b(?:spawn|exec|Popen|call|run)\s*\(\s*\[?\s*['""](?:/bin/(?:ba|z)?sh|sh|bash|cmd(?:\.exe)?|powershell(?:\.exe)?)['""]";
-    // a socket near a spawned shell, or near a child whose stdin and stdout it is piped to (the shell named by a variable); bundles hold both apart
-    // Bounded gaps keep the work per start constant, so no match timeout.
+    // A socket near a spawned shell or a child piped to it; bounded gaps keep work per start constant, so no match timeout.
     [GeneratedRegex($@"(?:{Socket})[\s\S]{{0,1500}}?(?:{Shell}|\.pipe\(\s*[\w$.]+\.stdin\s*\)[\s\S]{{0,300}}?\.stdout\.pipe\()|(?:{Shell})[\s\S]{{0,1500}}?(?:{Socket})", RegexOptions.CultureInvariant)]
     private static partial Regex ReverseShell();
     private static readonly Regex LoadBeacon = R(@"\b(?:os\.(?:hostname|userInfo|networkInterfaces)\(\)|socket\.gethostname\(\)|getpass\.getuser\(\)|platform\.node\(\))[\s\S]{0,600}?\b(?:os\.(?:hostname|userInfo|networkInterfaces|homedir)\(\)|socket\.gethostname\(\)|getpass\.getuser\(\)|platform\.node\(\)|process\.cwd\(\)|os\.getcwd\(\)|__dirname)|JSON\.stringify\(\s*process\.env\s*\)|json\.dumps\(\s*(?:dict\()?os\.environ");
     private static readonly Regex BundledProgram = R(@"\.(?:run|call|Popen|check_call|check_output|system|startfile)\(\s*\[?\s*(?:os\.path\.abspath\(\s*)?['""][^'""\n]*\.(?:exe|bat|cmd|ps1|vbs|scr)['""]|\.(?:run|call|Popen|check_call)\(\s*\[\s*exe_path\b");
     private static readonly Regex FormattedUrl = R(@"['""]https?://[^\s'""]*(?:\{\w*\}|%s|\$\{)");
-    // not compile(f.read(), ...): setup.py files read their version module that way
-    // The lookahead reads one name per start, so no match timeout.
+    // Excludes compile(f.read(), ...), which setup.py uses to read its version module; no match timeout needed.
     [GeneratedRegex(@"\b(?:eval|exec)\s*\(\s*compile\s*\(\s*(?![\w.]*\.read\(|open\()", RegexOptions.CultureInvariant)]
     private static partial Regex CompiledEval();
     private static readonly Regex CollectorHost = R(@"['""`/.@](?:[\w-]+\.)*(?:oast\.(?:fun|me|pro|live|site|online)|interact\.sh|burpcollaborator\.net|oastify\.com|dnslog\.cn|ceye\.io|requestcatcher\.com|pipedream\.net|webhook\.site)['""`/]");
     private static readonly Regex SelfPublish = R(@"\bexec(?:Sync)?\s*\(\s*['""`]npm\s+publish\b");
 
-    // Rules that need a lookahead to exclude private addresses or an elevated
-    // start read a bounded stretch per start, so no match timeout.
+    // Lookaheads read a bounded stretch per start, so no match timeout.
     [GeneratedRegex(@"https?://(?!(?:127|0|10)\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.)(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?/", RegexOptions.CultureInvariant)]
     private static partial Regex RawAddressUrl();
 
@@ -279,10 +266,7 @@ public static partial class PackageReview
 
     private static readonly Regex HexName = R(@"\b_0x[0-9a-f]{4,6}\b");
 
-    /// <summary>
-    /// Whether nine obfuscator.io names (_0x1a2b) follow each other on one line, each within 400 characters of the
-    /// last.
-    /// </summary>
+    /// <summary>Whether nine obfuscator.io names (_0x1a2b) follow each other on one line, each within 400 characters.</summary>
     private static bool StringArrayNames(string text)
     {
         // Consecutive names are the closest pair, so a run of them decides it;
@@ -302,10 +286,7 @@ public static partial class PackageReview
     private static readonly Regex SavedTo = R(@"\s-(?:o|O|OutFile)\s+['""]?(?<f>%\w+%|\$?\{\w+\}|\$\w+|[^\s'""]+\.(?:exe|scr|msi|bat|cmd|ps1|sh|bin))['""]?");
     private static readonly Regex Starter = R(@"(?m)(?:^|[\s&;(|'""])(?:start|Start-Process|call|chmod\s+\+x)\b");
 
-    /// <summary>
-    /// Whether a download command on a line naming a URL saves to a file (-o, -O, -OutFile) that a start, call or
-    /// chmod +x line names within the next 3,000 characters.
-    /// </summary>
+    /// <summary>Whether a URL download saves to a file that a start, call or chmod +x names within 3,000 characters.</summary>
     private static bool DownloadsAndStarts(string text)
     {
         // Each step is a linear match; one regex with a backreference to the
@@ -328,10 +309,7 @@ public static partial class PackageReview
         return false;
     }
 
-    /// <summary>
-    /// Code a package runs when loaded: the entry files in full (noteworthy findings, transformed code and credential
-    /// reads), then its other script and shell files within a bound, noteworthy findings only.
-    /// </summary>
+    /// <summary>Findings in the entry files, then noteworthy findings only in other scripts within a bound.</summary>
     internal static IEnumerable<PackageFinding> ScanLoaded(PackageFiles files, string root, IEnumerable<string> entries, CancellationToken ct)
     {
         var entryFiles = entries.Distinct().ToList();
@@ -394,10 +372,10 @@ public static partial class PackageReview
         if (popular.Contains(name, StringComparer.OrdinalIgnoreCase)) return null;
         foreach (var p in popular)
         {
-            // a scope is owned by its publisher: @swc/core is no copy of cors
+            // A scope is owned by its publisher: @swc/core is no copy of cors.
             if (name.StartsWith('@') && !p.StartsWith('@')) continue;
             var q = Normalize(p);
-            if (q == bare) return p; // separators or case only
+            if (q == bare) return p;
             if (Math.Abs(q.Length - bare.Length) > 2 || q.Length < 4) continue;
             int d = Distance(bare, q);
             if (d == 1 || d == 2 && q.Length >= 8) return p;
@@ -407,7 +385,7 @@ public static partial class PackageReview
 
     private static string Normalize(string name)
     {
-        // the scope stays: @swc/core and @babel/core are different names
+        // The scope stays: @swc/core and @babel/core are different names.
         return Regex.Replace(name.ToLowerInvariant(), @"[-_.@/]", "");
     }
 

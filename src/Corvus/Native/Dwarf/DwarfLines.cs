@@ -3,10 +3,7 @@ namespace Corvus.Native.Dwarf;
 /// <summary>One row of a line table: the address where a source line's code starts; <see cref="End"/> closes a sequence.</summary>
 internal readonly record struct DwarfLineRow(ulong Address, int File, int Line, bool End);
 
-/// <summary>
-/// A unit's line table (DWARF 2-5 line number program): the file names and the rows, sorted by address within each
-/// sequence. Malformed programs keep the rows decoded so far and say why in <see cref="Problem"/>.
-/// </summary>
+/// <summary>A unit's DWARF 2-5 line table: file names and rows sorted within each sequence; malformed programs keep decoded rows and set <see cref="Problem"/>.</summary>
 internal sealed class DwarfLineTable
 {
     /// <summary>Most rows decoded per table.</summary>
@@ -28,7 +25,7 @@ internal sealed class DwarfLineTable
     /// <summary>The row covering <paramref name="address"/> (the last row at or before it in a sequence that has not ended), or null.</summary>
     public DwarfLineRow? At(ulong address)
     {
-        // sequences are sorted by start; the last row at or before the address covers it unless it ends a sequence
+        // Sequences are sorted by start; the last row at or before the address covers it unless it ends a sequence.
         int lo = 0, hi = Rows.Length - 1, found = -1;
         while (lo <= hi)
         {
@@ -107,7 +104,7 @@ internal sealed class DwarfLineTable
         var sequence = new List<DwarfLineRow>();
         void Flush()
         {
-            // a sequence is sorted by construction; sequences are merged afterwards
+            // A sequence is sorted by construction; sequences are merged afterwards.
             rows.AddRange(sequence);
             sequence.Clear();
         }
@@ -162,10 +159,7 @@ internal sealed class DwarfLineTable
         return new DwarfLineTable { Files = files, Rows = sorted, Problem = problem, FirstFile = version >= 5 ? 0 : 1 };
     }
 
-    /// <summary>
-    /// Orders whole sequences by start address (each is already ascending). Sequences of discarded code (the linker's
-    /// tombstones: address 0, or -1 / -2) are dropped: they would overlap real code.
-    /// </summary>
+    /// <summary>Orders sequences by start address, dropping the linker's tombstone sequences (address 0, -1 or -2) that would overlap real code.</summary>
     private static DwarfLineRow[] SortSequences(List<DwarfLineRow> rows, bool relocatable)
     {
         var sequences = new List<(int Start, int Count)>();

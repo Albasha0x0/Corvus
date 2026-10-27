@@ -11,7 +11,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>Native type layouts from the PDB, RTTI, Il2Cpp and the decompiler engine's database.</summary>
+/// <summary>Native type layouts from the PDB, RTTI, metadata and the decompiler engine's database.</summary>
 [McpServerToolType]
 public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeService? code = null, NativeEngineService? engines = null,
     NativeUserTypePush? userTypes = null)
@@ -36,13 +36,12 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     }
 
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
-    [Description("Layout of a native type (fields with offset, size, bits; bases, padding; enums by value) from PDB, RTTI (vftables, named slots), " +
-                 "Il2Cpp, ObjC or Swift metadata, or the engine (source=engine). By name (exact, case-insensitive, else substring candidates), id or " +
-                 "typed address (PDB global: field path g.nodes[3].pos.y). read=true adds values.")]
+    [Description("Layout of a native type (fields, bases, enum values) from PDB, RTTI, metadata, ObjC, Swift or an engine. Look up by " +
+                 "name, id or typed address; read=true adds the values at address.")]
     public Task<string> GetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Type name (Packet, ns::Widget, Il2Cpp Ns.Type), or a glob listing matches (*Widget*).")] string? name = null,
-        [Description("Type id from a result (pdb:0x1A2B, rtti:0x140012000, il2cpp:Ns.Type).")] string? id = null,
+        [Description("Type name (ns::Widget, Ns.Type), case-insensitive; a glob (*Widget*) lists matches.")] string? name = null,
+        [Description("Type id from a result (pdb:0x1A2B, rtti:0x140012000, metadata:Ns.Type).")] string? id = null,
         [Description("A typed address: " + NativeTools.AddressDescription)] string? address = null,
         [Description("Hex field offset to name (all union members); 0x48.0x10 goes through the pointer at 0x48.")] string? at = null,
         [Description("Levels of by-value members inlined (0-4).")] int depth = 0,
@@ -56,7 +55,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        // read=true with name or id: address says where the type is read, it is not looked up
+        // read=true with name or id: address says where the type is read; it is not looked up.
         bool readAt = read && !string.IsNullOrWhiteSpace(address) && (!string.IsNullOrWhiteSpace(name) || !string.IsNullOrWhiteSpace(id));
         var lookup = readAt ? null : address;
         int given = new[] { name, id, lookup }.Count(v => !string.IsNullOrWhiteSpace(v));
@@ -69,10 +68,10 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         var src = (source ?? "").Trim().ToLowerInvariant();
         var sources = src switch
         {
-            "" or "auto" => new HashSet<string> { NativeTypeCatalog.Pdb, NativeTypeCatalog.Rtti, NativeTypeCatalog.Il2Cpp, NativeTypeCatalog.ObjC, NativeTypeCatalog.Swift },
-            NativeTypeCatalog.Pdb or NativeTypeCatalog.Rtti or NativeTypeCatalog.Il2Cpp or NativeTypeCatalog.ObjC or NativeTypeCatalog.Swift => new HashSet<string> { src },
+            "" or "auto" => new HashSet<string> { NativeTypeCatalog.Pdb, NativeTypeCatalog.Rtti, NativeTypeCatalog.Metadata, NativeTypeCatalog.ObjC, NativeTypeCatalog.Swift },
+            NativeTypeCatalog.Pdb or NativeTypeCatalog.Rtti or NativeTypeCatalog.Metadata or NativeTypeCatalog.ObjC or NativeTypeCatalog.Swift => new HashSet<string> { src },
             NativeTypeCatalog.Engine => new HashSet<string>(),
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{source}'.", "use auto, pdb, rtti, il2cpp, objc, swift or engine"),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{source}'.", "use auto, pdb, rtti, metadata, objc, swift or engine"),
         };
         bool c = (format ?? "").Trim().ToLowerInvariant() switch
         {
@@ -86,7 +85,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
 
         var (native, rva) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, code, image, string.IsNullOrWhiteSpace(address) ? "rva:0" : address), cancellationToken);
         INativeDecompilerSession? session = null;
-        // source=engine: an engine-only read; auto: the engine the shared rule picks (one that analyzed these bytes, or named), else none
+        // source=engine reads only the engine; auto takes the engine the shared rule picks, else none.
         EngineChoice? choice = null;
         if (src == NativeTypeCatalog.Engine)
         {
@@ -122,7 +121,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
             query = $"address {NativeAddress.Va(native.Image, rva)}";
             var typed = await Task.Run(() => catalog.AtAddress(ctx, rva, cancellationToken), cancellationToken)
                 ?? throw new ToolError(ErrorCode.NotFound, $"No type source covers {NativeAddress.Va(native.Image, rva)} in {native.Id}.",
-                    "typed addresses come from PDB globals (load_pdb), RTTI vftables and descriptors, and Il2Cpp metadata slots (apply_il2cpp_names); resolve_address describes any address" +
+                    "typed addresses come from load_pdb, RTTI and apply_metadata_names; resolve_address describes any address" +
                     (read ? "; or pass the type's name with read=true" : ""));
             view = typed.Type;
             owner = typed.Owner;
@@ -218,7 +217,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     {
         if (c.Uses(NativeTypeCatalog.Pdb)) yield return c.PdbFile != null ? "PDB loaded" : "no PDB";
         if (c.Uses(NativeTypeCatalog.Rtti)) yield return "RTTI read";
-        if (c.Uses(NativeTypeCatalog.Il2Cpp)) yield return Il2CppNativeNames.Of(c.Native) != null ? "Il2Cpp names applied" : "no Il2Cpp names applied";
+        if (c.Uses(NativeTypeCatalog.Metadata)) yield return AotNativeNames.Of(c.Native) != null ? "metadata names applied" : "no metadata names applied";
         yield return c.Session != null ? $"{c.Session.ProviderId} types read" : "engine not read";
     }
 
@@ -247,7 +246,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         sb.AppendLine();
         foreach (var p in r.Paths) sb.AppendLine($"Field at +0x{p.Offset + p.Remainder:X}: {p.Path} ({p.Type}{(p.Remainder > 0 ? $", +0x{p.Remainder:X} into it" : "")})");
         if (r.Value != null) sb.AppendLine($"Value at {r.ReadAddress}: {r.Value}");
-        // an engine's enum or typedef has no rows: its declaration says it all
+        // An engine's enum or typedef has no rows: its declaration says it all.
         if (t.Declaration != null && (c || t.Fields.Count + t.Enumerators.Count == 0 && t.Function == null)) sb.AppendLine(t.Declaration);
         else
         {

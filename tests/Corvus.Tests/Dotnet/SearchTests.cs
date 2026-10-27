@@ -10,7 +10,7 @@ public class SearchTests : IDisposable
     private IReadOnlyList<LoadedAssembly> All => _env.Workspace.Assemblies;
 
     [Fact]
-    public void SymbolsBySubstringWildcardRegexAndRanking()
+    public void Symbols_match_by_substring_wildcard_and_regex_and_rank()
     {
         var r = _env.Search.SearchSymbols("charge", false, SymbolKind.Any, All, null, 100, default);
         Assert.Contains(r.Items, s => s.Member.Name == "Charge");
@@ -31,7 +31,7 @@ public class SearchTests : IDisposable
 
     /// <summary>A calli printed its signature operand as the reader's type name ("dnlib.DotNet.StandAloneSigMD"; C++/CLI code).</summary>
     [Fact]
-    public void CalliShowsAndMatchesItsSignature()
+    public void Calli_shows_and_matches_its_signature()
     {
         using var dir = new TempDir();
         File.WriteAllBytes(dir.File("Pointers.dll"), Roslyn.Compile("Pointers",
@@ -43,7 +43,7 @@ public class SearchTests : IDisposable
     }
 
     [Fact]
-    public void TimeLimitFailsWithWhatWasFound()
+    public void Time_limit_fails_with_what_was_found()
     {
         var search = new Corvus.Services.SearchService { TimeLimit = TimeSpan.Zero };
         var error = Assert.Throws<ToolError>(() => search.SearchStrings("a", false, All, 10, default));
@@ -62,7 +62,7 @@ public class SearchTests : IDisposable
     }
 
     [Fact]
-    public void SymbolsByFullNameNamespaceFilterAndLimit()
+    public void Symbols_match_by_full_name_and_honour_namespace_and_limit()
     {
         var full = _env.Search.SearchSymbols("Model.Account::Charg", false, SymbolKind.Method, All, null, 100, default);
         Assert.Equal(2, full.Total);
@@ -74,7 +74,7 @@ public class SearchTests : IDisposable
     }
 
     [Fact]
-    public void StringsInBodiesAndConstants()
+    public void Strings_are_found_in_bodies_and_constants()
     {
         var r = _env.Search.SearchStrings("preview-", false, All, 50, default);
         Assert.Contains(r.Items, h => h.Owner.Name == "CheckPreview" && h.ILOffset != null);
@@ -89,23 +89,23 @@ public class SearchTests : IDisposable
     [InlineData("2", "Blue")]            // enum member
     [InlineData("30", ".ctor")]          // dictionary initializer in Shop
     [InlineData("1_000", "Score")]
-    public void Constants(string value, string owner) =>
+    public void Constants_are_found_by_value(string value, string owner) =>
         Assert.Contains(_env.Search.SearchConstants(value, All, 100, default).Items, h => h.Owner.Name == owner);
 
     [Fact]
-    public void AttributeArgumentsOfEveryKind_AreFormattedAndSearchable()
+    public void Attribute_arguments_of_every_kind_are_formatted_and_searchable()
     {
         var tagged = _env.Def<dnlib.DotNet.TypeDef>("Fixture.Model.Tagged", SymbolKind.Type);
         Assert.Equal("[Tags(new int[] { 1, 2, 3 }, 5, typeof(Vec2), Team.Blue, Names = new string[] { \"a\", \"b\" })]",
             Format.Attribute(tagged.CustomAttributes.Single()));
         var marked = _env.Def<dnlib.DotNet.MethodDef>("Tagged::Marked");
         Assert.Equal("[Tags(null, new int[] { 935 }, typeof(int), (Team)7)]", Format.Attribute(marked.CustomAttributes.Single()));
-        // a number inside an attribute's array argument is found
+        // A number inside an attribute's array argument is found.
         Assert.Contains(_env.Search.SearchConstants("0x3A7", All, 100, default).Items, h => h.Owner.Name == "Marked" && h.Kind == "attribute [TagsAttribute]");
     }
 
     [Fact]
-    public void ConstantsRejectText() =>
+    public void Constants_reject_text() =>
         Assert.Throws<ToolError>(() => _env.Search.SearchConstants("hello", All, 10, default));
 
     [Theory]
@@ -115,7 +115,7 @@ public class SearchTests : IDisposable
     [InlineData("callvirt *IChargeable::Charge*", "Bill")]
     [InlineData("newobj *Account::.ctor*", "Open")]
     [InlineData("ldfld *_balance; ldc.i4.2; mul", "Score")]
-    public void IlPatterns(string pattern, string method)
+    public void IL_patterns_match_their_method(string pattern, string method)
     {
         var r = _env.Search.SearchIL(pattern, All, 50, default);
         var match = Assert.Single(r.Items, m => m.Method.Name == method);
@@ -123,7 +123,7 @@ public class SearchTests : IDisposable
     }
 
     [Fact]
-    public void IlPatternErrors()
+    public void Invalid_IL_patterns_are_rejected()
     {
         Assert.Throws<ToolError>(() => _env.Search.SearchIL("", All, 10, default));
         Assert.Throws<ToolError>(() => _env.Search.SearchIL("...", All, 10, default));

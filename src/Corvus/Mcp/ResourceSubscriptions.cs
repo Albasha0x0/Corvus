@@ -9,13 +9,9 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Resource subscriptions: a subscribed URI gets notifications/resources/updated after the workspace changes (a load,
-/// unload, reload from disk or edit). Subscribed by resources/subscribe (2025 protocols) or by the resourceSubscriptions
-/// of a subscriptions/listen stream (2026-07-28), whose updates go on that stream. The resource list itself never
-/// changes, so resources/list_changed is not sent. Any change notifies every subscription: resources are few and a
-/// spurious update only costs a re-read.
-/// </summary>
+/// <summary>Sends notifications/resources/updated for subscribed URIs after any workspace change.</summary>
+// Subscribed by resources/subscribe or a subscriptions/listen stream (2026-07-28), whose updates go on that stream.
+// The resource list never changes, so list_changed is not sent; every change notifies all, since a spurious update costs one re-read.
 public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceProvider services)
 {
     private const string SubscriptionKey = "io.modelcontextprotocol/subscriptionId";
@@ -42,10 +38,8 @@ public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceP
         if (_uris.IsEmpty && _streams.IsEmpty) Interlocked.Exchange(ref _generation, workspace.Generation);
     }
 
-    /// <summary>
-    /// Tracks subscriptions/listen streams that ask for resource updates, for as long as each is open. The SDK grants
-    /// resourceSubscriptions when resources/subscribe is supported but sends no update on the stream itself.
-    /// </summary>
+    /// <summary>Tracks open subscriptions/listen streams that ask for resource updates.</summary>
+    // The SDK grants resourceSubscriptions but sends no update on the stream itself.
     public McpMessageFilter ListenFilter => next => async (context, ct) =>
     {
         if (context.JsonRpcMessage is not JsonRpcRequest { Method: RequestMethods.SubscriptionsListen } request
@@ -74,7 +68,7 @@ public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceP
         {
             foreach (var uri in server == null ? [] : uris)
                 if (!await Send(() => server!.SendNotificationAsync(NotificationMethods.ResourceUpdatedNotification, new ResourceUpdatedNotificationParams { Uri = uri })))
-                    break; // the session ended
+                    break;
             foreach (var stream in streams)
                 foreach (var uri in stream.Uris)
                     if (!await Send(() => stream.Server.SendMessageAsync(new JsonRpcNotification
@@ -82,7 +76,7 @@ public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceP
                             Method = NotificationMethods.ResourceUpdatedNotification,
                             Params = new JsonObject { ["uri"] = uri, ["_meta"] = new JsonObject { [SubscriptionKey] = stream.Id?.DeepClone() } },
                         })))
-                        break; // the stream ended
+                        break;
         });
     }
 

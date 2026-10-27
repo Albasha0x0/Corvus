@@ -4,11 +4,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Stop points on each target by each location form (name+offset, live address, image address, module!export in a system
-/// module); continue of one thread while another stays held; a stop point and a watch deferred to a library loaded later
-/// catch its first call, and a watch's rate limit counts the calls it does not record.
-/// </summary>
+/// <summary>Stop points by every location form, one thread continued while another is held, deferred points catching a later library's first call, and watch rate limits.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -47,7 +43,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Assert.Contains($"s2 set at {line.Groups[1].Value} ", await Set(server, $"AddLine+{line.Groups[2].Value}"));
         await Clear(server, "s2");
 
-        // the function's live address, then the image address it was loaded from
+        // The function's live address, then the image address it was loaded from.
         var entry = Regex.Match(await Set(server, "AddLine"), @"s3 set at (0x[0-9A-F]+)").Groups[1].Value;
         await Clear(server, "s3");
         Assert.Matches($@"s4 set at {entry} {name}!AddLine\b", await Set(server, entry));
@@ -61,7 +57,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         bool live = va >= moduleBase && va - moduleBase < image.SizeOfImage;
         Assert.Contains($"s5 set at {entry} ", await Set(server, live ? entry : $"0x{va:X}"));
 
-        // a system module's export
+        // A system module's export.
         Assert.Contains("s6 set at", await Set(server, target.FileOpen));
 
         int addLine = 0;
@@ -109,7 +105,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
 
         Assert.Contains($"resumed thread(s) {a}\n", (await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["thread"] = a })).ReplaceLineEndings("\n"));
         Assert.Contains($"thread {b} (held at s1)", await Ok(server, "live_read", new() { ["session"] = "live-1", ["thread"] = b, ["registers"] = "pc" }));
-        // the resumed thread runs on into its next call and stops again, while b has not moved
+        // The resumed thread runs on into its next call and stops again, while b has not moved.
         var again = await Ok(server, "live_break", new() { ["session"] = "live-1", ["wait"] = true, ["waitSeconds"] = 60 });
         Assert.Matches(@"thread \d+ stopped at s1", again);
         Assert.Contains($"thread {b} (held at s1)", await Ok(server, "live_read", new() { ["session"] = "live-1", ["thread"] = b, ["registers"] = "pc" }));
@@ -195,12 +191,11 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
             return;
         }
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
-        // A missed stop logs whether plugin.dll's load reached the server and how its entry point was followed, and the
-        // system ntdll's version, which maps a crash's ntdll offset to its function.
+        // A missed stop logs plugin.dll's load, entry-point following and the ntdll version for crash offsets.
         if (!stop.Contains("stopped at s1 (plugin.dll!PluginWork)", StringComparison.Ordinal))
             Assert.Fail($"{stop}\nevents:\n{await Events(server, "live-1", log: false)}\nntdll.dll {NtdllVersion()}");
         Assert.Equal(0UL, await FirstArgument(server, target));
-        Assert.Contains("deferred stop point s1 set at plugin.dll!PluginWork (plugin.dll loaded; its entry point writes its code, so set once that returned)",
+        Assert.Contains("deferred stop point s1 set at plugin.dll!PluginWork (plugin.dll loaded; set after its entry point, which writes its code)",
             await Events(server, "live-1", kind: "module"));
 
         await Clear(server, "s1");
@@ -242,7 +237,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         Assert.Contains("stopped at s1", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
         var atStop = Names(await Ok(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" }));
         Assert.Contains("windows.storage.dll", atStop);
-        // the loader's list adds system DLLs only; the agent's cloaked modules (frida-agent.dll) stay out of every list
+        // The loader's list adds system DLLs only; the agent's cloaked modules (frida-agent.dll) stay out of every list.
         var system = Environment.GetFolderPath(target.Is64 ? Environment.SpecialFolder.System : Environment.SpecialFolder.SystemX86);
         Assert.All(atStop.Except(before), name => Assert.True(File.Exists(Path.Combine(system, name)), $"{name} is not a system DLL"));
         Assert.DoesNotContain(before.Concat(atStop), name => name.StartsWith("frida-", StringComparison.OrdinalIgnoreCase));
@@ -332,7 +327,7 @@ public sealed class LiveStopPointRealTests(ITestOutputHelper output) : LiveToolC
         await Task.Delay(500); // the last batch
         var list = await Ok(server, "live_watch", new() { ["session"] = "live-1" });
         Assert.Matches($@"w1 {Regex.Escape(target.Library("plugin"))}!{other}: {calls} call\(s\) recorded[^;\n]*; {other}\(a0, a1\) \(raw values\)", list);
-        // the decoding is known once the library loads: the module event names it
+        // The decoding is known once the library loads: the module event names it.
         Assert.Contains($"deferred watch w1 set at {target.Library("plugin")}!{other}: {other}(a0, a1) (raw values) (", await Events(server, "live-1", kind: "module"));
 
         var events = await Events(server, "live-1", from: "w1");

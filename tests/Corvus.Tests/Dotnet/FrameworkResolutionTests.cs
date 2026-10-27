@@ -80,7 +80,7 @@ public class FrameworkResolutionTests : IDisposable
     }
 
     [Fact]
-    public void AnOlderMajorVersion_ResolvesToThatFramework_WhenInstalled()
+    public void An_older_major_version_resolves_to_that_framework_when_installed()
     {
         // From .NET 5, assembly versions follow the runtime's major version.
         var installed = Frameworks.All.Value.Where(s => s.Name == "Microsoft.NETCore.App" && s.Version.Major >= 5).Select(s => s.Version.Major).Distinct().OrderBy(m => m).ToList();
@@ -95,7 +95,7 @@ public class FrameworkResolutionTests : IDisposable
     }
 
     [Fact]
-    public void LoadedBuildOfAnotherMajor_ElsewhereIsOnlyALastResort()
+    public void Loaded_build_of_another_major_elsewhere_is_only_a_last_resort()
     {
         // Fresh MVIDs: the workspace treats equal MVIDs as one module.
         static byte[] Lib(int major) => ContainerFixtures.Module("Lib", m => { m.Assembly.Version = new Version(major, 0, 0, 0); m.Mvid = Guid.NewGuid(); });
@@ -117,7 +117,7 @@ public class FrameworkResolutionTests : IDisposable
     }
 
     [Fact]
-    public void NetFrameworkApp_ReadsFrameworkAssembliesFromNetFramework()
+    public void NET_Framework_app_reads_framework_assemblies_from_NET_Framework()
     {
         if (Frameworks.NetFrameworkFile("mscorlib") is not { } netfxCorlib) return; // Windows with .NET Framework 4
         // A .NET Framework app with a modern mscorlib facade also loaded.
@@ -136,7 +136,7 @@ public class FrameworkResolutionTests : IDisposable
     }
 
     [Fact]
-    public void CosturaEmbeddedAssemblies_ResolveReferences_ForDecompilingAndPatching()
+    public void Costura_embedded_assemblies_resolve_references_for_decompiling_and_patching()
     {
         // TestFixture ships only as a Costura resource inside App.
         var fixture = File.ReadAllBytes(Env.FixturePath);
@@ -170,7 +170,7 @@ public class FrameworkResolutionTests : IDisposable
     }
 
     [Fact]
-    public void Patch_DropsUsingsOfNamespacesThatNoReferenceProvides()
+    public void Patch_drops_usings_of_namespaces_that_no_reference_provides()
     {
         // Gone.dll is not shipped, so the decompiled context's "using Gone;" cannot resolve.
         var gone = ReferenceResolutionTests.Compile("Gone", "namespace Gone { public class Thing { } }");
@@ -189,7 +189,7 @@ public class FrameworkResolutionTests : IDisposable
     }
 
     [Fact]
-    public void ExportedProject_DoesNotPinFrameworkAssemblies()
+    public void Exported_project_does_not_pin_framework_assemblies()
     {
         using var env = new Env();
         var result = env.Decompiler.ExportProject(env.Fixture, _dir.File("export"), null, default);

@@ -22,11 +22,7 @@ public sealed record MigrationOptions
     public double MinScore { get; init; }
 }
 
-/// <summary>
-/// Plans carrying names and comments from an old build to the new one. Targets the new build's user layer and never
-/// replaces a user name or comment there; names already in effect, names used at another address, and two items that
-/// land on one address are reported with reason codes instead.
-/// </summary>
+/// <summary>Plans carrying names and comments to a new build's user layer; never replaces a user name or comment there.</summary>
 public static class NameMigration
 {
     /// <summary>The kind of a user's decompiler comment (the others: name, comment).</summary>
@@ -42,10 +38,7 @@ public static class NameMigration
         return items;
     }
 
-    /// <summary>
-    /// Records the set steps in <paramref name="annotations"/> in one change (comments keep their kinds); the names were
-    /// checked by <see cref="Plan"/>. Returns the names and comments set, for the code indexes.
-    /// </summary>
+    /// <summary>Records the set steps in one change; returns the names and comments set, for the code indexes.</summary>
     public static (List<(uint Rva, string? Name)> Names, List<(uint Rva, string? Text)> Comments) Apply(NativeAnnotations annotations, IEnumerable<MigrationStep> steps)
     {
         var set = steps.Where(s => s.Set && s.NewRva != null).ToList();
@@ -72,7 +65,7 @@ public static class NameMigration
         var plannedComments = new Dictionary<uint, MigrationSource>();
         var plannedPseudo = new Dictionary<uint, MigrationSource>();
 
-        // user items first so they win over imported names landing on the same address
+        // User items first, so they win over imported names landing on the same address.
         foreach (var item in items.OrderByDescending(i => i.Source.Rank()).ThenBy(i => i.OldRva))
         {
             ct.ThrowIfCancellationRequested();

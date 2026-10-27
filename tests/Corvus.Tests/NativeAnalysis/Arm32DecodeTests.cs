@@ -2,10 +2,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The A32 / T32 decoder on encodings taken from compiler output (Android armeabi-v7a and Linux ARM libraries), each
-/// checked against an independent disassembler: text, length, control flow and register use.
-/// </summary>
+/// <summary>The A32 / T32 decoder on compiler-output encodings, checked against an independent disassembler for text, length, flow and registers.</summary>
 public class Arm32DecodeTests
 {
     private static ArmInstruction Decode(bool thumb, string hex, uint address, bool inIt = false)

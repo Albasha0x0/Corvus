@@ -15,10 +15,7 @@ public enum GhidraAnalysisProfile
     Minimal,
 }
 
-/// <summary>
-/// Every Ghidra-native option string the provider uses (loader arguments, analyzer option names), the environment
-/// variables that configure it, and the analysis profile key that names a project in the cache.
-/// </summary>
+/// <summary>Ghidra option strings, the provider's environment variables, and the profile key that names a cached project.</summary>
 public static class GhidraOptions
 {
     public const string DirectoryVariable = "CORVUS_GHIDRA_DIR";
@@ -96,7 +93,7 @@ public static class GhidraOptions
     public const string ElfImageBaseArgument = "-loader-imagebase";
 
     /// <summary>Analyzer options set before the first analysis; names the program does not register are reported and skipped.</summary>
-    /// <param name="completion">a completion pass follows the standard profile's analysis: the analyzers it runs instead are off</param>
+    /// <param name="completion">A completion pass follows; the analyzers it runs are off here.</param>
     public static IReadOnlyList<KeyValuePair<string, string>> AnalyzerOptions(GhidraAnalysisProfile profile, SymbolMode symbols, string? extra, bool completion = false)
     {
         var list = new List<KeyValuePair<string, string>>();
@@ -107,8 +104,9 @@ public static class GhidraOptions
                 list.Add(new($"{ParameterId}.{DecompilerTimeout}", "10"));
                 list.Add(new($"{SwitchAnalysis}.{DecompilerTimeout}", "10"));
                 list.Add(new($"{CallConventionId}.{DecompilerTimeout}", "10"));
-                list.Add(new(ResourceReference, "false")); // compiles a script per import: 35-42 s
-                // stack variables change no function, call or data reference: 95-123 s of libSkiaSharp's first answer, run by the completion pass
+                // Compiles a script per import: 35-42 s.
+                list.Add(new(ResourceReference, "false"));
+                // Stack variables change no function or reference; up to 2 min on a large library, so the completion pass runs it.
                 if (completion) list.Add(new(StackAnalyzer, "false"));
                 break;
             case GhidraAnalysisProfile.Minimal:
@@ -165,10 +163,7 @@ public static class GhidraOptions
         return imageBytes > 50L << 20 ? "8G" : "4G";
     }
 
-    /// <summary>
-    /// Names the project of one image under one configuration: Ghidra version and revision, protocol, loader arguments,
-    /// analyzer options and extensions. A change to any of them analyzes again into a new project. 16 hex digits.
-    /// </summary>
+    /// <summary>16 hex digits naming an image's project per Ghidra build, protocol, loader arguments, analyzer options and extensions.</summary>
     public static string ProfileKey(GhidraInstallation ghidra, GhidraAnalysisProfile profile, IEnumerable<KeyValuePair<string, string>> loaderArguments,
         IEnumerable<KeyValuePair<string, string>> analyzerOptions, IEnumerable<GhidraExtension>? extensions = null)
     {

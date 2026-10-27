@@ -4,15 +4,10 @@ using Corvus.Core;
 
 namespace Corvus.Native;
 
-/// <summary>An address a name resolves to, with where the name comes from (user, pdb, il2cpp, ida, export, import, ...).</summary>
+/// <summary>An address a name resolves to, with the name's source (user, pdb, export, import, ...).</summary>
 public readonly record struct AddressCandidate(uint Rva, string Source);
 
-/// <summary>
-/// Parses addresses given to native tools into RVAs. Forms: a number (hex with 0x or a trailing h, or plain hex
-/// digits; a value inside [ImageBase, ImageBase + SizeOfImage) is a VA, otherwise an RVA), prefixed "rva:", "va:" or
-/// "off:" / "offset:" (file offset), an export name, "module!import" for an IAT slot, a name the caller resolves, or an
-/// engine's default name (sub_1800012340, FUN_180001234, DAT_180020000). A name on several addresses is an ambiguous error listing them.
-/// </summary>
+/// <summary>Parses native tool addresses (number, rva:/va:/off:, export, module!import, name, engine default name) into RVAs; a number inside the image's VA range is a VA, and a name on several addresses is an ambiguous error.</summary>
 public static class NativeAddress
 {
     public static uint Parse(INativeImage image, string text, Func<string, IReadOnlyList<AddressCandidate>>? names = null)
@@ -41,8 +36,7 @@ public static class NativeAddress
         foreach (var e in image.Exports)
             if (e.Name == t && e.ForwardedTo == null && !candidates.Exists(k => k.Rva == e.Rva)) candidates.Add(new(e.Rva, "export"));
         int bang = t.IndexOf('!');
-        // Mach-O symbols carry the C compiler's leading underscore; a C name
-        // finds them without it.
+        // Mach-O symbols carry the C compiler's leading underscore; a C name finds them without it.
         if (candidates.Count == 0 && bang < 0 && image.Format == ImageFormat.MachO && !t.StartsWith('_'))
             try { return Parse(image, "_" + t, names); }
             catch (ToolError e) when (e.Code == ErrorCode.NotFound) { }
@@ -82,10 +76,7 @@ public static class NativeAddress
         return null;
     }
 
-    /// <summary>
-    /// Drops candidates that are only a direct jump to another candidate: an incremental-link or export thunk and the
-    /// body it jumps to carry the same name, and the name means the body.
-    /// </summary>
+    /// <summary>Drops candidates that only jump to another candidate, so a thunk's name means its body.</summary>
     public static List<AddressCandidate> WithoutJumpThunks(INativeImage image, List<AddressCandidate> candidates)
     {
         if (candidates.Count < 2) return candidates;
@@ -129,11 +120,7 @@ public static class NativeAddress
     public static string Describe(INativeImage image, uint rva) =>
         $"rva 0x{rva:X}, va {Va(image, rva)}" + (image.TryRvaToFileOffset(rva, out var off) ? $", file 0x{off:X}" : ", not in the file");
 
-    /// <summary>
-    /// <paramref name="import"/> is module!name: the module by file name with or without its extension (kernel32, KERNEL32.dll,
-    /// libc.so.6, libSystem.B.dylib; an unversioned ELF import, module *, matches * or any library it needs), the name exactly, by #ordinal,
-    /// or on Mach-O without its leading underscore.
-    /// </summary>
+    /// <summary>Whether <paramref name="import"/> is module!name: module with or without extension (module * matches any library an unversioned ELF import needs), name exact, #ordinal or without the Mach-O underscore.</summary>
     public static bool ImportMatches(INativeImage image, NativeImport import, string module, string name)
     {
         if (import.Module != "*" && !SameModule(import.Module, module)) return false;
@@ -184,7 +171,8 @@ public static class NativeAddress
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t[2..];
         else if (t.EndsWith('h') || t.EndsWith('H')) t = t[..^1];
         if (t.Length == 0) return null;
-        var digits = t.TrimStart('0');                  // MASM writes leading-zero hex (0FFFF...h); the value is unchanged
+        // MASM writes leading-zero hex (0FFFFh).
+        var digits = t.TrimStart('0');
         if (digits.Length == 0) return 0UL;
         return digits.Length <= 16 && ulong.TryParse(digits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var v) ? v : null;
     }

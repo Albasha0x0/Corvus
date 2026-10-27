@@ -8,10 +8,8 @@ using System.Xml.Linq;
 namespace Corvus.Services;
 
 /// <summary>
-/// XBF, the XAML binary format the UWP and WinUI XAML compilers write, decoded back to XAML text. Version 2 is read
-/// in full: the object writer's node streams are replayed into an element tree, and the node streams that styles,
-/// resource dictionaries, visual states, templates and x:Load elements defer to are read in place. Version 1 and
-/// unknown versions are reported as partial with their metadata tables.
+/// Decodes XBF, the binary XAML that UWP and WinUI compilers write, back to XAML; version 2 in full including deferred
+/// streams, version 1 and unknown versions as partial with their metadata tables.
 /// </summary>
 public static partial class XbfReader
 {
@@ -24,8 +22,7 @@ public static partial class XbfReader
     public sealed record Element(string Type, string? Name);
 
     /// <summary>
-    /// The decoded XAML (null when no node stream was read), the file version, the root x:Class (null when none), the
-    /// elements by connection id, and what could not be read; <see cref="Partial"/> is true when anything was left out.
+    /// The decoded XAML (null when no node stream was read), version, x:Class, connected elements and notes; Partial when anything was left out.
     /// </summary>
     public sealed record Result(string? Xaml, int Major, int Minor, string? ClassName, IReadOnlyDictionary<int, Element> Connections,
         IReadOnlyList<string> Notes, bool Partial);
@@ -34,11 +31,8 @@ public static partial class XbfReader
     public static bool IsXbf(ReadOnlySpan<byte> head) => head.Length >= 4 && head[..4].SequenceEqual("XBF\0"u8);
 
     /// <summary>
-    /// Decodes an XBF file. <paramref name="handlers"/> gives, by connection id, the events the code-behind hooks up
-    /// (event name, method name); each is written as an attribute of its element. <paramref name="className"/> is
-    /// written as x:Class when the file names none: most roots are loaded by their class, so XBF leaves it out.
-    /// Damaged metadata or nodes give a partial result naming where reading stopped. Throws InvalidDataException when
-    /// the data does not start with the XBF signature.
+    /// Decodes an XBF file, writing <paramref name="handlers"/> as attributes and <paramref name="className"/> as x:Class when
+    /// the file names none; damage gives a partial result. Throws InvalidDataException without the XBF signature.
     /// </summary>
     public static Result Read(byte[] data, IReadOnlyDictionary<int, IReadOnlyList<(string Event, string Method)>>? handlers = null, string? className = null)
     {
@@ -49,7 +43,7 @@ public static partial class XbfReader
         if (major != 2)
         {
             var reason = major == 1
-                ? "XBF 1 (Windows 8.1) keeps a different node stream; its node stream is not decoded, only the metadata tables are read"
+                ? "XBF 1 (Windows 8.1): the node stream is not decoded; only the metadata tables are read"
                 : $"XBF {major}.{minor} is a version this reader does not know; only the metadata tables are read";
             var notes = new List<string> { reason };
             try

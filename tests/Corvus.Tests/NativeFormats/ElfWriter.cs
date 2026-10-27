@@ -2,11 +2,7 @@ using System.Text;
 
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>
-/// Builds small ELF shared objects and executables for reader tests: an R-X segment (headers, .text at
-/// <see cref="TextRva"/>, then the tables) and an RW segment at <see cref="DynamicRva"/> holding .dynamic, .got,
-/// .got.plt and .data. Addresses below are RVAs; the file maps them at <see cref="Base"/>.
-/// </summary>
+/// <summary>Writes small ELF shared objects and executables with an R-X and an RW segment.</summary>
 internal sealed class ElfWriter
 {
     public const uint TextRva = 0x1000;
@@ -99,7 +95,7 @@ internal sealed class ElfWriter
 
         // Dynamic symbol order: imports, then defined symbols grouped by GNU hash bucket.
         var undefined = Symbols.Where(s => !s.Defined).ToList();
-        // a PLT entry may name a function defined here (an exported function the image binds through its GOT)
+        // A PLT entry may name a function defined here (an exported function the image binds through its GOT).
         foreach (var name in PltImports.Where(n => undefined.All(u => u.Name != n) && !Symbols.Any(s => s.Defined && s.Name == n))) undefined.Add(new Symbol(name, Defined: false));
         var defined = Symbols.Where(s => s.Defined).ToList();
         uint gnuBuckets = (uint)Math.Max(1, defined.Count / 2);
@@ -166,7 +162,7 @@ internal sealed class ElfWriter
             gnuHash = Table(".gnu.hash", 0x6FFFFFF6, 2, () => { w.U32(1); w.U32(1); w.U32(1); w.U32(0); w.Word(0, Is64); w.U32(0); });
         var libs = Versions.Values.Select(v => v.Library).Distinct().ToList();
         var versionIndex = Versions.Values.Distinct().Select((v, i) => (v, i)).ToDictionary(p => p.v, p => (ushort)(2 + p.i));
-        // defined versions take the indexes after the needed ones
+        // Defined versions take the indexes after the needed ones.
         ushort DefIndex(string v) => (ushort)(2 + versionIndex.Count + definedVersions.IndexOf(v));
         if (Versions.Count > 0 || definedVersions.Count > 0)
         {

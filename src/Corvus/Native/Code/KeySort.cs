@@ -2,10 +2,7 @@ using System.Numerics;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Sorts of large key / item arrays on several threads: items are scattered into buckets by key range, then each bucket is
-/// sorted on its own. Equal keys end in an unspecified order, so callers keep keys unique or order ties with <see cref="OrderTies"/>.
-/// </summary>
+/// <summary>Parallel bucket sort of key / item arrays; equal keys end unordered (see <see cref="OrderTies"/>).</summary>
 internal static class KeySort
 {
     private const int ParallelMin = 1 << 16;
@@ -61,10 +58,9 @@ internal static class KeySort
         }
     }
 
-    /// <summary>
-    /// Non-overlapping owner map of code ranges, sorted by start: where ranges of several functions overlap, the lowest function
-    /// index wins. <paramref name="keys"/> are start &lt;&lt; 32 | function index, <paramref name="ends"/> the exclusive ends.
-    /// </summary>
+    /// <summary>Non-overlapping owner map of code ranges by start; on overlap the lowest function index wins.</summary>
+    /// <param name="keys">Start &lt;&lt; 32 | function index.</param>
+    /// <param name="ends">Exclusive ends.</param>
     public static (uint[] Starts, uint[] Ends, int[] Functions) OwnerMap(ulong[] keys, uint[] ends, int parallelism)
     {
         Sort(ref keys, ref ends, keys.Length, parallelism);

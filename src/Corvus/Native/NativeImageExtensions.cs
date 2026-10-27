@@ -18,16 +18,14 @@ public static class NativeImageExtensions
         _ => $"{image.MachineName} {(image.IsDll ? "DLL" : "executable")}",
     };
 
-    /// <summary>
-    /// Length of the prefix of [rva, rva + length) whose bytes come from the file; the rest of a section is zero fill.
-    /// Binary search over <see cref="INativeImage.TryRvaToFileOffset"/> (the file-backed part of a section is a prefix).
-    /// </summary>
+    /// <summary>Length of the prefix of [rva, rva + length) whose bytes come from the file.</summary>
     public static long FileBackedLength(this INativeImage image, uint rva, long length)
     {
         length = Math.Min(length, (long)uint.MaxValue + 1 - rva);
         if (length <= 0 || !image.TryRvaToFileOffset(rva, out _)) return 0;
         if (image.TryRvaToFileOffset((uint)(rva + length - 1), out _)) return length;
-        long lo = 1, hi = length - 1; // lo bytes are backed, hi + 1 are not
+        // Invariant: lo bytes are file-backed, hi + 1 are not.
+        long lo = 1, hi = length - 1;
         while (lo < hi)
         {
             long mid = lo + (hi - lo + 1) / 2;
@@ -37,10 +35,7 @@ public static class NativeImageExtensions
         return lo;
     }
 
-    /// <summary>
-    /// Length of the section's bytes that come from the file and lie within SizeOfImage; 0 when none do. Zero fill is
-    /// left out, so a damaged header's virtual size never sizes a read.
-    /// </summary>
+    /// <summary>Length of the section's file bytes within SizeOfImage, so a damaged virtual size never sizes a read; 0 when none.</summary>
     public static long FileBytesLength(this INativeImage image, NativeSection section) =>
         section.Rva >= image.SizeOfImage ? 0 : image.FileBackedLength(section.Rva, Math.Min(section.MappedSize, (long)image.SizeOfImage - section.Rva));
 

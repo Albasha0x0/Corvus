@@ -187,7 +187,7 @@ public class InstructionInspectTests
         Assert.Equal("nop", unowned.Instruction!.Mnemonic);
         Assert.Equal("invalid", One(s.Index, s.At["bad"]).Status);
 
-        // a walk skips a data item and stops at the end of the decodable bytes
+        // A walk skips a data item and stops at the end of the decodable bytes.
         var (_, walk) = Inspect(s.Index, s.At["ret"], count: 5);
         Assert.Equal(["decoded", "not_in_function", "invalid"], walk.Items.Select(i => i.Status));
         Assert.Contains(walk.Notes, n => n.Contains("the walk stops at"));

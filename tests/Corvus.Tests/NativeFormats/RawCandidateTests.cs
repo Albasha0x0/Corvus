@@ -6,10 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// RawCandidates over headerless images with a known instruction set and base: a public library's mapped image, relocated
-/// to <see cref="Base"/> and its headers cleared.
-/// </summary>
+/// <summary>RawCandidates over headerless images: a public library's mapped image relocated to <see cref="Base"/> with its headers cleared.</summary>
 public sealed class RawCandidateTests(ITestOutputHelper output) : IDisposable
 {
     private const ulong Base = 0x40000000;
@@ -56,8 +53,7 @@ public sealed class RawCandidateTests(ITestOutputHelper output) : IDisposable
             foreach (var r in elf.Relocations)
                 if (r.Kind == ElfRelocationKind.Relative && elf.TryVaToRva(r.Offset, out uint rva) && rva + width <= bytes.Length)
                     Write(rva, (r.ExplicitAddend ? (ulong)r.Addend : Read(rva, elf.BigEndian)) + delta, elf.BigEndian);
-            // The MIPS dynamic linker relocates the local GOT without relocations and fills the global GOT from symbols;
-            // entry 0 is its resolver, and entry 1 its module pointer when the top bit is set.
+            // The MIPS dynamic linker fills the GOT itself: entry 0 is its resolver, entry 1 its module pointer when the top bit is set.
             ulong? Tag(long tag) => elf.DynamicEntries.Where(e => e.Tag == tag).Select(e => (ulong?)e.Value).FirstOrDefault();
             if (elf.Machine == ElfNames.EmMips && Tag(3) is { } got && Tag(0x7000000A) is { } local && Tag(0x70000013) is { } first)
             {

@@ -10,15 +10,22 @@ public static partial class ToolEffects
     private static Dictionary<string, Effects> SessionTools() => new(StringComparer.Ordinal)
     {
         // Workspace
-        ["load_assembly"] = Changes(destructive: false, idempotent: true, longRunning: true), // adds files and a search directory; same path again: no-op
-        ["unload_assembly"] = Changes(destructive: true, idempotent: true), // discards unsaved edits
-        ["reload_assembly"] = Changes(destructive: true, idempotent: true), // discards unsaved edits
+        // Adds files and a search directory; same path again: no-op.
+        ["load_assembly"] = Changes(destructive: false, idempotent: true, longRunning: true),
+        // Discards unsaved edits.
+        ["unload_assembly"] = Changes(destructive: true, idempotent: true),
+        // Discards unsaved edits.
+        ["reload_assembly"] = Changes(destructive: true, idempotent: true),
         ["add_search_directory"] = Changes(destructive: false, idempotent: true),
         ["list_assemblies"] = Reads(),
-        ["server_status"] = Reads(openWorld: true), // probes the Python idalib uses (a process launch, once per server)
-        ["read_result"] = Changes(destructive: true, idempotent: true), // outputPath; overwrite=true replaces a file
-        ["save_session"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at path
-        ["load_session"] = Changes(destructive: true, idempotent: false, longRunning: true), // loads files and applies edits, patches and names; dryRun by default
+        // Probes the Python idalib uses (a process launch, once per server).
+        ["server_status"] = Reads(openWorld: true),
+        // outputPath; overwrite=true replaces a file.
+        ["read_result"] = Changes(destructive: true, idempotent: true),
+        // overwrite=true replaces the file at path.
+        ["save_session"] = Changes(destructive: true, idempotent: true),
+        // Loads files and applies edits, patches and names; dryRun by default.
+        ["load_session"] = Changes(destructive: true, idempotent: false, longRunning: true),
     };
 }
 

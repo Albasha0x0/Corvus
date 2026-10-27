@@ -29,11 +29,11 @@
             "type": "boolean"
           },
           "basis": {
-            "description": "register_attribute, component_name, crc64_package (the Java callable wrapper name computed from namespace and assembly), mono_android_package, override (a .NET override of a registered Java method); Unity C#: unity_call (Call / CallStatic / Get / Set by name), unity_new (AndroidJavaClass / AndroidJavaObject), unity_proxy (an AndroidJavaProxy of the interface), unity_jni (AndroidJNI).",
+            "description": "register_attribute, component_name, crc64_package (the Java callable wrapper name computed from namespace and assembly), mono_android_package, override (a .NET override of a registered Java method); by name: java_call (Call / CallStatic / Get / Set by name), java_new (AndroidJavaClass / AndroidJavaObject), java_proxy (an AndroidJavaProxy of the interface), java_jni (AndroidJNI).",
             "type": "string"
           },
           "confidence": {
-            "description": "Unity pairs: descriptor (a JNI signature), name_and_arity (the only Java method of that name and argument count), or name_match.",
+            "description": "java_* pairs: descriptor (a JNI signature), name_and_arity (the only Java method of that name and argument count), or name_match.",
             "type": "string"
           }
         },

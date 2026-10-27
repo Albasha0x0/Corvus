@@ -7,9 +7,7 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// The initial data of a FieldRVA field (array initializers, UTF-8 literals, static spans): where it is in the file, its
-/// bytes and hash, the methods that read it and, from the newarr / span creation beside each read, the element type
-/// that decodes it.
+/// The initial data of a FieldRVA field: file offset, bytes, hash, and the methods that read it with the element type.
 /// </summary>
 public static class FieldInitialData
 {

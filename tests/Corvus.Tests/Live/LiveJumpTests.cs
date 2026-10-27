@@ -4,10 +4,7 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Stop points and watches on a jump: the backend places them where the jump leads, so the server follows direct and
-/// memory jumps itself and refuses a jump through the CFG dispatch pointer, whose target runs for every indirect call.
-/// </summary>
+/// <summary>The server follows direct and memory jumps for stop points and watches, and refuses a jump through the CFG dispatch pointer.</summary>
 public sealed class LiveJumpTests : IDisposable
 {
     private const ulong Base = 0x7ff6_2000_0000;

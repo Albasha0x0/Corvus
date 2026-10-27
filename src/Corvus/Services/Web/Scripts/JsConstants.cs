@@ -23,11 +23,7 @@ internal sealed class JsUnknown
 /// <summary>A regular expression literal: its pattern and flags.</summary>
 internal sealed record JsRegex(string Pattern, string Flags);
 
-/// <summary>
-/// Constant evaluation of JavaScript expressions: literals, operators with the language's conversions, string and array
-/// methods, String.fromCharCode, atob, unescape, decodeURIComponent, parseInt. Identifiers resolve through a callback
-/// (parameters bound by a caller, constant object literals); calls through another (string-array decoders). No code runs.
-/// </summary>
+/// <summary>Evaluates constant JavaScript expressions with the language's conversions; names and calls resolve through callbacks; runs nothing.</summary>
 internal sealed class JsConstants(ScriptBudget budget)
 {
     private const int MaxDepth = 200;

@@ -6,15 +6,8 @@ using Corvus.Native.NativeAot;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Disassembly comments and virtual call edges from NativeAOT metadata (x64): string literal loads (an instruction addressing a frozen String
-/// object), interface calls (an instruction addressing a dispatch cell)
-/// and virtual calls through a MethodTable's vtable, "mov r, [obj]; call [r + 24 + 8k]", or the slot loaded into a
-/// register first and called directly or through the CFG dispatch helper (target in rax); tracked linearly within a block.
-/// The receiver's type is known when obj is this of an instance method (rcx, rdi in ELF and Mach-O, before it is overwritten, or a callee-saved
-/// register copied from it once and never written again); slot k then names the method in the type's vtable, which a
-/// derived type may override.
-/// </summary>
+/// <summary>Disassembly comments and virtual call edges from NativeAOT metadata (x64): frozen string loads, dispatch cell
+/// calls and vtable calls, tracked linearly per block; the receiver type is known only for this.</summary>
 public static class NativeAotCode
 {
     /// <summary>Offset of vtable slot 0 in an x64 MethodTable (.NET 7–10).</summary>
@@ -35,10 +28,7 @@ public static class NativeAotCode
     /// <summary>Most implementations of one site given as edges; more makes it unresolved (too_many_targets).</summary>
     private const int MaxTargets = 64;
 
-    /// <summary>
-    /// Frozen strings by object RVA; MethodTables with a vtable by name (the first by address when a name repeats); classes
-    /// by base type.
-    /// </summary>
+    /// <summary>Frozen strings by RVA, MethodTables with a vtable by name (first by address), classes by base type.</summary>
     private sealed class Lookup(NativeAotImage aot)
     {
         public readonly Dictionary<uint, string> Strings = aot.Frozen.Objects.Where(o => o.Text != null).ToDictionary(o => o.Rva, o => o.Text!);
@@ -59,18 +49,14 @@ public static class NativeAotCode
         var lookup = Lookups.GetValue(aot, a => new Lookup(a));
         var obj = lookup.ByName.GetValueOrDefault("System.Object");
         foreach (var s in Scan(aot, lookup, index, fn, ct))
-            comments[s.Rva] = s.Literal != null ? Il2CppNativeNames.Quote(s.Literal)
+            comments[s.Rva] = s.Literal != null ? AotNativeNames.Quote(s.Literal)
                 : s.Virtual ? Virtual(index, s.Table, obj, s.Slot)
                 : $"interface call {s.Cell!.Target} (dispatch cell; {aot.Dispatch.Implementers(s.Cell.Interface, s.Cell.Slot).Count} implementations known)";
         return comments;
     }
 
-    /// <summary>
-    /// Call edges from the MethodTables (x64): a vtable call on this goes to the slot's code in the owner's MethodTable and in
-    /// every class derived from it (one distinct body: exact, else possible); an interface call through a dispatch cell to the
-    /// implementations the dispatch maps list (possible). Adds them to the index's virtual calls; nothing for other images
-    /// or an index that already has them (a saved one).
-    /// </summary>
+    /// <summary>Adds vtable and dispatch cell call edges to the index's virtual calls; returns the site count, 0 for other
+    /// images or an index that has them.</summary>
     public static int AddVirtualCalls(LoadedNative native, NativeCodeIndex index, CancellationToken ct = default)
     {
         if (index.Image.Arch != NativeArch.X64 || index.MetadataVirtualCallsAdded || NativeAotNames.View(native, ct) is not { } aot) return 0;
@@ -103,10 +89,8 @@ public static class NativeAotCode
         return sites.Count;
     }
 
-    /// <summary>
-    /// A vtable call on a known type: the slot's code in it and its derived classes (one: exact). An interface call: the
-    /// implementations the dispatch maps list, never exact as they omit inherited and default implementations.
-    /// </summary>
+    /// <summary>A site's targets; interface calls are never exact, as dispatch maps omit inherited and default
+    /// implementations.</summary>
     private static (VirtualCallSite Site, List<uint> Targets) Resolve(NativeAotImage aot, Lookup lookup, NativeFunction fn, Site s)
     {
         if (s.Virtual)
@@ -154,9 +138,10 @@ public static class NativeAotCode
         var thisHolders = owner != null ? ThisHolders(instructions, entry, abi) : [];
         var info = new InstructionInfoFactory();
         bool thisLive = false;
-        var tables = new Dictionary<Register, NativeAotMethodTable?>(); // register -> the MethodTable it holds (null: of an unknown type)
-        var slots = new Dictionary<Register, (NativeAotMethodTable? Table, int Slot)>(); // register -> the vtable slot it was loaded from
-        var cells = new Dictionary<Register, NativeAotDispatchCell>(); // register -> a dispatch cell's address (lea r11, [cell]; call [r11] or call rax)
+        // Per register: the MethodTable it holds (null: unknown type), the vtable slot loaded into it, a dispatch cell address.
+        var tables = new Dictionary<Register, NativeAotMethodTable?>();
+        var slots = new Dictionary<Register, (NativeAotMethodTable? Table, int Slot)>();
+        var cells = new Dictionary<Register, NativeAotDispatchCell>();
         foreach (var ins in instructions)
         {
             ct.ThrowIfCancellationRequested();
@@ -177,14 +162,14 @@ public static class NativeAotCode
             int? slot = ins.Op0Kind == OpKind.Memory || ins.Op1Kind == OpKind.Memory ? Slot(ins) : null;
             if (call)
             {
-                // call [mt + slot]; call reg holding a slot; a CFG dispatch call (call [__guard_dispatch_icall_fptr]) on rax holding one; call [cell register]
+                // call [mt + slot]; call reg holding a slot; a CFG dispatch call on rax holding one; call [cell register].
                 if (ins.Op0Kind == OpKind.Memory && slot is { } k && tables.TryGetValue(ins.MemoryBase, out var mt)) result.Add(new Site(rva, null, null, true, true, mt, k));
                 else if (ins.Op0Kind == OpKind.Register && slots.TryGetValue(ins.Op0Register, out var held)) result.Add(new Site(rva, null, null, true, true, held.Table, held.Slot));
                 else if (ins.Op0Kind == OpKind.Memory && ins.IsIPRelativeMemoryOperand && slots.TryGetValue(Register.RAX, out held))
                     result.Add(new Site(rva, null, null, true, true, held.Table, held.Slot));
                 else if (ins.Op0Kind == OpKind.Memory && ins.MemoryDisplacement64 == 0 && ins.MemoryIndex == Register.None && cells.TryGetValue(ins.MemoryBase, out var viaCell))
                     result.Add(new Site(rva, null, viaCell, true, false, null, 0));
-                // .NET 10: the cell's resolved target called with the cell in r11 (mov rcx, [cell]; call [resolver]; mov rax, rcx; lea r11, [cell]; call rax)
+                // .NET 10 calls the cell's resolved target with the cell in r11 (lea r11, [cell]; call rax).
                 else if ((ins.Op0Kind == OpKind.Register || ins.IsIPRelativeMemoryOperand) && cells.TryGetValue(Register.R11, out viaCell))
                     result.Add(new Site(rva, null, viaCell, true, false, null, 0));
             }
@@ -219,7 +204,8 @@ public static class NativeAotCode
             }
             else if (ins.FlowControl != FlowControl.Next)
             {
-                tables.Clear(); // another path may reach the next instruction
+                // Another path may reach the next instruction.
+                tables.Clear();
                 slots.Clear();
                 cells.Clear();
                 thisLive = false;
@@ -265,10 +251,7 @@ public static class NativeAotCode
         return result;
     }
 
-    /// <summary>
-    /// Callee-saved registers that hold this for the whole function: copied from the this register while it holds this (before any
-    /// call, branch or write to it) and never written otherwise (pops in epilogues aside).
-    /// </summary>
+    /// <summary>Callee-saved registers copied from this before any call, branch or write, and never written again.</summary>
     private static HashSet<Register> ThisHolders(List<Instruction> instructions, ulong entry, Abi abi)
     {
         var holders = new HashSet<Register>();

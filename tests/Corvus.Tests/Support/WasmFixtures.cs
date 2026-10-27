@@ -4,10 +4,7 @@ using static Corvus.Core.WebAssembly.WasmType;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Generated WebAssembly modules that between them use every opcode the reader knows and every section form: the valid
-/// ones (for the text and validation oracles) and invalid ones, each broken in one way.
-/// </summary>
+/// <summary>Generated WebAssembly modules covering every known opcode and section form, valid ones and ones broken one way each.</summary>
 internal static class WasmFixtures
 {
     private static readonly WasmType[] None = [];

@@ -2,10 +2,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=dart: the string pool of a Flutter app's Dart AOT isolate snapshot (libapp.so, App.framework/App, or
-/// the one inside an APK or .ipa): package: and dart: URIs and identifier tokens, with their offset in the AOT image.
-/// </summary>
+/// <summary>search_container kind=dart: URIs and identifiers in the string pool of a Dart AOT snapshot, with their offsets.</summary>
 internal sealed class DartSearchKind : IContainerSearchKind
 {
     public IReadOnlyList<string> Kinds => ["dart"];

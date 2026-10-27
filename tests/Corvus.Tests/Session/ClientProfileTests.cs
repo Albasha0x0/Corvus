@@ -41,7 +41,7 @@ public sealed class ClientProfileTests
     [InlineData("codebuddy", "codebuddy")]
     [InlineData("hermes", "hermes")]
     [InlineData("dsh", "deepseek-harness")]
-    public void KnownClientNames_AreDetected(string clientInfoName, string id) =>
+    public void Known_client_names_are_detected(string clientInfoName, string id) =>
         Assert.Equal(id, ClientProfiles.Detect(clientInfoName)?.Id);
 
     [Theory]
@@ -57,7 +57,7 @@ public sealed class ClientProfileTests
     }
 
     [Fact]
-    public void EverySetupClient_HasAProfile()
+    public void Every_setup_client_has_a_profile()
     {
         using var home = new SetupHome();
         var ids = Corvus.Setup.ClientCatalog.All(home.Env(os: Corvus.Setup.HostOs.Windows)).Select(c => c.Id).Order(StringComparer.Ordinal);
@@ -66,7 +66,7 @@ public sealed class ClientProfileTests
     }
 
     [Fact]
-    public void ProfileValues_FollowTheStandard()
+    public void Profile_values_follow_the_standard()
     {
         static ClientLimits Of(string id) => ClientProfiles.Resolve(new ServerOptions { Client = id }, null);
         Assert.Equal(Corvus.Mcp.ToolEffects.MaxResultSizeChars, Of("claude-code").MaxChars);
@@ -80,7 +80,7 @@ public sealed class ClientProfileTests
     }
 
     [Fact]
-    public void SelectionOrder_ClientOption_ThenExplicitLimits_ThenHandshake()
+    public void Profiles_are_selected_by_client_option_then_explicit_limits_then_handshake()
     {
         // --client beats the handshake name.
         var installed = ClientProfiles.Resolve(ServerOptions.Parse(["--client", "codex"]), "claude-code");
@@ -99,7 +99,7 @@ public sealed class ClientProfileTests
     }
 
     [Fact]
-    public void LeanToolsets_SelectTheLeanList()
+    public void Lean_toolsets_select_the_lean_list()
     {
         var lean = ServerOptions.Parse(["--toolsets", "lean"]);
         Assert.True(lean.Toolsets.SetEquals(Toolsets.LeanProfile));
@@ -111,7 +111,7 @@ public sealed class ClientProfileTests
     }
 
     [Fact]
-    public void TheBundle_AsksForAProfile_AndNamesItsClient()
+    public void The_bundle_asks_for_a_profile_and_names_its_client()
     {
         var root = AppContext.BaseDirectory;
         while (!File.Exists(Path.Combine(root, "Corvus.slnx"))) root = Path.GetDirectoryName(root)!;

@@ -32,7 +32,7 @@ internal sealed class EditIdConverter : JsonConverter<EditId>
 /// <param name="Target">What changed: a symbol label or an address.</param>
 public sealed record EditChange(string Kind, string Target, string? Before = null, string? After = null);
 
-/// <summary>The outcome of a mutating tool (S4.2); batch item failures in <see cref="Failed"/>.</summary>
+/// <summary>The outcome of a mutating tool; batch item failures in <see cref="Failed"/>.</summary>
 public sealed record EditOutcome(bool Applied, bool DryRun, IReadOnlyList<EditChange> Changes, IReadOnlyList<EditId> EditIds)
 {
     public int? Failed { get; init; }

@@ -13,27 +13,23 @@ public static partial class PackageFiles
     public static bool IsAppPackage(string path) =>
         AppPackageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()) && File.Exists(path);
 
-    /// <summary>True for an existing application package or zip, either of which can hold a whole Unity build.</summary>
-    public static bool IsUnityPackage(string path) =>
+    /// <summary>True for an existing application package or zip, either of which can hold a whole build.</summary>
+    public static bool IsPlayerPackage(string path) =>
         IsAppPackage(path) || Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
 
-    /// <summary>
-    /// True for an application package or zip whose entry names hold a Unity data folder (assets/bin/Data/,
-    /// Payload/*.app/Data/, or *_Data/ with globalgamemanagers, data.unity3d or mainData). A split set is true when it
-    /// holds APKs, whose entries are read only on extraction. False for any other, missing or unreadable file.
-    /// </summary>
-    public static bool HoldsUnityData(string path)
+    /// <summary>True for a package or zip holding a player data folder, or a split set of APKs; false for anything else.</summary>
+    public static bool HoldsPlayerData(string path)
     {
-        if (!IsUnityPackage(path)) return false;
+        if (!IsPlayerPackage(path)) return false;
         bool split = SplitSetExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
         try
         {
             using var zip = ZipFile.OpenRead(path);
-            return zip.Entries.Any(e => split ? e.FullName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) : UnityData().IsMatch(e.FullName));
+            return zip.Entries.Any(e => split ? e.FullName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) : PlayerData().IsMatch(e.FullName));
         }
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { return false; }
     }
 
     [GeneratedRegex(@"^(?:(?:base/)?assets/bin/Data/.|Payload/[^/]+\.app/Data/.|(?:[^/]+/)*[^/]+_Data/(?:globalgamemanagers|data\.unity3d|mainData)$)", RegexOptions.CultureInvariant)]
-    private static partial Regex UnityData();
+    private static partial Regex PlayerData();
 }

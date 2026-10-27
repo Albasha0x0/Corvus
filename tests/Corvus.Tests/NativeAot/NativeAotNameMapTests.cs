@@ -95,7 +95,7 @@ public class NativeAotNameMapTests
     [InlineData((ushort)10)]
     [InlineData((ushort)16)]
     [InlineData((ushort)31)]
-    public void StackTraceTypeAndInvokeMaps(ushort major)
+    public void Stack_trace_type_and_invoke_maps_name_methods(ushort major)
     {
         var maps = Image(major).Names;
         Assert.All(maps.Stages, s => Assert.Equal(NativeAotStage.Complete, s.Status));
@@ -114,7 +114,7 @@ public class NativeAotNameMapTests
     }
 
     [Fact]
-    public void StackTracePairs_Net7()
+    public void NET7_stack_trace_token_pairs_name_methods()
     {
         var aot = Image(8);
         var maps = aot.Names;
@@ -127,7 +127,7 @@ public class NativeAotNameMapTests
     }
 
     [Fact]
-    public void InvokeMapWithoutHandle_BeforeNet10_IsSkipped()
+    public void An_invoke_map_without_handles_before_NET10_is_skipped()
     {
         var m = NativeAotMetadataTests.Model(10);
         var b = new B { Major = 10 };
@@ -145,7 +145,7 @@ public class NativeAotNameMapTests
     }
 
     [Fact]
-    public void MissingMetadata_MapsAreUnsupported()
+    public void Missing_metadata_maps_are_unsupported()
     {
         var b = new B();
         b.Blob(BlobId.StackTraceMethodRvaToTokenMapping, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -155,7 +155,7 @@ public class NativeAotNameMapTests
     }
 
     [Fact]
-    public void TruncatedStackTrace_IsPartial()
+    public void Truncated_stack_trace_is_partial()
     {
         var m = NativeAotMetadataTests.Model(16);
         var b = new B();

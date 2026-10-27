@@ -494,7 +494,7 @@ internal sealed class LocalStaticGuardIdentifier(bool thread) : Identifier
     public override void Output(Printer p, OutFlags f = OutFlags.None)
     {
         p.Append(thread ? "`local static thread guard'" : "`local static guard'");
-        // DbgHelp / undname form, closing quote included
+        // DbgHelp and undname form, closing quote included.
         if (ScopeIndex > 0 && !p.NameOnly) p.Append("{").Append(ScopeIndex).Append("}'");
     }
 }
@@ -605,7 +605,7 @@ internal sealed class VariableSymbol : SymbolNode
         }
         if (SymbolKind is MsvcSymbolKind.RttiTypeDescriptor or MsvcSymbolKind.TypeName && Type != null)
         {
-            // the name follows the complete type: "bool (__cdecl *)(int) `RTTI Type Descriptor'"
+            // The name follows the complete type: "bool (__cdecl *)(int) `RTTI Type Descriptor'".
             Type.Output(p, f);
             p.Append(" ");
             Name?.Output(p, f);

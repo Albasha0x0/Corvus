@@ -78,9 +78,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         IReadOnlyList<StatusSection> Sections);
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
-    [Description("Which server runs (version, program, install kind, client), catalog digest, what is loaded, limits, long-running tools, " +
-                 "capabilities with fixes, tool families, unusable tools, engine sessions. expectedCatalogDigest detects a stale server; " +
-                 "expectedExecutable checks the registered copy.")]
+    [Description("Server version, program, client, catalog digest, loaded files, limits, capabilities with fixes and unusable tools. " +
+                 "expectedCatalogDigest detects a stale server; expectedExecutable checks the registered copy.")]
     public ServerStatus GetServerStatus(
         [Description("Catalog digest to compare (t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
         [Description("Registered server path, compared with the running one.")] string? expectedExecutable = null,
@@ -145,7 +144,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 : new("programs sessions may open", true, "any program the session switches allow",
                     $"limit them with {ServerOptions.LiveAllowOption} <program or folder> (repeatable)"));
         if (options.AllowLive && live?.Backend is { } backend) capabilities.Add(LiveBackendCapability(backend));
-        // listed only when on: status is at its report budget, and a refused save names the switch
+        // Listed only when on: status is at its report budget, and a refused save names the switch.
         if (options.AllowReplaceOriginal)
             capabilities.Add(new("saves that replace the loaded file", true, "on: save_assembly and save_native take replaceOriginal=true (a .bak is kept)", null));
         int loaded = workspace.LoadedCount; // without the lock: status answers while a long call holds it
@@ -174,8 +173,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     private const string Pending = "its check is still running; call server_status again";
 
-    // A check may start a program and block for seconds; a pool thread would
-    // starve the requests running beside it on a machine with few cores.
+    // A check may block for seconds; on a pool thread it would starve other requests on a machine with few cores.
     private static Task<T> OwnThread<T>(Func<T> check) =>
         Task.Factory.StartNew(check, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
@@ -186,16 +184,10 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         return task.IsCompleted || left > TimeSpan.Zero && ((IAsyncResult)task).AsyncWaitHandle.WaitOne(left);
     }
 
-    /// <summary>
-    /// One capability per external program the server runs (test oracles left out), probed once per file. A version check
-    /// still running after <paramref name="wait"/> (default: no limit) is reported as an unknown version.
-    /// </summary>
+    /// <summary>One capability per external program, test oracles left out; a version check past <paramref name="wait"/> reports an unknown version.</summary>
     internal static IEnumerable<Capability> ExternalToolCapabilities(TimeSpan? wait = null) => Probes(wait).Select(Row).ToList();
 
-    /// <summary>
-    /// <see cref="ExternalToolCapabilities"/> for server_status: the programs that were not found share one row naming each
-    /// with its variable, so the report budget holds as the table grows. Programs found or failing keep their own rows.
-    /// </summary>
+    /// <summary><see cref="ExternalToolCapabilities"/> for server_status: programs not found share one row, so the report budget holds.</summary>
     internal static List<Capability> ExternalToolStatus(TimeSpan? wait = null)
     {
         var probes = Probes(wait);
@@ -229,7 +221,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     internal static Capability LiveBackendCapability(Native.Providers.Live.ILiveBackend backend)
     {
         var name = $"live sessions ({backend.Name})";
-        // the private environment is made by the first session, not by a status call
+        // The private environment is made by the first session, not by a status call.
         if (backend is Native.Providers.Live.FridaBackend { PrivatePending: true, PrivateEnvironment.Offline: false } pending)
             return new(name, true, $"Frida {Native.Providers.Live.FridaVersions.Pinned} is installed into {pending.PrivateEnvironment.Folder} by the first session", null);
         if (backend.Unavailable() is { } missing) return new(name, false, missing.Reason, missing.Remediation);
@@ -274,11 +266,10 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     public const int ReadResultTokens = 6_000;
 
     [McpServerTool(Name = "read_result", Title = "Read a kept result", UseStructuredContent = true, OutputSchemaType = typeof(ReadResultRecord))]
-    [Description("Read a kept result (resultId; on disk 7 days): page it, search it with query, or write it whole to outputPath. " +
-                 "format=evidence: results (r-... or last:N) and their calls to outputPath; verify re-runs a bundle, entry (file.json#r-...) or " +
-                 "result, or compares it with against.")]
+    [Description("Page, search or save a kept result (r-..., kept 7 days). format=evidence bundles results and their calls into outputPath; " +
+                 "format=verify re-runs a bundle or result, or compares it with against.")]
     public async Task<string> ReadResult(
-        [Description("Result id, e.g. r-0123456789ab.")] string id,
+        [Description("Result id (r-...); evidence: ids or last:N, comma-separated; verify: also a bundle file or entry (file.json#r-...).")] string id,
         [Description("Character offset (nextOffset).")] int offset = 0,
         [Description("Page size in tokens (default 6000).")] int? maxTokens = null,
         [Description("Only lines containing this text (/regex/ for a pattern), with offsets.")] string? query = null,

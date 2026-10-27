@@ -27,7 +27,7 @@ public static class JsAnalysis
 {
     public const long MaxFileBytes = 512L * 1024 * 1024;
 
-    // byte signatures of bundler runtimes; the design's AST recognizers refine these into module tables
+    // Byte signatures of bundler runtimes.
     private static readonly (string Family, string Evidence)[] Signatures =
     [
         ("webpack", "__webpack_require__"), ("webpack", "__webpack_modules__"), ("webpack", "webpackChunk"), ("webpack", "webpackJsonp"),
@@ -49,7 +49,7 @@ public static class JsAnalysis
     {
         var text = Read(path);
         var notes = new List<string>();
-        // React Native's Hermes bytecode: compiled, not JavaScript text
+        // Hermes bytecode is compiled, not JavaScript text.
         if (text.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xC6, 0x1F, 0xBC, 0x03, 0xC1, 0x03, 0x19, 0x1F]) && text.Length >= 12)
         {
             uint version = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(text.AsSpan(8));

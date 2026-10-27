@@ -25,10 +25,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const string NewDescription = "Newer build: image id or path.";
     internal const string CodeOnlyDescription = "Match by code, not names.";
 
-    /// <summary>
-    /// One row of compare_native_images: a pair (both addresses, tier, basis, score, sizes; the new name and counts only where
-    /// they differ), an unmatched function (one side, reason) or an ambiguous one (one side, reason, candidates).
-    /// </summary>
+    /// <summary>One compare_native_images row: a matched pair, an unmatched function or an ambiguous one with candidates.</summary>
     public sealed record FunctionRow(string? Old, string? New, string? OldName, string? NewName)
     {
         public int? Tier { get; init; }
@@ -81,7 +78,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     public sealed record MigrationEntry(
         [property: Description("name, comment, pseudo_comment, or a user type: declarations, type_edit, enum_member, field, analysis, operand, type, local, stack_var.")] string Kind,
-        [property: Description("Layer it came from in the old build: user, pdb or il2cpp.")] string Source,
+        [property: Description("Layer it came from in the old build: user, pdb or metadata.")] string Source,
         string? OldAddress, string? NewAddress, string Value,
         [property: Description("set, would_set (dry run) or skipped.")] string Action,
         [property: Description("How it was carried or why not (docs/migration-reasons.md).")] string Reason,
@@ -161,15 +158,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record ImageError(string Image, BatchError Error);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true, OutputSchemaType = typeof(NativeComparison))]
-    [Description("Match functions of two native builds (x86, x64, ARM64) in tiers: 1 same name, import or bytes; 2 control flow; 3 imports, " +
-                 "strings, constants; 4 call neighbours; 5 fuzzy over minScore; unique pairs only. Per-tier counts, rows by old address, " +
-                 "capabilities added or removed. oldResult / newResult: kept results. engine: oldImage's file bytes against that engine's " +
-                 "memory per section, as ranges patched, engine_fixup, relocation_applied, uninitialized, unknown or differs.")]
+    [Description("Match the functions of two native builds (x86, x64, ARM64): pairs, changed, unmatched and ambiguous functions, and " +
+                 "capabilities added or removed. engine compares oldImage's file with an engine's memory; oldResult / newResult compare kept results.")]
     public Task<string> CompareNativeImages(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
         [Description("changed: code differs; ambiguous: with candidates; wasm: interface.")] string view = "pairs",
-        [Description("Only pairs of this tier (1-5); 0 for all.")] int tier = 0,
+        [Description("Only pairs of this tier: 1 name or bytes .. 5 fuzzy; 0 for all.")] int tier = 0,
         [Description(CodeOnlyDescription)] bool codeOnly = false,
         [Description("Least similarity for a fuzzy match (0-1).")] double minScore = 0.7,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -286,10 +281,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         Func<IReadOnlyList<EvidenceChange>, object> record) =>
         ToolOutput.List(changes.Skip(Math.Max(0, offset)).ToList(), Math.Max(0, offset), limit, changes.Count, EvidenceInput.RowText, record, "change", EvidenceInput.Text(summary));
 
-    /// <summary>
-    /// compare_native_images on two WebAssembly builds: imports, exports and signatures compared (view=interface), functions
-    /// paired by name, then by an identical normalized body (pairs, changed: signature or body differs, unmatched).
-    /// </summary>
+    /// <summary>compare_native_images on two WebAssembly builds: functions paired by name, then by identical body; view=interface compares imports and exports.</summary>
     private static string CompareWasm(string oldId, WasmImage a, string newId, WasmImage b, string view, int offset, int limit, CancellationToken ct)
     {
         var c = Core.WebAssembly.WasmInterface.Compare(a.Module, a.FunctionNames, a.NameSources, b.Module, b.FunctionNames, b.NameSources, ct);
@@ -347,9 +339,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxMapAddresses = 100;
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true, OutputSchemaType = typeof(AddressMappings))]
-    [Description("Where old-build addresses are in the new one: a function start to the matched function, an address inside one to the aligned " +
-                 "instruction, a string to the same string, other data through references of matched instructions. Each: new address, confidence and " +
-                 "reason, or why not, with candidates.")]
+    [Description("Map old-build addresses (functions, instructions, strings, referenced data) to the new build: new address, confidence " +
+                 "and reason, or why not with candidates.")]
     public Task<string> MapAddressBetweenBuilds(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -394,8 +385,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxDiffFunctions = 20;
 
     [McpServerTool(Name = "diff_function", Title = "Diff a function between builds", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDiffReport))]
-    [Description("Changes to one function between two builds. view=asm: aligned instruction rows = (same), ~ (other operands), - or +, operands made " +
-                 "build-independent. view=pseudocode: a unified diff. addresses: one summary each. oldResult / newResult: kept code.")]
+    [Description("Diff one function between two builds: aligned instruction rows, or a unified pseudocode diff with view=pseudocode. " +
+                 "oldResult / newResult diff kept code.")]
     public Task<string> DiffFunction(
         [Description(OldDescription)] string? oldImage = null,
         [Description(NewDescription)] string? newImage = null,
@@ -486,10 +477,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return DiffItems(a, b, context, offset, limit);
     }
 
-    /// <summary>
-    /// A kept result against its tool's output now on a loaded image: the kept call is made again with that image and
-    /// address, and the two codes are diffed as text.
-    /// </summary>
+    /// <summary>Diffs a kept result against the same call made again on a loaded image, as text.</summary>
     private static async Task<string> DiffKeptAndLoaded(string kept, bool keptIsOld, string image, string? address, int context, int offset, int limit,
         RequestContext<CallToolRequestParams> request, CancellationToken ct)
     {
@@ -586,9 +574,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationReport))]
-    [Description("Copy names, comments and engine types of the old build to the new one's user annotations via the function match " +
-                 "(map_address_between_builds). Never replaces the new build's user names, comments or types; skipped items have a reason code. " +
-                 "Applied as undoable edits.")]
+    [Description("Copy names, comments and engine types from the old build to the new one through the function match, as undoable " +
+                 "edits. Never replaces the new build's user annotations.")]
     public Task<string> MigrateNativeNames(
         [Description("Older build (image id or path), or a static library (.lib, .a) or object file (COFF, ELF): its functions name the starts holding their bytes.")] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -621,10 +608,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private static string Clip(string s) => s.Length <= 80 ? s : s[..77] + "...";
 
-    /// <summary>
-    /// The full path when <paramref name="path"/> names a static library (an ar archive), a COFF object or an ELF
-    /// relocatable object rather than an image; null otherwise, including for an image id.
-    /// </summary>
+    /// <summary>The full path when <paramref name="path"/> is a static library or object file; null for an image or an image id.</summary>
     internal static string? LibraryFile(string path)
     {
         if (!File.Exists(path)) return null;
@@ -642,11 +626,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return coff ? Path.GetFullPath(path) : null;
     }
 
-    /// <summary>
-    /// migrate_native_names from a static library or object: each library function found at a function start of the new
-    /// build is planned as a name with reason library_function, through the same rules as a build's names (it never
-    /// replaces a user name or a name of an imported layer); ambiguous starts are skipped.
-    /// </summary>
+    /// <summary>migrate_native_names from a library: names function starts holding library code (library_function); ambiguous starts are skipped.</summary>
     internal async Task<MigrationReport> CarryLibraryNames(string library, string newImage, bool dryRun, ProgressSpan progress, CancellationToken cancellationToken)
     {
         var signatures = await Task.Run(() => LibrarySignatures.Read(library, cancellationToken), cancellationToken);
@@ -691,10 +671,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return new MigrationReport(Path.GetFileName(library), native.Id, dryRun, ids.Count > 0, ids, set, all.Count - set, skippedBy, [.. all.Select(e => e.Entry)], 0, all.Count, notes);
     }
 
-    /// <summary>
-    /// migrate_native_names without paging (load_session uses it too): every planned item in old-address order, the user
-    /// types after them; applied as journaled edits unless <paramref name="dryRun"/>.
-    /// </summary>
+    /// <summary>migrate_native_names without paging: items in old-address order, then user types; applied unless <paramref name="dryRun"/>.</summary>
     internal async Task<MigrationReport> CarryNames(string oldImage, string newImage, bool dryRun, int minTier, double minScore, string[]? sources,
         bool namesOnly, bool codeOnly, ProgressSpan progress, CancellationToken cancellationToken)
     {
@@ -702,14 +679,14 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         if (double.IsNaN(minScore) || minScore is < 0 or > 1) throw new ToolError(ErrorCode.InvalidArgument, $"minScore must be 0-1, not {minScore}.");
         var layers = new HashSet<NativeNameSource>();
         foreach (var s in sources is { Length: > 0 } ? sources : ["user"])
-            layers.Add(NativeNameSources.Parse(s.Trim()) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{s}'.", "use user, pdb or il2cpp"));
+            layers.Add(NativeNameSources.Parse(s.Trim()) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown source '{s}'.", "use user, pdb or metadata"));
         var pair = await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly }, progress.Part(0, 0.8), cancellationToken);
         var (oldNative, newNative, match) = (pair.Old, pair.New, pair.Match);
         bool comments = !namesOnly;
 
         var items = new List<MigrationSource>();
         if (layers.Contains(NativeNameSource.User)) items.AddRange(NameMigration.UserItems(code.Annotations(oldNative), comments));
-        foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.Il2Cpp })
+        foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.Metadata })
         {
             if (!layers.Contains(source) || NativeNameLayers.OfOrNull(oldNative)?.Get(source) is not { } layer) continue;
             items.AddRange(layer.Names.OrderBy(x => x.Key).Select(x => new MigrationSource("name", source, x.Key, x.Value)));
@@ -742,10 +719,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         return new MigrationReport(oldNative.Id, newNative.Id, dryRun, ids.Count > 0, ids, set, all.Count - set, skippedBy, [.. all.Select(e => e.Entry)], 0, all.Count, notes);
     }
 
-    /// <summary>
-    /// Writes the planned names and comments (with their kinds) to the new build's user layer and code indexes, and the
-    /// planned user types, each as one journaled edit; returns their ids (none when nothing was set).
-    /// </summary>
+    /// <summary>Writes the planned names, comments and user types as journaled edits; returns their ids, empty when nothing was set.</summary>
     internal static List<EditId> ApplyMigration(NativeEditJournal journal, AssemblyWorkspace workspace, NativeCodeService code, LoadedNative native,
         NativeCodeIndex matched, IReadOnlyList<MigrationStep> steps, IReadOnlyList<UserTypeStep> typeSteps, string tool)
     {
@@ -777,14 +751,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const int MaxPatternAddresses = 50;
 
     [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", UseStructuredContent = true, OutputSchemaType = typeof(CodePatternResults))]
-    [Description("Make a rebuild-proof byte pattern for an address: displacements and relocated addresses as ??, unique in the executable sections. " +
-                 "anchor=auto: at the address, else at a referencing instruction (with operand offset); xrefs: one per referencing instruction; " +
-                 "range: [address, end). search_code_pattern finds it.")]
+    [Description("Make a byte pattern for an address that survives a rebuild: displacements and relocated addresses as ??, unique in " +
+                 "the executable sections. search_code_pattern finds it.")]
     public Task<string> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
         [Description("Instead of address: up to 50.")] string[]? addresses = null,
-        [Description("Where to anchor.")] string anchor = "auto",
+        [Description("auto: at the address, else at a referencing instruction; xrefs: one per reference; range: [address, end).")] string anchor = "auto",
         [Description("Longest pattern in bytes (8-512).")] int maxBytes = 64,
         [Description("anchor=xrefs: most signatures (1-32).")] int maxPatterns = 8,
         [Description("anchor=xrefs: ida or ghidra add engine references.")] string? engine = null,
@@ -887,7 +860,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     internal static string FormatPattern(BytePattern p, string format) => format switch
     {
         "mask" => string.Concat(Enumerable.Range(0, p.Length).Select(i => $"\\x{(p.Mask[i] ? p.Bytes[i] : 0):X2}")) + " " + string.Concat(p.Mask.Select(m => m ? 'x' : '?')),
-        // bit i of the mask is byte i, so the string reads last byte first
+        // Bit i of the mask is byte i, so the string reads last byte first.
         "bitmask" => string.Join(", ", Enumerable.Range(0, p.Length).Select(i => $"0x{(p.Mask[i] ? p.Bytes[i] : 0):X2}")) + " 0b" + string.Concat(p.Mask.Reverse().Select(m => m ? '1' : '0')),
         _ => p.ToString(),
     };
@@ -902,7 +875,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         if (choice.External)
         {
             var session = await engines!.Session(native, choice.Engine, null, ct);
-            // code that uses the address; data pointers to it are not signatures
+            // Code that uses the address; data pointers to it are not signatures.
             extra.AddRange((await session.GetXrefsToAsync(rva, ct)).Where(x => x.FromFunctionRva != null && x.Kind is not (NativeXrefKind.Jump or NativeXrefKind.Data))
                 .Select(x => x.FromRva).Where(f => !ours.Contains(f)));
         }
@@ -921,8 +894,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true, OutputSchemaType = typeof(PatternSearch))]
-    [Description("Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the executable sections of loaded native images, " +
-                 "by image then address, with each hit's function and offset.")]
+    [Description("Find a byte pattern with ?? wildcards (make_code_pattern's format) in the executable sections of loaded native " +
+                 "images, with each hit's function and offset.")]
     public Task<string> SearchCodePattern(
         [Description("Hex bytes with ?? wildcards.")] string pattern,
         [Description("Image ids or paths; omit for every loaded native image.")] string[]? images = null,
@@ -1019,7 +992,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var (a, b) = (m.Old.Functions[p.Old], m.New.Functions[p.New]);
         var (oldName, newName) = (Name(m.Old.Index, a.Function), Name(m.New.Index, b.Function));
-        // the new side's name and counts only where they differ
+        // The new side's name and counts only where they differ.
         return new FunctionRow(Va(m.Old.Index, a.Start), Va(m.New.Index, b.Start), oldName, newName != oldName ? newName : null)
         {
             Tier = p.Tier, Basis = p.Basis, Score = Math.Round(p.Score, 3), OldSize = a.Size, NewSize = b.Size != a.Size ? b.Size : null, OldBlocks = a.Blocks,
@@ -1067,10 +1040,7 @@ internal readonly record struct ProgressSpan(IProgress<ProgressNotificationValue
 /// <summary>Two builds of one image, their live code indexes and their function match.</summary>
 internal sealed record BuildPair(LoadedNative Old, LoadedNative New, NativeCodeIndex OldIndex, NativeCodeIndex NewIndex, MatchResult Match);
 
-/// <summary>
-/// Opens and matches two builds for every build tool: on each build's original bytes (patches would hide a patched
-/// function's identity), through one cache, so the tools map an address the same way and report the same reason.
-/// </summary>
+/// <summary>Opens and matches two builds on their original bytes through one cache, so every build tool maps an address the same way.</summary>
 internal sealed class BuildPairs(AssemblyWorkspace workspace, NativeCodeService code)
 {
     public Task<LoadedNative> Resolve(string image, CancellationToken ct) => Task.Run(() => Targets.Native(workspace, image), ct);

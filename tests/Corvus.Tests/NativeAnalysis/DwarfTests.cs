@@ -13,7 +13,7 @@ namespace Corvus.Tests;
 public class DwarfTests
 {
     private const string Library = "libSystem.Native.so";
-    // facts of the linux-x64 build, checked against llvm-dwarfdump and llvm-symbolizer
+    // Facts of the linux-x64 build, checked against llvm-dwarfdump and llvm-symbolizer.
     private const uint FStat = 0xD7A0;
 
     private static string Elf(string file = Library) => NativeFixtures.NativeAotLib("linux-x64", file);
@@ -105,7 +105,7 @@ public class DwarfTests
     public void Without_a_build_id_the_debuglink_crc_picks_the_debug_file()
     {
         using var rig = new Rig();
-        // the image's GNU build-id note renamed, so only its .gnu_debuglink (name and CRC-32) identifies the debug file
+        // The image's GNU build-id note renamed, so only its .gnu_debuglink (name and CRC-32) identifies the debug file.
         var bytes = File.ReadAllBytes(Elf());
         int note = bytes.AsSpan().IndexOf((ReadOnlySpan<byte>)[4, 0, 0, 0, 20, 0, 0, 0, 3, 0, 0, 0, (byte)'G', (byte)'N', (byte)'U', 0]);
         Assert.True(note >= 0, "no build-id note");
@@ -162,7 +162,7 @@ public class DwarfTests
     public async Task An_image_with_its_own_dwarf_sections_needs_no_debug_file()
     {
         using var rig = new Rig();
-        // a debug file is itself an ELF image that keeps the DWARF sections
+        // A debug file is itself an ELF image that keeps the DWARF sections.
         var image = rig.Copy((Elf(Library + ".dbg"), "unstripped.so"));
         var native = rig.Workspace.LoadAny(image).Native!;
         await rig.Code.Index(native, null, default);
@@ -187,7 +187,7 @@ public class DwarfTests
                 Assert.Null(PdbService.StateOf(native));
                 var r = await first.Pdbs.Load(native, first.Dir.File(Path.Combine("elsewhere", "x.debug")), false, null, false, TimeSpan.FromSeconds(5), 1 << 20, default);
                 Assert.Null(r.SaveProblem);
-                // the same file in a new session: the saved layer reopens the debug file
+                // The same file in a new session: the saved layer reopens the debug file.
                 using var second = new Rig(annotations);
                 var again = second.Workspace.LoadAny(image).Native!;
                 var index = await second.Code.Index(again, null, default);
@@ -221,7 +221,7 @@ public class DwarfTests
         Assert.Equal(Path.Combine(dir.File("cache"), image.BuildId!, "debuginfo"), path);
         Assert.Null(DwarfLocator.Check(path, image));
         Assert.Equal([$"/buildid/{image.BuildId}/debuginfo"], server.Asked);
-        // a server answering with another build's file: refused and not kept
+        // A server answering with another build's file: refused and not kept.
         var wrong = new FakeDebuginfod(File.ReadAllBytes(Elf("libSystem.Net.Security.Native.so.dbg")), image.BuildId!);
         var error = await Assert.ThrowsAsync<ToolError>(() => DwarfLocator.DownloadAsync(image, "https://other.example", TimeSpan.FromSeconds(10), 1 << 24, wrong, dir.File("cache2")));
         Assert.Equal(ErrorCode.MalformedInput, error.Code);

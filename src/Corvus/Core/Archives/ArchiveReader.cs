@@ -4,10 +4,7 @@ using SharpCompress.Readers;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// tar (plain, .gz, .bz2, .xz), 7z, RAR and single gzip / bzip2 / xz files, read with SharpCompress: every entry listed,
-/// files extracted within the limits (a decompression bomb stops at the item or total limit, naming the entry).
-/// </summary>
+/// <summary>tar, 7z, RAR and single gzip, bzip2 or xz files; extraction stops at the item or total limit, naming the entry.</summary>
 internal sealed class ArchiveReader : IContainerReader
 {
     public string Kind => "archive";
@@ -66,7 +63,7 @@ internal sealed class ArchiveReader : IContainerReader
             else
             {
                 using var reader = ReaderFactory.OpenReader(stream);
-                // a compressed tar reports its inner archive type
+                // A compressed tar reports its inner archive type.
                 kind = reader is SharpCompress.Readers.Tar.TarReader && format != "tar" ? "tar." + format switch { "gzip" => "gz", "bzip2" => "bz2", var f => f } : format;
                 while (reader.MoveToNextEntry())
                     if (!reader.Entry.IsDirectory && reader.Entry.Key is { } key) Take(key.Replace('\\', '/'), reader.Entry.Size, reader.OpenEntryStream);

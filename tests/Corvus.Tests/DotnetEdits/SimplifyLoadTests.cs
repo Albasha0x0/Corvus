@@ -7,10 +7,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods on loads kept only for their effect (<c>_ = S.F;</c>): a repeat goes when the same load always ran
-/// before it and its receivers cannot have changed; otherwise both stay. Every case runs before and after.
-/// </summary>
+/// <summary>A repeated effect-only load goes when the same load always ran first and its receivers are unchanged; otherwise both stay.</summary>
 public sealed class SimplifyLoadTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -93,7 +90,7 @@ public sealed class SimplifyLoadTests : IDisposable
     [InlineData("Ld.Use::Twice", "Ld.Use::Twice")]
     [InlineData("Ld.Use::Chain", "Ld.Use::Chain")]
     [InlineData("Ld.Use::Arg", "Ld.Use::ArgRoot")]
-    public void ARepeatOfALoadThatAlwaysRanFirstGoes(string entry, string method)
+    public void A_repeat_of_a_load_that_always_ran_first_goes(string entry, string method)
     {
         using var env = new Env(Fixture());
         var before = Outcomes(env.Fixture.OriginalBytes, entry.Split("::")[1]);
@@ -109,7 +106,7 @@ public sealed class SimplifyLoadTests : IDisposable
     [InlineData("Ld.Use::Guarded", "Ld.Use::Guarded")]     // the first may throw into the catch, which then reaches the second
     [InlineData("Ld.Use::Reassigned", "Ld.Use::Reassigned")] // the static is written in between
     [InlineData("Ld.Use::Stored", "Ld.Use::StoredArg")]    // the argument is stored to in between
-    public void ALoadThatMayDoSomethingNewStays(string entry, string method)
+    public void A_load_that_may_do_something_new_stays(string entry, string method)
     {
         using var env = new Env(Fixture());
         var before = Outcomes(env.Fixture.OriginalBytes, entry.Split("::")[1]);

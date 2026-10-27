@@ -3,10 +3,7 @@ namespace Corvus.Core.Python;
 /// <summary>A file of a frozen Python program: its path in the extracted layout, size, role and a loader for its bytes (null: listed only).</summary>
 public sealed record FrozenEntry(string Path, long Size, string Role, Func<byte[]?>? Load = null);
 
-/// <summary>
-/// What a frozen Python program holds, as one freezer's reader found it: the Python version and where it came from,
-/// the entry scripts, every file with its role (module, package, native module, runtime, data), and notes.
-/// </summary>
+/// <summary>A frozen Python program's version, entry scripts and files with their roles, as one freezer's reader found them.</summary>
 public sealed class FrozenApp(string freezer, string kind)
 {
     public const string Script = "entry script", Bootstrap = "bootstrap script", Module = "module", Package = "package", Native = "native module",
@@ -24,10 +21,7 @@ public sealed class FrozenApp(string freezer, string kind)
     public List<string> Notes { get; } = [];
     /// <summary>True when the program's own code was compiled to native code (Nuitka): no bytecode to read.</summary>
     public bool Compiled { get; set; }
-    /// <summary>
-    /// Modules compiled into a Nuitka binary, named by its constants, with the string bound to __version__ in each (null:
-    /// none read).
-    /// </summary>
+    /// <summary>Modules compiled into a Nuitka binary with their __version__ string, null when none was read.</summary>
     public List<(string Module, string? Version)> CompiledModules { get; } = [];
 
     public int Count(params string[] roles) => Entries.Count(e => roles.Contains(e.Role));

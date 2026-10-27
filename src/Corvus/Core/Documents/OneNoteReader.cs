@@ -5,11 +5,7 @@ using Corvus.Core.Archives;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// OneNote section files (.one, MS-ONESTORE): the files embedded in the section, read from their FileDataStoreObject
-/// records (header and footer GUIDs around the data). Each is named in file order with an extension from its content;
-/// the file names the section's properties mention (UTF-16) are listed beside them, since pairing them needs the object graph.
-/// </summary>
+/// <summary>OneNote sections (MS-ONESTORE): embedded files named in order, with the mentioned file names listed unpaired.</summary>
 internal sealed class OneNoteReader : IContainerReader
 {
     private static readonly Guid Section = new("7B5C52E4-D88C-4DA7-AEB1-5378D02996D3");
@@ -49,8 +45,7 @@ internal sealed class OneNoteReader : IContainerReader
         return files;
     }
 
-    // A whole section is read: NonBacktracking matches in linear time, so no
-    // match timeout.
+    // NonBacktracking matches in linear time, so no match timeout.
     private static readonly Regex FileName = new(
         @"[\w\-. ()\[\]]{1,120}\.(?:exe|dll|scr|hta|bat|cmd|js|jse|vbs|vbe|wsf|wsh|ps1|lnk|chm|zip|rar|7z|iso|img|vhd|vhdx|msi|jar|docm|xlsm|pptm|doc|xls|pdf|one|url|reg|cpl|txt)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);

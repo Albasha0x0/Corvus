@@ -21,7 +21,7 @@ public class NativeAddressTests
     }
 
     [Fact]
-    public void MachOSymbolsResolveByTheirCNameWithoutTheLeadingUnderscore()
+    public void MachO_symbols_resolve_by_their_C_name_without_the_leading_underscore()
     {
         var code = new byte[0x20];
         var image = CodeTestImage.Synthetic(NativeArch.Arm64, code, exports: [new("_open", 1, First, null), new("_close", 2, Second, null), new("close", 3, Third, null)], format: ImageFormat.MachO);
@@ -32,7 +32,7 @@ public class NativeAddressTests
     }
 
     [Fact]
-    public void HexShapedNamesResolveAsNamesBeforeNumbers()
+    public void Hex_shaped_names_resolve_as_names_before_numbers()
     {
         var image = Image();
         var index = NativeCodeIndex.Build(image);
@@ -50,13 +50,13 @@ public class NativeAddressTests
     }
 
     [Fact]
-    public void EngineDefaultNamesResolveToTheirAddress()
+    public void Engine_default_names_resolve_to_their_address()
     {
         var image = Image();
         foreach (var name in new[] { "FUN_140001010", "thunk_FUN_140001010", "LAB_140001010", "DAT_140001010", "PTR_DAT_140001010", "PTR_FUN_140001010", "sub_1010",
                      "sub_140001010", "loc_140001010" })
             Assert.Equal(Second, NativeAddress.Parse(image, name));
-        // a real name wins over the default form, and a malformed default name is not found
+        // A real name wins over the default form, and a malformed default name is not found.
         var index = NativeCodeIndex.Build(image);
         index.SetSourceName(Third, "FUN_140001010", NativeNameSource.User);
         Assert.Equal(Third, NativeCodeTools.Address(index, "FUN_140001010"));
@@ -68,7 +68,7 @@ public class NativeAddressTests
     [Theory]
     [InlineData(NativeArch.X64)]
     [InlineData(NativeArch.Arm64)]
-    public void NameOnAJumpThunkAndItsTargetMeansTheTarget(NativeArch arch)
+    public void A_name_on_a_jump_thunk_and_its_target_means_the_target(NativeArch arch)
     {
         // An incremental-link thunk at First (the export) jumps to Third, which the PDB names the same.
         var code = new byte[0x40];
@@ -87,7 +87,7 @@ public class NativeAddressTests
     }
 
     [Fact]
-    public void NameOnSeveralAddressesIsAmbiguousAndListsThem()
+    public void A_name_on_several_addresses_is_ambiguous_and_lists_them()
     {
         var image = Image();
         var index = NativeCodeIndex.Build(image);
@@ -117,7 +117,7 @@ public class NativeAddressTests
     }
 
     [Fact]
-    public void ReplacedLayersKeepTheNameMapExact()
+    public void Replaced_layers_keep_the_name_map_exact()
     {
         var names = new SourcedNames();
         names.ReplaceNames(NativeNameSource.Pdb, new Dictionary<uint, string> { [1] = "a", [2] = "a", [3] = "a", [4] = "b" });

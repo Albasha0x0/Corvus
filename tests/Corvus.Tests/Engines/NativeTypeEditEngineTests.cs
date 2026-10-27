@@ -76,7 +76,7 @@ public abstract class NativeTypeEditEngineTests(ITestOutputHelper output) : IDis
         Assert.Equal("struct", (await s.GetTypeAsync("SampleMsg")).Kind);
         await Missing(s, "SamplePkt");
         await Missing(s, "SampleGone");
-        // a recovered type push declares the user's declarations again; the edits are applied after them
+        // A recovered type push declares the user's declarations again; the edits are applied after them.
         await s.ApplyTypesAsync(new NativeTypeBatch("struct SampleUnrelated { int a; };", [], [], [], 8));
         await Missing(s, "SamplePkt");
         await Missing(s, "SampleGone");
@@ -90,7 +90,7 @@ public abstract class NativeTypeEditEngineTests(ITestOutputHelper output) : IDis
         await Missing(again, "SamplePkt");
         await Missing(again, "SampleGone");
         if (checkGlobal != null) await checkGlobal(again, fresh.Data);
-        // declaring a deleted name again undoes the deletion, also after a recovered type push
+        // Declaring a deleted name again undoes the deletion, also after a recovered type push.
         await fresh.Types.DeclareNativeTypes(path, "enum SampleGone { SampleBack = 3 };", engine: engine);
         Assert.DoesNotContain(fresh.Code.Annotations(fresh.Native).UserTypes.TypeEdits, e => e.Name == "SampleGone");
         await again.ApplyTypesAsync(new NativeTypeBatch("struct SampleUnrelated2 { int a; };", [], [], [], 8));
@@ -120,7 +120,7 @@ public abstract class NativeTypeEditEngineTests(ITestOutputHelper output) : IDis
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, typeName: "SampleNoSuch", fields: "a: int", engine: engine))).Code);
         Assert.Equal(6, rig.Code.Annotations(rig.Native).UserTypes.Fields.Count);
 
-        // a recovered type push declares SampleRec again from the user's text; the member edits are applied after it
+        // A recovered type push declares SampleRec again from the user's text; the member edits are applied after it.
         await s.ApplyTypesAsync(new NativeTypeBatch("struct SampleUnrelated { int a; };", [], [], [], 8));
         Assert.Equal("b@4:8 a@14:4", await Members(s, "SampleRec"));
 

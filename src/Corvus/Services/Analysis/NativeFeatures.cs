@@ -7,12 +7,7 @@ using Corvus.Native.Msvc;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// Evaluates <see cref="Features"/> rule features over a native image: "native:" against static and late-bound imports
-/// (API set and kernel32 / kernelbase names agree), "str:" against the strings code and data reference, "arg:" against
-/// recovered call arguments, "section:" against section names, permissions and entropy, "rtti:" against MSVC RTTI class
-/// names. "api:" (managed calls) never matches. Evidence locations are addresses with their function.
-/// </summary>
+/// <summary>Evaluates <see cref="Features"/> rule features (native, str, arg, section, rtti) over a native image; "api:" never matches.</summary>
 internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken ct)
 {
     private const int MaxLocations = 5;
@@ -168,10 +163,7 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
         }
     }
 
-    /// <summary>
-    /// Sections whose high entropy says nothing about packing: resources (compressed images), ELF hash tables and symbol data,
-    /// .gnu_debugdata (xz-compressed symbols), Mach-O link edit data.
-    /// </summary>
+    /// <summary>Sections whose high entropy says nothing about packing: resources, ELF hash, symbol and note data, Mach-O link edit data.</summary>
     internal static bool DenseByDesign(string name) =>
         name.Equals(".rsrc", StringComparison.OrdinalIgnoreCase) || name is ".gnu.hash" or ".hash" or ".gnu_debugdata" or ".dynsym" or ".symtab"
         || name.StartsWith(".note", StringComparison.Ordinal) || name.StartsWith("__LINKEDIT", StringComparison.Ordinal);

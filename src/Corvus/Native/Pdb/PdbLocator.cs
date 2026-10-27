@@ -9,15 +9,7 @@ public sealed record PdbProbe(string Location, string Outcome);
 /// <summary>Outcome of <see cref="PdbLocator.Locate"/>: the matching PDB (or null) and every place looked at.</summary>
 public sealed record PdbLocation(string? Path, IReadOnlyList<PdbProbe> Probes, IReadOnlyList<string> Servers);
 
-/// <summary>
-/// Finds the PDB of an image by its CodeView record (RSDS GUID + age), the way debuggers do, without network access:
-/// an explicit file or directory, the image's directory, the absolute path in the CodeView record, the local stores
-/// and directories of _NT_SYMBOL_PATH / _NT_ALT_SYMBOL_PATH (srv*cache*server elements contribute their caches),
-/// the usual default caches (Visual Studio, WinDbg, C:\symbols) and this server's own download cache. Store layout:
-/// &lt;store&gt;\&lt;pdb name&gt;\&lt;GUID&gt;&lt;age&gt;\&lt;pdb name&gt; (two-tier stores with index2.txt too). Every
-/// candidate is checked by GUID and age; a mismatching file is reported, never used.
-/// <see cref="DownloadAsync"/> fetches from a symbol server and is only called when the user asked for it.
-/// </summary>
+/// <summary>Finds an image's PDB by RSDS GUID and age in local paths and _NT_SYMBOL_PATH stores, without network access; a mismatch is reported, never used. <see cref="DownloadAsync"/> runs only on request.</summary>
 public static class PdbLocator
 {
     public const string DefaultServer = "https://msdl.microsoft.com/download/symbols";
@@ -42,10 +34,7 @@ public static class PdbLocator
         return name.Length == 0 || name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 ? null : name;
     }
 
-    /// <summary>
-    /// Local symbol directories and stores, in search order: the symbol path variables, the default caches that exist, the
-    /// download cache. <paramref name="servers"/> receives the http(s) servers the symbol path names.
-    /// </summary>
+    /// <summary>Local symbol directories and stores in search order; <paramref name="servers"/> receives the symbol path's http(s) servers.</summary>
     public static List<string> LocalStores(List<string> servers, string? symbolPath = null)
     {
         var stores = new List<string>();
@@ -96,9 +85,7 @@ public static class PdbLocator
         if (!list.Contains(item, StringComparer.OrdinalIgnoreCase)) list.Add(item);
     }
 
-    /// <summary>
-    /// Looks for the image's PDB; <paramref name="explicitPath"/> (a file or a directory) is tried first. No network.
-    /// </summary>
+    /// <summary>Looks for the image's PDB locally, <paramref name="explicitPath"/> first; no network.</summary>
     public static PdbLocation Locate(PeFile image, string? explicitPath = null, string? symbolPath = null)
     {
         var probes = new List<PdbProbe>();
@@ -121,7 +108,7 @@ public static class PdbLocator
         }
         if (cv == null || cv.Format != "RSDS")
         {
-            // without a GUID only an explicit file can be used, unverified
+            // Without a GUID only an explicit file can be used, unverified.
             if (candidates.Count > 0 && File.Exists(candidates[0]) && !Directory.Exists(explicitPath))
                 return new PdbLocation(candidates[0], [new PdbProbe(candidates[0], cv == null ? "used unverified: the image has no CodeView record" : "used unverified: the image has a PDB 2.0 (NB10) record")], servers);
             probes.Add(new PdbProbe(image.Path, cv == null ? "the image has no CodeView debug record: it names no PDB" : "the image has a PDB 2.0 (NB10) record; only PDB 7.0 (RSDS) is matched"));
@@ -176,10 +163,7 @@ public static class PdbLocator
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return "unreadable: " + ex.Message; }
     }
 
-    /// <summary>
-    /// Downloads the PDB from <paramref name="server"/> into the download cache (store layout) and verifies GUID and age;
-    /// returns the cached path. Writes to a temporary file first; a mismatching or oversized file is deleted.
-    /// </summary>
+    /// <summary>Downloads the PDB from <paramref name="server"/> to a temporary file, verifies GUID and age, then moves it into the cache; a mismatching or oversized file is deleted. Returns the cached path.</summary>
     public static async Task<string> DownloadAsync(PeCodeView cv, string server, TimeSpan timeout, long maxBytes, HttpMessageHandler? handler = null, string? cache = null,
         CancellationToken ct = default)
     {
@@ -193,10 +177,7 @@ public static class PdbLocator
     /// <summary>The symbol store key of a PE image: TimeDateStamp (8 hex digits) followed by SizeOfImage in hex.</summary>
     public static string ImageKey(uint timeDateStamp, uint sizeOfImage) => $"{timeDateStamp:X8}{sizeOfImage:x}";
 
-    /// <summary>
-    /// Downloads a PE image (a runtime's DAC, for example) stored under <paramref name="key"/> from <paramref name="server"/>
-    /// into the download cache; <paramref name="check"/> (default: any PE file) accepts the file. Returns the cached path.
-    /// </summary>
+    /// <summary>Downloads a PE image stored under <paramref name="key"/> into the cache, accepted by <paramref name="check"/> (default: any PE file); returns the cached path.</summary>
     public static Task<string> DownloadImageAsync(string fileName, string key, Func<string, string?>? check, string server, TimeSpan timeout, long maxBytes,
         HttpMessageHandler? handler = null, string? cache = null, CancellationToken ct = default)
     {

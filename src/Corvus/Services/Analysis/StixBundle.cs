@@ -5,11 +5,7 @@ using System.Text.Json;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// Writes what summarize_file found as a STIX 2.1 bundle, the format MISP and OpenCTI import: the file and its hashed
-/// members as file objects, extracted URLs, domains and IP addresses as their observable objects, and one
-/// malware-analysis object (no verdict) naming them, created by a Corvus identity.
-/// </summary>
+/// <summary>Writes a summarize_file result as a STIX 2.1 bundle: file and network observables and one malware-analysis object, no verdict.</summary>
 public static class StixBundle
 {
     public const string SpecVersion = "2.1";
@@ -30,11 +26,7 @@ public static class StixBundle
 
     private sealed record Observable(string Id, string Type, Dictionary<string, object> Properties, SortedSet<string> Locations);
 
-    /// <summary>
-    /// The bundle as UTF-8 JSON. Observable ids are UUIDv5 over their id contributing properties (stable across runs);
-    /// the analysis and bundle take the UUIDv4 values <paramref name="analysis"/> and <paramref name="bundle"/>, stamped at
-    /// <paramref name="timestamp"/>. Every observable names where it was found in <c>x_corvus_locations</c>.
-    /// </summary>
+    /// <summary>The bundle as UTF-8 JSON; observable ids are stable UUIDv5, the analysis and bundle ids are the given UUIDv4 values.</summary>
     public static byte[] Write(InspectionService.FileSummary summary, string toolVersion, DateTimeOffset timestamp, Guid analysis, Guid bundle)
     {
         var observables = new Dictionary<string, Observable>(StringComparer.Ordinal);

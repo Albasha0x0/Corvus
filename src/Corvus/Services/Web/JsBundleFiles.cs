@@ -4,13 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Web;
 
-/// <summary>
-/// A script opened as a container for unpack_container: a bundle gives one file per module, named by the bundler's key
-/// (esbuild, Metro, AMD, webpack paths), else by the original source the source map gives the module, else
-/// modules/&lt;id&gt;.js; each file starts with a comment naming its id and requires, and modules.json lists them all. A
-/// script with a source map (or the .map itself) also gives the map's original tree under original/: each source's
-/// sourcesContent, else the file the source names beside the map; sources.json says what each source got.
-/// </summary>
+/// <summary>A script as an unpack_container container: one file per bundle module plus modules.json, and the source map's tree under original/ plus sources.json.</summary>
 internal static class JsBundleFiles
 {
     private static readonly string[] Extensions = [".js", ".mjs", ".cjs", ".bundle"];
@@ -62,7 +56,7 @@ internal static class JsBundleFiles
         var modules = JsModules.Find(text, tree, ct);
         if (modules.Count < 2) return null;
         var lines = JsModules.LineStarts(text);
-        // Browserify and Parcel 1 dependency maps ("./lib/x" -> 12) name the modules they point at
+        // Browserify and Parcel 1 dependency maps ("./lib/x" -> 12) name the modules they point at.
         var requested = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var r in modules.SelectMany(x => x.Requires))
             if (r.Split(" -> ") is [var request, var target] && !requested.ContainsKey(target)) requested[target] = request;
@@ -89,10 +83,7 @@ internal static class JsBundleFiles
         return modules[0].Family;
     }
 
-    /// <summary>
-    /// The map's sources as original/&lt;source&gt;: sourcesContent, else the file the source names under the map's folder
-    /// (never above it); sources.json lists every source with what it got, and a note names those without content.
-    /// </summary>
+    /// <summary>The map's sources as original/&lt;source&gt; from sourcesContent, else a file under the map's folder, never above it; sources.json lists each.</summary>
     private static void OriginalTree(SourceMap map, string mapDirectory, List<ExtractedItem> items, List<string> notes, CancellationToken ct)
     {
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -3,12 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.ReadyToRun;
 
-/// <summary>
-/// Names ReadyToRun signature tokens through dnlib modules. Module index 0 (and -1, the default context) is the
-/// image's own module; in a single-assembly image 1..N are its AssemblyRef rows and higher indices continue with the
-/// manifest metadata's AssemblyRef rows; in a composite image index i + <see cref="CompositeBias"/> is the manifest's row i (the components first).
-/// Unresolvable tokens are named "[assembly]0x0A000123". Thread-safe.
-/// </summary>
+/// <summary>Names ReadyToRun signature tokens through dnlib; unresolvable tokens read "[assembly]0x0A000123"; thread-safe.</summary>
 public sealed class R2RNamer : IR2RNames
 {
     private readonly ModuleDef? _own;
@@ -31,10 +26,7 @@ public sealed class R2RNamer : IR2RNames
         _ownRefs = refs;
     }
 
-    /// <summary>
-    /// Module index of manifest row 0 in a composite image (observed with crossgen2 for .NET 10: signatures of
-    /// System.Private.CoreLib methods use index 90 where CoreLib is manifest row 88).
-    /// </summary>
+    /// <summary>Module index of manifest row 0 in a composite image (observed with crossgen2 for .NET 10: CoreLib, manifest row 88, is index 90).</summary>
     public const int CompositeBias = 2;
 
     /// <summary>The module index of component <paramref name="component"/> of a composite image (components lead the manifest).</summary>

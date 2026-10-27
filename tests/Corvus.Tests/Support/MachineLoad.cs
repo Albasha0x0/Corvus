@@ -3,11 +3,7 @@ using System.Security.Cryptography;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// How much slower this machine runs now than the quiet machine the timing budgets were set on: a fixed calibration
-/// workload (hashing, random memory reads, small allocations) timed against its quiet time. Timing tests report it beside
-/// a measurement, so a slow sample taken on a loaded machine is read as load.
-/// </summary>
+/// <summary>How much slower the machine runs now than when budgets were set, from a fixed calibration workload; timing tests report it beside measurements.</summary>
 internal static class MachineLoad
 {
     /// <summary>The calibration workload's best time on the quiet reference machine.</summary>

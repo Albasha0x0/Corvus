@@ -11,14 +11,8 @@ using Parameter = dnlib.DotNet.Parameter;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Writes an edited module so that everything no edit touched keeps its original bytes. dnlib re-encodes every method
-/// body and signature from its parsed model, which changes bodies it cannot represent (empty bodies, branches outside
-/// the code, ...) and, harmlessly, valid bodies it encodes differently (max stack, header and clause formats). During
-/// the write, the bodies of unchanged methods are replaced with their stored bytes and unchanged signature rows are
-/// pointed back at their original blobs (the original #Blob heap is kept as a prefix under PreserveAll). The written
-/// image is then read back and compared with the original: whatever no edit touched and still differs is reported.
-/// </summary>
+/// <summary>Writes an edited module keeping untouched bodies and signatures byte-for-byte; reports untouched parts that still differ.</summary>
+/// <remarks>dnlib re-encodes every body and signature, which alters bodies it cannot represent; stored bytes are put back.</remarks>
 internal sealed class FaithfulWriter
 {
     private static readonly FieldInfo MethodToBody = typeof(Metadata).GetField("methodToBody", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -47,10 +41,7 @@ internal sealed class FaithfulWriter
         _pristine = pristine;
     }
 
-    /// <summary>
-    /// Writes <paramref name="module"/>, loaded from <paramref name="original"/>, to <paramref name="output"/>.
-    /// <paramref name="pristine"/> gives a separate, unedited load of the original image (to tell edits apart).
-    /// </summary>
+    /// <summary>Writes the module to <paramref name="output"/>; <paramref name="pristine"/> loads the unedited original to tell edits apart.</summary>
     internal static SaveReport Write(ModuleDefMD module, RawImage? original, string? unreadable, Func<ModuleDefMD> pristine, Stream output)
     {
         if (original == null)
@@ -130,11 +121,7 @@ internal sealed class FaithfulWriter
         return machine;
     }
 
-    /// <summary>
-    /// What is invalid in an unedited module, without writing it: bodies that are not valid IL or cannot be read, and
-    /// signatures that do not read back as stored. Saving the module unedited writes its original bytes, so all of it is
-    /// kept byte-for-byte.
-    /// </summary>
+    /// <summary>Invalid bodies and signatures of an unedited module, without writing it; an unedited save keeps all bytes.</summary>
     internal static SaveReport Survey(ModuleDefMD module, RawImage original)
     {
         var issues = new List<SaveIssue>();
@@ -194,7 +181,8 @@ internal sealed class FaithfulWriter
         foreach (var method in type.Methods)
         {
             int rid = (int)method.Rid;
-            if (rid == 0 || rid > count) continue; // added by an edit
+            // Added by an edit.
+            if (rid == 0 || rid > count) continue;
             try
             {
                 var row = _original.Method(rid);
@@ -228,14 +216,14 @@ internal sealed class FaithfulWriter
             }
         }
 
-        // dnlib's encodings that no method uses any more. Removed only now: the chunk list deduplicates bodies by
-        // content, and a body added after a removal could otherwise resolve to the removed one.
+        // Unused dnlib encodings are removed only now: the chunk list deduplicates by content, so an earlier removal could be reused.
         var used = new HashSet<DnMethodBody>(toBody.Values, ReferenceEqualityComparer.Instance);
         foreach (var body in replaced.Distinct(ReferenceEqualityComparer.Instance).Cast<DnMethodBody>())
         {
             if (used.Contains(body)) continue;
             try { chunks.Remove(body); }
-            catch (InvalidOperationException) { } // old body locations are reused: the orphan only costs space
+            // Old body locations are reused, so the orphan only costs space.
+            catch (InvalidOperationException) { }
         }
     }
 
@@ -283,7 +271,8 @@ internal sealed class FaithfulWriter
                     }
                     uint token = (uint)MetadataTokens.GetToken(MetadataTokens.EntityHandle(table, rid));
                     bool same = written.SequenceEqual(stored);
-                    if (!same && referenced.Contains(token)) continue; // shared with edited code: left as dnlib wrote it, and reported if it differs
+                    // Shared with edited code: left as dnlib wrote it, and reported if it differs.
+                    if (!same && referenced.Contains(token)) continue;
                     var current = _module.ResolveToken(token);
                     if (!SignatureComparer.Same(current, _pristine().ResolveToken(token)))
                     {

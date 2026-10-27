@@ -6,11 +6,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Emulation;
 
-/// <summary>
-/// The built-in emulator's run: the request and result fields of the Ghidra worker's emulate command, so both render
-/// through one report. Memory is the image (copy on write), a private stack and scratch region, and the caller's
-/// writes; each import slot holds a distinct address outside the image, so a call through it is named by its import.
-/// </summary>
+/// <summary>The built-in emulator, taking and returning the Ghidra worker's emulate fields; each import slot holds a distinct address outside the image.</summary>
 public static class IntegerEmulation
 {
     // Stack in the low half of the region, scratch buffers in the high half; the return sentinel just above it.
@@ -30,10 +26,7 @@ public static class IntegerEmulation
             "omit engine to use Ghidra's p-code emulator"),
     };
 
-    /// <summary>
-    /// Runs one request (start, args, registers, memory, stops, stubs, reads, max_instructions, seconds, trace) and
-    /// returns the worker's result fields with "engine": "ours". Bad input is an InvalidArgument or LimitExceeded error.
-    /// </summary>
+    /// <summary>Runs one request and returns the worker's result fields with "engine": "ours"; bad input throws InvalidArgument or LimitExceeded.</summary>
     public static JsonObject Run(INativeImage image, ulong imageBase, NativeCodeIndex? index, JsonObject request, CancellationToken ct)
     {
         var cpu = Cpu(image);

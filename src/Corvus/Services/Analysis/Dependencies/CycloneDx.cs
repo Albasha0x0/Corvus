@@ -7,10 +7,7 @@ public static class CycloneDx
 {
     public const string SpecVersion = "1.6";
 
-    /// <summary>
-    /// The BOM as UTF-8 JSON: metadata names the tool and the file (with its SHA-256) as the subject; every component
-    /// keeps its evidence (identity confidence and method, occurrences); dependencies hold the edges.
-    /// </summary>
+    /// <summary>Returns the BOM as UTF-8 JSON, with the file and its SHA-256 as subject and each component's evidence.</summary>
     public static byte[] Write(DependencyFacts facts, string filePath, string fileSha256, string toolVersion, DateTimeOffset timestamp, Guid serial)
     {
         using var stream = new MemoryStream();

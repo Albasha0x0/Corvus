@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "edit.dll: native edits in the order made (undo_native_edit editId=...)\nNames (priority user > pdb > nativeaot > il2cpp > objc > swift > dart > napi > ida > ghidra > discovered):\n  user: 0 name(s), 1 comment(s), saved per file hash\n1 edit (showing 1-1):\n  edit.dll#1  annotation 0x140001000        comment_native: comment (none) -> entry\n[End: 1 edit]\n"
+    "edit.dll: native edits in the order made (undo_native_edit editId=...)\nNames (priority user > pdb > nativeaot > metadata > objc > swift > dart > napi > ida > ghidra > discovered):\n  user: 0 name(s), 1 comment(s), saved per file hash\n1 edit (showing 1-1):\n  edit.dll#1  annotation 0x140001000        comment_native: comment (none) -> entry\n[End: 1 edit]\n"
   ],
   "structuredContent": {
     "image": "edit.dll",

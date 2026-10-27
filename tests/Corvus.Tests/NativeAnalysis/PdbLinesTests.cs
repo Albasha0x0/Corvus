@@ -37,7 +37,7 @@ public class PdbLinesTests
     {
         var lines = Assert.IsType<PdbLines>(PdbFile.FromBytes(WithLines().Build()).Source);
         Assert.Equal([new PdbLineAddress(@"C:\src\app\bar.cpp", 11, 0x1016)], lines.Addresses("app/BAR.cpp", 11));
-        // no code on 12 or 13: the stop point goes to 14
+        // No code on 12 or 13: the stop point goes to 14.
         Assert.Equal(0x1028u, Assert.Single(lines.Addresses("bar.cpp", 12)).Rva);
         Assert.Empty(lines.Addresses("other/bar.cpp", 11));
         Assert.Empty(lines.Addresses("bar.cpp", 15));

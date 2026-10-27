@@ -22,7 +22,7 @@ public class NativeToolBoundsTests
     }
 
     [Fact]
-    public async Task ZeroFillAndRawSizesPastTheFileAreNotScanned()
+    public async Task Zero_fill_and_raw_sizes_past_the_file_are_not_scanned()
     {
         using var dir = new TempDir();
         var path = dir.File("huge.dll");
@@ -48,7 +48,7 @@ public class NativeToolBoundsTests
         Assert.Contains("1 function", await h.CodeTools.ListFunctions(path));
         Assert.Contains("0 classes", await h.Analysis.ListCppClasses(path));
 
-        // the scanners behind those tools read the file's bytes, not the 3.5 GB the headers claim (a byte count, not a clock)
+        // The scanners behind those tools read the file's bytes, not the 3.5 GB the headers claim (a byte count, not a clock).
         var counted = new ReadCountingImage(Corvus.Native.Pe.PeFile.Open(path));
         Corvus.Native.Code.NativeCodeIndex.Build(counted);
         Corvus.Native.Msvc.MsvcRtti.Analyze(counted);
@@ -112,7 +112,7 @@ public class NativeToolBoundsTests
     }
 
     [Fact]
-    public async Task PatternsMayStartWithWildcardsAsMakeCodePatternWritesThem()
+    public async Task Patterns_may_start_with_wildcards_as_make_code_pattern_writes_them()
     {
         using var dir = new TempDir();
         var path = dir.File("lead.dll");
@@ -144,7 +144,7 @@ public class NativeToolBoundsTests
     }
 
     [WindowsFact]
-    public async Task SearchBytesPagesItsHits()
+    public async Task Search_bytes_pages_its_hits()
     {
         using var h = new NativeToolHarness();
         var first = await h.Native.SearchBytes(Kernel32, "00 ?? ?? 00", limit: 10_000);
@@ -156,7 +156,7 @@ public class NativeToolBoundsTests
     }
 
     [WindowsFact]
-    public async Task SearchBytesCountsWhatANaiveScanCounts()
+    public async Task Search_bytes_counts_what_a_naive_scan_counts()
     {
         using var h = new NativeToolHarness();
         var pe = Corvus.Native.Pe.PeFile.Open(Kernel32);
@@ -174,7 +174,7 @@ public class NativeToolBoundsTests
     }
 
     [WindowsFact]
-    public async Task IndexRequestsOnAnUnloadedImageAreConflicts()
+    public async Task Index_requests_on_an_unloaded_image_are_conflicts()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var native = h.Workspace.LoadAny(Kernel32).Native!;
@@ -185,7 +185,7 @@ public class NativeToolBoundsTests
     }
 
     [WindowsFact]
-    public async Task UnloadCancelsTheBuildAWaitingCallGetsAConflict()
+    public async Task Unload_cancels_the_build_and_a_waiting_call_gets_a_conflict()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var native = h.Workspace.LoadAny(Kernel32).Native!;
@@ -197,12 +197,12 @@ public class NativeToolBoundsTests
     }
 
     [WindowsFact]
-    public void ConcurrentReloadsOfTheSameImageKeepOneEntry()
+    public void Concurrent_reloads_of_the_same_image_keep_one_entry()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var stale = h.Workspace.LoadAny(Kernel32).Native!;
         var first = h.Workspace.ReloadNative(stale);
-        // a second call that resolved the same entry before the first reload
+        // A second call that resolved the same entry before the first reload.
         Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => h.Workspace.ReloadNative(stale)).Code);
         Assert.Same(first, Assert.Single(h.Workspace.Read(() => h.Workspace.Natives)));
         Assert.True(stale.Released.IsCancellationRequested);
@@ -211,7 +211,7 @@ public class NativeToolBoundsTests
     }
 
     [Fact]
-    public async Task BitMasksAndNibbleWildcardsMatchANaiveScan()
+    public async Task Bit_masks_and_nibble_wildcards_match_a_naive_scan()
     {
         // 3 MB of random code (crossing the 1 MB chunks), patterns cut from it with random per-byte masks.
         var rng = new Random(1234);
@@ -284,7 +284,7 @@ public class NativeToolBoundsTests
     }
 
     [Fact]
-    public async Task EngineMemoryHitsThatDifferFromTheFileAreMarkedFixed()
+    public async Task Engine_memory_hits_that_differ_from_the_file_are_marked_fixed()
     {
         var b = new PeBuilder();
         var text = b.Add(".text", [0x48, 0x8B, 0x05, 0x00, 0x00, 0x00, 0x00, 0xC3, 0x48, 0x8B, 0x05, 0x10, 0x20, 0x00, 0x00, 0xC3], 0x60000020);
@@ -295,7 +295,7 @@ public class NativeToolBoundsTests
         using var h = new NativeToolHarness();
         await h.Native.SearchBytes(path, "C3");
         var native = h.Workspace.GetNative("fixed.dll");
-        // the engine holds the first load relocated (00 00 00 00 -> 10 20 00 00) and the second as in the file
+        // The engine holds the first load relocated (00 00 00 00 -> 10 20 00 00) and the second as in the file.
         byte[] loaded = [0x48, 0x8B, 0x05, 0x10, 0x20, 0x00, 0x00, 0xC3, 0x48, 0x8B, 0x05, 0x10, 0x20, 0x00, 0x00, 0xC3];
         var results = await Corvus.Tools.NativeTools.SearchEngine(native, new FakeMemory(new NativeMemoryRun(text.Rva, loaded)),
             [Corvus.Tools.NativeTools.Parse("48 8B 05 10 2? 00 00", false, null)], null, 100, 0, default);

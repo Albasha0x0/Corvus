@@ -57,7 +57,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         var rig = shared ?? Setup();
         static List<FunctionEntry> Items(FunctionList list) => [.. list.Items];
         var all = await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, limit: 5000));
-        // a PDB or the exports give the engine prototypes for some functions, not for every one
+        // A PDB or the exports give the engine prototypes for some functions, not for every one.
         var typed = await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, hasType: true, limit: 5000));
         var untyped = await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, hasType: false, limit: 5000));
         output.WriteLine($"{engine}: {all.Total} functions, {typed.Total} typed, {untyped.Total} untyped");
@@ -124,10 +124,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
         }
     }
 
-    /// <summary>
-    /// One rig for the IDA tests that only read or add their own types, so they share one open session; a test that
-    /// renames inside IDA takes a rig of its own.
-    /// </summary>
+    /// <summary>One shared IDA rig for read-only tests; a test that renames takes its own.</summary>
     public sealed class IdaRig : IDisposable
     {
         private readonly TempDir _dir = new();
@@ -157,7 +154,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
             Assert.Equal("True", set.Result?.Trim());
             var text = await rig.Analysis.DecompileNative(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida");
             Output.WriteLine(text.Split('\n')[0]);
-            // the name in effect (the export) wins in pseudocode headers, as in list_functions (DN-4); the frame shows the engine's
+            // The name in effect (the export) wins in pseudocode headers, as in list_functions (DN-4); the frame shows the engine's.
             Assert.Contains($"// {Function} at ", text);
             var frame = await rig.Types.GetNativeFrame(rig.Native.Id, $"rva:0x{rva:X}", engine: "ida", locals: true);
             Output.WriteLine(frame.Split('\n')[0]);
@@ -178,7 +175,7 @@ public abstract class NativeQueryEngineTests(ITestOutputHelper output) : IDispos
             var data = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from", kind: "data");
             Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Read|Write|Offset)\s", code);
             Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", data);
-            // every row is in one of the two
+            // Every row is in one of the two.
             static int Rows(string text) => System.Text.RegularExpressions.Regex.Count(text, @"(?m)^\s*0x[0-9A-F]+  \S");
             Assert.Equal(Rows(from), Rows(code) + Rows(data));
             var both = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "both");

@@ -4,10 +4,7 @@ using static Corvus.Tests.ToolRealDataTests;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// S12.3 real data for the engine tools: IDA and Ghidra on a small production DLL of the ILCompiler package
-/// (jitinterface_x64.dll), each through a server of its own; skipped when the engine is absent.
-/// </summary>
+/// <summary>IDA and Ghidra on jitinterface_x64.dll of the ILCompiler package, each through its own server; skipped when absent.</summary>
 [Trait("Data", "Real"), Trait("Speed", "Slow")]
 public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
 {
@@ -35,8 +32,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
     public async Task Ida_tools_work_on_a_real_dll()
     {
         var image = Image();
-        // The test's edits are saved into the database, so it gets an analysis cache of its own: the shared one would
-        // hand the next run the renamed frame.
+        // The edits are saved into the database, so an own cache keeps the next run from a renamed frame.
         await using var c = await _phases.Run("server start", () => McpProtocolTests.StartServerAsync(_dir.Path, null, ["--ida-scripting"],
             new Dictionary<string, string?> { [Corvus.Native.Providers.AnalysisCache.RootVariable] = _dir.File("cache") }));
         var (_, exports) = await _phases.Run("list_exports", () => Call(c, "list_exports", new() { ["image"] = image }));
@@ -69,7 +65,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         var function = exports.GetProperty("items")[0].GetProperty("name").GetString()!;
         Assert.Contains("returned to the caller", await Log(c, "emulate_native", new() { ["image"] = image, ["address"] = function, ["maxInstructions"] = 1000, ["stubs"] = "*=0", ["engine"] = "ghidra" }));
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
-        // the same source again reuses its compiled bundle: compilation is most of a first run
+        // The same source again reuses its compiled bundle: compilation is most of a first run.
         var script = new Dictionary<string, object?> { ["image"] = image, ["code"] = "println(\"functions \" + currentProgram.getFunctionManager().getFunctionCount());", ["engine"] = "ghidra" };
         // The worker writes a script's source next to its classes each time it compiles it (ScriptOps.compile).
         var key = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((string)script["code"]!)))[..16];
@@ -83,14 +79,14 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         Assert.True(File.Exists(source), source);
         Assert.Equal(compiled, File.GetLastWriteTimeUtc(source));
         PerfBudget.AtMost("engines/ghidra-script-repeat-share", clock.Elapsed / first, 0.5, "of-first", output, $"repeat {clock.Elapsed.TotalMilliseconds:0} ms, first {first.TotalMilliseconds:0} ms");
-        // installed scripts: one of Ghidra's, and one from the user folder with arguments
+        // Installed scripts: one of Ghidra's, and one from the user folder with arguments.
         await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "CountSymbolsScript.java", ["engine"] = "ghidra" });
         var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;
         File.WriteAllText(Path.Combine(userScripts, "EchoArgs.java"),
             "import ghidra.app.script.GhidraScript;\npublic class EchoArgs extends GhidraScript {\n    @Override\n    public void run() throws Exception { println(\"args \" + String.join(\"|\", getScriptArgs())); }\n}\n");
         Assert.Contains("args a|b c", await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "EchoArgs", ["args"] = new[] { "a", "b c" }, ["engine"] = "ghidra" }));
         var python = await c.CallToolAsync("ghidra_script", new Dictionary<string, object?> { ["image"] = image, ["name"] = "Example.py", ["engine"] = "ghidra" });
-        // without a PyGhidra Python the workers run in a plain JVM
+        // Without a PyGhidra Python the workers run in a plain JVM.
         if (Environment.GetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.PythonVariable) is not { Length: > 0 })
             Assert.Contains("CORVUS_GHIDRA_PYTHON", string.Concat(python.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text)));
         var pcode = await Log(c, "decompile_native", new() { ["image"] = image, ["address"] = function, ["view"] = "pcode", ["engine"] = "ghidra" });
@@ -115,7 +111,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;
         File.WriteAllText(Path.Combine(userScripts, "echo_args.py"), "print('args ' + '|'.join(getScriptArgs()))\n");
         Assert.Contains("args a|b c", await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "echo_args.py", ["args"] = new[] { "a", "b c" }, ["engine"] = "ghidra" }));
-        // Java still runs in the same worker
+        // Java still runs in the same worker.
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
     }
 }

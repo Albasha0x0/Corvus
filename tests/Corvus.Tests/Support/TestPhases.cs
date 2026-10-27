@@ -36,10 +36,7 @@ public sealed class TestPhases(ITestOutputHelper output)
         return result;
     }
 
-    /// <summary>
-    /// Records the step a successful session tool call completed: a session opened, a script loaded, a stop point, watch
-    /// or coverage run set, a stop reached or the session closed; other calls record nothing. A call that waited without a stop writes the summary.
-    /// </summary>
+    /// <summary>Records the step a successful session tool call completed; other calls record nothing.</summary>
     public void Record(string tool, IReadOnlyDictionary<string, object?> args, string text, bool failed)
     {
         if (failed) return;

@@ -5,11 +5,7 @@ namespace Corvus.Core.Pcap;
 /// <summary>One captured frame: its link type, time in microseconds since 1970, wire length and the captured bytes.</summary>
 public readonly record struct PcapFrame(int LinkType, long Micros, int OriginalLength, ReadOnlyMemory<byte> Data);
 
-/// <summary>
-/// A streaming pcap / pcapng reader (both byte orders, micro and nanosecond pcap; pcapng sections, interfaces with their
-/// link types and time resolutions, enhanced, simple and obsolete packet blocks). Frames share one reused buffer, so a
-/// frame's data is valid until the next one is read. Malformed input ends the read with an issue, never an exception.
-/// </summary>
+/// <summary>A streaming pcap and pcapng reader; a frame's data is valid until the next read, malformed input ends with an issue.</summary>
 public sealed class PcapReader(Stream stream)
 {
     private const int MaxBlock = 16 << 20;
@@ -70,9 +66,10 @@ public sealed class PcapReader(Stream stream)
         for (long n = 0; ; n++)
         {
             if ((n & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
-            // Frames read the first block's type
+            // Frames read the first block's type.
             if (!(n == 0 ? Read(4, 4, out int got) : Read(0, 8, out got))) { if (got > 0 || n == 0) Issue("truncated block header at the end"); yield break; }
-            uint type = BinaryPrimitives.ReadUInt32LittleEndian(_buf); // the section header type reads the same in both orders
+            // The section header type reads the same in both orders.
+            uint type = BinaryPrimitives.ReadUInt32LittleEndian(_buf);
             int header = 8;
             if (type == 0x0A0D0D0A)
             {
@@ -114,10 +111,12 @@ public sealed class PcapReader(Stream stream)
                         yield return new PcapFrame(linkType, Micros(ts, resolution), (int)Math.Min(origlen, int.MaxValue), _buf.AsMemory(8 + 20, (int)caplen));
                         break;
                     }
-                case 10: // decryption secrets: a TLS key log ("TLSK") is handed to Secrets
+                // Decryption secrets: a TLS key log ("TLSK") is handed to Secrets.
+                case 10:
                     if (body.Length >= 8 && U32(body) == 0x544C534B && U32(body[4..]) is var secretLength && secretLength <= body.Length - 8) Secrets?.Invoke(body.Slice(8, (int)secretLength));
                     break;
-                case 3: // simple packet: interface 0, no time
+                // Simple packet: interface 0, no time.
+                case 3:
                     {
                         if (body.Length < 4) { Issue("short simple packet block"); break; }
                         if (_interfaces.Count == 0) { Issue("packet on an undeclared interface"); break; }
@@ -165,7 +164,7 @@ public sealed class PcapReader(Stream stream)
     /// <summary>Reads <paramref name="count"/> bytes to <paramref name="at"/> in the buffer; false when the stream ends first.</summary>
     private bool Read(int at, int count, out int got)
     {
-        // a length past the end of a seekable stream is truncation: no buffer is grown for it
+        // A length past the end of a seekable stream is truncation: no buffer is grown for it.
         int want = stream.CanSeek ? (int)Math.Min(count, Math.Max(0, stream.Length - stream.Position)) : count;
         if (_buf.Length < at + want) Array.Resize(ref _buf, Math.Max(at + want, Math.Min(_buf.Length * 2, MaxBlock + 16)));
         got = stream.ReadAtLeast(_buf.AsSpan(at, want), want, throwOnEndOfStream: false);

@@ -35,7 +35,8 @@ public sealed class OfficeDocumentTests
         Assert.Contains(c.Items, i => i.Name == "Macros/VBA/ThisDocument.cls");
         Assert.Contains(c.Entries!, e => e.Path == "Macros/VBA/dir");
         Assert.Contains(c.Entries!, e => e.Path == "WordDocument" && e.Size == 600);
-        Assert.DoesNotContain(c.Items, i => i.Name == "WordDocument"); // not a binary: listed, not extracted
+        // Not a binary: listed, not extracted.
+        Assert.DoesNotContain(c.Items, i => i.Name == "WordDocument");
     }
 
     [Fact]
@@ -50,7 +51,7 @@ public sealed class OfficeDocumentTests
         Assert.Equal("Module1:5", rows[("Suspicious", "Shell")].Location);
         Assert.True(rows.ContainsKey(("Suspicious", "vbHide")));
         Assert.True(rows.ContainsKey(("IOC", "https://example.test/readme.txt")));
-        // the hex string decodes to a program name, found again under Hex
+        // The hex string decodes to a program name, found again under Hex.
         Assert.Equal("Hex", rows[("IOC", "notepad.exe")].Decoded);
         Assert.True(rows.ContainsKey(("Hex String", "notepad.exe")));
     }
@@ -67,7 +68,7 @@ public sealed class OfficeDocumentTests
         Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "WScript.Shell" });
         Assert.Contains(f.Findings, r => r is { Type: "IOC", Keyword: "http://example.test/t.dotm", Location: "word/_rels/settings.xml.rels" });
 
-        // unpack follows the part into the compound file
+        // Unpack follows the part into the compound file.
         var c = Containers.Open(bin, "vbaProject.bin", AnalysisLimits.Default, default);
         Assert.Equal("VBA project", c.Kind);
         Assert.Contains(c.Items, i => i.Name == "VBA/ThisDocument.cls");
@@ -140,7 +141,7 @@ public sealed class OfficeDocumentTests
         var vba = Compound(VbaStreams("", ("Module1", "standard", "Sub Action_Click()\r\n  Shell \"calc\"\r\nEnd Sub\r\n")));
         var zlib = new MemoryStream();
         using (var z = new System.IO.Compression.ZLibStream(zlib, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true)) z.Write(vba);
-        // a DocumentContainer (version 0xF) holding one ExOleObjStg atom, instance 1: decompressed size, then zlib data
+        // A DocumentContainer (version 0xF) holding one ExOleObjStg atom, instance 1: decompressed size, then zlib data.
         var atom = new MemoryStream();
         atom.Write(BitConverter.GetBytes((ushort)0x0010)); atom.Write(BitConverter.GetBytes((ushort)0x1011));
         atom.Write(BitConverter.GetBytes((uint)(4 + zlib.Length))); atom.Write(BitConverter.GetBytes((uint)vba.Length)); atom.Write(zlib.ToArray());
@@ -203,7 +204,7 @@ public sealed class OfficeDocumentTests
     [Fact]
     public void A_version_4_compound_file_reads_its_4096_byte_sectors_after_a_full_sector_header()
     {
-        // version 4: a 4096-byte header sector, one FAT sector, one directory sector holding the root and one stream
+        // Version 4: a 4096-byte header sector, one FAT sector, one directory sector holding the root and one stream.
         var data = new byte[4096 * 4];
         new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 }.CopyTo(data, 0);
         BitConverter.GetBytes((ushort)0x3E).CopyTo(data, 24); BitConverter.GetBytes((ushort)4).CopyTo(data, 26);
@@ -236,7 +237,7 @@ public sealed class OfficeDocumentTests
     public void A_looping_sector_chain_ends_with_a_note()
     {
         var doc = WordDocument();
-        // point the first FAT entry after the FAT itself back at itself: the directory chain loops
+        // Point the first FAT entry after the FAT itself back at itself: the directory chain loops.
         var start = BitConverter.ToUInt32(doc, 48);
         BitConverter.GetBytes(start).CopyTo(doc, 512 + (int)start * 4);
         var c = Containers.Open(doc, "doc.doc", AnalysisLimits.Default, default);

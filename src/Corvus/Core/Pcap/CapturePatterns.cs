@@ -1,9 +1,6 @@
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// Patterns worth reviewing in a capture's summary: many long, high-entropy DNS names under one domain (data carried in
-/// DNS names), and connections from one host to one server at a regular interval (a periodic check-in).
-/// </summary>
+/// <summary>Capture patterns worth review: many high-entropy DNS names under one domain, and connections at a regular interval.</summary>
 internal static class CapturePatterns
 {
     private const int MinNames = 20, MinLabel = 20, MinConnections = 6;
@@ -19,7 +16,7 @@ internal static class CapturePatterns
             if (length >= MinLabel && entropy >= MinEntropy)
                 found.Add($"DNS names: {g.Count()} distinct names under {g.Key}, first labels {length:0} characters on average with {entropy:0.0} bits of entropy per character (data carried in DNS names?)");
         }
-        // DNS (its names are judged above) and NTP (periodic by design) are left out
+        // DNS (its names are judged above) and NTP (periodic by design) are left out.
         foreach (var g in c.Flows().Where(f => !f.Server.EndsWith(":53", StringComparison.Ordinal) && !f.Server.EndsWith(":123", StringComparison.Ordinal))
                      .GroupBy(f => (Client: Host(f.Client), f.Server, f.Protocol)))
         {

@@ -20,7 +20,8 @@ public sealed class WasmCompareTests(ITestOutputHelper output) : IDisposable
             uint v = b.Type([], []), run = b.Type(second ? [I32, I32] : [I32], [I32]);
             b.ImportFunc("env", "log", v);
             if (second) b.ImportFunc("env", "time", v);
-            if (second) b.Func(v, new WasmAsm().I32(9).Op(0x1A).Bytes); // a new function first: the others move
+            // A new function first: the others move.
+            if (second) b.Func(v, new WasmAsm().I32(9).Op(0x1A).Bytes);
             uint worker = b.Func(v, new WasmAsm().I32(42).Op(0x1A).Op(0x10).U(0).Bytes);
             uint helper = b.Func(v, new WasmAsm().I32(second ? 2 : 1).Op(0x1A).Bytes);
             uint main = b.Func(run, new WasmAsm().Op(0x10).U(worker).Op(0x20).U(0).Bytes);
@@ -33,7 +34,7 @@ public sealed class WasmCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void Interface_and_functions_of_two_builds()
+    public void Two_builds_compare_their_interface_and_functions()
     {
         var (oldBytes, newBytes) = Builds();
         var a = new Corvus.Native.WasmImage(oldBytes, "old.wasm");
@@ -44,14 +45,15 @@ public sealed class WasmCompareTests(ITestOutputHelper output) : IDisposable
         Assert.True(run.SignatureChanged);
         var helper = c.Pairs.Single(p => p.Name == "helper");
         Assert.Equal(("name", true, false), (helper.Basis, helper.BodyChanged, helper.SignatureChanged));
-        // the unnamed worker moved from function 1 to 3 with its body unchanged (its call to env.log keeps its name)
+        // The unnamed worker moved from function 1 to 3 with its body unchanged (its call to env.log keeps its name).
         var worker = c.Pairs.Single(p => p.Old == 1);
         Assert.Equal((3u, "identical_body", false), (worker.New, worker.Basis, worker.BodyChanged));
-        Assert.Equal([1u, 2u], c.OnlyNew); // the new import env.time and the new function
+        // The new import env.time and the new function.
+        Assert.Equal([1u, 2u], c.OnlyNew);
     }
 
     [Fact]
-    public async Task Two_runtime_releases_compared_through_the_tool()
+    public async Task Two_runtime_releases_compare_through_the_tool()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var tools = new NativeDiffTools(h.Workspace, h.Code);

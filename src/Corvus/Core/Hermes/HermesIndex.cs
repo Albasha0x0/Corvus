@@ -11,10 +11,7 @@ public enum HermesClosureKind : byte { Function, Generator, Async, GeneratorBody
 /// <summary>A Metro module defined in the global code: __d(factory, id, dependencies[, name]).</summary>
 public sealed record HermesModule(long Id, int Function, IReadOnlyList<long> Dependencies, string? Name, int Offset);
 
-/// <summary>
-/// One pass over every function of a bundle: which function creates each closure and whose environment it captures,
-/// the users of every string and function, and the Metro module table recovered from the global code.
-/// </summary>
+/// <summary>Closure creators, string and function users, and the Metro module table of a bundle, in one pass.</summary>
 public sealed class HermesIndex
 {
     private readonly int[] _parent, _parentOffset, _envSource;
@@ -151,10 +148,7 @@ public sealed class HermesIndex
         return m >= 0 ? Modules[m] : null;
     }
 
-    /// <summary>
-    /// The function whose environment is <paramref name="depth"/> levels up from <paramref name="function"/>'s own code:
-    /// depth -1 is its own environment, 0 the one its closure captured. -1 when unknown.
-    /// </summary>
+    /// <summary>The function owning the environment <paramref name="depth"/> levels up (-1 own, 0 captured); -1 when unknown.</summary>
     public int EnvironmentOwner(int function, int depth)
     {
         _envOwner ??= BuildEnvOwners();
@@ -173,7 +167,8 @@ public sealed class HermesIndex
             if (f < 0 || f >= n) return -1;
             if (owner[f] != -2) return owner[f];
             if (guard > 256) return -1;
-            owner[f] = -1; // a cycle reads as unknown
+            // A cycle reads as unknown.
+            owner[f] = -1;
             int source = _envSource[f], creator = _parent[f];
             int result = creator < 0 || source == int.MinValue ? -1 : source == -1 ? creator : Up(creator, source, guard + 1);
             return owner[f] = result;

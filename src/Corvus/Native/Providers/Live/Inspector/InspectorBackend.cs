@@ -3,10 +3,7 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Inspector;
 
-/// <summary>
-/// Sessions on a Node or Electron program through its V8 inspector (<see cref="InspectorEndpoint"/>), served by this
-/// program's own <c>inspector-worker</c> command; nothing else is installed.
-/// </summary>
+/// <summary>Sessions on a Node or Electron program through its V8 inspector, served by this program's <c>inspector-worker</c> command; nothing else is installed.</summary>
 public sealed class InspectorBackend : ILiveBackend
 {
     public string Name => "inspector";

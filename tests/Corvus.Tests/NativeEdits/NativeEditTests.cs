@@ -57,7 +57,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Assembler_JmpToLabel_ComputesDisplacement()
+    public void The_assembler_computes_the_displacement_of_a_jmp_to_a_label()
     {
         // jmp over a nop to a label; BlockEncoder picks the short form (EB rel8) since the target is in range.
         var r = X86Assembler.Assemble(NativeArch.X64, 0x140001000, "jmp target\nnop\ntarget:\nret");
@@ -70,7 +70,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Assembler_CallToAbsoluteAddress()
+    public void The_assembler_encodes_a_call_to_an_absolute_address()
     {
         // call an absolute VA; from VA 0x140001000 a 5-byte call to 0x140001100 has rel32 = 0x100 - 5.
         var r = X86Assembler.Assemble(NativeArch.X64, 0x140001000, "call 0x140001100");
@@ -80,8 +80,7 @@ public class NativeEditTests(ITestOutputHelper output)
 
     // ---- MASM-syntax round trip (assemble a line our disassembler prints, get the same instruction back) ----
 
-    // A curated table across the instruction classes. Each entry assembles, disassembles, and re-assembles: the two
-    // byte strings must be identical (copy a line, edit it, patch it back). Kept small so the quick set stays fast.
+    // Each entry assembles, disassembles and re-assembles to identical bytes; the table stays small for the quick set.
     [Theory]
     [InlineData(NativeArch.X64, "nop", "90")]
     [InlineData(NativeArch.X64, "ret", "C3")]
@@ -151,7 +150,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void RoundTrip_ReportsClearErrors()
+    public void The_assembler_names_ambiguous_and_unknown_instructions()
     {
         // Operand size ambiguous without a specifier.
         var ex = Assert.Throws<ToolError>(() => X86Assembler.Assemble(NativeArch.X64, 0x140001000, "inc [rax]"));
@@ -176,8 +175,7 @@ public class NativeEditTests(ITestOutputHelper output)
         return (bytes, line.Text);
     }
 
-    // The big sweep: round-trip every instruction our disassembler prints for a set of real System32 / SysWOW64
-    // functions, and report the exact-byte and equivalent (same text) rates per instruction class.
+    // Round-trips every instruction the disassembler prints for real System32 and SysWOW64 functions; reports exact and equivalent rates per class.
     [Trait("Speed", "Slow")]
     [WindowsFact]
     public void RoundTrip_System32Functions()
@@ -225,8 +223,7 @@ public class NativeEditTests(ITestOutputHelper output)
                     else if (asm.AsSpan().SequenceEqual(orig)) { exact++; pc.Exact++; equiv++; pc.Equiv++; }
                     else
                     {
-                        // Equivalent when the assembled bytes disassemble to the same text at the same address and decode
-                        // to the same operation: mnemonic, operand and address size, operands, immediates and prefixes.
+                        // Equivalent: same text at the same address and the same decoded operation.
                         var synth = new ByteImage(image, line.Rva, asm);
                         var back = new NativeDisassembler(synth, null, []).DecodeOne(line.Rva);
                         int bitness = arch == NativeArch.X64 ? 64 : 32;
@@ -263,11 +260,7 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.True(equiv == total, $"{total - equiv} of {total} instructions did not round-trip:\n" + string.Join("\n", sampleFailures));
     }
 
-    /// <summary>
-    /// Two encodings do the same thing: same mnemonic, operand size (a 66-prefixed push is not a push), address size,
-    /// prefixes, memory size and operands (registers, memory base / index / scale / displacement / segment, immediate values).
-    /// The opcode form may differ (8B vs 89 for reg,reg; imm8 vs imm32 for the same value).
-    /// </summary>
+    /// <summary>Two encodings are the same operation: mnemonic, operand and address size, prefixes and operands match; the opcode form may differ.</summary>
     internal static bool SameOperation(int bitness, ulong ip, byte[] a, byte[] b)
     {
         static Iced.Intel.Instruction Decode(int bitness, ulong ip, byte[] bytes)
@@ -327,7 +320,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void SameOperationTellsOperandSizeApart()
+    public void The_same_operation_encodes_each_operand_size()
     {
         // push 3ECh (68 imm32) vs pushw 3ECh (66 68 imm16): same text without the suffix, different operation.
         Assert.False(SameOperation(32, 0x1000, Convert.FromHexString("68EC030000"), Convert.FromHexString("6668EC03")));
@@ -339,7 +332,7 @@ public class NativeEditTests(ITestOutputHelper output)
 
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task RenameAndComment_RoundTripThroughReloadAndNewWorkspace()
+    public async Task Rename_and_comment_round_trip_through_reload_and_new_workspace()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -364,7 +357,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Export_Header_UsesTheCurrentFunctionName()
+    public async Task Export_header_uses_the_current_function_name()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -380,7 +373,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task CommentNative_FunctionScope_TakesTheEngineFunctionWhereTheIndexHasNone()
+    public async Task Comment_native_function_scope_takes_the_engine_function_where_the_index_has_none()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -393,7 +386,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task CommentNative_Scopes_AppendWithDedupe_AndPseudocodeCommentsPersistAndExport()
+    public async Task Comment_native_scopes_append_with_dedupe_and_pseudocode_comments_persist_and_export()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -402,7 +395,7 @@ public class NativeEditTests(ITestOutputHelper output)
         var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
         var ann = h.Code.Annotations(native);
 
-        // auto: a function start takes the function comment, any other address the line and the pseudocode comment
+        // Auto: a function start takes the function comment, any other address the line and the pseudocode comment.
         Assert.Contains("function", await tools.CommentNative(h.Path, At(entry), "decrypts", dryRun: false));
         Assert.Equal(("decrypts", null), (ann.CommentAt(entry), ann.PseudoCommentAt(entry)));
         var both = await tools.CommentNative(h.Path, At(inside), "returns 1", dryRun: false);
@@ -411,7 +404,7 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Equal(("returns 1", "returns 1"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
         Assert.Equal("returns 1", index.CommentFor(inside));
 
-        // append, deduped by line; scope function from inside the function
+        // Append, deduped by line; scope function from inside the function.
         Assert.Contains("already has this line", await tools.CommentNative(h.Path, At(inside), " returns 1 ", scope: "pseudocode", append: true, dryRun: false));
         await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true, dryRun: false);
         await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true, repeatLine: true, dryRun: false);
@@ -422,7 +415,7 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Equal((null, "returns 1\nchecked\nchecked"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.CommentNative(h.Path, At(inside), "x", scope: "everywhere", dryRun: false))).Code);
 
-        // kept in the sidecar (format 3), and exported by every format
+        // Kept in the sidecar (format 3), and exported by every format.
         using (var env2 = new Env())
         {
             var code2 = new NativeCodeService(env2.Workspace, env2.Options, null, h.Store);
@@ -443,7 +436,7 @@ public class NativeEditTests(ITestOutputHelper output)
     [Fact]
     public void Name_stamps_match_the_stamps_saved_in_existing_databases()
     {
-        // the stamp format is stored in engine databases: a different value would push every name again
+        // The stamp format is stored in engine databases: a different value would push every name again.
         static string Reference(Dictionary<uint, NativeNamePush.Entry> entries)
         {
             using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
@@ -470,7 +463,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task CommentNative_Kinds_AreKept_PushedWithTheOldKindRemoved_AndExported()
+    public async Task Comment_native_kinds_are_kept_pushed_with_the_old_kind_removed_and_exported()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -480,14 +473,14 @@ public class NativeEditTests(ITestOutputHelper output)
         await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "eol", dryRun: false);
         Assert.Equal(("ends here", "eol"), (ann.CommentAt(inside), ann.CommentKindAt(inside)));
         var before = NativeNamePush.Effective(ann, [], native.Image);
-        // the same text as a pre comment is a change of kind, not "unchanged"
+        // The same text as a pre comment is a change of kind, not "unchanged".
         Assert.Contains("pre comment set", await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "pre", dryRun: false));
         Assert.Equal("pre", ann.CommentKindAt(inside));
         Assert.NotEqual(NativeNamePush.StampOf(before), NativeNamePush.StampOf(NativeNamePush.Effective(ann, [], native.Image)));
         var file = h.Dir.File("export.java");
         await tools.ExportNativeAnnotations(h.Path, file, "ghidra");
         Assert.Contains($"setPreComment(base.add(0x{inside:X}L), \"ends here\")", File.ReadAllText(file));
-        // back to line: the kind is dropped; a removed comment takes its kind with it
+        // Back to line: the kind is dropped; a removed comment takes its kind with it.
         await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "line", dryRun: false);
         Assert.Null(ann.CommentKindAt(inside));
         await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "x", scope: "plate", dryRun: false);
@@ -503,7 +496,7 @@ public class NativeEditTests(ITestOutputHelper output)
     [InlineData("int (__fastcall *)(int)", null)]
     [InlineData("Handler *[8]", null)]
     [InlineData("Config", null)]
-    public void PrototypeName_IsTheDeclaredFunctionName(string decl, string? name) => Assert.Equal(name, NativeTypeTools.PrototypeName(decl));
+    public void Prototype_name_is_the_declared_function_name(string decl, string? name) => Assert.Equal(name, NativeTypeTools.PrototypeName(decl));
 
     [Theory]
     [InlineData("u32", "0x10", false, "10000000")]
@@ -517,7 +510,7 @@ public class NativeEditTests(ITestOutputHelper output)
     public void TypedValue_Encodes(string type, string value, bool is64, string hex) => Assert.Equal(hex, Convert.ToHexString(TypedValue.Encode(type, value, is64)));
 
     [Fact]
-    public void TypedValue_TypesAreTheAdvertisedDomain() =>
+    public void Typed_value_types_are_the_advertised_domain() =>
         Assert.Equal(TypedValue.Types, Corvus.Mcp.ParameterDomains.Find("patch_bytes", "type")!.Values);
 
     [Theory]
@@ -527,11 +520,11 @@ public class NativeEditTests(ITestOutputHelper output)
     [InlineData("u32", "zz")]
     [InlineData("u24", "1")]
     [InlineData("f32", "x")]
-    public void TypedValue_RefusesOutOfRangeAndUnknown(string type, string value) =>
+    public void Typed_value_refuses_out_of_range_and_unknown(string type, string value) =>
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => TypedValue.Encode(type, value, false)).Code);
 
     [Fact]
-    public async Task PatchBytes_TypedValue_IsAnUndoablePatch_WithDryRun()
+    public async Task Patch_bytes_typed_value_is_an_undoable_patch_with_dry_run()
     {
         using var h = new Harness();
         var (native, _) = await h.Open();
@@ -552,7 +545,7 @@ public class NativeEditTests(ITestOutputHelper output)
 
     /// <summary>After a patch the code index rebuilds; a dry run previews on the analysis from before the patch instead of waiting for that rebuild.</summary>
     [Fact]
-    public async Task PatchDryRun_AfterAPatch_DoesNotWaitForTheIndexRebuild()
+    public async Task Patch_dry_run_after_a_patch_does_not_wait_for_the_index_rebuild()
     {
         using var h = new Harness();
         var code = new NativeCodeService(h.Env.Workspace, new ServerOptions { BackgroundIndexing = false }, null, h.Store);
@@ -587,7 +580,7 @@ public class NativeEditTests(ITestOutputHelper output)
         System.Text.Json.JsonDocument.Parse(File.ReadAllText(Directory.GetFiles(h.Store.Root, "*.json").Single())).RootElement.GetProperty("revision").GetUInt64();
 
     [Fact]
-    public async Task RenameNative_Items_DryRun_StopOnError_PerItemResults_AndOneSidecarWrite()
+    public async Task Rename_native_items_dry_run_stop_on_error_per_item_results_and_one_sidecar_write()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -622,7 +615,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task CommentNative_Items_ApplyPerItemScopes_InOneSidecarWrite()
+    public async Task Comment_native_items_apply_per_item_scopes_in_one_sidecar_write()
     {
         using var h = new Harness();
         var (native, _) = await h.Open();
@@ -638,13 +631,13 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.StartsWith("3 comment item(s): 2 ok, 1 failed", result);
         Assert.Equal(("first\nsecond", "a = b", "eol"), (ann.CommentAt(e + 1), ann.CommentAt(e + 2), ann.CommentKindAt(e + 2)));
         Assert.Equal(before + 1, Revision(h));
-        // lines keep a '=' in the text
+        // Lines keep a '=' in the text.
         await tools.CommentNative(h.Path, items: $"rva:0x{e + 4:X} = x == y", scope: "line", dryRun: false);
         Assert.Equal("x == y", ann.CommentAt(e + 4));
     }
 
     [Fact]
-    public async Task Rename_FlowsIntoListFunctionsAndDisassemble()
+    public async Task Rename_flows_into_list_functions_and_disassemble()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -658,7 +651,7 @@ public class NativeEditTests(ITestOutputHelper output)
 
     /// <summary>disassemble lists the whole containing function unless fromAddress (the default of the former function=true).</summary>
     [Fact]
-    public async Task Disassemble_WholeFunctionByDefault_FromAddressIsLinear()
+    public async Task Disassemble_whole_function_by_default_from_address_is_linear()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -670,7 +663,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Rename_RejectsBadNamesAndDuplicates()
+    public async Task Rename_rejects_bad_names_and_duplicates()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -683,7 +676,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task PatchBytes_NopPadsToInstructionBoundaryAndIsVisible()
+    public async Task Patch_bytes_nop_pads_to_instruction_boundary_and_is_visible()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -703,7 +696,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task PatchBytes_DescriptionStatesTheSizeWritten()
+    public async Task Patch_bytes_description_states_the_size_written()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -718,19 +711,19 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task PatchBytes_RefusesMidInstructionAndPastFunctionEnd()
+    public async Task Patch_bytes_refuses_mid_instruction_and_past_function_end()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
         uint entry = native.Image.EntryPointRva;
         // entry+1 is inside "mov eax,1".
         Assert.Throws<ToolError>(() => h.Edits.PreparePatch(index, entry + 1, [0x90], force: false, "x"));
-        // force bypasses the check.
+        // Force bypasses the check.
         Assert.NotNull(h.Edits.PreparePatch(index, entry + 1, [0x90], force: true, "x"));
     }
 
     [Fact]
-    public async Task PatchBytes_RefusesUnmappedZeroFill()
+    public async Task Patch_bytes_refuses_unmapped_zero_fill()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -759,7 +752,7 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Save_WritesPatchedFileAndVerifiesUnpatchedBytes()
+    public async Task Save_writes_patched_file_and_verifies_unpatched_bytes()
     {
         using var h = new Harness();
         var (native, index) = await h.Open();
@@ -796,7 +789,7 @@ public class NativeEditTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public async Task Save_RecomputesChecksumAndNotesSignature()
+    public async Task Save_recomputes_checksum_and_notes_signature()
     {
         var src = PeCorpus.System32("kernel32.dll");
         if (src == null) return;

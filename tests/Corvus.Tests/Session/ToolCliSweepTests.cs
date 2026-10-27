@@ -7,10 +7,7 @@ using ModelContextProtocol;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The command line reaches every tool as an MCP client does: each case of <see cref="McpProtocolTests.ToolCases"/> run
-/// by the corvus program in one batch session, and each case's arguments typed as name=value read back unchanged.
-/// </summary>
+/// <summary>The command line reaches every tool: each <see cref="McpProtocolTests.ToolCases"/> case runs in one batch session and reads back as name=value.</summary>
 public sealed class ToolCliSweepTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -18,7 +15,7 @@ public sealed class ToolCliSweepTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task EveryToolCaseRunsFromTheCommandLine()
+    public async Task Every_tool_case_runs_from_the_command_line()
     {
         var cases = McpProtocolTests.ToolCases(_dir); // order matters: edits build on each other, unload last
         var steps = _dir.File("steps.jsonl");
@@ -76,7 +73,7 @@ public sealed class ToolCliSweepTests : IDisposable
     }
 
     [Fact]
-    public void EveryToolCaseReadsBackFromNameValueArguments()
+    public void Every_tool_case_reads_back_from_name_value_arguments()
     {
         var failures = new List<string>();
         foreach (var (tool, (args, _)) in McpProtocolTests.ToolCases(_dir))

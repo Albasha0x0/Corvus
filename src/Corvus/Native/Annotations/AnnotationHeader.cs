@@ -2,10 +2,7 @@ using System.Text;
 
 namespace Corvus.Native.Annotations;
 
-/// <summary>
-/// A C header of an image's user annotations: the declared types, prototypes of functions (by their current name), the
-/// named functions without one as comments, and globals with a type as extern declarations. Addresses are RVAs.
-/// </summary>
+/// <summary>A C header of an image's user annotations: types, prototypes and typed globals; addresses are RVAs.</summary>
 public static class AnnotationHeader
 {
     private static readonly HashSet<string> NotNames = new(StringComparer.Ordinal)
@@ -72,7 +69,7 @@ public static class AnnotationHeader
         int start = prefix.Length;
         while (start > 0 && (char.IsLetterOrDigit(prefix[start - 1]) || prefix[start - 1] is '_' or ':' or '$' or '@' or '?')) start--;
         var last = prefix[start..];
-        // a declarator already there is replaced; a lone return type, a convention or a pointer star keeps everything
+        // An existing declarator is replaced; a lone return type, convention or pointer star is kept.
         bool named = last.Length > 0 && start > 0 && !NotNames.Contains(last) && prefix[..start].Trim().Length > 0;
         return (named ? prefix[..start].TrimEnd() : prefix) + " " + name + t[open..];
     }

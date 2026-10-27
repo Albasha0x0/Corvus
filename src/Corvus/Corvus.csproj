@@ -28,7 +28,7 @@
     <PackageType>McpServer</PackageType>
     <Authors>Albasha0x0</Authors>
     <Description>MCP server and command line for reverse engineering and security analysis of .NET assemblies and native PE, ELF and Mach-O binaries: decompile, search, compare builds, patch and save. By default nothing is executed.</Description>
-    <PackageTags>mcp;mcp-server;decompiler;reverse-engineering;security;malware-analysis;dotnet;il2cpp;disassembler</PackageTags>
+    <PackageTags>mcp;mcp-server;decompiler;reverse-engineering;security;malware-analysis;dotnet;disassembler</PackageTags>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/Albasha0x0/Corvus</PackageProjectUrl>

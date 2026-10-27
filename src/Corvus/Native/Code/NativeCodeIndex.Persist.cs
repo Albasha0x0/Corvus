@@ -8,11 +8,7 @@ namespace Corvus.Native.Code;
 
 public sealed partial class NativeCodeIndex
 {
-    /// <summary>
-    /// Version of the saved index (<see cref="CodeIndexCache"/>). Bump it whenever what the index holds changes shape
-    /// (new fields, new cross-reference kinds such as virtual-call edges) or the analysis gives different results for the
-    /// same bytes: saved indexes of another version are ignored and rebuilt.
-    /// </summary>
+    /// <summary>Saved index version; bump it when the layout or the analysis result changes, so older saves are rebuilt.</summary>
     public const int PersistFormatVersion = 18;
 
     /// <summary>Read from the code index cache instead of built; <see cref="CacheLoadTime"/> says how long that took.</summary>
@@ -20,10 +16,7 @@ public sealed partial class NativeCodeIndex
 
     public TimeSpan CacheLoadTime { get; private set; }
 
-    /// <summary>
-    /// Digest of every build input besides the image bytes: the limits and symbol starts of <paramref name="options"/>
-    /// and whether the file name marks a kernel-mode image. Indexes are reused only for the same bytes and digest.
-    /// </summary>
+    /// <summary>Digest of every build input besides the image bytes; a saved index is reused only for the same bytes and digest.</summary>
     public static string OptionsDigest(INativeImage image, CodeIndexOptions? options)
     {
         options ??= new CodeIndexOptions();
@@ -48,7 +41,7 @@ public sealed partial class NativeCodeIndex
         return Convert.ToHexStringLower(h.GetHashAndReset());
     }
 
-    /// <summary>Writes everything a loaded index needs (functions, ranges, cross-references, strings, exception metadata, analysis state).</summary>
+    /// <summary>Writes everything a loaded index needs.</summary>
     /// <param name="times">false writes zero elapsed times, so builds of the same bytes compare equal.</param>
     internal void WritePayload(PayloadWriter w, bool times = true)
     {
@@ -77,7 +70,7 @@ public sealed partial class NativeCodeIndex
         IntColumn(f => f.FirstRange);
         IntColumn(f => f.RangeCount);
         IntColumn(f => f.Parent?.Index ?? -1);
-        // names the analysis gave (exports, thunks), not names set later by users or symbol layers
+        // Only names the analysis gave, not later user or symbol layer names.
         var names = new List<(int, string)>();
         lock (_builtinNames)
             foreach (var f in _functions)
@@ -116,7 +109,7 @@ public sealed partial class NativeCodeIndex
         w.Bytes(encodings);
         w.Strings(_strings.Where(s => s.Encoding == StringEncoding.Inline).Select(s => InlineText[s.Rva]).ToList());
 
-        // analysis state the walker consults when it decodes a function graph again
+        // Analysis state the walker reads when it decodes a graph again.
         w.DeltaUInts(Sorted(_ctx.FunctionStarts));
         w.DeltaUInts(Sorted(_ctx.NoReturn));
         w.DeltaUInts(Sorted(_ctx.LocalSubroutines));
@@ -185,10 +178,7 @@ public sealed partial class NativeCodeIndex
         w.I32(s.Children); w.I32(s.Fragments); w.I32(s.Rejected); w.I64(times ? s.Elapsed.Ticks : 0);
     }
 
-    /// <summary>
-    /// Rebuilds an index of <paramref name="image"/> from a payload <see cref="WritePayload"/> wrote for the same bytes and
-    /// options. Throws <see cref="InvalidDataException"/> when the payload does not hold together.
-    /// </summary>
+    /// <summary>Rebuilds an index from a <see cref="WritePayload"/> payload; throws <see cref="InvalidDataException"/> when it is inconsistent.</summary>
     internal static NativeCodeIndex ReadPayload(ReadOnlySpan<byte> payload, INativeImage image, CodeIndexOptions? options, CancellationToken ct)
     {
         options ??= new CodeIndexOptions();
@@ -426,7 +416,7 @@ internal sealed class PayloadWriter(Action<ReadOnlySpan<byte>> sink) : IDisposab
     public void Ints(int[] a) { I32(a.Length); Raw(MemoryMarshal.AsBytes(a.AsSpan())); }
     public void Bytes(byte[] a) { I32(a.Length); Raw(a); }
 
-    /// <summary>Differences of consecutive values (wrapping): small for sorted columns, so the block compression shrinks them.</summary>
+    /// <summary>Writes wrapping differences of consecutive values, which compress well for sorted columns.</summary>
     public void DeltaUInts(uint[] a)
     {
         var d = new uint[a.Length];

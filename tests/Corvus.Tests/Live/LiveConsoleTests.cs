@@ -90,7 +90,7 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Equal(["Ada\r"], _host.Last!.Input);
         Assert.Equal((80, 24), _host.Last.Size);
 
-        // escape sequences are left out; cursor-forward reads as a space
+        // Escape sequences are left out; cursor-forward reads as a space.
         var transcript = await _tools.LiveConsole("transcript", run: "con-1");
         Assert.Matches(@"#1 name\? Ada\r?\n#2 hello, Ada\r?\n#3 > \r?\nend of the transcript so far; poll again with cursor=3", transcript);
 
@@ -112,7 +112,7 @@ public sealed class LiveConsoleTests : IDisposable
         Assert.Matches(@"step 4\s+send x\s+not run", status);
         Assert.Contains("con-1 prompt.exe pid 4242: running, script stopped at step 3", await _tools.LiveConsole());
 
-        // stop leaves a run whose program has exited as it was
+        // Stop leaves a run whose program has exited as it was.
         _host.Last.Exit(3);
         for (var waited = System.Diagnostics.Stopwatch.StartNew(); _service.GetConsole("con-1").State == "running" && waited.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
         var stop = await _tools.LiveConsole("stop", run: "con-1");
@@ -131,7 +131,7 @@ public sealed class LiveConsoleTests : IDisposable
         var rest = await _tools.LiveConsole("transcript", run: "con-1", cursor: "3");
         Assert.Matches(@"#3 line 3\r?\n#4 line 4\r?\n#5 more\? \r?\nend of the transcript so far; poll again with cursor=5", rest);
         Assert.Equal(rest, await _tools.LiveConsole("transcript", run: "con-1", cursor: "3", limit: 3)); // a page of exactly the rest ends the transcript
-        // the partial line comes again with what was written since
+        // The partial line comes again with what was written since.
         _host.Last.Show("yes\r\n");
         Assert.Contains("#5 more? yes", await _tools.LiveConsole("transcript", run: "con-1", cursor: "5"));
 

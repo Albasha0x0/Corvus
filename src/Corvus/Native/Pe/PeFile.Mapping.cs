@@ -5,23 +5,14 @@ namespace Corvus.Native.Pe;
 
 public sealed partial class PeFile
 {
-    /// <summary>
-    /// A non-overlapping range of the mapped image: [Start, End) in RVAs, backed by FileSize bytes at FileOffset and
-    /// zero-filled after them. Section is the section table index, -1 for the headers.
-    /// </summary>
+    /// <summary>A mapped range [Start, End) backed by FileSize bytes, zero-filled after; Section -1 is the headers.</summary>
     private readonly record struct Piece(long Start, long End, long FileOffset, long FileSize, int Section);
 
     private Piece[] pieces = [];
 
-    /// <summary>
-    /// Lays the sections out as the Windows loader maps them: the raw pointer rounded down to 0x200 when the file
-    /// alignment is at least 0x200, the raw size rounded up to the file alignment and capped at the virtual extent, a
-    /// virtual size of 0 replaced by the raw size, and images with a section alignment below the page size mapped flat
-    /// (RVA = file offset), except ReadyToRun images built for another OS, which the runtime maps through the section
-    /// table whatever the alignment (crossgen gives them a 0x200 section alignment with RVAs apart from the file
-    /// offsets). Where sections overlap, the one starting lower owns the overlap. Raw data past the end of
-    /// the file reads as zeros.
-    /// </summary>
+    /// <summary>Lays sections out as the Windows loader maps them; ReadyToRun images for another OS map through the section table.</summary>
+    /// <remarks>A section alignment below the page size maps flat (RVA = file offset). Where sections overlap, the one
+    /// starting lower owns the overlap; raw data past the end of the file reads as zeros.</remarks>
     private void BuildLayout()
     {
         uint sa = Optional.SectionAlignment, fa = Optional.FileAlignment;
@@ -257,15 +248,13 @@ public sealed partial class PeFile
     /// <summary>Mapped bytes of [rva, rva + length), or null when any of it is unmapped.</summary>
     private byte[]? ReadBlock(long rva, int length)
     {
-        if (length < 0 || rva < 0 || rva > uint.MaxValue || FitCount(rva, 1) < (uint)length) return null; // no allocation for what cannot be mapped
+        // No allocation for what cannot be mapped.
+        if (length < 0 || rva < 0 || rva > uint.MaxValue || FitCount(rva, 1) < (uint)length) return null;
         var buffer = new byte[length];
         return Read((uint)rva, buffer) == length ? buffer : null;
     }
 
-    /// <summary>
-    /// Zero-terminated 8-bit string at <paramref name="rva"/> decoded as UTF-8; null when unmapped. A string that runs
-    /// into an unmapped gap or past <paramref name="max"/> bytes is cut there and <paramref name="truncated"/> is set.
-    /// </summary>
+    /// <summary>UTF-8 C string at <paramref name="rva"/>, null when unmapped; cut at a gap or <paramref name="max"/> with <paramref name="truncated"/> set.</summary>
     private string? ReadCString(long rva, int max, out bool truncated)
     {
         truncated = false;
@@ -304,10 +293,7 @@ public sealed partial class PeFile
         return Encoding.UTF8.GetString(bytes.ToArray());
     }
 
-    /// <summary>
-    /// <see cref="ReadCString"/> charged to <paramref name="budget"/>, with a truncation issue; null when unmapped or
-    /// the budget is spent.
-    /// </summary>
+    /// <summary><see cref="ReadCString"/> charged to <paramref name="budget"/>; null when unmapped or the budget is spent.</summary>
     private string? ReadName(long rva, WorkBudget budget, IssueLog log, string what)
     {
         var s = ReadCString(rva, PeLimits.MaxNameLength, out bool truncated);

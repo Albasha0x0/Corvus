@@ -5,14 +5,12 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <param name="Basis">direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible,
-/// global_writers, initial_contents, pointer_table, caller_argument, ida_xref, hexrays_direct, interface_dispatch_cell (NativeAOT).</param>
+/// <param name="Basis">direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, global_writers, initial_contents, pointer_table, caller_argument, ida_xref, hexrays_direct, interface_dispatch_cell (NativeAOT).</param>
 /// <param name="Confidence">exact, possible or candidate (from an incomplete set, or another engine's view only).</param>
 public sealed record CallTarget(uint Address, string Name, string Basis, string Confidence, string Evidence);
 
 /// <param name="Mechanism">direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table, interface_dispatch.</param>
-/// <param name="Status">direct, import, resolved (the complete target set), possible (several, or not proven complete), virtual_exact,
-/// virtual_possible, ambiguous (engines disagree) or unresolved.</param>
+/// <param name="Status">direct, import, resolved (complete set), possible (not proven complete), virtual_exact, virtual_possible, ambiguous (engines disagree) or unresolved.</param>
 /// <param name="Hint">For unresolved sites: the call that traces the target's value.</param>
 public sealed record CallTargetSite(uint Rva, NativeFunction Function, string Text, string Mechanism, string Status, IReadOnlyList<CallTarget> Targets,
     int TargetCount, string? Reason, string? Hint)
@@ -20,12 +18,7 @@ public sealed record CallTargetSite(uint Rva, NativeFunction Function, string Te
     public bool IsIndirect => Mechanism is not ("direct" or "tail_jump" or "thunk");
 }
 
-/// <summary>
-/// Targets of call and tail-jump sites in layers: the direct branch, import slots and thunks, constant pointers through the
-/// CFG dispatch, GetProcAddress pointers, RTTI virtual calls; then the writers of a global function pointer (and its initial
-/// contents), relocated pointer tables (complete when an index bound is found), and with deep the values callers pass for
-/// a pointer that arrives as a parameter (<see cref="ValueTrace"/>). Several targets are listed, never collapsed into one.
-/// </summary>
+/// <summary>Targets of call and tail-jump sites, layer by layer from direct branches to traced parameters; several targets are listed, never collapsed.</summary>
 public static class CallTargets
 {
     public const int MaxTargets = 64;
@@ -133,7 +126,7 @@ public static class CallTargets
 
         if (InterfaceDispatch(a, code, b, i) is { } dispatch) return Site("interface_dispatch", "virtual_possible", dispatch);
 
-        // indirect: a global function pointer, a pointer table, a parameter
+        // Indirect: a global function pointer, a pointer table or a parameter.
         uint? global = c.Target ?? (x.Op0Kind == OpKind.Memory && d.HasMem ? d.MemRva : null);
         if (global is { } g && a.ImportAtSlot(g) == null && a.Image.SectionAt(g) is { } sec && (sec.Access & SectionAccess.Write) != 0)
             return GlobalWriters(a, g, mechanism, Site);
@@ -157,10 +150,7 @@ public static class CallTargets
         return Site(mechanism, "unresolved", [], c.Why ?? "target not known", hint);
     }
 
-    /// <summary>
-    /// A NativeAOT interface call through its dispatch cell ("call [cell]", or "lea r11, [cell]; call [r11]"): the types
-    /// whose dispatch maps implement the cell's interface slot; null for other calls.
-    /// </summary>
+    /// <summary>Implementations of a NativeAOT interface call through its dispatch cell; null for other calls.</summary>
     private static List<CallTarget>? InterfaceDispatch(CallAnalysis a, FunctionCode code, int b, int i)
     {
         ref readonly var d = ref code.Blocks[b][i];
@@ -243,7 +233,7 @@ public static class CallTargets
             targets.Add(new CallTarget(t, index.NameAt(t) ?? $"sub_{t:X}", "pointer_table", "possible", $"entry {k} of the table at {a.Va(table)}"));
         }
         if (targets.Count == 0) return null;
-        // a bound: cmp idx, n; ja/jae earlier in the block
+        // A bound: cmp idx, n; ja / jae earlier in the block.
         var idx = x.MemoryIndex.GetFullRegister();
         var insns = code.Blocks[b];
         for (int j = i - 1; j >= 0; j--)
@@ -257,7 +247,7 @@ public static class CallTargets
             }
             if (FunctionCode.Bit(idx) is var bit and >= 0 && (insns[j].Writes & (1UL << bit)) != 0) break;
         }
-        // the bound check usually ends the previous block: cmp idx, n; ja default
+        // The bound check usually ends the previous block: cmp idx, n; ja default.
         var block = code.Graph.Blocks[b];
         if (block.Predecessors.Count == 1 && code.BlockIndexOf(block.Predecessors[0].From) is var p and >= 0 && code.Blocks[p] is { Length: >= 2 } prev
             && prev[^1].I.Mnemonic is Mnemonic.Ja or Mnemonic.Jae && prev[^2].I is { Mnemonic: Mnemonic.Cmp, Op0Kind: OpKind.Register } cmp

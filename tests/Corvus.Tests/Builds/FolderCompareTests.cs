@@ -52,7 +52,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
 
     /// <summary>Two Electron archives compared by their headers' entries, without unpacking.</summary>
     [Fact]
-    public void AsarArchivesCompareByEntry()
+    public void ASAR_archives_compare_by_entry()
     {
         string Asar(string name, params (string Path, string Text)[] files)
         {
@@ -71,7 +71,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public async Task AddedRemovedModifiedMovedUnchanged()
+    public async Task Files_are_added_removed_modified_moved_or_unchanged()
     {
         var a = Folder("a", ("same.txt", "same"), ("edit.json", "{\"v\": 1}\n"), ("gone.txt", "gone"), ("old/moved.bin", "moved content"), ("Logs/x.log", "1"));
         var b = Folder("b", ("same.txt", "same"), ("edit.json", "{\"v\": 2}\n"), ("new.txt", "new"), ("new/moved.bin", "moved content"), ("Logs/x.log", "2"));
@@ -89,7 +89,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void AmbiguousMovesListCandidates()
+    public void Ambiguous_moves_list_candidates()
     {
         var a = Folder("a", ("x/dup.bin", "twin"), ("y/dup.bin", "twin"));
         var b = Folder("b", ("z/dup.bin", "twin"));
@@ -102,7 +102,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void CaseOnlyRenames()
+    public void Case_only_renames_depend_on_case_sensitivity()
     {
         var a = Folder("a", ("Readme.TXT", "text"));
         var b = Folder("b", ("readme.txt", "text"));
@@ -113,7 +113,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [DirectoryLinkFact]
-    public void LinksAreReportedNotFollowed()
+    public void Links_are_reported_not_followed()
     {
         var target = Folder("target", ("inside.txt", "x"));
         var a = Folder("a", ("f.txt", "f"));
@@ -127,7 +127,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void LockedFileIsUnreadableNeverUnchanged()
+    public void A_locked_file_is_unreadable_never_unchanged()
     {
         var a = Folder("a", ("locked.bin", "content"));
         var b = Folder("b", ("locked.bin", "content"));
@@ -139,7 +139,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void LimitMakesTheSideIncompleteAndClaimsNoAdditions()
+    public void The_limit_makes_the_side_incomplete_and_claims_no_additions()
     {
         var files = Enumerable.Range(0, 6).Select(i => ($"f{i}.txt", $"v{i}")).ToArray();
         var a = Folder("a", files);
@@ -153,7 +153,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void CancelledCallThrows()
+    public void A_cancelled_call_throws()
     {
         var a = Folder("a", ("f.txt", "1"));
         var b = Folder("b", ("f.txt", "2"));
@@ -161,7 +161,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void ZipVersusZipReadsNoEntry()
+    public void ZIP_versus_ZIP_reads_no_entry()
     {
         var a = Zip("a.nupkg", ("lib/same.bin", "same"), ("lib/changed.bin", "one"), ("old/moved.bin", "moved data"), ("gone.bin", "gone"));
         var b = Zip("b.nupkg", ("lib/same.bin", "same"), ("lib/changed.bin", "two"), ("new/moved.bin", "moved data"), ("added.bin", "added"));
@@ -172,7 +172,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void FolderVersusZipComparesByCrc()
+    public void Folder_versus_ZIP_compares_by_CRC()
     {
         var a = Folder("a", ("lib/a.bin", "alpha"), ("b.txt", "beta"));
         var b = Zip("b.zip", ("lib/a.bin", "alpha"), ("b.txt", "beta!"));
@@ -195,7 +195,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void ChangedAssemblyGetsFactsAndNextStep()
+    public void A_changed_assembly_gets_facts_and_a_next_step()
     {
         var a = Folder("a");
         var b = Folder("b");
@@ -210,7 +210,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void NativeImageGetsMachineAndNativeNextStep()
+    public void A_native_image_gets_its_machine_and_a_native_next_step()
     {
         var a = Folder("a");
         var b = Folder("b");
@@ -223,7 +223,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void RepeatCallsReuseHashes()
+    public void Repeat_calls_reuse_hashes()
     {
         var a = Folder("a", ("1.txt", "1"), ("2.txt", "2"));
         var b = Folder("b", ("1.txt", "1"), ("2.txt", "3"));
@@ -237,7 +237,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void OverTheHashBudgetEqualSizesAreUnverified()
+    public void Over_the_hash_budget_equal_sizes_are_unverified()
     {
         var a = Folder("a", ("f.bin", "aaaa"));
         var b = Folder("b", ("f.bin", "bbbb"));
@@ -248,7 +248,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void ProgressEndsAtTheTotal()
+    public void Progress_ends_at_the_total()
     {
         var a = Folder("a", ("1.txt", "1"), ("2.txt", "2"));
         var b = Folder("b", ("1.txt", "1"), ("3.txt", "3"));
@@ -258,7 +258,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void MissingPathIsNotFound()
+    public void A_missing_path_is_not_found()
     {
         var a = Folder("a");
         var ex = Assert.Throws<ToolError>(() => Run(a, _dir.File("missing")));
@@ -269,7 +269,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
     [Fact]
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void TenThousandFilePairWarmUnderTenSeconds()
+    public void Ten_thousand_file_pairs_compare_warm_under_ten_seconds()
     {
         var a = _dir.File("big-a");
         var b = _dir.File("big-b");
@@ -298,7 +298,7 @@ public sealed class FolderCompareTests(ITestOutputHelper output) : IDisposable
 
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
     [Trait("Speed", "Slow")]
-    public void RealBuildPair()
+    public void A_real_build_pair_compares_completely()
     {
         var c = _service.Compare(RealData.Path(RealData.CompareOldDir), RealData.Path(RealData.CompareNewDir), "changed", null, null,
             FolderCompare.DefaultMaxEntries, 0, 200, null, default);

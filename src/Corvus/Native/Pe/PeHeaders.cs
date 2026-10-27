@@ -49,10 +49,7 @@ public sealed record PeDataDirectory(int Index, string Name, uint Rva, uint Size
     public bool IsPresent => Rva != 0 && Size != 0;
 }
 
-/// <summary>
-/// How the loader maps a section (rules in PeFile.BuildLayout): <see cref="LoadedFileOffset"/> / <see cref="LoadedFileSize"/>
-/// are the file bytes copied, <see cref="MappedSize"/> the virtual extent rounded up to the section alignment.
-/// </summary>
+/// <summary>How the loader maps a section: file bytes copied and <see cref="MappedSize"/> rounded to the section alignment.</summary>
 public sealed record PeSectionLayout(NativeSection Section, uint MappedSize, long LoadedFileOffset, uint LoadedFileSize, IReadOnlyList<string> CharacteristicNames);
 
 /// <summary>Hardening flags the headers, load config and debug directory declare.</summary>

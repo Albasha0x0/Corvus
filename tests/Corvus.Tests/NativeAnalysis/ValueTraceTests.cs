@@ -158,7 +158,7 @@ public class ValueTraceTests
     {
         var (a, at) = Sample();
         var g = Trace(a, Va(at["create"]), argument: "2");
-        // the merge sits at its join block, inside its function
+        // The merge sits at its join block, inside its function.
         var merge = Assert.Single(g.Nodes, n => n.Kind == TraceNodeKind.Merge);
         Assert.True(merge.Function != null && merge.Address >= merge.Function.Start && merge.Address < merge.Function.End, $"merge at 0x{merge.Address:X}");
         var values = g.Values.Select(v => v.Text).ToList();
@@ -186,7 +186,7 @@ public class ValueTraceTests
         var values = g.Values.Select(v => v.Text).ToList();
         Assert.Contains("7", values);
         Assert.Contains("9", values);
-        // the global alone as the seed: its writers
+        // The global alone as the seed: its writers.
         var direct = Trace(a, Va(Global));
         Assert.Equal(TraceSeedKind.Global, direct.Seed.Kind);
         Assert.Contains("7", direct.Values.Select(v => v.Text));

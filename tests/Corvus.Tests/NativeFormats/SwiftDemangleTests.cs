@@ -24,7 +24,7 @@ public sealed class SwiftDemangleTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Corpus_MatchesSwiftDemangle()
+    public void The_corpus_matches_swift_demangle()
     {
         var corpus = Corpus();
         var failures = new List<string>();
@@ -45,7 +45,7 @@ public sealed class SwiftDemangleTests(ITestOutputHelper output)
     [InlineData("__T04main3FooC3barSiyF", "main.Foo.bar() -> Swift.Int")]
     [InlineData("_TtC12StripeUICore14STPAddressView", "StripeUICore.STPAddressView")]
     [InlineData("$sSo8NSObjectC10ObjectiveCE4hashSivg", "(extension in ObjectiveC):__C.NSObject.hash.getter : Swift.Int")]
-    public void SymbolNames(string mangled, string expected) => Assert.Equal(expected, SwiftDemangler.Demangle(mangled));
+    public void Symbol_names_demangle(string mangled, string expected) => Assert.Equal(expected, SwiftDemangler.Demangle(mangled));
 
     [Theory]
     [InlineData("_ZN1A1fEv")]
@@ -78,7 +78,7 @@ public sealed class SwiftDemangleTests(ITestOutputHelper output)
                 }
                 SwiftDemangler.Demangle(new string([.. chars]));
             }
-        // substitution chains that would print exponentially stop at the output cap
+        // Substitution chains that would print exponentially stop at the output cap.
         Assert.Null(SwiftDemangler.Demangle("$s1a1bV" + string.Concat(Enumerable.Repeat("yAC_ACtG", 40)) + "D"));
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
     }

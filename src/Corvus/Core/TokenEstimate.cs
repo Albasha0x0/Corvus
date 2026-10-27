@@ -1,9 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// Estimated model tokens of a text (STANDARDS S1.2): one pass over character classes, no allocation. Calibrated on
-/// tests/Corvus.Tests/TokenCorpus to stay above the recorded counts (TokenEstimateCalibrationTests).
-/// </summary>
+/// <summary>Estimated model tokens of a text in one allocation-free pass, calibrated to stay above tests/Corvus.Tests/TokenCorpus (TokenEstimateCalibrationTests).</summary>
 public static class TokenEstimate
 {
     // Characters per token as a fraction (num/den) for each class.
@@ -109,10 +106,8 @@ public static class TokenEstimate
         return tokens;
     }
 
-    /// <summary>
-    /// A lowercase piece (with the capital that starts it): a word costs one token per 8 letters up to 8, then one per 3 (a
-    /// longer run is several words: Go's packed string tables); a piece that does not read as a word one per 2.
-    /// </summary>
+    /// <summary>Tokens of a lowercase piece: one per 8 letters for the first 8, then one per 3; one per 2 for a non-word.</summary>
+    /// <remarks>A run past 8 letters counts as several words, as in Go's packed string tables.</remarks>
     private static long Letters(ReadOnlySpan<char> p)
     {
         if (Unpronounceable(p)) return Ceil(p.Length, 1, 2);

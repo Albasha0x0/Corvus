@@ -6,11 +6,7 @@ using ICSharpCode.Decompiler.Metadata;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A workspace assembly with two views of one in-memory image: a dnlib module (metadata, analysis, editing) and an
-/// ICSharpCode PEFile (decompilation). The file on disk is never locked. Edits are written with PreserveAll so
-/// metadata tokens stay identical across both views, and what no edit touched keeps its original bytes.
-/// </summary>
+/// <summary>A workspace assembly: a dnlib module and a decompiler PEFile over one in-memory image with shared tokens; the file is never locked.</summary>
 public sealed class LoadedAssembly : IDisposable
 {
     private readonly object _sync = new();
@@ -109,10 +105,7 @@ public sealed class LoadedAssembly : IDisposable
         }
     }
 
-    /// <summary>
-    /// Reloads the original image and clears edits. Returns the previous state for <see cref="RestoreState"/>.
-    /// Caller must hold the workspace write lock.
-    /// </summary>
+    /// <summary>Reloads the original image and clears edits, returning the previous state; needs the workspace write lock.</summary>
     internal (ModuleDefMD Module, List<EditRecord> Edits) ResetToOriginal(ModuleContext context)
     {
         using (AssemblyWorkspace.Lock(_sync))
@@ -141,10 +134,7 @@ public sealed class LoadedAssembly : IDisposable
         }
     }
 
-    /// <summary>
-    /// Lazily loaded read-only view of the original image, used for diffs. Not part of the workspace; original
-    /// members have the same tokens in both views.
-    /// </summary>
+    /// <summary>A lazily loaded read-only view of the original image for diffs, outside the workspace, with the same tokens.</summary>
     internal LoadedAssembly GetOriginalView(ModuleContext context)
     {
         using (AssemblyWorkspace.Lock(_sync))
@@ -163,11 +153,7 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary><see cref="GetImage"/> without the report.</summary>
     public byte[] GetImageBytes() => GetImage().Bytes;
 
-    /// <summary>
-    /// The image with what writing it reported: the original bytes when there are no edits, else the edited module
-    /// written with everything no edit touched kept byte-for-byte (see <see cref="FaithfulWriter"/>). Cached per
-    /// <see cref="Version"/>. With no edits the report is empty; <see cref="SurveyOriginal"/> lists what is invalid.
-    /// </summary>
+    /// <summary>The current image and its write report, cached per <see cref="Version"/>; the original bytes and an empty report when unedited (<see cref="SurveyOriginal"/> lists what is invalid).</summary>
     public (byte[] Bytes, SaveReport Report) GetImage()
     {
         using (AssemblyWorkspace.Lock(_sync))
@@ -205,11 +191,7 @@ public sealed class LoadedAssembly : IDisposable
 
     private (int Unreadable, int Total)? _bodyCensus;
 
-    /// <summary>
-    /// IL method bodies of the original image that cannot be read (invalid header, or longer than their section), and
-    /// all IL bodies. A compiler never writes an unreadable body: many of them mean the bodies are stored in another form
-    /// on disk and restored at run time (an integrity check that rewrites the module's own code).
-    /// </summary>
+    /// <summary>Unreadable and total IL bodies of the original; many unreadable ones mean bodies are restored at run time.</summary>
     internal (int Unreadable, int Total) BodyCensus
     {
         get
@@ -248,10 +230,7 @@ public sealed class LoadedAssembly : IDisposable
         using (AssemblyWorkspace.Lock(_sync)) return _pristine ??= ModuleDefMD.Load(_originalBytes);
     }
 
-    /// <summary>
-    /// Metadata token of a member in the current image. Members added by edits have rid 0 in dnlib's model, so they
-    /// are looked up by name and signature in the written image.
-    /// </summary>
+    /// <summary>A member's token in the current image; added members are found by name and signature in the written image.</summary>
     public uint ImageToken(IMDTokenProvider member)
     {
         if (member.MDToken.Rid != 0)
@@ -286,11 +265,7 @@ public sealed class LoadedAssembly : IDisposable
         };
     }
 
-    /// <summary>
-    /// Decompiler view of <see cref="GetImageBytes"/>, rebuilt after edits. When the decompiler's reader cannot read the
-    /// image's metadata (<see cref="MetadataProbe"/>), the view is a copy written by dnlib instead: same tokens
-    /// (PreserveAll), valid metadata. <see cref="DecompilerNote"/> says so.
-    /// </summary>
+    /// <summary>The decompiler view of the image, or a dnlib-written copy when its metadata is unreadable (<see cref="DecompilerNote"/>).</summary>
     public PEFile GetPEFile()
     {
         if (Shared) AssemblyWorkspace.RequireLock(this, "the decompiler reader");
@@ -355,10 +330,7 @@ public sealed class LoadedAssembly : IDisposable
         return ms.ToArray();
     }
 
-    /// <summary>
-    /// Writes the module with PreserveAll (tokens and heap offsets kept); bodies and signatures no edit touched keep
-    /// their original bytes. Returns what could not be kept and what is invalid in the original.
-    /// </summary>
+    /// <summary>Writes the module with tokens and untouched bytes kept; returns what could not be kept.</summary>
     public SaveReport Write(Stream output)
     {
         using (AssemblyWorkspace.Lock(_sync))

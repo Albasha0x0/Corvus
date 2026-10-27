@@ -2,22 +2,15 @@ using System.Text.Json;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// corvus.json: CORVUS_ variables for every server and command of this user, read once at startup from the data folder,
-/// or from the file <see cref="Variable"/> names. A variable already set in the environment wins over the file, and an
-/// option wins over both. Security switches and the variables that locate the file are refused there: they stay in the
-/// client entry, where the client shows them.
-/// </summary>
+/// <summary>corvus.json: CORVUS_ variables read once at startup; environment and options win.</summary>
+/// <remarks>Security switches and the file's location variables are refused, so they stay visible in the client entry.</remarks>
 public static class ConfigFile
 {
     public const string Variable = "CORVUS_CONFIG";
     public const string FileName = "corvus.json";
     public const int MaxBytes = 1 << 20;
 
-    /// <summary>
-    /// What startup read: the file looked at and where its path came from, the variables it set, those the environment
-    /// already set, those it refused, and why nothing applied (null when the file was read or is absent).
-    /// </summary>
+    /// <summary>What startup read and applied; the reason is null when the file was read or is absent.</summary>
     public sealed record Report(string Path, string Source, bool Found, IReadOnlyList<string> Applied, IReadOnlyList<string> Overridden,
         IReadOnlyList<string> Refused, string? Problem);
 

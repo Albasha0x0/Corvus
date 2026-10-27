@@ -72,11 +72,7 @@ public enum MsvcEhUnwindKind
 /// <summary>One state of the unwind map: what leaving it does and the state it leaves to (-1: none).</summary>
 public sealed record MsvcEhUnwind(int State, int ToState, MsvcEhUnwindKind Kind, uint? ActionRva, int? ObjectOffset);
 
-/// <summary>
-/// One SEH scope. x64 / ARM64: the protected range [Begin, End), the filter (a funclet or a constant such as 1 =
-/// EXCEPTION_EXECUTE_HANDLER) and the __except block, or the __finally funclet. x86: the enclosing level instead of a
-/// range (-1 / -2 = outermost).
-/// </summary>
+/// <summary>One SEH scope: range [Begin, End) on x64 and ARM64, enclosing level on x86 (-1 or -2 is outermost).</summary>
 public sealed record MsvcEhScope(int Index, uint? BeginRva, uint? EndRva, int EnclosingLevel, uint? FilterRva, int? FilterConstant, uint HandlerRva, bool IsFinally);
 
 public sealed record MsvcEhIpState(uint Rva, int State);
@@ -137,10 +133,7 @@ public sealed record MsvcEhOptions
     public long MaxScanBytes { get; init; } = 512L << 20;
 }
 
-/// <summary>
-/// What x86 decoding needs from code analysis: which function contains an instruction, and a function's code. x64
-/// metadata is keyed by .pdata entries and needs no view.
-/// </summary>
+/// <summary>Code analysis view x86 decoding needs: the containing function and its code.</summary>
 public interface IMsvcEhCodeView
 {
     /// <summary>Start of the function whose code contains <paramref name="rva"/>, or null.</summary>
@@ -158,7 +151,7 @@ public sealed class MsvcEhResult
     internal MsvcEhResult(List<MsvcEhFrame> frames, Dictionary<uint, List<(uint Parent, MsvcEhChildKind Kind)>> parents,
         Dictionary<uint, uint> fragments, List<MsvcEhReject> rejects, int rejectCount, MsvcEhStats stats, bool framesSorted = false)
     {
-        // a saved result keeps its order exactly (the sort is not stable for frames of the same function)
+        // A saved result keeps its order; the sort is not stable for frames of one function.
         if (!framesSorted) frames.Sort((a, b) => a.FunctionRva.CompareTo(b.FunctionRva));
         Frames = frames;
         _byFunction = [];
@@ -173,10 +166,7 @@ public sealed class MsvcEhResult
     /// <summary>Every frame with exception metadata, sorted by function.</summary>
     public IReadOnlyList<MsvcEhFrame> Frames { get; }
 
-    /// <summary>
-    /// Child code start -> the outermost functions that own it (several when the linker folded identical funclets),
-    /// with how it relates. Nested catch funclets resolve to the function at the root.
-    /// </summary>
+    /// <summary>Child code start to its outermost owners (several when the linker folded funclets).</summary>
     public IReadOnlyDictionary<uint, IReadOnlyList<(uint Parent, MsvcEhChildKind Kind)>> Parents { get; }
 
     /// <summary>x64: begin of a .pdata entry whose unwind information is chained -> the primary function's begin.</summary>
@@ -192,16 +182,7 @@ public sealed class MsvcEhResult
     public static MsvcEhResult Empty { get; } = new([], [], [], [], 0, new MsvcEhStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, TimeSpan.Zero));
 }
 
-/// <summary>
-/// Decodes MSVC exception handling metadata. x64: the language-specific handler and data of each .pdata entry's
-/// UNWIND_INFO (__C_specific_handler scope tables, __CxxFrameHandler3 FuncInfo, __CxxFrameHandler4 compressed
-/// FuncInfo4, __GSHandlerCheck variants) and chained unwind information (fragments). ARM64: the same handler data
-/// after each .pdata entry's .xdata (no chained entries). x86: frames installed by
-/// prologues (push offset scope table for _except_handler3/4 and __SEH_prolog4, push / mov eax offset of an
-/// __ehhandler$ stub that loads a FuncInfo for __CxxFrameHandler3). Every structure is bounds-checked and
-/// cross-checked (handlers in executable code, ranges inside the function, type descriptor names that decode);
-/// what fails is reported as a reject, never thrown.
-/// </summary>
+/// <summary>Decodes MSVC exception handling metadata (x64, ARM64, x86); structures that fail checks are rejects, never thrown.</summary>
 public static partial class MsvcEh
 {
     public static MsvcEhResult Analyze(INativeImage image, IMsvcEhCodeView? view = null, MsvcEhOptions? options = null, CancellationToken ct = default)
@@ -235,10 +216,7 @@ public static partial class MsvcEh
             _frames.Add(frame);
         }
 
-        /// <summary>
-        /// Type descriptor at <paramref name="rva"/>: its name (after the type_info vftable pointer and the spare
-        /// pointer) must be a decorated type that decodes.
-        /// </summary>
+        /// <summary>The type descriptor at <paramref name="rva"/>, valid only when its name decodes.</summary>
         private (string? Type, string? Decorated, string? Reason) TypeDescriptor(uint rva)
         {
             if (_types.TryGetValue(rva, out var cached)) return cached;
@@ -273,7 +251,7 @@ public static partial class MsvcEh
 
         public MsvcEhResult Result(TimeSpan elapsed)
         {
-            // child -> direct parents, then each resolved to the outermost function (not itself a child)
+            // Child to direct parents, then each resolved to the outermost function.
             var direct = new Dictionary<uint, List<(uint Parent, MsvcEhChildKind Kind)>>();
             foreach (var f in _frames)
                 foreach (var c in f.Children)
@@ -320,7 +298,7 @@ public static partial class MsvcEh
             }
             int before = roots.Count;
             foreach (var (p, _) in parents) Roots(p, direct, roots, seen, depth + 1);
-            // every parent is already on the path (a funclet listed by its own frame): it is the root
+            // Every parent is already on the path: it is the root.
             if (roots.Count == before && parents.All(p => seen.Contains(p.Parent)) && !roots.Contains(node)) roots.Add(node);
         }
     }

@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// search_container kind=request on HAR, mitmproxy and .saz captures (names only unless values=true, GraphQL operations,
-/// WebSocket messages, SSE and NDJSON shapes), and kind=endpoint comparing two captures.
-/// </summary>
+/// <summary>search_container kind=request on HAR, mitmproxy and .saz captures, and kind=endpoint across two captures.</summary>
 public sealed class CaptureRequestTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -95,7 +92,7 @@ public sealed class CaptureRequestTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("NDJSON 3 message(s): {id,v} x2, {error} x1", found.Items[3].Detail);
         Assert.Contains("WebSocket 4 message(s), 1 sent, 3 received: received {price,type} x2, received binary x1, sent {channel,type} x1", found.Items[4].Detail);
 
-        // the query matches names in the detail; paging keeps capture order
+        // The query matches names in the detail; paging keeps capture order.
         Assert.Equal(["#1"], Requests(App(), "authorization").Items.Select(i => i.Detail!.Split(';')[0]));
         Assert.Equal("#2", Assert.Single(Requests(App(), offset: 1, limit: 1).Items).Detail!.Split(';')[0]);
     }
@@ -161,7 +158,8 @@ public sealed class CaptureRequestTests(ITestOutputHelper output) : IDisposable
             {
                 CaptureRequests.Read(new MemoryStream(b), r => RequestSearchKind.Row(r, values: false), [], texts: true, default);
             }
-            catch (ToolError) { } // a damaged HAR says so
+            // A damaged HAR says so.
+            catch (ToolError) { }
         }, 600);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }

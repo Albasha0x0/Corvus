@@ -2,21 +2,15 @@ using Corvus.Native.Msvc;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Code that belongs to a function but that its own flow does not reach: a catch block, unwind funclet, SEH filter,
-/// __except / __finally block, catch continuation or x86 __ehhandler$ stub, found through exception metadata.
-/// </summary>
+/// <summary>Code of a function that only exception metadata reaches: a catch, unwind, filter, handler or continuation block.</summary>
 public readonly record struct FunctionChunk(uint Start, MsvcEhChildKind Kind);
 
 public sealed partial class NativeCodeIndex
 {
-    // chunk start -> the function it was attached to (the first when the linker folded a funclet shared by several)
+    // Chunk start to its function; the first one when the linker folded a shared funclet.
     private readonly Dictionary<uint, NativeFunction> _chunkOwners = [];
 
-    /// <summary>
-    /// MSVC exception handling metadata of the image (x64: every .pdata frame with a language-specific handler; x86:
-    /// frames installed by prologues). Empty for other architectures or when nothing decodes.
-    /// </summary>
+    /// <summary>MSVC exception handling metadata of the image; empty for other architectures or when nothing decodes.</summary>
     public MsvcEhResult ExceptionInfo { get; private set; } = MsvcEhResult.Empty;
 
     /// <summary>The function a chunk starting at <paramref name="start"/> was attached to, or null.</summary>
@@ -27,7 +21,7 @@ public sealed partial class NativeCodeIndex
     {
         public MsvcEhResult Eh = MsvcEhResult.Empty;
         public Dictionary<uint, List<FunctionChunk>> ByParent = [];
-        /// <summary>Funclets kept as functions -> their parent.</summary>
+        /// <summary>Funclets kept as functions, to their parent.</summary>
         public Dictionary<uint, uint> Funclets = [];
     }
 
@@ -55,7 +49,7 @@ public sealed partial class NativeCodeIndex
     /// <summary>Chunk starts of <paramref name="f"/> as extra walk roots, or null.</summary>
     internal static List<uint>? ChunkRoots(NativeFunction f) => f.Chunks.Count == 0 ? null : f.Chunks.Select(c => c.Start).ToList();
 
-    /// <summary>Which function's code contains an address, from the walk results of the build (for the exception decoder).</summary>
+    /// <summary>Which function's code contains an address, from the build's walk results.</summary>
     private sealed class WalkView : IMsvcEhCodeView
     {
         private readonly uint[] _starts;
@@ -103,13 +97,7 @@ public sealed partial class NativeCodeIndex
         private const FunctionSource OwnSources = FunctionSource.Export | FunctionSource.EntryPoint | FunctionSource.TlsCallback
             | FunctionSource.Call | FunctionSource.ExceptionHandler;
 
-        /// <summary>
-        /// Decodes the exception metadata and attaches what it reaches to the owning functions: function starts that
-        /// are only funclets (not exported, not called, not entry points) stop being functions and their code joins the
-        /// parent; handler code that discovery never decoded (x64 __except blocks, x86 catch blocks, catch
-        /// continuations) is walked and joins the parent too. A funclet the linker folded for several functions joins
-        /// each of them.
-        /// </summary>
+        /// <summary>Decodes exception metadata and attaches funclets and handler code to their owning functions.</summary>
         private ChunkPlan AttachExceptionChunks(ref uint[] starts, ref WalkResult[] results)
         {
             var plan = new ChunkPlan();
@@ -136,7 +124,7 @@ public sealed partial class NativeCodeIndex
             var aot = _ctx.AotFunclets;
             if (eh.Parents.Count == 0 && eh.Fragments.Count == 0 && aot.Count == 0) return plan;
 
-            // children, and x64 chained fragments that discovery made functions of their own
+            // Children, and x64 chained fragments discovery made functions of their own.
             var relations = eh.Parents.Select(kv => (Child: kv.Key, Owners: kv.Value)).ToList();
             foreach (var (begin, primary) in eh.Fragments)
                 if (index.ContainsKey(begin) && !eh.Parents.ContainsKey(begin))
@@ -146,7 +134,7 @@ public sealed partial class NativeCodeIndex
             relations.Sort((a, b) => a.Child.CompareTo(b.Child));
             var related = relations.Select(r => r.Child).ToHashSet();
 
-            // functions that call or tail-call each child start (found on several threads, recorded in function order)
+            // Functions that call each child start, found in parallel and recorded in function order.
             var callers = new Dictionary<uint, HashSet<int>>();
             var calling = new bool[results.Length];
             var walked0 = results;
@@ -180,11 +168,10 @@ public sealed partial class NativeCodeIndex
                 var ownerIdx = owners.Select(p => index[p.Parent]).ToHashSet();
                 if (index.TryGetValue(child, out int ci))
                 {
-                    // a NativeAOT funclet its method calls (a finally) is still part of the method
+                    // A NativeAOT funclet its method calls (a finally) is still part of the method.
                     if ((_sources[child] & OwnSources) != 0 && !aot.ContainsKey(child)) continue;
                     if (callers.TryGetValue(child, out var from) && from.Any(g => g != ci && !ownerIdx.Contains(g))) continue;
-                    // x64 and ARM64 C++ catch and unwind funclets have their own .pdata entry and frame, and the linker folds
-                    // identical ones across functions: they stay functions with a parent link (as IDA keeps them)
+                    // x64 / ARM64 catch and unwind funclets have their own .pdata and may be folded, so they stay functions with a parent.
                     if (image.Arch is NativeArch.X64 or NativeArch.Arm64 && owners[0].Kind is MsvcEhChildKind.Catch or MsvcEhChildKind.Unwind && !aot.ContainsKey(child))
                     {
                         plan.Funclets[child] = owners[0].Parent;
@@ -200,11 +187,10 @@ public sealed partial class NativeCodeIndex
                     foreach (var (p, kind) in owners) Attach(index[p], child, kind, -1);
                 }
             }
-            // a parent that is itself demoted (a catch funclet that owns nested handlers) passes its chunks to its owners
+            // A demoted parent (a catch funclet with nested handlers) passes its chunks to its owners.
             foreach (int d in demoted) extra.Remove(d);
 
-            // x64 chained .pdata fragments the primary's flow never reaches (code only an exception path enters): walked
-            // from their begin, attached when that decodes cleanly (a fragment can begin with data)
+            // x64 chained fragments the primary's flow never reaches are attached when they decode cleanly.
             var fragments = new List<(int Primary, uint Begin)>();
             foreach (var (begin, primary) in eh.Fragments)
                 if (index.TryGetValue(primary, out int pi) && !index.ContainsKey(begin) && view.FunctionContaining(begin) == null && _ctx.Code.IsCode(begin))
@@ -212,7 +198,7 @@ public sealed partial class NativeCodeIndex
                     fragments.Add((pi, begin));
                     toWalk.Add(begin);
                 }
-            // NativeAOT funclets nothing calls: the runtime enters them
+            // NativeAOT funclets nothing calls; the runtime enters them.
             var funclets = new List<(int Parent, uint Begin, MsvcEhChildKind Kind)>();
             foreach (var (begin, (parent, kind)) in aot)
                 if (index.TryGetValue(parent, out int pi) && !index.ContainsKey(begin) && view.FunctionContaining(begin) == null && _ctx.Code.IsCode(begin))
@@ -232,7 +218,7 @@ public sealed partial class NativeCodeIndex
                     if (kind == MsvcEhChildKind.Catch && (child >= 0 ? results[child] : walked.GetValueOrDefault(root)) is { } part) catches.Add((p, part));
             AddContinuations(starts, results, extra, walked, catches);
 
-            // demoted starts stop being functions; each parent is walked again with its chunks as further roots
+            // Demoted starts stop being functions; each parent is walked again with its chunks as roots.
             var all = starts;
             if (demoted.Count > 0) _ctx.FunctionStarts = new HashSet<uint>(all.Where((_, i) => !demoted.Contains(i)));
             var merged = (WalkResult[])results.Clone();
@@ -258,11 +244,7 @@ public sealed partial class NativeCodeIndex
             return plan;
         }
 
-        /// <summary>
-        /// Itanium landing pads (.eh_frame / compact unwind LSDAs, ARM EHABI) that no function's flow reaches: chunks of the
-        /// function whose tables name them (catch when a catch clause leads there, else unwind), walked with its body.
-        /// They run in that function's frame, so they join it rather than become functions of their own.
-        /// </summary>
+        /// <summary>Attaches unreached Itanium landing pads to the function whose tables name them; they run in its frame.</summary>
         private void AttachLandingPads(ChunkPlan plan, uint[] starts, ref WalkResult[] results)
         {
             var pads = _ctx.LandingPads;
@@ -315,11 +297,7 @@ public sealed partial class NativeCodeIndex
             return walked;
         }
 
-        /// <summary>
-        /// Where a catch block resumes the parent ("lea rax, [continuation]" / "mov eax, offset continuation" before
-        /// its return): addresses its code takes inside the parent (x64: the parent's .pdata ranges; x86: between the
-        /// parent's start and the end of its code and chunks) that the parent's code does not cover yet.
-        /// </summary>
+        /// <summary>Adds catch continuations: addresses a catch block takes inside its parent that the parent's code does not cover.</summary>
         private void AddContinuations(uint[] starts, WalkResult[] results, Dictionary<int, List<(uint Root, MsvcEhChildKind Kind, int Child)>> extra,
             Dictionary<uint, WalkResult> walked, List<(int Parent, WalkResult Catch)> catches)
         {

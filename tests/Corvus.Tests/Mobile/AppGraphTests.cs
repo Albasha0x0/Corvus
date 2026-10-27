@@ -14,10 +14,10 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
 
     public void Dispose() => _workspace.Dispose();
 
-    private AppGraph Graph(Il2CppRawLoader? il2cpp = null) { var dex = new DexService(); return new AppGraph(dex, new JniBindings(dex), new JavaDotNetMap(_workspace, dex), il2cpp); }
+    private AppGraph Graph(AotBuildLoader? aot = null) { var dex = new DexService(); return new AppGraph(dex, new JniBindings(dex), new JavaDotNetMap(_workspace, dex), aot); }
 
     [Fact]
-    public void Jni_and_react_native_edges_with_coverage()
+    public void JNI_and_React_Native_edges_are_listed_with_coverage()
     {
         using var dir = new TempDir();
         var dexBytes = JniBindingsTests.Dex(b =>
@@ -34,7 +34,8 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
         foreach (var k in g.EdgeKinds) output.WriteLine($"{k.Kind}: {k.Edges}/{k.Candidates} {k.Coverage} {k.Reason}");
         Assert.Equal(["dex", "native", "js"], g.Layers.Select(l => l.Layer));
         var jni = g.EdgeKinds.Single(k => k.Kind == "jni");
-        Assert.Equal("partial", jni.Coverage); // Native.missing and Other.init have neither export nor table entry
+        // Native.missing and Other.init have neither export nor table entry.
+        Assert.Equal("partial", jni.Coverage);
         Assert.StartsWith("2 native method(s) have no Java_ export", jni.Reason);
         Assert.Contains(g.Edges, e => e.Kind == "jni" && e.From == "Lcom/example/jni/Native;->hello()Ljava/lang/String;" && e.To.Contains("!Java_com_example_jni_Native_hello@0x") && e.Basis == "static_export");
         Assert.Contains(g.Edges, e => e.Kind == "jni" && e.From == "Lcom/example/jni/Third;->init()V" && e.Basis == "registered");
@@ -175,16 +176,16 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
     private static List<string> MobilePackages() =>
         Directory.EnumerateFiles(RealData.Get(RealData.MobileApps)!, "*.apk", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2 }).ToList();
 
-    /// <summary>The smallest package and the smallest Il2Cpp build under CORVUS_MOBILE_APPS: each graph has the edge kinds its runtimes need.</summary>
+    /// <summary>The smallest package and the smallest AOT build under CORVUS_MOBILE_APPS: each graph has the edge kinds its runtimes need.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.MobileApps)]
     public void Real_packages_graph_with_the_edges_their_runtimes_need()
     {
         var apks = MobilePackages().OrderBy(a => new FileInfo(a).Length).ToList();
         Assert.NotEmpty(apks);
-        var il2cppApk = apks.FirstOrDefault(a => { using var zip = System.IO.Compression.ZipFile.OpenRead(a); return zip.Entries.Any(e => Core.Mobile.AndroidRuntime.IsIl2CppEntry(e.FullName)); });
-        var loader = new Il2CppRawLoader(_workspace);
-        foreach (var apk in new[] { apks[0], il2cppApk }.OfType<string>().Distinct())
+        var aotApk = apks.FirstOrDefault(a => { using var zip = System.IO.Compression.ZipFile.OpenRead(a); return zip.Entries.Any(e => Core.Mobile.AndroidRuntime.IsAotEntry(e.FullName)); });
+        var loader = new AotBuildLoader(_workspace);
+        foreach (var apk in new[] { apks[0], aotApk }.OfType<string>().Distinct())
             GraphOf(loader, apk);
     }
 
@@ -197,16 +198,16 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
     {
         var apks = MobilePackages();
         Assert.NotEmpty(apks);
-        var loader = new Il2CppRawLoader(_workspace);
+        var loader = new AotBuildLoader(_workspace);
         foreach (var apk in apks.OrderByDescending(a => new FileInfo(a).Length))
             GraphOf(loader, apk);
     }
 
     /// <summary>Builds the graph of <paramref name="apk"/>, reports its time and checks its edge kinds.</summary>
-    private void GraphOf(Il2CppRawLoader loader, string apk)
+    private void GraphOf(AotBuildLoader loader, string apk)
     {
-        // An Il2Cpp build is read once first, as load_assembly does; the graph joins its methods from the cache.
-        var files = Il2CppPackages.Extract(apk, null) is { } root && Il2CppBuildFiles.Find(root) is { Binary.Length: > 0 } found ? found : null;
+        // An AOT build is read once first, as load_assembly does; the graph joins its methods from the cache.
+        var files = AotPackages.Extract(apk, null) is { } root && AotBuildFiles.Find(root) is { Binary.Length: > 0 } found ? found : null;
         if (files != null) loader.Load(files, loadBinary: false, null, default);
         var before = MachineLoad.Factor();
         var paused = GC.GetTotalPauseDuration();
@@ -222,6 +223,6 @@ public sealed class AppGraphTests(Xunit.Abstractions.ITestOutputHelper output) :
         PerfBudget.Time("mobile/app-graph", watch.Elapsed, TimeSpan.FromSeconds(5), output, $"{load}; {span}");
         foreach (var k in g.EdgeKinds) Assert.True(k.Edges <= k.Candidates || k.Kind == "jni", $"{apk}: {k.Kind}");
         // The graph joins the build's methods from the cache the load filled; it reads no metadata itself.
-        if (files != null) Assert.True(g.Layers.Single(l => l.Layer == "il2cpp").Items > 0, $"{apk}: the Il2Cpp layer was not joined from the cache");
+        if (files != null) Assert.True(g.Layers.Single(l => l.Layer == "aot").Items > 0, $"{apk}: the AOT layer was not joined from the cache");
     }
 }

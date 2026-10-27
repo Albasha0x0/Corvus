@@ -16,7 +16,7 @@ public sealed class SessionProgressTests(ITestOutputHelper output) : IDisposable
 
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task LoadSessionReportsProgressFromItsFirstStep()
+    public async Task Load_session_reports_progress_from_its_first_step()
     {
         await using var server = await InProcessServer.StartAsync();
         var session = _dir.File("work.session.json");
@@ -31,8 +31,7 @@ public sealed class SessionProgressTests(ITestOutputHelper output) : IDisposable
         });
         var result = await server.Client.CallToolAsync("load_session", new Dictionary<string, object?> { ["path"] = session }, new Progress());
         Assert.NotEqual(true, result.IsError);
-        // Handlers may run concurrently, so arrival order is not send order: the final update can be handled before the
-        // first, and the first step is the lowest progress. Wait for both ends.
+        // Handlers may run concurrently, so the final update can arrive before the first; wait for both ends.
         for (int i = 0; i < 250 && !(updates.Any(u => u.Value.Progress.Progress == u.Value.Progress.Total) && updates.Any(u => u.Value.Progress.Progress == 0)); i++)
             await Task.Delay(20);
         var first = updates.OrderBy(u => u.Value.Progress.Progress).ThenBy(u => u.Ms).FirstOrDefault();

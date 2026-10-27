@@ -106,7 +106,7 @@ public class NativeSurveyTests(ITestOutputHelper output)
         var t = (await Triage(tools, assembly: native.Id))!;
         Assert.Equal(t.Named + t.Unnamed, t.Functions);
         Assert.True(t.Named >= 2);
-        // every entry point at its own address; ordinals only as a separate field
+        // Every entry point at its own address; ordinals only as a separate field.
         Assert.Equal(new TriageEntry(Va(image.EntryPointRva), "entry", "Main", null), t.EntryPoints[0]);
         var helper = image.Exports.Single(e => e.Name == "Helper");
         Assert.Contains(new TriageEntry(Va(helper.Rva), "export", "Helper", (int)helper.Ordinal), t.EntryPoints);
@@ -118,7 +118,7 @@ public class NativeSurveyTests(ITestOutputHelper output)
         Assert.Contains(t.Segments, s => s.Access == "r-x" && s.Start == Va(image.Sections.First(x => x.IsExecutable).Rva));
         Assert.Contains(t.TopStrings, s => s.Text == "L\"config.ini\"");
 
-        // by path too, when that file is loaded; an unloaded native path stays a plain summary
+        // By path too, when that file is loaded; an unloaded native path stays a plain summary.
         Assert.NotNull(await Triage(tools, path: path));
         Assert.Null(await Triage(tools, path: McpProtocolTests.NativeSample(dir)));
         Assert.Equal("thunk", NativeTriageBuilder.Role(new Corvus.Native.Code.NativeFunction { Size = 6 }, 1));

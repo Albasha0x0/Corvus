@@ -7,12 +7,8 @@ using Corvus.Native.Elf;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// A stop's stack outside Windows, unwound from the bytes the session script sends with it: each ELF module's .eh_frame
-/// CFI read from its file, else the frame pointer chain (<see cref="CoreUnwinder"/>, as dump_stack walks a core; on
-/// ARM64 a stop at a function's first instruction returns through the link register first). Only the captured stack is
-/// memory; the walk stops where it leaves it.
-/// </summary>
+// On ARM64 a stop at a function's first instruction returns through the link register first.
+/// <summary>Unwinds a stop's captured stack outside Windows by .eh_frame CFI, else frame pointers; the walk ends where the capture does.</summary>
 internal sealed class LiveStackWalk : IProcessMemory
 {
     public const int MaxFrames = 32;
@@ -36,10 +32,7 @@ internal sealed class LiveStackWalk : IProcessMemory
         _file = file;
     }
 
-    /// <summary>
-    /// The walker for a session's architecture (Frida's names), or null when it has no register file here; <paramref name="file"/>
-    /// gives a module's file to read (a device module's pulled copy), by default its path.
-    /// </summary>
+    /// <summary>The walker for the session's architecture; null without a register file; <paramref name="file"/> maps a module to its local file.</summary>
     public static LiveStackWalk? For(LiveSession session, Func<ulong, bool>? atFunctionStart = null, Func<LiveModuleState, string>? file = null) => session.Arch switch
     {
         "x64" => new(session, CoreArch.X64, atFunctionStart, file),
@@ -69,7 +62,7 @@ internal sealed class LiveStackWalk : IProcessMemory
         }
     }
 
-    // Frida names ARM's r11 and r12 by number
+    // Frida names ARM's r11 and r12 by number.
     private static string? Alias(string name) => name switch { "fp" => "r11", "ip" => "r12", _ => null };
 
     private static ulong Hex(string s) =>

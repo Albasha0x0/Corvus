@@ -120,8 +120,7 @@ public class NativeAotTypeTests
         uint boxDef = Mt(b, layout, E.Class, KindGenericDefinition, 1, 0, [], [], componentSize: (ushort)(layout == MethodTableLayout.Net8 ? 1 : 0));
         uint boxOfDog = Mt(b, layout, E.Class, KindCanonical, size.Dog, obj, [ToStringCode, EqualsCode, HashCode], [], genericDefinition: boxDef, genericArgument: dog);
         uint str = Mt(b, layout, E.Class, KindCanonical, size.String, obj, [ToStringCode, EqualsCode, HashCode], [], componentSize: 2);
-        // Frozen region: padding, a Dog (header, MethodTable pointer, fields) and the string "hi". Their +8 points at a
-        // MethodTable, like a statics base after it does: none of them is a MethodTable.
+        // Frozen region: padding, a Dog and the string "hi"; their +8 points at a MethodTable, yet none of them is one.
         b.Data.Align(8);
         uint region = b.Data.Zero(2 * p);
         uint frozen = b.Data.Zero(p);
@@ -170,8 +169,7 @@ public class NativeAotTypeTests
         }
         Assert.Equal(st, b.Blob(BlobId.StackTraceMethodRvaToTokenMapping, map));
 
-        // Interface dispatch cells: two runs for the speaker's slots 0 and 1, each cell the initial stub and the tagged
-        // relative pointer to the interface, each run ended by a null pointer and the slot; then code calling through the first.
+        // Interface dispatch cells for the speaker's slots 0 and 1, each run ended by a null pointer and the slot; then code calling through the first.
         uint[] cells = [];
         if (dispatchCells)
         {
@@ -204,7 +202,7 @@ public class NativeAotTypeTests
     [InlineData((ushort)9)]
     [InlineData((ushort)10)]
     [InlineData((ushort)16)]
-    public void Crawl_FindsAndNamesMethodTables(ushort major)
+    public void Crawl_finds_and_names_method_tables(ushort major)
     {
         var w = Build(major);
         var types = w.Aot.Types.ByRva;
@@ -254,7 +252,7 @@ public class NativeAotTypeTests
     [InlineData((ushort)8)]
     [InlineData((ushort)9)]
     [InlineData((ushort)16)]
-    public void FrozenRegion_ObjectsAndStrings(ushort major)
+    public void The_frozen_region_lists_objects_and_strings(ushort major)
     {
         var w = Build(major);
         var frozen = w.Aot.Frozen;
@@ -268,7 +266,7 @@ public class NativeAotTypeTests
     [Theory]
     [InlineData((ushort)9)]
     [InlineData((ushort)16)]
-    public void Image32_MethodTablesAndFrozenObjects(ushort major)
+    public void A_32_bit_image_gives_method_tables_and_frozen_objects(ushort major)
     {
         var w = Build(major, is32: true);
         Assert.False(w.Aot.Image.Is64Bit);
@@ -292,7 +290,7 @@ public class NativeAotTypeTests
     }
 
     [Fact]
-    public void FrozenRegion_StopsAtAnUnknownObject()
+    public void Frozen_region_stops_at_an_unknown_object()
     {
         var b = new B();
         b.Data.Zero(8);

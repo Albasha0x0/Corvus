@@ -8,10 +8,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The ClrMD side of dump analysis without a real runtime: the data reader over our minidump parser (read-only image
-/// fallback, relocations, thread contexts), DAC signature checks and the DAC outcomes a dump without a usable DAC gets.
-/// </summary>
+/// <summary>ClrMD over our minidump reader without a runtime: data reader, DAC checks and DAC outcomes.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class ManagedDumpTests
 {
@@ -35,7 +32,8 @@ public sealed class ManagedDumpTests
             var r = new byte[12];
             BinaryPrimitives.WriteUInt32LittleEndian(r, rdata.Rva);
             BinaryPrimitives.WriteUInt32LittleEndian(r.AsSpan(4), 12);
-            BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(8), 0xA000); // DIR64 at offset 0
+            // DIR64 at offset 0.
+            BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(8), 0xA000);
             return r;
         }, 0x42000040);
         b.Directories[PeDirectory.BaseRelocation] = (reloc.Rva, 12);
@@ -52,11 +50,12 @@ public sealed class ManagedDumpTests
     }
 
     [Fact]
-    public void ReaderServesOnlyReadOnlyImagePartsAndRelocatesThem()
+    public void Reader_serves_only_read_only_image_parts_and_relocates_them()
     {
         var (pe, text, rdata, data) = Image();
         var builder = Dump(pe);
-        builder.Memory.Add((Loaded + text + 0x10, [1, 2, 3, 4])); // captured bytes win over the image
+        // Captured bytes win over the image.
+        builder.Memory.Add((Loaded + text + 0x10, [1, 2, 3, 4]));
         using var reader = new DumpDataReader(MinidumpFile.FromBytes(builder.Build()), _ => pe);
 
         var header = new byte[2];
@@ -64,7 +63,8 @@ public sealed class ManagedDumpTests
         Assert.Equal("MZ"u8.ToArray(), header);
 
         Assert.True(reader.ReadPointer(Loaded + rdata, out var pointer));
-        Assert.Equal(Loaded + text, pointer); // relocated from the preferred base
+        // Relocated from the preferred base.
+        Assert.Equal(Loaded + text, pointer);
         Assert.Equal(0x1122334455667788UL, reader.Read<ulong>(Loaded + rdata + 8));
 
         var code = new byte[0x14];
@@ -72,7 +72,8 @@ public sealed class ManagedDumpTests
         Assert.Equal(0x90, code[0]);
         Assert.Equal([1, 2, 3, 4], code[0x10..0x14]);
 
-        Assert.Equal(0, reader.Read(Loaded + data, new byte[4])); // writable: never the initial values
+        // Writable: never the initial values.
+        Assert.Equal(0, reader.Read(Loaded + data, new byte[4]));
         Assert.False(reader.Read(Loaded + data, out uint _));
 
         var context = new byte[0x4D0];
@@ -88,18 +89,19 @@ public sealed class ManagedDumpTests
     }
 
     [Fact]
-    public void ModulesWithoutHeadersStillHaveTheirDumpRecord()
+    public void Modules_without_headers_still_have_their_dump_record()
     {
         var (pe, _, _, _) = Image();
         using var reader = new DumpDataReader(MinidumpFile.FromBytes(Dump(pe).Build()), _ => null);
         var module = Assert.Single(reader.EnumerateModules());
         Assert.Equal(@"Z:\app\native.dll", module.FileName);
         Assert.Equal((int)pe.Coff.TimeDateStamp, module.IndexTimeStamp);
-        Assert.Equal(new Version(1, 2, 3, 4), module.Version); // the builder's VS_FIXEDFILEINFO
+        // The builder's VS_FIXEDFILEINFO.
+        Assert.Equal(new Version(1, 2, 3, 4), module.Version);
     }
 
     [Fact]
-    public void DacSignatureMustBeMicrosofts()
+    public void DAC_signature_must_be_Microsofts()
     {
         var (pe, _, _, _) = Image();
         using var dir = new TempDir();
@@ -149,7 +151,7 @@ public sealed class ManagedDumpTests
 
     /// <summary>Windows' own files are signed through system catalogs, as the .NET Framework's DAC is.</summary>
     [Fact]
-    public void CatalogSignedSystemFilesAreAccepted()
+    public void Catalog_signed_system_files_are_accepted()
     {
         if (!OperatingSystem.IsWindows()) return;
         var system = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "kernel32.dll");
@@ -159,12 +161,13 @@ public sealed class ManagedDumpTests
         var copy = dir.File("kernel32.dll");
         bytes[bytes.Length / 2] ^= 0xFF;
         File.WriteAllBytes(copy, bytes);
-        Assert.NotNull(DacLocator.Verify(bytes, copy)); // a changed copy is in no catalog
+        // A changed copy is in no catalog.
+        Assert.NotNull(DacLocator.Verify(bytes, copy));
     }
 
     /// <summary>A Linux runtime's DAC on this host is the Windows-hosted one built for Linux targets, stored under libcoreclr.so's build id.</summary>
     [Fact]
-    public void LinuxRuntimeDacIsKeyedByTheRuntimeBuildId()
+    public void Linux_runtime_DAC_is_keyed_by_the_runtime_build_id()
     {
         var id = System.Collections.Immutable.ImmutableArray.Create<byte>(0x8A, 0x5D, 0x01);
         var libraries = new[]
@@ -180,7 +183,7 @@ public sealed class ManagedDumpTests
 
     /// <summary>A core holds no runtime version: it is read from libcoreclr.so on disk and must equal the DAC's file version.</summary>
     [Fact]
-    public void CoreDacVersionMustMatchTheRuntimeFile()
+    public void Core_DAC_version_must_match_the_runtime_file()
     {
         Assert.Equal("10.0.1326.50504", ClrDecoder.RuntimeVersion("\0@(#)Version 10.0.1326.50504 @Commit: 4099f839\0"u8));
         Assert.Null(ClrDecoder.RuntimeVersion("no version here"u8));
@@ -195,7 +198,7 @@ public sealed class ManagedDumpTests
 
     /// <summary>A 32-bit dump goes to the 32-bit decoder after its DAC is looked for here; without the decoder it is a bitness mismatch.</summary>
     [Fact]
-    public async Task ThirtyTwoBitDumpNeedsTheThirtyTwoBitDecoder()
+    public async Task Thirty_two_bit_dump_needs_the_thirty_two_bit_decoder()
     {
         var (pe, _, _, _) = Image();
         var bytes = Dump(pe, arch: 0, module: @"Z:\app\coreclr.dll").Build();
@@ -212,7 +215,8 @@ public sealed class ManagedDumpTests
             return;
         }
         if (RuntimeInformation.ProcessArchitecture != Architecture.X64) return;
-        Assert.NotNull(ClrHelperClient.Locate()); // built beside the server (and these tests)
+        // Built beside the server (and these tests).
+        Assert.NotNull(ClrHelperClient.Locate());
         Assert.NotEqual("bitness_mismatch", (await Open()).Status);
         var missing = await Open(Path.Combine(Path.GetTempPath(), "missing", ClrHelperClient.FileName));
         Assert.Equal("bitness_mismatch", missing.Status);
@@ -221,7 +225,7 @@ public sealed class ManagedDumpTests
 
     /// <summary>A 64-bit tool's dump of a 32-bit process: the reason names the WoW64 dump, not a DAC that failed to load.</summary>
     [Fact]
-    public async Task Wow64DumpOfA32BitRuntimeSaysHowToWriteADecodableDump()
+    public async Task A_WOW64_dump_of_a_32_bit_runtime_says_how_to_write_a_decodable_dump()
     {
         if (!OperatingSystem.IsWindows()) return;
         var (pe, _, _, _) = Image();
@@ -234,7 +238,7 @@ public sealed class ManagedDumpTests
     }
 
     [Fact]
-    public async Task NoProcessRuntimeMeansNoDecoder()
+    public async Task No_process_runtime_means_no_decoder()
     {
         var (pe, _, _, _) = Image();
         Assert.Null(await ClrDecoder.Open(MinidumpFile.FromBytes(Dump(pe).Build()), _ => pe, [], new DacRequest(), default));
@@ -250,7 +254,7 @@ public sealed class ManagedDumpTests
 
     /// <summary>A managed library named Mono.* in a CoreCLR process does not make it a Mono process.</summary>
     [Fact]
-    public void AManagedLibraryNamedMonoIsNotTheMonoRuntime()
+    public void A_managed_library_named_Mono_is_not_the_Mono_runtime()
     {
         var (pe, _, _, _) = Image();
         var builder = Dump(pe, module: @"Z:\app\Mono.Nat.dll");
@@ -266,7 +270,7 @@ public sealed class ManagedDumpTests
 
     /// <summary>A WoW64 process dumped by a 64-bit writer lists its own image twice: one module, no overlap issue.</summary>
     [Fact]
-    public void AModuleListedTwiceIsOneModule()
+    public void A_module_listed_twice_is_one_module()
     {
         var (pe, _, _, _) = Image();
         var builder = Dump(pe, module: @"Z:\app\client.exe");
@@ -278,7 +282,7 @@ public sealed class ManagedDumpTests
 
     /// <summary>JIT code in a Mono process points at the runtime's own report, not at a DAC Mono does not have.</summary>
     [Fact]
-    public async Task JitCodeInAMonoProcessIsNotSentToADac()
+    public async Task JIT_code_in_a_Mono_process_is_not_sent_to_a_DAC()
     {
         var (pe, _, _, _) = Image();
         var builder = Dump(pe, module: @"Z:\app\MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll");
@@ -304,11 +308,11 @@ public sealed class ManagedDumpTests
     [InlineData("Probe.Program", "*.Prog?am", true)]
     [InlineData("Probe.Program", "*Exception", false)]
     [InlineData("A", "**", true)]
-    public void TypeFilterIsWildcardOrExact(string name, string pattern, bool expected) => Assert.Equal(expected, Wildcard.Matches(name, pattern));
+    public void Type_filter_is_wildcard_or_exact(string name, string pattern, bool expected) => Assert.Equal(expected, Wildcard.Matches(name, pattern));
 
     /// <summary>A CoreCLR module whose build is nowhere on this machine: not found locally, a refused download offline, a rejected unsigned DAC.</summary>
     [Fact]
-    public async Task UnknownRuntimeBuildReportsWhyNoDacLoaded()
+    public async Task Unknown_runtime_build_reports_why_no_DAC_loaded()
     {
         if (!OperatingSystem.IsWindows() || RuntimeInformation.ProcessArchitecture != Architecture.X64) return;
         var (pe, _, _, _) = Image();
@@ -332,7 +336,8 @@ public sealed class ManagedDumpTests
         summary = await service.Summarize(path, null, new DacRequest(unsigned), default);
         Assert.Equal("signature_invalid", summary.Managed!.Dac.Status);
         Assert.Contains("no embedded signature", summary.Managed.Dac.Detail);
-        summary = await service.Summarize(path, null, new DacRequest(dir.Path), default); // the folder works too
+        // The folder works too.
+        summary = await service.Summarize(path, null, new DacRequest(dir.Path), default);
         Assert.Equal("signature_invalid", summary.Managed!.Dac.Status);
         await Assert.ThrowsAsync<ToolError>(() => service.Summarize(path, null, new DacRequest(dir.File("missing.dll")), default));
 

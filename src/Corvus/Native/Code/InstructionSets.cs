@@ -7,10 +7,7 @@ public enum CodeSupport
     Full,
     /// <summary>Only the function starts the image declares (.pdata, exports, entry point, TLS callbacks); no decoding.</summary>
     DeclaredFunctionsOnly,
-    /// <summary>
-    /// Bytecode with its own reader (WebAssembly): functions, calls and references are complete, but there is no machine-code
-    /// walker (no basic blocks, no instruction decoder for the native tools).
-    /// </summary>
+    /// <summary>Bytecode with its own reader (WebAssembly): functions, calls and references; no basic blocks or decoder.</summary>
     Bytecode,
 }
 

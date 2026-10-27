@@ -6,11 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// analyze_js view=beautify: BeautifyFixtures/program.js exercises block scopes, hoisting, destructuring, shorthand
-/// properties, classes with private fields, labels, ASI, regex literals, switch, async code, generators and a direct
-/// eval; program.min.js is its terser 5.39.0 output (build.js).
-/// </summary>
+/// <summary>analyze_js view=beautify on program.min.js, terser 5.39.0 output of BeautifyFixtures/program.js.</summary>
 public sealed class JsBeautifyTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

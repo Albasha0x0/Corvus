@@ -6,13 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real firmware images opened level by level; every filesystem level found inside (squashfs, UBI, UBIFS, JFFS2, ext, FAT,
-/// cramfs, cpio, FIT) is listed and extracted by its reference tool too (FirmwareFixtures/reference.sh) and compared file by
-/// file: path, size, SHA-256, link target and mode; each dynamically linked ELF program inside opens at its architecture and
-/// lists its imports. Opt-in: CORVUS_FIRMWARE_IMAGES names a folder of images (.gz ones are
-/// ungzipped first) and CORVUS_FS_REFERENCE the program that runs the script as root: sh on Linux, wsl.exe on Windows.
-/// </summary>
+/// <summary>Real firmware filesystems compared file by file with their reference tools (CORVUS_FIRMWARE_IMAGES, CORVUS_FS_REFERENCE).</summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
 public sealed class FirmwareComparisonTests(ITestOutputHelper output)
@@ -64,7 +58,7 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
                     var line = $"{where} ({c.Kind}): {same:N0} of {total:N0} agree" + (differences.Count > 0 ? "\n    " + string.Join("\n    ", differences.Take(12)) : "");
                     output.WriteLine(line);
                     if (same < total) failures.Add(line);
-                    // a filesystem's files are not opened further, the volumes of UBI and the images of a FIT are
+                    // A filesystem's files are not opened further, the volumes of UBI and the images of a FIT are.
                     if (format is not ("ubi" or "fit"))
                     {
                         Programs(c, where, programs, failures);
@@ -85,11 +79,7 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
     public sealed class Signatures1(ITestOutputHelper output) : SignatureScan(output);
     public sealed class Signatures2(ITestOutputHelper output) : SignatureScan(output);
 
-    /// <summary>
-    /// Signature hits of each image against the scanner's (binwalk) by offset, and the sizes both state. A part takes the
-    /// next image whenever it is free and adds its counts to totals all parts share; each part waits for the images still
-    /// being scanned and checks the totals, so the check covers every image whether one part runs or all do.
-    /// </summary>
+    /// <summary>Signature hits compared with binwalk by offset; parts share images and totals, so any split checks every image.</summary>
     [Trait("Speed", "Slow")]
     public abstract class SignatureScan(ITestOutputHelper output)
     {
@@ -141,7 +131,7 @@ public sealed class FirmwareComparisonTests(ITestOutputHelper output)
                 if (!reference.TryGetValue(at, out var description)) { differences.Add($"only ours: 0x{at:X} {hits[at].Format} ({hits[at].Size})"); continue; }
                 if (!hits.TryGetValue(at, out var hit))
                 {
-                    // a hit inside a region we sized (a file of a filesystem, a stream of a kernel) is that region's reader's to find
+                    // A hit inside a region we sized (a file of a filesystem, a stream of a kernel) is that region's reader's to find.
                     if (hits.Values.Any(h => h.Offset < at && at < h.Offset + (h.Size ?? 0))) inside++;
                     else differences.Add($"only scanner: 0x{at:X} {description}");
                     continue;

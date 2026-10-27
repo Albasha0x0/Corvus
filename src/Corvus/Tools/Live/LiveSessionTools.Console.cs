@@ -39,7 +39,7 @@ public sealed partial class LiveSessionTools
     }
 
     [McpServerTool(Name = "live_console", Title = "Scripted console run", UseStructuredContent = true, OutputSchemaType = typeof(LiveConsolePage))]
-    [Description("Run a program under a console host (the pseudoconsole on Windows) driven by send, wait, resize and delay steps; reports each step and pages the transcript with a cursor.")]
+    [Description("Run a program under a console host, driven by send, wait, resize and delay steps; reports each step and pages the transcript with a cursor.")]
     public Task<string> LiveConsole(
         [Description("What to do.")] string action = "list",
         [Description("start: program path.")] string? program = null,
@@ -143,7 +143,7 @@ public sealed partial class LiveSessionTools
             var text = new StringBuilder();
             if (dropped > 0) text.AppendLine($"{dropped:N0} lines before this page were dropped (a transcript keeps {LiveConsoleRun.Capacity:N0})");
             foreach (var l in lines) text.AppendLine($"#{l.Sequence} {l.Text}");
-            // a partial line is shown again on the next poll, with what was written since
+            // A partial line is shown again on the next poll, with what was written since.
             var next = lines.Count == 0 ? Math.Max(start, firstKept) : lines[^1].Partial ? lines[^1].Sequence : lines[^1].Sequence + 1;
             string? nextCursor = (lines.Count == limit || count < page.Count) && lines[^1].Sequence < last ? next.ToString(CultureInfo.InvariantCulture) : null;
             text.AppendLine(lines.Count == 0 && start <= 1 ? $"No output ({r.State})."

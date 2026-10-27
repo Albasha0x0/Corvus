@@ -1,9 +1,6 @@
 namespace Corvus.Core.Installers;
 
-/// <summary>
-/// The parts of an installer stub's PE layout the installer readers need, read through a range reader so the same code
-/// recognizes a file from its first bytes and opens it from a stream.
-/// </summary>
+/// <summary>An installer stub's PE layout, read through a range reader for both recognition and stream access.</summary>
 internal static class InstallerPe
 {
     /// <summary>Reads <c>count</c> bytes at a file offset; null when the range is not available (past the end, or past a head).</summary>
@@ -24,10 +21,7 @@ internal static class InstallerPe
         return buffer;
     };
 
-    /// <summary>
-    /// The file offset and size of the resource <paramref name="type"/> / <paramref name="id"/> (first language); a
-    /// type is a name (<c>"DATA"</c>) or <c>#n</c> for a numbered type. Null when the image has no such resource.
-    /// </summary>
+    /// <summary>The file offset and size of a resource (type name or <c>#n</c>, first language); null when absent.</summary>
     public static (long Offset, int Size)? Resource(PeImage pe, ReadOnlySpan<byte> head, Read read, string type, uint id)
     {
         var (rva, size) = pe.Directory(head, ResourceDirectory);

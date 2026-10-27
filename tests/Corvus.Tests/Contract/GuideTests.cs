@@ -13,14 +13,14 @@ public class GuideTests
     private static readonly string[] NotTools = ["dump_from_memory"];
 
     [Fact]
-    public void CoreFitsTheClientLimit()
+    public void The_guide_core_fits_the_client_limit()
     {
         Assert.Equal(Guide.Core, ServerInstructions.Text);
         Assert.True(Guide.Core.Length <= Guide.ClientLimit, $"the instruction core is {Guide.Core.Length} characters, over {Guide.ClientLimit}");
     }
 
     [Fact]
-    public void EveryToolDescriptionFitsTheClientLimit()
+    public void Every_tool_description_fits_the_client_limit()
     {
         var over = Tools.Select(t => ((string)t["name"]!, ((string?)t["description"] ?? "").Length)).Where(t => t.Item2 > Guide.ClientLimit)
             .Select(t => $"{t.Item1}: {t.Item2}").ToList();
@@ -28,7 +28,7 @@ public class GuideTests
     }
 
     [Fact]
-    public void GuideNamesOnlyRegisteredTools()
+    public void The_guide_names_only_registered_tools()
     {
         Assert.Empty(McpProtocolTests.UnknownTools(Guide.Core, Names, NotTools));
         foreach (var (topic, text) in Guide.Topics)
@@ -36,7 +36,7 @@ public class GuideTests
     }
 
     [Fact]
-    public void CoreAndTopicsCoverEveryTool()
+    public void Core_and_topics_cover_every_tool()
     {
         var text = Guide.Core + "\n" + string.Join("\n", Guide.Topics.Values);
         var named = Regex.Matches(text, @"\b[a-z0-9]+(?:_[a-z0-9]+)*\b").Select(m => m.Value).ToHashSet(StringComparer.Ordinal);
@@ -45,9 +45,9 @@ public class GuideTests
     }
 
     [Fact]
-    public void TopicsAreLookedUpByName()
+    public void Topics_are_looked_up_by_name()
     {
-        Assert.Equal(["dotnet", "il2cpp", "containers", "edits", "builds", "native", "idapython", "dumps", "errors"], Guide.Topics.Keys);
+        Assert.Equal(["dotnet", "aot", "containers", "edits", "builds", "native", "idapython", "dumps", "errors"], Guide.Topics.Keys);
         Assert.Same(Guide.Topics["native"], Guide.Topic(" Native "));
         Assert.Null(Guide.Topic("nope"));
     }

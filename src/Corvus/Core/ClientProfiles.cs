@@ -1,23 +1,13 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// What one MCP client keeps of a tool result and how long it waits: <see cref="MaxTokens"/> and <see cref="MaxChars"/>
-/// cap a result, <see cref="DeadlineSeconds"/> is the client's own per-call limit (null: none), <see cref="DefaultProfile"/>
-/// the tool profile it gets without --toolsets (lean for clients that cap the tool count). <see cref="ClientNames"/> are
-/// token sequences matched against the handshake's clientInfo.name.
-/// </summary>
+/// <summary>One MCP client's result caps, per-call deadline (null: none) and default tool profile, matched by clientInfo.name.</summary>
 public sealed record ClientProfile(string Id, string Name, IReadOnlyList<string> ClientNames, int MaxTokens, int? MaxChars, int? DeadlineSeconds, string DefaultProfile);
 
-/// <summary>
-/// The limits a server applies for its client, explicit settings already folded in. <see cref="Source"/> says where the
-/// profile came from (--client, CORVUS_CLIENT, clientInfo, default); <see cref="MaxTokensSource"/> and
-/// <see cref="DeadlineSource"/> name the setting that decided those values (an option or variable, else the profile).
-/// <see cref="Toolsets"/> is the explicit --toolsets value, else the profile's default.
-/// </summary>
+/// <summary>The limits applied for a client with explicit settings folded in; the Source fields name what decided each value.</summary>
 public sealed record ClientLimits(ClientProfile Profile, int MaxTokens, int? MaxChars, int? DeadlineSeconds, string Toolsets,
     string Source, string MaxTokensSource, string DeadlineSource);
 
-/// <summary>Per-client output ceilings, deadlines and default tool profiles (STANDARDS S1.4, S9.1; DECISIONS D4, D6).</summary>
+/// <summary>Per-client output ceilings, deadlines and default tool profiles.</summary>
 public static class ClientProfiles
 {
     public const string ClientOption = "--client";
@@ -36,10 +26,7 @@ public static class ClientProfiles
     private static ClientProfile Plain(string id, string name, params string[] names) => new(id, name, names, DefaultMaxTokens, null, null, Full);
     private static ClientProfile Capped(string id, string name, params string[] names) => new(id, name, names, DefaultMaxTokens, null, null, Lean);
 
-    /// <summary>
-    /// One row per client id of the setup catalog. Detection tries rows in this order, so a name that contains another
-    /// client's (cursor-vscode, Visual Studio Code - Insiders) is listed first.
-    /// </summary>
+    /// <summary>One row per client id; detection tries rows in order, so a name containing another client's comes first.</summary>
     public static IReadOnlyList<ClientProfile> All { get; } =
     [
         Plain("cursor", "Cursor", "cursor"),
@@ -107,10 +94,7 @@ public static class ClientProfiles
         return false;
     }
 
-    /// <summary>
-    /// The limits for a call: the profile from --client / CORVUS_CLIENT, else from clientInfo.name, else unknown; then
-    /// CORVUS_MAX_OUTPUT_TOKENS, --client-timeout / CORVUS_CLIENT_TIMEOUT and --toolsets replace the profile's values.
-    /// </summary>
+    /// <summary>The profile from --client, CORVUS_CLIENT or clientInfo.name, with explicit token, timeout and toolset settings applied.</summary>
     public static ClientLimits Resolve(ServerOptions options, string? clientInfoName)
     {
         ClientProfile profile;

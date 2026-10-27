@@ -5,11 +5,7 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// A read-only stream over bytes the evaluation knows: an embedded resource of the module, or a MemoryStream over an
-/// array (its reads see the array as it is when read). Position and disposal are its state. An instance of a class of
-/// the module derived from MemoryStream (<see cref="ModuleType"/>) gets its bytes when its constructor calls the base one.
-/// </summary>
+/// <summary>A read-only stream over an embedded resource or a byte array; a <see cref="ModuleType"/> stream gets its bytes from its base constructor call.</summary>
 internal sealed class StreamObject : HeapObject
 {
     public StreamObject(byte[] data) => Data = data;
@@ -34,7 +30,7 @@ internal sealed class StreamObject : HeapObject
     public bool Disposed { get; set; }
     /// <summary>A FileStream over the module's own file (deterministic environment), not a MemoryStream.</summary>
     public bool FromFile { get; init; }
-    /// <summary>A StreamReader read from it: the reader buffers, so where the stream stands is the runtime's own.</summary>
+    /// <summary>A StreamReader read from it; the reader buffers, so the stream position is unknown.</summary>
     public bool Buffered { get; set; }
 }
 
@@ -54,7 +50,7 @@ internal sealed class StreamReaderObject(StreamObject stream, Encoding encoding,
     public int Position { get; set; }
 }
 
-/// <summary>An assembly other than the one being analyzed (typeof(string).Assembly, say): its resources are not read.</summary>
+/// <summary>An assembly other than the one analyzed; its resources are not read.</summary>
 internal sealed class ForeignAssemblyObject : ReflectionObject
 {
     protected override string[] Types => ["System.Reflection.Assembly", "System.Reflection.RuntimeAssembly"];
@@ -64,7 +60,7 @@ internal sealed partial class IlEvaluator
 {
     private readonly Dictionary<string, byte[]?> _resources = new(StringComparer.Ordinal);
 
-    /// <summary>The bytes of an embedded resource of the module, or null when it has none of that name (as the CLR returns).</summary>
+    /// <summary>The bytes of an embedded resource of the module, or null when absent, as the CLR returns.</summary>
     private byte[]? ResourceBytes(string name)
     {
         if (!_resources.TryGetValue(name, out var bytes))
@@ -77,10 +73,7 @@ internal sealed partial class IlEvaluator
 
     private static bool IsAssembly(object? v) => v is AssemblyObject or ForeignAssemblyObject;
 
-    /// <summary>
-    /// Resources, streams and readers; null with <paramref name="handled"/> false when the method is not one of them.
-    /// Files, the network and other assemblies' resources bail (external-io); writing to a stream bails (writable-stream).
-    /// </summary>
+    /// <summary>Resource, stream and reader calls; <paramref name="handled"/> false otherwise; files and network bail external-io.</summary>
     private object? ResourceCall(IMethod method, Code op, object?[] args, out bool handled)
     {
         handled = false;
@@ -98,11 +91,10 @@ internal sealed partial class IlEvaluator
         var receiver = Receiver();
         switch (type, name)
         {
-            // The module's own assembly and its resources.
             case ("System.Type", "get_Assembly"):
                 return TypeOf(args[0]).Sig.ToTypeDefOrRef()?.ResolveTypeDef()?.Module == module ? _assemblyObject : new ForeignAssemblyObject();
             case ("System.Reflection.Assembly", "GetCallingAssembly"):
-                // Evaluated code is the module's own: whatever calls it is too.
+                // Evaluated code and its callers are the module's own.
                 return _assemblyObject;
             case ("System.Reflection.Assembly", "GetEntryAssembly"):
                 throw Bail(FallbackReason.ExternalIo, "the entry assembly is the host's, which differs between runs");
@@ -118,10 +110,9 @@ internal sealed partial class IlEvaluator
                 return new StreamObject(bytes) { Shared = _cctorDepth > 0 };
             }
 
-            // MemoryStream over an array: read-only use.
             case ("System.IO.MemoryStream", ".ctor") when op == Code.Newobj || receiver is StreamObject { ModuleType: not null, Data: null }:
             {
-                // newobj, or the base constructor call of a class of the module derived from MemoryStream ('this' first).
+                // Either newobj or a derived class's base constructor call, 'this' first.
                 var ctorArgs = op == Code.Newobj ? args : args[1..];
                 if (count == 0 || (count == 1 && method.MethodSig!.Params[0].ElementType == ElementType.I4))
                     throw Bail(FallbackReason.WritableStream, "creates an empty MemoryStream, which is only written to");
@@ -141,13 +132,11 @@ internal sealed partial class IlEvaluator
                 Open(s);
                 return NewArray(s.Data.AsSpan(s.Start, s.Size).ToArray());
 
-            // BinaryReader and StreamReader over such a stream.
             case ("System.IO.BinaryReader", ".ctor") when op == Code.Newobj:
                 return new BinaryReaderObject(StreamOf(args[0]), count >= 2 ? Enc(args[1]) : new UTF8Encoding(false, false)) { Shared = _cctorDepth > 0 };
             case ("System.IO.StreamReader", ".ctor") when op == Code.Newobj:
             {
-                // (Stream), (Stream, Encoding): UTF-8 or the encoding, byte-order marks detected; (Stream, bool) and
-                // (Stream, Encoding, bool): detection as asked. Buffer sizes and leaveOpen do not change what is read.
+                // Byte-order marks are detected unless a bool argument says otherwise; buffer size and leaveOpen are ignored.
                 var stream = StreamOf(args[0]);
                 var parameters = method.MethodSig!.Params;
                 bool hasEncoding = count >= 2 && parameters[1].FullName == "System.Text.Encoding";
@@ -176,10 +165,7 @@ internal sealed partial class IlEvaluator
         return null;
     }
 
-    /// <summary>
-    /// A class of the module the evaluator models as a MemoryStream: derived from it directly, non-generic, with no
-    /// instance fields, virtual methods (overrides), events or finalizer of its own; its own methods run as IL.
-    /// </summary>
+    /// <summary>Whether a module class is modelled as a MemoryStream: a direct, non-generic subclass with no instance fields, overrides or events.</summary>
     private static bool IsStreamClass(TypeDef type) =>
         type.BaseType?.FullName == "System.IO.MemoryStream" && !type.HasGenericParameters && type.DeclaringType?.HasGenericParameters != true &&
         !type.Fields.Any(f => !f.IsStatic) && !type.Methods.Any(m => m.IsVirtual) && !type.HasEvents && !type.IsAbstract;
@@ -368,7 +354,6 @@ internal sealed partial class IlEvaluator
                 int skip = 0;
                 if (r.Detect)
                 {
-                    // StreamReader's byte-order-mark detection.
                     if (bytes.StartsWith((byte[])[0xEF, 0xBB, 0xBF])) (encoding, skip) = (new UTF8Encoding(false), 3);
                     else if (bytes.StartsWith((byte[])[0xFF, 0xFE, 0, 0])) (encoding, skip) = (new UTF32Encoding(false, false), 4);
                     else if (bytes.StartsWith((byte[])[0xFF, 0xFE])) (encoding, skip) = (new UnicodeEncoding(false, false), 2);

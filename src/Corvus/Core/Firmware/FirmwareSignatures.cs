@@ -9,10 +9,7 @@ internal enum SignatureKind { Filesystem, Boot, Archive, Compressed, Executable,
 /// <summary>One format at an offset: its size when the header declares or implies one.</summary>
 internal sealed record SignatureHit(long Offset, string Format, SignatureKind Kind, long? Size, string? Detail);
 
-/// <summary>
-/// Header-validated signatures of the formats firmware images hold: each format's magic, checked against its own header
-/// fields (versions, sizes, CRCs, counts) before it counts, and sized from them where the header allows.
-/// </summary>
+/// <summary>Signatures of firmware formats, each magic validated and sized from its own header fields.</summary>
 internal static class FirmwareSignatures
 {
     /// <summary>The bytes a check reads: a window of the file from <see cref="Origin"/>, and further ranges on request.</summary>
@@ -78,7 +75,7 @@ internal static class FirmwareSignatures
         const SignatureKind Fs = SignatureKind.Filesystem, Boot = SignatureKind.Boot, Arc = SignatureKind.Archive, Comp = SignatureKind.Compressed,
             Exe = SignatureKind.Executable, Key = SignatureKind.Key, Media = SignatureKind.Media, Doc = SignatureKind.Document, Other = SignatureKind.Other;
 
-        // filesystems
+        // Filesystems.
         list.Add(S("squashfs (little endian)", Fs, "hsqs", Squashfs(false)));
         list.Add(S("squashfs (big endian)", Fs, "sqsh", Squashfs(true)));
         foreach (var (magic, big) in new[] { ("shsq", false), ("qshs", true), ("tqsh", false), ("hsqt", true) })
@@ -122,7 +119,7 @@ internal static class FirmwareSignatures
         list.Add(S("LVM2 physical volume", Fs, "LABELONE", (w, at) => w.Is(at + 24, "LVM2 001"u8) ? Found() : null));
         list.Add(S("GPT partition table", Fs, "EFI PART", (w, at) => w.Le32(at + 8) == 0x10000 && w.Le32(at + 12) is >= 92 and <= 512 ? Found($"{w.Le32(at + 80)} partition entries") : null));
 
-        // archives
+        // Archives.
         list.Add(S("cpio archive (newc)", Arc, "070701", Cpio));
         list.Add(S("cpio archive (newc with CRC)", Arc, "070702", Cpio));
         list.Add(S("cpio archive (odc)", Arc, "070707", Cpio));
@@ -143,7 +140,7 @@ internal static class FirmwareSignatures
         list.Add(S("Android sparse image", Boot, [0x3A, 0xFF, 0x26, 0xED], SparseImage));
         list.Add(S("Android backup", Arc, "ANDROID BACKUP\n", (w, at) => w.U8(at + 15) is >= (byte)'1' and <= (byte)'9' ? Found() : null));
 
-        // compressed streams
+        // Compressed streams.
         list.Add(S("gzip compressed data", Comp, [0x1F, 0x8B, 0x08], (w, at) => (w.U8(at + 3) & 0xE0) == 0 && w.U8(at + 9) is <= 13 or 255
             ? Found((w.U8(at + 3) & 8) != 0 ? $"original name '{CString(w, at + 10, 64)}'" : null) : null));
         list.Add(S("bzip2 compressed data", Comp, "BZh", (w, at) => w.U8(at + 3) is >= (byte)'1' and <= (byte)'9' && w.Is(at + 4, [0x31, 0x41, 0x59, 0x26, 0x53, 0x59])
@@ -160,7 +157,7 @@ internal static class FirmwareSignatures
         list.Add(S("LZFSE compressed data", Comp, "bvx2", (w, at) => w.Le32(at + 4) is > 0 and < 1 << 28 ? Found() : null));
         list.Add(S("OpenSSL encrypted data", Key, "Salted__", (w, at) => w.Has(at, 16) ? Found() : null));
 
-        // boot images and firmware headers
+        // Boot images and firmware headers.
         list.Add(S("U-Boot uImage", Boot, [0x27, 0x05, 0x19, 0x56], (w, at) => w.Has(at, 64) && UImageReader.Looks(w.D.AsSpan(at, 64))
             ? Sized(w, at, 64 + (long)w.Be32(at + 12), $"'{w.Ascii(at + 32, 32)}', arch {UImageReader.ArchName((byte)w.U8(at + 29)) ?? w.U8(at + 29).ToString()}, load 0x{w.Be32(at + 16):X}") : null));
         list.Add(S("flattened device tree", Boot, [0xD0, 0x0D, 0xFE, 0xED], (w, at) => w.Be32(at + 4) >= 40 && w.Be32(at + 20) is >= 1 and <= 17 && w.Be32(at + 8) < w.Be32(at + 4)
@@ -172,7 +169,7 @@ internal static class FirmwareSignatures
         list.Add(S("Android DTB/DTBO table", Boot, [0xD7, 0xB7, 0xAB, 0x1E], (w, at) => w.Be32(at + 8) == 32 && w.Be32(at + 12) == 32 ? Sized(w, at, w.Be32(at + 4), $"{w.Be32(at + 16)} entries") : null));
         list.Add(S("Android verified boot (vbmeta)", Boot, "AVB0", (w, at) => w.Be32(at + 4) == 1 ? Sized(w, at, 256 + (long)w.Be64(at + 12) + (long)w.Be64(at + 20)) : null));
         list.Add(S("Seama firmware header", Boot, [0x5E, 0xA3, 0xA4, 0x17], (w, at) => w.Be16(at + 4) == 0 && w.Be16(at + 6) < 1024 ? Sized(w, at, 12 + w.Be16(at + 6) + 16 + (long)w.Be32(at + 8)) : null));
-        // OpenWrt mksercommfw: the magic again at 0x3F, the payload (a zip) after the 512-byte header
+        // OpenWrt mksercommfw: the magic again at 0x3F, the payload (a zip) after the 512-byte header.
         list.Add(S("Sercomm firmware header", Boot, "sErCoMm ", (w, at) => w.Is(at + 63, "sErCoMm"u8) ? Sized(w, at, 512) : null));
         list.Add(S("Netgear CHK header", Boot, "*#$^", (w, at) => w.Be32(at + 4) is >= 40 and <= 1024 ? Sized(w, at, w.Be32(at + 4) + (long)w.Be32(at + 24) + w.Be32(at + 28), $"board '{w.Ascii(at + 40, 16)}'") : null));
         list.Add(S("TP-Link firmware header", Boot, "TP-LINK Technologies", (w, at) => w.Be32(at) is 1 or 2 or 3 ? Found($"version {w.Be32(at)}") : null, 4));
@@ -192,7 +189,7 @@ internal static class FirmwareSignatures
         list.Add(S("uClinux flat binary (bFLT)", Exe, "bFLT", (w, at) => w.Be32(at + 4) is 2 or 4 && w.Be32(at + 8) == 64 && w.Be32(at + 12) >= 64 && w.Be32(at + 16) >= w.Be32(at + 12)
             ? Sized(w, at, w.Be32(at + 32) + 4L * w.Be32(at + 36), $"version {w.Be32(at + 4)}") : null));
 
-        // executables and code
+        // Executables and code.
         list.Add(S("PE image", Exe, "MZ", (w, at) => PeImage.TryParse(w.D.AsSpan(0, w.N), at) is { } pe && pe.EndOfImage > 0
             ? Sized(w, at, pe.EndOfImage, pe.IsDotNet(w.D.AsSpan(0, w.N)) ? ".NET assembly" : null) : null));
         list.Add(S("ELF", Exe, [0x7F, (byte)'E', (byte)'L', (byte)'F'], Elf));
@@ -216,7 +213,7 @@ internal static class FirmwareSignatures
         list.Add(S("executable script", Exe, "#!/", (w, at) => (w.Is(at + 3, "bin/"u8) || w.Is(at + 3, "usr/"u8)) && w.Printable(at, 12) ? Found(CString(w, at, 60, '\n')) : null));
         list.Add(S("Android binary XML", Doc, [0x03, 0x00, 0x08, 0x00], (w, at) => w.Le32(at + 4) > 8 && w.Le16(at + 8) == 1 && w.Le16(at + 10) == 0x1C ? Sized(w, at, w.Le32(at + 4)) : null));
 
-        // keys and certificates
+        // Keys and certificates.
         foreach (var label in new[] { "CERTIFICATE", "RSA PRIVATE KEY", "EC PRIVATE KEY", "DSA PRIVATE KEY", "PRIVATE KEY", "ENCRYPTED PRIVATE KEY", "OPENSSH PRIVATE KEY",
                      "PUBLIC KEY", "RSA PUBLIC KEY", "CERTIFICATE REQUEST", "X509 CRL", "DH PARAMETERS", "PGP PUBLIC KEY BLOCK", "PGP PRIVATE KEY BLOCK", "PGP SIGNATURE", "PGP MESSAGE" })
             list.Add(S($"PEM {label.ToLowerInvariant()}", Key, $"-----BEGIN {label}-----", Pem(label)));
@@ -225,7 +222,7 @@ internal static class FirmwareSignatures
         foreach (var kind in new[] { "ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256" })
             list.Add(S($"OpenSSH public key ({kind})", Key, kind + " AAAA", (w, at) => Found()));
 
-        // media and documents
+        // Media and documents.
         list.Add(S("PNG image", Media, [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A], Png));
         list.Add(S("JPEG image", Media, [0xFF, 0xD8, 0xFF], (w, at) => w.U8(at + 3) is 0xE0 or 0xE1 or 0xDB or 0xEE or 0xE2 && w.Be16(at + 4) >= 2
             && (w.U8(at + 3) != 0xE0 || w.Is(at + 6, "JFIF\0"u8)) && (w.U8(at + 3) != 0xE1 || w.Is(at + 6, "Exif\0"u8) || w.Is(at + 6, "http"u8)) ? Found() : null));
@@ -277,7 +274,7 @@ internal static class FirmwareSignatures
             if (bs < 4096 || bs > 1 << 20 || (bs & (bs - 1)) != 0 || U16(20) is 0 or > 6) return null;
             return Sized(w, at, (long)(big ? w.Be64(at + 40) : w.Le64(at + 40)), $"{detail}, {U32(4):N0} inodes, {bs >> 10} KiB blocks");
         }
-        // versions 1-3: a 32-bit size at 8; version 3 also keeps a 64-bit one at 63
+        // Versions 1-3: a 32-bit size at 8; version 3 also keeps a 64-bit one at 63.
         long size = major == 3 ? (long)(big ? w.Be64(at + 63) : w.Le64(at + 63)) : U32(8);
         return Sized(w, at, size, detail);
     };
@@ -295,7 +292,7 @@ internal static class FirmwareSignatures
     private static (long? Size, string? Detail)? Jffs2(Window w, int at, bool big)
     {
         if (!Jffs2Node(w.Read(at, 12), big, out _)) return null;
-        // the filesystem runs while nodes follow, across erased (0xFF) gaps of up to an erase block
+        // The filesystem runs while nodes follow, across erased (0xFF) gaps of up to an erase block.
         long p = at, end = at;
         int nodes = 0;
         while (nodes < 1 << 20)
@@ -325,7 +322,7 @@ internal static class FirmwareSignatures
     private static (long? Size, string? Detail)? Ubi(Window w, int at)
     {
         if (!w.Has(at, 64) || !UbiReader.Looks(w.D.AsSpan(at, 64))) return null;
-        // the image runs while erase-counter headers follow at the erase-block size
+        // The image runs while erase-counter headers follow at the erase-block size.
         long peb = 0;
         for (long size = 16 << 10; size <= 4 << 20 && peb == 0; size <<= 1)
             if (w.Read(at + size, 64) is { } next && UbiReader.Looks(next)) peb = size;
@@ -337,7 +334,7 @@ internal static class FirmwareSignatures
 
     private static (long? Size, string? Detail)? Cpio(Window w, int at)
     {
-        // the header fields are 8 hex digits (newc) or 6 octal (odc): every one must parse
+        // The header fields are 8 hex digits (newc) or 6 octal (odc): every one must parse.
         bool newc = w.U8(at + 5) is (byte)'1' or (byte)'2';
         int fields = newc ? 13 : 0;
         for (int i = 0; i < fields; i++)
@@ -346,7 +343,7 @@ internal static class FirmwareSignatures
         if (!newc)
             for (int i = 6; i < 76; i++)
                 if (w.U8(at + i) is < (byte)'0' or > (byte)'7') return null;
-        // walk the entries to the trailer for the size
+        // The entries are walked to the trailer for the size.
         long p = at;
         for (int entries = 0; entries < 200_000; entries++)
         {
@@ -373,13 +370,13 @@ internal static class FirmwareSignatures
     private static (long? Size, string? Detail)? Tar(Window w, int at)
     {
         if (!w.Has(at, 512) || !w.Printable(at, 1)) return null;
-        // the header checksum: the sum of its bytes with the checksum field read as spaces
+        // The header checksum: the sum of its bytes with the checksum field read as spaces.
         long sum = 0;
         for (int i = 0; i < 512; i++) sum += i is >= 148 and < 156 ? 32 : w.D[at + i];
         long stored = 0;
         for (int i = 148; i < 156 && w.D[at + i] is >= (byte)'0' and <= (byte)'7'; i++) stored = stored * 8 + (w.D[at + i] - '0');
         if (stored != sum) return null;
-        // the archive ends with two zero blocks; entries are walked to them
+        // The archive ends with two zero blocks; entries are walked to them.
         long p = at;
         for (int entries = 0; entries < 200_000; entries++)
         {
@@ -398,7 +395,7 @@ internal static class FirmwareSignatures
         uint version = w.Le16(at + 4), nameLength = w.Le16(at + 26);
         if (version > 63 || w.Le16(at + 8) is not (0 or 8 or 9 or 12 or 14 or 93 or 95 or 98 or 99) || nameLength is 0 or > 1024 || !w.Has(at + 30, (int)nameLength)) return null;
         var name = Encoding.UTF8.GetString(w.D, at + 30, (int)nameLength);
-        // the end of central directory record gives the archive's size
+        // The end of central directory record gives the archive's size.
         int end = w.D.AsSpan(at, w.N - at).IndexOf("PK\u0005\u0006"u8);
         if (end >= 0 && w.Has(at + end, 22)) return Sized(w, at, end + 22 + w.Le16(at + end + 20), $"first entry '{name}'");
         return Found($"first entry '{name}'");
@@ -455,7 +452,7 @@ internal static class FirmwareSignatures
         ulong Addr(int o) => is64 ? (big ? w.Be64(at + o) : w.Le64(at + o)) : big ? w.Be32(at + o) : w.Le32(at + o);
         uint type = U16(16), machine = U16(18);
         if (type is 0 or > 4 || U16(is64 ? 52 : 40) != (is64 ? 64 : 52)) return null;
-        // the file ends at the section header table (or its last program segment when there is none)
+        // The file ends at the section header table, or its last program segment when there is none.
         ulong shoff = Addr(is64 ? 40 : 32);
         uint shentsize = U16(is64 ? 58 : 46), shnum = U16(is64 ? 60 : 48);
         long size = shoff > 0 && shnum > 0 && shentsize is 40 or 64 ? (long)shoff + shnum * shentsize : 0;
@@ -531,11 +528,7 @@ internal static class FirmwareSignatures
         return table;
     }
 
-    /// <summary>
-    /// Signatures whose header starts below <paramref name="limit"/> in the window; a region a sized filesystem, boot image or
-    /// archive covers is not searched again inside (its parts are its own reader's business). Returns the first offset
-    /// after the last region, for the next window.
-    /// </summary>
+    /// <summary>Signatures starting below <paramref name="limit"/>, skipping inside sized regions; returns the offset after the last region.</summary>
     public static long Scan(Window w, int limit, long skipUntil, List<SignatureHit> hits, int maxHits, Func<Signature, bool>? only, CancellationToken ct)
     {
         int last = w.N - 1;
@@ -550,7 +543,7 @@ internal static class FirmwareSignatures
                 if (header < 0 || header >= limit || header + w.Origin < skipUntil || !w.Is(i, s.Magic) || (only != null && !only(s))) continue;
                 (long? Size, string? Detail)? r;
                 try { r = s.Check(w, header); }
-                // a check reads arbitrary bytes: a range it did not guard is a miss, not a failure
+                // A check reads arbitrary bytes: a range it did not guard is a miss, not a failure.
                 catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException or OverflowException or ToolError) { r = null; }
                 if (r is not { } found) continue;
                 hits.Add(new SignatureHit(w.Origin + header, s.Format, s.Kind, found.Size, found.Detail));
@@ -597,7 +590,7 @@ internal static class FirmwareSignatures
         {
             filled += s.ReadAtLeast(buffer.AsSpan(filled), buffer.Length - filled, throwOnEndOfStream: false);
             bool last = origin + filled >= length || filled < buffer.Length;
-            // a signature starting in the overlap is left to the next window, which holds its header whole
+            // A signature starting in the overlap is left to the next window, which holds its header whole.
             skip = Scan(new Window(buffer, filled, origin, length, ReadAt), last ? filled : filled - overlap, skip, hits, maxHits, null, ct);
             if (last) break;
             buffer.AsSpan(filled - overlap, overlap).CopyTo(buffer);

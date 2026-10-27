@@ -4,10 +4,7 @@ using Corvus.Native.Providers.Ida;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// Read-only checks behind status: each registered client's own command, args and env started as the client would,
-/// the analysis engines, and a target file. Classifications appear in --json.
-/// </summary>
+/// <summary>Read-only checks behind status: each client's registered command started as the client would, engines and a target file.</summary>
 internal static class Doctor
 {
     public const string Healthy = "healthy", NotRegistered = "not_registered", OtherCopy = "other_copy", MissingProgram = "missing_program",
@@ -20,10 +17,7 @@ internal static class Doctor
 
     public static readonly string[] Engines = ["ida", "python", "ghidra"];
 
-    /// <summary>
-    /// Fills a client row's state, message and self-test; <paramref name="tests"/> caches one start per distinct
-    /// (command, args, env), so clients sharing a registration start it once.
-    /// </summary>
+    /// <summary>Fills a client row's state, message and self-test; <paramref name="tests"/> caches one start per command, args and env.</summary>
     public static void Check(ClientReport row, SetupEnvironment env, ServerLaunch ours, Dictionary<string, ServerReport> tests)
     {
         var client = row.Client!;
@@ -74,10 +68,7 @@ internal static class Doctor
         }
     }
 
-    /// <summary>
-    /// A registration found under the name used before the rename: a working one is legacy_name, a failing one keeps its
-    /// state; both say that install renames it.
-    /// </summary>
+    /// <summary>Marks a registration under the old name: a working one is legacy_name, a failing one keeps its state.</summary>
     public static void MarkLegacy(ClientReport row)
     {
         var note = $"registered as {ClientCatalog.LegacyServerName}, the name before the rename; corvus install renames it";
@@ -155,10 +146,10 @@ internal static class Doctor
         if (h.StartsWith("MZ"u8)) return Pe(env, path);
         if (h.StartsWith("PK\x03\x04"u8)) return new CheckReport(path, true, Healthy, "a ZIP container (.apk, .nupkg, ...): list_assemblies and unpack_container read it", null);
         if (h.StartsWith("MDMP"u8)) return new CheckReport(path, true, Healthy, "a Windows minidump: open_minidump reads it", null);
-        if (h.StartsWith((ReadOnlySpan<byte>)[0xAF, 0x1B, 0xB1, 0xFA])) return new CheckReport(path, true, Healthy, "Il2Cpp metadata (global-metadata.dat): load_assembly reads it with the GameAssembly binary beside it", null);
+        if (h.StartsWith((ReadOnlySpan<byte>)[0xAF, 0x1B, 0xB1, 0xFA])) return new CheckReport(path, true, Healthy, "AOT metadata (global-metadata.dat): load_assembly reads it with GameAssembly beside it", null);
         if (h.StartsWith((ReadOnlySpan<byte>)[0x7F, (byte)'E', (byte)'L', (byte)'F']) || h.StartsWith((ReadOnlySpan<byte>)[0xCF, 0xFA, 0xED, 0xFE]) || h.StartsWith((ReadOnlySpan<byte>)[0xCA, 0xFE, 0xBA, 0xBE]))
             return new CheckReport(path, false, UnsupportedTarget, "an ELF or Mach-O binary; only PE images are analyzed", null);
-        return new CheckReport(path, false, UnsupportedTarget, "not a PE image, container, minidump or Il2Cpp metadata", "summarize_file reports what it contains.");
+        return new CheckReport(path, false, UnsupportedTarget, "not a PE image, container, minidump or AOT metadata", "summarize_file reports what it contains.");
     }
 
     private static CheckReport Pe(SetupEnvironment env, string path)

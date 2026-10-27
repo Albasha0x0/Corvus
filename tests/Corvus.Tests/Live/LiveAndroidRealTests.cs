@@ -25,10 +25,7 @@ public sealed class AndroidLiveFactAttribute : FactAttribute, IRunTimeSkip
     public string? RunTimeSkip() => Missing.Value;
 }
 
-/// <summary>
-/// A session on a program running on an Android device: a DEX built here runs under the device's app_process, stops at a
-/// library export, and the stop shows native frames named from the device's own libraries and the thread's Java frames.
-/// </summary>
+/// <summary>A DEX run under the device's app_process stops at a library export with native frames named from device libraries and the thread's Java frames.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]

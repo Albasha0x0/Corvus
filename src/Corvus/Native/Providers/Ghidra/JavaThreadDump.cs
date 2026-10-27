@@ -4,10 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Native.Providers.Ghidra;
 
-/// <summary>
-/// What a Java worker that missed its time was doing: a thread dump and heap summary from the JDK's jcmd, or from jhsdb
-/// when jcmd cannot attach (a JVM that does not reach a safepoint does not answer jcmd).
-/// </summary>
+/// <summary>Thread dump and heap summary of a stalled Java worker, from jcmd, else jhsdb (a JVM off a safepoint ignores jcmd).</summary>
 internal static partial class JavaThreadDump
 {
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
@@ -16,12 +13,7 @@ internal static partial class JavaThreadDump
     /// <summary>Folder for the dumps in place of the provider's own (a test run keeps it past its temporary caches).</summary>
     public const string FolderVariable = "CORVUS_STALL_DIR";
 
-    /// <summary>
-    /// Saves the thread dump and heap summary of the first of <paramref name="pids"/> that hosts a JVM (a PyGhidra worker
-    /// runs it in a child of the Python launcher) under <see cref="FolderVariable"/>, else <paramref name="folder"/>, and
-    /// returns the heap line, the busiest Ghidra threads, why jcmd failed when it did, and the file; starts with
-    /// <see cref="WorkerConnection.StateUnknown"/> and the reason when neither tool read the threads.
-    /// </summary>
+    /// <summary>Saves the dump of the first JVM among <paramref name="pids"/> under <see cref="FolderVariable"/>, else <paramref name="folder"/>; returns its summary and file, or <see cref="WorkerConnection.StateUnknown"/> with the reason.</summary>
     public static string Report(string java, IReadOnlyList<int> pids, string folder)
     {
         var bin = Path.GetDirectoryName(java) ?? "";
@@ -66,10 +58,7 @@ internal static partial class JavaThreadDump
         return threads == null ? WorkerConnection.StateUnknown + text : text;
     }
 
-    /// <summary>
-    /// "processes: name pid, X s CPU in Y s; ..." for each of <paramref name="pids"/> still running; a process that exited
-    /// or cannot be read is named with "not read".
-    /// </summary>
+    /// <summary>"processes: name pid, X s CPU in Y s; ..." for <paramref name="pids"/>; an unreadable process is "not read".</summary>
     internal static string Processes(IReadOnlyList<int> pids)
     {
         var rows = new List<string>();

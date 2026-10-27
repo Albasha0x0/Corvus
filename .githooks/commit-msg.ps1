@@ -3,7 +3,7 @@
 param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Path)
 
 $Types = 'feat', 'fix', 'perf', 'test', 'docs', 'refactor', 'ci', 'chore'
-$Scopes = 'live', 'dumps', 'il2cpp', 'engines', 'native', 'dotnet', 'edits', 'containers', 'mobile', 'web', 'catalog',
+$Scopes = 'live', 'dumps', 'aot', 'engines', 'native', 'dotnet', 'edits', 'containers', 'mobile', 'web', 'catalog',
     'session', 'tests', 'release'
 $Width = 72
 # Trailer lines may run past the width; so may a line that is one word (a long test name) or holds a URL.

@@ -9,10 +9,7 @@ using Corvus.Services.Web;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// A script a V8 inspector reported: id, url, the local file a file: url names, and its source map once read (null with
-/// <see cref="MapNote"/> saying why when the script names one that could not be read).
-/// </summary>
+/// <summary>A script a V8 inspector reported, with its local file and source map; an unreadable map is null with <see cref="MapNote"/>.</summary>
 public sealed class LiveScriptState(string id, string url, string? mapUrl)
 {
     public string Id { get; } = id;
@@ -26,10 +23,7 @@ public sealed class LiveScriptState(string id, string url, string? mapUrl)
     public string Name => Url.TrimEnd('/') is var t && t.LastIndexOfAny(['/', '\\']) is var i and >= 0 ? t[(i + 1)..] : Url;
 }
 
-/// <summary>
-/// The script side of a session on a managed runtime's debugger (a V8 inspector or a JVM's JDWP agent): the target, the
-/// runtime it reports, the scripts or classes by id and, for a JVM, its threads as last read.
-/// </summary>
+/// <summary>A V8 inspector or JDWP session's target, runtime, scripts or classes by id, and for a JVM its last-read threads.</summary>
 public sealed class LiveScriptRuntime(string kind)
 {
     /// <summary>"V8 inspector" or "JVM".</summary>
@@ -46,10 +40,7 @@ public sealed class LiveScriptRuntime(string kind)
 /// <summary>A JVM thread: id, name, state, whether a stop point holds it, its stack depth and its first frames.</summary>
 public sealed record LiveJvmThread(long Id, string Name, string Status, bool Held, int Depth, IReadOnlyList<LiveScriptFrame> Frames);
 
-/// <summary>
-/// A paused script or JVM frame: function, script id and name, generated position (1-based line and column; 0 when
-/// unknown or, for a JVM, not reported) and the original position its map gives, if any.
-/// </summary>
+/// <summary>A paused script or JVM frame: 1-based generated position (0 when unknown) and the mapped original position, if any.</summary>
 public sealed record LiveScriptFrame(string Function, string ScriptId, string Script, int Line, int Column, string? Original)
 {
     /// <summary>SCRIPT:LINE:COLUMN, leaving out the parts that are 0.</summary>
@@ -126,10 +117,7 @@ public sealed partial class LiveSessionService
         foreach (var script in unread) await MapOfAsync(session, script, ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// The map a script names, read once from the source the runtime holds (inline data: URLs, or a path relative to its
-    /// file); null when it names none, or with <see cref="LiveScriptState.MapNote"/> when the map could not be read.
-    /// </summary>
+    /// <summary>The script's source map, read once; null when it names none, or with <see cref="LiveScriptState.MapNote"/> when unreadable.</summary>
     private async Task<SourceMap?> MapOfAsync(LiveSession session, LiveScriptState script, CancellationToken ct)
     {
         if (script.MapRead || script.MapUrl == null) return script.Map;
@@ -157,11 +145,8 @@ public sealed partial class LiveSessionService
 
     private static readonly Regex ScriptFileLine = new(@"^(?<file>.+?):(?<line>\d+)(?::(?<column>\d+))?$", RegexOptions.CultureInvariant);
 
-    /// <summary>
-    /// A stop point at FILE:LINE[:COLUMN] (1-based): an original source a loaded script's map names, mapped to its first
-    /// generated position on that line or the next mapped one; else a loaded script whose url ends with FILE; else any
-    /// script whose url ends with FILE once it is parsed (generated lines, as no map is known yet).
-    /// </summary>
+    // A mapped line without code moves to the next mapped line; unmapped scripts use generated lines.
+    /// <summary>Sets a stop point at FILE:LINE[:COLUMN], 1-based: in a mapped original source, else in any script whose url ends with FILE.</summary>
     private async Task<LiveStopPointState> SetScriptAsync(LiveSession session, string where, CancellationToken ct, string? id)
     {
         Live(session);

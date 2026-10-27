@@ -47,11 +47,7 @@ public sealed record GhidraProviderOptions
     public int Decompilers { get; init; } = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
 }
 
-/// <summary>
-/// Ghidra through a Java worker per session (Native/Providers/Ghidra/worker), built on first use with the user's JDK.
-/// The JVM runs inside a kill-on-close Job Object on Windows; Ghidra's settings, caches and temporary files are kept
-/// under the analysis cache, and each image's project is kept per SHA-256 and analysis profile.
-/// </summary>
+/// <summary>Ghidra through one Java worker per session, built on first use, in a kill-on-close job on Windows; Ghidra's settings and caches stay under the analysis cache, projects per SHA-256 and profile.</summary>
 public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INativeDecompilerProvider
 {
     public const string ProviderId = "ghidra";
@@ -116,7 +112,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     private (ProviderAvailability Result, GhidraInstallation? Ghidra, JavaRuntime? Java) Static()
     {
-        // locating Java runs processes: a call waiting here stops when it is cancelled
+        // Locating Java runs processes: a call waiting here stops when it is cancelled.
         using (AssemblyWorkspace.Lock(_availabilityLock))
             return _static ??= ComputeStatic();
     }
@@ -138,7 +134,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         {
             details["java_candidates"] = log.Count == 0 ? "none found" : string.Join("; ", log);
             return (ProviderAvailability.Missing(Id, $"No JDK {ghidra.JavaMin}+ was found for Ghidra {ghidra.Version} ({details["java_candidates"]}).",
-                $"Install a 64-bit JDK {ghidra.JavaMin} or newer (a JRE is not enough: the worker is compiled on first use) and set {GhidraOptions.JavaVariable} to its directory.",
+                $"Install a 64-bit JDK {ghidra.JavaMin} or newer, not a JRE (the worker is compiled on first use), and set {GhidraOptions.JavaVariable} to its directory.",
                 details), ghidra, null);
         }
         details["java"] = $"{java.Home} (Java {java.Major}, {java.Source})";
@@ -160,10 +156,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         return (ProviderAvailability.Ok(Id, details), ghidra, java);
     }
 
-    /// <summary>
-    /// Waits for a new worker's ready event. A busy machine stretches the JVM's start while it keeps using CPU, so the
-    /// start limit counts time the worker spends idle; <paramref name="cap"/> bounds the whole start.
-    /// </summary>
+    /// <summary>Waits for a new worker's ready event; the start limit counts idle time only, <paramref name="cap"/> bounds the whole start.</summary>
     internal Task WaitStartedAsync(WorkerConnection worker, TimeSpan cap, CancellationToken cancellationToken) =>
         worker.WaitReadyAsync(cap > _options.StartTimeout ? cap : _options.StartTimeout, cancellationToken, idle: _options.StartTimeout);
 
@@ -197,8 +190,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             throw new ToolError(ErrorCode.ProviderUnavailable, result.Reason!, result.Remediation);
         if (IsWasm(imagePath) && !HasWasmLanguage(ghidra!))
             throw new ToolError(ErrorCode.Unsupported,
-                $"Ghidra {ghidra!.Version} has no WebAssembly language (no Wasm processor in its Ghidra/Processors or in an extension of {GhidraOptions.ExtensionsVariable}): it finds no loader for the module.",
-                $"omit engine for the built-in WebAssembly lift, disassembly and call tree; or put a WebAssembly extension zip built for Ghidra {ghidra.Version} in {GhidraOptions.ExtensionsVariable}");
+                $"Ghidra {ghidra!.Version} has no WebAssembly language in its processors or in {GhidraOptions.ExtensionsVariable}.",
+                $"omit engine for the built-in WebAssembly reader, or put a WebAssembly extension zip built for Ghidra {ghidra.Version} in {GhidraOptions.ExtensionsVariable}");
         var session = new GhidraSession(this, ghidra!, java!, options ?? new NativeOpenOptions());
         _sessions[session] = 0;
         try
@@ -213,10 +206,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         }
     }
 
-    /// <summary>
-    /// The configured Python when it imports PyGhidra and JPype (install them from the Ghidra release, offline:
-    /// python -m pip install --no-index -f Ghidra/Features/PyGhidra/pypkg/dist pyghidra); else why not.
-    /// </summary>
+    // Offline install: python -m pip install --no-index -f Ghidra/Features/PyGhidra/pypkg/dist pyghidra.
+    /// <summary>The configured Python when it imports PyGhidra and JPype, else the problem.</summary>
     private static (string? Python, string? Problem) PyGhidraPython(string? configured)
     {
         if (string.IsNullOrWhiteSpace(configured)) return (null, null);
@@ -241,10 +232,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     private bool? _wasmLanguage;
 
-    /// <summary>
-    /// Whether a language definition (.ldefs) of the installation or of a configured extension names a WebAssembly processor.
-    /// Workers use a private settings directory, so extensions the user installed in their own Ghidra do not count.
-    /// </summary>
+    /// <summary>Whether an .ldefs of the install or a configured extension names a WebAssembly processor; user-installed extensions do not count.</summary>
     private bool HasWasmLanguage(GhidraInstallation ghidra) => _wasmLanguage ??= ComputeWasmLanguage(ghidra);
 
     private bool ComputeWasmLanguage(GhidraInstallation ghidra)
@@ -318,11 +306,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         return Directory.Exists(dir) && Directory.EnumerateDirectories(dir, "p-*").Where(p => GhidraSession.OfOverrides(p, overrides)).Any(GhidraSession.HasProject);
     }
 
-    /// <summary>
-    /// Builds the worker when needed and starts a JVM (inside a job on Windows), or adopts the spare started with the same
-    /// command; Ghidra initializes before the ready event. <paramref name="refill"/> starts the next spare once this
-    /// worker is ready, when spares are on.
-    /// </summary>
+    /// <summary>Builds the worker if needed and starts a JVM or takes a matching spare; <paramref name="refill"/> starts the next spare when spares are on.</summary>
     internal async Task<WorkerConnection> StartWorkerAsync(GhidraInstallation ghidra, JavaRuntime java, long imageBytes, CancellationToken cancellationToken, bool refill = false)
     {
         var dirs = Directories;
@@ -384,18 +368,14 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         return worker;
     }
 
-    /// <summary>
-    /// Environment changes for a worker: no Java options of the user's own programs (a second -Xmx, an agent, a
-    /// debugger), and the temporary folder of <paramref name="dirs"/>.
-    /// </summary>
+    /// <summary>Worker environment: the user's Java options removed (a second -Xmx, an agent, a debugger), the temporary folder of <paramref name="dirs"/>.</summary>
     internal static Dictionary<string, string?> WorkerEnvironment(GhidraDirectories dirs) => new()
     {
         ["JAVA_TOOL_OPTIONS"] = null,
         ["_JAVA_OPTIONS"] = null,
         ["JDK_JAVA_OPTIONS"] = null,
-        // Workaround for NationalSecurityAgency/ghidra#9988 (tested PyGhidra 3.1.0, no fix yet): PyGhidra serializes
-        // its start on a file lock in the temporary folder, held while Ghidra builds its class path, so with the
-        // user's folder every worker on the machine waited in one line. The lock guards the extensions in the
+        // Workaround for NationalSecurityAgency/ghidra#9988 (tested PyGhidra 3.1.0, no fix yet): a private TEMP keeps
+        // PyGhidra's start lock per worker directory instead of one per machine. The lock guards the extensions in the
         // settings folder, which these directories own.
         ["TEMP"] = dirs.Temp,
         ["TMP"] = dirs.Temp,
@@ -411,13 +391,13 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     internal static string? Remediation(ErrorCode code, string message) => message.Contains(EngineMemoryLimit.Variable, StringComparison.Ordinal)
         ? $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) or lower {GhidraOptions.MaxMemoryVariable}, and retry."
-        // Ghidra's native decompiler crashes on some functions every time; the next request starts a new one
+        // Ghidra's native decompiler crashes on some functions every time; the next request starts a new one.
         : message.Contains("Decompiler process died", StringComparison.Ordinal)
         ? "Ghidra's decompiler fails on this function each time: decompile it with engine=ida, or read it with disassemble."
         : code switch
     {
         ErrorCode.Timeout => WorkerConnection.TimeoutNext(message),
-        ErrorCode.ProviderUnavailable => "Retry once (the session restarts Ghidra from the saved project); if it persists, run the provider probe and check the Ghidra install and the JDK.",
+        ErrorCode.ProviderUnavailable => "Retry once; the session restarts Ghidra from the saved project. If it persists, run the provider probe and check the Ghidra install and JDK.",
         ErrorCode.Unsupported => "Use the built-in disassembly, or build Ghidra's native decompiler for this platform.",
         ErrorCode.NotFound => "List the functions to find a valid address.",
         ErrorCode.LimitExceeded => "Ask for a smaller range.",

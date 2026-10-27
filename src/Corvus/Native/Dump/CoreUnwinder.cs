@@ -4,12 +4,7 @@ using Corvus.Native.Elf;
 
 namespace Corvus.Native.Dump;
 
-/// <summary>
-/// Walks a core thread's stack: DWARF CFI from each module's .eh_frame (the CFA rule, then each saved register, DWARF
-/// expressions evaluated against the frame's registers and the core's memory), else the frame chain (the frame record
-/// at the frame pointer on x64, x86 and AArch64, below it on RISC-V, the back chain on PowerPC), else for the top frame
-/// the link register. Frames are bounded by <c>maxFrames</c>, the thread's stack mapping and stack pointer progress.
-/// </summary>
+/// <summary>Walks a core thread's stack by .eh_frame CFI, else the frame chain, else (top frame) the link register; bounded by maxFrames, the stack mapping and sp progress.</summary>
 /// <param name="atFunctionStart">Whether an address is a function's first instruction, where an AArch64 frame has not written its record yet.</param>
 public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulong, CoreImage?> imageAt, Func<ulong, bool>? atFunctionStart = null)
 {
@@ -75,7 +70,7 @@ public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulon
         }
         else why = failure ?? "no CFI";
 
-        // generated code (an interceptor's trampoline) need not keep a frame record: its caller is found by a scan
+        // Generated code (an interceptor's trampoline) need not keep a frame record, so its caller is found by a scan.
         if (image == null && arch.Arch is NativeArch.X64 or NativeArch.X86 && memory.ModuleAt(lookup) == null && memory.RegionAt(regs.Pc) is { IsExecutable: true })
             return Scan(regs) is { } scanned
                 ? (scanned, FrameMethod.Scan, $"0x{regs.Pc:X} is not in a module (generated code); scanned the stack for a return address", null)
@@ -95,12 +90,7 @@ public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulon
     /// <summary>Most stack slots a scan reads.</summary>
     private const int MaxScanSlots = 0x4000;
 
-    /// <summary>
-    /// The first stack slot above the stack pointer holding a return address (an address in a module right after a call)
-    /// whose call can lead to the generated code and whose own frame unwinds by CFI to another return address; failing
-    /// that, the first such return address, then the same ranking without the call check. Other registers stay as they
-    /// are (the scanned code is taken to keep the callee-saved ones).
-    /// </summary>
+    /// <summary>The caller found by scanning the stack for a return address, preferring one whose call can reach generated code and whose frame unwinds; null when none.</summary>
     private CoreRegisters? Scan(CoreRegisters regs)
     {
         ulong ptr = (ulong)arch.PointerSize;
@@ -114,10 +104,10 @@ public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulon
             next.Pc = value;
             next.Sp = at + ptr;
             first ??= next;
-            // a stale return address left below the live frames rarely unwinds any further
+            // A stale return address left below the live frames rarely unwinds any further.
             bool unwinds = image.Row(value - 1, out _) is { } row && ApplyCfi(next, row).Next is { } caller
                 && caller.Sp > next.Sp && IsReturnAddress(caller.Pc, out _);
-            // registers an interceptor saved on the stack hold stale return addresses too; their direct calls name other code
+            // Registers an interceptor saved on the stack hold stale return addresses too; their direct calls name other code.
             if (!CallMayReachGeneratedCode(value))
             {
                 if (unwinds) firstUnwinding ??= next;
@@ -129,11 +119,7 @@ public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulon
         return firstCalling ?? firstUnwinding ?? first;
     }
 
-    /// <summary>
-    /// False when the call before <paramref name="returnAddress"/> is a direct call whose target, followed through an
-    /// optional endbr and up to three jumps (a PLT entry, an interceptor's patch), stays in module code: such a call cannot
-    /// have entered code outside every module. True for indirect calls and code that cannot be read.
-    /// </summary>
+    /// <summary>False when the direct call before <paramref name="returnAddress"/> stays in module code through up to three jumps; true for indirect or unreadable calls.</summary>
     private bool CallMayReachGeneratedCode(ulong returnAddress)
     {
         Span<byte> b = stackalloc byte[16];
@@ -219,7 +205,7 @@ public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulon
             }
         }
         if (!row.Rules.ContainsKey(arch.Sp)) next.Sp = cfa;
-        // without a rule the return column keeps its value: the link register on ARM, AArch64, PowerPC, s390x and RISC-V
+        // Without a rule the return column keeps its value: the link register on ARM, AArch64, PowerPC, s390x and RISC-V.
         int raSlot = arch.Slot(row.ReturnColumn);
         if (raSlot < 0 || !next.TryGet(raSlot, out ulong ra) || (raSlot == arch.Pc && !row.Rules.ContainsKey(row.ReturnColumn)))
             return (null, "the return address has no rule");
@@ -242,11 +228,7 @@ public sealed class CoreUnwinder(IProcessMemory memory, CoreArch arch, Func<ulon
 
     private bool ReadWord(ulong address, out ulong value) => Read(address, arch.PointerSize, out value);
 
-    /// <summary>
-    /// The caller from the frame chain: the record at the frame pointer (saved frame pointer, then return address) on x64,
-    /// x86 and AArch64; the record just below it on RISC-V; PowerPC's back chain at the stack pointer with the link
-    /// register saved two words above the caller's back chain. None on ARM and s390x (no chain in the default ABI).
-    /// </summary>
+    /// <summary>The caller from the frame record (x64, x86, AArch64, RISC-V) or PowerPC back chain; null on ARM and s390x or when unreadable.</summary>
     private CoreRegisters? FrameChain(CoreRegisters regs)
     {
         ulong ptr = (ulong)arch.PointerSize;

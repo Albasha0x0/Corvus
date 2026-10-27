@@ -12,11 +12,7 @@ public enum NativeAotElementType : byte
     ByRef = 0x19, Pointer = 0x1A, FunctionPointer = 0x1B,
 }
 
-/// <summary>
-/// A MethodTable (EEType): the fixed part, vtable targets, interfaces and the decoded tail fields. Addresses are RVAs,
-/// 0 for null. <see cref="NameOrigin"/>: typemap, composition (generic definition + arguments), vtable (owner of the
-/// methods it introduces), element (array / pointer / byref of a named type) or generated.
-/// </summary>
+/// <summary>A MethodTable; addresses are RVAs (0 for null); <see cref="NameOrigin"/> names where its name came from.</summary>
 public sealed record NativeAotMethodTable(uint Rva, uint Flags, ushort ComponentSize, uint BaseSize, NativeAotElementType ElementType,
     string Kind, uint RelatedType, IReadOnlyList<uint> Vtable, IReadOnlyList<uint> Interfaces)
 {
@@ -35,13 +31,7 @@ public sealed record NativeAotMethodTable(uint Rva, uint Flags, ushort Component
 /// <summary>An interface method a type implements: the interface's MethodTable (0 when out of range), its slot, and the implementing slot and code.</summary>
 public sealed record NativeAotInterfaceImpl(uint Interface, int InterfaceSlot, int ImplSlot, uint Code);
 
-/// <summary>
-/// Discovers and names the MethodTables of a NativeAOT module. Seeds: TypeMap and CommonFixupsTable targets and the
-/// unique System.Object shape; then a fixed point over the pointer slots: a slot pointing at a known MethodTable that
-/// sits at +8 (RelatedType) of a valid MethodTable adds it, as do interfaces, related types and generic definition and
-/// arguments of known ones. The frozen object region is excluded (an object's MethodTable pointer is also at +8).
-/// Layouts: .NET 7 (u16 flags), .NET 8 (u32 flags, optional fields), .NET 9+ (EETypeNode.cs, MethodTable.cs GetFieldOffset).
-/// </summary>
+/// <summary>Discovers and names the MethodTables of a NativeAOT module (.NET 7 to 9+ layouts) by a fixed point from seeds.</summary>
 public sealed class NativeAotTypes
 {
     private const int MaxSlots = 4096, MaxInterfaces = 1024, MaxTypes = 1_000_000, MaxNameDepth = 16;
@@ -59,10 +49,7 @@ public sealed class NativeAotTypes
         : reader == null ? null
         : others.GetOrAdd(rva, r => reader.TryRead(r, out var read) ? read with { Name = $"MT_{r:X}" } : null);
 
-    /// <summary>
-    /// The code of vtable slot <paramref name="slot"/>: from the vtable, or past its end from the sealed vtable
-    /// (VirtualMethodSlotHelper numbering); 0 when unknown.
-    /// </summary>
+    /// <summary>The code of vtable slot <paramref name="slot"/>, past the end from the sealed vtable; 0 when unknown.</summary>
     public uint SlotCode(NativeAotMethodTable mt, int slot)
     {
         if (slot < 0) return 0;
@@ -72,11 +59,7 @@ public sealed class NativeAotTypes
         return hydrated.RelativeAt(mt.SealedVTable + 4 * (uint)sealedSlot) is { } code && hydrated.Image.SectionAt(code) is { IsExecutable: true } ? NativeAotImage.CodeAddress(hydrated.Image, code) : 0;
     }
 
-    /// <summary>
-    /// The instance interface methods <paramref name="mt"/> implements itself, from its dispatch map (InterfaceDispatchMapNode.cs:
-    /// four u16 entry counts, then u16 triples interface index, interface slot, implementation slot). Default, static and
-    /// inherited implementations are not listed.
-    /// </summary>
+    /// <summary>Instance interface methods <paramref name="mt"/> implements itself, from its dispatch map; inherited ones are not listed.</summary>
     public IReadOnlyList<NativeAotInterfaceImpl> Implementations(NativeAotMethodTable mt)
     {
         var result = new List<NativeAotInterfaceImpl>();
@@ -209,7 +192,8 @@ public sealed class NativeAotTypes
                     uint rva = section.Rva + (uint)at;
                     if (InFrozen(rva) || !TryRead(rva, out var mt) || mt.ElementType != NativeAotElementType.Class || mt.Vtable.Any(v => v == 0)) continue;
                     found.Add(rva);
-                    if (found.Count > 1) return []; // ambiguous: rely on the other seeds
+                    // Ambiguous: rely on the other seeds.
+                    if (found.Count > 1) return [];
                 }
             }
             return found;
@@ -268,10 +252,10 @@ public sealed class NativeAotTypes
             ushort slots = U16(rva + 8 + ptr), interfaces = U16(rva + 10 + ptr);
             if (slots > MaxSlots || interfaces > MaxInterfaces) return false;
             bool canonical = kind == 0;
-            if (canonical && element is not NativeAotElementType.Interface && (baseSize < (ptr == 8 ? 0x10u : 12u) || baseSize > 1 << 24)) return false; // String's is 2 pointers + 6
-            // Statics bases and generic instantiation cells next to pointers are the usual look-alikes: a boxed primitive
-            // or enum is exactly header + MethodTable pointer + 8 bytes (4 or 8 on 32-bit), and only classes, structs and
-            // interfaces are generic.
+            // String's base size is 2 pointers + 6.
+            if (canonical && element is not NativeAotElementType.Interface && (baseSize < (ptr == 8 ? 0x10u : 12u) || baseSize > 1 << 24)) return false;
+            // Statics bases and instantiation cells are the usual look-alikes: a boxed primitive or enum is exactly
+            // header + MethodTable pointer + 8 bytes (4 or 8 on 32-bit), and only classes, structs and interfaces are generic.
             if (element == NativeAotElementType.Unknown) return false;
             if (element <= NativeAotElementType.Double && (!canonical || (ptr == 8 ? baseSize != 0x18 : baseSize is not (12 or 16)))) return false;
             if (kind == masks.KindGenericDefinition && element is not (NativeAotElementType.Class or NativeAotElementType.ValueType
@@ -302,12 +286,7 @@ public sealed class NativeAotTypes
             return true;
         }
 
-        /// <summary>
-        /// .NET 7 tail after the interfaces, 32-bit relative pointers: TypeManager, WritableData, [Finalizer], [OptionalFields],
-        /// [SealedVTable when the rare flags say so], [GenericDefinition, GenericComposition]. The optional fields hold the
-        /// rare flags and the dispatch map's index in the InterfaceDispatchTable (section 203); the composition is u16 arity,
-        /// u8 variance flag, padding to a pointer, then the argument MethodTable pointers (EETypeNode.cs, GenericCompositionNode.cs at v7).
-        /// </summary>
+        /// <summary>.NET 7 tail fields after the interfaces (32-bit relative pointers).</summary>
         private NativeAotMethodTable Tail7(NativeAotMethodTable mt, uint at, uint kind)
         {
             const uint HasSealedVTableEntries = 0x200;
@@ -390,10 +369,7 @@ public sealed class NativeAotTypes
             };
         }
 
-        /// <summary>
-        /// Tail fields after the interfaces, each a 32-bit relative pointer: TypeManager, WritableData, [DispatchMap],
-        /// [Finalizer], [OptionalFields (.NET 8)], [SealedVTable], [GenericDefinition], [GenericComposition].
-        /// </summary>
+        /// <summary>.NET 8+ tail fields after the interfaces (32-bit relative pointers).</summary>
         private NativeAotMethodTable Tail(NativeAotMethodTable mt, uint at, uint kind)
         {
             at += 8; // TypeManager indirection, writable data

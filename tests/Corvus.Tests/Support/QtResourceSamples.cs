@@ -5,11 +5,7 @@ using Corvus.Core.Archives;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Builds Qt resource collections as rcc lays them out: data entries, hashed names, then a breadth-first tree whose
-/// children are sorted by name hash (Qt looks them up by binary search), locale variants as sibling nodes; as a binary
-/// .rcc file or as the three arrays a program holds.
-/// </summary>
+/// <summary>Builds Qt resource collections as rcc lays them out, as a .rcc file or the three arrays a program holds.</summary>
 internal static class QtResourceSamples
 {
     /// <summary>One file: path from the root, content, storage (null, "zlib" or "zstd"), Qt locale numbers and modification time in ms.</summary>

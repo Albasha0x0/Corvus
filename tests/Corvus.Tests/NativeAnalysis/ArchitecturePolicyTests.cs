@@ -5,10 +5,7 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Images whose instructions the built-in analysis does not decode (MIPS, s390x): code tools refuse with unsupported, the
-/// file's machine name and a Next; composite reports mark their code facts as not decoded. No success claims zero code facts.
-/// </summary>
+/// <summary>Code tools refuse images whose instructions are not decoded (MIPS, s390x) with the machine name; reports mark code facts as not decoded.</summary>
 public sealed class ArchitecturePolicyTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -64,7 +61,7 @@ public sealed class ArchitecturePolicyTests : IDisposable
         Assert.DoesNotContain("Other", asm.Message);
         Assert.Contains($"\"arch\":\"{machineName}\"", System.Text.Json.JsonSerializer.Serialize(asm.Details));
 
-        // composite reports: a success, with code facts marked not decoded
+        // Composite reports: a success, with code facts marked not decoded.
         var collector = ToolOutput.Collect();
         var dossier = await new NativeFunctionTools(workspace, code, pager).AnalyzeNativeFunction(path, f);
         Assert.DoesNotContain("0 blocks", dossier);

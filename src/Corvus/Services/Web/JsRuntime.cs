@@ -9,7 +9,7 @@ public sealed record JsChunk(string Id, string? File);
 /// <summary>An async load: the chunks a site ensures (require.e) and the module it then requires.</summary>
 public sealed record JsAsyncLoad(string Site, IReadOnlyList<string> Chunks, string? Module);
 
-/// <summary>analyze_js view=runtime: the webpack runtime of a bundle.</summary>
+/// <summary>The analyze_js runtime view: the webpack runtime of a bundle.</summary>
 public sealed record JsRuntimeFacts(
     [property: System.ComponentModel.Description("The runtime's require function (__webpack_require__, minified or not) and its module table.")] string? Require, string? ModuleTable,
     [property: System.ComponentModel.Description("Chunk loading globals (self.webpackChunk..., webpackJsonp).")] IReadOnlyList<string> ChunkGlobals,
@@ -18,11 +18,7 @@ public sealed record JsRuntimeFacts(
     [property: System.ComponentModel.Description("Runtime helpers set on require: e (ensure chunk), u (chunk file name), p (public path)...")] IReadOnlyList<string> Helpers,
     IReadOnlyList<JsChunk> Chunks, IReadOnlyList<JsAsyncLoad> AsyncLoads);
 
-/// <summary>
-/// The webpack runtime read from the syntax tree: the require function (a one-parameter function calling the module
-/// table entry with itself), its helpers, the chunk-filename map (require.u: the id maps and string parts folded per
-/// chunk), the public path, the chunk loading global and pushed chunk ids, and each require.e site with its module.
-/// </summary>
+/// <summary>The webpack runtime from the syntax tree: require function, helpers, chunk file names, public path, chunk globals and async loads.</summary>
 internal static class JsRuntime
 {
     private const int MaxRows = 5000;
@@ -75,7 +71,7 @@ internal static class JsRuntime
         var loads = new List<JsAsyncLoad>();
         foreach (var (call, scope) in ensures.Take(MaxRows))
         {
-            // n.e(1) alone, or inside Promise.all([n.e(1), n.e(2)]).then(n.bind(n, 456)) or .then(() => n(456))
+            // Matches n.e(1) alone, or inside Promise.all([n.e(1), n.e(2)]).then(n.bind(n, 456)) or .then(() => n(456)).
             var owner = JsProgram.Unwrap(((MemberExpression)call.Callee).Object);
             if (owner is not Identifier ownerId || !IsRequire(p, scope, ownerId.Name, require)) continue;
             loads.Add(new JsAsyncLoad(p.Site(call), [JsProgram.Literal(call.Arguments[0]) ?? ((Literal)call.Arguments[0]).Raw], null));
@@ -116,7 +112,7 @@ internal static class JsRuntime
         var used = new HashSet<string>();
         p.Walk((node, scope) =>
         {
-            // X.then(after) where X is n.e(..) or Promise.all([n.e(..), ...])
+            // Matches X.then(after) where X is n.e(..) or Promise.all([n.e(..), ...]).
             if (node is not CallExpression { Callee: MemberExpression { Property: Identifier { Name: "then" }, Object: var before }, Arguments: [var after, ..] } then) return;
             var calls = JsProgram.Unwrap(before) switch
             {
@@ -150,10 +146,7 @@ internal static class JsRuntime
         }
     }
 
-    /// <summary>
-    /// require.u's file names per chunk id: the body's object literals keyed by chunk id give the parts ({1:"a1b2"}[e]),
-    /// the parameter is the id, string parts are kept; a chunk missing from a map uses the id ((map[e] || e)).
-    /// </summary>
+    /// <summary>File names per chunk id folded from require.u; a chunk missing from a map uses its id (map[e] || e).</summary>
     private static List<JsChunk> Filenames(JsProgram p, IFunction fn, IEnumerable<string> ensured)
     {
         if (fn.Params is not [Identifier param]) return [];
@@ -169,7 +162,7 @@ internal static class JsRuntime
             foreach (var c in n.ChildNodes)
                 if (c != null) stack.Push(c);
         }
-        // the ids the maps key, and those the file ensures (a filename function without maps: e => e + "/index.js")
+        // The ids the maps key, and those the file ensures (a filename function without maps: e => e + "/index.js").
         var ids = maps.SelectMany(m => m.Properties.OfType<Property>()).Select(x => JsProgram.KeyName(x.Key)).OfType<string>().Concat(ensured).Distinct().Take(MaxRows).ToList();
         var chunks = new List<JsChunk>();
         foreach (var id in ids)

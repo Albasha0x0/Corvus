@@ -15,8 +15,8 @@ on:
 permissions:
   contents: read
 
-# A live run has a group of its own, so a push and a live run never cancel each other. Each pushed commit has a group
-# of its own too: its offload results are what the push run on the developer's machine waits for (test.ps1).
+# Live runs and each pushed commit get their own group, so a push never cancels a live run or the offload results
+# test.ps1 waits for.
 concurrency:
   group: ci-${{ github.ref }}${{ inputs.live && '-live' || '' }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: true
@@ -26,15 +26,12 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
   NUGET_XMLDOC_MODE: skip
-  # One package folder for restore and for everything the tests download: they `dotnet publish` hello-world apps
-  # (single-file, self-contained + compressed, ReadyToRun) for the runner's own RID, which pulls runtime and crossgen2
-  # packs, and they open dnlib / K4os / Roslyn packages from this folder. One cache entry covers all of it.
+  # One package folder, one cache entry: restore plus the runtime and crossgen2 packs the tests' publishes download.
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
 jobs:
-  # Whether the commit changes only docs (docs/**, *.md) since the newest passing run of its branch whose commit is an
-  # ancestor of it, not since its parent, so a docs push after a failed code push still tests the code. Any doubt (no
-  # such run, an API error, 300 or more files, a pull request or a live run) answers no and every job runs.
+  # Docs-only (docs/**, *.md) since the newest passing ancestor run, not the parent, so a failed code push still
+  # gets tested. Any doubt answers no and every job runs.
   classify:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -97,8 +94,7 @@ jobs:
         shell: bash
         run: echo "version=$(dotnet --version)" >> "$GITHUB_OUTPUT"
 
-      # Keyed on the SDK version too: runtime / crossgen2 pack versions follow the SDK, so a new SDK gets a new entry
-      # (saved after the job, with the packs the tests downloaded) instead of re-downloading them on every run.
+      # Keyed on the SDK version: runtime and crossgen2 pack versions follow it.
       - name: Cache NuGet packages and runtime packs
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -114,16 +110,14 @@ jobs:
       - name: Build
         run: dotnet build --no-restore -c Release
 
-      # Memory and swap every 15 s while the tests run: the 3-core, 7 GB macOS runner has stalled searches that take
-      # 0.3 s elsewhere; the log shows whether memory pressure is the cause.
+      # Logs memory and swap every 15 s: shows whether memory pressure stalls searches on the 7 GB macOS runner.
       - name: Memory sampler (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           nohup bash -c 'while true; do echo "$(date +%T) $(memory_pressure | grep -i "free percentage") | swap $(sysctl -n vm.swapusage)"; sleep 15; done' > "$RUNNER_TEMP/memory.log" 2>&1 &
 
-      # The pinned YARA-X builds upstream publishes for this platform, checked against their recorded SHA-256
-      # (tests/Corvus.Tests/Support/yara-x-assets.json); the YARA tests of a platform without one skip with the reason.
+      # Pinned upstream YARA-X builds, checked by SHA-256; without one for the platform the YARA tests skip.
       - name: YARA-X test builds
         shell: pwsh
         run: |
@@ -131,8 +125,7 @@ jobs:
           ./tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination $dir
           "CORVUS_TEST_YARA_X=$dir" >> $env:GITHUB_ENV
 
-      # Tests that need local data (CORVUS_* variables) are skipped. Generated C / C++ / Python is compiled or parsed
-      # when clang and python are installed.
+      # Tests that need local data (CORVUS_* variables) skip.
       - name: Test
         run: >-
           dotnet test --no-build -c Release
@@ -153,9 +146,8 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
 
-  # The heavy test classes of a pushed commit (test-remote.psm1), one group per matrix entry dealt to shards: sweeps and
-  # comparisons, the Ghidra classes, and the live family. The push run on the developer's machine leaves them out and
-  # joins these results; Linux runs the cross-platform ones as a check. A manual run checks a branch.
+  # Heavy test classes of a pushed commit (sweep, ghidra, live), sharded; the local push run joins these results.
+  # Linux runs the cross-platform classes as a check.
   offload:
     name: offload (${{ matrix.group }} ${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }})
     needs: classify
@@ -241,7 +233,7 @@ jobs:
           path: TestResults/offload.trx
           if-no-files-found: ignore
 
-  # The one-line installers, end to end on a fresh machine: package, install, register, check, reinstall, uninstall.
+  # Installers end to end: package, install, register, check, reinstall, uninstall.
   install:
     name: install script (${{ matrix.os }})
     needs: classify
@@ -343,8 +335,7 @@ jobs:
           tr -d ' \n\r' < ~/.cursor/mcp.json | grep -q '"--client","cursor"'
           ~/.local/bin/corvus status
           CORVUS_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
-          # The data root is .NET's local application data folder.
-          # On Linux it is also the install folder, which keeps the data after an uninstall.
+          # Data root is .NET's local application data folder; on Linux also the install folder.
           if [ "$RUNNER_OS" = macOS ]; then data="$HOME/Library/Application Support/Corvus"; else data="$HOME/.local/share/Corvus"; fi
           mkdir -p "$data/annotations" && echo '{}' > "$data/annotations/marker.json"
           sh -s -- --uninstall < install.sh
@@ -358,9 +349,7 @@ jobs:
           test ! -e ~/.local/share/Corvus
           test ! -e "$data"
 
-  # Manual only (workflow_dispatch with live=true): the Live family, slow tests
-  # included, on macOS and Windows ARM64, which no local run covers;
-  # ubuntu-latest and windows-latest are the controls.
+  # Manual (live=true): the Live family with slow tests on macOS and Windows ARM64; the others are controls.
   live:
     name: live (${{ matrix.os }})
     if: github.event_name == 'workflow_dispatch' && inputs.live
@@ -379,8 +368,7 @@ jobs:
 
       - uses: ./.github/actions/live-setup
 
-      # Snapshots on macOS are written by lldb's process save-core (the Xcode
-      # command line tools).
+      # macOS snapshots use lldb's process save-core (Xcode command line tools).
       - name: lldb (macOS)
         if: runner.os == 'macOS'
         run: lldb --version
@@ -388,8 +376,7 @@ jobs:
       - name: Build
         run: dotnet build -c Release
 
-      # The family is every top-level test class under tests/Corvus.Tests/Live,
-      # as test.ps1 finds it.
+      # Every top-level test class under tests/Corvus.Tests/Live, as test.ps1 finds them.
       - name: Test (Live family)
         shell: bash
         env:

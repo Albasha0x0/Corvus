@@ -9,13 +9,8 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Native annotations (rename / comment, persisted per file hash) and in-memory byte patching (patch_bytes / patch_asm,
-/// recorded as undoable edits and written out by save_native). Patches are overlaid on a snapshot of the original file
-/// bytes; after a change the image the workspace holds is replaced with one parsed from the patched bytes and its
-/// analysis is discarded, so every read path (disassembly, strings, search_bytes, read_bytes, the code index) sees the
-/// patched bytes. All mutating calls run under the workspace write lock.
-/// </summary>
+/// <summary>Native annotations and in-memory byte patches as undoable edits; each patch replaces the loaded image with a
+/// reparse of the patched bytes. Mutating calls hold the workspace write lock.</summary>
 public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeService code, NativeEditJournal? journal = null)
 {
     /// <summary>The native edit journal every edit here is recorded in.</summary>
@@ -117,7 +112,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     }
 
     private static string StaleNote(NativeAnnotations ann) => ann.StaleSiblingHashes.Count == 0 ? ""
-        : $" (note: a sidecar of annotations exists for this path under {ann.StaleSiblingHashes.Count} other file hash(es); this file's current bytes are a separate, clean annotation set.)";
+        : $" (note: this path has annotations under {ann.StaleSiblingHashes.Count} other file hash(es); these bytes have their own set.)";
 
     /// <summary>Plans a patch over code: validates the start boundary, the file mapping and the function end; returns the file offset and the NOP-padded length.</summary>
     private (long FileOffset, int PaddedLength, int Covered, string? Note) Plan(NativeCodeIndex index, uint rva, int newLength, bool force)
@@ -134,7 +129,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
 
         var section = image.SectionAt(rva);
         bool isCode = section is { IsExecutable: true } && index.Support == CodeSupport.Full;
-        if (!isCode) return (fileOffset, newLength, newLength, null); // data: exact overwrite, no padding
+        // Data: exact overwrite, no padding.
+        if (!isCode) return (fileOffset, newLength, newLength, null);
 
         // The patch must start on an instruction boundary of its function (otherwise it splits an instruction).
         if (!force && index.FunctionAt(rva) is { } owner && owner.Start != rva)
@@ -166,11 +162,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
 
     public sealed record PatchResult(NativePatch Patch, string BeforeDisasm, string AfterDisasm, string Note, string StubPreview = "");
 
-    /// <summary>
-    /// Prepares a patch-site extension: the site becomes a jump to a stub in slack space that runs the new code (and,
-    /// unless the mode is replace, the displaced original instructions) and returns after the site. See
-    /// <see cref="PatchExtension"/> for the safety rules and reason codes.
-    /// </summary>
+    /// <summary>Prepares a jump from the site to a stub in slack space that runs the new code and returns; see
+    /// <see cref="PatchExtension"/>.</summary>
     public PatchResult PrepareExtendedPatch(NativeCodeIndex index, uint rva, byte[] newBytes, string? assembly,
         StubMode mode, string description, Func<string, ulong?>? resolve, StubPlacement placement = StubPlacement.Auto)
     {
@@ -196,8 +189,9 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                 replacement.AsSpan(used).Fill(0x90);
                 return;
             case NativeArch.Arm64 when used % 4 == 0 && (replacement.Length - used) % 4 == 0:
+                // ARM64 NOP.
                 for (int i = used; i < replacement.Length; i += 4)
-                    BinaryPrimitives.WriteUInt32LittleEndian(replacement.AsSpan(i), 0xD503201F); // nop
+                    BinaryPrimitives.WriteUInt32LittleEndian(replacement.AsSpan(i), 0xD503201F);
                 return;
             case NativeArch.Arm64:
                 throw new ToolError(ErrorCode.InvalidArgument,
@@ -217,11 +211,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         _ => throw new ToolError(ErrorCode.InvalidArgument, $"relocations must be auto, keep or neutralize, not '{text}'."),
     };
 
-    /// <summary>
-    /// Prepares a patch of <paramref name="newBytes"/> at <paramref name="rva"/>: the NOP-padded replacement, the
-    /// before/after disassembly, and the base-relocation plan. <paramref name="assembled"/> are the operand constants
-    /// the assembler produced (with which ones came from symbols); null for raw bytes, whose constants are decoded.
-    /// </summary>
+    /// <summary>Prepares a NOP-padded patch with before/after disassembly and relocation plan; <paramref name="assembled"/>
+    /// is null for raw bytes.</summary>
     public PatchResult PreparePatch(NativeCodeIndex index, uint rva, byte[] newBytes, bool force, string description,
         RelocationMode relocations = RelocationMode.Auto, IReadOnlyList<OperandConstant>? assembled = null, string? assembly = null)
     {
@@ -260,10 +251,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         return description.EndsWith(" " + stated, StringComparison.Ordinal) ? description[..^stated.Length] + size : $"{description}, {size}";
     }
 
-    /// <summary>
-    /// ELF and Mach-O: bytes the loader rewrites (dynamic relocations, rebases, binds, import slots) would not keep a patch,
-    /// and encrypted bytes (FairPlay) are not the code; both are refused, the first unless <paramref name="force"/>.
-    /// </summary>
+    /// <summary>Refuses ELF and Mach-O patches over encrypted bytes, and over loader-written bytes unless
+    /// <paramref name="force"/>.</summary>
     private static void RefuseLoaderWritten(INativeImage image, uint rva, int length, bool force)
     {
         uint end = rva + (uint)length;
@@ -418,7 +407,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         {
             if (native.Patches.LaterSlotUser(number) is { } later)
                 throw new ToolError(ErrorCode.Conflict,
-                    $"Native edit #{later.Number} ({later.Patch.Description}) rewrote a relocation entry this edit also rewrote; undoing this one first would leave the table inconsistent.",
+                    $"Native edit #{later.Number} ({later.Patch.Description}) also rewrote this relocation entry; undoing this one first would leave the table inconsistent.",
                     $"undo #{later.Number} first");
             var removed = native.Patches.Remove(number);
             if (removed == null) throw new ToolError(ErrorCode.NotFound, number is { } n ? $"There is no native edit #{n}." : "There are no native edits to undo.");
@@ -478,10 +467,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
 
     private const string ChecksumNote = "PE checksum recomputed to ";
 
-    /// <summary>
-    /// A universal Mach-O slice: the whole file as loaded (read again from disk; its slice must still be the loaded one) and
-    /// the slice's offset, so save_native writes the whole file with the patched slice. Null for other images.
-    /// </summary>
+    /// <summary>A universal Mach-O's whole file and slice range, reread and checked; null for other images.</summary>
     private static (byte[] File, int Offset, int Length)? Container(LoadedNative native)
     {
         if (native.Image is not Native.MachO.MachOFile { Slice: { } slice }) return null;
@@ -491,7 +477,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         {
             throw new ToolError(ErrorCode.IoError, $"Cannot read the universal file {native.FilePath} to write the patched slice into: {ex.Message}");
         }
-        // after this server's own save over the file its slice is the patched one
+        // After this server's own save over the file, its slice is the patched one.
         if (string.Equals(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(file)), native.SavedOverOriginalSha256, StringComparison.Ordinal))
             return (file, (int)slice.Offset, (int)slice.Size);
         if (slice.Offset + slice.Size > file.Length
@@ -518,7 +504,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             var g = p.Growth!;
             return new AppendedSection(g.SectionName, g.SectionRva, g.SectionVirtualSize, g.AppendFileOffset, g.AppendedData);
         }).ToList();
-        // ELF and Mach-O have no checksum field
+        // ELF and Mach-O have no checksum field.
         var source = new PatchExportSource(native.FilePath, native.OriginalSha256, image.ImageBase, image.Arch, native.Patches.Patches.ToList(), original, output,
             image is PeFile pe ? pe.OptionalHeaderOffset + 64 : -1, offset => image.TryFileOffsetToRva(offset, out var rva) ? rva : null, appended);
         var rendered = PatchExport.Render(source, format);
@@ -526,10 +512,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         return rendered;
     }
 
-    /// <summary>
-    /// The bytes save_native writes: the patched bytes, the certificate table removed when <paramref name="stripSignature"/>,
-    /// and the PE checksum recomputed when the original had one. export_native_patches exports the same bytes.
-    /// </summary>
+    /// <summary>The bytes save_native writes: patched, optionally unsigned, with the PE checksum recomputed when present.</summary>
     public static byte[] OutputBytes(LoadedNative native, bool stripSignature, List<string> notes)
     {
         var bytes = native.Patches.PatchedBytes();
@@ -553,7 +536,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         }
 
         if (!stripSignature && patchedImage.CertificateTable is not null)
-            notes.Add("The file is Authenticode-signed; after patching the signature no longer matches and the file is effectively unsigned. Pass stripSignature=true to remove the certificate table.");
+            notes.Add("The file is Authenticode-signed; the patched file's signature no longer matches. Pass stripSignature=true to remove it.");
         return bytes;
     }
 
@@ -571,14 +554,14 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan((int)dirEntry), 0);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan((int)dirEntry + 4), 0);
         }
-        // The certificate table lives in the trailing overlay; drop it (and nothing after it belongs to the image).
+        // The certificate table is the trailing overlay; drop it.
         if (offset + size == bytes.Length)
         {
             Array.Resize(ref bytes, (int)offset);
             notes.Add($"Removed the {size}-byte certificate table and zeroed the security directory entry.");
         }
         else
-            notes.Add("Zeroed the security directory entry; the certificate bytes are not at the end of the file, so they were left in place.");
+            notes.Add("Zeroed the security directory entry; the certificate bytes are not at the file end and stay in place.");
     }
 
     private const string UnparsableNote = "WARNING: the written file could not be re-parsed for verification";
@@ -601,9 +584,10 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             int mismatches = 0;
             for (int i = 0; i < Math.Min(originalBytes.Length, written.Length); i++)
             {
-                if (i >= checksumField && i < checksumField + 4) continue;          // checksum field may differ
-                if (strippedSignature) continue;                                     // signature strip changes several areas
-                if (ranges.Any(r => i >= r.Start && i < r.Start + r.Length)) continue; // inside a patch, a relocation / header rewrite or the appended section
+                // Skip the checksum field, a stripped signature's areas, and patched, rewritten or appended ranges.
+                if (i >= checksumField && i < checksumField + 4) continue;
+                if (strippedSignature) continue;
+                if (ranges.Any(r => i >= r.Start && i < r.Start + r.Length)) continue;
                 if (originalBytes[i] != written[i]) mismatches++;
             }
             var grown = grownBy > 0 ? $" (grown by {grownBy:N0} byte(s) for an appended section)" : "";
@@ -619,15 +603,12 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         }
     }
 
-    /// <summary>
-    /// Re-parses the written relocation table and checks it against the patches: inside every patched range exactly the
-    /// kept and added entries remain (nothing neutralized survives, nothing unplanned appears), and the table reads with
-    /// no more issues than the original's.
-    /// </summary>
+    /// <summary>Checks the written relocation table holds exactly the kept and added entries in each patched range, with no
+    /// new issues.</summary>
     private static string VerifyRelocations(PeFile written, PeFile original, IReadOnlyList<NativePatch> patches)
     {
         if (!PatchRelocations.IsRelocatable(original))
-            return "Relocations: the image is not relocatable (absolute addresses are fixed); nothing to check.";
+            return "Relocations: the image is not relocatable; nothing to check.";
         var problems = new List<string>();
         var entries = written.BaseRelocations;
         int checkedPatches = 0, expectedTotal = 0;

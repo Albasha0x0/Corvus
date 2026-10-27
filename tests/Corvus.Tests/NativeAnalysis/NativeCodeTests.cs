@@ -236,7 +236,7 @@ public class NativeCodeTests
         var table = Assert.Single(graph.Switches);
         Assert.Equal(tableRva, table.TableRva);
         Assert.Equal(cases.Select(rva), table.Targets);
-        // the table entries are data pointers, not function starts
+        // The table entries are data pointers, not function starts.
         Assert.Single(index.Functions);
     }
 
@@ -282,10 +282,10 @@ public class NativeCodeTests
         Assert.Equal([rva(tail)], graph.TailCalls);
         Assert.Contains(graph.Blocks, b => b.EndKind == BlockEnd.TailCall);
         Assert.Contains(index.RefsTo(rva(tail)), x => x.Kind == XrefKind.TailCall && index.FunctionAt(x.From) == c);
-        // callers of the import go through the thunk
+        // Callers of the import go through the thunk.
         Assert.Contains(index.Callers(image.Imports[0]), s => s.Caller == c);
         Assert.Contains(index.Callees(c), s => s.Function == t && s.Import?.Name == "Sleep");
-        // the tail-called function does not absorb its target
+        // The tail-called function does not absorb its target.
         var tf = index.FunctionByStart(rva(tail))!;
         Assert.Equal(rva(target), index.GetGraph(tf).TailCalls.Single());
         var tree = index.CallTree(c, 3, callers: false);
@@ -367,7 +367,7 @@ public class NativeCodeTests
             a.ret();
         });
         var data = new byte[0x100];
-        // scope table entry: enclosing level, filter, handler
+        // Scope table entry: enclosing level, filter, handler.
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x10), 0xFFFFFFFE);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x14), (uint)Base32 + rva(filter));
         uint pushImm = rva(main) + 4; // 55 8b ec 68 imm32
@@ -396,7 +396,7 @@ public class NativeCodeTests
         });
         var bytes = new byte[0x60];
         code.CopyTo(bytes, 0);
-        // a GUID: decodes as "sub [ecx+ebx*2-7A2647Ah], cl; inc ebp; mov ds:[0E9A9922Bh], eax; ..."
+        // A GUID: decodes as "sub [ecx+ebx*2-7A2647Ah], cl; inc ebp; mov ds:[0E9A9922Bh], eax; ...".
         byte[] g = [0x28, 0x8C, 0x59, 0x86, 0x9B, 0x5D, 0xF8, 0x45, 0xA3, 0x2B, 0x92, 0xA9, 0xE9, 0x9D, 0x96, 0x23];
         g.CopyTo(bytes, 0x40);
         var relocs = new[] { rva(main) + 1, rva(main) + 5 + 2 };
@@ -445,7 +445,7 @@ public class NativeCodeTests
     [Fact]
     public void Invalid_and_overlapping_bytes_are_bounded()
     {
-        // nop; eb ff: jmp to its own second byte; ff c0: inc eax; then c3: ret
+        // Nop; eb ff: jmp to its own second byte; ff c0: inc eax; then c3: ret.
         byte[] overlap = [0x90, 0xEB, 0xFF, 0xC0, 0xC3];
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, overlap, entry: Code));
         var f = Assert.Single(index.Functions);
@@ -453,7 +453,7 @@ public class NativeCodeTests
         var graph = index.GetGraph(f);
         Assert.Contains(graph.Blocks, b => b.Start == Code + 2);
 
-        // valid code running into an opcode that is invalid in 64-bit mode
+        // Valid code running into an opcode that is invalid in 64-bit mode.
         byte[] invalid = [0x31, 0xC0, 0x40, 0xD6, 0xC3];
         index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, invalid, entry: Code));
         f = index.FunctionByStart(Code)!;
@@ -461,7 +461,7 @@ public class NativeCodeTests
         Assert.Equal(BlockEnd.Invalid, index.GetGraph(f).Blocks.Single().EndKind);
         Assert.Equal("(bad)", index.Disassemble(Code + 3, 1).Single().Text);
 
-        // code that runs off the end of the section
+        // Code that runs off the end of the section.
         byte[] cut = [0x90, 0x90, 0x48];
         index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, cut, entry: Code));
         Assert.Equal(2, index.FunctionByStart(Code)!.InstructionCount);
@@ -560,12 +560,12 @@ public class NativeCodeTests
         Assert.True(index.Stats.Xrefs > 100);
         Assert.NotEmpty(index.Strings);
 
-        // callers and callees agree
+        // Callers and callees agree.
         foreach (var f in index.Functions.Take(200))
             foreach (var callee in index.Callees(f).Where(c => c.Kind == XrefKind.Call && c.Function != null))
                 Assert.Contains(index.Callers(callee.Function!), c => c.From == callee.From && c.Caller == f);
 
-        // every function disassembles and its graph is consistent with the index
+        // Every function disassembles and its graph is consistent with the index.
         foreach (var f in index.Functions)
         {
             var graph = index.GetGraph(f);

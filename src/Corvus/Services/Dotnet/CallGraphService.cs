@@ -192,17 +192,13 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     private static string ExternalKey(MethodDef m) =>
         $"{m.DeclaringType?.FullName}::{m.Name}({Format.ParameterTypes(m.MethodSig)}){m.GenericParameters.Count}";
 
-    /// <summary>
-    /// Writes the native lines under a method of a call tree: given the method, the levels left, the indent level, the rows list
-    /// to add <see cref="NativeTreeNode"/> rows to (ids continue from its count) and the method's row id as their parent.
-    /// </summary>
+    /// <summary>Returns the native lines under a call tree method and adds their rows to <c>rows</c>, ids continuing from its count.</summary>
     public delegate string NativeLines(MethodDef method, int levels, int indent, List<NativeTreeNode> rows, int? parent);
 
     /// <summary>
-    /// The call tree of <paramref name="root"/> as text, its nodes in text order in <paramref name="nodes"/>; <paramref name="truncated"/>:
-    /// <paramref name="maxNodes"/> stopped the walk.
+    /// The call tree of <paramref name="root"/> as text, nodes in <paramref name="nodes"/>; <paramref name="truncated"/> when maxNodes stopped it.
     /// </summary>
-    /// <param name="native">Optional lines under each expanded method (and the root): native code a method binds to (callees) or native code calling it (callers).</param>
+    /// <param name="native">Optional native lines under each expanded method and the root.</param>
     public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct,
         NativeLines? native, List<TreeNode>? nodes, out bool truncated)
     {
@@ -210,8 +206,8 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
         int length = sb.Length;
         truncated = WriteTree(sb, asm, root, callers, depth, maxNodes, includeExternal, 0, native, ct, nodes);
         if (sb.Length == length)
-            sb.AppendLine(callers ? "  (no callers in the loaded assemblies — load the assemblies that might call it)" : "  (calls nothing in the loaded assemblies; includeExternal=true shows framework calls)");
-        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes (the levels above the last one shown are complete): lower depth.]");
+            sb.AppendLine(callers ? "  (no callers in the loaded assemblies; load the assemblies that might call it)" : "  (calls nothing in the loaded assemblies; includeExternal=true shows framework calls)");
+        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes; levels above the last are complete; lower depth for a complete tree.]");
         return sb.ToString();
     }
 
@@ -355,10 +351,9 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
         PathSteps(from, to, maxDepth, maxPaths, includeVirtual, ct).Select(p => p.Select(s => s.Method).ToList()).ToList();
 
     /// <summary>
-    /// Call chains ending at <paramref name="to"/>, starting at <paramref name="from"/> or, if null, at entry points
-    /// (methods with no callers in the workspace). Direct-call paths come first, shortest first; with
-    /// <paramref name="includeVirtual"/>, paths needing virtual-dispatch hops follow. Entry points are determined per
-    /// edge set, so short direct chains are not hidden behind longer chains through a broad base method.
+    /// Call chains to <paramref name="to"/> from <paramref name="from"/> or, if null, from methods with no callers;
+    /// direct paths first, shortest first, then paths with virtual-dispatch hops. Entry points are found per edge set, so
+    /// a broad base method does not hide short direct chains.
     /// </summary>
     public List<List<PathStep>> PathSteps(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, bool includeVirtual, CancellationToken ct)
     {
@@ -382,7 +377,8 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 
         // Backward BFS from 'to': linear, unlike enumerating all simple paths in a cyclic graph.
         var dist = new Dictionary<MethodDef, int> { [to] = 0 };
-        var closer = new Dictionary<MethodDef, List<PathStep>>(); // caller -> its callees one step closer to 'to'
+        // Caller to its callees one step closer to 'to'.
+        var closer = new Dictionary<MethodDef, List<PathStep>>();
         var targets = new List<MethodDef>();
         var queue = new Queue<MethodDef>();
         queue.Enqueue(to);
@@ -417,7 +413,8 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
         // 'to' is itself an entry point, unless it is an external method.
         if (from == null && targets.Count == 0 && Callers(to).Count == 0 && !MetadataUtil.IsReferenceOnly(to))
             targets.Add(to);
-        foreach (var list in closer.Values) // direct calls first
+        // Direct calls first.
+        foreach (var list in closer.Values)
             list.Sort((a, b) => (a.Via != null).CompareTo(b.Via != null));
 
         // Walk forward along shortest-distance edges; one path per start first, for variety.

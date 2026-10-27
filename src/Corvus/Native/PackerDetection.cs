@@ -7,11 +7,7 @@ namespace Corvus.Native;
 /// <summary>A packer or protector a file shows signs of: its name, packer / protector / suspicious, and what shows it.</summary>
 public sealed record PackerFinding(string Name, string Kind, string Evidence);
 
-/// <summary>
-/// Detection only (nothing is unpacked): UPX on PE, ELF and Mach-O by its section names, the UPX! pack header (PE version marker,
-/// ELF / Mach-O l_info and p_info, the trailer) and the stub's info string; PE packers and protectors by their section names;
-/// otherwise compressed or encrypted code by entropy, code sections empty on disk and writable code at the entry point.
-/// </summary>
+/// <summary>Detects packers and protectors by section names, UPX headers and code heuristics; nothing is unpacked.</summary>
 public static class PackerDetection
 {
     private const double HighEntropy = 7.2;
@@ -81,7 +77,7 @@ public static class PackerDetection
         {
             if (image.Format == ImageFormat.Pe)
             {
-                // "<version>\0UPX!", then the header's version and format bytes
+                // "<version>\0UPX!", then the header's version and format bytes.
                 string? version = null;
                 if (at >= 2 && head[at - 1] == 0)
                 {
@@ -93,7 +89,7 @@ public static class PackerDetection
             }
             else if (at >= 4 && at + 20 <= head.Length)
             {
-                // l_info: checksum, "UPX!", l_lsize, l_version, l_format; then p_info: p_progid, p_filesize, p_blocksize
+                // l_info: checksum, "UPX!", l_lsize, l_version, l_format; then p_info: p_progid, p_filesize, p_blocksize.
                 byte version = head[at + 6], format = head[at + 7];
                 uint unpacked = BinaryPrimitives.ReadUInt32LittleEndian(head[(at + 12)..]);
                 evidence.Add($"l_info at file 0x{at - 4:X} (UPX! version {version}, {UpxFormat(format)}), p_info: unpacked size {unpacked:N0} bytes");
@@ -105,7 +101,7 @@ public static class PackerDetection
         if (trailer >= 0 && file.Length - tail.Length + trailer != at) evidence.Add($"UPX! trailer at file 0x{file.Length - tail.Length + trailer:X}");
         int info = file.IndexOf(UpxInfo);
         if (info >= 0) evidence.Add($"stub string \"$Info: This file is packed with the UPX executable packer\" at file 0x{Math.Max(0, info - 7):X}");
-        // a lone magic is weak: real UPX output has two signs or more
+        // A lone magic is weak; UPX output has two signs or more.
         return evidence.Count >= 2 || sections.Count > 0 ? new PackerFinding("UPX", "packing tool", string.Join("; ", evidence)) : null;
     }
 

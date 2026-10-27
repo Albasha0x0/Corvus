@@ -12,11 +12,7 @@ public sealed record NibObject(int Index, string Class, IReadOnlyList<KeyValuePa
     public object? this[string key] => Fields.FirstOrDefault(f => f.Key == key).Value;
 }
 
-/// <summary>
-/// Compiled nibs as one object graph: the NIBArchive format (iOS: header, then object, key, value and class-name tables
-/// with 7-bit varints whose high bit marks the last byte) and NSKeyedArchiver archives (macOS keyedobjects.nib).
-/// Bounded: malformed tables end the read with an issue.
-/// </summary>
+/// <summary>Compiled nibs (NIBArchive or NSKeyedArchiver) as one object graph; malformed tables end the read with an issue.</summary>
 public static class NibArchive
 {
     private const int MaxCount = 1 << 20;
@@ -102,7 +98,8 @@ public static class NibArchive
                     5 => true,
                     6 => (double)BinaryPrimitives.ReadSingleLittleEndian(Slice(d, p, 4)),
                     7 => BinaryPrimitives.ReadDoubleLittleEndian(Slice(d, p, 8)),
-                    8 => null, // data: read below
+                    // Data is read below.
+                    8 => null,
                     9 => null,
                     10 => new NibRef((int)BinaryPrimitives.ReadUInt32LittleEndian(Slice(d, p, 4))),
                     _ => throw new InvalidDataException($"value {i} has unknown type {type}"),
@@ -167,7 +164,7 @@ public static class NibArchive
             objects.Add(items[i] switch
             {
                 PlistDict o => new NibObject(i, ClassOf(o), o.Entries.Where(e => e.Key != "$class").Select(e => new KeyValuePair<string, object?>(e.Key, Value(e.Value))).ToList()),
-                // a plain string object reads as NSString's NS.string field
+                // A plain string object reads as NSString's NS.string field.
                 PlistString s => new NibObject(i, "NSString", [new("NS.string", s.Value)]),
                 _ => new NibObject(i, "", []),
             });

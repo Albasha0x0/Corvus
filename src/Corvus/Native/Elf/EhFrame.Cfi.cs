@@ -9,10 +9,7 @@ internal sealed record CfiFde(long At, ulong Start, ulong Range, CfiCie Cie, ulo
 
 internal static partial class EhFrame
 {
-    /// <summary>
-    /// Every FDE of an .eh_frame image with its CIE, LSDA and instruction ranges, in order. Unreadable records are
-    /// skipped; the walk stops at the terminator, the end, or <paramref name="max"/> records.
-    /// </summary>
+    /// <summary>Every FDE with its CIE, LSDA and instruction ranges, in order; unreadable records are skipped, at most <paramref name="max"/>.</summary>
     public static List<CfiFde> WalkFull(ByteView data, ulong dataVa, bool is64, int max)
     {
         var result = new List<CfiFde>();

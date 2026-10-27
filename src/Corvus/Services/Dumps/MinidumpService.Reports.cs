@@ -27,7 +27,7 @@ public sealed partial class MinidumpService
         uint? ProcessId, string? MainModule, string? CreateTimeUtc,
         [property: Description("Integrity level name (low, medium, high, system...) when recorded.")] string? Integrity,
         [property: Description("A 32-bit process dumped by a 64-bit tool: the 32-bit stacks are not walked.")] bool Wow64,
-        [property: Description("Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.")] string? Runtime);
+        [property: Description("Managed runtime loaded in the process (CoreCLR, CLR, Mono) or AOT; null for none.")] string? Runtime);
 
     public sealed record ExceptionSummary(
         string Code,
@@ -36,7 +36,7 @@ public sealed partial class MinidumpService
         string Address, uint ThreadId,
         string? Module,
         [property: Description("module!function+0xoffset of the exception address.")] string? Symbol,
-        [property: Description("Where the name came from: user, pdb, il2cpp, discovered, export, nearest_export, none.")] string? SymbolSource,
+        [property: Description("Where the name came from: user, pdb, metadata, discovered, export, nearest_export, none.")] string? SymbolSource,
         [property: Description("The instruction at the exception address, disassembled, then its bytes in parentheses.")] string? Instruction,
         [property: Description("dump_memory, module_image (disk) or module_image (dump_memory); null when the bytes are not available.")] string? InstructionSource,
         IReadOnlyList<string> Parameters,
@@ -80,10 +80,7 @@ public sealed partial class MinidumpService
         [property: Description("A full-memory dump (Memory64List).")] bool FullMemory,
         int Handles);
 
-    /// <summary>
-    /// open_minidump: view=summary fills the report fields; a list view fills items (module, thread, memory or unloaded rows)
-    /// with offset and total.
-    /// </summary>
+    /// <summary>open_minidump result: report fields in view=summary, paged items in list views.</summary>
     public sealed record DumpReport(
         [property: Description("Id for the other dump tools (the path works too).")] string Id,
         string View)
@@ -111,7 +108,7 @@ public sealed partial class MinidumpService
         int Index, string Address, string StackPointer, string? Module, string? ModuleOffset,
         [property: Description("module!function+0xoffset, or module+0xoffset when the function has no name.")] string? Symbol,
         string? Function,
-        [property: Description("user, pdb, il2cpp, discovered, export, nearest_export (a guess) or none.")] string? SymbolSource,
+        [property: Description("user, pdb, metadata, discovered, export, nearest_export (a guess) or none.")] string? SymbolSource,
         string? FunctionAddress,
         [property: Description("native, managed (JIT or ReadyToRun code), unloaded_module or unknown.")] string Kind,
         [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_data (PDB), frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
@@ -150,7 +147,6 @@ public sealed partial class MinidumpService
     /// <summary>The bytes of a read and how to label them.</summary>
     internal sealed record MemoryBytes(MemoryRead Head, ulong Va, byte[] Data, bool Is64);
 
-
     public Task<DumpReport> Summarize(string path, string? imageDirectories, CancellationToken ct) => Summarize(path, imageDirectories, new DacRequest(), ct);
 
     /// <summary>The summary view: exception, faulting module and thread, .NET state, counts; the lists are the other views.</summary>
@@ -169,7 +165,7 @@ public sealed partial class MinidumpService
             : null;
         bool wow64 = IsWow64Process(d);
         HostsClr(d, out var runtime);
-        if (runtime == null && d.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "Il2Cpp (Unity)";
+        if (runtime == null && d.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "AOT";
         var misc = d.MiscInfo;
         var process = new ProcessSummary(misc?.ProcessId, d.MainModule?.Path, misc?.ProcessCreateTime?.ToString("u"),
             misc?.ProcessIntegrityLevel is { } il ? IntegrityName(il) : null, wow64, runtime);
@@ -190,9 +186,9 @@ public sealed partial class MinidumpService
         if (wow64)
             notes.Add(sides32 > 0 || d.Threads.Take(8).Any(t => Wow64.Thread(d, t.Teb) != null)
                 ? "WoW64 process dumped by a 64-bit tool: thread locations are the 32-bit side, from the x86 context WoW64 saved; dump_stack walks both sides."
-                : "WoW64 process dumped by a 64-bit tool: the 32-bit thread contexts (WoW64's CPU area) are not in the dump, so threads show the 64-bit side (wow64cpu). " +
-                  "A full-memory dump, or one written by a 32-bit tool (procdump -x86), holds them.");
-        if (d.Exception == null) notes.Add("No exception stream: the dump was written without an exception (a hang or on-demand dump). dump_stack walks any thread.");
+                : "WoW64 process dumped by a 64-bit tool: the 32-bit thread contexts are not in the dump, so threads show the 64-bit side; " +
+                  "a full-memory dump or procdump -x86 holds them.");
+        if (d.Exception == null) notes.Add("No exception stream (a hang or on-demand dump); dump_stack walks any thread.");
         notes.AddRange(d.Comments.Select(c => "comment: " + Format.Clip(c, 2000)));
         if (!d.HasMemory64 && d.Modules.Count > 0) notes.Add("Not a full-memory dump: module code is read from the image files on disk when a matching build is found.");
         var handleTypes = d.Handles.GroupBy(h => h.TypeName ?? "(unknown)").Select(g => (Type: g.Key, Count: g.Count()))
@@ -211,7 +207,6 @@ public sealed partial class MinidumpService
             FaultingModule = faultingModule,
             FaultingThread = faultingThread,
             HandleTypes = handleTypes,
-
             Issues = d.Issues.Select(i => $"{i.Area}: {i.Message}").ToList(),
             Notes = notes,
         };
@@ -390,10 +385,7 @@ public sealed partial class MinidumpService
         return (output.ToStringAndReset(), Convert.ToHexString(buffer, 0, insn.Length), source);
     }
 
-    /// <summary>
-    /// The thrown C++ type and its catchable bases from the MSVC ThrowInfo (x64: RVAs relative to the throwing image,
-    /// parameter 3; x86: pointers), read from dump memory or the module image.
-    /// </summary>
+    /// <summary>The thrown C++ type and its catchable bases from the MSVC ThrowInfo; empty when unreadable.</summary>
     private static List<string> ThrownTypes(Session s, IReadOnlyList<ulong> p)
     {
         var types = new List<string>();
@@ -476,13 +468,13 @@ public sealed partial class MinidumpService
         var walker = s.Walker();
         var walk = await Task.Run(() => walker.Walk(ctx, t.StackStart, t.StackStart + t.StackSize, maxFrames, ct), ct);
         var notes = new List<string>(walk.Notes);
-        // the runtime walks from the same context: a thread held by a session waits in code the runtime cannot unwind
+        // The runtime walks from the same context; a thread held by a session waits in code it cannot unwind.
         var (clrFrames, managedState) = await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct, exceptionBytes);
         var merged = Merge(walk.Frames, clrFrames);
         string arch = ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), registers = ctx.Format(), stop = walk.Stop;
         if (Wow64.Thread(d, t.Teb) is { } wow)
         {
-            // the 32-bit side first: that is the program's own code; the 64-bit side (wow64cpu, the thread start) follows
+            // The 32-bit side, the program's own code, goes first; the 64-bit side follows.
             var context32 = exception32 ?? wow.Context;
             var walk32 = await Task.Run(() => s.Walker(Wow64.View(d)).Walk(context32, wow.StackLow, wow.StackHigh, maxFrames, ct), ct);
             merged.InsertRange(0, walk32.Frames.Select(f => ((WalkFrame?)f, (ManagedFrame?)null)));
@@ -491,8 +483,8 @@ public sealed partial class MinidumpService
             if (exception32 != null) contextKind = "exception";
         }
         else if (Wow64.IsWow64(d))
-            notes.Add($"WoW64 process: this is the 64-bit side of the thread; its 32-bit context (in WoW64's CPU area{(Wow64.CpuArea(d, t.Teb) is { } cpu ? $" at {Hex(d, cpu)}" : "")}) " +
-                      "is not in the dump. A full-memory dump, or one written by a 32-bit tool (procdump -x86), holds it.");
+            notes.Add($"WoW64 process: this is the thread's 64-bit side; its 32-bit context (WoW64 CPU area{(Wow64.CpuArea(d, t.Teb) is { } cpu ? $" at {Hex(d, cpu)}" : "")}) " +
+                      "is not in the dump; a full-memory dump or procdump -x86 holds it.");
         if (merged.Count > maxFrames) merged.RemoveRange(maxFrames, merged.Count - maxFrames);
         var frames = await Frames(s, merged, offset, limit, ct);
         notes.AddRange(ModuleNotes(s));
@@ -530,7 +522,7 @@ public sealed partial class MinidumpService
         return frames;
     }
 
-    /// <summary>A frame's basis (S5.3): null when observed (context, unwind data, the runtime's walk).</summary>
+    /// <summary>A frame's basis: null when observed (context, unwind data, the runtime's walk).</summary>
     internal static string? FrameBasis(string method, bool heuristic, string? symbolSource) =>
         heuristic || method == "scan" || symbolSource == "nearest_export" ? "inferred" : method is "frame_pointer" or "call_target" ? "derived" : null;
 

@@ -4,18 +4,13 @@ using Microsoft.Diagnostics.Runtime;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// This process's thread pool at one moment: its thread and pending work counts, and the stack of every thread pool
-/// thread that is running work rather than waiting for it. Timing tests name it in a failure, so work an earlier test
-/// left running is seen with its caller; the stacks read "unknown" where the process cannot be read, and off Windows.
-/// </summary>
+/// <summary>This process's pool counts and the stacks of threads running work, named in timing failures; "unknown" where unreadable or off Windows.</summary>
 internal static class ThreadPoolSnapshot
 {
     /// <summary>The entry point's flag for a child that reads a process's stacks (<see cref="Main"/>).</summary>
     public const string Flag = "--thread-stacks";
 
-    // A stack read that has not finished by then is killed: the DAC can loop on a snapshot caught mid-update, and while
-    // it loops it holds the lock MiniDumpWriteDump also takes in the process that loaded it.
+    // An unfinished stack read is killed: a looping DAC holds the lock MiniDumpWriteDump takes.
     private static readonly TimeSpan ReadLimit = TimeSpan.FromSeconds(20);
 
     /// <summary>The counts and the busy threads' top frames, one line each; never throws.</summary>

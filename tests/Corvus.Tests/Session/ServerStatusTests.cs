@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 public class ServerStatusTests
 {
     [Fact]
-    public async Task StatusMatchesItsSchemaAndListsTheSections()
+    public async Task Status_matches_its_schema_and_lists_the_sections()
     {
         var (code, output, error) = await ToolCliTests.Run("server_status", "--json", "--no-index", "--max-output", "20000");
         Assert.True(code == 0, error);
@@ -36,7 +36,7 @@ public class ServerStatusTests
         Assert.Equal("free", Field("calls", "workspaceLock"));
         Assert.Equal(CallLog.RunId, Field("run", "runId"));
         Assert.Equal(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), Field("run", "pid"));
-        // moved out of the record's top level into the budget section
+        // Moved out of the record's top level into the budget section.
         Assert.Null(structured["maxOutputChars"]);
 
         // S2: the data folder is named once, so the default status fits the report budget with room for a 260-character folder.
@@ -73,7 +73,7 @@ public class ServerStatusTests
     }
 
     [Fact]
-    public async Task TheBudgetSection_ShowsTheClientProfileAndItsSources()
+    public async Task The_budget_section_shows_the_client_profile_and_its_sources()
     {
         var (code, output, error) = await ToolCliTests.Run("server_status", "--json", "--no-index", "--client", "codex", "--client-timeout", "120", "--toolsets", "lean");
         Assert.True(code == 0, error);
@@ -110,7 +110,7 @@ public class ServerStatusTests
     }
 
     [Fact]
-    public void AMissingEngineValueOnManyToolsIsOneEntry()
+    public void A_missing_engine_value_on_many_tools_is_one_entry()
     {
         var rows = new[] { "disassemble", "find_xrefs", "get_cfg", "list_functions" }
             .Select(t => new ToolAvailability.Unavailable(t, "engine=ghidra", "Ghidra was not found", "set CORVUS_GHIDRA_DIR"))
@@ -118,7 +118,7 @@ public class ServerStatusTests
             .Append(new ToolAvailability.Unavailable("find_virtual_calls", "crossCheck=true", "Ghidra was not found", "set CORVUS_GHIDRA_DIR"));
         var group = Assert.Single(Corvus.Tools.SessionTools.Group(rows));
         Assert.Equal(["emulate_native", "find_virtual_calls crossCheck=true", "engine=ghidra on the 4 tools that take engine"], group.Tools);
-        // three or fewer stay listed
+        // Three or fewer stay listed.
         var few = Assert.Single(Corvus.Tools.SessionTools.Group(rows.Take(3)));
         Assert.Equal(["disassemble engine=ghidra", "find_xrefs engine=ghidra", "get_cfg engine=ghidra"], few.Tools);
     }
@@ -133,7 +133,7 @@ public class ServerStatusTests
     }
 
     [Fact]
-    public void AReasonInAnUnavailableRowIsNotRepeatedInItsCapability()
+    public void A_reason_in_an_unavailable_row_is_not_repeated_in_its_capability()
     {
         const string reason = "Ghidra was not found: neither CORVUS_GHIDRA_DIR nor GHIDRA_INSTALL_DIR is set.";
         var capabilities = new List<Corvus.Tools.SessionTools.Capability>

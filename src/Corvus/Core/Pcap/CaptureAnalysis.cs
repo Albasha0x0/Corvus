@@ -20,10 +20,7 @@ public sealed record CaptureTlsName(string ServerName, int Hellos, IReadOnlyList
 /// <summary>An HTTP/1.x request line and its Host header, counted.</summary>
 public sealed record CaptureHttpRequest(string Method, string Host, string Target, int Count);
 
-/// <summary>
-/// One pass over a capture: per-protocol counts, flows, DNS names, TLS ClientHello SNI / ALPN and HTTP/1.x request lines.
-/// Memory is bounded by the caps, not by the capture: a frame is decoded in place and dropped.
-/// </summary>
+/// <summary>One pass over a capture for protocol counts, flows, DNS, TLS and HTTP facts; memory is bounded by the caps.</summary>
 public sealed class CaptureAnalysis
 {
     public const int MaxFlows = 10_000, MaxNames = 500, MaxServerNames = 500, MaxRequests = 1000;
@@ -173,7 +170,8 @@ public sealed class CaptureAnalysis
         {
             int ahead = unchecked((int)(p.Seq - flow.NextSeq));
             if (ahead < 0) return; // a retransmission
-            if (ahead > 0) { flow.HelloDone = true; flow.Pending = null; return; } // a gap: no reassembly
+            // A gap ends reassembly.
+            if (ahead > 0) { flow.HelloDone = true; flow.Pending = null; return; }
             int take = Math.Min(payload.Length, buffer.Length - flow.PendingLength);
             payload[..take].CopyTo(buffer.AsSpan(flow.PendingLength));
             flow.PendingLength += take;
@@ -217,7 +215,8 @@ public sealed class CaptureAnalysis
         sni = null;
         alpn = [];
         if (r.Length < 9 || r[0] != 0x16 || r[5] != 1) return false;
-        int at = 9 + 2 + 32; // record and handshake headers, version, random
+        // Record and handshake headers, version, random.
+        int at = 9 + 2 + 32;
         if (at >= r.Length) return true;
         at += 1 + r[at]; // session id
         if (at + 2 > r.Length) return true;

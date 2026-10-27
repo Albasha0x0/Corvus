@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The rigs of <see cref="EngineEditUndoTests"/>: one shared per engine for the tests that undo every edit they make, so
-/// they reuse one open session, and a fresh one for a test that leaves edits behind.
-/// </summary>
+/// <summary>Rigs per engine: one shared session for tests that undo every edit, a fresh one for a test that leaves edits.</summary>
 public sealed class EngineEditUndoRigs : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -56,10 +53,7 @@ public sealed class EngineEditUndoRigs : IDisposable
     }
 }
 
-/// <summary>
-/// The engine edit tools against real engines: each edit names its editId, and undo_native_edit takes back a local, a
-/// stack member, an enum member, a struct field, a declaration and a type deletion in the engine's database.
-/// </summary>
+/// <summary>Each engine edit names its editId, and undo_native_edit takes back every edit kind in the engine's database.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 public sealed class EngineEditUndoTests(ITestOutputHelper output, EngineEditUndoRigs rigs) : IClassFixture<EngineEditUndoRigs>
@@ -224,24 +218,24 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output, EngineEditUndo
         async Task<string> Pseudocode() => (await session.DecompileAsync(fn)).Text;
         async Task<NativeFrame> Frame() => await session.GetFrameAsync(fn, true, default);
 
-        // a decompiler local renamed, then undone
+        // A decompiler local renamed, then undone.
         var original = (await Frame()).Locals.First(l => !l.IsArgument && l.Name.Length > 0 && Regex(l.Name));
         var local = original.Name;
         var (_, localEdit) = await Edit(() => rig.Types.SetNativeLocal(native.Id, Function, local, "corvus_local", engine: engine));
         Assert.Contains("corvus_local", await Pseudocode());
         await rig.Journal.UndoAsync(native, localEdit, default);
         Assert.DoesNotContain("corvus_local", await Pseudocode());
-        // the slot is back to an engine default name; Ghidra may derive another default than before (local_res8 / puStackX_8)
+        // The slot is back to an engine default name; Ghidra may derive another default than before (local_res8 / puStackX_8).
         Assert.Contains((await Frame()).Locals, l => l.Location == original.Location && l.Stack == original.Stack && !l.UserName && l.Name != "corvus_local");
 
-        // a stack member renamed, then undone
+        // A stack member renamed, then undone.
         var member = (await Frame()).Members.First(m => m.Kind != "special" && m.Name.Length > 0);
         var (_, memberEdit) = await Edit(() => rig.Types.SetNativeStackVar(native.Id, Function, $"0x{member.Offset:X}", "corvus_slot", engine: engine));
         Assert.Contains((await Frame()).Members, m => m.Name == "corvus_slot");
         await rig.Journal.UndoAsync(native, memberEdit, default);
         Assert.DoesNotContain((await Frame()).Members, m => m.Name == "corvus_slot");
 
-        // a declaration; an enum member and a struct field added to it; each undone
+        // A declaration; an enum member and a struct field added to it; each undone.
         var (_, declared) = await Edit(() => rig.Types.DeclareNativeTypes(native.Id, "enum CorvusColor { CorvusRed = 1 }; struct CorvusPacket { int length; };", engine: engine));
         var (_, enumEdit) = await Edit(() => rig.Types.DeclareNativeTypes(native.Id, typeName: "CorvusColor", members: "CorvusGreen=2", engine: engine));
         var (_, fieldEdit) = await Edit(() => rig.Types.DeclareNativeTypes(native.Id, typeName: "CorvusPacket", fields: "flags@0x4: int", engine: engine));
@@ -254,7 +248,7 @@ public sealed class EngineEditUndoTests(ITestOutputHelper output, EngineEditUndo
         await rig.Journal.UndoAsync(native, declared, default);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => session.GetTypeAsync("CorvusPacket"))).Code);
 
-        // a redeclared type comes back as it was; a deleted one comes back from its declaration
+        // A redeclared type comes back as it was; a deleted one comes back from its declaration.
         await Edit(() => rig.Types.DeclareNativeTypes(native.Id, "struct CorvusHeader { int magic; };", engine: engine));
         var (_, redeclared) = await Edit(() => rig.Types.DeclareNativeTypes(native.Id, "struct CorvusHeader { int magic; int size; };", engine: engine));
         await rig.Journal.UndoAsync(native, redeclared, default);

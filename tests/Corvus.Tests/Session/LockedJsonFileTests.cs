@@ -13,13 +13,13 @@ public class LockedJsonFileTests(ITestOutputHelper output) : IDisposable
     private string Records => _dir.File(Path.Combine("store", "records.json"));
 
     [Fact]
-    public void ConcurrentUpdates_KeepEveryRecord()
+    public void Concurrent_updates_keep_every_record()
     {
         Parallel.For(0, 4, writer =>
         {
             for (int i = 0; i < 25; i++)
             {
-                // the records, not the wait limit, are under test: a loaded machine can hold the lock past the 2 s default
+                // The records, not the wait limit, are under test: a loaded machine can hold the lock past the 2 s default.
                 var (_, problem) = LockedJsonFile.Update<Dictionary<string, int>>(Records, current =>
                 {
                     var next = current ?? [];
@@ -37,7 +37,7 @@ public class LockedJsonFileTests(ITestOutputHelper output) : IDisposable
 
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void HeldLock_TimesOut_AndLeavesTheFileUntouched()
+    public void A_held_lock_times_out_and_leaves_the_file_untouched()
     {
         LockedJsonFile.Update<Dictionary<string, int>>(Records, _ => new() { ["a"] = 1 });
         var before = File.ReadAllBytes(Records);
@@ -56,7 +56,7 @@ public class LockedJsonFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void MalformedFile_IsLeftUntouched()
+    public void A_malformed_file_is_left_untouched()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Records)!);
         File.WriteAllText(Records, "{ \"a\": ");
@@ -67,7 +67,7 @@ public class LockedJsonFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void NullMerge_DeletesTheFile()
+    public void A_null_merge_deletes_the_file()
     {
         LockedJsonFile.Update<Dictionary<string, int>>(Records, _ => new() { ["a"] = 1 });
         Assert.Null(LockedJsonFile.Update<Dictionary<string, int>>(Records, _ => null).Problem);

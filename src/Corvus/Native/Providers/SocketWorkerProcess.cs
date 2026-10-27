@@ -3,11 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// A worker served over a socket by a process the server did not start (a database open in IDA): its standard input
-/// and output are the connection, it has no standard error, and killing or disposing it closes the connection, never
-/// the process.
-/// </summary>
+/// <summary>A worker served over a socket by a process the server did not start; kill and dispose close the connection, never the process.</summary>
 internal sealed class SocketWorkerProcess : ChildProcess
 {
     private readonly TcpClient _client;

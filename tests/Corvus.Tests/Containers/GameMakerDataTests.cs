@@ -76,8 +76,8 @@ public sealed class GameMakerDataTests(ITestOutputHelper output)
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
 
-    // The fixtures and each data file under CORVUS_GAMEMAKER_DATA (data.win, game.unx, game.ios, game.droid) are dumped by
-    // UndertaleModCli: the code entry names, the string table and the texture page count are compared.
+    // The fixtures and each data file under CORVUS_GAMEMAKER_DATA (data.win, game.unx, game.ios, game.droid) are read by
+    // the tool in CORVUS_GAMEMAKER_TOOL: the code entry names, the string table and the texture page count are compared.
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_GAMEMAKER_TOOL")]
     public void Code_strings_and_textures_equal_what_the_data_file_cli_dumps()

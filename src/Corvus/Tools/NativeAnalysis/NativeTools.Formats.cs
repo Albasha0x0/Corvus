@@ -251,10 +251,7 @@ public sealed partial class NativeTools
             null, null, null, sig == null ? null : sig.IsAdHoc ? "ad-hoc" : sig.SignerSubject ?? sig.Identifier, null, null, image.Issues.Count);
     }
 
-    /// <summary>
-    /// list_imports for ELF and Mach-O: one row per bound slot, "module!name" with the version library (ELF, "*" when the
-    /// symbol is unversioned: any loaded library may provide it) or the two-level namespace dylib (Mach-O).
-    /// </summary>
+    /// <summary>list_imports for ELF and Mach-O: one "module!name" row per bound slot; module "*" is an unversioned ELF symbol.</summary>
     private string FormatImports(LoadedNative native, string? module, string? filter, bool bind, int offset, int limit)
     {
         var image = native.Image;

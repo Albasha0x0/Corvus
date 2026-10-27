@@ -51,7 +51,7 @@
             "type": "string"
           },
           "source": {
-            "description": "Layer it came from in the old build: user, pdb or il2cpp.",
+            "description": "Layer it came from in the old build: user, pdb or metadata.",
             "type": "string"
           },
           "oldAddress": {

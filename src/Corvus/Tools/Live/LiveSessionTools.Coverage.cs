@@ -46,7 +46,7 @@ public sealed partial class LiveSessionTools
         int OnlyInRunTotal, int OnlyInOtherTotal, int InBoth, int InNeither);
 
     [McpServerTool(Name = "live_coverage", Title = "Code coverage of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveCoverageReport))]
-    [Description("Collect code coverage in a session: which functions of an image ran and how often, on the static call graph; diff compares two runs.")]
+    [Description("Collect code coverage in a session: which functions of an image ran and how often; diff compares two runs.")]
     public Task<string> LiveCoverage(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
@@ -85,7 +85,7 @@ public sealed partial class LiveSessionTools
                 {
                     var r = live.GetCoverage(RequireRun(run, session));
                     await live.StopCoverageAsync(live.Get(r.Session), r, cancellationToken).ConfigureAwait(false);
-                    // a run whose program ended first keeps that state: its counts stop at the end, not at this stop
+                    // A run whose program ended first keeps that state: its counts stop at the end, not at this stop.
                     var state = r.State == "ended" ? "ended with its program, before the stop" : r.State;
                     return ToolOutput.With($"{r.Id} {state}: {Ran(r)}\n",
                         new LiveCoverageReport(Summary(r), [], 0, 0, []));
@@ -158,7 +158,7 @@ public sealed partial class LiveSessionTools
         var placed = r.Placed;
         var points = placed.Where(p => filter == null || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
             .Where(p => mode == "all" || (mode == "ran") == (r.HitsAt(p.Rva) > 0)).ToList();
-        // the busiest first
+        // The busiest first.
         var rows = points.Select(p => Row(r, p)).OrderByDescending(x => x.Hits).ThenBy(x => x.Address, StringComparer.Ordinal).ToList();
         var head = new StringBuilder($"{r.Id} {r.ImageId}: {Ran(r)}" + (r.Unread ? "" : $" ({(placed.Count == 0 ? 0 : 100.0 * r.Ran / placed.Count):0.#}%)") +
                                      $", {r.State}{(r.PendingModule is { } pending ? $", waiting for {pending} to load" : "")}\n");
@@ -168,22 +168,19 @@ public sealed partial class LiveSessionTools
                 throw new ToolError(ErrorCode.LimitExceeded, $"The report lists {points.Count:N0} functions; format=dot draws at most {MaxCoverageDot}.",
                     "narrow it with match=<part of the names> or show=ran");
             var graph = Dot(r, points, await live.CoverageCallsAsync(r, points.Select(p => p.Rva).ToHashSet(), ct).ConfigureAwait(false));
-            // the graph stands in for the rows, paged by characters like code
+            // The graph stands in for the rows, paged by characters like code.
             return ToolOutput.Text(_pager, head + graph, offset, new LiveCoverageReport(Summary(r), [], offset, null, []));
         }
         return ToolOutput.List(rows, offset, limit, x => $"{Count(r, x.Hits),8}  {x.Address}  {x.Name}", page => new LiveCoverageReport(Summary(r), page, offset, rows.Count, [])
         {
-            // a sample for read_result format=verify: the rows already carry every address and name
+            // A sample for read_result format=verify: the rows already carry every address and name.
             NamedAddresses = r.Image == null ? null : Named(page.Take(MaxCoverageNamed).Select(x => new EvidenceName(r.ImageId, r.Sha256, Rva(r, x.Address), x.Name)).ToList()),
         }, "function", head.ToString());
     }
 
     private static uint Rva(Services.LiveCoverageRun r, string va) => (uint)(ulong.Parse(va[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture) - r.Image!.Image.ImageBase);
 
-    /// <summary>
-    /// The static call graph in Graphviz DOT: node n&lt;i&gt; per function in address order, labeled with the count;
-    /// functions that never ran dashed.
-    /// </summary>
+    /// <summary>The static call graph in Graphviz DOT: one node per function in address order, labeled with its count; unrun ones dashed.</summary>
     private static string Dot(Services.LiveCoverageRun r, IReadOnlyList<LiveCoveragePoint> points, IReadOnlyList<(uint From, uint To)> calls)
     {
         var node = new Dictionary<uint, int>();

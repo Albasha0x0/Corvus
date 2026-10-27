@@ -71,19 +71,19 @@ item with one of these codes: how it was carried, or why not. The same case gets
 | `points_elsewhere` | patterns | the old pattern's one hit is not the mapped address |
 | `not_unique_in_old` | patterns | no unique pattern on the old build |
 | `no_pattern` | patterns | no pattern could be made at the address |
-| `agree` | il2cpp | metadata identity and the function match give the same new address |
-| `disagree` | il2cpp | metadata identity and the function match differ (metadata wins) |
-| `metadata_only` | il2cpp | mapped by metadata; the function match found no counterpart |
-| `removed` | il2cpp | no method of this identity has code in the new build |
+| `agree` | method_mapping | metadata identity and the function match give the same new address |
+| `disagree` | method_mapping | metadata identity and the function match differ (metadata wins) |
+| `metadata_only` | method_mapping | mapped by metadata; the function match found no counterpart |
+| `removed` | method_mapping | no method of this identity has code in the new build |
 | `pdb_loaded` | layers | the new build already has its matching PDB |
 | `matching_pdb_found` | layers | the new build's own matching PDB is found (dry run) |
 | `matching_pdb_loaded` | layers | the new build's own matching PDB is loaded |
 | `pdb_unreadable` | layers | the matching PDB could not be read |
 | `pdb_mismatch` | layers | PDB names belong to their build only; no PDB matches the new build |
-| `applied_from_metadata` | layers | the new build has Il2Cpp names from its own metadata |
-| `reapply_from_metadata` | layers | Il2Cpp names would be applied from the new build's metadata (dry run) |
-| `reapplied_from_metadata` | layers | Il2Cpp names applied from the new build's metadata |
-| `new_has_own_il2cpp_names` | layers | the new build has its own Il2Cpp names; kept |
+| `applied_from_metadata` | layers | the new build has metadata names from its own metadata |
+| `reapply_from_metadata` | layers | metadata names would be applied from the new build's metadata (dry run) |
+| `reapplied_from_metadata` | layers | metadata names applied from the new build's metadata |
+| `new_has_own_metadata_names` | layers | the new build has its own metadata names; kept |
 | `not_saved` | layers | names applied but not saved for the next load |
 | `file` | notes | a note on the whole file |
 | `same_note` | notes | the new build already has this note |

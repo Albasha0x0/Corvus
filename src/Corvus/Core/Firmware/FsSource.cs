@@ -45,10 +45,7 @@ internal sealed class FsSource
     public ToolError Malformed(string what) => new(ErrorCode.MalformedInput, $"{Name}: {what}.");
 }
 
-/// <summary>
-/// The files of one filesystem image as a container level: every regular file and symbolic link listed, binaries and nested
-/// packages (all files with allFiles) extracted within the limits; a file that cannot be read becomes a note.
-/// </summary>
+/// <summary>One filesystem image as a container level; binaries and packages are extracted, an unreadable file becomes a note.</summary>
 internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, CancellationToken ct)
 {
     private readonly List<ExtractedItem> _items = [];
@@ -86,7 +83,7 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
         byte[] bytes;
         try
         {
-            // a large file is read whole only when its start shows a binary or a package
+            // A large file is read whole only when its start shows a binary or a package.
             if (!all && size > Head && !ArchiveItems.Wanted(read(Head))) return;
             bytes = read(size);
         }

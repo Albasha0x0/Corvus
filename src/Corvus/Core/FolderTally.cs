@@ -2,11 +2,7 @@ using System.Collections.Concurrent;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A cache folder's entry count and size for status reports, measured at most every 30 s per folder and never on the
-/// caller's time beyond a short wait: a large folder took seconds to walk (25k results, a big engine cache), past the
-/// sweep's 20 s limit under load. A stale count is served while a new one is taken in the background.
-/// </summary>
+/// <summary>A cache folder's entry count and size, measured at most every 30 s in the background; a stale count is served meanwhile.</summary>
 internal static class FolderTally
 {
     private const long MaxAgeMs = 30_000;
@@ -23,8 +19,7 @@ internal static class FolderTally
         if (!Measuring.TryGetValue(folder, out var task))
         {
             Task? created = null;
-            // A thread of its own: queued behind busy pool threads, even a small
-            // folder's count missed the first wait.
+            // A thread of its own: behind busy pool threads, even a small folder's count missed the first wait.
             created = new Task(() =>
             {
                 try

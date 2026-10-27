@@ -5,11 +5,8 @@ using Corvus.Native.Providers.Ghidra;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The names Ghidra's loader and analysis gave an image (symbols of formats the server does not read, Function ID library
-/// names) as its <see cref="NativeNameSource.Ghidra"/> layer: below every other source except discovered names, so they
-/// resolve as addresses and name functions nothing else names. Imported once a Ghidra session is open; never starts one.
-/// </summary>
+/// <summary>Ghidra's loader and analysis names as the <see cref="NativeNameSource.Ghidra"/> layer, above discovered names
+/// only; imported from an open session, never starts one.</summary>
 public static class GhidraNames
 {
     public const string Origin = "Ghidra analysis";
@@ -32,10 +29,7 @@ public static class GhidraNames
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, Task<int>> Refreshes = new();
 
-    /// <summary>
-    /// After an analysis edit (define_native, reanalysis) in a Ghidra session, imports its names again in the background so
-    /// the layer follows functions made or removed; a single names pass, so the edit does not wait for it. Null for other engines.
-    /// </summary>
+    /// <summary>Re-imports a Ghidra session's names in the background after an analysis edit; null for other engines.</summary>
     public static Task<int>? Refresh(LoadedNative native, INativeDecompilerSession session, NativeCodeService? code)
     {
         if (session is not GhidraSession ghidra) return null;

@@ -41,7 +41,7 @@ public class NativeImportVerifierTests
     }
 
     [WindowsFact]
-    public void ChecksEachDeclarationAgainstTheDllExports()
+    public void Each_declaration_is_checked_against_the_DLL_exports()
     {
         using var env = new Env();
         var asm = Compile(env, "PInvokes64", Platform.X64);
@@ -68,7 +68,7 @@ public class NativeImportVerifierTests
     }
 
     [Fact]
-    public void InShortLockSections_ReportsProgressPerLibrary()
+    public void Verification_in_short_lock_sections_reports_progress_per_library()
     {
         using var env = new Env();
         var asm = Compile(env, "PInvokesSections", Platform.X64);
@@ -81,7 +81,7 @@ public class NativeImportVerifierTests
     }
 
     [WindowsFact]
-    public void X86ModulesBindToSysWow64()
+    public void X86_modules_bind_to_SysWOW64()
     {
         using var env = new Env();
         var asm = Compile(env, "PInvokes32", Platform.X86);
@@ -133,7 +133,7 @@ public class NativeImportVerifierTests
 
     /// <summary>On a host without Windows system DLLs: app-local DLLs are still checked with the PE reader; system DLLs are system_dll_not_on_host.</summary>
     [Fact]
-    public void WithoutSystemDlls_AppLocalDllsAreStillChecked()
+    public void Without_system_DLLs_app_local_DLLs_are_still_checked()
     {
         const string source = """
             using System;
@@ -173,7 +173,7 @@ public class NativeImportVerifierTests
     }
 
     [Fact]
-    public void StdcallStackBytesFollowX86ArgumentSizes()
+    public void Stdcall_stack_bytes_follow_x86_argument_sizes()
     {
         using var env = new Env();
         var asm = Compile(env, "PInvokeSizes", Platform.X86);
@@ -183,7 +183,7 @@ public class NativeImportVerifierTests
     }
 
     [Fact]
-    public void CandidatesFollowTheRuntimeLookupOrder()
+    public void Candidates_follow_the_runtime_lookup_order()
     {
         Assert.Equal(["FooW", "Foo"], NativeImportVerifier.Candidates("Foo", "Unicode", false, null).Select(c => c.Name));
         Assert.Equal(["Foo", "FooA", "_Foo@8", "_FooA@8"], NativeImportVerifier.Candidates("Foo", "Ansi", false, 8).Select(c => c.Name));
@@ -235,7 +235,7 @@ public class NativeImportVerifierTests
     }
 
     [WindowsFact]
-    public void ApiSetMapResolvesContractsToHostDlls()
+    public void The_API_set_map_resolves_contracts_to_host_DLLs()
     {
         var map = ApiSetSchema.FromSystem(PeFile.Open);
         Assert.NotNull(map);
@@ -254,7 +254,7 @@ public class NativeImportVerifierSweepTests(ITestOutputHelper output)
     /// <summary>Every DllImport of the running .NET runtime's libraries: none may point at a missing export of a DLL that exists.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public void RuntimeLibrariesBindToRealExports()
+    public void Runtime_libraries_bind_to_real_exports()
     {
         using var env = new Env();
         var verifier = new NativeImportVerifier(PeFile.Open);

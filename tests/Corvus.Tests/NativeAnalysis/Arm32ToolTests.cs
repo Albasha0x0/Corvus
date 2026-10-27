@@ -6,11 +6,7 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The native tools on 32-bit ARM: inspect_instruction (operands, register lists, stack change, PC-relative pairs, IT
-/// conditions, literal pools, Thumb pointers), code patterns, and disassemble / get_cfg / find_xrefs / native_call_tree /
-/// list_functions end to end; real Android, Linux and Windows ARM libraries in the slow set.
-/// </summary>
+/// <summary>The native tools on 32-bit ARM, from inspect_instruction to list_functions; real ARM libraries in the slow set.</summary>
 public class Arm32ToolTests
 {
     private const uint Text = ElfWriter.TextRva;
@@ -45,7 +41,7 @@ public class Arm32ToolTests
         var literal = One(index, Text + 2).Instruction!;
         Assert.Equal(("pc_relative", 4), (literal.Operands[1].Kind, literal.Operands[1].Size));
 
-        // bxeq lr inside an IT block: a conditional return that falls through
+        // Bxeq lr inside an IT block: a conditional return that falls through.
         var bxeq = One(index, helper + 4).Instruction!;
         Assert.Equal(("eq", "return"), (bxeq.Flow.Condition, bxeq.Flow.Kind));
         Assert.Equal(Va(helper + 6), bxeq.Flow.Fallthrough);
@@ -54,11 +50,11 @@ public class Arm32ToolTests
         var arm = One(index, armFn + 4).Instruction!;
         Assert.Equal(("a32", "ne"), (arm.Encoding, arm.Flow.Condition));
 
-        // an odd address is a Thumb pointer: the instruction one byte lower covers it
+        // An odd address is a Thumb pointer: the instruction one byte lower covers it.
         var odd = One(index, Text + 5);
         Assert.Equal(("mid_instruction", Va(Text + 4)), (odd.Status, odd.ContainingInstruction));
 
-        // the literal pool after main is data
+        // The literal pool after main is data.
         var pool = One(index, index.RefsFrom(Text + 2, Text + 4).Single(x => x.Kind == XrefKind.Read).To);
         Assert.Equal(("data", "literal"), (pool.Status, pool.DataItem?.Kind));
     }
@@ -104,7 +100,7 @@ public class Arm32ToolTests
         var tree = await h.CodeTools.NativeCallTree(path, "main");
         Assert.Contains($"sub_{armFn:X}", tree);
         Assert.Contains("abort", tree);
-        // a Thumb pointer (odd) disassembles as Thumb at the address below it
+        // A Thumb pointer (odd) disassembles as Thumb at the address below it.
         var odd = await h.CodeTools.Disassemble(path, $"rva:0x{Text + 1:X}");
         Assert.Contains("push", odd);
     }
@@ -132,7 +128,7 @@ public class Arm32ToolTests
         var dis = index.CreateDisassembler();
         if (image is ElfFile elf)
         {
-            // every function symbol is found, in the state bit 0 of its value names (and its mapping symbol, when there is one)
+            // Every function symbol is found, in the state bit 0 of its value names (and its mapping symbol, when there is one).
             var starts = index.Functions.Select(f => f.Start).ToHashSet();
             foreach (var s in elf.DynamicSymbols.Concat(elf.StaticSymbols).Where(s => s.IsDefined && s.IsFunction && s.Value != 0))
             {

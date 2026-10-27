@@ -8,11 +8,7 @@ namespace Corvus.Native.Providers.Ghidra;
 /// <summary>The two worker jars: the boot jar on the JVM class path and the worker jar added to Ghidra's class loader.</summary>
 public sealed record WorkerJars(string Boot, string Worker);
 
-/// <summary>
-/// Builds the Ghidra worker from its embedded Java sources with the user's JDK, against the user's Ghidra, on first
-/// use. The jars are kept per Ghidra version and source hash, so no binary ships with the server and any Ghidra whose
-/// API compiles is accepted; a compile error makes the provider unavailable with javac's message.
-/// </summary>
+/// <summary>Compiles the embedded worker sources against the user's Ghidra on first use; jars are kept per Ghidra version and source hash, so no binary ships and any Ghidra whose API compiles works; a compile error makes the provider unavailable with javac's message.</summary>
 public static class WorkerBuild
 {
     public const string ResourcePrefix = "Corvus.Native.Providers.Ghidra.worker.";
@@ -123,7 +119,8 @@ public static class WorkerBuild
 
     private static void WriteJar(string path, string classes, Func<string, bool> include)
     {
-        File.Delete(path); // left by an interrupted build
+        // A file left by an interrupted build.
+        File.Delete(path);
         using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
         var manifest = zip.CreateEntry("META-INF/MANIFEST.MF");
         using (var w = new StreamWriter(manifest.Open(), new UTF8Encoding(false)))

@@ -4,12 +4,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// Linux application images built on squashfs: an AppImage (type 2: an ELF runtime with the squashfs image after its
-/// section headers) and a snap (a squashfs image holding meta/snap.yaml). The files come from the squashfs reader; the
-/// notes name the package from its desktop entry or snap.yaml, and for an AppImage the runtime, update information and
-/// signature sections.
-/// </summary>
+/// <summary>AppImage (type 2) and snap packages: squashfs files, with notes naming the package and AppImage sections.</summary>
 internal static class LinuxAppPackages
 {
     /// <summary>Paths a squashfs read always extracts: snap.yaml and a desktop entry at the root.</summary>

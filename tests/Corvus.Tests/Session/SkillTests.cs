@@ -17,7 +17,7 @@ public sealed class SkillTests : IDisposable
     }
 
     [Fact]
-    public void RepositoryCopyIsCurrent()
+    public void The_repository_copy_of_the_skill_is_current()
     {
         var folder = Path.Combine(RepoRoot(), "skills", Skill.Name);
         var expected = Skill.Files();
@@ -40,7 +40,7 @@ public sealed class SkillTests : IDisposable
     }
 
     [Fact]
-    public void SkillFitsClientLimitsAndNamesOnlyRealTools()
+    public void The_skill_fits_client_limits_and_names_only_real_tools()
     {
         var files = Skill.Files();
         var body = files["SKILL.md"];
@@ -56,7 +56,7 @@ public sealed class SkillTests : IDisposable
     }
 
     [Fact]
-    public void InstallStatusAndUninstallManageMarkedFolders()
+    public void Install_status_and_uninstall_manage_marked_folders()
     {
         Directory.CreateDirectory(_home.Path(".claude"));
         Directory.CreateDirectory(_home.Path(".codex"));
@@ -101,7 +101,7 @@ public sealed class SkillTests : IDisposable
     }
 
     [Fact]
-    public void ClientsWithTheirOwnSkillFolders_GetTheSkillThere()
+    public void Clients_with_their_own_skill_folders_get_the_skill_there()
     {
         var (code, output) = _home.Run("install", "--no-check", "--skill", "--client", "cline,roo-code,kilo-code,windsurf,qwen-code,command-code,pi");
         Assert.True(code == 0, output);
@@ -118,7 +118,7 @@ public sealed class SkillTests : IDisposable
     }
 
     [Fact]
-    public void UninstallOfOneClientKeepsAFolderAnotherRegisteredClientReads()
+    public void Uninstall_of_one_client_keeps_a_folder_another_registered_client_reads()
     {
         Directory.CreateDirectory(_home.Path(".codex"));
         Directory.CreateDirectory(_home.Path(".cursor"));

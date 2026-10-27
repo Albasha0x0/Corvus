@@ -12,11 +12,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Native patches and base relocations: entries under a patch are kept / neutralized, new absolute addresses get an
-/// entry in an ABSOLUTE slot of their page's block, undo restores the table, save_native re-checks it, and the patched
-/// code decodes to the intended operation after the image is rebased exactly as the loader does it.
-/// </summary>
+/// <summary>Native patches keep base relocations consistent: entries under a patch are neutralized, new addresses get entries, undo restores the table.</summary>
 public class NativeRelocationPatchTests(ITestOutputHelper output)
 {
     private const ulong Base32 = 0x10000000;
@@ -186,11 +182,7 @@ public class NativeRelocationPatchTests(ITestOutputHelper output)
 
     // ---- real images (Slow) ----
 
-    /// <summary>
-    /// A copy of SysWOW64 DLLs: (a) a 'push offset X' overwritten by a numeric push, (b) a 'push offset X' replaced by
-    /// 'nop ; mov eax, [X]' (the old entry neutralized, its slot retargeted one byte on). The patched file is rebased in
-    /// memory as the loader would and the patched instructions decode to the intended operation at the new base.
-    /// </summary>
+    /// <summary>Patched SysWOW64 DLLs rebased in memory as the loader would decode to the intended operation at the new base.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
     public async Task SysWow64_patches_are_correct_after_a_rebase()
@@ -253,11 +245,7 @@ public class NativeRelocationPatchTests(ITestOutputHelper output)
         Assert.True(done > 0 || !Directory.Exists(wow), "no SysWOW64 DLL had usable 'push offset' sites");
     }
 
-    /// <summary>
-    /// An MSVC x86 DLL (/DYNAMICBASE, /Od): GetValue's 'mov eax, [g_value]' is replaced by 'mov eax, [g_other] ; ret' at
-    /// the function start (the old entry neutralized, its slot retargeted), GetText's 'mov eax, offset str' by a number.
-    /// After an in-memory rebase GetValue reads g_other at its new address and GetText returns the number unchanged.
-    /// </summary>
+    /// <summary>A patched MSVC x86 DLL (/DYNAMICBASE, /Od) rebased in memory reads the retargeted global and returns the unrelocated number.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
     public async Task Msvc_x86_dll_patches_are_correct_after_a_rebase()

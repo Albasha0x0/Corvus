@@ -2,10 +2,10 @@ using Acornima.Ast;
 
 namespace Corvus.Services.Web;
 
-/// <summary>A search hit: what matched (string, identifier or property), its module, generated and (with a map) original position.</summary>
+/// <summary>A search hit: what matched (string or identifier), its module, generated and (with a map) original position.</summary>
 public sealed record JsHit(string Kind, string Value, string? Module, int Line, int Column, string? Original);
 
-/// <summary>analyze_js view=search and view=refs over one parsed file.</summary>
+/// <summary>The analyze_js search and refs views over one parsed file.</summary>
 public static class JsSearch
 {
     public const int MaxHits = 2000;
@@ -43,7 +43,7 @@ public static class JsSearch
         return hits;
     }
 
-    /// <summary>The modules <paramref name="id"/> requires, and the modules requiring it (a require of its id, or a dependency map entry to it).</summary>
+    /// <summary>The modules <paramref name="target"/> requires, and the modules requiring it by id or dependency map entry.</summary>
     public static (IReadOnlyList<string> Requires, IReadOnlyList<string> RequiredBy) Refs(IReadOnlyList<JsModule> modules, JsModule target)
     {
         bool Points(string request) => request == target.Id || request.EndsWith(" -> " + target.Id, StringComparison.Ordinal)

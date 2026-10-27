@@ -7,12 +7,8 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Services.Web;
 
-/// <summary>
-/// A saved web page read as the browser would load it, nothing run: each script and integrity-bearing link with where
-/// its bytes are (inline, a saved file beside the page, a data: URL, or not saved), its Subresource Integrity checked
-/// against those bytes, the import maps, and the Content Security Policy of its meta elements with each inline script's
-/// verdict under it. Response headers are not saved with a page, so a policy they may set is unknown, not absent.
-/// </summary>
+/// <summary>A saved web page read as the browser loads it, nothing run: scripts and links with SRI checks, import maps and meta CSP verdicts.</summary>
+/// <remarks>Response headers are not saved with a page, so a policy they may set is unknown, not absent.</remarks>
 public static partial class SavedPage
 {
     /// <summary>A script or link element. Location: inline, saved, data, remote or outside (a path leaving the page's folder, not read).</summary>

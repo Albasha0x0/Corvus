@@ -34,7 +34,7 @@ public sealed class JsBundleFilesTests : IDisposable
     [Fact]
     public void Source_map_original_tree_is_written_with_every_source_accounted_for()
     {
-        // webpack:// prefixes, a duplicate name, a source with no content but a file beside the map, and one missing
+        // webpack:// prefixes, a duplicate name, a source with no content but a file beside the map, and one missing.
         Directory.CreateDirectory(_dir.File("lib"));
         File.WriteAllText(_dir.File("lib/vendor.js"), "export const v = 1;\n");
         var map = """
@@ -53,7 +53,7 @@ public sealed class JsBundleFilesTests : IDisposable
         Assert.Equal(["sourcesContent", "sourcesContent", "sourcesContent", "file beside the map", "missing", "sourcesContent"], rows.Select(r => r.GetProperty("content").GetString()));
         Assert.Equal("src/gone.ts", rows[4].GetProperty("source").GetString());
 
-        // the .map alone gives the same tree
+        // The .map alone gives the same tree.
         Assert.Contains("original/src/api/client.ts", Unpack("other.js.map", map));
     }
 

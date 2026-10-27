@@ -32,7 +32,8 @@ public partial class UnpackTests
         AddType(m, "App.Internal", "Helper");
         AddType(m, "App.Internal", "LibB7.Helper");
         AddType(m, "App.Internal", "Contoso.Utils12.Helper");
-        AddType(m, "App.Internal", "Lib227.Helper"); // "Lib2" + key 27, not "Lib" + key 227
+        // "Lib2" + key 27, not "Lib" + key 227.
+        AddType(m, "App.Internal", "Lib227.Helper");
     });
 
     /// <summary>ILRepack's "ILRepack.List": a BinaryFormatter string[] (same bytes as ILRepack's StringArrayBinaryFormatter).</summary>
@@ -70,7 +71,7 @@ public partial class UnpackTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void ReadyToRun_DetectedOnCrossgenOutput_NotOnIlOnlyAssemblies()
+    public void ReadyToRun_detected_on_crossgen_output_not_on_IL_only_assemblies()
     {
         Assert.True(AssemblyTraits.IsReadyToRun(System.IO.File.ReadAllBytes(fx.ReadyToRunDll)));
         Assert.True(AssemblyTraits.IsReadyToRun(System.IO.File.ReadAllBytes(typeof(object).Assembly.Location))); // the shared framework ships R2R
@@ -81,32 +82,33 @@ public partial class UnpackTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void UnpackContainer_ReportsReadyToRunPerAssembly()
+    public void Unpack_container_reports_ReadyToRun_per_assembly()
     {
         var r2r = Unpack(fx.ReadyToRunBundle);
         Assert.True(Entry(r2r, "Hello.dll").ReadyToRun);
-        Assert.Null(Entry(r2r, "Hello.deps.json").ReadyToRun); // not an assembly
+        // Not an assembly.
+        Assert.Null(Entry(r2r, "Hello.deps.json").ReadyToRun);
 
         var plain = Unpack(fx.Bundle);
         Assert.False(Entry(plain, "Hello.dll").ReadyToRun);
     }
 
     [Fact]
-    public void IlMergeRenames_AreLabelledWithTheRecoveredInputs()
+    public void ILMerge_renames_are_labelled_with_the_recovered_inputs()
     {
         Assert.Equal("Merged assembly (ILMerge-style): at least 4 original modules (renamed types from Contoso.Utils, Lib2, LibB).", MergeNote(IlMerged()));
     }
 
     [Fact]
-    public void IlRepackList_GivesTheExactInputs()
+    public void ILRepack_list_gives_the_exact_inputs()
     {
         Assert.Equal("Merged by ILRepack from 3 assemblies: LibA, LibB, Repacked.", MergeNote(Repacked()));
         var corrupt = ContainerFixtures.Module("BadList", ("ILRepack.List", [0x00, 0x01, 0x02]));
-        Assert.Equal("Merged by ILRepack (ILRepack.List resource present, but its list is unreadable).", MergeNote(corrupt));
+        Assert.Equal("Merged by ILRepack; its ILRepack.List resource is unreadable.", MergeNote(corrupt));
     }
 
     [Fact]
-    public void OldCompilerHelperClasses_FromSeveralModules_AreLabelled()
+    public void Old_compiler_helper_classes_from_several_modules_are_labelled()
     {
         var two = ContainerFixtures.Module("OldMerged", m =>
         {
@@ -120,7 +122,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void UnmergedAssemblies_AreNotLabelled()
+    public void Unmerged_assemblies_are_not_labelled()
     {
         Assert.Null(MergeNote(System.IO.File.ReadAllBytes(Env.FixturePath)));
         // A dotted type name alone is not enough; the undotted original must exist too.
@@ -135,7 +137,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void UnpackContainer_LabelsMergedAssemblies()
+    public void Unpack_container_labels_merged_assemblies()
     {
         var zip = ContainerFixtures.Zip(("IlMerged.dll", IlMerged()), ("Repacked.dll", Repacked()), ("TestFixture.dll", System.IO.File.ReadAllBytes(Env.FixturePath)));
         var r = Unpack(Save("merged.zip", zip));
@@ -148,7 +150,7 @@ public partial class UnpackTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void List_SingleFileBundle()
+    public void List_names_the_assembly_of_a_single_file_bundle_without_loading_it()
     {
         var l = List(fx.Bundle);
         Assert.Equal(".NET single-file bundle", l.Container);
@@ -157,13 +159,14 @@ public partial class UnpackTests
         Assert.StartsWith("Hello, Version=", hello.Name);
         Assert.Equal(Sha(fx.HelloDll), hello.Sha256);
         Assert.False(hello.ReadyToRun);
-        Assert.Empty(_workspace.Assemblies); // listing loads nothing
+        // Listing loads nothing.
+        Assert.Empty(_workspace.Assemblies);
 
         Assert.True(Assert.Single(List(fx.ReadyToRunBundle).Assemblies).ReadyToRun);
     }
 
     [Fact]
-    public void List_NuGetPackage()
+    public void List_names_each_target_framework_copy_of_a_NuGet_package()
     {
         var l = List(ContainerFixtures.NuGetPackage("dnlib"));
         Assert.Equal("NuGet package", l.Container);
@@ -173,7 +176,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void List_ApkStyleZip()
+    public void List_names_the_assemblies_of_an_APK_with_their_origin()
     {
         var l = List(Save("app.apk", BuildApk().Apk));
         Assert.Equal("Android package (Xamarin / MAUI)", l.Container);
@@ -182,7 +185,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void List_NestedAndCosturaAndMerged()
+    public void List_names_nested_Costura_and_merged_assemblies()
     {
         var host = ContainerFixtures.Module("CosturaHost", ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(System.IO.File.ReadAllBytes(Env.FixturePath))));
         var l = List(Save("outer.zip", ContainerFixtures.Zip(("app/CosturaHost.exe", host), ("Repacked.dll", Repacked()))));
@@ -193,7 +196,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void List_PlainAssemblyListsItself_AndNonAssemblyListsNothing()
+    public void List_plain_assembly_lists_itself_and_non_assembly_lists_nothing()
     {
         var l = List(Env.FixturePath);
         Assert.Equal("none (plain .NET assembly)", l.Container);
@@ -209,7 +212,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void List_CorruptContainers_GiveAClearError()
+    public void List_corrupt_containers_give_a_clear_error()
     {
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         Assert.Contains("corrupt zip", Assert.Throws<ToolError>(() => List(Save("cut.nupkg", nupkg[..20]))).Message);
@@ -235,7 +238,7 @@ public partial class UnpackTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task ListAssembliesTool_ReportsReadyToRunMergedAndContainers()
+    public async Task List_assemblies_tool_reports_ReadyToRun_merged_and_containers()
     {
         var merged = Save("IlMerged.dll", IlMerged());
         await using var client = await McpProtocolTests.StartServerAsync("--no-index", "--load", fx.ReadyToRunDll, "--load", Env.FixturePath, "--load", merged);
@@ -257,7 +260,8 @@ public partial class UnpackTests
         var withBundle = Structured(bundleResult);
         var container = Prop(withBundle, "container");
         Assert.Equal(".NET single-file bundle", Prop(container, "container").GetString());
-        var hello = Assert.Single(Prop(withBundle, "items").EnumerateArray()); // with path, the rows are the container's
+        // With path, the rows are the container's.
+        var hello = Assert.Single(Prop(withBundle, "items").EnumerateArray());
         Assert.Equal(("contained", "Hello.dll"), (Prop(hello, "kind").GetString(), Prop(hello, "path").GetString()));
         Assert.False(Has(hello, "readyToRun"));
         Assert.Equal(1, Prop(withBundle, "total").GetInt32());

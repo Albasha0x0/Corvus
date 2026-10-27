@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Mobile;
 
-/// <summary>
-/// A class file as text in the layout of <c>javap -c -p</c>: declaration, every field and method with its modifiers and
-/// generic types, and each method's bytecode with constant pool comments and the exception table.
-/// </summary>
+/// <summary>A class file as text in the layout of <c>javap -c -p</c>.</summary>
 public sealed class JvmListing
 {
     private readonly JvmClass _c;
@@ -332,7 +329,8 @@ public sealed class JvmListing
             case 132: operand = $"{code[pc + 1]}, {(sbyte)code[pc + 2]}"; size = 3; break; // iinc
             case >= 153 and <= 166 or 198 or 199: operand = (pc + S2(pc + 1)).ToString(CultureInfo.InvariantCulture); size = 3; break;
             case 167: operand = (pc + S2(pc + 1)).ToString(CultureInfo.InvariantCulture); size = 3; break; // goto
-            case 168: size = 3; break; // jsr: javap prints no operand
+            // jsr: javap prints no operand.
+            case 168: size = 3; break;
             case 169: size = 2; break; // ret
             case 200: operand = (pc + S4(pc + 1)).ToString(CultureInfo.InvariantCulture); size = 5; break; // goto_w
             case 201: size = 5; break; // jsr_w
@@ -574,7 +572,8 @@ public static class JavaNumbers
         }
         int dot = r.IndexOf('.');
         string digits = dot < 0 ? r : r[..dot] + r[(dot + 1)..];
-        int point = (dot < 0 ? r.Length : dot) + e; // digits before the decimal point
+        // Digits before the decimal point.
+        int point = (dot < 0 ? r.Length : dot) + e;
         int lead = digits.Length - digits.TrimStart('0').Length;
         digits = digits.Trim('0');
         point -= lead;

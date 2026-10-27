@@ -14,7 +14,7 @@ public sealed class FormatLoadTests
 
     [Trait("Smoke", "push")]
     [Fact]
-    public void Open_DispatchesByContent()
+    public void Open_dispatches_by_content()
     {
         Assert.IsType<ElfFile>(NativeImageLoader.Open(NativeFixtures.LinuxArm64DbgShim));
         Assert.IsType<MachOFile>(NativeImageLoader.Open(NativeFixtures.OsxArm64DbgShim));
@@ -27,7 +27,7 @@ public sealed class FormatLoadTests
     }
 
     [Fact]
-    public async Task LoadAssembly_LoadsEachSliceUnderItsOwnId()
+    public async Task Load_assembly_loads_each_slice_under_its_own_ID()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var text = await h.WorkspaceTools.LoadAssembly(NativeFixtures.OsxFatSkia);
@@ -50,7 +50,7 @@ public sealed class FormatLoadTests
     }
 
     [Fact]
-    public async Task GetPeInfo_DescribesElfAndMachO()
+    public async Task Get_PE_info_describes_ELF_and_MachO()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var collector = Mcp.ToolOutput.Collect();
@@ -80,7 +80,7 @@ public sealed class FormatLoadTests
 
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task ListImportsAndExports_RenderElfAndMachO()
+    public async Task Import_and_export_lists_render_ELF_and_MachO()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var elf = (ElfFile)NativeImageLoader.Open(NativeFixtures.LinuxArm64DbgShim);
@@ -103,7 +103,7 @@ public sealed class FormatLoadTests
     }
 
     [Fact]
-    public void SummarizeFile_ReportsTheNativeImage()
+    public void Summarize_file_reports_the_native_image()
     {
         using var ws = new AssemblyWorkspace(new ServerOptions());
         var inspection = new InspectionService(ws);
@@ -126,7 +126,7 @@ public sealed class FormatLoadTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void SurveyFeatures_TakesElfAndMachOPaths()
+    public void Survey_features_takes_ELF_and_MachO_paths()
     {
         using var ws = new AssemblyWorkspace(new ServerOptions());
         var inspection = new InspectionService(ws, new Services.NativeCodeService(ws, new ServerOptions()));
@@ -139,7 +139,7 @@ public sealed class FormatLoadTests
     }
 
     [Fact]
-    public void Identify_TellsMachOFromJavaClasses()
+    public void Identification_tells_MachO_from_Java_classes()
     {
         Assert.Equal("mach-o", Blob.Identify([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 2, 1, 0, 0, 12, 0, 0, 0, 0]));
         Assert.NotEqual("mach-o", Blob.Identify([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52, 0, 0x2A, 0x0A, 0, 0, 0, 0, 0]));
@@ -149,7 +149,7 @@ public sealed class FormatLoadTests
     /// <summary>Every native tool on ELF and Mach-O images: results or typed errors (pe_only), never an unexpected exception.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task EveryNativeTool_AnswersOnElfAndMachO()
+    public async Task Every_native_tool_answers_on_ELF_and_MachO()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         foreach (var path in new[] { NativeFixtures.LinuxArm64DbgShim, NativeFixtures.LinuxArmDbgShim, NativeFixtures.OsxArm64DbgShim, NativeFixtures.OsxArm64AppHost })

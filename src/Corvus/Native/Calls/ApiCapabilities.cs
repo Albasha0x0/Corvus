@@ -3,11 +3,7 @@ namespace Corvus.Native.Calls;
 /// <summary>A capability group an image's imports imply: the APIs that put it there (static and late-bound).</summary>
 public sealed record ApiCapability(string Group, int Count, IReadOnlyList<string> Apis);
 
-/// <summary>
-/// Capability groups from imported API names (Windows and POSIX): files, registry, network, crypto, process and thread,
-/// UI, services, COM, debugging and anti-debugging, dynamic loading. Names match without the A / W / Ex suffixes; a
-/// group also takes whole modules (ws2_32, bcrypt) whose every import belongs to it.
-/// </summary>
+/// <summary>Capability groups (files, registry, network, crypto, ...) from Windows and POSIX imports, matched without A/W/Ex suffixes.</summary>
 public static class ApiCapabilities
 {
     private sealed record Group(string Name, string[] Modules, string[] Prefixes, string[] Exact);

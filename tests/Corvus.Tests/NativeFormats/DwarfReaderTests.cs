@@ -9,7 +9,7 @@ namespace Corvus.Tests.NativeFormats;
 public class DwarfReaderTests
 {
     private const string Library = "libSystem.Native.so";
-    // facts of the linux-x64 build, checked against llvm-dwarfdump
+    // Facts of the linux-x64 build, checked against llvm-dwarfdump.
     private const uint FStat = 0xD7A0;
 
     private static string Elf(string file = Library) => NativeFixtures.NativeAotLib("linux-x64", file);
@@ -71,7 +71,7 @@ public class DwarfReaderTests
     {
         using var dir = new TempDir();
         var image = NativeImageLoader.Open(Elf());
-        // the debug file again with its DWARF sections compressed three ways (zlib, zstd, GNU .zdebug_)
+        // The debug file again with its DWARF sections compressed three ways (zlib, zstd, GNU .zdebug_).
         using var plain = DebugContainer.Open(Elf(Library + ".dbg"));
         var sections = new List<DebugFileWriter.Section> { DebugFileWriter.BuildId(image.BuildId!) };
         var packings = new[] { DebugFileWriter.Packing.Zlib, DebugFileWriter.Packing.Zstd, DebugFileWriter.Packing.GnuZlib };

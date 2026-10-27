@@ -32,8 +32,7 @@ internal static class ShellLinkRules
 
     private static readonly string[] DocumentIcons = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".jpg", ".png", ".rtf", ".html", "msedge", "chrome", "acrord", "acrobat", "winword", "excel"];
 
-    // Arguments run to 65,535 characters: NonBacktracking matches in linear
-    // time, so no match timeout.
+    // Arguments run to 65,535 characters; NonBacktracking matches in linear time, so no match timeout.
     private static readonly Regex EncodedCommand = new(@"(?i)(-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{20,}|FromBase64String|\biex\b|Invoke-Expression|DownloadString|DownloadFile)",
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Regex Url = new(@"(?i)\b(?:https?|ftp)://[^\s'""\)]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);

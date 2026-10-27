@@ -4,11 +4,8 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// The frame safety net (S1.7) behind <see cref="ToolOutput"/>: no part of a result may pass the call's budget × 4 + 16,000
-/// characters. Results are fitted by tokens long before that; this only bounds what escaped (an error with a huge message).
-/// An error keeps its code and sends the head of its message with the kept result's id; a success keeps its head, never an error.
-/// </summary>
+/// <summary>The frame safety net: no result part passes the call's budget × 4 + 16,000 characters; an error keeps its code, a success its head.</summary>
+// Results are fitted by tokens long before this; it only bounds what escaped, such as a huge error message.
 internal static class ResponseBudget
 {
     /// <summary>Characters beside budget × 4 that a part may take.</summary>

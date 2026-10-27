@@ -11,7 +11,7 @@ internal sealed class ResourceManagerObject(string baseName) : ReflectionObject
     protected override string[] Types => ["System.Resources.ResourceManager"];
 }
 
-/// <summary>CultureInfo.InvariantCulture (or, under the deterministic environment, the current culture pinned to it).</summary>
+/// <summary>CultureInfo.InvariantCulture, also the current culture under the deterministic environment.</summary>
 internal sealed class CultureObject : ReflectionObject
 {
     public static readonly CultureObject Invariant = new();
@@ -35,17 +35,13 @@ internal sealed partial class IlEvaluator
         add(CI, CI, "get_InvariantCulture", "", (_, _) => CultureObject.Invariant);
     }
 
-    /// <summary>
-    /// ResourceManager.GetString of the module's own neutral resources (the embedded "baseName.resources"): with the
-    /// invariant culture, or with the current UI culture (null) under the deterministic environment, which pins it to the
-    /// invariant culture. Otherwise satellite assemblies may hold other strings: not modelled.
-    /// </summary>
+    /// <summary>ResourceManager.GetString from the module's neutral "baseName.resources" in the invariant culture; null when the key is absent.</summary>
     private string? ResourceString(object? manager, object? name, object? culture)
     {
         var rm = Of<ResourceManagerObject>(manager, "a ResourceManager");
         var key = Str(name);
         if (culture == null && !DeterministicEnvironment)
-            throw Bail(FallbackReason.PlatformDependent, "a resource lookup in the current UI culture, which satellite assemblies may answer (the deterministicEnvironment option pins it to the invariant culture)");
+            throw Bail(FallbackReason.PlatformDependent, "a resource lookup in the current UI culture, which satellite assemblies may answer; the deterministicEnvironment option pins it to the invariant culture");
         if (culture != null && culture is not CultureObject) throw Bail(FallbackReason.UnsupportedValue, "a resource lookup in a culture the interpreter does not model");
         if (module.Assembly?.CustomAttributes.FirstOrDefault(a => a.TypeFullName == "System.Resources.NeutralResourcesLanguageAttribute") is { ConstructorArguments.Count: 2 } neutral &&
             neutral.ConstructorArguments[1].Value is int location && location != 0)
@@ -71,7 +67,7 @@ internal sealed partial class IlEvaluator
                 foreach (var entry in names)
                 {
                     reader.GetResourceData(entry, out var type, out var data);
-                    // A string entry: its type code, then a 7-bit length and UTF-8 text. Other entries are not strings (GetString throws).
+                    // A string entry is a 7-bit length and UTF-8 text; GetString throws on other entries.
                     table[entry] = type == "ResourceTypeCode.String" ? new BinaryReader(new MemoryStream(data)).ReadString() : null;
                 }
             }
@@ -84,16 +80,11 @@ internal sealed partial class IlEvaluator
         return table;
     }
 
-    /// <summary>
-    /// A lazily created ResourceManager in a static field (the generated <c>Resources.ResourceManager</c> property): when
-    /// every store to the field stores a new ResourceManager built from the same constant base name and the module's
-    /// own assembly, and only those getters read it, every value the field ever holds is an equivalent manager. Null when
-    /// the field is not one.
-    /// </summary>
+    /// <summary>The manager a lazily filled ResourceManager field always holds (generated <c>Resources.ResourceManager</c>), or null.</summary>
     private ResourceManagerObject? LazyManager(FieldDef field)
     {
         if (field.FieldType.FullName != "System.Resources.ResourceManager") return null;
-        // Equivalent for callers of the getter only: in the getter itself the field is null until it creates the manager.
+        // Inside the getter the field is null until it creates the manager.
         if (CurrentMethod != null && _lazyWriters.TryGetValue(field, out var writers) && writers.Contains(CurrentMethod)) return null;
         if (_lazyManagers.TryGetValue(field, out var known)) return known;
         _lazyManagers[field] = null;

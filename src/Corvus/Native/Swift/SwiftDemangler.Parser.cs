@@ -330,7 +330,7 @@ public static partial class SwiftDemangler
                     case 'z': return CreateType(With(K.InOut, PopTypeAndGetChild()));
                     case '_': return N(K.FirstElementMarker);
                     case '.':
-                        // IRGen's ".<n>" disambiguation suffix
+                        // IRGen's ".<n>" disambiguation suffix.
                         PushBack();
                         return N(K.Suffix, ConsumeAll());
                     case '$': return DemangleIntegerType();

@@ -3,16 +3,10 @@ using System.Text;
 
 namespace Corvus.Native.NativeAot;
 
-/// <summary>
-/// An object preinitialized by the compiler. <see cref="Rva"/> is the object reference (its MethodTable pointer, as code
-/// loads it); the pointer-sized object header precedes it. <see cref="Text"/> is set for strings.
-/// </summary>
+/// <summary>A preinitialized object; <see cref="Rva"/> is its MethodTable pointer, <see cref="Text"/> is set for strings.</summary>
 public sealed record NativeAotFrozenObject(uint Rva, uint MethodTable, string TypeName, uint Size, string? Text = null);
 
-/// <summary>
-/// Linear walk of the frozen object region (section 206): contiguous objects [header][MethodTable*][payload] of
-/// BaseSize + ComponentSize × length bytes, pointer aligned; zero padding between them is skipped.
-/// </summary>
+/// <summary>Walks the frozen object region (section 206), skipping zero padding.</summary>
 public sealed class NativeAotFrozen
 {
     private const int MaxObjects = 4_000_000, MaxStringChars = 1 << 20;

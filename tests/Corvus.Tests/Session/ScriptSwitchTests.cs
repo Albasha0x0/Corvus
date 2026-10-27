@@ -2,10 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The repository scripts never assign a variable named like one of their switches: PowerShell names ignore case, so
-/// the assignment converts the value to a switch and fails (test.ps1's $coverage and $all did).
-/// </summary>
+/// <summary>Repository scripts never assign a variable named like a switch: PowerShell ignores case, so the value becomes a switch and fails.</summary>
 public class ScriptSwitchTests
 {
     public static TheoryData<string> Scripts() => [.. Directory.GetFiles(DocsTests.RepoRoot(), "*.ps1").Select(p => Path.GetFileName(p)).Order()];

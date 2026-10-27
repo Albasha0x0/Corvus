@@ -7,11 +7,11 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Imported name layers (load_pdb, apply_il2cpp_names) saved beside the annotations and restored on load.</summary>
+/// <summary>Imported name layers (load_pdb, apply_metadata_names) saved beside the annotations and restored on load.</summary>
 public class ImportedNamesTests(ITestOutputHelper output)
 {
     [Fact]
-    public void LayerFilesRoundTripAndBadFilesReadAsNothing()
+    public void Layer_files_round_trip_and_bad_files_read_as_empty()
     {
         using var dir = new TempDir();
         var store = new AnnotationStore(dir.File("ann"));
@@ -27,14 +27,14 @@ public class ImportedNamesTests(ITestOutputHelper output)
         Assert.Equal("a.pdb", back.Origin);
         Assert.Equal(info with { FunctionStarts = null, Restored = true }, back.Info! with { FunctionStarts = null });
         Assert.Equal([0x1010u, 0x1040u], back.Info!.FunctionStarts);
-        Assert.Null(store.LoadLayer(sha, NativeNameSource.Il2Cpp));
+        Assert.Null(store.LoadLayer(sha, NativeNameSource.Metadata));
         Assert.Null(store.LoadLayer("other", NativeNameSource.Pdb));
 
-        // an old-format sidecar (names and comments only) beside the layer file still loads
+        // An old-format sidecar (names and comments only) beside the layer file still loads.
         File.WriteAllText(Path.Combine(store.Root, sha + ".json"), """{"path":"a.dll","sha256":"ab12","imageBase":0,"names":{"1000":"Mine"},"comments":{}}""");
         Assert.Equal("Mine", store.Load(sha)!.Names["1000"]);
 
-        // truncated or foreign bytes read as no layer, never an exception
+        // Truncated or foreign bytes read as no layer, never an exception.
         var file = store.LayerFileFor(sha, NativeNameSource.Pdb);
         var bytes = File.ReadAllBytes(file);
         foreach (var cut in new[] { 0, 5, bytes.Length / 2, bytes.Length - 16 })
@@ -48,14 +48,10 @@ public class ImportedNamesTests(ITestOutputHelper output)
         Assert.False(store.DeleteLayer(sha, NativeNameSource.Pdb));
     }
 
-    /// <summary>
-    /// A real restart: one server imports PDB names (from a PDB away from the image) and Il2Cpp names into a native image
-    /// and exits; the PDB is deleted; a second server with the same annotation folder loads the image only and has both
-    /// layers, with their sources, the PDB's function starts and the restore reported; clearing removes the saved copies.
-    /// </summary>
+    /// <summary>PDB and metadata names imported by one server survive a restart with the PDB deleted, with sources and function starts; clearing removes the saved copies.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task NamesSurviveAServerRestart()
+    public async Task Names_survive_a_server_restart()
     {
         using var dir = new TempDir();
         var image = dir.File("tiny.dll");
@@ -66,8 +62,8 @@ public class ImportedNamesTests(ITestOutputHelper output)
         var watch = Stopwatch.StartNew();
         await using (var first = await McpProtocolTests.StartServerInAsync(dir.Path, "--load", Env.FixturePath))
         {
-            Assert.Contains("saved with the image's annotations", await Call(first, "load_pdb", new() { ["image"] = image, ["path"] = syms }));
-            Assert.Contains("Saved with the image's annotations", await Call(first, "apply_il2cpp_names", new() { ["image"] = "tiny.dll", ["assembly"] = "TestFixture" }));
+            Assert.Contains("saved: reapplied when this file loads again", await Call(first, "load_pdb", new() { ["image"] = image, ["path"] = syms }));
+            Assert.Contains("Saved with the image's annotations", await Call(first, "apply_metadata_names", new() { ["image"] = "tiny.dll", ["assembly"] = "TestFixture" }));
             var listed = await Call(first, "list_native_edits", new() { ["image"] = "tiny.dll" });
             Assert.Contains("saved for the next load", listed);
             Assert.DoesNotContain("restored on load", listed);
@@ -84,17 +80,17 @@ public class ImportedNamesTests(ITestOutputHelper output)
             Assert.Contains("helper", functions); // a PDB function start discovery alone does not find
             Assert.Contains("Fixture_Native_NativeThing__First", functions);
             Assert.Contains("name Bar::Foo (pdb)", await Call(second, "resolve_address", new() { ["image"] = "tiny.dll", ["address"] = "0x140001010" }));
-            Assert.Contains("name Fixture_Native_NativeThing__First (il2cpp)", await Call(second, "resolve_address", new() { ["image"] = "tiny.dll", ["address"] = "0x140001000" }));
+            Assert.Contains("name Fixture_Native_NativeThing__First (metadata)", await Call(second, "resolve_address", new() { ["image"] = "tiny.dll", ["address"] = "0x140001000" }));
             var edits = await Call(second, "list_native_edits", new() { ["image"] = "tiny.dll" });
             output.WriteLine(edits);
             Assert.Contains("pdb: 3 name(s)", edits);
             Assert.Contains("restored on load", edits);
             Assert.Contains("GUID age 11223344-5566-7788-99aa-bbccddeeff00 3", edits);
-            Assert.Contains("il2cpp:", edits);
+            Assert.Contains("metadata:", edits);
             output.WriteLine($"second session (load + names) {watch.Elapsed.TotalSeconds:0.0} s");
 
             Assert.Contains("removed 3 PDB names and the saved copy", await Call(second, "load_pdb", new() { ["image"] = "tiny.dll", ["clear"] = true }));
-            Assert.Contains("and the saved copy", await Call(second, "apply_il2cpp_names", new() { ["image"] = "tiny.dll", ["clear"] = true }));
+            Assert.Contains("and the saved copy", await Call(second, "apply_metadata_names", new() { ["image"] = "tiny.dll", ["clear"] = true }));
         }
         Assert.Empty(Directory.GetFiles(Path.Combine(dir.Path, ".corvus-annotations"), "*.names"));
     }
@@ -111,36 +107,33 @@ public class ImportedNamesTests(ITestOutputHelper output)
 /// <summary>Saved imported names on real data, with their timings.</summary>
 public class ImportedNamesRealDataTests(ITestOutputHelper output)
 {
-    /// <summary>
-    /// A real Il2Cpp build (CORVUS_IL2CPP_BUILD, read by the built-in reader): the il2cpp layer is saved, then restored by a fresh
-    /// workspace and service over the same annotation folder. Reports counts, the saved file size and the timings.
-    /// </summary>
-    [RequiresRealDataFact("CORVUS_IL2CPP_BUILD")]
+    /// <summary>A metadata build (CORVUS_AOT_BUILD): the saved name layer is restored by a fresh workspace; reports counts, file size and timings.</summary>
+    [RequiresRealDataFact("CORVUS_AOT_BUILD")]
     [Trait("Speed", "Slow")]
-    public void RealIl2CppNamesRestore()
+    public void Names_imported_from_a_real_metadata_build_restore()
     {
         using var dir = new TempDir();
-        var files = Corvus.Services.Il2CppBuildFiles.Find(RealData.Path("CORVUS_IL2CPP_BUILD")) ?? throw new InvalidOperationException("not an Il2Cpp build");
+        var files = Corvus.Services.AotBuildFiles.Find(RealData.Path("CORVUS_AOT_BUILD")) ?? throw new InvalidOperationException("not an AOT build");
         var store = new AnnotationStore(dir.File("ann"));
-        var cache = Environment.GetEnvironmentVariable(Corvus.Services.Il2CppRawLoader.RootVariable) is { Length: > 0 } c ? c : dir.File("il2cpp-cache");
+        var cache = Environment.GetEnvironmentVariable(Corvus.Services.AotBuildLoader.RootVariable) is { Length: > 0 } c ? c : dir.File("aot-cache");
         int names, comments;
         var watch = Stopwatch.StartNew();
         using (var ws = new Corvus.Core.AssemblyWorkspace(new Corvus.Core.ServerOptions { WatchFiles = false, BackgroundIndexing = false }))
         {
-            var il2cpp = new Corvus.Services.Il2CppService(ws);
-            var navigator = new Corvus.Services.Il2CppNavigator(ws, il2cpp, new Corvus.Services.Il2CppStringService(ws, il2cpp));
+            var aot = new Corvus.Services.AotMetadataService(ws);
+            var navigator = new Corvus.Services.AotNavigator(ws, aot, new Corvus.Services.AotStringService(ws, aot));
             var code = new Corvus.Services.NativeCodeService(ws, new Corvus.Core.ServerOptions { BackgroundIndexing = false }, null, store);
-            new Corvus.Services.Il2CppRawLoader(ws).Load(files, loadBinary: false, null, default, cache);
+            new Corvus.Services.AotBuildLoader(ws).Load(files, loadBinary: false, null, default, cache);
             var native = ws.LoadAny(files.Binary).Native!;
             output.WriteLine($"metadata read and binary loaded in {watch.Elapsed.TotalSeconds:0.0} s");
             watch.Restart();
-            var report = new Corvus.Services.Il2CppNativeNames(il2cpp, navigator, code).Apply(native, null, ws.Scope(null), default);
-            var layer = NativeNameLayers.Of(native).Get(NativeNameSource.Il2Cpp)!;
+            var report = new Corvus.Services.AotNativeNames(aot, navigator, code).Apply(native, null, ws.Scope(null), default);
+            var layer = NativeNameLayers.Of(native).Get(NativeNameSource.Metadata)!;
             (names, comments) = (layer.Names.Count, layer.Comments.Count);
-            output.WriteLine($"apply_il2cpp_names (with the save) {watch.Elapsed.TotalSeconds:0.00} s: {report.Functions} functions, {report.Strings} strings, " +
+            output.WriteLine($"apply_metadata_names (with the save) {watch.Elapsed.TotalSeconds:0.00} s: {report.Functions} functions, {report.Strings} strings, " +
                              $"{report.MetadataSlots} metadata slots, {report.MethodInfoSlots} MethodInfo slots; layer {names} names, {comments} comments; notes: {string.Join("; ", report.Notes)}");
         }
-        var file = new FileInfo(Assert.Single(Directory.GetFiles(store.Root, "*.il2cpp.names")));
+        var file = new FileInfo(Assert.Single(Directory.GetFiles(store.Root, "*.metadata.names")));
         output.WriteLine($"saved {file.Name}: {file.Length / 1048576.0:0.0} MB ({file.Length / (double)names:0.0} bytes per name with its comment)");
 
         using var again = new Corvus.Core.AssemblyWorkspace(new Corvus.Core.ServerOptions { WatchFiles = false, BackgroundIndexing = false });
@@ -150,19 +143,16 @@ public class ImportedNamesRealDataTests(ITestOutputHelper output)
         output.WriteLine($"second session: binary loaded in {watch.Elapsed.TotalSeconds:0.00} s");
         watch.Restart();
         code2.RestoreImported(native2);
-        var restored = NativeNameLayers.Of(native2).Get(NativeNameSource.Il2Cpp)!;
+        var restored = NativeNameLayers.Of(native2).Get(NativeNameSource.Metadata)!;
         output.WriteLine($"restored {restored.Names.Count} names, {restored.Comments.Count} comments in {watch.Elapsed.TotalSeconds:0.00} s; source {restored.Info!.SourcePath} sha256 {restored.Info.SourceIdentity}");
         Assert.Equal((names, comments), (restored.Names.Count, restored.Comments.Count));
         Assert.True(restored.Info.Restored);
     }
 
-    /// <summary>
-    /// A System32 DLL whose PDB is in a local symbol store: load_pdb from a copy of the PDB, delete the copy, and a fresh
-    /// service restores the names and function starts from the saved layer alone; reports counts and timings.
-    /// </summary>
+    /// <summary>A System32 DLL's names and function starts restore from the saved layer alone after the loaded PDB copy is deleted.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task RealPdbNamesRestoreWithoutThePdb()
+    public async Task Real_PDB_names_restore_without_the_PDB()
     {
         // It sets a variable of the process, so it runs in a process of its own.
         if (ChildTest.Rerun(this, output)) return;

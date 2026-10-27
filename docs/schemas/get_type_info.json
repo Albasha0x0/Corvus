@@ -59,8 +59,8 @@
             "description": "nested, field, property, event or method (section summary and all).",
             "type": "string"
           },
-          "il2Cpp": {
-            "description": "Il2Cpp RVA / offset from the dummy assembly's attributes.",
+          "address": {
+            "description": "RVA / offset from the dummy assembly's attributes.",
             "type": "string"
           },
           "il": {

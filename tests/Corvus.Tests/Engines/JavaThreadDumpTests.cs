@@ -18,10 +18,7 @@ public sealed class JavaThreadDumpTests
         return Process.Start(new ProcessStartInfo(java.Java, [.. vmArgs, source]) { UseShellExecute = false, CreateNoWindow = true })!;
     }
 
-    /// <summary>
-    /// Reports until <paramref name="done"/> holds or a minute and a half passed (the source launcher compiles first);
-    /// each dump is read and deleted, so the shared stall folder keeps only real stalls.
-    /// </summary>
+    /// <summary>Reports until <paramref name="done"/> holds or 90 s pass; each dump is read and deleted so the stall folder keeps only real stalls.</summary>
     private static (string Report, string? File, string Dump) Take(JavaRuntime java, IReadOnlyList<int> pids, TempDir dir, Func<string, string, bool> done)
     {
         (string, string?, string) last = ("", null, "");

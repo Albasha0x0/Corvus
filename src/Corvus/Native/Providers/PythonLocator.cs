@@ -5,12 +5,7 @@ namespace Corvus.Native.Providers;
 /// <summary>A Python interpreter that passed the checks, with its reported version and pointer size.</summary>
 public sealed record PythonInterpreter(string Executable, Version Version, int Bits, string Source);
 
-/// <summary>
-/// Finds a Python interpreter for a worker: explicit candidates first (an override, an engine's configured
-/// interpreter), then the Windows launcher (<c>py -3</c>), then PATH. Each candidate is run once in isolated mode
-/// to read its version, pointer size and real executable (the launcher and PATH shims are resolved to the
-/// interpreter itself so the worker is not started through a launcher process).
-/// </summary>
+/// <summary>Finds a worker's Python (preferred candidates, <c>py -3</c>, then PATH), each run once in isolated mode and resolved to the real interpreter, so no launcher process sits in between.</summary>
 public static class PythonLocator
 {
     public static readonly Version MinimumVersion = new(3, 9);
@@ -19,18 +14,14 @@ public static class PythonLocator
     /// <summary>How long a candidate may stay idle before it counts as not answering, unless the caller gives more.</summary>
     public static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromSeconds(15);
 
-    // A busy machine stretches an interpreter's start while it keeps using CPU; the probe's limit counts idle time
-    // only, and this many limits bound the whole probe.
+    // The probe limit counts idle time only, as a busy machine stretches a start; this many limits bound the whole probe.
     private const int ProbeCapLimits = 3;
 
     /// <summary>Returns the first working 64-bit interpreter, or null; <paramref name="log"/> lists every candidate and why it was rejected.</summary>
     public static PythonInterpreter? Find(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan? probeTimeout = null) =>
         Search(preferred, log, probeTimeout ?? DefaultProbeTimeout).Python;
 
-    /// <summary>
-    /// <see cref="Find"/>, and whether a candidate gave no answer within <paramref name="probeTimeout"/>: a null
-    /// interpreter is then unknown rather than absent, and a search with more time may find one.
-    /// </summary>
+    /// <summary><see cref="Find"/>, and whether a candidate timed out, making a null result unknown rather than absent.</summary>
     public static (PythonInterpreter? Python, bool Unanswered) Search(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan probeTimeout) =>
         Search(preferred, log, probeTimeout, defaults: true);
 
@@ -121,11 +112,8 @@ public static class PythonLocator
     /// <summary>A finished run; <paramref name="Stopped"/> names the limit that stopped a timed-out run, null when it is the plain timeout.</summary>
     public sealed record CaptureResult(int? ExitCode, string Stdout, string Stderr, bool TimedOut, string? StartError, string? Stopped = null);
 
-    /// <summary>
-    /// Runs a short-lived process in its own job, capturing output; the tree is killed on timeout. With
-    /// <paramref name="cap"/>, <paramref name="timeout"/> counts only time the tree spends idle (under 0.1% of a core)
-    /// and the cap bounds the whole run; where the tree's CPU time cannot be read, the run stops after timeout.
-    /// </summary>
+    /// <summary>Runs a short process in its own job, capturing output; with <paramref name="cap"/>, <paramref name="timeout"/> counts idle time only.</summary>
+    /// <remarks>The tree is killed on timeout; the cap bounds the whole run.</remarks>
     public static CaptureResult RunCapture(string exe, IReadOnlyList<string> args, TimeSpan timeout, IReadOnlyDictionary<string, string?>? environment = null,
         TimeSpan? cap = null)
     {
@@ -166,11 +154,7 @@ public static class PythonLocator
         return WaitWhileBusy(wait => child.Exited.Wait(wait), child.TreeCpuTime, () => watch.Elapsed, idle, cap, out stopped);
     }
 
-    /// <summary>
-    /// Waits through <paramref name="waitExit"/> (true once the tree exited) in steps of an eighth of
-    /// <paramref name="idle"/>; false once the tree's CPU time grew by less than 0.1% of idle over the last idle, after
-    /// idle when the CPU time reads null, or at <paramref name="cap"/>. <paramref name="stopped"/> names the limit.
-    /// </summary>
+    /// <summary>True once the tree exits; false after <paramref name="idle"/> under 0.1% CPU (or unreadable CPU) or at <paramref name="cap"/>, naming the limit.</summary>
     internal static bool WaitWhileBusy(Func<TimeSpan, bool> waitExit, Func<TimeSpan?> cpuTime, Func<TimeSpan> elapsed, TimeSpan idle, TimeSpan cap,
         out string? stopped)
     {

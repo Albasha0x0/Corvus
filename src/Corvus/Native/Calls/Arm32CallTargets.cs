@@ -4,13 +4,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// Targets of 32-bit ARM call and tail-jump sites: bl / blx / b to functions and PLT or import thunks, blx / bx through
-/// registers loaded from GOT and import slots, loads into pc, constant function addresses (adr, PC-relative literal pairs,
-/// relocated MOVW / MOVT, literal pools, relocated pointers in read-only data; the Thumb bit names the function), writable
-/// function pointer globals (their writers and initial contents), and with deep the function pointers callers pass in.
-/// Loads from an object's field stay unresolved with the trace to follow.
-/// </summary>
+/// <summary>Targets of 32-bit ARM call and tail-jump sites: direct, import and GOT slots, constant addresses, pointer globals; field loads stay unresolved.</summary>
 internal static class Arm32CallTargets
 {
     private const int MaxWriters = 32;

@@ -3,10 +3,8 @@ using System.Globalization;
 namespace Corvus.Tests;
 
 /// <summary>
-/// A measured ratchet: Ratchets/&lt;name&gt;.txt holds one "key = value" line per measured item, and values move one way only.
-/// A ceiling (duplicate lines, surviving mutants) fails when a value rises or a new key appears, and when a value fell
-/// until the file records it; a floor (coverage) fails when a value drops below it. CORVUS_UPDATE_RATCHETS=1 writes the
-/// tighter values (lower ceilings, dropped zero keys, higher or new floors) and never loosens one.
+/// A measured ratchet: Ratchets/&lt;name&gt;.txt holds "key = value" lines that move one way only. A ceiling fails when a
+/// value rises, a key appears or a fall is unrecorded; a floor fails when a value drops. CORVUS_UPDATE_RATCHETS=1 tightens, never loosens.
 /// </summary>
 internal static class CountRatchet
 {

@@ -13,14 +13,11 @@ using static Corvus.Tools.ToolSupport;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, IndexingService indexing, UnpackService unpacker,
-    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null, NativeEngineService? engines = null, MinidumpService? dumps = null,
+public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataService aot, IndexingService indexing, UnpackService unpacker,
+    NativeLinkService? link = null, AotBuildLoader? aotBuild = null, NativeEngineService? engines = null, MinidumpService? dumps = null,
     ServerOptions? options = null, Native.Providers.Worker.WorkerPool? workers = null)
 {
-    /// <summary>
-    /// A list_assemblies row: a loaded assembly or native image, or with path an assembly or file inside the container;
-    /// fields that do not apply to the kind are absent.
-    /// </summary>
+    /// <summary>A list_assemblies row: a loaded image, or with path an entry inside the container; fields that do not apply are absent.</summary>
     public sealed record WorkspaceEntry(
         [property: Description("assembly, native, contained (an assembly inside the container) or file (an archive entry).")] string Kind,
         [property: Description("The id other tools take; absent inside a container.")] string? Id,
@@ -29,7 +26,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         public string? Name { get; init; }
         public string? Version { get; init; }
         public int? Types { get; init; }
-        public bool? Il2CppDummy { get; init; }
+        public bool? Dummy { get; init; }
         public bool? ReadyToRun { get; init; }
         [Description("ILMerge / ILRepack note.")] public string? Merged { get; init; }
         public IReadOnlyList<string>? UnsavedEdits { get; init; }
@@ -89,15 +86,13 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             : null;
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(ImageChange))]
-    [Description("Load a .NET assembly or a folder's assemblies (app, Unity *_Data/Managed, dummy assemblies). PE, ELF, Mach-O or wasm files load " +
-                 "as native images (universal Mach-O: name[slice]); format=raw maps headerless code; folder loads skip native files. An " +
-                 "Il2Cpp build (folder, global-metadata.dat, .apk/.xapk/.aab/.ipa/.app, memory dump) loads as dummy assemblies with addresses " +
-                 "(metadata v24-39) plus its binary. A .gzf or .gpr program (copied) opens in Ghidra. A repeat load is a no-op.")]
+    [Description("Load a .NET assembly, a folder, or a native image (PE, ELF, Mach-O, wasm). An AOT build (global-metadata.dat v24-39) " +
+                 "loads from its folder, global-metadata.dat or package as dummy assemblies with addresses, plus its binary. A repeat load is a no-op.")]
     public Task<string> LoadAssembly(
-        [Description("Absolute path to an assembly file or a folder.")] string path,
+        [Description("Absolute path: a file, a folder (native files skipped), an AOT build, package or memory dump, or a Ghidra .gzf / .gpr (copied).")] string path,
         [Description("Also load assemblies in subdirectories.")] bool recursive = false,
         [Description("Also load the DLLs the imports bind to (one level, at most 16).")] bool loadProviders = false,
-        [Description("Mach-O slice (or index; default arm64e, arm64, x86_64) or Il2Cpp APK ABI (default arm64-v8a).")] string? slice = null,
+        [Description("Mach-O slice or index (default arm64e, arm64, x86_64), or the APK ABI (default arm64-v8a).")] string? slice = null,
         [Description("auto, or raw (headerless code).")] string format = "auto",
         [Description("raw: x86, x64, arm, thumb, arm64; mips, ppc, riscv64, 6502 etc. via IDA or Ghidra.")] string? arch = null,
         [Description("raw: load address (default 0).")] string? @base = null,
@@ -114,7 +109,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         var requestedSlice = string.IsNullOrWhiteSpace(slice) ? null : slice.Trim();
         if (program != null && !path.EndsWith(".gpr", StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.InvalidArgument, "program applies to a Ghidra project (.gpr).", "omit program, or pass the project's .gpr as path");
-        // import overrides: their form and the installed engines' names are checked before the load, seeds against the image in it
+        // Import overrides are checked before the load: their form and engine names; seeds against the loaded image.
         bool overriding = new[] { processor, language, compilerSpec }.Any(v => !string.IsNullOrWhiteSpace(v)) || seeds is { Length: > 0 } || disableAnalyzers is { Length: > 0 };
         Func<Native.INativeImage, Native.EngineOverrides?>? overrides = overriding
             ? image => Native.EngineOverrides.Parse(image, processor, language, compilerSpec, seeds, disableAnalyzers)
@@ -161,12 +156,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             return Loaded([packed.Id], $"Loaded native image {packed.Id}: {Native.NativeImageExtensions.KindText(packed.Image)}\n  {packed.FilePath}\n  " +
                    $"from {Path.GetFileName(path)}: Ghidra opens the archive as its database (no analysis); the built-in tools read the file");
         }
-        if (RawIl2CppBuild(path, requestedSlice) is { } build)
+        if (RawAotBuild(path, requestedSlice) is { } build)
         {
             int step = 0;
-            var result = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(build, loadBinary: true,
-                m => progress?.Report(new ProgressNotificationValue { Progress = ++step, Message = $"Il2Cpp: {m}" }), cancellationToken);
-            return Loaded(result.Load.Loaded.Select(a => a.Id).Concat(result.Binary != null ? [result.Binary.Id] : []), Il2CppRawLoader.Describe(result));
+            var result = (aotBuild ?? new AotBuildLoader(workspace)).Load(build, loadBinary: true,
+                m => progress?.Report(new ProgressNotificationValue { Progress = ++step, Message = $"AOT: {m}" }), cancellationToken);
+            return Loaded(result.Load.Loaded.Select(a => a.Id).Concat(result.Binary != null ? [result.Binary.Id] : []), AotBuildLoader.Describe(result));
         }
         if (!Directory.Exists(path))
         {
@@ -184,9 +179,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
                        (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers + ImportLine(native) +
-                       (Il2CppMetadataNear(native.FilePath) is { } metadata
-                           ? $"\n  Il2Cpp: its metadata is {metadata}; load_assembly that file (or its folder) reads it with the built-in reader " +
-                             "(dummy assemblies, addresses, field offsets, string literals), or apply_il2cpp_names on this image does it"
+                       (AotMetadataNear(native.FilePath) is { } metadata
+                           ? $"\n  AOT metadata: {metadata}; load_assembly it, or run apply_metadata_names on this image"
                            : ""));
             }
             return workspace.Read(() =>
@@ -197,7 +191,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 var types = MetadataUtil.CountedTypes(asm.Module);
                 return Loaded(native != null ? [asm.Id, native.Id] : [asm.Id], $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
                        $"{MetadataUtil.NamespaceCount(types)} namespaces" +
-                       (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy assembly: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") +
+                       (aot.GetIndex(asm).Count > 0 ? "\n  Dummy assembly: method bodies are stubs; use get_method_addresses / find_method_by_address." : "") +
                        (native != null ? $"\n  mixed-mode (C++/CLI): its native code is also loaded as native image {native.Id} for the native tools" + ImportLine(native) : "") + providers);
             });
         }
@@ -207,10 +201,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             c => report.Skipped.Count > 0 ? c with { Skipped = report.Skipped.Count } : c);
     }, cancellationToken));
 
-    /// <summary>
-    /// An image loaded before with other overrides takes these: set in place while no engine has it open, else reloaded so
-    /// the next engine call opens the database of these overrides.
-    /// </summary>
+    /// <summary>Applies new overrides to a loaded image: in place while no engine has it open, else by a reload.</summary>
     private LoadedNative Overridden(LoadedNative native, Func<Native.INativeImage, Native.EngineOverrides?>? overrides)
     {
         if (overrides == null || overrides(native.Image) is not { } wanted || Equals(native.Overrides, wanted)) return native;
@@ -227,36 +218,32 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     private static string ImportLine(LoadedNative native) =>
         native.Overrides is { } ov ? $"\n  engine import: {ov.Text} (IDA and Ghidra keep a database of their own for it)" : "";
 
-    /// <summary>
-    /// The Il2Cpp build a load_assembly path names: a global-metadata.dat, a build folder (Windows, Linux, macOS .app,
-    /// extracted Android package, iOS .app) or both files side by side, or an .apk / .xapk / .apks / .aab / .ipa holding
-    /// one (extracted to the cache). The binary alone loads as a native image.
-    /// </summary>
-    internal static Il2CppBuildFiles? RawIl2CppBuild(string path, string? slice)
+    /// <summary>The AOT build a path names (metadata file, build folder or package, extracted to the cache), or null; a binary alone is not one.</summary>
+    internal static AotBuildFiles? RawAotBuild(string path, string? slice)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         string full;
         try { full = Path.GetFullPath(path); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
-        if (Il2CppPackages.IsPackage(full))
+        if (AotPackages.IsPackage(full))
         {
-            var root = Il2CppPackages.Extract(full, slice)
-                       ?? throw new ToolError(ErrorCode.NotFound, $"{full} is a package without Il2Cpp metadata (no global-metadata.dat): reason no_il2cpp_metadata.",
-                           "summarize_file tells what it holds; list_assemblies with path lists the .NET assemblies a Xamarin / MAUI / Unity Mono package carries");
-            return (Il2CppBuildFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds Il2Cpp metadata but no Il2Cpp binary.")) with { Package = full };
+            var root = AotPackages.Extract(full, slice)
+                       ?? throw new ToolError(ErrorCode.NotFound, $"{full} is a package without AOT metadata (no global-metadata.dat): reason no_metadata.",
+                           "summarize_file shows what it holds; list_assemblies path= lists its .NET assemblies");
+            return (AotBuildFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds AOT metadata but no AOT binary.")) with { Package = full };
         }
         // The metadata file itself also reads alone; a folder with only metadata stays an ordinary folder load.
-        if (File.Exists(full)) return Il2CppBuildFiles.IsMetadataFile(full) ? Il2CppBuildFiles.Find(full, slice, metadataOnly: true) : null;
+        if (File.Exists(full)) return AotBuildFiles.IsMetadataFile(full) ? AotBuildFiles.Find(full, slice, metadataOnly: true) : null;
         if (!Directory.Exists(full)) return null;
-        try { return Il2CppBuildFiles.Find(full, slice); }
+        try { return AotBuildFiles.Find(full, slice); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound) { return null; } // Metadata or binary alone: an ordinary folder load, with the layout hints.
     }
 
-    /// <summary>The metadata of the Il2Cpp build whose binary is at <paramref name="binary"/>, or null.</summary>
-    private static string? Il2CppMetadataNear(string binary)
+    /// <summary>The metadata of the AOT build whose binary is at <paramref name="binary"/>, or null.</summary>
+    private static string? AotMetadataNear(string binary)
     {
-        if (!Il2CppBuildFiles.BinaryNames.Any(n => n.Equals(Path.GetFileName(binary), StringComparison.OrdinalIgnoreCase))) return null;
-        try { return Il2CppBuildFiles.Find(binary)?.Metadata; }
+        if (!AotBuildFiles.BinaryNames.Any(n => n.Equals(Path.GetFileName(binary), StringComparison.OrdinalIgnoreCase))) return null;
+        try { return AotBuildFiles.Find(binary)?.Metadata; }
         catch (ToolError) { return null; }
     }
 
@@ -274,7 +261,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         return sb.ToString();
     }
 
-    /// <summary>Folder load summary: loaded assemblies, skipped native and damaged files, Unity layout hints.</summary>
+    /// <summary>Folder load summary: loaded assemblies, skipped native and damaged files, layout hints.</summary>
     internal static string FormatLoad(AssemblyWorkspace workspace, string path, AssemblyWorkspace.LoadReport report)
     {
         var sb = new StringBuilder($"Loaded {Plural(report.Loaded.Count, "assembly")} from {Path.GetFullPath(path)}");
@@ -296,7 +283,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         foreach (var (file, error) in damaged.Take(20))
             sb.AppendLine($"  skipped {Path.GetFileName(file)}: {Format.Clip(error, 160)}");
         if (damaged.Count > 20) sb.AppendLine($"  … {damaged.Count - 20} more skipped");
-        foreach (var hint in Services.Analysis.UnityLayout.FolderHints(path))
+        foreach (var hint in Services.Analysis.PlayerLayout.FolderHints(path))
             sb.AppendLine($"Note: {hint}");
         if (Webcil.FolderHint(path) is { } webcil)
             sb.AppendLine($"Note: {webcil}");
@@ -304,9 +291,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }
 
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true, OutputSchemaType = typeof(WorkspaceList))]
-    [Description("Loaded assemblies and native images: ids, versions, paths, Il2Cpp dummy / ReadyToRun / merged flags, unsaved edits; plus " +
-                 "reference search directories. With path: the managed assemblies inside a container (bundle, .nupkg, .apk / .aab, Costura, zip), " +
-                 "not extracted; archives (.asar with integrity, WebGL .data, HAR / mitmproxy) list their files.")]
+    [Description("Loaded assemblies and native images with ids, versions, flags and unsaved edits, plus the reference search directories. " +
+                 "With path: the assemblies or files inside a container, without extracting.")]
     public Task<string> ListAssemblies(
         [Description("Container file, Blazor or ClickOnce folder to list instead of the workspace.")] string? path = null,
         [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
@@ -351,7 +337,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 rows.Add(new WorkspaceEntry("assembly", a.Id, a.FilePath)
                 {
                     Name = a.FullAssemblyName, Version = a.Module.Assembly?.Version?.ToString() ?? "", Types = MetadataUtil.CountedTypes(a.Module).Count,
-                    Il2CppDummy = il2cpp.GetIndex(a).Count > 0 ? true : null, ReadyToRun = AssemblyTraits.IsReadyToRun(a.OriginalBytes) ? true : null,
+                    Dummy = aot.GetIndex(a).Count > 0 ? true : null, ReadyToRun = AssemblyTraits.IsReadyToRun(a.OriginalBytes) ? true : null,
                     Merged = AssemblyTraits.MergeNote(a.Module), UnsavedEdits = a.Edits.Count > 0 ? [.. a.Edits.Select(e => e.Description)] : null,
                 });
             }
@@ -369,14 +355,14 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         });
         var (page, count, onlyAssemblies) = all;
         var head = $"Search directories: {(directories.Count == 0 ? "none" : string.Join("; ", directories))}\nBackground indexing: {indexing.Status}\n";
-        // a native image or a mix counts as images (.NET assemblies are PE images too)
+        // A native image or a mix counts as images; .NET assemblies are PE images too.
         return ToolOutput.List(page, offset, limit, count, Row, rows => new WorkspaceList(rows, offset, count, directories, indexing.Status),
             onlyAssemblies ? "assembly" : "image", head);
     }, cancellationToken);
 
     private static string Row(WorkspaceEntry e) => e.Kind switch
     {
-        "assembly" => $"{e.Id}  {e.Version}, {e.Types} types" + (e.Il2CppDummy == true ? ", Il2Cpp dummy" : "") + (e.ReadyToRun == true ? ", ReadyToRun" : "") +
+        "assembly" => $"{e.Id}  {e.Version}, {e.Types} types" + (e.Dummy == true ? ", dummy" : "") + (e.ReadyToRun == true ? ", ReadyToRun" : "") +
                       (e.Merged != null ? ", merged" : "") + (e.UnsavedEdits is { Count: > 0 } u ? $", {Plural(u.Count, "unsaved edit")}" : "") + $"  {e.Path}",
         "native" => $"{e.Id}  native {e.Machine} {e.FileKind}, {e.Size:N0} bytes" + (e.Slices != null ? $", slices {string.Join(", ", e.Slices)}" : "") + $"  {e.Path}",
         "contained" => $"{e.Path}  {e.Name} {e.Version}, {e.Size:N0} bytes, {e.Origin}" + (e.ReadyToRun == true ? ", ReadyToRun" : "") + (e.Merged != null ? ", merged" : ""),
@@ -442,7 +428,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }
 
     [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory", UseStructuredContent = true, OutputSchemaType = typeof(SearchDirectoryChange))]
-    [Description("Add a folder (application or framework) where unloaded referenced assemblies are resolved for decompilation, navigation and C# patching.")]
+    [Description("Add a folder where referenced assemblies that are not loaded are resolved. Subfolders are not searched.")]
     public Task<string> AddSearchDirectory([Description("Directory path.")] string directory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {

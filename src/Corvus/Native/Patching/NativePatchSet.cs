@@ -3,13 +3,9 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Patching;
 
-/// <summary>
-/// The ordered byte patches applied to one image in memory, over a snapshot of the original file bytes. The patched
-/// image is produced by overlaying every patch's replacement bytes (and its relocation entry rewrites) onto that
-/// snapshot; every read path (disassembly, strings, search_bytes, read_bytes, the code index) sees the patched bytes
-/// because the <see cref="PeFile"/> built from <see cref="ApplyTo"/> replaces the one the workspace holds. Not
-/// thread-safe; callers serialize through the workspace write lock.
-/// </summary>
+/// <summary>Ordered byte patches over a snapshot of the original file; not thread-safe, callers hold the workspace write lock.</summary>
+/// <remarks>Every read path sees the patched bytes because the image built from <see cref="ApplyTo"/> replaces the one
+/// the workspace holds.</remarks>
 public sealed class NativePatchSet
 {
     private readonly byte[] _original;
@@ -44,11 +40,7 @@ public sealed class NativePatchSet
         return null;
     }
 
-    /// <summary>
-    /// The recorded patch <paramref name="candidate"/> collides with: its bytes overlap another patch's bytes, or one's
-    /// bytes overlap the other's relocation entry rewrites. Two patches may rewrite the same relocation slot (a later
-    /// patch reusing a slot an earlier one neutralized); undo order keeps that consistent.
-    /// </summary>
+    /// <summary>The patch whose bytes or relocation rewrites <paramref name="candidate"/> overlaps; shared relocation slots are allowed, and undo order keeps them consistent.</summary>
     public NativePatch? Conflicting(NativePatch candidate)
     {
         foreach (var p in _patches)
@@ -68,10 +60,7 @@ public sealed class NativePatchSet
         Version++;
     }
 
-    /// <summary>
-    /// A later patch that rewrote one of the relocation slots patch <paramref name="number"/> (1-based; the last when
-    /// null) rewrote: undoing it first would leave that later patch's entry on top of a stale original.
-    /// </summary>
+    /// <summary>A later patch sharing a relocation slot with patch <paramref name="number"/> (1-based, last when null), which blocks its undo.</summary>
     public (int Number, NativePatch Patch)? LaterSlotUser(int? number)
     {
         int index = number is { } n ? n - 1 : _patches.Count - 1;
@@ -95,11 +84,7 @@ public sealed class NativePatchSet
         return patch;
     }
 
-    /// <summary>
-    /// The original file bytes with every patch overlaid (a fresh array each call). A patch that grows the file (a stub
-    /// placed in a new section) makes the result longer: its appended section data is written past the original end and
-    /// its header edits admit the section. Removing that patch shrinks the result back to the original length.
-    /// </summary>
+    /// <summary>A new array of the original bytes with every patch overlaid, longer when a patch added a section.</summary>
     public byte[] PatchedBytes()
     {
         long target = _original.Length;

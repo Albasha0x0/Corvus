@@ -9,9 +9,7 @@ using Corvus.Native.ReadyToRun;
 namespace Corvus.Services;
 
 /// <summary>
-/// Maps the managed methods of a ReadyToRun assembly to their precompiled native code and back. The code is in the
-/// assembly itself or, for a component of a composite image, in the composite file next to it. Parsed once per
-/// loaded image (composite files once per file); malformed ReadyToRun data becomes a typed error.
+/// Maps a ReadyToRun assembly's methods to their native code and back, in the assembly or its composite image beside it.
 /// </summary>
 public sealed class ReadyToRunService(AssemblyWorkspace workspace)
 {
@@ -78,7 +76,7 @@ public sealed class ReadyToRunService(AssemblyWorkspace workspace)
     {
         var code = Get(asm, ct) ?? throw new ToolError(ErrorCode.Unsupported,
             $"{asm.Id} is not a ReadyToRun image: it carries IL only, no precompiled native code.",
-            "decompile_member or get_il read its IL; ReadyToRun images come from crossgen (PublishReadyToRun), e.g. the .NET shared framework's assemblies");
+            "decompile_member or get_il read its IL; crossgen (PublishReadyToRun) builds ReadyToRun images");
         if (code.Map == null)
             throw new ToolError(ErrorCode.Unsupported, $"{asm.Id} is a component of the composite ReadyToRun image {code.Header.OwnerComposite}; its native code lives there. {code.Problem}",
                 $"put {code.Header.OwnerComposite} next to {Path.GetFileName(asm.FilePath)} (it is published alongside it) and retry");
@@ -91,7 +89,8 @@ public sealed class ReadyToRunService(AssemblyWorkspace workspace)
         try { return once.Get(() => Build(workspace, asm, CancellationToken.None), ct); }
         catch (ToolError)
         {
-            Cache.Remove(asm.OriginalBytes); // retry on the next call: the error may come from a missing or changed composite file
+            // Retry on the next call: a composite file may have been missing or changed.
+            Cache.Remove(asm.OriginalBytes);
             throw;
         }
     }

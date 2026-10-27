@@ -25,10 +25,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
     internal const int MaxCandidates = 1000;
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
-    [Description("Emulate native code (Ghidra p-code or built in): string decoders, hashes, computed constants. Memory: image, stack, given writes. " +
-                 "Stops on return, stopAt or a budget. Calls run in the image or return stubs= values; an unmodelled call or unmapped read is an " +
-                 "error. Reports return value, registers, written strings, reads, trace. engine=speakeasy runs a whole PE or raw x86/x64 code with " +
-                 "Windows APIs modelled: API calls, files written, memory as a region set.")]
+    [Description("Emulate native code from an address (a string decoder, a hash): return value, registers and " +
+                 "written strings. An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -42,7 +40,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
         [Description("Argument sets, ;-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
-        [Description("auto (Ghidra, else ours), ghidra, ours (x86/x64/ARM64 integer code) or speakeasy (a whole program).")] string? engine = null,
+        [Description("auto: Ghidra, else ours; ours: x86/x64/ARM64 integer code; speakeasy: a whole program.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -291,7 +289,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         sb.Append(CultureInfo.InvariantCulture, $"{imageId}: {Kind(EngineOf(r))} ({r.GetProperty("language").GetString()}), ")
             .Append(CultureInfo.InvariantCulture, $"{count:N0} instructions\n");
         sb.Append("Stopped: ").Append(why);
-        // a return stops on the sentinel return address, which says nothing
+        // A return stops on the sentinel return address, which says nothing.
         if (stop != "returned") sb.Append(" at ").Append(At(r));
         sb.Append(stop switch
         {
@@ -524,7 +522,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             }
             catch (ToolError)
             {
-                // not an address: a register the worker resolves
+                // Not an address: a register the worker resolves.
                 return new JsonObject { ["register"] = where, ["length"] = length };
             }
         }

@@ -61,7 +61,7 @@ public sealed class GoBuildInfoTests
         var b = new byte[0x40 + version.Length + mod.Length];
         Header(0, ptr).CopyTo(b, 0);
         void P(int at, ulong v) { if (ptr == 8) BinaryPrimitives.WriteUInt64LittleEndian(b.AsSpan(at), v); else BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(at), (uint)v); }
-        // string headers at 0x20 and 0x30, bytes after them
+        // String headers at 0x20 and 0x30, bytes after them.
         P(16, va + 0x20);
         P(16 + ptr, va + 0x30);
         P(0x20, va + 0x40); P(0x20 + ptr, (ulong)version.Length);
@@ -104,7 +104,7 @@ public sealed class GoBuildInfoTests
         var data = new byte[0x400];
         Inline().CopyTo(data, 0x70);
         AssertFull(GoBuildInfo.Of(CodeTestImage.Synthetic(NativeArch.X64, [0xC3], data)), "go1.22.5");
-        // off alignment it is not the header
+        // Off alignment it is not the header.
         var shifted = new byte[0x400];
         Inline().CopyTo(shifted, 0x74);
         Assert.Null(GoBuildInfo.Of(CodeTestImage.Synthetic(NativeArch.X64, [0xC3], shifted)));

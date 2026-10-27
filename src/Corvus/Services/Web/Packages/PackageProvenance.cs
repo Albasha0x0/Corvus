@@ -7,10 +7,7 @@ using System.Text.Json;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <summary>
-/// A signed statement about a package read from a provenance file beside it. Digest, Signature, Chain and Log are
-/// "verified", "failed: why" or "unknown: why"; Chain is "not used" for a statement signed by a registry key.
-/// </summary>
+/// <summary>A signed provenance statement; each check reads "verified", "failed: why" or "unknown: why" (Chain "not used" for a registry key).</summary>
 /// <param name="Format">sigstore bundle, npm attestations, or pypi provenance.</param>
 /// <param name="Digest">Whether a subject's digest equals the package file's.</param>
 /// <param name="Signer">The certificate's identity (a workflow URI or an email), or the registry key id.</param>
@@ -18,12 +15,7 @@ namespace Corvus.Services.Web.Packages;
 public sealed record PackageAttestation(string File, string Format, string? PredicateType, string Digest, string Signature, string? Signer, string? Issuer,
     string? Repository, string? Commit, string? Workflow, string Chain, string Log, long? LogIndex, DateTimeOffset? Integrated);
 
-/// <summary>
-/// Reads and checks the provenance files beside a package: a Sigstore bundle (file.sigstore.json, file.sigstore), the npm
-/// registry's attestations response (file.attestations.json) and PyPI's provenance (file.provenance, file.provenance.json,
-/// file.publish.attestation). Offline: certificates chain to the pinned Sigstore trust root and npm statements to npm's
-/// pinned attestation keys; nothing is fetched. Revocation is not checked.
-/// </summary>
+/// <summary>Checks Sigstore, npm and PyPI provenance files beside a package offline against pinned keys; revocation is not checked.</summary>
 internal static class PackageProvenance
 {
     /// <summary>Provenance file suffixes, in the order they are read.</summary>
@@ -236,10 +228,7 @@ internal static class PackageProvenance
         return (When(v, "start") is not { } start || at >= start) && (When(v, "end") is not { } end || at <= end);
     }
 
-    /// <summary>
-    /// The entry's signed entry timestamp checked with the log's key from the trust root, over the canonical JSON of
-    /// body, integrated time, log id and index (Rekor's SET).
-    /// </summary>
+    /// <summary>Checks a Rekor signed entry timestamp with the log's key from the trust root.</summary>
     private static string LogEntry(JsonElement entry, long? index, DateTimeOffset? integrated)
     {
         var keyId = entry.TryGetProperty("logId", out var id) ? Str(id, "keyId") : null;

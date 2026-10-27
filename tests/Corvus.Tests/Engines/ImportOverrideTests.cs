@@ -23,7 +23,7 @@ public sealed class ImportOverrideTests : IDisposable
         Assert.Equal(a.Key, b.Key);
         Assert.Equal("language=x86:LE:32:default; compilerSpec=borlandcpp; seeds=code:rva:0x100,function:rva:0x1000=WinMain,label:rva:0x1800=table; disableAnalyzers=AF_FLIRT,Stack", a.Text);
         Assert.Equal(0x02, a.IdaCompiler);
-        // another override is another database
+        // Another override is another database.
         Assert.NotEqual(a.Key, EngineOverrides.Parse(image, null, "x86:LE:32:default", "windows", null, null)!.Key);
         Assert.Null(EngineOverrides.Parse(image, " ", null, null, [], null));
 
@@ -57,7 +57,7 @@ public sealed class ImportOverrideTests : IDisposable
         Assert.Contains("x86:LE:32:default", noLanguage.Remediation);
         Assert.Throws<ToolError>(() => EngineOverrideChecks.CheckGhidra(ghidra, EngineOverrides.Parse(image, null, "x86:LE:64:default", "borlandcpp", null, null)!));
         Assert.Throws<ToolError>(() => EngineOverrideChecks.CheckGhidra(ghidra, EngineOverrides.Parse(image, null, null, "borland", null, null)!));
-        // a raw layout's language decides the compiler specs when no language is given
+        // A raw layout's language decides the compiler specs when no language is given.
         Assert.Throws<ToolError>(() => EngineOverrideChecks.CheckGhidra(ghidra, EngineOverrides.Parse(image, null, null, "borlandcpp", null, null)!, "x86:LE:64:default"));
 
         var procs = Directory.CreateDirectory(_dir.File("ida/procs")).FullName;

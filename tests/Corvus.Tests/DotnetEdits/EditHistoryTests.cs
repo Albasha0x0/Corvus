@@ -11,7 +11,7 @@ public class EditHistoryTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void UndoLastAndMiddleEdits()
+    public void The_last_and_a_middle_edit_can_be_undone()
     {
         Stub("Secret::Validate", "true");
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::Score"), "return 7;", false, default));
@@ -31,7 +31,7 @@ public class EditHistoryTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void UndoThatBreaksALaterEditChangesNothing()
+    public void Undo_that_breaks_a_later_edit_changes_nothing()
     {
         _env.Edit(() => _env.Edits.Rename(_env.One("Secret", SymbolKind.Type), "S2"));
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::CheckPreview"), "return S2.Validate(\"PREVIEW-OK-000\");", false, default));
@@ -42,7 +42,7 @@ public class EditHistoryTests : IDisposable
     }
 
     [Fact]
-    public void RevertAllAndUndoErrors()
+    public void Revert_all_restores_the_module_and_bad_undos_are_errors()
     {
         Assert.Throws<ToolError>(() => _env.Edit(() => _env.Edits.Undo(_env.Fixture, null, default)));
         Stub("Secret::Validate", "true");
@@ -54,7 +54,7 @@ public class EditHistoryTests : IDisposable
 
     /// <summary>A whole-assembly simplify touches thousands of members, each decompiled twice: the diff stops at a member cap, the same on every page.</summary>
     [Fact]
-    public void DiffCapsTheMembersItDecompiles()
+    public void Diff_caps_the_members_it_decompiles()
     {
         foreach (var m in new[] { "Account::Score", "Shop::Describe", "Secret::Validate" })
             _env.Edit(() => _env.Edits.StubMethod(_env.One(m), null));
@@ -71,7 +71,7 @@ public class EditHistoryTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void DiffShowsBeforeAndAfter()
+    public void Diff_shows_before_and_after()
     {
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::Score"), "return _balance * 3;", false, default));
         _env.Edit(() => _env.Edits.AddMembersCSharp(_env.One("Shop", SymbolKind.Type), "public int Twice(int x) { return x * 2; }", false, default));
@@ -86,7 +86,7 @@ public class EditHistoryTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void ScriptsReplayOnAFreshLoadByTokenAndByName()
+    public void Scripts_replay_on_a_fresh_load_by_token_and_by_name()
     {
         Stub("Secret::Validate", "true");
         _env.Edit(() => _env.Edits.Rename(_env.One("Shop::Describe"), "Summary"));
@@ -110,7 +110,7 @@ public class EditHistoryTests : IDisposable
     }
 
     [Fact]
-    public void ScriptFailuresRollBackAndDryRunChecksTargets()
+    public void Script_failures_roll_back_and_dry_run_checks_targets()
     {
         Stub("Secret::Validate", "true");
         Stub("Account::Score", "5");
@@ -133,7 +133,7 @@ public class EditHistoryTests : IDisposable
     }
 
     [Fact]
-    public void ItemFailuresCarryTheirCode()
+    public void Item_failures_carry_their_code()
     {
         Assert.Equal("(not_found) Account::X not found.", Services.EditHistoryService.FailureText(new ToolError(ErrorCode.NotFound, "Account::X not found.")));
         var fault = Services.EditHistoryService.FailureText(new InvalidOperationException("collection was modified"));
@@ -142,7 +142,7 @@ public class EditHistoryTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void DryRunCompilesCSharpEdits_AndShowsTheFullError()
+    public void Dry_run_compiles_CSharp_edits_and_shows_the_full_error()
     {
         // #2 depends on #1; #3 will not compile on the target.
         _env.Edit(() => _env.Edits.AddMembersCSharp(_env.One("Fixture.Model.Account", Core.SymbolKind.Type), "public int Bonus() => 7;", false, default));

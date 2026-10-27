@@ -9,10 +9,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// The image's anchored notes as engine markers (Ghidra bookmarks of category Corvus, IDA marked positions), pushed once per
-/// change of the notes; and the search over the names and comments in effect for an image.
-/// </summary>
+/// <summary>An image's notes as engine markers, pushed once per change, and the search over its names and comments in effect.</summary>
 internal static class NoteMarks
 {
     /// <summary>Characters of a note's text in its marker.</summary>
@@ -41,7 +38,8 @@ internal static class NoteMarks
             box.Value = stamp;
             return null;
         }
-        if (box.Value == null && marks.Count == 0) // nothing pushed before and nothing to push
+        // Nothing pushed before and nothing to push.
+        if (box.Value == null && marks.Count == 0)
         {
             box.Value = stamp;
             return null;

@@ -3,11 +3,7 @@ namespace Corvus.Native.Dump;
 /// <summary>A WoW64 thread's 32-bit side: the x86 context WoW64 saved and the bounds of the thread's 32-bit stack.</summary>
 public sealed record Wow64Thread(DumpContext Context, ulong StackLow, ulong StackHigh);
 
-/// <summary>
-/// The 32-bit side of a WoW64 process seen through a 64-bit dump. WoW64 keeps each thread's x86 context in the
-/// WOW64_CPURESERVED area that 64-bit TEB TLS slot 1 points to (the CONTEXT follows a 4-byte header); the 32-bit TEB
-/// follows the 64-bit one at +0x2000 and holds the 32-bit stack bounds.
-/// </summary>
+/// <summary>The 32-bit side of a WoW64 process in a 64-bit dump: x86 context from WOW64_CPURESERVED (TEB TLS slot 1), stack from the 32-bit TEB at +0x2000.</summary>
 public static class Wow64
 {
     private const ulong TlsSlots = 0x1480, CpuReservedSlot = 1, Teb32Offset = 0x2000;
@@ -35,10 +31,7 @@ public static class Wow64
         return new Wow64Thread(context, low, high);
     }
 
-    /// <summary>
-    /// The exception's context when it is an x86 CONTEXT (CONTEXT_i386, not CONTEXT_AMD64): a 64-bit writer's record of
-    /// a stop on the thread's 32-bit side. Null for any other thread or context.
-    /// </summary>
+    /// <summary>The exception's context when it is an x86 CONTEXT (a stop on the 32-bit side); null otherwise.</summary>
     public static DumpContext? ExceptionContext(MinidumpFile dump, uint thread)
     {
         if (dump.Exception is not { } e || e.ThreadId != thread || !IsWow64(dump)) return null;

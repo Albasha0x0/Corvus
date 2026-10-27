@@ -6,11 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>
-/// Code names read from snapshots the Dart SDK (CORVUS_DART), earlier Dart releases (CORVUS_DART_RELEASES) and Flutter's
-/// gen_snapshot (CORVUS_FLUTTER; earlier releases in CORVUS_FLUTTER_RELEASES) compile, compared with the debug symbols
-/// the compiler writes beside them (--save-debugging-info), which name each code address as the VM prints it.
-/// </summary>
+/// <summary>Code names read from Dart SDK and Flutter snapshots match the compiler's --save-debugging-info symbols (CORVUS_DART, CORVUS_DART_RELEASES, CORVUS_FLUTTER, CORVUS_FLUTTER_RELEASES).</summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
 public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
@@ -62,10 +58,7 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
         }
         """;
 
-    /// <summary>
-    /// Compiles <see cref="Source"/> with <paramref name="op"/> and returns the read program, its instructions' RVA and the
-    /// debug symbols by address.
-    /// </summary>
+    /// <summary>Compiles <see cref="Source"/> with <paramref name="op"/>; returns the program, its instructions' RVA and the debug symbols by address.</summary>
     private (DartProgram Program, uint Text, Dictionary<uint, HashSet<string>> Symbols) Compile(string op, string? dart = null, string name = "ledger")
     {
         var source = _dir.File($"{name}-{op}.dart");
@@ -82,11 +75,7 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
         return (program, text, symbols);
     }
 
-    /// <summary>
-    /// Compiles <see cref="Source"/> as Flutter's build does (frontend server, then gen_snapshot for the Android release of
-    /// <paramref name="arch"/>, which compresses pointers) and returns the read program, its instructions' RVA and the debug
-    /// symbols by address.
-    /// </summary>
+    /// <summary>Compiles <see cref="Source"/> as Flutter's Android release build of <paramref name="arch"/>; returns the program, its instructions' RVA and the debug symbols by address.</summary>
     private (DartProgram Program, uint Text, Dictionary<uint, HashSet<string>> Symbols) CompileCompressed(string arch, string? sdk = null, string name = "flutter")
     {
         var source = _dir.File($"{name}-{arch}.dart");
@@ -94,7 +83,7 @@ public sealed class DartSdkProgramTests(ITestOutputHelper output) : IDisposable
         string kernel = _dir.File($"{name}-{arch}.dill"), elf = _dir.File($"{name}-{arch}.so"), debug = _dir.File($"{name}-{arch}.debug");
         var tool = ExternalTools.FlutterSdk;
         var exe = OperatingSystem.IsWindows() ? ".exe" : "";
-        // dartaotruntime sits in <root>/bin/cache/dart-sdk/bin.
+        // Dartaotruntime sits in <root>/bin/cache/dart-sdk/bin.
         var root = sdk ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(ExternalTools.Locate(tool)!.Value.Path)!, "..", "..", "..", ".."));
         var bin = Path.Combine(root, "bin", "cache", "dart-sdk", "bin");
         // Releases before the AOT frontend server snapshot run the JIT one in dart.

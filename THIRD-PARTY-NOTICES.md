@@ -8,10 +8,10 @@ The shipped projects' lock files resolve pre-release packages only by exception:
 
 - Samboy063.LibCpp2IL `2022.1.0-pre-release.21` and its dependency
   Samboy063.WasmDisassembler `2022.1.0-pre-release.21` (https://github.com/SamboyCoding/Cpp2IL, MIT). Corvus reads
-  Il2Cpp metadata versions 24-39 through the 2022.1 line, which has no stable release; the newest stable, 2022.0.7.2,
-  dates from October 2022.
-- Microsoft.CodeAnalysis.Analyzers `5.9.0-1.26328.17`, which Microsoft.CodeAnalysis.CSharp 5.9.0 depends on. It holds
-  analyzers and build files only and puts no file in the program.
+  `global-metadata.dat` versions 24-39 through the 2022.1 line, which has no stable release; the newest stable,
+  2022.0.7.2, dates from October 2022.
+- Microsoft.CodeAnalysis.Analyzers `5.9.0-1.26328.17`, a dependency of Microsoft.CodeAnalysis.CSharp 5.9.0. It holds
+  analyzers and build files only; no file reaches the program.
 
 Each is pinned by version and content hash in `src/Corvus/packages.lock.json`, and a test refuses any other
 pre-release package in the shipped projects' lock files.
@@ -51,15 +51,20 @@ SOFTWARE.
 
 ## ida-pro-mcp
 
-Parts of the IDA worker (`src/Corvus/Native/Providers/Ida/ida_worker.py`: type text parsing, user type,
-local variable and stack frame edits, struct member references, declaration parsing with messages, the Python
-evaluation op, the analysis edits: code, functions, data items and undefined ranges, operand display formats, enum member
-upserts, stack member deletion, the pseudocode object references of `decompile_native refs=true`, request cancellation and
-deadlines: per-request deadlines that long loops check for partial results, IDA's cancel flag cleared around each request,
-and the profile hook that stops a script) are adapted from
-[mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp); the Ghidra worker's `EditOps.java` follows the same
-operations on Ghidra's listing, and `search_instructions` (`src/Corvus/Tools/NativeAnalysis/NativeCodeTools.Search.cs`) follows
-the query shape of its `insn_query` and `search_text`. The IDA marked positions the server keeps for notes (`set_marks`) use its bookmark slot handling. The output formats of `make_code_pattern` follow its signature maker, and the function roles of the `summarize_file` triage and the `analyze_native_function` component view follow its `survey_binary` and `analyze_component`.
+Adapted from [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp):
+
+- The IDA worker (`src/Corvus/Native/Providers/Ida/ida_worker.py`): type text parsing; user type, local variable and
+  stack frame edits; struct member references; declaration parsing with messages; the Python evaluation op; code,
+  function, data item and undefined range edits; operand display formats; enum member upserts; stack member deletion;
+  the pseudocode object references of `decompile_native refs=true`; request cancellation and deadlines; the profile
+  hook that stops a script.
+- The Ghidra worker's `EditOps.java`: the same operations on Ghidra's listing.
+- `search_instructions` (`src/Corvus/Tools/NativeAnalysis/NativeCodeTools.Search.cs`): the query shape of its
+  `insn_query` and `search_text`.
+- The IDA marked positions kept for notes (`set_marks`): its bookmark slot handling.
+- `make_code_pattern` output formats: its signature maker.
+- Function roles of the `summarize_file` triage and the `analyze_native_function` component view: its `survey_binary`
+  and `analyze_component`.
 
 ```
 MIT License

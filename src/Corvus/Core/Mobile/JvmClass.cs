@@ -15,10 +15,7 @@ public sealed record JvmMember(int Access, string Name, string Descriptor, IRead
     public JvmAttribute? Find(string name) => Attributes.Any(a => a.Name == name) ? Attributes.First(a => a.Name == name) : null;
 }
 
-/// <summary>
-/// A JVM class file (JVMS chapter 4): the constant pool, access flags, names, members and attributes, read without a JVM.
-/// Attribute bodies stay as byte ranges, decoded by the reader that needs them.
-/// </summary>
+/// <summary>A JVM class file (JVMS chapter 4); attribute bodies stay as byte ranges.</summary>
 public sealed class JvmClass
 {
     public const int Utf8 = 1, Integer = 3, Float = 4, Long = 5, Double = 6, Class = 7, String = 8, FieldRef = 9, MethodRef = 10,
@@ -82,7 +79,8 @@ public sealed class JvmClass
                 case Long or Double:
                     long hi = (uint)r.U4(), lo = (uint)r.U4();
                     pool[i] = new JvmConstant(tag, 0, 0, (hi << 32) | lo, null);
-                    i++; // takes two slots
+                    // Takes two slots.
+                    i++;
                     break;
                 case Class or String or MethodType or Module or Package: pool[i] = new JvmConstant(tag, r.U2(), 0, 0, null); break;
                 case MethodHandle: pool[i] = new JvmConstant(tag, r.U1(), r.U2(), 0, null); break;

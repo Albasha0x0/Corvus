@@ -5,11 +5,8 @@ using Xunit.Sdk;
 namespace Corvus.Tests;
 
 /// <summary>
-/// A fact or theory attribute whose skip check starts processes (dotnet, Python, java, vswhere, gcc, sudo, cmd), so it
-/// is decided when a test runs rather than at discovery: discovery builds every attribute of the assembly for each run,
-/// filtered or not, and a check there can outlast the run's hang limit on a busy machine. The attribute names
-/// <see cref="RunTimeSkipFactDiscoverer"/> or <see cref="RunTimeSkipTheoryDiscoverer"/> as its discoverer; checks
-/// without a process stay in its constructor.
+/// A fact or theory whose skip check starts processes, so it is decided at run time rather than discovery, which builds
+/// every attribute each run. Discoverers: <see cref="RunTimeSkipFactDiscoverer"/>, <see cref="RunTimeSkipTheoryDiscoverer"/>.
 /// </summary>
 public interface IRunTimeSkip
 {

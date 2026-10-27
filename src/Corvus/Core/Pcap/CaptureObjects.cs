@@ -2,12 +2,7 @@ using System.Globalization;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// A pcap / pcapng capture as a container, read in one streaming pass: TCP reassembled (<see cref="TcpStreams"/>), HTTP/1.x,
-/// HTTP/2 and HTTP/3 (<see cref="QuicCapture"/>) responses exported as files named host/path like HAR bodies (decoded by their Content-Encoding), TLS
-/// decrypted with a key log (a file, or the pcapng's decryption secrets blocks), and every other TCP stream written as its
-/// two directions under streams/. Encrypted streams without keys are counted, not written.
-/// </summary>
+/// <summary>A capture as a container of HTTP responses and TCP streams, TLS decrypted with a key log file or pcapng secrets blocks; encrypted streams without keys are counted.</summary>
 internal static class CaptureObjects
 {
     public const string Kind = "packet capture (HTTP objects and TCP streams)";
@@ -88,7 +83,7 @@ internal static class CaptureObjects
             {
                 if (!fromClient)
                 {
-                    // the server spoke first (a banner): hold it until the client's first bytes or the end
+                    // The server spoke first (a banner): hold it until the client's first bytes or the end.
                     if (_early.Length + data.Length <= MaxEarly) _early.Write(data);
                     return;
                 }

@@ -83,13 +83,12 @@ public sealed partial class NativeAnalysisTools
     }
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of a native function via IDA or Ghidra; engine=all: each in turn. The first call analyzes (seconds to minutes); " +
-                 "database, answers kept per file. Names, comments and types go in first; user types win. functions=: several per " +
-                 "request, errors per item.")]
+    [Description("C pseudocode of a native function from IDA or Ghidra, with the names, comments and types made here. The first call " +
+                 "analyzes the image (seconds to minutes); functions= decompiles several per request.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
-        [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
+        [Description("Default auto; all: each installed engine in turn.")] string? engine = null,
         [Description("Prefix lines with their source address.")] bool addresses = false,
         [Description("Character offset; with functions/callersOf the first input (nextInput).")] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -132,7 +131,7 @@ public sealed partial class NativeAnalysisTools
             return await EachEngine(native!, address!, rva, addresses, offset, maxTokens, limit, progress, cancellationToken);
         }
         var choice = EngineChoice.EngineOnly(engine, engines, native!);
-        // another process decompiled this function in the database state saved on disk, after the same pushes: no engine needed
+        // An answer stored by another process after the same pushes needs no engine.
         string? setup = !batch && !refs && !pcode && engines.OutputCache != null ? SetupDigest(native!) : null;
         if (setup != null && engines.Answer<DecompileAnswer>(native!, choice.Engine, setup, AnswerKind(addresses), rva) is { } answered)
         {
@@ -159,11 +158,11 @@ public sealed partial class NativeAnalysisTools
             if (refs) throw new ToolError(ErrorCode.InvalidArgument, "refs applies to one function (address), not functions.", "drop refs, or decompile one address");
             if (callers) functions = await Callers(native!, session, rva, callersOf!, cancellationToken);
             var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), offset, cancellationToken);
-            // offset counts inputs here; a text past the budget is kept whole under a resultId
+            // Here offset counts inputs.
             return ToolOutput.Report(pushed + text, report with { EngineNote = choice.Note });
         }
         var (single, functionStart, name) = await Single(native!, session, rva, addresses, limit, progress, cancellationToken);
-        // the digest after the open: a PDB the engine fetched during it is part of the state this answer was made in
+        // Take the digest after the open: a PDB the engine fetched during it is part of this answer's state.
         if (setup != null) engines.Remember(native!, session, SetupDigest(native!), AnswerKind(addresses), rva, new DecompileAnswer(pushed, single, functionStart, name));
         (string Text, List<DecompileRef> Items)? objects = refs
             ? await References(native!, session, TextKey(native!, session, rva, addresses) + "|refs", functionStart ?? rva, cancellationToken)
@@ -207,7 +206,7 @@ public sealed partial class NativeAnalysisTools
             }
             catch (ToolError e) when (e.Code == ErrorCode.NotFound && code?.Ready(native)?.FunctionAt(rva) is { } ours)
             {
-                // the engine has no function there but the built-in analysis has: say how to make one
+                // The engine has no function there but the built-in analysis has; say how to make one.
                 var other = session.ProviderId == "ida" ? "ghidra" : "ida";
                 throw new ToolError(ErrorCode.NotFound, $"{e.Message} ({NativeEngineService.DisplayName(session.ProviderId)}); the built-in analysis has a function at " +
                     $"{NativeAddress.Va(native.Image, ours.Start)}.",
@@ -219,10 +218,7 @@ public sealed partial class NativeAnalysisTools
         return (text, start, FunctionName(native, start, decompiled?.Name));
     }
 
-    /// <summary>
-    /// engine=all: the function from each installed engine in turn, one item per engine in that order; an engine that
-    /// fails is its item's error, one not installed is named in the note. provider_unavailable without any.
-    /// </summary>
+    /// <summary>engine=all: one item per installed engine in turn; a failing engine is its item's error; provider_unavailable without any.</summary>
     private async Task<string> EachEngine(LoadedNative native, string address, uint rva, bool addresses, int offset, int? maxTokens, TimeSpan? limit,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -289,10 +285,7 @@ public sealed partial class NativeAnalysisTools
 
     private readonly Dictionary<string, (string, List<DecompileRef>)> _refs = [];
 
-    /// <summary>
-    /// The refs footer of a function and its rows, cached under the pseudocode's key: IDA lists the ctree's objects; other
-    /// engines the targets of the function's references (calls and data, not jumps inside it).
-    /// </summary>
+    /// <summary>The refs footer and its rows: IDA's ctree objects, or the targets of the function's references in other engines.</summary>
     private async Task<(string Text, List<DecompileRef> Items)> References(LoadedNative native, INativeDecompilerSession session, string key, uint start, CancellationToken ct)
     {
         lock (_refs) if (_refs.TryGetValue(key, out var cached)) return cached;
@@ -327,7 +320,8 @@ public sealed partial class NativeAnalysisTools
         var result = (sb.ToString(), items);
         lock (_refs)
         {
-            if (_refs.Count >= 256) _refs.Clear(); // a bounded cache: footers are cheap to rebuild
+            // Bounded; footers are cheap to rebuild.
+            if (_refs.Count >= 256) _refs.Clear();
             _refs[key] = result;
         }
         return result;
@@ -352,10 +346,7 @@ public sealed partial class NativeAnalysisTools
     private static string Quote(string text) =>
         "\"" + Format.Clip(text.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t"), 120) + "\"";
 
-    /// <summary>
-    /// Pushes names, recovered and user types into the session (each once per change). Returns the stable header lines
-    /// (the type source, a patched image); what each push did goes to _meta, as it differs between the first call and later ones.
-    /// </summary>
+    /// <summary>Pushes names and types into the session; returns the stable header lines, with each push's details in _meta.</summary>
     private async Task<string> Push(LoadedNative native, INativeDecompilerSession session, CancellationToken ct)
     {
         var pdb = NativePdbTypes.Report(session);
@@ -396,9 +387,9 @@ public sealed partial class NativeAnalysisTools
     {
         var lines = function.Text.Split('\n');
         var byLine = function.LineAddresses.GroupBy(l => l.Line).ToDictionary(g => g.Key, g => g.Min(l => l.Rva));
-        // the name in effect (user, PDB, ...), as list_functions and search_decompiled show it
+        // The name in effect, as list_functions and search_decompiled show it.
         var (display, symbol) = NativeTools.Named(code?.Ready(native)?.NameAt(function.StartRva) ?? function.Name, native.Image.Format);
-        // one stable header line: open time and saved-analysis state are in _meta
+        // One stable header line; open time and saved-analysis state go in _meta.
         var sb = new StringBuilder($"// {display} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
                                    $"{(session.DatabaseNote is { } note ? ", " + note : "")}{symbol})\n");
         for (int i = 0; i < lines.Length; i++)
@@ -407,10 +398,7 @@ public sealed partial class NativeAnalysisTools
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Several functions in one engine request: inputs resolve one by one (a bad one is its item's error), duplicates of an
-    /// earlier function are marked, texts already cached are reused, and the engine's per-item outcomes are kept as they come.
-    /// </summary>
+    /// <summary>Several functions in one engine request; a bad input is its item's error, duplicates are marked, cached texts reused.</summary>
     private async Task<(string Text, DecompileReport Report)> Batch(LoadedNative native, INativeDecompilerSession session, string[] inputs, bool addresses,
         int perItem, int max, int start, CancellationToken ct)
     {
@@ -460,7 +448,7 @@ public sealed partial class NativeAnalysisTools
                 outcomes[i] = o;
                 status[i] = o.Status switch { DecompileStatus.Ok => "ok", DecompileStatus.Skipped => "skipped", _ => "error" };
                 if (o.Function is not { } f) continue;
-                // without the code index, duplicates show only in the engine's answer
+                // Without the code index, duplicates show only in the engine's answer.
                 if (starts[i] == null && firstOf.TryGetValue(f.StartRva, out int earlier) && earlier != i) { status[i] = "duplicate"; starts[i] = f.StartRva; continue; }
                 starts[i] = f.StartRva;
                 firstOf.TryAdd(f.StartRva, i);
@@ -469,7 +457,7 @@ public sealed partial class NativeAnalysisTools
             }
         }
 
-        // the inputs from the first skipped one on are the next call's (offset=); skipped ones are counted, not listed
+        // Inputs from the first skipped one on belong to the next call; skipped ones are counted, not listed.
         int firstSkipped = Enumerable.Range(start, n - start).Where(i => status[i] == "skipped").DefaultIfEmpty(-1).First();
         int end = firstSkipped >= 0 ? firstSkipped : n;
         var items = new List<DecompileItem>(end - start);
@@ -498,7 +486,7 @@ public sealed partial class NativeAnalysisTools
                     if (status[i] == "error") ToolOutput.Facet("pseudocode", $"{inputs[i]}: {message}");
                     break;
             }
-            // callersOf inputs are the callers' start VAs: each row would name the same VA three times
+            // callersOf inputs are the callers' start VAs; drop repeats of the same VA.
             var address = rvas[i] is { } a ? Va(a) : null;
             var function = starts[i] is { } fs ? Va(fs) : null;
             if (string.Equals(address, inputs[i], StringComparison.OrdinalIgnoreCase)) address = null;
@@ -514,10 +502,7 @@ public sealed partial class NativeAnalysisTools
         return (summary + sb, new DecompileReport(native.Id, session.ProviderId, items, n, ok, failed, skipped, skipped > 0 ? end : null) { Offset = start });
     }
 
-    /// <summary>
-    /// callersOf: the functions with a call (or a tail-call jump) to the start of the function at <paramref name="rva"/>, by the
-    /// engine's references, as batch inputs in address order.
-    /// </summary>
+    /// <summary>callersOf: functions that call or tail-jump to the function at <paramref name="rva"/>, in address order.</summary>
     private async Task<string[]> Callers(LoadedNative native, INativeDecompilerSession session, uint rva, string input, CancellationToken ct)
     {
         var all = await session.ListFunctionsAsync(ct);

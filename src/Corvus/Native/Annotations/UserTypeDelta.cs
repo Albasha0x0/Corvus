@@ -2,11 +2,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Native.Annotations;
 
-/// <summary>
-/// What one edit changed in a <see cref="UserTypeLayer"/>: per keyed item (a declaration block, a type at an RVA, a local,
-/// a stack member, ...) the value before and after; null is absent. Undo puts the before values back where an item still
-/// holds its after value.
-/// </summary>
+/// <summary>What one edit changed in a <see cref="UserTypeLayer"/>: each keyed item's value before and after; null is absent.</summary>
 public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
 {
     /// <summary>One changed item: <see cref="Key"/> is the component letter and the item's key ("T:4a10", "L:4a10:v1").</summary>
@@ -27,10 +23,7 @@ public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
         return new(items);
     }
 
-    /// <summary>
-    /// <paramref name="current"/> with this edit's items put back to their before values; an item changed again since (it no
-    /// longer holds the after value) is left and named in <paramref name="conflicts"/>.
-    /// </summary>
+    /// <summary><paramref name="current"/> with the items reverted; an item changed again since is left and named in <paramref name="conflicts"/>.</summary>
     public UserTypeLayer Revert(UserTypeLayer current, out IReadOnlyList<string> conflicts)
     {
         var list = Flatten(current).ToList();
@@ -48,12 +41,7 @@ public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
         return Build(list);
     }
 
-    /// <summary>
-    /// The engine batch that puts the before values back: before values as edits, and for items the edit added, the
-    /// clearing form (an empty type, a cleared local or stack member, a removed enum or struct member, the default operand
-    /// display, the reverse rename). Items an engine cannot take back (a declaration, a type deletion, an analysis edit
-    /// with nothing before it) are named in <paramref name="irreversible"/>.
-    /// </summary>
+    /// <summary>The engine batch that restores the before values; items an engine cannot take back are named in <paramref name="irreversible"/>.</summary>
     public NativeUserTypeBatch Inverse(UserTypeLayer reverted, out IReadOnlyList<string> irreversible)
     {
         var types = new List<NativePrototype>();
@@ -86,7 +74,7 @@ public sealed record UserTypeDelta(IReadOnlyList<UserTypeDelta.Item> Items)
                     enums.Add(item.Before as NativeEnumMemberEdit ?? e with { Value = null });
                     break;
                 case NativeFieldEdit f:
-                    // an insert or gap naming is undone by its own removal; a first resize does not know the earlier size
+                    // A first resize does not know the earlier size; inserts and gap names are undone by removal.
                     if (item.Before == null && f.Op == NativeFieldEdit.Resize) lost.Add($"resize of '{f.Type}' (the earlier size is not kept)");
                     else fields.Add(item.Before as NativeFieldEdit ?? f with { FieldType = null });
                     break;

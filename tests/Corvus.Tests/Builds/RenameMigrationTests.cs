@@ -384,6 +384,25 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.Single(Corvus.Native.Patching.PatchMigration.FromJson(patch.Replace("netdecompilermcp.native_patches", Corvus.Native.Patching.PatchExport.JsonKind)));
     }
 
+    // Regression (3a711069): the session file field il2Cpp became aotBuilds.
+    [Fact]
+    public void AOT_builds_of_a_session_file_written_before_the_rename_are_read()
+    {
+        using var dir = new TempDir();
+        var session = dir.File("old.session.json");
+        var sha = new string('c', 64);
+        File.WriteAllText(session, $$"""
+            { "format": "corvus-session/1", "created": "2026-10-01T00:00:00Z", "serverVersion": "2.6.0", "searchDirectories": [],
+              "files": [], "dotNet": [], "native": [],
+              "il2Cpp": [ { "input": { "path": "C:/app/global-metadata.dat", "sha256": "{{sha}}" }, "binary": "GameAssembly.dll", "binarySha256": "{{sha}}" } ] }
+            """);
+        var doc = SessionService.Read(session);
+        Assert.Equal("GameAssembly.dll", Assert.Single(doc.AotBuilds!).Binary);
+        var written = SessionService.Serialize(doc);
+        Assert.Contains("\"aotBuilds\"", written);
+        Assert.DoesNotContain("\"il2Cpp\"", written);
+    }
+
     [Fact]
     public void A_name_layer_saved_before_the_rename_is_read()
     {

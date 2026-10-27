@@ -1,9 +1,6 @@
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// The decodable bytes of an image: a copy of every executable section's raw-backed extent (zero fill past the raw
-/// data is not code), indexed by RVA. Also maps those bytes to a dense bit index for per-byte bitmaps.
-/// </summary>
+/// <summary>The file-backed bytes of every executable section, indexed by RVA and by a dense bit index.</summary>
 internal sealed class ImageCode
 {
     /// <summary>Executable sections larger than this are cut (reported as a truncation).</summary>
@@ -40,7 +37,7 @@ internal sealed class ImageCode
             long length = s.VirtualSize == 0 ? s.RawSize : Math.Min(s.VirtualSize, s.RawSize);
             if ((ulong)s.Rva + (ulong)length > image.SizeOfImage)
                 length = image.SizeOfImage - s.Rva;
-            // Only the bytes the file backs: a raw size past the end of the file reads as zeros, which are not code.
+            // A raw size past the end of the file reads as zeros, which are not code.
             length = image.FileBackedLength(s.Rva, length);
             if (length <= 0) continue;
             // Overlapping section headers: the earlier section wins.
@@ -64,7 +61,7 @@ internal sealed class ImageCode
         OtherRanges = OtherInstructionSet(image);
     }
 
-    /// <summary>A hybrid image's code of the other instruction set (x64 in ARM64X, ARM64 / ARM64EC in an x64 image), sorted; empty otherwise.</summary>
+    /// <summary>A hybrid image's code ranges in its other instruction set, sorted; empty otherwise.</summary>
     public (uint Start, uint End)[] OtherRanges { get; }
 
     /// <summary>The code map ranges of a hybrid PE in the instruction set its header machine does not name, sorted.</summary>

@@ -7,11 +7,7 @@ namespace Corvus.Tests;
 /// <summary>Defects found by running the server against real applications, each reduced to a fixture.</summary>
 public sealed class RealScenarioRegressionTests
 {
-    /// <summary>
-    /// A .NET 10 application that uses a .NET Standard library (Newtonsoft.Json netstandard2.0), as most real apps do.
-    /// netstandard resolves to the .NET Standard reference assembly, which defines System.Object itself next to the
-    /// runtime's System.Private.CoreLib: Roslyn then had no core library ("Predefined type 'System.Void' is not defined").
-    /// </summary>
+    /// <summary>Regression: a .NET 10 app using a .NET Standard library left Roslyn without a core library ("Predefined type 'System.Void' is not defined").</summary>
     private static string NetAppUsingNetStandardLibrary(TempDir dir)
     {
         var token = new PublicKeyToken("b03f5f7f11d50a3a");
@@ -50,13 +46,9 @@ public sealed class RealScenarioRegressionTests
         return path;
     }
 
-    /// <summary>
-    /// find_references: a call to a constructor in an assembly that is not loaded or resolvable (a framework assembly
-    /// of a single-file app, say) matched every other ".ctor()": dnlib's SigComparer ignores the declaring type unless
-    /// asked. Found in a WinForms + WebView2 app, where WebView2's "new Container()" was listed as creating a view model.
-    /// </summary>
+    /// <summary>Regression: a constructor call into an unresolved assembly matched every other ".ctor()" (dnlib's SigComparer ignores the declaring type).</summary>
     [Fact]
-    public void ReferencesToAConstructorIgnoreSameSignatureCallsIntoUnresolvedAssemblies()
+    public void References_to_a_constructor_ignore_same_signature_calls_into_unresolved_assemblies()
     {
         using var dir = new TempDir();
         var app = new IlLab("RefApp");
@@ -82,22 +74,16 @@ public sealed class RealScenarioRegressionTests
         var found = env.Workspace.Read(() => env.References.FindReferences(env.One("RefApp.ViewModel::.ctor"), includeVirtualCalls: false, limit: 50, default));
         Assert.Equal(["Lab.P::Create()"], found.Items.Select(r => Format.MemberLabel(r.Where)));
 
-        // The workspace stubs unknown assemblies, but not framework names (System.ComponentModel.TypeConverter in the
-        // app above): those references stay unresolved and are compared by name. Outside a workspace nothing resolves.
+        // Framework names are not stubbed: those references stay unresolved and compare by name.
         Assert.False(Corvus.Core.MetadataUtil.IsSameMethod(container, ctor));
         var sameType = new MemberRefUser(lib.Module, ".ctor", MethodSig.CreateInstance(lib.T.Void),
             new TypeRefUser(lib.Module, "RefApp", "ViewModel", new AssemblyRefUser("RefApp")));
         Assert.True(Corvus.Core.MetadataUtil.IsSameMethod(sameType, ctor));
     }
 
-    /// <summary>
-    /// An assembly processed by a toolchain (Babel / Goliath here) with metadata the decompiler's reader rejects: the module name's
-    /// string offset past the heap, and a custom attribute whose constructor coded index is invalid. dnlib reads both
-    /// leniently. Every decompile and get_il failed with an internal BadImageFormatException; the decompiler now works
-    /// on a normalized copy with the same tokens, and says so.
-    /// </summary>
+    /// <summary>Regression: metadata the decompiler's reader rejects failed every decompile; it now works on a normalized copy with the same tokens.</summary>
     [Fact]
-    public void PostProcessedMetadataIsDecompiledFromANormalizedCopy()
+    public void Post_processed_metadata_is_decompiled_from_a_normalized_copy()
     {
         using var dir = new TempDir();
         var lab = new IlLab("Guarded");
@@ -120,12 +106,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("ldc.i4", il);
     }
 
-    /// <summary>
-    /// Code transformers name members with zero-width and bidi characters (U+202E reverses the rest of the line). Tool output
-    /// shows them as \uXXXX, the way the decompiler escapes identifiers, and the resolver accepts the name as shown.
-    /// </summary>
+    /// <summary>Zero-width and bidi characters in names show as \uXXXX and resolve as shown.</summary>
     [Fact]
-    public void InvisibleCharactersInNamesAreShownEscapedAndResolveAsShown()
+    public void Invisible_characters_in_names_are_shown_escaped_and_resolve_as_shown()
     {
         using var dir = new TempDir();
         var lab = new IlLab("Hidden");
@@ -141,13 +124,10 @@ public sealed class RealScenarioRegressionTests
         Assert.Equal("a\\u0041", Format.UnescapeInvisible("a\\u0041")); // visible characters stay escaped
     }
 
-    /// <summary>
-    /// IL allows a public member to use an internal type; C# rejects the decompiled declaration with CS0050-CS0061, which
-    /// failed every C# patch of such a type (found in Docker Desktop's installer).
-    /// </summary>
+    /// <summary>Regression: a public member using an internal type failed every C# patch of its type (CS0050-CS0061).</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesCompileWhenTheDecompiledTypeHasInconsistentAccessibility()
+    public void CSharp_patches_compile_when_the_decompiled_type_has_inconsistent_accessibility()
     {
         using var dir = new TempDir();
         var lab = new IlLab("Access");
@@ -163,12 +143,7 @@ public sealed class RealScenarioRegressionTests
         Assert.DoesNotContain("failed", result);
     }
 
-    /// <summary>
-    /// Two builds of a transformed app (Dotfuscator in PDFelement's Office add-in): every type is renamed at each build,
-    /// member names are handed out afresh, and control-flow transformation plants random integer constants in every body.
-    /// compare_assemblies paired none of the renamed types, so find_counterpart and apply_edits could not carry anything
-    /// across. Strings, constants and bodies without their numeric constants still identify them.
-    /// </summary>
+    /// <summary>Regression: types renamed at every build of a transformed app were not paired; strings, constants and bodies without numeric constants now match them.</summary>
     private static byte[] TransformedBuild(int seed, string classType, string constType, string enumType, string[] methodNames)
     {
         var random = new Random(seed);
@@ -178,7 +153,7 @@ public sealed class RealScenarioRegressionTests
         string[] texts = ["https://api.example.test/v2/upload", "Upload failed: {0}", "settings.json corrupt", "retry-after", "X-Session-Token"];
         for (int i = 0; i < texts.Length; i++)
         {
-            // filler: ldc.i4 <random>; stloc; ldloc; pop — then the real work
+            // Filler: ldc.i4 <random>; stloc; ldloc; pop — then the real work.
             var local = new Local(lab.T.Int32);
             var m = lab.Method(methodNames[i], lab.T.String, [], [IlLab.Ldc(random.Next()), OpCodes.Stloc.ToInstruction(local), OpCodes.Ldloc.ToInstruction(local),
                 IlLab.Op(OpCodes.Pop), OpCodes.Ldstr.ToInstruction(texts[i]), IlLab.Ret()], owner: worker);
@@ -199,7 +174,7 @@ public sealed class RealScenarioRegressionTests
     }
 
     [Fact]
-    public void RenamedTypesOfATransformedRebuildAreMatchedByContent()
+    public void Renamed_types_of_a_transformed_rebuild_are_matched_by_content()
     {
         using var dir = new TempDir();
         File.WriteAllBytes(dir.File("Old.dll"), TransformedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
@@ -219,13 +194,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Equal("ak7::y()", Counterpart("c7x::d"));
     }
 
-    /// <summary>
-    /// After an async method was stubbed, the decompiler showed its closure class (&lt;&gt;c__DisplayClass45_0) as a nested
-    /// type, whose names do not parse as C#: every later C# patch of the class failed (Docker Desktop's installer). The
-    /// patcher's source escapes such names.
-    /// </summary>
+    /// <summary>Regression: after a stub, the decompiled closure class name did not parse as C# and failed every later patch of the class.</summary>
     [Fact]
-    public void CSharpPatchesWorkNextToAnOrphanedClosureClass()
+    public void CSharp_patches_work_next_to_an_orphaned_closure_class()
     {
         using var dir = new TempDir();
         var lab = new IlLab("Closures");
@@ -237,8 +208,7 @@ public sealed class RealScenarioRegressionTests
             Attributes = TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
         };
         holder.NestedTypes.Add(closure);
-        // Without [CompilerGenerated] the decompiler always shows it, as it does when it falls back to decompiling a
-        // type member by member.
+        // Without [CompilerGenerated] the decompiler always shows the class.
         var captured = new FieldDefUser("p", new FieldSig(lab.T.Int32), FieldAttributes.Public);
         closure.Fields.Add(captured);
         var lambda = lab.Method("<Run>b__0", lab.T.Int32, [], [OpCodes.Ldarg_0.ToInstruction(), OpCodes.Ldfld.ToInstruction(captured), IlLab.Ret()], owner: closure);
@@ -258,15 +228,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("return Count + 2;", env.Decompile("Lab.Holder::Run"));
     }
 
-    /// <summary>
-    /// The decompiled declaration is compiled as a separate assembly that references the target, so its members that
-    /// override or use the target's internals failed: "internal override" (CS0115) and "protected internal override"
-    /// (CS0507) of base members in the target, internal members using its internal types (CS0051-CS0053). Found in
-    /// Newtonsoft.Json, CoseSignTool and PowerShell; the reference copy of the target now grants the patch assembly access
-    /// to its internals.
-    /// </summary>
+    /// <summary>Regression: decompiled members overriding or using the target's internals failed to compile (CS0115, CS0507, CS0051-CS0053).</summary>
     [Fact]
-    public void CSharpPatchesCompileWhenTheTypeOverridesInternalsOfItsAssembly()
+    public void CSharp_patches_compile_when_the_type_overrides_internals_of_its_assembly()
     {
         using var env = new Env(RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll"));
         var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Newtonsoft.Json.Linq.JTokenWriter::WriteValue(char)"),
@@ -274,12 +238,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// A missing strong-named dependency is replaced by a stand-in without a public key, which the target's reference
-    /// (name, version and token) did not bind to: C# patches using its types failed with CS0012 (Microsoft.CodeAnalysis.CSharp).
-    /// </summary>
+    /// <summary>Regression: the stand-in of a missing strong-named dependency did not bind to the target's reference (CS0012).</summary>
     [Fact]
-    public void CSharpPatchesBindToTheStandInOfAStrongNamedDependency()
+    public void CSharp_patches_bind_to_the_stand_in_of_a_strong_named_dependency()
     {
         using var dir = new TempDir();
         var options = new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary)
@@ -292,12 +253,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// The reference copy of the target got [InternalsVisibleTo] through an assembly reference to the core library; for
-    /// the core library itself (System.Private.CoreLib, a Unity mscorlib) that left Roslyn without one (CS0518).
-    /// </summary>
+    /// <summary>Regression: patches in the core library itself left Roslyn without a core library (CS0518).</summary>
     [Fact]
-    public void CSharpPatchesCompileInTheCoreLibrary()
+    public void CSharp_patches_compile_in_the_core_library()
     {
         using var dir = new TempDir();
         var core = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("MiniCore", [Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText("""
@@ -341,13 +299,10 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// A netstandard library's closure has the runtime's System.Private.CoreLib (through a framework dependency) and the
-    /// System.Memory package, which define the same types: every C# patch using spans failed with CS0433 (System.Text.Json).
-    /// </summary>
+    /// <summary>Regression: System.Private.CoreLib and the System.Memory package both defined the span types (CS0433).</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesOfANetStandardLibraryCompileAgainstOneCopyOfTheSpanTypes()
+    public void CSharp_patches_of_a_NET_Standard_library_compile_against_one_copy_of_the_span_types()
     {
         using var env = new Env(RealPackages.Lib("system.text.json", "10.0.1", "netstandard2.0", "System.Text.Json.dll"));
         var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("System.Text.Json.JsonDocument::Dispose"),
@@ -355,12 +310,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// A reference naming the core library as version 65535.65535.65535.65535 (any version) made every patch using its types
-    /// fail CS1705: it seemed to need a newer core library than the one compiled against (an obfuscated .NET Framework app).
-    /// </summary>
+    /// <summary>Regression: a reference to a core library of any version (65535.65535.65535.65535) failed every patch with CS1705.</summary>
     [Fact]
-    public void CSharpPatchesCompileAgainstAReferenceNamingTheCoreLibraryWithAnyVersion()
+    public void CSharp_patches_compile_against_a_reference_naming_the_core_library_with_any_version()
     {
         using var dir = new TempDir();
         var lib = ReferenceResolutionTests.Compile("Lib", "namespace L { public class Marker { public int V() { return 1; } } }");
@@ -375,12 +327,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// A .NET Standard 2.0 library's System.Runtime.InteropServices bound to the runtime facade, which put System.Private.CoreLib
-    /// beside netstandard: the engine looked ExceptionDispatchInfo up there, so await in catch showed as catch (object) (System.Text.Json).
-    /// </summary>
+    /// <summary>Regression: await in catch of a .NET Standard 2.0 library decompiled as catch (object).</summary>
     [Fact, Trait("Speed", "Slow")] // decompiles System.Text.Json: past the call deadline on small CI runners
-    public void AwaitInCatchOfANetStandardLibraryDecompilesAsCatchException()
+    public void Await_in_catch_of_a_NET_Standard_library_decompiles_as_catch_exception()
     {
         using var env = new Env(RealPackages.Lib("system.text.json", "10.0.1", "netstandard2.0", "System.Text.Json.dll"));
         var code = env.Decompile("System.Text.Json.Serialization.Metadata.JsonTypeInfo`1::SerializeAsync(PipeWriter, T, int, CancellationToken, object)");
@@ -388,12 +337,9 @@ public sealed class RealScenarioRegressionTests
         Assert.DoesNotContain("catch (object", code);
     }
 
-    /// <summary>
-    /// References are imported with their internals, and a global-namespace type bound before the decompiled file's
-    /// usings: an internal global 'Exception' in a .NET Framework assembly took every 'catch (Exception)' (CS0155; Greenshot).
-    /// </summary>
+    /// <summary>Regression: an internal global Exception type of a reference took every catch (Exception) (CS0155).</summary>
     [Fact]
-    public void CSharpPatchesBindUsingsBeforeInternalGlobalTypesOfReferences()
+    public void CSharp_patches_bind_usings_before_internal_global_types_of_references()
     {
         using var dir = new TempDir();
         var lib = ReferenceResolutionTests.Compile("Lib", "internal class Exception { } public class Marker { }");
@@ -414,14 +360,10 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", env.Edit(() => env.Edits.AddTypesCSharp(env.Fixture, added, dryRun: true, default)), StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// References are imported with their internals, so an internal type of the target and a same-named internal type of
-    /// another reference (System.SR in Microsoft.VisualBasic.Core and Microsoft.Win32.Registry) failed every C# patch
-    /// using it with CS0433. Between two other references, the one the target references by that name wins.
-    /// </summary>
+    /// <summary>Regression: same-named internal types of the target and a reference failed patches with CS0433; the type the target references wins.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesBindSameNamedInternalTypesToTheAssemblyTheTargetUses()
+    public void CSharp_patches_bind_same_named_internal_types_to_the_assembly_the_target_uses()
     {
         using var dir = new TempDir();
         var lib = ReferenceResolutionTests.Compile("Lib", "namespace System { internal static class SR { public static string Name = \"lib\"; } } public class Marker { }");
@@ -441,51 +383,39 @@ public sealed class RealScenarioRegressionTests
         Assert.Equal("Util", ((AssemblyRef)((TypeRef)fields.Single(f => f.Name == "Id").DeclaringType).ResolutionScope).Name.String); // the Helper App uses
     }
 
-    /// <summary>
-    /// A .NET 2.0 library with its own Func&lt;T, TResult&gt; compiled against mscorlib 4 made every patch of a type using it fail
-    /// with CS0104 (ambiguous with System.Func); the target's own type is the one its code meant.
-    /// </summary>
+    /// <summary>Regression: a library's own Func&lt;T, TResult&gt; was ambiguous with System.Func (CS0104); the target's type wins.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesPreferTheTargetsOwnTypeOverANewerFrameworkTypeOfTheSameName()
+    public void CSharp_patches_prefer_the_targets_own_type_over_a_newer_framework_type_of_the_same_name()
     {
         using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "net20", "Newtonsoft.Json.dll"));
         Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Newtonsoft.Json.Utilities.ThreadSafeStore`2::Get"),
             "return _creator(key);", dryRun: true, default)));
     }
 
-    /// <summary>
-    /// ImmutableList&lt;T&gt;'s interfaces (from the target) return the target's ImmutableList&lt;T&gt;, which its decompiled copy
-    /// cannot (CS0738): every patch in the type failed. The copy is compiled without those interfaces and their explicit stubs.
-    /// </summary>
+    /// <summary>Regression: interfaces returning the target's own type failed every patch of the type (CS0738).</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesCompileInATypeWhoseInterfacesReturnTheType()
+    public void CSharp_patches_compile_in_a_type_whose_interfaces_return_the_type()
     {
         using var env = new Env(RealPackages.Lib("System.Collections.Immutable", "1.3.1", "netstandard1.0", "System.Collections.Immutable.dll"));
         Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("System.Collections.Immutable.ImmutableList`1/Node::CopyTo(int, T[], int, int)"),
             "throw new System.InvalidOperationException();", dryRun: true, default)));
     }
 
-    /// <summary>
-    /// Labels spell System.Decimal as Decimal and the decompiled source as decimal, so a patch of one of several same-count
-    /// overloads taking a decimal (JsonConvert.ToString(decimal)) failed: "none match by parameter types".
-    /// </summary>
+    /// <summary>Regression: decimal overloads did not match because labels spell the type Decimal.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesFindDecimalOverloads()
+    public void CSharp_patches_find_decimal_overloads()
     {
         using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll"));
         Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Newtonsoft.Json.JsonConvert::ToString(decimal)"), "return \"d\";", dryRun: true, default)));
     }
 
-    /// <summary>
-    /// Two references with an internal System.SR, neither public nor used by the target: none was hidden, so SR in code of
-    /// namespace App.Sub (usings inside it) was ambiguous instead of the target's App.SR (System.Web.SR in System.Web.Security).
-    /// </summary>
+    /// <summary>Regression: an internal type of two references was ambiguous with the target's type of the same name in an enclosing namespace.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesBindTypesOfEnclosingNamespacesBeforeImportedOnes()
+    public void CSharp_patches_bind_types_of_enclosing_namespaces_before_imported_ones()
     {
         using var dir = new TempDir();
         var lib = ReferenceResolutionTests.Compile("Lib", "namespace System { internal static class SR { public static string Name = \"lib\"; } } public class Marker { }");
@@ -505,14 +435,10 @@ public sealed class RealScenarioRegressionTests
         }
     }
 
-    /// <summary>
-    /// The CS0433 retry read [NonVersionable] as a type named NonVersionable, so an attribute the target and mscorlib both define
-    /// kept failing (System.Collections.Immutable 1.3.1); a public framework type the target defines again was never hidden
-    /// (Lazy&lt;T&gt; of NUnit 3 for .NET 3.5, compiled against mscorlib 4).
-    /// </summary>
+    /// <summary>Regression: an attribute or public framework type the target defines again kept failing with CS0433.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesBindAttributesAndRedefinedFrameworkTypesToTheTarget()
+    public void CSharp_patches_bind_attributes_and_redefined_framework_types_to_the_target()
     {
         using (var env = new Env(RealPackages.Lib("System.Collections.Immutable", "1.3.1", "netstandard1.0", "System.Collections.Immutable.dll")))
             Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("System.Collections.Immutable.ImmutableArray`1::IndexOf(T, int, int)"),
@@ -522,13 +448,10 @@ public sealed class RealScenarioRegressionTests
                 "return \"x\";", dryRun: true, default)));
     }
 
-    /// <summary>
-    /// The decompiled types were made public in the compiled copy, so an internal type deriving from or exposing another
-    /// internal type of the target failed every C# patch with CS0060 or CS0053 (Newtonsoft.Json's JSON path classes).
-    /// </summary>
+    /// <summary>Regression: decompiled types made public failed when an internal type exposed another internal type (CS0060, CS0053).</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesCompileWhenAnInternalTypeUsesInternalTypesOfItsAssembly()
+    public void CSharp_patches_compile_when_an_internal_type_uses_internal_types_of_its_assembly()
     {
         using var env = new Env(RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll"));
         const string member = "public static int Twice(int x) { return x * 2; }";
@@ -536,13 +459,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", env.Edit(() => env.Edits.AddMembersCSharp(env.One("Newtonsoft.Json.Linq.JsonPath.JPath"), member, dryRun: true, default)));
     }
 
-    /// <summary>
-    /// Member labels left out generic arity, so JsonConvert::DeserializeObject&lt;T&gt;(string) and DeserializeObject(string)
-    /// had one label: diff_edits could not resolve an edit of either, and a replay on another build was ambiguous or
-    /// reported the target as renamed to itself. Scripts saved before labels carried the arity still replay.
-    /// </summary>
+    /// <summary>Regression: member labels left out generic arity, so generic and non-generic overloads shared one label.</summary>
     [Fact]
-    public void GenericOverloadsHaveTheirOwnLabelsInDiffsAndReplays()
+    public void Generic_overloads_have_their_own_labels_in_diffs_and_replays()
     {
         using var dir = new TempDir();
         using var env = new Env(RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll"));
@@ -583,12 +502,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Single(SymbolResolver.Resolve(env.Workspace, other.Id, "Newtonsoft.Json.JsonConvert::DeserializeAs<T>(string)"));
     }
 
-    /// <summary>
-    /// A script from before arity labels replayed on another build without the source build loaded: the bare label
-    /// Read(string) named both Read(string) and Read&lt;T&gt;(string) and failed as ambiguous; the recorded token picks one.
-    /// </summary>
+    /// <summary>Regression: a script from before arity labels failed as ambiguous; the recorded token picks the overload.</summary>
     [Fact]
-    public void LegacyEditScriptsPickBetweenOverloadsOfOneLabelByTheRecordedToken()
+    public void Legacy_edit_scripts_pick_between_overloads_of_one_label_by_the_recorded_token()
     {
         using var dir = new TempDir();
         static string Source(int version) => "namespace L { public static class C { public static object Read(string s) { return s; } " +
@@ -616,13 +532,9 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("return null;", other.Decompile("L.C::Read(string)"));
     }
 
-    /// <summary>
-    /// A legacy label naming Read(string) and Read&lt;T&gt;(string) on a build whose tokens differ (Newtonsoft 13.0.4 script on
-    /// 13.0.1): the recorded token matched neither and the replay failed as ambiguous. The signature recorded since picks
-    /// one; a script without it fails with a clear ambiguity.
-    /// </summary>
+    /// <summary>Regression: on a build with other tokens a legacy label failed as ambiguous; the recorded signature picks the overload.</summary>
     [Fact]
-    public void LegacyEditScriptsOnABuildWithOtherTokensPickOverloadsByTheRecordedSignature()
+    public void Legacy_edit_scripts_on_a_build_with_other_tokens_pick_overloads_by_the_recorded_signature()
     {
         using var dir = new TempDir();
         static string Source(string extra) => "namespace L { public static class C { " + extra + "public static object Read(string s) { return s; } " +
@@ -662,12 +574,9 @@ public sealed class RealScenarioRegressionTests
         }
     }
 
-    /// <summary>
-    /// apply_edits onto a transformed rebuild matched targets against the source build as edited: after the script's
-    /// own stub, that body no longer resembled its counterpart (now renamed), so the replay failed and rolled back.
-    /// </summary>
+    /// <summary>Regression: apply_edits matched targets against the edited source build, so a replay onto a transformed rebuild failed.</summary>
     [Fact]
-    public void EditsReplayOntoATransformedRebuildAfterTheScriptEditedItsSourceBuild()
+    public void Edits_replay_onto_a_transformed_rebuild_after_the_script_edited_its_source_build()
     {
         using var dir = new TempDir();
         File.WriteAllBytes(dir.File("Old.dll"), TransformedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
@@ -685,19 +594,16 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("\"stubbed\"", env.Workspace.Read(() => env.Decompiler.DecompileMembers(newBuild, [(IMemberDef)SymbolResolver.ResolveOne(env.Workspace, newBuild.Id, "Uploader::i").Member], default)));
     }
 
-    /// <summary>
-    /// Saving an edited signed assembly drops its Authenticode signature and leaves a strong-name signature that no longer
-    /// matches; both happened without a word. Found on PDFelement's signed Office add-in.
-    /// </summary>
+    /// <summary>Regression: saving an edited signed assembly dropped its signatures without a word.</summary>
     [Fact]
-    public void SavingAnEditedSignedAssemblySaysWhatHappensToItsSignatures()
+    public void Saving_an_edited_signed_assembly_says_what_happens_to_its_signatures()
     {
         var path = RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll");
         using var dir = new TempDir();
         using var env = new Env(path);
         env.Edit(() => env.Edits.StubMethod(env.One("Newtonsoft.Json.JsonConvert::ToString(bool)"), "\"x\""));
         var result = env.Workspace.Read(() => env.Edits.Save(env.Fixture, dir.File("Newtonsoft.Json.dll"), overwrite: false));
-        Assert.Contains("strong-name signed", result);
+        Assert.Contains("strong-name signature no longer matches", result);
         using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(path));
         Assert.Equal(pe.PEHeaders.PEHeader!.CertificateTableDirectory.Size > 0, result.Contains("Authenticode-signed"));
 
@@ -706,7 +612,7 @@ public sealed class RealScenarioRegressionTests
     }
 
     [Fact]
-    public void StaticConstructorDeclarationSaysStaticOnce()
+    public void Static_constructor_declaration_says_static_once()
     {
         var lab = new IlLab("Ctors");
         var cctor = lab.StaticConstructor(lab.Type, IlLab.Ret());
@@ -716,7 +622,7 @@ public sealed class RealScenarioRegressionTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task MissingRequiredArgumentIsAClearToolError()
+    public async Task Missing_required_argument_is_a_clear_tool_error()
     {
         await using var client = await McpProtocolTests.StartServerAsync("--load", Env.FixturePath);
         var result = await client.CallToolAsync("decompile_member", new Dictionary<string, object?>());
@@ -728,7 +634,7 @@ public sealed class RealScenarioRegressionTests
     }
 
     [Fact]
-    public void ADirectoryPassedForAFileGetsAnExplainingError()
+    public void A_directory_passed_for_a_file_gets_an_explaining_error()
     {
         using var dir = new TempDir();
         using var env = new Env();
@@ -741,7 +647,7 @@ public sealed class RealScenarioRegressionTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchesCompileForANetAppThatUsesANetStandardLibrary()
+    public void CSharp_patches_compile_for_a_net_app_that_uses_a_NET_Standard_library()
     {
         using var dir = new TempDir();
         using var env = new Env(NetAppUsingNetStandardLibrary(dir));

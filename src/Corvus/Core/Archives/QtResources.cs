@@ -4,12 +4,8 @@ using System.Text;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// Qt resource collections as rcc writes them: a binary .rcc file ("qres", format version 1 to 3, read by
-/// QResource::registerResource), or the tree, name and data arrays rcc compiles into a program (qRegisterResourceData).
-/// All values are big-endian. Tree nodes are 14 bytes (version 1) or 22 with a modification time; names carry Qt's hash
-/// of their UTF-16 text; data entries are size-prefixed, zlib ones in qCompress form (expanded size, then a zlib stream).
-/// </summary>
+/// <summary>Qt resource collections: a binary .rcc file ("qres", versions 1 to 3) or the arrays rcc compiles into a program.</summary>
+/// <remarks>Big-endian; tree nodes are 14 bytes, or 22 with a modification time; zlib data is in qCompress form.</remarks>
 internal static class QtResources
 {
     public const string Kind = "Qt resource collection (rcc)";
@@ -19,11 +15,7 @@ internal static class QtResources
     /// <summary>Where one collection's arrays start in the bytes, and its format version (2 stands for 2 and 3 when compiled in).</summary>
     public sealed record Collection(int Version, int Tree, int Names, int Data, int? At = null);
 
-    /// <summary>
-    /// One file: its path from the collection root, the locale it is registered for (Qt's language and territory numbers;
-    /// 1 and 0 are the default, C and any territory), how it is stored, its stored size, where its data entry starts and
-    /// its modification time (null when version 1 or zero).
-    /// </summary>
+    /// <summary>One file; Language 1 and Territory 0 are the default locale, Modified is null in version 1 or when zero.</summary>
     public sealed record Entry(string Path, int Language, int Territory, string? Compression, long Stored, int DataAt, DateTime? Modified)
     {
         public bool IsDefaultLocale => Language is 0 or 1 && Territory == 0;
@@ -42,10 +34,7 @@ internal static class QtResources
         return new Collection(version, (int)tree, (int)names, (int)data);
     }
 
-    /// <summary>
-    /// The collections compiled into a program image: each tree root (a directory node named at offset 0 whose first child
-    /// is node 1) whose every name passes Qt's hash and whose data entries chain in offset order. Empty when none is found.
-    /// </summary>
+    /// <summary>The collections compiled into a program image whose names pass Qt's hash and data entries chain; empty when none.</summary>
     public static List<Collection> Embedded(byte[] image, CancellationToken ct)
     {
         var found = new List<Collection>();
@@ -83,8 +72,7 @@ internal static class QtResources
         var files = nodes.Where(n => !n.IsDirectory).Select(n => n.DataOffset).Distinct().Order().ToArray();
         if (files.Length == 0 || files[0] != 0) return null;
         int treeEnd = tree + (nodes.Max(n => n.Index) + 1) * (version >= 2 ? 22 : 14);
-        // MSVC places data, names and tree in that order, GCC the reverse: names before the tree with data before
-        // them, or after it with data after them.
+        // MSVC places data, names and tree in that order; GCC the reverse.
         int names = Names(b, nameOffsets, lengths, tree - 1, Math.Max(0, tree - (8 << 20)), tree, ct);
         if (names >= 0)
         {
@@ -99,10 +87,7 @@ internal static class QtResources
         return after < 0 ? null : new Collection(version, tree, names, after, tree);
     }
 
-    /// <summary>
-    /// The first start from <paramref name="from"/> toward <paramref name="to"/> where every name offset holds a name
-    /// of its expected length that passes Qt's hash and ends by <paramref name="limit"/>; -1 when none does.
-    /// </summary>
+    /// <summary>The first start toward <paramref name="to"/> where every name offset holds a valid name; -1 when none.</summary>
     private static int Names(byte[] b, uint[] offsets, int[] lengths, int from, int to, int limit, CancellationToken ct)
     {
         int step = to >= from ? 1 : -1;
@@ -118,10 +103,7 @@ internal static class QtResources
         return -1;
     }
 
-    /// <summary>
-    /// Where the data array starts, nearest to <paramref name="edge"/> (before it, or from it on): the entry at offset 0
-    /// holds the size that reaches the second offset, and so on to the last.
-    /// </summary>
+    /// <summary>The data array start nearest to <paramref name="edge"/> whose entry sizes chain through every file offset.</summary>
     private static int Chain(byte[] b, uint[] files, int edge, bool backward)
     {
         Span<byte> first = stackalloc byte[4];
@@ -151,12 +133,7 @@ internal static class QtResources
         return -1;
     }
 
-    /// <summary>
-    /// Where a one-file data array starts: a non-empty entry that ends in at most 16 bytes of zeros before the names
-    /// (<paramref name="edge"/>), or starts within 32 bytes after them. A file's own size fields also fit, so where code
-    /// is read the start must be an address loaded beside the tree's (the qRegisterResourceData call), and a tree no
-    /// code loads is no collection; elsewhere the nearest aligned start is taken.
-    /// </summary>
+    /// <summary>A one-file data array start near <paramref name="edge"/>; with code references it must be loaded beside the tree.</summary>
     private static int Single(byte[] b, int tree, int names, int edge, bool backward, CodeReferences? refs)
     {
         bool Fits(long d)
@@ -373,10 +350,7 @@ internal static class QtResources
     private static ToolError Malformed(string name, string what) => new(ErrorCode.MalformedInput, $"{name}: not a readable Qt resource collection: {what}.");
 }
 
-/// <summary>
-/// The addresses a program's code loads, as file offsets, with the file offsets of the loading instructions: RIP-relative
-/// lea on x64, adrp with add on ARM64, push and mov of a 32-bit address on x86.
-/// </summary>
+/// <summary>Addresses the code loads (x64 lea, ARM64 adrp/add, x86 push/mov), as file offsets with their instructions'.</summary>
 internal sealed class CodeReferences
 {
     private readonly Dictionary<long, List<long>> _sites = [];

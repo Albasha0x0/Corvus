@@ -27,7 +27,7 @@ public sealed partial class NativeCodeTools
     /// <summary>The page of <paramref name="rows"/> from <paramref name="offset"/>, as text lines and the record.</summary>
     private static string TreePage(int limit, LoadedNative native, string root, string direction, List<TreeRow> rows, int offset, string header, EngineChoice choice)
     {
-        // the page's frontier: a whole tree's can hold thousands of nodes
+        // The page's frontier: a whole tree's can hold thousands of nodes.
         static List<string>? Frontier(IEnumerable<TreeRow> page) =>
             page.Where(r => r.Node.Flags?.Contains("more") == true && r.Node.Address != null).Select(r => r.Node.Address!).Distinct().ToList() is { Count: > 0 } f ? f : null;
         return ToolOutput.List(rows, Math.Max(0, offset), ClampLimit(limit), r => r.Line,
@@ -84,10 +84,7 @@ public sealed partial class NativeCodeTools
         return rows;
     }
 
-    /// <summary>
-    /// Rows of an indented tree text (an engine's): "name  [tag]  0xVA  (repeated)" per line, two spaces per level; a
-    /// "(more not shown)" line marks its parent as not fully expanded.
-    /// </summary>
+    /// <summary>Rows of an engine's indented tree text; a "(more not shown)" line marks its parent as not fully expanded.</summary>
     internal static List<TreeRow> ParseTree(string text)
     {
         var rows = new List<TreeRow>();

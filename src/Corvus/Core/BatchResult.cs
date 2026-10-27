@@ -1,6 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>The error of one failed batch item (STANDARDS S6.5): code, message and next step, escaped as in error results.</summary>
+/// <summary>The error of one failed batch item: code, message and next step, escaped as in error results.</summary>
 public sealed record BatchError(string Code, string Message, string Next)
 {
     /// <summary>Longest item message in characters: one item's error never crowds out the other items.</summary>
@@ -20,10 +20,7 @@ public sealed record BatchError(string Code, string Message, string Next)
 /// <summary>One item of a batch call: the target as given, and its value or its error.</summary>
 public sealed record BatchItem<T>(string Target, T? Value, BatchError? Error);
 
-/// <summary>
-/// A batch call's items in request order; <see cref="Failed"/> counts the items with an error. The call is a success while
-/// any item succeeded (<see cref="BatchResult.ThrowIfAllFailed"/>).
-/// </summary>
+/// <summary>A batch call's items in request order; the call succeeds while any item did (<see cref="BatchResult.ThrowIfAllFailed"/>).</summary>
 public sealed record BatchResult<T>(IReadOnlyList<BatchItem<T>> Items)
 {
     public int Failed => Items.Count(i => i.Error != null);
@@ -31,10 +28,7 @@ public sealed record BatchResult<T>(IReadOnlyList<BatchItem<T>> Items)
 
 public static class BatchResult
 {
-    /// <summary>
-    /// Runs <paramref name="each"/> per target; a <see cref="ToolError"/> or unexpected exception becomes that item's error
-    /// (cancellation ends the batch). With <paramref name="stopOnError"/>, the items after the first failure are not run.
-    /// </summary>
+    /// <summary>Runs <paramref name="each"/> per target; an exception becomes the item's error, cancellation ends the batch; <paramref name="stopOnError"/> skips the rest after a failure.</summary>
     public static BatchResult<T> Run<T>(IEnumerable<string> targets, Func<string, T> each, string? tool = null, bool stopOnError = false)
     {
         var items = new List<BatchItem<T>>();
@@ -69,10 +63,7 @@ public static class BatchResult
         catch (Exception e) when (e is not OperationCanceledException and not ModelContextProtocol.McpException) { return new(target, default, BatchError.Internal(e)); }
     }
 
-    /// <summary>
-    /// The batch, or a <see cref="ToolError"/> when every item failed: the items' code when they share one, else failed,
-    /// with the first item's message and next step and every item's error in details.
-    /// </summary>
+    /// <summary>The batch; throws when every item failed, with the shared code (else failed), the first item's message and each error in details.</summary>
     public static BatchResult<T> ThrowIfAllFailed<T>(this BatchResult<T> batch)
     {
         if (batch.Items.Count == 0 || batch.Items.Any(i => i.Error == null)) return batch;

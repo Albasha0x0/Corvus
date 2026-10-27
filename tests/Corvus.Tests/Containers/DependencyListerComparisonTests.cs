@@ -7,11 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The packages of a published app and of an Android package, listed by view=dependencies and by a reference SBOM
-/// tool. Opt-in: CORVUS_DEPENDENCY_LISTER names the tool's program; the app is published as a single-file bundle and as
-/// a folder.
-/// </summary>
+/// <summary>view=dependencies compared with a reference SBOM tool (CORVUS_DEPENDENCY_LISTER) on a published app and an APK.</summary>
 [Trait("Speed", "Slow")]
 public sealed class DependencyListerComparisonTests(ITestOutputHelper output) : IDisposable
 {

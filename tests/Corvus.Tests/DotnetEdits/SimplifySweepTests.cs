@@ -4,26 +4,14 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods over real assemblies from several toolchains: .NET Framework reference and runtime libraries (C#,
-/// VB.NET, mixed-mode C++/CLI), ReadyToRun shared-framework libraries of several .NET versions, F#, and NuGet packages
-/// built by different compilers and IL weavers. Assemblies are found on this machine and skipped when absent;
-/// CORVUS_SWEEP=full adds the largest ones.
-/// </summary>
+/// <summary>simplify_methods over real assemblies found on this machine, skipped when absent; CORVUS_SWEEP=full adds the largest.</summary>
 [Trait("Speed", "Slow")]
 public sealed class SimplifySweepTests(ITestOutputHelper output)
 {
-    /// <summary>
-    /// Whole-library time per method (load, read bodies, simplify, save) the guard is measured against. The sweep in
-    /// this suite measured ~0.3 ms (engine alone ~0.05 ms) when the guard was written; 0.6 ms is the stated baseline.
-    /// </summary>
+    /// <summary>Baseline whole-library time per method: 0.6 ms (measured ~0.3 ms when the guard was written).</summary>
     private const double BaselineMsPerMethod = 0.6;
 
-    /// <summary>
-    /// How far above the baseline a sweep may run before the test fails. Generous on purpose: machines and load vary;
-    /// a real regression (an accidental quadratic pass, a missing cache) shows up as an order of magnitude.
-    /// Override with CORVUS_PERF_FACTOR.
-    /// </summary>
+    /// <summary>How far above the baseline a sweep may run; a regression shows as an order of magnitude. CORVUS_PERF_FACTOR overrides it.</summary>
     private static double PerfFactor =>
         double.TryParse(Environment.GetEnvironmentVariable("CORVUS_PERF_FACTOR"), NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? f : 5;
 
@@ -32,7 +20,7 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
 
     [SweepFact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void LibrariesSimplifyWithoutCrashesAndRoundTrip()
+    public void Libraries_simplify_without_crashes_and_round_trip()
     {
         var rows = new List<(SweepCatalog.Entry Entry, SimplifyHarness.Outcome? Outcome)>();
         foreach (var entry in SweepCatalog.Entries(SweepCatalog.Full))
@@ -60,12 +48,11 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
     }
 
     [SweepFact]
-    public void RepeatedRunsProduceIdenticalImages()
+    public void Repeated_runs_produce_identical_images()
     {
         var entries = SweepCatalog.Entries(full: false).Where(e => e.Path != null && e.Determinism).ToList();
         Assert.NotEmpty(entries);
-        // All runs in parallel, each in its own workspace: nothing here is timed, and methods take far less than the
-        // per-method limit.
+        // Nothing here is timed, and methods take far less than the per-method limit.
         var results = new string?[entries.Count];
         Parallel.For(0, entries.Count, i =>
         {
@@ -83,11 +70,7 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
-    /// <summary>
-    /// Methods that make two runs' images differ. Images that are byte-identical give none. A method that hit the
-    /// time limit in either run may legitimately differ (the limit is wall-clock) and is not counted, but it is the only
-    /// accepted cause: the rest of the image must still match byte for byte.
-    /// </summary>
+    /// <summary>Methods that differ between two runs' images; only a method that hit the wall-clock limit may differ.</summary>
     internal static List<string> DeterminismFailures(SimplifyHarness.Outcome first, SimplifyHarness.Outcome second)
     {
         if (first.Image!.AsSpan().SequenceEqual(second.Image)) return [];

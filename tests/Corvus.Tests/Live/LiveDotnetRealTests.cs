@@ -65,7 +65,7 @@ internal sealed class DotnetTarget
     /// <summary>Builds <see cref="LiveDotnetRealTests.Readers"/> (or <paramref name="source"/>) in <paramref name="dir"/>; returns the program's apphost, or its single-file bundle (ReadyToRun on request).</summary>
     public string Build(TempDir dir, bool singleFile = false, bool readyToRun = false, string? source = null)
     {
-        // the folder's own (empty) build files keep a parent folder's out of the build
+        // The folder's own (empty) build files keep a parent folder's out of the build.
         File.WriteAllText(dir.File("Directory.Build.props"), "<Project />");
         File.WriteAllText(dir.File("Directory.Build.targets"), "<Project />");
         File.WriteAllText(dir.File("readers.csproj"), $"""
@@ -87,10 +87,7 @@ internal sealed class DotnetTarget
         return exe;
     }
 
-    /// <summary>
-    /// Sets DOTNET_ROOT for the in-process server while the runtime is outside its default folders (an SDK installed
-    /// per user): the apphost of a started program looks there. Restores the variable on dispose.
-    /// </summary>
+    /// <summary>Sets DOTNET_ROOT for the in-process server when the runtime is outside its default folders; restores it on dispose.</summary>
     public IDisposable RuntimeRoot()
     {
         var saved = Environment.GetEnvironmentVariable("DOTNET_ROOT");
@@ -148,11 +145,7 @@ public sealed class FrameworkNativeImageFactAttribute : FactAttribute, IRunTimeS
             ? "No native image of System.dll." : null);
 }
 
-/// <summary>
-/// Sessions on a .NET console program per target (Windows x64 on .NET 10, Windows x86 on .NET 9, Linux x64 on .NET 10):
-/// started suspended, the OS file-open API watched and stopped on with the managed callers in the stack, a snapshot read
-/// with dump_stack, the program run to its exit code, and close ending a started program.
-/// </summary>
+/// <summary>Sessions on a .NET console program per target: started suspended, stopped at the file-open API with managed callers, snapshotted, run to its exit code, closed.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -219,7 +212,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
 
         var stop = await SnapshotRun(server, target, exe, input);
 
-        // close ends a program the session started
+        // Close ends a program the session started.
         var pid2 = await Spawn(server, exe, "live-2", input, "2", "100000", "20");
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
         await Task.Delay(2_000);
@@ -227,7 +220,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains($"pid {pid2}, closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
         Ended(pid2);
 
-        // a return address is never the entry of the function stopped at
+        // A return address is never the entry of the function stopped at.
         var entry = Regex.Match(stop, @"#0 (0x[0-9A-F]+) ").Groups[1].Value;
         Assert.DoesNotMatch($@"#[1-9]\d* {entry} ", stop);
     }
@@ -235,13 +228,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
     /// <summary>The number of runs of the snapshot loop (CORVUS_SNAPSHOT_RUNS); 0 when unset.</summary>
     internal static int SnapshotRuns => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_SNAPSHOT_RUNS"), out var n) ? Math.Max(n, 0) : 0;
 
-    /// <summary>
-    /// The snapshot run repeated CORVUS_SNAPSHOT_RUNS times, each on a new
-    /// server: after each snapshot the program finishes every open and exits
-    /// with code 0. Opt-in: set CORVUS_SNAPSHOT_RUNS (such as 30) with the full
-    /// set (CORVUS_ALL_TESTS=1). Regression: a program once stayed running
-    /// 2 minutes after a snapshot (1 in 6 runs).
-    /// </summary>
+    /// <summary>Regression (1 in 6 runs): a program kept running after a snapshot. Repeated CORVUS_SNAPSHOT_RUNS times on new servers, with CORVUS_ALL_TESTS=1.</summary>
     [SnapshotRunsFact("win-x64")] public Task A_dotnet_program_exits_after_every_repeated_snapshot_on_win_x64() => RepeatedSnapshots(DotnetTarget.WinX64);
     [SnapshotRunsFact("win-x86")] public Task A_dotnet_program_exits_after_every_repeated_snapshot_on_win_x86() => RepeatedSnapshots(DotnetTarget.WinX86);
     [SnapshotRunsFact("linux-x64")] public Task A_dotnet_program_exits_after_every_repeated_snapshot_on_linux_x64() => RepeatedSnapshots(DotnetTarget.LinuxX64);
@@ -266,11 +253,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         return input;
     }
 
-    /// <summary>
-    /// Starts the program in session live-1, stops at a file open of the
-    /// input, snapshots it while it runs, then checks that it finishes every
-    /// open and exits with code 0; closes the session. Returns the stop's stack.
-    /// </summary>
+    /// <summary>Starts live-1, stops at an input open, snapshots, checks every open finishes with exit code 0, closes; returns the stop's stack.</summary>
     private async Task<string> SnapshotRun(InProcessServer server, DotnetTarget target, string exe, string input)
     {
         const int threads = 4, rounds = 400;
@@ -286,7 +269,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         }
         if (!opened.IsMatch(opens)) Assert.Fail($"no open of {InputName}:\n{opens}\n{await Events(server, "live-1", log: false)}");
 
-        // a stop at the file-open API, on a call that opens the input file
+        // A stop at the file-open API, on a call that opens the input file.
         Assert.Contains("s1 set", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = target.FileOpen }));
         string stop = "", thread = "";
         for (int i = 0; i < 50; i++)
@@ -298,23 +281,19 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             thread = "";
         }
         Assert.False(thread.Length == 0, "no stop on an open of the input file in 50 stops");
-        // native frames by module and export; the managed caller named by the runtime (on x86 read by the 32-bit decoder process)
-        // The caller's offset is within its method: a start read from another
-        // version of the method's code gave offsets past 0x10000. A frame in
-        // code a JIT tier has since replaced has no start the runtime reads
-        // give (ClrMD 3.1 describes a method's current code only, see
-        // microsoft/clrmd#1171), so its offset is reported unknown.
+        // Native frames by module and export, then the runtime-named managed caller; its offset stays within its method.
+        // A frame in replaced JIT-tier code has no start (ClrMD 3.1, microsoft/clrmd#1171), so its offset is unknown.
         // glibc exports open and its aliases at one address.
         var api = target.Windows ? @"KERNELBASE\.dll!CreateFileW" : @"libc\.so\.6!(?:__libc_|__)?open(?:64)?\b";
         var caller = !target.Windows ? @"libSystem\.Native\.so!SystemNative_Open\S*"
             : @"System\.Private\.CoreLib\.dll!\S.*\(.*\)(?:\+0x[0-9A-F]{1,4}| \(offset unknown\))";
-        // a frame with debug information ends in its source file and line
+        // A frame with debug information ends in its source file and line.
         Assert.Matches($@"thread {thread} stopped at s1 \({api}\)\r?\n  #0 0x[0-9A-F]+ {api}(?:  \S+:\d+)?\r?\n  #1 0x(?<b>[0-9A-F]+) ({caller})(?:  \S+:\d+)?\r?\n", stop);
 
         Assert.Contains("s1 cleared", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" }));
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" });
 
-        // a snapshot of the running program; the stopped thread is still in its read loop. gcore is not the program's parent.
+        // A snapshot of the running program; the stopped thread is still in its read loop. gcore is not the program's parent.
         if (Corvus.Native.Live.PtraceScope.Refusing(started: false) is { } scope)
             Assert.Contains($"ptrace_scope is {scope}", await Refused(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" }, "access_denied"));
         else await Snapshot(server, target, thread);
@@ -340,14 +319,14 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         File.WriteAllText(input, "x");
         await using var server = await Server();
         await Spawn(server, exe, "live-1", input, "1", "100000", "20");
-        // a name the assembly does not define fails when set, before the assembly loads
+        // A name the assembly does not define fails when set, before the assembly loads.
         await Refused(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Readers::ReadTwice" }, "not_found");
         Assert.Contains("deferred until readers.dll loads", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" }));
         var stop = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
         Assert.Matches(@"stopped at s1 \(readers\.dll!Readers\.ReadOnce\(System\.String\)\)\r?\n  #0 0x[0-9A-F]+ readers\.dll!Readers\.ReadOnce\(System\.String\)\r?\n" +
                        @"  #1 0x[0-9A-F]+ readers\.dll!Readers\.ReadLoop\(System\.String, Int32, Int32\)\+0x[0-9A-F]+\r?\n", stop);
         Assert.Contains("compiled", await Events(server, "live-1", kind: "module"));
-        // a snapshot at the stop: the runtime walks the held thread from the stop, not from where the backend holds it
+        // A snapshot at the stop: the runtime walks the held thread from the stop, not from where the backend holds it.
         var snapshot = await Ok(server, "live_session", new() { ["action"] = "snapshot", ["session"] = "live-1" });
         var dump = Regex.Match(snapshot, @"written to (.+?) \([\d,]+ bytes\), opened as (\S+);");
         try
@@ -381,10 +360,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
-    /// <summary>
-    /// A stop point set on a method's first JIT version keeps stopping once the runtime compiles it again (tiered
-    /// compilation); a compile for a running loop (on-stack replacement) adds no stop mid-method.
-    /// </summary>
+    /// <summary>A stop point on a method's first JIT version keeps stopping after tiered recompilation; on-stack replacement adds no mid-method stop.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Stop_points_follow_recompiled_methods_on_win_x64()
     {
@@ -394,7 +370,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         await using var server = await Server();
         await Spawn(server, exe, "live-1", input, "1", "100000", "5");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Readers::ReadOnce" });
-        // every call stops: past the call count after which the runtime compiles the method again, and three calls more
+        // Every call stops: past the call count after which the runtime compiles the method again, and three calls more.
         int after = -1;
         for (int i = 0; i < 200 && after < 3; i++)
         {
@@ -419,10 +395,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" }));
     }
 
-    /// <summary>
-    /// A runtime whose DAC is on no local path (a copy of the runtime without one, its build stamp changed) is read only
-    /// when the session was opened with downloadDac=true; the download is refused under CORVUS_OFFLINE=1.
-    /// </summary>
+    /// <summary>A runtime whose DAC is on no local path is read only with downloadDac=true; CORVUS_OFFLINE=1 refuses the download.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Dac_download_is_opted_in_per_session_on_win_x64()
     {
@@ -456,7 +429,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             var opened = await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { input, "1", "100000", "20" }, ["environment"] = variables, ["downloadDac"] = download });
             Assert.Contains(id, opened);
             await Ok(server, "live_break", new() { ["session"] = id, ["action"] = "continue" });
-            // a point set while the runtime cannot be read names the reason, and waits for the JIT's compile
+            // A point set while the runtime cannot be read names the reason, and waits for the JIT's compile.
             var set = "";
             for (int i = 0; i < 100 && !set.Contains("cannot be read", StringComparison.Ordinal); i++)
             {
@@ -488,10 +461,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
-    /// <summary>
-    /// A stop at ReadyToRun code of an assembly the runtime maps from a single-file bundle: a mapped file view, not an
-    /// image, which the backend's hooks cannot write. It stops twice, is cleared, then a watch there records calls, and the method still runs.
-    /// </summary>
+    /// <summary>A stop at ReadyToRun code mapped from a single-file bundle, which hooks cannot write, stops twice, clears, then a watch records calls and the method still runs.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Stop_point_in_a_mapped_code_view_on_win_x64()
     {
@@ -526,10 +496,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
     }
 
-    /// <summary>
-    /// A stop at JIT-compiled code, then many more methods compiled after it, which the runtime places next to the stopped
-    /// one: a write to the code must not leave the program running stale copies of those pages.
-    /// </summary>
+    /// <summary>Code writes at a stop leave no stale copies of pages the runtime fills with later-compiled methods.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Methods_compiled_after_a_stop_run_on_win_x64()
     {
@@ -558,8 +525,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         var pid = await Spawn(server, exe, "live-1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
         var first = await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 });
-        // A missed stop logs whether readers.dll's load reached the server (events, status) and where each thread waits:
-        // a start-up stall (CI on eacaf14a) showed only a new thread waiting in the loader, not the loader lock's holder.
+        // A missed stop logs readers.dll's load and each thread's wait (start-up stall on eacaf14a).
         if (!first.Contains("stopped at s1", StringComparison.Ordinal))
         {
             await Call(server, "live_session", new() { ["action"] = "status", ["session"] = "live-1" });
@@ -572,7 +538,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Matches(@"exit code 0(?![0-9xX])", await Exited(server, "live-1", pid));
         Assert.Contains("closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
 
-        // with W^X turned back on, a point there is refused rather than set
+        // With W^X turned back on, a point there is refused rather than set.
         await Ok(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["environment"] = new[] { "DOTNET_EnableWriteXorExecute=1" } });
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "set", ["at"] = "readers.dll!Compiled::Once" });
         await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue" });
@@ -662,8 +628,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         return exe;
     }
 
-    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart, then Late; Unused never runs.</summary>
-    /// <summary>Calc: rounds calls of Add, then Late; with <paramref name="gate"/>, Late waits until that file exists.</summary>
+    /// <summary>Builds a 32-bit .NET Framework program: Main calls Add <paramref name="rounds"/> times, 20 ms apart, then Late, which waits for <paramref name="gate"/> when given; Unused never runs.</summary>
     private string Calc32(int rounds = 10, string? gate = null) => Framework32("Calc", $$"""
             static class Calc
             {
@@ -737,10 +702,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("has ended", await Refused(server, "dump_heap", new() { ["dump"] = "live-1" }, "not_found"));
     }
 
-    /// <summary>
-    /// A 32-bit .NET Framework program under this 64-bit server: its runtime is read by the 32-bit decoder process, so a
-    /// stop names the managed caller the runtime compiled, not only the method the stop point was set in.
-    /// </summary>
+    /// <summary>A 32-bit .NET Framework program under this 64-bit server: the 32-bit decoder names the compiled managed caller at a stop.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Frames_of_a_32_bit_framework_program_are_named_by_its_runtime()
     {
@@ -754,10 +716,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Matches(@"#1 0x[0-9A-F]+ Calc\.exe!Calc\.Main\(\)\+0x[0-9A-F]+", stop);
     }
 
-    /// <summary>
-    /// Managed coverage of a running 32-bit .NET Framework program from its runtime's record, read by the 32-bit decoder
-    /// process: methods compiled before the run started count too.
-    /// </summary>
+    /// <summary>Managed coverage of a 32-bit .NET Framework program through the 32-bit decoder counts methods compiled before the run.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Managed_coverage_of_a_32_bit_framework_program()
     {
@@ -783,10 +742,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.DoesNotMatch(@"ran  0x06000002", report);
     }
 
-    /// <summary>
-    /// The 32-bit decoder stops mid-session (here one that never answers, ended at its per-read budget): the stop still
-    /// comes, the session says so once, and a coverage run read from the runtime goes on counting first compiles.
-    /// </summary>
+    /// <summary>When the 32-bit decoder stops mid-session, the stop still comes, the session says so once, and coverage keeps counting first compiles.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task A_32_bit_session_goes_on_when_its_decoder_stops()
     {
@@ -845,10 +801,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
         finally { Corvus.Native.Dump.Managed.ClrHelperClient.LiveCallTimeout = budget; }
     }
 
-    /// <summary>
-    /// Without the 32-bit decoder a 32-bit program's methods are counted from the JIT's compiles, also when the program
-    /// file was loaded with load_assembly first.
-    /// </summary>
+    /// <summary>Without the 32-bit decoder, methods are counted from JIT compiles, also after load_assembly of the program.</summary>
     [DotnetTargetFact("win-x64")]
     public async Task Managed_coverage_of_a_32_bit_program_without_the_decoder()
     {
@@ -881,7 +834,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             var main = await Ok(server, "dump_stack", new() { ["dump"] = dump.Groups[3].Value, ["thread"] = "#0" });
             if (target.Windows && target.Is64)
             {
-                // the runtime's DAC names the managed frames
+                // The runtime's DAC names the managed frames.
                 Assert.Contains($"thread {thread} \"reader-", stack);
                 Assert.Contains("managed frames: decoded", stack);
                 Assert.Matches(@"readers!Readers\.ReadLoop\(System\.String, Int32, Int32\) \[clr\] 0x06000002 IL_[0-9A-F]+  managed, clr", stack);
@@ -889,7 +842,7 @@ public sealed class LiveDotnetRealTests(ITestOutputHelper output) : LiveToolCall
             }
             else if (target.Windows)
             {
-                // an x86 runtime's DAC does not load in this 64-bit process: managed frames are found by their frame pointers, unnamed
+                // An x86 runtime's DAC does not load in this 64-bit process: managed frames are found by their frame pointers, unnamed.
                 Assert.Contains("managed frames: bitness_mismatch", stack);
                 Assert.Matches(@"#\d+ 0x[0-9A-F]+ \?  managed, frame_pointer", stack);
                 Assert.Contains("kernel32!BaseThreadInitThunk", stack);

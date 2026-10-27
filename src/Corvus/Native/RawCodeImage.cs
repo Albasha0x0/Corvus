@@ -4,12 +4,9 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// An instruction set a headerless file can be read as, with the engines' names for it. <see cref="Thumb"/> marks ARM
-/// code as Thumb throughout (Cortex-M firmware has no A32 state). Architectures our index does not decode go to IDA or Ghidra.
-/// </summary>
-/// <see cref="GhidraLoader"/> names a Ghidra format loader that maps the file itself (DOS MZ); otherwise the bytes load
-/// as one block at the base. An empty <see cref="IdaProcessor"/> means IDA is not used.
+/// <summary>An instruction set a headerless file can be read as, with the engines' ids; an empty IdaProcessor means IDA is not used.</summary>
+/// <remarks><see cref="Thumb"/> reads ARM code as Thumb throughout (Cortex-M has no A32 state). <see cref="GhidraLoader"/>
+/// names a Ghidra loader that maps the file itself (DOS MZ); otherwise the bytes load as one block at the base.</remarks>
 public sealed record RawArch(string Name, NativeArch Arch, bool Thumb, bool BigEndian, int Bits, string IdaProcessor, string GhidraLanguage,
     string? GhidraLoader = null)
 {
@@ -64,7 +61,7 @@ public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
     {
         var isa = RawArch.Find(arch);
         ulong load = baseAddress is { Length: > 0 } ? Number(baseAddress, "base") : 0;
-        // 16-bit code loads at a paragraph (a DOS .COM at 0x100)
+        // 16-bit code loads at a paragraph (a DOS .COM at 0x100).
         if (isa.Bits == 16 && load % 16 != 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} is not a paragraph (16-byte) boundary.", "pass a base that is a multiple of 0x10, e.g. base=0x100");
         if (isa.Bits > 16 && load % 0x1000 != 0)
@@ -72,18 +69,14 @@ public sealed record RawLayout(RawArch Isa, ulong Base, uint EntryOffset)
         if (isa.Bits < 64 && load + (ulong)fileSize > 1UL << isa.Bits)
             throw new ToolError(ErrorCode.InvalidArgument, $"base 0x{load:X} puts a {fileSize}-byte image past the {isa.Bits}-bit address space.", "pass a lower base");
         ulong start = entry is { Length: > 0 } ? Number(entry, "entry") : ResetVector(isa, load, fileSize, head) ?? load;
-        // entry is an address at or above base, or an offset into the file below it
+        // An entry at or above base is an address; below it, a file offset.
         ulong offset = start >= load ? start - load : start;
         if (offset >= (ulong)Math.Max(fileSize, 1))
             throw new ToolError(ErrorCode.InvalidArgument, $"entry 0x{start:X} is outside the {fileSize}-byte image at 0x{load:X}.", "pass an address inside the image or a file offset");
         return new RawLayout(isa, load, (uint)offset);
     }
 
-    /// <summary>
-    /// The reset handler of a Cortex-M vector table at the start of a Thumb image: word 0 a word-aligned initial stack
-    /// pointer outside the image, word 1 an odd (Thumb) address inside it past the table's first two words; else null.
-    /// An m68k image starts with the same two vectors, big-endian, with an even stack pointer and reset address.
-    /// </summary>
+    /// <summary>The reset handler of a Cortex-M or m68k vector table at the image start; null without one.</summary>
     private static ulong? ResetVector(RawArch isa, ulong load, long fileSize, ReadOnlySpan<byte> head)
     {
         if (isa.Name == "m68k" && head.Length >= 8)

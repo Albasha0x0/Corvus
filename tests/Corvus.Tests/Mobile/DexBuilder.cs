@@ -81,10 +81,7 @@ internal static class Asm
     }
 }
 
-/// <summary>
-/// Writes a DEX file (version 035) with the pools sorted as the spec requires, class data, code items with try blocks and line
-/// numbers, class annotations, static values and a map list; checksum and signature are computed.
-/// </summary>
+/// <summary>Writes a DEX file (version 035) with sorted pools, code items and a computed checksum and signature.</summary>
 internal sealed class DexBuilder
 {
     public sealed record Try(int Start, int Count, (string? Type, int Handler)[] Handlers);
@@ -399,7 +396,7 @@ internal sealed class DexBuilder
         var methodSets = methodItems.ToDictionary(x => x.Key, x => x.Value.Select(m => (m.Method, Set: Set(m.Items))).ToList());
         var parameterSets = parameterItems.ToDictionary(x => x.Key, x => x.Value.Select(m => (m.Method, Sets: m.Items.Select(i => i.Count > 0 ? Set(i) : 0).ToList())).ToList());
         if (setCount > 0) map.Add((0x1003, setCount, setStart));
-        // annotation_set_ref_list per method with parameter annotations
+        // annotation_set_ref_list per method with parameter annotations.
         var refLists = new Dictionary<(ClassDef, int), long>();
         long refStart = 0;
         foreach (var (c, list) in parameterSets)

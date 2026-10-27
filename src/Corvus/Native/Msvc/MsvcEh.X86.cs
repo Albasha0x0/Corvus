@@ -14,17 +14,13 @@ public static partial class MsvcEh
 
         private readonly Dictionary<uint, Decoded?> _fh3x86 = [];
 
-        /// <summary>
-        /// x86: finds "push offset x" and "mov eax, offset x" in executable code (at relocations when the image has
-        /// them, otherwise by scanning), then decodes the frames prologues install: an __ehhandler$ stub (code that
-        /// loads a FuncInfo into eax and jumps to __CxxFrameHandler3), or an SEH3 / SEH4 scope table.
-        /// </summary>
+        /// <summary>x86: decodes the frames prologues install (__ehhandler$ stubs, SEH3 and SEH4 scope tables).</summary>
         public void X86(IMsvcEhCodeView view)
         {
             var codeRefs = new List<(uint Site, uint Target)>();
             var dataRefs = new List<(uint Site, uint Target)>();
             var funcInfoSites = new SortedDictionary<uint, uint>();
-            // read-only data is often merged into the code section of x86 images: tables can be in executable sections
+            // x86 images often merge read-only data into code, so tables can be in executable sections.
             foreach (var (site, op, target, next) in Sites())
             {
                 if (!_r.IsMapped(target)) continue;
@@ -47,7 +43,7 @@ public static partial class MsvcEh
                 if (view.FunctionContaining(site) is not { } parent || site >= stub && site <= stubSites[k]) continue;
                 if (site - parent >= PrologueWindow)
                 {
-                    Reject(site, "__ehhandler$ stub reference", $"0x{site - parent:X} bytes into function {parent:X}, not in its prologue (a function start discovery missed?)");
+                    Reject(site, "__ehhandler$ stub reference", $"0x{site - parent:X} bytes into function {parent:X}, not in its prologue; a function start may be missing");
                     continue;
                 }
                 if (!done.Add(parent)) continue;
@@ -117,12 +113,7 @@ public static partial class MsvcEh
             }
         }
 
-        /// <summary>
-        /// An SEH4 scope table (GS cookie offset, GS XOR offset, EH cookie offset, EH XOR offset, then the records) or
-        /// an SEH3 one (records only); each record is (enclosing level, filter, handler) with level -2 / -1 for the
-        /// outermost scope. Records are read while they pass the checks (SEH3: at most the try levels the function
-        /// stores at [ebp-4] when it stores constants); fewer records than the stored levels is a reject.
-        /// </summary>
+        /// <summary>An SEH4 or SEH3 scope table; fewer records than the stored try levels is a reject.</summary>
         private MsvcEhFrame? ScopeTable32(uint table, uint parent, IMsvcEhCodeView view)
         {
             var head = new byte[28];
@@ -146,11 +137,11 @@ public static partial class MsvcEh
                 top = -1;
             }
             else return null;
-            // the first record must point at code before the table counts as one
+            // The first record must point at code before the table counts as one.
             if (!_r.Pointer32(records + 8, out uint firstHandler) || !_r.IsCode(firstHandler)) return null;
 
-            // SEH4: records end where a pointer field is not a relocated code address (the next table's header never
-            // is); SEH3 tables have no header, so the next table's records look valid: stop at the stored levels
+            // SEH4 records end at a pointer field that is not a relocated code address; SEH3 tables have no
+            // header to end them, so stop at the stored levels.
             int levels = TryLevels(view.RangesOf(parent));
             int max = scheme == MsvcEhScheme.Seh3 && levels > 0 ? levels : options.MaxScopes;
             var scopes = new List<MsvcEhScope>();
@@ -178,10 +169,7 @@ public static partial class MsvcEh
             return new MsvcEhFrame(parent, scheme, 0, null, table, cookie, false, 0, [], [], [], scopes, children);
         }
 
-        /// <summary>
-        /// Number of try levels a function enters: the highest constant stored at [ebp-4] ("mov dword ptr [ebp-4], n",
-        /// "and dword ptr [ebp-4], 0") plus one; 0 when it stores none.
-        /// </summary>
+        /// <summary>Try levels a function enters: the highest constant stored at [ebp-4] plus one; 0 when none.</summary>
         private int TryLevels(IReadOnlyList<(uint Start, uint End)> ranges)
         {
             int max = -1;

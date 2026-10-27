@@ -4,22 +4,14 @@ using Corvus.Core;
 
 namespace Corvus.Native.Dump;
 
-/// <summary>
-/// A region of a region-set dump: <see cref="Size"/> bytes at <see cref="Base"/> from <see cref="File"/>.
-/// <see cref="Held"/> is how many of them the file holds; a missing file holds none and its range reads as unknown.
-/// </summary>
+/// <summary>A region-set region: <see cref="Size"/> bytes at <see cref="Base"/>, of which <see cref="File"/> holds <see cref="Held"/>; the rest is unknown.</summary>
 public sealed record RegionSetRegion(ulong Base, ulong Size, string File, string FullPath, bool Missing, ulong Held, uint Protect)
 {
     public ulong End => Base + Size;
 }
 
-/// <summary>
-/// A region-set dump: a JSON manifest (<c>"format": 1</c>) naming memory region files saved by any tool, each with its
-/// base address and size, plus an optional module list, read as one process's memory at its real addresses. It holds
-/// no threads, exception or system information. <see cref="Open"/> throws a <see cref="ToolError"/> for a manifest it
-/// cannot read (unknown format, overlapping regions, a file outside the manifest's folder); a missing region file is
-/// kept, recorded in <see cref="Issues"/>, and its range reads as unknown. Region files are read on demand.
-/// </summary>
+/// <summary>A region-set dump: a JSON manifest of memory region files read as one process's memory; a missing file reads as unknown.</summary>
+/// <remarks><see cref="Open"/> rejects an unknown format, overlapping regions and a file outside the manifest's folder.</remarks>
 public sealed class RegionSetFile : IProcessMemory
 {
     /// <summary>The manifest format this build reads.</summary>

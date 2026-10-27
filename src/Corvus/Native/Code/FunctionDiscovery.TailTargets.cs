@@ -9,12 +9,7 @@ internal sealed partial class FunctionDiscovery
 
     private const int TailTargetLimit = 512;
 
-    /// <summary>
-    /// A jump target outside its function's contiguous code (before its entry, or past another function's start)
-    /// that decodes as a function of its own (stack balanced from its first instruction, ends in a return) is a tail-called
-    /// function, not a block of the jumping one. Cold blocks a compiler moves out of line use their parent's frame or never
-    /// return, so they stay blocks. Evaluated once discovery settles, in the order the jumps were found.
-    /// </summary>
+    /// <summary>Adds jump targets outside their function's code that decode with a balanced stack of their own; cold blocks fail this and stay blocks; true when one was added.</summary>
     private bool AddTailTargets()
     {
         if (_jumps.Count == 0) return false;
@@ -29,10 +24,9 @@ internal sealed partial class FunctionDiscovery
             if (next < 0) next = ~next;
             bool outside = target < root || (next < starts.Length && starts[next] < target) || JumpOverBarrier(site, target);
             if (!outside) continue;
-            // ARM32: a branch keeps the state, so the target decodes in its function's
+            // ARM32: a branch keeps the state.
             if (_ctx.ArmModes != null) _peek.BeginFunction(target);
-            // inside unwind ranges: a part of that function (x64 cold code has chained .pdata entries); with .pdata, separately
-            // compiled functions are padded apart while cold blocks are packed together
+            // Code in unwind ranges belongs to that function; with .pdata, functions are padded apart and cold blocks are not.
             if (_ctx.PdataOwner(target) != null || (_ctx.PdataSorted.Length > 0 && !AfterPadding(target))
                 || FallsInto(target) || !DecodesAsOwnFunction(target, starts)) continue;
             Add(target, FunctionSource.TailJump, strong: true);
@@ -44,7 +38,7 @@ internal sealed partial class FunctionDiscovery
 
     private bool IsArm64 => HybridDecoder.PrimaryOf(_peek) is Arm64Decoder;
 
-    /// <summary>x86: int3 / nop fill before <paramref name="rva"/>; ARM64: a zero, nop or ret word; Thumb: a zero, nop, bx lr or pop {.., pc} halfword.</summary>
+    /// <summary>Padding or a return ends just before <paramref name="rva"/>.</summary>
     private bool AfterPadding(uint rva)
     {
         bool arm64 = IsArm64, arm32 = _ctx.ArmModes != null;
@@ -54,7 +48,7 @@ internal sealed partial class FunctionDiscovery
         return arm64 ? BitConverter.ToUInt32(region.Bytes, at - 4) is 0 or 0xD503201F or 0xD65F03C0 : region.Bytes[at - 1] is 0xCC or 0x90;
     }
 
-    /// <summary>A decoded instruction ends at <paramref name="rva"/> and runs on into it: the target is a block of that code (a shared return), not a function.</summary>
+    /// <summary>A decoded instruction runs on into <paramref name="rva"/>, so it is a block, not a function.</summary>
     private bool FallsInto(uint rva)
     {
         for (uint k = 1; k <= 15 && k <= rva; k++)
@@ -67,11 +61,7 @@ internal sealed partial class FunctionDiscovery
         return false;
     }
 
-    /// <summary>
-    /// The code at <paramref name="start"/>, up to the next known function start, runs on a frame of its own: every path
-    /// pops only what it pushed and returns with the stack it was entered with, tail-calls a known function, or ends in a
-    /// trap or a call that does not return; at least one path returns.
-    /// </summary>
+    /// <summary>The code at <paramref name="start"/> returns balanced, tail-calls or ends in a trap or no-return call on every path, and returns on at least one.</summary>
     private bool DecodesAsOwnFunction(uint start, uint[] starts)
     {
         var peek = _peek;
@@ -94,12 +84,12 @@ internal sealed partial class FunctionDiscovery
             peek.BeginRun(IndexBound.None);
             while (seen.Add(a))
             {
-                // ARM32: a literal pool known code loads ends the path (after a call that does not return), as in exploring
+                // ARM32: a literal pool known code loads ends the path.
                 if (arm32 != null && IsLiteral(a, 2)) goto next;
                 if (a < start || a >= end || ++count > TailTargetLimit || !peek.Decode(a, out var insn) || insn.Flow == FlowKind.Invalid) return false;
                 if (arm32 != null)
                 {
-                    // a conditional instruction moves the stack on its taken path only: a conditional return (popeq {.., pc})
+                    // A conditional instruction moves the stack only when taken, so only a conditional return may move it.
                     var x = arm32.Last;
                     int taken = depth, takenFrame = frame;
                     if (!Arm32StackStep(in x, ref taken, ref takenFrame)) return false;
@@ -143,14 +133,14 @@ internal sealed partial class FunctionDiscovery
                         else work.Push((insn.Target, depth, frame));
                         break;
                     case FlowKind.IndirectJump:
-                        // a switch: its cases run on the same stack
+                        // Switch cases run on the same stack.
                         if (peek.MatchSwitch(out _) is { } m && _ctx.ReadSwitch(insn.Rva, m, null, out _) is { } table)
                         {
                             foreach (uint t in table.Targets) work.Push((t, depth, frame));
                             if (insn.Conditional) break;
                             goto next;
                         }
-                        // through an import slot or a register: a tail call, on the entry stack
+                        // Through an import slot or a register: a tail call on the entry stack.
                         if (depth != 0) return false;
                         if (insn.Conditional) break;
                         goto next;
@@ -162,17 +152,14 @@ internal sealed partial class FunctionDiscovery
         return returns;
     }
 
-    /// <summary>
-    /// A64: bytes allocated since the entry after instruction <paramref name="w"/> (stp / str pre-index and sub on sp
-    /// allocate, ldp / ldr post-index and add free, mov x29, sp and back); false when it frees below the entry or writes sp
-    /// otherwise.
-    /// </summary>
+    /// <summary>A64: updates the bytes allocated since entry after <paramref name="w"/>; false when it frees below entry or writes sp otherwise.</summary>
     private static bool Arm64StackStep(uint w, ref int depth, ref int frame)
     {
         static int Imm7(uint w, int scale) => ((int)(w << 10) >> 25) * scale;
         static int Imm9(uint w) => (int)(w << 11) >> 23;
         int delta;
-        if ((w & 0x3E0) != 0x3E0 && (w & 0x1F) != 31) return true; // neither base nor destination is sp
+        // Neither base nor destination is sp.
+        if ((w & 0x3E0) != 0x3E0 && (w & 0x1F) != 31) return true;
         switch (w & 0xFFC003E0)
         {
             case 0xA98003E0: case 0x6D8003E0: delta = -Imm7(w, 8); break;  // stp x / d, [sp, #-n]!
@@ -189,7 +176,7 @@ internal sealed partial class FunctionDiscovery
                 }
                 else if ((w & 0xFF8003FF) == 0x910003FD) { frame = depth - (int)((w >> 10) & 0xFFF); return true; } // add x29, sp, #n
                 else if (w == 0x910003BF) { depth = frame; return frame >= 0; }                                      // mov sp, x29
-                // other writes to sp: add / sub (immediate, extended) and logical immediate without flags (with flags register 31 is zr)
+                // Other sp writes: add / sub and logical immediate without flags; with flags, register 31 is zr.
                 else if ((w & 0x1F) == 31 && (w & 0x20000000) == 0
                     && ((w & 0x1F000000) == 0x11000000 || (w & 0x1FE00000) == 0x0B200000 || (w & 0x1F800000) == 0x12000000)) return false;
                 else return true;
@@ -199,11 +186,7 @@ internal sealed partial class FunctionDiscovery
         return depth >= 0;
     }
 
-    /// <summary>
-    /// A32 / T32: bytes allocated since the entry after <paramref name="i"/> (push / vpush, sub sp, writeback stores and
-    /// loads on sp, the r7 / r11 frame pointer set from sp and moved back); false when it frees below the entry or writes
-    /// sp otherwise.
-    /// </summary>
+    /// <summary>A32 / T32: updates the bytes allocated since entry after <paramref name="i"/>; false when it frees below entry or writes sp otherwise.</summary>
     private static bool Arm32StackStep(in ArmInstruction i, ref int depth, ref int frame)
     {
         const int Sp = 13;
@@ -211,7 +194,7 @@ internal sealed partial class FunctionDiscovery
         bool writesSp = (i.Writes & (1 << Sp)) != 0;
         if (i.OperandCount > 0 && i.Op(0).Kind == ArmOperandKind.Register && i.Op(0).Reg is 7 or 11 && i.Mnemonic is "add" or "mov")
         {
-            // add r7, sp, #n / mov r7, sp: the frame pointer; any other write to it ends what it says
+            // Add r7, sp, #n / mov r7, sp set the frame pointer; any other write invalidates it.
             if (i.Mnemonic == "mov" && i.OperandCount == 2 && i.Op(1) is { Kind: ArmOperandKind.Register, Reg: Sp }) frame = depth;
             else if (i.OperandCount == 3 && i.Op(1) is { Kind: ArmOperandKind.Register, Reg: Sp } && i.Op(2).Kind == ArmOperandKind.Immediate) frame = depth - (int)i.Op(2).Value;
             else frame = -1;
@@ -239,7 +222,7 @@ internal sealed partial class FunctionDiscovery
                 var last = i.Op(i.OperandCount - 1);
                 if (i.OperandCount == 3 && i.Op(1) is { Kind: ArmOperandKind.Register, Reg: 7 or 11 } && last.Kind == ArmOperandKind.Immediate && i.Mnemonic is "sub" or "subw")
                 {
-                    // sub sp, r7, #n: back to the frame
+                    // Sub sp, r7, #n restores sp from the frame.
                     if (frame < 0) return false;
                     depth = frame + (int)last.Value;
                     return depth >= 0;
@@ -253,7 +236,7 @@ internal sealed partial class FunctionDiscovery
                 depth = frame;
                 return true;
             default:
-                // a load or store that writes its sp base back: str lr, [sp, #-4]! / ldr pc, [sp], #4
+                // A load or store with sp writeback: str lr, [sp, #-4]! / ldr pc, [sp], #4.
                 int m = -1;
                 for (int k = 0; k < i.OperandCount; k++)
                     if (i.Op(k).Kind == ArmOperandKind.Memory) m = k;
@@ -266,10 +249,8 @@ internal sealed partial class FunctionDiscovery
         return depth >= 0;
     }
 
-    /// <summary>
-    /// Bytes pushed since the entry after <paramref name="x"/>; false when it pops below the entry (the parent's frame) or
-    /// moves the stack pointer in a way not followed. <paramref name="frame"/>: the depth "mov rbp, rsp" saved, or -1.
-    /// </summary>
+    /// <summary>x86: updates the bytes pushed since entry after <paramref name="x"/>; false when it pops below entry or moves sp otherwise.</summary>
+    /// <param name="frame">The depth "mov rbp, rsp" saved, or -1.</param>
     private static bool StackStep(in Instruction x, FlowKind flow, int pointer, ref int depth, ref int frame)
     {
         if (flow is FlowKind.Call or FlowKind.IndirectCall or FlowKind.Return) return true;

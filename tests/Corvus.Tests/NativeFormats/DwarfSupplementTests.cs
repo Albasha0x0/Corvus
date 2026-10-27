@@ -5,10 +5,7 @@ using Corvus.Native.Pdb;
 
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>
-/// A debug file whose names and types dwz moved into a supplementary file: the GNU forms (.gnu_debugaltlink,
-/// DW_FORM_GNU_strp_alt, DW_FORM_GNU_ref_alt) and the DWARF 5 ones (.debug_sup, DW_FORM_strp_sup, DW_FORM_ref_sup4).
-/// </summary>
+/// <summary>Names and types in a dwz supplementary file, in the GNU and DWARF 5 forms.</summary>
 public sealed class DwarfSupplementTests
 {
     private const string AltId = "a1b2c3d4e5f60718293a4b5c6d7e8f9011223344";
@@ -44,7 +41,7 @@ public sealed class DwarfSupplementTests
         bool dwarf5 = version >= 5;
         int strpAlt = dwarf5 ? Dw.FormStrpSup : Dw.FormGnuStrpAlt, refAlt = dwarf5 ? Dw.FormRefSup4 : Dw.FormGnuRefAlt;
 
-        // the supplementary file: a partial unit with int and struct AltPoint { int x; int y; }, and the names
+        // The supplementary file: a partial unit with int and struct AltPoint { int x; int y; }, and the names.
         byte[] altAbbrev =
         [
             1, 0x3c, 1, 0x03, 0x08, 0, 0,
@@ -76,7 +73,7 @@ public sealed class DwarfSupplementTests
         else altSections.Insert(0, DebugFileWriter.BuildId(AltId));
         DebugFileWriter.Write(alt, altSections);
 
-        // the main file: a function and a variable named and typed in the supplementary file
+        // The main file: a function and a variable named and typed in the supplementary file.
         byte[] abbrev =
         [
             1, 0x11, 1, 0x03, 0x08, 0x11, 0x01, 0x12, 0x06, 0, 0,
@@ -129,7 +126,7 @@ public sealed class DwarfSupplementTests
         Assert.Equal("AltPoint", model.Spell(variable.TypeIndex));
         Assert.Equal([("x", 0L), ("y", 4L)], model.Node(Assert.Single(model.Named("AltPoint")))!.Members.Select(m => (m.Name, m.Offset)));
 
-        // another build of the supplementary file (GNU: by build-id), then none: reported, the rest still read
+        // Another build of the supplementary file (GNU: by build-id), then none: reported, the rest still read.
         if (version < 5)
         {
             DebugFileWriter.Write(alt, [DebugFileWriter.BuildId("ff" + AltId[2..])]);

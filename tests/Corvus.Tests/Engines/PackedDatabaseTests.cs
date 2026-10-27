@@ -13,7 +13,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    // a private analysis cache: another class's server may hold the shared project of the same DLL
+    // A private analysis cache: another class's server may hold the shared project of the same DLL.
     private Dictionary<string, string?> Cache => new() { [Corvus.Native.Providers.AnalysisCache.RootVariable] = _dir.File("cache") };
 
     [Fact]
@@ -37,7 +37,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
         await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], Cache))
         {
             await Call(c, "load_assembly", new() { ["path"] = image });
-            // an unnamed function: the server has no name of its own there, so the archive's shows
+            // An unnamed function: the server has no name of its own there, so the archive's shows.
             var (_, functions) = await Call(c, "list_functions", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["filter"] = "FUN_", ["limit"] = 1 });
             function = functions.GetProperty("items")[0].GetProperty("address").GetString()!;
             output.WriteLine("rename: " + (await Call(c, "rename_native", new() { ["image"] = "jitinterface_x64.dll", ["address"] = function, ["name"] = "from_the_archive", ["engine"] = "ghidra", ["dryRun"] = false })).Text);
@@ -52,7 +52,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
             var (code, _) = await Call(c, "decompile_native", new() { ["image"] = "jitinterface_x64.dll", ["address"] = function });
             output.WriteLine(code);
             Assert.Contains("(ghidra)", code);
-            // the name lives in the archive's database, not only in the server's notes
+            // The name lives in the archive's database, not only in the server's notes.
             var (name, _) = await Call(c, "ghidra_script", new() { ["image"] = "jitinterface_x64.dll", ["code"] = $"println(getFunctionAt(toAddr(\"{function}\")).getName());" });
             output.WriteLine(name);
             Assert.Contains("from_the_archive", name);
@@ -73,7 +73,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
             await Call(c, "load_assembly", new() { ["path"] = image });
             await Call(c, "list_functions", new() { ["image"] = "jitinterface_x64.dll", ["engine"] = "ghidra", ["limit"] = 1 });
         }
-        // a project made by Ghidra stands in for the user's: copied out of the first server's cache, with a lock file of an open session
+        // A project made by Ghidra stands in for the user's: copied out of the first server's cache, with a lock file of an open session.
         var made = Directory.GetFiles(_dir.File("cache"), GhidraSession.ProjectName + ".gpr", SearchOption.AllDirectories).Single();
         var user = Directory.CreateDirectory(_dir.File("user")).FullName;
         File.Copy(made, Path.Combine(user, "corvus.gpr"));
@@ -81,7 +81,7 @@ public sealed class PackedDatabaseTests(ITestOutputHelper output) : IDisposable
         File.WriteAllText(Path.Combine(user, "corvus.lock"), "");
         File.Delete(image);
         var before = Snapshot(user);
-        // a fresh cache: the database can only come from the project
+        // A fresh cache: the database can only come from the project.
         var fresh = new Dictionary<string, string?> { [Corvus.Native.Providers.AnalysisCache.RootVariable] = _dir.File("cache2") };
         await using (var c = await McpProtocolTests.StartServerAsync(_dir.Path, null, [], fresh))
         {

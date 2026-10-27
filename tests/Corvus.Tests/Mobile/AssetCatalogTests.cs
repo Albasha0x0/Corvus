@@ -145,7 +145,7 @@ public sealed class AssetCatalogTests(ITestOutputHelper output)
     // PNG's encoding may differ while its pixels match.
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_ASSET_CATALOG_DIR", "CORVUS_ASSET_CATALOG_READER")]
-    public void Real_catalogs_hold_the_renditions_bitmaps_and_originals_carfile_go_reads()
+    public void Real_catalogs_hold_the_renditions_bitmaps_and_originals_the_reference_tool_reads()
     {
         var tool = ExternalTools.Locate(ExternalTools.AssetCatalogReader)!.Value.Path;
         var files = Directory.GetFiles(RealData.Path("CORVUS_ASSET_CATALOG_DIR"), "*.car").Order(StringComparer.Ordinal).ToList();

@@ -4,17 +4,12 @@ using DecompilerMetadata = ICSharpCode.Decompiler.Metadata;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Loaded assemblies and reference-resolution state. Access goes through <see cref="Read{T}"/> (shared) or
-/// <see cref="Write{T}"/> (exclusive) so concurrent tool calls never observe a half-edited module.
-/// </summary>
+/// <summary>Loaded assemblies and reference resolution; access goes through <see cref="Read{T}"/> or <see cref="Write{T}"/>, so no call sees a half-edited module.</summary>
 public sealed class AssemblyWorkspace : IDisposable
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
 
-    // Every Read or Write counts itself in _users before it checks _disposed,
-    // so once Dispose has set _disposed and seen _users reach 0, no call can
-    // touch the lock again.
+    // Each call counts itself in _users before checking _disposed, so no call touches a disposed lock.
     private int _users, _disposed, _released;
 
     /// <summary>How long Dispose waits for running and queued calls to leave the lock before it returns without them.</summary>
@@ -80,20 +75,14 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private static readonly AsyncLocal<CallScope?> Call = new();
 
-    /// <summary>
-    /// Until the scope is disposed, lock waits on this async flow (one tool call) end when <paramref name="cancellationToken"/>
-    /// is cancelled. Background work the call started inherits the flow; after the call it waits uncancellably again.
-    /// <paramref name="tool"/> names the call to calls waiting for a lock it holds.
-    /// </summary>
+    /// <summary>Until disposed, lock waits on this flow end when <paramref name="cancellationToken"/> is cancelled.</summary>
+    /// <remarks>Background work started by the call inherits the flow; <paramref name="tool"/> names the holder to waiting calls.</remarks>
     public static CallScope CancelWaitsWith(CancellationToken cancellationToken, string? tool = null) =>
         Call.Value = new CallScope(cancellationToken, tool);
 
     internal static CancellationToken CallToken => Call.Value?.Token ?? default;
 
-    /// <summary>
-    /// <c>lock</c> for a monitor whose holder can run long: a call waiting for it stops when the call is cancelled (see
-    /// <see cref="CancelWaitsWith"/>). Use as <c>using (AssemblyWorkspace.Lock(gate)) ...</c>; re-entrant like <c>lock</c>.
-    /// </summary>
+    /// <summary>A re-entrant <c>lock</c> whose wait stops when the call is cancelled (<see cref="CancelWaitsWith"/>).</summary>
     public static MonitorExit Lock(object gate)
     {
         var ct = CallToken;
@@ -163,10 +152,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Workspace locks held by this flow (tasks started under a lock inherit it).</summary>
     private static readonly AsyncLocal<int> LockDepth = new();
 
-    /// <summary>
-    /// Tests: a tool call that reads a loaded assembly's module or decompiler reader without holding the workspace lock throws
-    /// (an edit, reload or unload meanwhile disposes them). Also on with CORVUS_LOCK_CHECK=1.
-    /// </summary>
+    /// <summary>Throws on module reads outside the workspace lock, where an edit or unload may dispose them; set by tests or CORVUS_LOCK_CHECK=1.</summary>
     public static bool CheckLockScope { get; set; } = Environment.GetEnvironmentVariable("CORVUS_LOCK_CHECK") == "1";
 
     /// <summary>Throws when <see cref="CheckLockScope"/> is on, a tool call is running and it holds no workspace lock.</summary>
@@ -280,11 +266,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Longest shared-lock section of <see cref="ReadEach{T}"/>, so a queued writer waits about this long.</summary>
     internal const int ReadSectionMs = 100;
 
-    /// <summary>
-    /// Visits <paramref name="items"/> under the shared lock in sections of about <see cref="ReadSectionMs"/>, so whole-assembly
-    /// work never holds the lock for long; stops when <paramref name="visit"/> returns false. A load or unload of
-    /// <paramref name="owner"/> between sections ends the visit with a conflict error.
-    /// </summary>
+    /// <summary>Visits items in shared-lock sections until <paramref name="visit"/> returns false; an unloaded owner throws a conflict.</summary>
     public void ReadEach<T>(LoadedAssembly? owner, IReadOnlyList<T> items, Func<T, bool> visit, CancellationToken cancellationToken)
     {
         var ct = cancellationToken.CanBeCanceled ? cancellationToken : CallToken;
@@ -317,10 +299,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>The loaded targets and their objects as the last exclusive section left them.</summary>
     public sealed record PublishedTargets(IReadOnlyList<TargetEntry> Entries, IReadOnlyList<LoadedAssembly> Assemblies, IReadOnlyList<LoadedNative> Natives);
 
-    /// <summary>
-    /// The loaded targets (assemblies, then native images) as of the end of the last exclusive section, read without the
-    /// lock, so a finished call's bookkeeping never waits for another call's exclusive hold.
-    /// </summary>
+    /// <summary>The loaded targets as of the last exclusive section, read without the lock so bookkeeping never waits on an exclusive hold.</summary>
     public PublishedTargets Published => _published;
 
     private volatile PublishedTargets _published = new([], [], []);
@@ -359,10 +338,7 @@ public sealed class AssemblyWorkspace : IDisposable
         return asm;
     }
 
-    /// <summary>
-    /// Loads a .NET assembly, or a native image when the file has no .NET metadata (PE, ELF, Mach-O, WebAssembly; for a universal
-    /// Mach-O the <paramref name="slice"/>). Returns the existing entry when the path (and slice) is already loaded.
-    /// </summary>
+    /// <summary>Loads a .NET assembly, else a native image; returns the existing entry when the path and slice are loaded.</summary>
     public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path, string? slice = null, Func<Native.INativeImage, Native.EngineOverrides?>? overrides = null)
     {
         var full = InputFiles.RequireRegularFile(path);
@@ -370,7 +346,8 @@ public sealed class AssemblyWorkspace : IDisposable
         var kind = Native.NativeImageLoader.DetectFile(full);
         if (kind is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat or Native.NativeFileKind.Wasm)
             return (null, LoadNativeFile(full, slice, overrides));
-        if (slice != null) Native.NativeImageLoader.Open(full, slice); // the slice error
+        // Throws the slice error.
+        if (slice != null) Native.NativeImageLoader.Open(full, slice);
         if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && LoadedNative.KeyOf(n.Image) == null)) is { } existing)
             return (existing.ManagedView, existing);
         try
@@ -435,10 +412,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private readonly List<LoadedNative> _newViews = new();
 
-    /// <summary>
-    /// A mixed-mode (C++/CLI) assembly is also a native image: its native code gets a view in the native list, id
-    /// the file name (the assembly's own id is its assembly name), unloaded and reloaded with the assembly.
-    /// </summary>
+    /// <summary>Adds a mixed-mode assembly's native view, id the file name, unloaded and reloaded with the assembly.</summary>
     private void AttachNativeView(LoadedAssembly asm, byte[] bytes)
     {
         if (!Native.Linking.MixedModeMap.IsMixedMode(asm.Module)) return;
@@ -539,7 +513,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>The longest file or directory name Windows, Linux and macOS file systems accept.</summary>
     private const int MaxFileNameLength = 255;
 
-    /// <summary>The .NET load cap, the same as for native images (S10.1); checked before the file is read.</summary>
+    /// <summary>The .NET load cap, the same as for native images; checked before the file is read.</summary>
     public const long MaxAssemblyBytes = Native.Pe.PeLimits.MaxFileSize;
 
     internal static void CheckSize(string full, long length)
@@ -556,7 +530,7 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             // Windows raises PathTooLongException for these; Linux and macOS only report the file missing.
             if (full.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Any(part => part.Length > MaxFileNameLength))
-                throw new ToolError(ErrorCode.InvalidArgument, "a path is too long.", "Pass a shorter path.");
+                throw new ToolError(ErrorCode.InvalidArgument, "A path component is over 255 characters.", "Pass a shorter path.");
             throw Targets.FileNotFound(path);
         }
 
@@ -725,11 +699,7 @@ public sealed class AssemblyWorkspace : IDisposable
         return [Get(identifier)];
     }
 
-    /// <summary>
-    /// The loaded assembly a reference binds to. Candidates outside the requester's folder must match a requested
-    /// public key token (so an Il2Cpp dummy mscorlib never replaces the real one). Ranked by same folder, exact
-    /// version, exact token, then load order. Null when nothing qualifies.
-    /// </summary>
+    /// <summary>The loaded assembly a reference binds to, ranked by folder, version, token and load order; null when none qualifies.</summary>
     public LoadedAssembly? FindReference(string name, Version? version, byte[]? publicKeyToken, string? requesterPath, bool sameMajor = false,
         bool netFramework = false)
     {
@@ -740,6 +710,7 @@ public sealed class AssemblyWorkspace : IDisposable
         foreach (var a in _assemblies)
         {
             if (!a.AssemblyName.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            // Outside the requester's folder a requested token must match, so a placeholder mscorlib never wins.
             bool sameDir = requesterDir != null && InputFiles.SamePath(SafeDirectory(a.FilePath), requesterDir);
             var token = a.Module.Assembly?.PublicKeyToken?.Data;
             bool tokenMatches = tokenRequested && token is { Length: > 0 } && token.AsSpan().SequenceEqual(publicKeyToken);
@@ -788,10 +759,7 @@ public sealed class AssemblyWorkspace : IDisposable
         catch { return p; }
     }
 
-    /// <summary>
-    /// Searches the requester's folder, the search directories, then installed framework directories. A file of
-    /// another major version is returned only when nothing else matches.
-    /// </summary>
+    /// <summary>Searches the requester's folder, search directories, then frameworks; another major version only as a last resort.</summary>
     public string? FindAssemblyFile(string simpleName, string? requesterPath = null, byte[]? publicKeyToken = null, Version? version = null,
         bool netFramework = false)
     {
@@ -847,10 +815,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
     [ThreadStatic] private static int _stubsOff;
 
-    /// <summary>
-    /// Until disposed, a reference this thread cannot locate stays unresolved instead of being stubbed, and the miss is
-    /// not cached. For scans that only need real definitions (a stub has no P/Invokes) and for stub builds themselves.
-    /// </summary>
+    /// <summary>Until disposed, this thread's unresolved references stay unresolved and uncached instead of stubbed.</summary>
     public static IDisposable WithoutStubs()
     {
         _stubsOff++;
@@ -870,15 +835,11 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private void ModuleSetChanged() => _stubs = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Stub for an unresolvable reference, synthesized from its usage in loaded assemblies. Cached per name until a
-    /// load or unload changes the loaded modules.
-    /// </summary>
+    /// <summary>A stub built from the loaded code's uses of a reference; cached per name until the loaded modules change.</summary>
     private ReferenceTarget? StubFor(string name, Version? version)
     {
         if (!ReferenceStubs.CanStub(name)) return null;
-        // A build reads loaded modules whose dnlib lists may be locked further up this stack (LockException) and must
-        // never wait for another build: any reference met while building stays unresolved.
+        // A build never waits for another build (dnlib lists may be locked up this stack): its references stay unresolved.
         if (_stubsOff > 0) return null;
         var ct = CallToken;
         while (true)
@@ -912,10 +873,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModuleDef, LoadedAssembly> _referenceViews = new();
 
-    /// <summary>
-    /// Wraps a reference-only module as a <see cref="LoadedAssembly"/> so tools can name its members.
-    /// Not added to the workspace.
-    /// </summary>
+    /// <summary>A reference-only module as a <see cref="LoadedAssembly"/>, not added to the workspace.</summary>
     internal LoadedAssembly ReferenceView(ModuleDefMD module) => _referenceViews.GetValue(module, m =>
     {
         byte[] bytes = [];
@@ -924,10 +882,7 @@ public sealed class AssemblyWorkspace : IDisposable
         return new LoadedAssembly($"{m.Assembly?.Name ?? m.Name} (reference)", string.IsNullOrEmpty(m.Location) ? m.Name : m.Location, bytes, (ModuleDefMD)m);
     });
 
-    /// <summary>
-    /// Resolves a reference in order: framework files, loaded assemblies, files on disk, Costura-embedded images,
-    /// NuGet packages, installed app packages, any loaded assembly of that name, then a generated stub.
-    /// </summary>
+    /// <summary>Resolves a reference: framework, loaded, disk, embedded, NuGet, app package, same-name loaded, then a stub.</summary>
     public ReferenceTarget? LocateReference(string name, Version? version, byte[]? token, string? requesterPath, bool netFramework, string? requesterFramework = null)
     {
         // .NET Framework requesters bind framework assemblies to .NET Framework itself, not to modern .NET facades.
@@ -938,8 +893,7 @@ public sealed class AssemblyWorkspace : IDisposable
         if (string.Equals(name, "netstandard", StringComparison.OrdinalIgnoreCase) && Frameworks.NetStandardFile(version) is { } ns
             && FrameworkUnlessLocal(ns) is { } standard)
             return standard;
-        // So do its facades: a runtime facade brings System.Private.CoreLib in beside netstandard, and the engine then
-        // matches types it looks up by name (ExceptionDispatchInfo, for await in catch) against the wrong copy.
+        // So do its facades: a runtime facade adds System.Private.CoreLib, and types looked up by name bind to the wrong copy.
         if (!netFramework && Frameworks.NetStandardFacade(name, requesterFramework) is { } facade && FrameworkUnlessLocal(facade) is { } standardFacade)
             return standardFacade;
         // Windows Runtime contracts resolve from Windows SDK metadata.
@@ -953,10 +907,8 @@ public sealed class AssemblyWorkspace : IDisposable
                 && fileMajor > targetMajor && Frameworks.SharedFrameworkOf(name, targetMajor) != "Microsoft.NETCore.App"
                 && Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } fitting)
                 return new(null, fitting, null, null);
-            // A major-version mismatch, or a modern runtime copy for a .NET Framework requester, ranks below
-            // embedded images and matching NuGet packages.
-            // Likewise a .NET Framework copy for a .NET Standard or .NET requester (System.Numerics.Vectors there lacks
-            // Vector<T>), and a runtime or targeting-pack copy for a .NET Standard one (it needs that runtime's System.Runtime, CS1705).
+            // A major-version or framework-family mismatch ranks below embedded images and matching NuGet packages.
+            // A .NET Framework copy can lack APIs (Vector<T>); a runtime copy needs that runtime's System.Runtime (CS1705).
             bool standardRequester = requesterFramework?.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) == true;
             bool exact = (version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major)
                          && !((netFramework || standardRequester) && Frameworks.ModernFrameworkMajor(file) != null)
@@ -1042,10 +994,9 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>dnlib resolver backed by <see cref="LocateReference"/>; non-loaded targets are cached as reference-only modules.</summary>
     private sealed class DnlibResolver(AssemblyWorkspace ws) : dnlib.DotNet.IAssemblyResolver
     {
-        // Resolution probes the file system; a scan over every call site asks for the same few references over and
-        // over, unresolvable ones included. Results are kept for one workspace generation (loads, unloads, searches).
+        // Resolution probes the file system; results, misses included, are kept for one workspace generation.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyDef?> _cache = new();
-        // Misses while stubs are off: a stub build resolves every member reference of the loaded code, missing ones again and again.
+        // Misses while stubs are off; a stub build asks for the same missing references repeatedly.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _missesWithoutStubs = new();
         private int _cacheGeneration = -1;
 
@@ -1143,7 +1094,8 @@ public sealed class AssemblyWorkspace : IDisposable
             if (target?.Loaded != null)
                 return target.Loaded.GetPEFile();
 
-            var cacheKey = SafeDirectory(_main.FilePath) + "|" + reference.FullName; // resolution depends on the requester's folder
+            // Resolution depends on the requester's folder.
+            var cacheKey = SafeDirectory(_main.FilePath) + "|" + reference.FullName;
             lock (_ws._externalDecompilerRefs)
             {
                 if (_ws._externalDecompilerRefs.TryGetValue(cacheKey, out var cached))
@@ -1192,11 +1144,7 @@ public sealed class AssemblyWorkspace : IDisposable
         public void Dispose() { }
     }
 
-    /// <summary>
-    /// Refuses new calls, cancels background work, waits up to <see cref="DisposeWait"/> for calls holding or queued for the
-    /// lock, then disposes the assemblies and the lock. When calls still use the lock after the wait, the last one to leave
-    /// disposes them instead.
-    /// </summary>
+    /// <summary>Refuses new calls, cancels background work and waits up to <see cref="DisposeWait"/>; the last call still in the lock disposes instead.</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
@@ -1210,8 +1158,7 @@ public sealed class AssemblyWorkspace : IDisposable
         else _logger?.LogWarning("Workspace disposed while {Count} calls still use its lock; the last to leave disposes the assemblies", Volatile.Read(ref _users));
     }
 
-    // A call in the lock reads its assemblies' mapped images, so they are disposed only once no call uses the lock: an
-    // image disposed under a running call ended the process with an access violation.
+    // Images are disposed only once no call uses the lock: one disposed under a running call crashed the process.
     private void Release()
     {
         if (Interlocked.Exchange(ref _released, 1) != 0) return;

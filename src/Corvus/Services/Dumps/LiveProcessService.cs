@@ -7,13 +7,9 @@ using Corvus.Native.Live;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Read-only inspection of a running local process (Windows): modules, memory regions, threads and their stacks, named
-/// as crash dumps are (<see cref="MinidumpService"/>: loaded images' code indexes with user, PDB, Il2Cpp and discovered
-/// names, Il2Cpp dummy DLLs, local PDBs, exports). The process is opened for query and read only, threads one at a time
-/// for their registers; every handle is closed before the call returns, also on errors, cancellation and timeouts.
-/// The guarantee is documented in docs/live-inspection.md.
-/// </summary>
+/// <summary>Read-only inspection of a running Windows process (modules, regions, threads, stacks, windows), named as
+/// <see cref="MinidumpService"/> names dumps. The process is opened for query and read only; every handle is closed before
+/// the call returns, also on errors, cancellation and timeouts (docs/live-inspection.md).</summary>
 public sealed class LiveProcessService(MinidumpService dumps)
 {
     public const int DefaultLimit = 50, DefaultFrames = 64;
@@ -36,10 +32,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         string? Registers,
         [property: Description("What could not be read for this thread (exited, registers not read), or null.")] string? Error);
 
-    /// <summary>
-    /// One UI Automation element of view=windows, depth first under its top-level window; an element with a window
-    /// handle adds its class procedure and, for a child control, the parent procedure it notifies.
-    /// </summary>
+    /// <summary>One UI Automation element of view=windows, depth first, with its class procedure and notified parent.</summary>
     public sealed record UiRow(int Depth, string ControlType, string? Name, string? AutomationId, string? ClassName, string? Framework,
         string? Window, [property: Description("x,y width x height, in screen pixels.")] string Bounds, bool Enabled, bool Offscreen)
     {
@@ -53,15 +46,12 @@ public sealed class LiveProcessService(MinidumpService dumps)
         [property: Description("Committed regions.")] int Regions,
         [property: Description("All regions, reserved and free included.")] int RegionsTotal);
 
-    /// <summary>
-    /// inspect_process: identity and the read-only guarantee in every view; view=summary adds counts, the main module and the
-    /// largest committed regions; a list view fills items (module, region, thread or stack frame rows) with offset and total.
-    /// </summary>
+    /// <summary>inspect_process result: identity and access in every view, counts in view=summary, paged items in list views.</summary>
     public sealed record LiveReport(
         int ProcessId, string Name, string View, string? Path,
         [property: Description("x64, x86, ARM64: the process's own instruction set (x86 for a WoW64 process).")] string Architecture,
         bool Wow64,
-        [property: Description("Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.")] string? Runtime,
+        [property: Description("Managed runtime loaded in the process (CoreCLR, CLR, Mono) or AOT; null for none.")] string? Runtime,
         [property: Description("The handles this call opened, with their access rights: the read-only guarantee.")] IReadOnlyList<string> Access,
         [property: Description("Every handle to the process and its threads was closed before returning.")] bool Detached,
         int HandlesOpened, int HandlesClosed,
@@ -83,7 +73,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
     public async Task<LiveReport> Inspect(string process, string? view, string? thread, int offset, int limit, string? regionFilter, int maxFrames,
         string? imageDirectories, int timeoutSeconds, CancellationToken ct, string? imagePath = null)
     {
-        // arguments first: a bad call is answered alike on every platform
+        // Check arguments first so a bad call is answered alike on every platform.
         var v = (view ?? "summary").Trim().ToLowerInvariant();
         if (!Views.Contains(v)) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", Views));
         string filter = (regionFilter ?? "committed").Trim().ToLowerInvariant();
@@ -125,7 +115,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
             session = dumps.SessionFor($"pid {pid}", live, dirs);
             if (live.ModulesNote != null) notes.Add(live.ModulesNote);
             MinidumpService.HostsClr(live, out var runtime);
-            if (runtime == null && live.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "Il2Cpp (Unity)";
+            if (runtime == null && live.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "AOT";
             report = new LiveReport(pid, name, view, live.ImagePath, MinidumpService.ArchName(live.Arch, 0xFFFF), live.Wow64, runtime, AccessList(view == "windows"),
                 false, 0, 0, false, 0, notes) { StartTimeUtc = view == "summary" ? live.StartTimeUtc?.ToString("u") : null };
             switch (view)
@@ -192,7 +182,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
                     }
                     else notes.Add(live.CanReadContexts ? $"thread {e.Id}: {row.Error ?? "no register context"}"
                         : $"stacks of a {live.Arch} process are not walked by this server ({System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}).");
-                    notes.Add("Threads were not suspended: the register context is a snapshot of a running thread, so a frame of a thread that was executing user code may be stale.");
+                    notes.Add("Threads were not suspended, so frames of a running thread may be stale.");
                     notes.AddRange(MinidumpService.ModuleNotes(session));
                     report = report with { Thread = row, StackStop = stop, Items = frames.Cast<object>().ToList(), Offset = offset, Total = report.Total ?? 0 };
                     break;
@@ -226,10 +216,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         return (row, ctx, t.StackLow ?? 0, t.StackHigh ?? 0);
     }
 
-    /// <summary>
-    /// The refusal of process id 0, which Windows lists as the System Idle Process: it has no image, memory or threads of
-    /// its own to read.
-    /// </summary>
+    /// <summary>The refusal of process id 0, the System Idle Process.</summary>
     internal static ToolError IdleProcess() =>
         new(ErrorCode.Unsupported, "Process 0 is the System Idle Process: it has no image, memory or threads of its own to read.", "pass the id or name of a running program")
         { Details = new { reason = "idle_process", pid = 0 } };
@@ -296,7 +283,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         if (id != null)
             throw new ToolError(ErrorCode.NotFound, $"process {live.Pid} has no thread {t}. Threads: {string.Join(", ", entries.Take(40).Select(e => e.Id))}{(entries.Count > 40 ? ", ..." : "")}.",
                 "pass a thread id (decimal or 0x hex) or a thread name");
-        // by name: the description each thread carries (one handle per thread, closed at once)
+        // By thread description, one handle per thread, closed at once.
         var named = entries.Take(MinidumpLimits.MaxThreads).Where(e => string.Equals(live.ReadThread(e.Id, context: false).Name, t, StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count == 1) return named;
         if (named.Count > 1) throw new ToolError(ErrorCode.Ambiguous, $"{named.Count} threads are named '{t}': {string.Join(", ", named.Select(e => e.Id))}.", "pass the thread id");
@@ -319,7 +306,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         if (windows.Count == 0) notes.Add($"process {pid} has no visible top-level window.");
         var elements = UiAutomation.Read(windows, ct, out var truncated);
         if (truncated) notes.Add($"the tree was cut at {UiAutomation.MaxElements} elements or {UiAutomation.MaxDepth} levels.");
-        notes.Add("Procedures are class procedures: Windows does not let another process read a window's own procedure (GWLP_WNDPROC) or a dialog's (DWLP_DLGPROC), so a subclassed window's or a dialog's own handler is unknown.");
+        notes.Add("Procedures are class procedures; another process cannot read a window's own (GWLP_WNDPROC) or dialog (DWLP_DLGPROC) procedure, so a subclassed window's or dialog's own handler is unknown.");
         var symbols = new Dictionary<ulong, string?>();
         async Task<string?> Symbol(ulong address)
         {

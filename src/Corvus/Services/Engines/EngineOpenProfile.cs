@@ -8,11 +8,8 @@ public sealed record EngineOpenStage(string Stage, double Seconds)
     public IReadOnlyList<EngineOpenStage>? Parts { get; init; }
 }
 
-/// <summary>
-/// Where an engine open spent its time: the server's stages (prepare, start, import or load, analysis, save) from one report
-/// to the next, the engine's own progress messages (analyzers, at its 2 s heartbeat) as parts of the stage they ran in, and
-/// the PDB type load that follows the open.
-/// </summary>
+/// <summary>Where an engine open spent its time: server stages, engine steps as their parts, and the PDB type load
+/// after.</summary>
 public sealed class EngineOpenProfile
 {
     /// <summary>Stages the server and its workers name; any other message is an engine step inside the current one.</summary>
@@ -85,7 +82,7 @@ public sealed class EngineOpenProfile
                     p[key] = p.GetValueOrDefault(key) + took;
                 }
             }
-            // the engine's own task times, when it gave them, replace the parts sampled from its messages
+            // The engine's own task times, when given, replace the parts sampled from its messages.
             if (_analyzers != null && seconds.ContainsKey("analysis")) parts["analysis"] = _analyzers.ToDictionary(a => a.Key, a => a.Value);
             var result = order.Select(s => new EngineOpenStage(s, Math.Round(seconds[s], 2))
             {

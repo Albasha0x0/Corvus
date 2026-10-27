@@ -7,21 +7,8 @@ using Corvus.Native.NativeAot;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The <see cref="NativeNameSource.NativeAot"/> name layer of a NativeAOT image, built from its own metadata when the
-/// code index is first built (no tool call needed) and saved beside the image's annotations like the other imported layers.
-/// <para>
-/// Naming scheme (the Il2Cpp layer's IDA-safe identifiers, <see cref="NativeName.Identifier"/>): method bodies
-/// "Ns_Type__Method" from the stack-trace and invoke maps, commented with the C# form and the other methods folded into the
-/// same body; unnamed bodies in a vtable "Ns_Type__BaseMethod" (the overridden method) or "Ns_Type__vslot&lt;k&gt;", unnamed
-/// interface implementations "Ns_Type__Method" or "Ns_Type__IFoo_slot&lt;k&gt;"; MethodTables "MT_Ns_Type"; frozen strings
-/// "str_&lt;n&gt;" (n in address order) commented with the text, other frozen objects "frozen_&lt;n&gt;"; the module header
-/// "__ReadyToRunHeader" and its sections "__&lt;SectionName&gt;"; statics bases "Ns_Type__GCStatics", "Ns_Type__Statics" and
-/// "Ns_Type__ThreadStaticsIndex" (or "GCStatics_&lt;n&gt;" and so on when the type is unknown), non-GC static fields
-/// "Ns_Type__field" (once the code index is built, "Ns_Type__field_0xN" where code uses one the metadata does not name);
-/// interface dispatch cells "__InterfaceDispatchCell_Ns_IFoo__Method". A name already used at another address gets "_&lt;RVA hex&gt;".
-/// </para>
-/// </summary>
+/// <summary>The <see cref="NativeNameSource.NativeAot"/> name layer, built from the image's metadata with the code index
+/// and saved with its annotations; a name reused at another address gets "_&lt;RVA hex&gt;".</summary>
 public static class NativeAotNames
 {
     /// <summary>Set to 0 to turn off naming NativeAOT images automatically.</summary>
@@ -67,10 +54,8 @@ public static class NativeAotNames
     /// <summary>Why the view could not be read, when locating the header failed.</summary>
     public static string? Problem(LoadedNative native) => native.Analysis.TryGetValue(typeof(Holder), out var h) ? ((Holder)h).Problem : null;
 
-    /// <summary>
-    /// On the index build thread: sets the nativeaot layer of a NativeAOT image (a saved one of this naming version is kept)
-    /// and returns its function starts; null for other images or when turned off by <see cref="AutoVariable"/>.
-    /// </summary>
+    /// <summary>Sets the nativeaot layer on the index build thread and returns its function starts; null for other images or
+    /// when <see cref="AutoVariable"/> is 0.</summary>
     public static IReadOnlyCollection<uint>? AutoApply(LoadedNative native, NativeCodeService code, CancellationToken ct)
     {
         if (Environment.GetEnvironmentVariable(AutoVariable) == "0") return null;
@@ -84,11 +69,8 @@ public static class NativeAotNames
         return built.FunctionStarts;
     }
 
-    /// <summary>
-    /// Once the code index is built: names the static fields the metadata keeps no names for, "Ns_Type__field_0xN", at each
-    /// address code reads, writes or takes inside an owned non-GC statics block; the layer is saved again. Returns the
-    /// number of names added, or null for other images or when turned off by <see cref="AutoVariable"/>.
-    /// </summary>
+    /// <summary>Names unnamed static fields that code references in owned non-GC statics; returns the count added, null for
+    /// other images or when <see cref="AutoVariable"/> is 0.</summary>
     public static int? NameStaticFields(LoadedNative native, NativeCodeService code, NativeCodeIndex index, CancellationToken ct)
     {
         if (Environment.GetEnvironmentVariable(AutoVariable) == "0") return null;
@@ -102,10 +84,8 @@ public static class NativeAotNames
         return added;
     }
 
-    /// <summary>
-    /// The layer's names and comments plus one per address <paramref name="referenced"/> returns inside an owned non-GC
-    /// statics block without field metadata (past its base, before the next base, within the block span), and how many it added.
-    /// </summary>
+    /// <summary>The layer plus a name per referenced address in owned non-GC statics without field metadata, and the count
+    /// added.</summary>
     internal static (Dictionary<uint, string> Names, Dictionary<uint, string> Comments, int Added) StaticFieldNames(IReadOnlyList<NativeAotStaticBase> bases,
         IReadOnlyDictionary<uint, string> names, IReadOnlyDictionary<uint, string> comments, Func<uint, uint, IEnumerable<uint>> referenced, CancellationToken ct)
     {
@@ -132,10 +112,7 @@ public static class NativeAotNames
         return (outNames, outComments, added);
     }
 
-    /// <summary>
-    /// Lines describing <paramref name="rva"/> through the image's NativeAOT metadata: the MethodTable, frozen object or named
-    /// method body there, else the module section it is in. Empty for other images.
-    /// </summary>
+    /// <summary>Lines describing <paramref name="rva"/> from NativeAOT metadata; empty for other images.</summary>
     public static List<string> Describe(LoadedNative native, uint rva, CancellationToken ct = default)
     {
         var lines = new List<string>();
@@ -153,7 +130,7 @@ public static class NativeAotNames
             else if (rva >= o.Rva - header + o.Size) lo = mid + 1;
             else
             {
-                string what = o.Text != null ? $"String {Il2CppNativeNames.Quote(o.Text)}" : $"{o.TypeName} ({o.Size} bytes)";
+                string what = o.Text != null ? $"String {AotNativeNames.Quote(o.Text)}" : $"{o.TypeName} ({o.Size} bytes)";
                 lines.Add(rva == o.Rva ? $"NativeAOT frozen {what}" : $"inside the NativeAOT frozen {what} at rva 0x{o.Rva:X} (+0x{rva - o.Rva:X})");
                 break;
             }
@@ -170,7 +147,7 @@ public static class NativeAotNames
         }
         else if (UnnamedStatic(aot.Statics.Bases, rva) is { } owned)
             lines.Add($"NativeAOT static {owned.Owner}::field_0x{rva - owned.Rva:X} in the non-GC statics at rva 0x{owned.Rva:X} (the metadata keeps no field names for it)");
-        foreach (var m in aot.Names.Methods.Where(m => m.Rva == rva).Take(Il2CppNativeNames.SharedListed))
+        foreach (var m in aot.Names.Methods.Where(m => m.Rva == rva).Take(AotNativeNames.SharedListed))
             lines.Add($"NativeAOT method {m.Name.Full} (from the {(m.Origin == "invoke" ? "reflection invoke map" : "stack-trace map")}{(m.Hidden ? ", hidden from stack traces" : "")})");
         if (rva == aot.Header.Rva) lines.Add($"NativeAOT module header, ReadyToRun {aot.ReadyToRunVersion} ({aot.Runtime})");
         else if (lines.Count == 0 && aot.Header.Sections.FirstOrDefault(s => s.HasEnd && rva >= s.StartRva && rva < s.EndRva) is { } section)
@@ -277,7 +254,7 @@ public static class NativeAotNames
         foreach (var obj in aot.Frozen.Objects)
         {
             ct.ThrowIfCancellationRequested();
-            if (obj.Text != null) Add(obj.Rva, $"str_{strings++}", Il2CppNativeNames.Quote(obj.Text));
+            if (obj.Text != null) Add(obj.Rva, $"str_{strings++}", AotNativeNames.Quote(obj.Text));
             else Add(obj.Rva, $"frozen_{objects++}", $"frozen {obj.TypeName} ({obj.Size} bytes)");
         }
         int statics = 0, unowned = 0;
@@ -332,10 +309,8 @@ public static class NativeAotNames
         return plain[(Math.Max(plain.LastIndexOf('.'), plain.LastIndexOf('+')) + 1)..];
     }
 
-    /// <summary>
-    /// Names the unnamed bodies a class introduces in its vtable (slots its base does not share): after the base method the
-    /// slot overrides when one up the chain is named, else vslot&lt;k&gt;. Named types first, then by address, so the result is stable.
-    /// </summary>
+    /// <summary>Names unnamed bodies a class introduces in its vtable after the overridden method, else vslot&lt;k&gt;; named
+    /// types go first so the result is stable.</summary>
     private static int VtableSlots(IReadOnlyDictionary<uint, NativeAotMethodTable> types, NativeAotNameMaps maps, Func<uint, bool> code,
         Action<uint, string, string?> add, List<uint> starts, CancellationToken ct)
     {

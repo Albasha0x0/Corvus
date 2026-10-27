@@ -17,15 +17,15 @@ internal static class ToolSupport
 
     public const string AssemblyDescription = "Assembly id, name or path.";
 
-    /// <summary>offset of a list tool: rows (S2.2); the agent passes the previous page's nextOffset.</summary>
+    /// <summary>Offset of a list tool, in rows; the agent passes the previous page's nextOffset.</summary>
     public const string RowOffsetDescription = "Rows to skip.";
-    /// <summary>offset of a text tool: characters.</summary>
+    /// <summary>Offset of a text tool, in characters.</summary>
     public const string CharOffsetDescription = "Character offset (a page's nextOffset).";
     public const string MaxTokensDescription = "Page size in tokens.";
-    /// <summary>limit of a list tool: rows per page; the page is cut further to the token budget.</summary>
+    /// <summary>Limit of a list tool, in rows; the token budget can cut the page further.</summary>
     public const string LimitDescription = "Max rows.";
     public const string DryRunDescription = "Preview the change without applying it.";
-    /// <summary>The D7 text for editing tools whose dryRun defaults to true.</summary>
+    /// <summary>The dryRun text of editing tools whose dryRun defaults to true.</summary>
     public const string DryRunDefaultTrueDescription = "true previews; false applies.";
 
     /// <summary>Runs work off the transport thread under the shared read lock.</summary>
@@ -40,11 +40,7 @@ internal static class ToolSupport
     public static Task<string> Edit(AssemblyWorkspace ws, bool dryRun, Func<string> work, CancellationToken ct) =>
         dryRun ? Read(ws, work, ct) : Write(ws, work, ct);
 
-    /// <summary>
-    /// An edit that compiles C#. Applied, it is first compiled against a scratch copy under the shared lock, so the
-    /// exclusive section that merges it reuses that work instead of holding every other call out through the compile;
-    /// an error in the code answers without the exclusive lock. A dry run takes the shared lock only.
-    /// </summary>
+    /// <summary>A C# edit, compiled under the shared lock first so the exclusive merge does not block calls through the compile.</summary>
     public static Task<string> CompiledEdit(AssemblyWorkspace ws, Corvus.Services.EditService edits, bool dryRun, Func<string> work, CancellationToken ct) =>
         dryRun ? Read(ws, work, ct) : Task.Run(() =>
         {
@@ -77,7 +73,7 @@ internal static class ToolSupport
 
     public static int ClampLimit(int limit, int max = 5_000) => Math.Clamp(limit, 1, max);
 
-    /// <summary>offset + limit without overflow: the end of a page (offsets come from the caller).</summary>
+    /// <summary>The end of a page, offset + limit, clamped to int.MaxValue.</summary>
     public static int End(int offset, int limit) => (int)Math.Min((long)offset + Math.Max(0, limit), int.MaxValue);
 
     /// <summary>The page of <paramref name="all"/> that <see cref="OutputPager.PageRows"/> shows, as a structured list: (items, offset, total, truncated).</summary>
@@ -98,10 +94,7 @@ internal static class ToolSupport
 
     public static string TruncationNote(int shown, int total) => total > shown ? $" (showing {shown}; raise limit or refine)" : "";
 
-    /// <summary>
-    /// One line counting the method bodies of the searched assemblies that are not valid IL (encrypted or corrupt): their
-    /// instructions are read only up to the first undecodable one. Empty when there are none.
-    /// </summary>
+    /// <summary>One line counting searched method bodies that are not valid IL; empty when there are none.</summary>
     public static string SkippedBodiesNote(IEnumerable<LoadedAssembly> searched)
     {
         var affected = searched.Where(a => a.BodyHealth.Invalid > 0).ToList();

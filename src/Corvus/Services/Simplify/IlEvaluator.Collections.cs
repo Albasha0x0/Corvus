@@ -161,10 +161,7 @@ internal sealed partial class IlEvaluator
     /// <summary>The caches of the current evaluation: copies of the static collections, as their initialization left them.</summary>
     private readonly Dictionary<FieldDef, HeapObject> _scratch = new();
 
-    /// <summary>
-    /// A static collection used as a cache (<see cref="ModuleFacts.CacheUse"/>): the evaluation works on a copy of the
-    /// state its type's initialization left, which the call may fill.
-    /// </summary>
+    /// <summary>A copy of a static cache collection as its type initializer left it, which the call may fill.</summary>
     private HeapObject Scratch(FieldDef field, HeapObject initial)
     {
         if (_scratch.TryGetValue(field, out var copy)) return copy;
@@ -309,11 +306,7 @@ internal sealed class SortedListObject : HeapObject
 
 internal sealed partial class IlEvaluator
 {
-    /// <summary>
-    /// System.Collections.SortedList with boxed integer keys of one type, which the default comparer orders by value:
-    /// construction, Add, the indexer, ContainsKey / Contains, Count, GetByIndex, GetKey, IndexOfKey, Remove, Clear.
-    /// String keys are not modelled (the default comparer orders them by the current culture).
-    /// </summary>
+    /// <summary>System.Collections.SortedList calls with boxed integer keys of one type; string keys sort by culture and are refused.</summary>
     private object? SortedListCall(IMethod method, Code op, object?[] args, out bool handled)
     {
         handled = method.DeclaringType?.FullName == "System.Collections.SortedList";

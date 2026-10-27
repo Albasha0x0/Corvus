@@ -17,7 +17,7 @@ public class CallGraphTests : IDisposable
         _env.Workspace.Read(() => _graph.Tree(_env.Fixture, _env.Def<MethodDef>(method), callers, depth, 300, external, default));
 
     [Fact]
-    public void CallerAndCalleeTrees()
+    public void Trees_list_callers_and_callees()
     {
         Assert.Contains("Fixture.Model.Account::CheckPreview()", Tree("Secret::Validate", callers: true));
         var callees = Tree("Account::Charge(int, string)", callers: false);
@@ -28,7 +28,7 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void BuiltOutsideTheLock_InSections_SameTrees()
+    public void A_graph_built_in_sections_outside_the_lock_gives_the_same_trees()
     {
         var expected = Tree("Account::Charge(int)", callers: true);
         var sectioned = new CallGraphService(_env.Workspace);
@@ -38,7 +38,7 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void VirtualDispatchAndCrossAssembly()
+    public void Caller_trees_follow_virtual_dispatch_across_assemblies()
     {
         var callers = Tree("Account::Charge(int)", callers: true);
         Assert.Contains("Consumer.Branch::Bill(IChargeable)", callers);
@@ -47,7 +47,7 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void PathsFromStartAndFromEntryPoints()
+    public void Paths_start_at_a_given_method_or_at_entry_points()
     {
         var hit = _env.Def<MethodDef>("Consumer.Branch::Bill");
         var target = _env.Def<MethodDef>("Account::Charge(int)");
@@ -60,7 +60,7 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void VirtualHopsAreMarkedAndCanBeExcluded()
+    public void Virtual_hops_are_marked_and_can_be_excluded()
     {
         // Account.Charge(int) is reached from Branch.Bill only through IChargeable.Charge.
         var hit = _env.Def<MethodDef>("Consumer.Branch::Bill");
@@ -78,7 +78,7 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void DirectPathsAreNotHiddenByVirtualDispatch()
+    public void Direct_paths_are_not_hidden_by_virtual_dispatch()
     {
         // Impl.Run has no direct callers but is reached virtually from Kick; it must still be a path root.
         using var dir = new TempDir();
@@ -98,7 +98,7 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void TreesExpandBreadthFirst()
+    public void Trees_expand_breadth_first()
     {
         // A heads a long caller chain; depth-first with a small node budget would never reach Z.
         using var dir = new TempDir();
@@ -143,7 +143,7 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void GraphIsRebuiltAfterEdits()
+    public void Graph_is_rebuilt_after_edits()
     {
         _env.Workspace.Read(() => { _graph.EnsureBuilt(default); return 0; });
         Assert.True(_graph.IsBuilt);

@@ -25,7 +25,7 @@
       "type": "string"
     },
     "nameSource": {
-      "description": "user, pdb, il2cpp, ...",
+      "description": "user, pdb, metadata, ...",
       "type": "string"
     },
     "import": {
@@ -112,7 +112,7 @@
                 "type": "string"
               },
               "nameSource": {
-                "description": "user, pdb, il2cpp, ...",
+                "description": "user, pdb, metadata, ...",
                 "type": "string"
               },
               "import": {

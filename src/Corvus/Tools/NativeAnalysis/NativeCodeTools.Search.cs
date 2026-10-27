@@ -18,8 +18,8 @@ namespace Corvus.Tools;
 public sealed partial class NativeCodeTools
 {
     [McpServerTool(Name = "search_instructions", Title = "Search native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionMatchList))]
-    [Description("Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or " +
-                 "target) in every function, one function or an address range; a page the scan budget stopped goes on at nextOffset.")]
+    [Description("Find instructions by mnemonic, operand or line regex (case-insensitive), or by operand value, in all functions, one " +
+                 "function or an address range. A page the scan budget stopped continues at nextOffset.")]
     public Task<string> SearchInstructions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Mnemonic regex, e.g. ^(call|jmp)$")] string? mnemonic = null,
@@ -49,7 +49,7 @@ public sealed partial class NativeCodeTools
         var choice = Choose(mode, native, index);
         if (!choice.External && index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
 
-        // the ranges to scan, each with its function when known; an engine scans its own function at the address
+        // The ranges to scan, each with its function when known; an engine scans its own function at the address.
         var ranges = new List<(uint Start, uint End, NativeFunction? Function)>();
         uint? functionRva = null;
         if (!string.IsNullOrWhiteSpace(function))
@@ -72,7 +72,7 @@ public sealed partial class NativeCodeTools
         else if (!string.IsNullOrWhiteSpace(to)) throw new ToolError(ErrorCode.InvalidArgument, "to needs from.");
         else if (!choice.External) foreach (var f in index.Functions.OrderBy(f => f.Start)) ranges.AddRange(index.Ranges(f).Select(r => (r.Start, r.End, (NativeFunction?)f)));
 
-        // a later page of the same built-in scan starts where an earlier one recorded its position, not from the first range
+        // A later page of the same built-in scan starts where an earlier one recorded its position, not from the first range.
         string key = $"{mnemonic}|{operands}|{text}|{value}|{function}|{from}|{to}";
         var resume = choice.External ? default : Resumes(index, key).Before(offset);
         int based = resume.Matches;
@@ -88,7 +88,7 @@ public sealed partial class NativeCodeTools
         }
 
         var head = new StringBuilder($"; {choice.Line}\n{Plural(scan.Scanned, "instruction")} scanned\n");
-        // a budget stop after a match past offset continues at nextOffset (the next page rescans to there); without one, at from=
+        // A budget stop after a match past offset continues at nextOffset (the next page rescans to there); without one, at from=.
         int total = based + scan.Matches.Count;
         bool resumable = total > offset;
         if (scan.StoppedAt is { } stop)
@@ -106,7 +106,7 @@ public sealed partial class NativeCodeTools
                 ToolOutput.Coverage("partial", $"the scan stopped at {at} without a match; continue with {next}", "row-cap");
             }
         }
-        // the scan stops one match past the page: more matches make the total a lower bound
+        // The scan stops one match past the page: more matches make the total a lower bound.
         bool exact = total <= offset + limit && scan.StoppedAt == null;
         bool more = !exact && resumable;
         var page = scan.Matches.Skip(offset - based).Take(limit).Select(m => new InstructionMatch(NativeAddress.Va(index.Image, m.Rva), m.Where, m.Text)).ToList();
@@ -160,7 +160,7 @@ public sealed partial class NativeCodeTools
         }
     }
 
-    // per index, so a rebuilt index (patches, a reload) starts over
+    // Per index, so a rebuilt index (patches, a reload) starts over.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<NativeCodeIndex, Dictionary<string, ScanResumes>> _resumes = [];
 
     private static ScanResumes Resumes(NativeCodeIndex index, string key)
@@ -177,11 +177,7 @@ public sealed partial class NativeCodeTools
         }
     }
 
-    /// <summary>
-    /// One page's scan: the first <paramref name="skip"/> matches (the earlier pages) are found again outside the budget, so
-    /// a page resumes where the last one stopped; after them the budget counts, and a page scans on to one match past them
-    /// unless <see cref="MaxBudget"/> instructions find none.
-    /// </summary>
+    /// <summary>One page's scan: earlier pages' <paramref name="skip"/> matches are found again outside the budget, then the budget counts.</summary>
     private sealed class ScanState(InstructionQuery query, ulong imageBase, int skip, int wanted, int budget)
     {
         public const int MaxBudget = 5_000_000;
@@ -322,7 +318,7 @@ public sealed partial class NativeCodeTools
         ScanState state, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await _engine!.Session(native, choice, progress, ct);
-        // true when the scan is done: enough matches, or the budget ran out (stop: the first instruction not scanned)
+        // True when the scan is done: enough matches, or the budget ran out (stop: the first instruction not scanned).
         bool Take(IEnumerable<Native.Providers.DisassembledInstruction> instructions, Func<uint, string> where, out uint? stop)
         {
             stop = null;

@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "Address 0x1000:\n  [RVA] exact start: Fixture.Native.NativeThing::First()  (start 0x1000)  [TestFixture] 0x06000004\n"
+    "Address 0x1000:\n  [RVA] exact start: Fixture.Native.NativeThing::First()  (start 0x1000)  [TestFixture] 0x06000036\n"
   ],
   "structuredContent": {
     "address": "0x1000",
@@ -16,7 +16,7 @@
         "method": "Fixture.Native.NativeThing::First()",
         "addressKind": "rva",
         "rva": "0x1000",
-        "token": "0x06000004",
+        "token": "0x06000036",
         "assembly": "TestFixture",
         "function": "0x1000",
         "size": "0x100",

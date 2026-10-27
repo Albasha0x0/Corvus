@@ -34,7 +34,7 @@ public sealed class JsModulesTests
     }
 
     [Fact]
-    public void Amd_systemjs_parcel_and_esm_chunks()
+    public void AMD_SystemJS_Parcel_and_ESM_chunks_name_their_modules()
     {
         var amd = Assert.Single(Modules("define(\"app/main\", [\"app/util\", \"jquery\"], function(u, $) { return 1; });"));
         Assert.Equal(("app/main", "amd", "app/util,jquery"), (amd.Id, amd.Family, string.Join(",", amd.Requires)));

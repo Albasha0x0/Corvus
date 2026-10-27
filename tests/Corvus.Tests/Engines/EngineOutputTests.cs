@@ -11,11 +11,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Engine output across server processes: the same call answers byte for byte the same in both parts whether the
-/// engine analyzed the image in this process or loaded the saved analysis (open times, saved-analysis state and push
-/// banners are in _meta only).
-/// </summary>
+/// <summary>A call answers byte for byte the same whether the engine analyzed the image in this process or loaded the saved analysis; differences go in _meta only.</summary>
 public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
 {
     private const string Function = "CheckSumMappedFile";
@@ -114,7 +110,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             var stored = first.Engines.OutputCache!.Root;
             foreach (var d in _owned) d.Dispose();
             _owned.Clear();
-            // the engine itself must answer from the saved database: without this the stored output answers when the setup matches (EL-1)
+            // The engine itself must answer from the saved database: without this the stored output answers when the setup matches (EL-1).
             Directory.Delete(stored, true);
 
             var second = Server();
@@ -124,17 +120,14 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(a.Record, b.Record);
             Assert.DoesNotContain("\r", a.Text);
             Assert.DoesNotContain("analyzed in", a.Text);
-            // the details that differ are in _meta
+            // The details that differ are in _meta.
             Assert.Equal(false, a.Call.EngineMeta["savedAnalysis"]);
             Assert.Equal(true, b.Call.EngineMeta["savedAnalysis"]);
             Assert.Equal("complete", b.Call.EngineMeta["analysis"]);
             Assert.NotNull(b.Call.EngineMeta["engineBuild"]);
         }
 
-        /// <summary>
-        /// The persistent engine output (EL-1): a later process answers from the stored pseudocode and frame without starting
-        /// IDA; a rename (another push), a reanalysis and a script each make later answers come from the engine again.
-        /// </summary>
+        /// <summary>A later process answers from stored pseudocode without starting IDA; a rename, reanalysis or script sends later answers back to the engine.</summary>
         [Trait("Speed", "Slow")]
         [IdaFact]
         public async Task A_later_process_answers_from_the_output_cache_until_something_changes()
@@ -145,7 +138,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             var frame = await frameTools.GetNativeFrame(Image, Function, locals: true);
             Close();
 
-            // a second process: no engine session is opened, the answers are byte-identical
+            // A second process: no engine session is opened, the answers are byte-identical.
             var second = Server();
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var warm = await Decompile(second, Image);
@@ -159,7 +152,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(frame, frameAgain);
             Assert.Empty(second.Engines.ImageSessions(NativeOf(second)));
 
-            // a rename changes what is pushed: the engine answers, with the new name
+            // A rename changes what is pushed: the engine answers, with the new name.
             var native = NativeOf(second);
             var start = native.Image.Exports.First(e => e.Name == Function).Rva;
             new NativeEditService(second.Workspace, second.Code).Rename(native, second.Code.Ready(native) ?? await second.Code.Index(native, null, default), start, "corvus_renamed", false);
@@ -167,7 +160,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             Assert.Contains("corvus_renamed", renamed.Text);
             Assert.NotEmpty(second.Engines.ImageSessions(native));
 
-            // in the open session: a repeat is the output cache's; after a reanalysis or a script the engine answers again
+            // In the open session: a repeat is the output cache's; after a reanalysis or a script the engine answers again.
             var session = (WorkerSessionBase)second.Engines.OpenSession(native)!;
             var cache = second.Engines.OutputCache!;
             var decompiled = await ((INativeDecompilerSession)session).DecompileAsync(start);
@@ -182,7 +175,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(hits, cache.Hits);
             Close();
 
-            // the third process starts from the state the second one saved
+            // The third process starts from the state the second one saved.
             var third = Server();
             var again = await Decompile(third, Image);
             Assert.Contains("corvus_renamed", again.Text);
@@ -206,10 +199,7 @@ public abstract class EngineOutputTests(ITestOutputHelper output) : IDisposable
             Assert.False(second.Engines.ImageSessions(NativeOf(second))[0].Session!.ReusedDatabase);
         }
 
-        /// <summary>
-        /// Through the server: a decompile page carries its code and continuation in the record (G1-11) and names the engine with
-        /// its build in _meta; a script printing 1 MB answers within the report budget with a resultId; a script exception is an error.
-        /// </summary>
+        /// <summary>A decompile page carries code and continuation in the record and the engine build in _meta; a 1 MB script output pages; a script exception is an error.</summary>
         [Trait("Speed", "Slow")]
         [IdaFact]
         public async Task Engine_results_page_in_both_parts_and_script_failures_are_errors()

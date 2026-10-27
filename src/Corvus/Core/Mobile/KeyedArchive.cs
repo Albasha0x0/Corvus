@@ -3,12 +3,7 @@ using Corvus.Native;
 
 namespace Corvus.Core.Mobile;
 
-/// <summary>
-/// NSKeyedArchiver files (archived objects, nib and storyboard contents, saved state) projected from the flat
-/// $objects table into an object graph. Each archived object becomes a dictionary with "$class" (and "$classes", its
-/// superclass chain) and "$uid"; its fields follow with references resolved. An object met again (shared, or a cycle)
-/// is written as {"$ref": uid}. Foundation collections, strings, data, dates, UUIDs and URLs become plain values.
-/// </summary>
+/// <summary>NSKeyedArchiver files as an object graph; an object met again is written as {"$ref": uid}.</summary>
 public static class KeyedArchive
 {
     public sealed record Result(PlistNode Root, IReadOnlyList<ParseIssue> Issues);

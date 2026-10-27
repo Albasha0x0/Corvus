@@ -3,11 +3,7 @@ using Corvus.Core.Databases;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=lmdb: an LMDB environment (data.mdb): page size, map size, the live and previous transactions, the named
-/// databases with their flags and entry counts, a page of one database's records (table= names it; offset=, limit=),
-/// and when asked for, the records only the previous commit or an unreachable page still holds.
-/// </summary>
+/// <summary>view=lmdb: an LMDB environment's transactions, databases, a page of one database's records (table=, offset=, limit=), and on request recoverable records.</summary>
 internal sealed class LmdbFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxRecovered = 200;
@@ -60,7 +56,7 @@ internal sealed class LmdbFileView : IFileSummaryView
             var notes = new List<string>(env.Notes.Distinct().Take(20));
             if (next != null) notes.Add($"offset={next} lists the next records of {(db.Name == "" ? "the main database" : db.Name)}");
             if (found > MaxRecovered) notes.Add($"recovered: the first {MaxRecovered}; more remain");
-            if (!asked) notes.Add("view=lmdb adds the records only the previous commit or an unreachable page holds");
+            if (!asked) notes.Add("view=lmdb also recovers records only the previous commit or unreachable pages hold");
 
             var dbs = all.Select(d => new DatabaseEntry(d.Name == "" ? "(main)" : d.Name, Flags(d.Flags), d.Depth, d.Entries, d.BranchPages + d.LeafPages + d.OverflowPages)).ToList();
             var highlights = new List<string>

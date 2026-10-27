@@ -25,10 +25,7 @@ public enum AddressStatus
 /// <param name="Kind">string, iat_slot, jump_table, index_table, pointer, pe_directory, headers or section; ARM64 also data_in_code and literal.</param>
 public sealed record DataItem(string Kind, uint Start, uint End, string Text);
 
-/// <summary>
-/// The classification of one address. <see cref="InstructionStart"/> is the instruction at the address (Decoded,
-/// NotInFunction, Invalid) or the one covering it (MidInstruction).
-/// </summary>
+/// <summary>One address's classification; <see cref="InstructionStart"/> is the instruction at or covering it.</summary>
 public sealed record AddressClass(uint Rva, AddressStatus Status, NativeFunction? Function, uint? Block, uint? InstructionStart, int InstructionLength,
     bool Overlapping, DataItem? Item, NativeSection? Section, string? Note)
 {
@@ -47,10 +44,7 @@ public sealed record AddressClass(uint Rva, AddressStatus Status, NativeFunction
     };
 }
 
-/// <summary>
-/// Classifies addresses of an x86 / x64 / ARM64 image against its code index: instruction boundaries inside known functions
-/// (blocks decoded again, cached per instance), data items, bss and unowned code. Not thread-safe; one per request.
-/// </summary>
+/// <summary>Classifies addresses of an image against its code index; not thread-safe, one per request.</summary>
 public sealed class AddressClassifier
 {
     // Switch tables are found through their JumpTable references within this distance before the address.
@@ -102,13 +96,13 @@ public sealed class AddressClassifier
             return new(rva, AddressStatus.Data, null, null, null, 0, false, item, section, null);
         if (section is { IsExecutable: true })
         {
-            // fixed 4-byte instructions: an unaligned address is inside the word that starts at the boundary below it
+            // An unaligned ARM64 address is inside the word at the 4-byte boundary below it.
             if (_image.Arch == NativeArch.Arm64 && (rva & 3) != 0 && DecodeLength(rva & ~3u) > 0)
                 return new(rva, AddressStatus.MidInstruction, null, null, rva & ~3u, 4, false, null, section,
                     $"ARM64 instructions start on 4-byte boundaries; the instruction at 0x{_image.ImageBase + (rva & ~3u):X} covers it");
             if (_image.Arch == NativeArch.Arm && (rva & 1) != 0 && DecodeLength(rva & ~1u) is var thumb and > 0)
                 return new(rva, AddressStatus.MidInstruction, null, null, rva & ~1u, thumb, false, null, section,
-                    $"ARM instructions start on 2-byte boundaries (an odd code address is a Thumb pointer); the instruction at 0x{_image.ImageBase + (rva & ~1u):X} covers it");
+                    $"ARM instructions start on 2-byte boundaries; an odd code address is a Thumb pointer; the instruction at 0x{_image.ImageBase + (rva & ~1u):X} covers it");
             int length = DecodeLength(rva);
             return length > 0
                 ? new(rva, AddressStatus.NotInFunction, null, null, rva, length, false, null, section, "no known function contains it: unowned code or data")
@@ -149,13 +143,12 @@ public sealed class AddressClassifier
         if (_blockStarts.TryGetValue((b.Start, b.End), out var cached)) return cached;
         if (_image.Arch == NativeArch.Arm)
         {
-            // 2 / 4-byte Thumb or 4-byte ARM instructions, in the function's state
+            // Thumb or ARM, in the function's state.
             var lines = _index.CreateDisassembler().Disassemble(b.Start, Math.Max(1, b.InstructionCount), b.End);
             return _blockStarts[(b.Start, b.End)] = [.. lines.Select(l => (l.Rva, l.Facts.Flow == FlowKind.Invalid ? 0 : l.Facts.Length))];
         }
         if (_image.Arch == NativeArch.Arm64)
         {
-            // fixed 4-byte instructions
             var words = new List<(uint, int)>();
             for (uint a = b.Start; a < b.End; a += 4)
             {
@@ -294,7 +287,7 @@ public sealed class AddressClassifier
             int mid = (lo + hi) >>> 1;
             if (strings[mid].Rva <= rva) { best = mid; lo = mid + 1; } else hi = mid - 1;
         }
-        // strings do not nest, but a short one can sit inside a longer one's span: check a few back
+        // A short string can sit inside a longer one's span: check a few back.
         for (int i = best; i >= 0 && i > best - 4; i--)
         {
             var s = strings[i];

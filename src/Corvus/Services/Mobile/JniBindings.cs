@@ -27,12 +27,7 @@ public sealed record JniBindingList(IReadOnlyList<JniBinding> Items, int Offset,
     [property: Description("The libraries read that have Java_ exports, JNI_OnLoad or RegisterNatives tables, with their counts.")] IReadOnlyList<JniLibrary> Libraries,
     IReadOnlyList<string> Notes);
 
-/// <summary>
-/// Java native methods of an Android package paired with their native code: exported Java_ symbols by the JNI name
-/// mangling (short form, then the overload form), and JNINativeMethod tables passed to RegisterNatives, found in the
-/// libraries' data (name and signature string pointers followed by a code pointer) and tied to their class by the
-/// FindClass string of the function that references the table, or by the native method's name and signature.
-/// </summary>
+/// <summary>Pairs an Android package's Java native methods with native code through Java_ exports and RegisterNatives tables found in library data.</summary>
 public sealed partial class JniBindings(DexService dex)
 {
     public const int DefaultLimit = 75;
@@ -74,7 +69,8 @@ public sealed partial class JniBindings(DexService dex)
         var rows = new List<JniBinding>();
         var libraries = new List<JniLibrary>();
         var bound = new HashSet<string>(StringComparer.Ordinal);
-        int unread = 0; // tables in libraries over readCodeUpTo whose class only the code tells
+        // Tables in libraries over readCodeUpTo whose class only the code tells.
+        int unread = 0;
         foreach (var name in package.Entries.Where(e => e.StartsWith("lib/", StringComparison.Ordinal) && e.EndsWith(".so", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
         {
             ct.ThrowIfCancellationRequested();
@@ -91,7 +87,7 @@ public sealed partial class JniBindings(DexService dex)
             {
                 if (!symbol.StartsWith("Java_", StringComparison.Ordinal)) continue;
                 javaExports++;
-                // the VM looks up the short name first, so an exported short name binds every overload
+                // The VM looks up the short name first, so an exported short name binds every overload.
                 var matches = byLongName.TryGetValue(symbol, out var overload) ? [overload] : byShortName[symbol].ToList();
                 if (matches.Count == 0) rows.Add(new(null, name, symbol, Va(elf, rva), "export_only", null, null));
                 foreach (var match in matches)
@@ -108,7 +104,7 @@ public sealed partial class JniBindings(DexService dex)
             foreach (var table in tables)
             {
                 string? owner = null, confidence = null;
-                // the function that passes the table to RegisterNatives names its class with FindClass
+                // The function that passes the table to RegisterNatives names its class with FindClass.
                 if (!Unique(table, bySignature, out var byName))
                 {
                     owners ??= Owners(bytes);
@@ -219,7 +215,7 @@ public sealed partial class JniBindings(DexService dex)
         return candidates is [var single] ? $"L{single};" : null;
     }
 
-    // Relocation, symbol, hash, note and unwind sections hold no JNINativeMethod arrays; in an Il2Cpp library they are most of the data.
+    // Relocation, symbol, hash, note and unwind sections hold no JNINativeMethod arrays; in a large AOT library they are most of the data.
     private static readonly string[] NoTables = [".rel", ".dyn", ".gnu.", ".hash", ".note", ".eh_frame", ".gcc_except_table", ".symtab", ".strtab", ".debug"];
 
     /// <summary>JNINativeMethod arrays in the library's data: {name, signature, function} pointer triples, relocations applied.</summary>

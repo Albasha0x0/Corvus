@@ -82,11 +82,11 @@
       }
     },
     "engine": {
-      "description": "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).",
+      "description": "Analysis that produced the result: ours (built-in index), ida or ghidra.",
       "type": "string"
     },
     "engineNote": {
-      "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
+      "description": "Why that engine answered: the engine parameter, the server default, or auto and the engine's analysis state.",
       "type": "string"
     },
     "limit": {

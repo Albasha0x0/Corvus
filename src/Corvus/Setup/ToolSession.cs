@@ -9,10 +9,7 @@ using SdkClient = ModelContextProtocol.Client.McpClient;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// The server in this process over in-memory streams, with an MCP client connected to it: every call takes the same
-/// argument checks, budgets and error results as an agent's.
-/// </summary>
+/// <summary>An in-process server with a connected MCP client: calls get the same checks, budgets and errors as an agent's.</summary>
 internal sealed class ToolSession : IAsyncDisposable
 {
     public const string ClientName = "corvus-cli";

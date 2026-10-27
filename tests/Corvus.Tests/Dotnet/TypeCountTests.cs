@@ -12,7 +12,7 @@ public class TypeCountTests : IDisposable
     public void Dispose() => _env.Dispose();
 
     [Fact]
-    public async Task InfoNamespacesAndListTypes_Agree()
+    public async Task Info_namespaces_and_list_types_agree()
     {
         var browse = new BrowseTools(_env.Workspace, _env.References, _env.Pager);
         var expected = _env.Workspace.Read(() => _env.Fixture.Module.GetTypes().Count(t => t.FullName != "<Module>"));
@@ -32,7 +32,7 @@ public class TypeCountTests : IDisposable
         Assert.StartsWith($"{expected} types", await browse.ListTypes(limit: 1));
         Assert.Equal(expected, _env.Workspace.Read(() => MetadataUtil.CountedTypes(_env.Fixture.Module).Count)); // list_assemblies, load_assembly
 
-        // per namespace: list_namespaces' count is what list_types lists for it
+        // Per namespace: list_namespaces' count is what list_types lists for it.
         var model = int.Parse(Regex.Match(namespaces, @"^  Fixture\.Model  \((\d+)\)", RegexOptions.Multiline).Groups[1].Value);
         Assert.StartsWith($"{model} types", await browse.ListTypes(@namespace: "Fixture.Model", limit: 1));
     }

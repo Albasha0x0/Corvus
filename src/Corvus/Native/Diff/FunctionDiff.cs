@@ -10,13 +10,7 @@ public sealed record DiffRow(string Op, uint? OldRva, uint? NewRva, string? OldT
 public sealed record FunctionDiffResult(IReadOnlyList<DiffRow> Rows, int Same, int Changed, int Removed, int Added, int OldInstructions, int NewInstructions,
     bool Truncated, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// Diffs the two functions of a <see cref="FunctionMatch"/>: both instruction lists aligned by shape
-/// (<see cref="InstructionAlignment"/>), each instruction rendered with build-independent operands so only logic changes
-/// show: branch targets inside the function as labels numbered by the old instruction they align with, calls and jumps
-/// to matched functions by the new build's name on both sides, string literals as their text, other data as the new
-/// build's address it maps to (<see cref="AddressMapper"/>). Not thread-safe.
-/// </summary>
+/// <summary>Diffs a matched function pair with build-independent operands, so only logic changes show; not thread-safe.</summary>
 public sealed class FunctionDiff(MatchResult match)
 {
     public const int MaxInstructions = 50_000;
@@ -40,8 +34,7 @@ public sealed class FunctionDiff(MatchResult match)
                 notes.Add($"the {side} function has {list.Count:N0} instructions; the first {MaxInstructions:N0} are compared");
                 list.RemoveRange(MaxInstructions, list.Count - MaxInstructions);
             }
-        // Shapes alone pair the wrong one of several identical calls; so align by shape, render, align the rendered text, pair
-        // what is left by shape within each gap, and render the new side again with the final labels.
+        // Shapes alone mispair identical calls: align shapes, then rendered text, then fill gaps by shape and render again.
         var oldTokens = olds.Select(i => i.Token).ToArray();
         var newTokens = news.Select(i => i.Token).ToArray();
         var map = InstructionAlignment.Align(oldTokens, newTokens, ct);
@@ -159,7 +152,8 @@ public sealed class FunctionDiff(MatchResult match)
             return "\"" + Regex.Replace(text.Length > 40 ? text[..40] + "…" : text, @"[\x00-\x1F\""]", m => $"\\x{(int)m.Value[0]:X2}") + "\"";
         }
         if (index.NameAt(rva) is { } named) return named;
-        if (rva == 0) return "__ImageBase"; // switch tables address their entries from the image base
+        // Switch tables address their entries from the image base.
+        if (rva == 0) return "__ImageBase";
         if (!old) return $"data_{rva:X}";
         if (_dataLabels.TryGetValue(rva, out var known)) return known;
         string labelText = _dataLabels.Count < MaxDataMaps && _mapper.Map(rva, ct).NewRva is { } mapped ? $"data_{mapped:X}" : $"old:data_{rva:X}";

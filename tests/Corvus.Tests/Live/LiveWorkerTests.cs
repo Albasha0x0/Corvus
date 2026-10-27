@@ -107,9 +107,7 @@ public sealed class LiveWorkerTests : IDisposable
             return _Device()
         """;
 
-    // The stand-in's script reports a stop from each point as it is set: a
-    // counted one, as the agent sends for a point with a hit limit, from thread
-    // 7, and a held one from thread 8.
+    // The stand-in reports a counted stop from thread 7 and a held stop from thread 8 as each point is set.
     private const string CountingFrida = """
         __version__ = "17.24.3"
 
@@ -155,9 +153,7 @@ public sealed class LiveWorkerTests : IDisposable
             return _Device()
         """;
 
-    // The stand-in holds thread 8 at the point set, and a resume posted for it
-    // starts the exit 0.2 s later: the exit status, then the process's end.
-    // An unload is recorded in unloaded.txt.
+    // The stand-in holds thread 8; a resume starts the exit 0.2 s later. Unloads go to unloaded.txt.
     private const string ExitingFrida = """
         import os
         import threading
@@ -361,9 +357,7 @@ public sealed class LiveWorkerTests : IDisposable
         }
     }
 
-    // The stand-in reports child 999999 when gating is enabled, 0.3 s late as on
-    // a busy runner, reaches a hold script's code at its load, and logs each
-    // attach, resume, unload and detach.
+    // The stand-in reports child 999999 0.3 s after gating, reaches a hold script at load, and logs each attach, resume, unload and detach.
     private const string StandInGate = """
         import os
         import time

@@ -1,7 +1,6 @@
-# Cuts a release from a clean main: bumps the version, checks the release notes, regenerates the generated docs, runs the
-# quick set, commits and tags. With -Push it pushes main and the tag, waits for release.yml, verifies every asset
-# (archives, MCP bundles, the NuGet tool package) against SHA256SUMS, sets the GitHub release body from the notes and
-# prints the manual channel checklist.
+# Cuts a release from a clean main: bumps the version, checks the notes, regenerates docs, runs the quick set, commits
+# and tags. -Push then pushes, waits for release.yml, verifies every asset against SHA256SUMS, sets the release body
+# from the notes and prints the manual channel checklist.
 # Usage:  ./release.ps1 -Version 1.2.0              # check (a full run passed on this history, -MaxBehind 50),
 #                                                   #   bump, quick set, commit, tag
 #         ./release.ps1 -Version 1.2.0 -Push        # ... then push, wait for the workflow and verify the release
@@ -45,19 +44,18 @@ $rids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)') | Fo
 if (-not $rids) { Fail "no rid entries in $workflow" }
 $assets = @($rids | ForEach-Object { if ($_ -like 'win-*') { "corvus-$_.zip" } else { "corvus-$_.tar.gz" } }) + 'SHA256SUMS'
 
-# MCP bundles for the targets marked bundle: true: the release archive under server/ plus mcpb/manifest.json for its platform.
+# MCP bundles for targets marked bundle: true: the archive under server/ plus mcpb/manifest.json.
 $bundleRids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)[^}\n]*bundle: true') | ForEach-Object { $_.Groups[1].Value }
 $assets += $bundleRids | ForEach-Object { "corvus-$_.mcpb" }
-# The NuGet .NET tool, attached to the release; the release workflow pushes it to nuget.org.
+# The .NET tool package; release.yml pushes it to nuget.org.
 $nupkg = "CorvusRE.$Version.nupkg"
 $assets += $nupkg
-# The full pass the release relied on: committed with the version bump, attached and attested by release.yml.
+# The full pass the release relies on: committed with the bump, attached and attested by release.yml.
 $testSummary = 'release/tests.json'
 $assets += 'corvus-tests.json'
 
-# The summary of the full pass at $passedAt (null: none was checked, $why says why), from what test.ps1 recorded in
-# $gitDir: the pass ledger, the run history, the family stamps and the last run. A fact not recorded is 'unknown';
-# tool names only, no paths.
+# Summary of the full pass at $passedAt (null: none checked, $why says why) from test.ps1's records in $gitDir.
+# A fact not recorded is 'unknown'; tool names only, no paths.
 function Get-TestSummary([string]$gitDir, [string]$passedAt, [string]$why) {
     $unknown = 'unknown'
     $summary = [ordered]@{
@@ -83,8 +81,8 @@ function Get-TestSummary([string]$gitDir, [string]$passedAt, [string]$why) {
         $summary.reusedEarlierPasses = $fields -contains 'reused'
     }
 
-    # Whole-suite runs in the history by commit and end time (the minute the ledger and the stamps record too); their
-    # class records give test counts. A family's stamp may come from a run that failed in another family.
+    # Runs matched by commit and end minute; their class records give test counts. A family's stamp may come from a
+    # run that failed in another family.
     $history = Join-Path $gitDir 'corvus-test-history.jsonl'
     $runs = @(if (Test-Path $history) {
         Select-String -Path $history -SimpleMatch '"kind":"run"' | ForEach-Object { $_.Line | ConvertFrom-Json } |
@@ -102,7 +100,7 @@ function Get-TestSummary([string]$gitDir, [string]$passedAt, [string]$why) {
         }
     }
 
-    # Families: the newest recorded pass of each test folder, with the test count of that run when the history has it.
+    # Newest recorded pass of each family, with its test count when the history has it.
     $stampsFile = Join-Path $gitDir 'corvus-family-stamps.json'
     if (Test-Path $stampsFile) {
         $stamps = Get-Content $stampsFile -Raw | ConvertFrom-Json -AsHashtable
@@ -128,8 +126,7 @@ function Get-TestSummary([string]$gitDir, [string]$passedAt, [string]$why) {
         })
     }
 
-    # Classes the pass left to the nightly runs, when the last run is the pass: host-only classes and the test host's
-    # tier, whose smoke tests run in the pass.
+    # Classes the pass left to the nightly runs, when the last run is the pass.
     $lastRun = Join-Path $gitDir 'corvus-last-run.json'
     if ((Test-Path $lastRun) -and ($last = Get-Content $lastRun -Raw | ConvertFrom-Json) -and $last.commit -and $passedAt.StartsWith($last.commit)) {
         $summary.deferred = [ordered]@{ reason = 'left to the nightly whole run and the test host tier run'; classes = @($last.deferred | Sort-Object) }
@@ -163,7 +160,7 @@ function New-Bundles([string]$dir) {
         try {
             if ($windows) { Expand-Archive $archive $server }
             else {
-                # .NET's reader keeps the entries' Unix modes, and any OS can run it (a tar on PATH may not read drive paths).
+                # .NET's reader keeps Unix modes on any OS; a tar on PATH may not read drive paths.
                 $gzip = [IO.Compression.GZipStream]::new([IO.File]::OpenRead($archive), [IO.Compression.CompressionMode]::Decompress)
                 try { [Formats.Tar.TarFile]::ExtractToDirectory($gzip, $server, $false) } finally { $gzip.Dispose() }
             }
@@ -227,10 +224,8 @@ if (-not $VerifyOnly) {
         if (git tag --list $tag) { Fail "tag $tag exists" }
         $null = Get-Notes
 
-        # The suite runs behind the work, never in front of a release: the pre-push hook starts a background full run on
-        # every push, the nightly run and ./test.ps1 -Full run it too. A release ships when a full pass is on this commit or
-        # an ancestor at most -MaxBehind commits back; a failure on this history after that pass stops it; families not
-        # yet verified on these inputs are named. The quick set after the bump still runs.
+        # A release needs a full pass at most -MaxBehind commits back and no failure after it on this history.
+        # Families not yet verified on these inputs are named.
         $gitDir = [IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())
         $result = Join-Path $gitDir 'corvus-background.result'
         $last = if (Test-Path $result) { (Get-Content $result -Raw).Trim() } else { '' }
@@ -262,8 +257,7 @@ if (-not $VerifyOnly) {
         $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
         if ($bumped -eq $csproj -and $csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") { Fail "no <Version> in $project" }
         [IO.File]::WriteAllText($project, $bumped)
-        # The MCP Registry entry packed into the .NET tool, the bundle manifest and the plugins name the same version
-        # (their tests check); the plugins also run that version of the .NET tool.
+        # The registry entry, bundle manifest and plugins name the same version; tests check.
         foreach ($file in 'src/Corvus/.mcp/server.json', 'mcpb/manifest.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.codex-plugin/plugin.json') {
             $path = Join-Path $root $file
             $text = [regex]::Replace((Get-Content $path -Raw), '"version": "[^"]+"', "`"version`": `"$Version`"")
@@ -292,7 +286,7 @@ if (-not $VerifyOnly) {
     }
     finally { Pop-Location }
 
-    # The workflow run for the tag's commit (an earlier run of a re-pushed tag has the same branch): wait for it, then for its end.
+    # Match the run by commit, not branch: a re-pushed tag has earlier runs on the same branch.
     $commit = git -C $root rev-parse "$tag^{commit}"
     $run = $null
     for ($i = 0; $i -lt 30 -and -not $run; $i++) {
@@ -329,7 +323,7 @@ $body = Join-Path $work 'notes.md'
 [IO.File]::WriteAllText($body, (Get-Notes) + "`n")
 Run 'gh' @('release', 'edit', $tag, '--repo', $Repo, '--notes-file', $body)
 
-# Post-release update: the previous release installed by install.sh in WSL with a throwaway HOME, then 'corvus update' to this one.
+# Update check: install the previous release in WSL with a throwaway HOME, then 'corvus update' to this one.
 $previous = git -C $root describe --tags --abbrev=0 "$tag^" 2>$null
 $distro = if ($env:CORVUS_RELEASE_WSL) { $env:CORVUS_RELEASE_WSL } else { 'Ubuntu' }
 if ($previous -and (Get-Command wsl -ErrorAction SilentlyContinue)) {

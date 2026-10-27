@@ -58,7 +58,7 @@ public sealed class JsEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void Next_build_manifest_routes()
+    public void A_Next_build_manifest_gives_its_routes()
     {
         var rows = Endpoints("""self.__BUILD_MANIFEST = { "/": ["a.js"], "/blog/[slug]": ["b.js"], sortedPages: [] };""");
         Assert.Equal(["ROUTE / [next]", "ROUTE /blog/[slug] [next]"], rows);
@@ -112,7 +112,7 @@ public sealed class JsEndpointsTests : IDisposable
     /// <summary>Endpoints of installed Electron apps' scripts: counts by client and time.</summary>
     [RequiresRealDataFact(RealData.ElectronApps)]
     [Trait("Speed", "Slow")]
-    public void Real_app_endpoints()
+    public void Real_app_scripts_give_endpoints_by_client()
     {
         foreach (var asar in Directory.EnumerateFiles(RealData.Path(RealData.ElectronApps), "app.asar", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 6 }))
         {

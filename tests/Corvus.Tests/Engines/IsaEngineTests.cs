@@ -5,11 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Every architecture of the ISA table on a real engine: fixtures built from IsaFixtures/calls.rs (build.ps1). Each must give
-/// the source's functions, a decompile, and exactly the source's call edges (_start → middle, classify; classify → middle,
-/// leaf; middle → leaf). A failing architecture is reported with the others, not in place of them.
-/// </summary>
+/// <summary>Every ISA-table architecture on a real engine gives the source's functions, a decompile and exactly its call edges; failures are reported together.</summary>
 [Trait("Speed", "Slow")]
 public sealed class IsaEngineTests(ITestOutputHelper output) : IDisposable
 {
@@ -17,11 +13,7 @@ public sealed class IsaEngineTests(ITestOutputHelper output) : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>
-    /// A fixture: file, raw arch and base (null for an ELF), the function addresses where the file has no symbols, the
-    /// local entry offset calls target (PPC64 ELFv2: past the TOC setup), whether IDA has a decompiler for it, and the
-    /// entry when it is not the image's own. An iNES file loads as the CPU view its reader writes.
-    /// </summary>
+    /// <summary>A fixture: file, arch and base, function addresses without symbols, call-target entry offset (PPC64 ELFv2), decompiler support and a non-image entry.</summary>
     public sealed record Fixture(string File, string? Arch = null, string? Base = null, IReadOnlyDictionary<string, ulong>? Addresses = null,
         uint LocalEntry = 0, bool IdaDecompiles = true, string? Entry = null);
 
@@ -96,7 +88,7 @@ public sealed class IsaEngineTests(ITestOutputHelper output) : IDisposable
             .ToDictionary(i => Convert.ToUInt64(i.GetProperty("address").GetString(), 16), i => i.GetProperty("name").GetString()!);
         var edges = f.Addresses == null ? Edges : Edges.Where(e => f.Addresses.ContainsKey(e.Key))
             .ToDictionary(e => e.Key, e => e.Value.Where(f.Addresses.ContainsKey).ToArray());
-        // the source's functions, by name (symbols) or at their addresses
+        // The source's functions, by name (symbols) or at their addresses.
         var names = f.Addresses ?? (await Symbols(server, image));
         foreach (var (name, address) in names)
             if (!functions.ContainsKey(address)) throw new Xunit.Sdk.XunitException($"{engine} has no function {name} at 0x{address:X}: {listed.Text}");
@@ -111,7 +103,7 @@ public sealed class IsaEngineTests(ITestOutputHelper output) : IDisposable
         foreach (var (caller, want) in edges)
         {
             var tree = await Call(server, "native_call_tree", new() { ["image"] = image, ["function"] = $"0x{names[caller]:X}", ["engine"] = engine, ["depth"] = 1 });
-            // the root's line, then its callees one level (two spaces) deeper
+            // The root's line, then its callees one level (two spaces) deeper.
             var rows = Regex.Matches(tree.Text, @"^( *)\S+\s+0x([0-9A-Fa-f]+)", RegexOptions.Multiline);
             var got = rows.Where(m => m.Groups[1].Length == rows[0].Groups[1].Length + 2)
                 .Select(m => Convert.ToUInt64(m.Groups[2].Value, 16))

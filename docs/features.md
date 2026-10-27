@@ -1,580 +1,521 @@
-# Features in detail
+# Features
 
-Everything Corvus does, tool by tool. The generated per-tool reference with every parameter is [tools.md](tools.md).
+What each of the 165 tools and 15 prompts reads or shows. Every parameter: [tools.md](tools.md).
 
 ## Built on
 
-Corvus is a reverse-engineering server for AI agents over the [Model Context Protocol](https://modelcontextprotocol.io).
-It decompiles, searches, cross-references and patches .NET assemblies (including Unity Mono, Il2Cpp, ReadyToRun
-and NativeAOT), and analyzes, diffs and patches native PE, ELF and Mach-O binaries with its own engine (x86, x64, ARM32,
-ARM64), with IDA or Ghidra as optional decompilers. No GUI, no admin rights and no network port.
+- Decompiler: ILSpy (`ICSharpCode.Decompiler`).
+- Metadata and patching: [dnlib](https://github.com/0xd4d/dnlib) and a `System.Reflection.Metadata` IL scanner.
+- C# patching: Roslyn.
+- .NET crash dumps: [ClrMD](https://github.com/microsoft/clrmd) with the dumped runtime's DAC, signature-checked first.
+- Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz).
+- JavaScript: [Acornima](https://github.com/adams85/acornima); source maps decoded by built-in code.
+- Transport: stdio, through the [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
+- Native code: Corvus's own engine (x86, x64, ARM32, ARM64); IDA or Ghidra optional.
 
-- **Decompiler:** the ILSpy engine (`ICSharpCode.Decompiler`).
-- **Metadata and patching:** [dnlib](https://github.com/0xd4d/dnlib), plus a fast `System.Reflection.Metadata` IL scanner.
-- **C# method patching:** Roslyn.
-- **.NET crash dumps:** [ClrMD](https://github.com/microsoft/clrmd) with the dumped runtime's own data access library (DAC), signature-checked before it loads.
-- **Archives:** [SharpCompress](https://github.com/adamhathcock/sharpcompress) reads tar, 7z, RAR, gzip, bzip2 and xz.
-- **JavaScript:** [Acornima](https://github.com/adams85/acornima) parses bundles for their module tables; source maps are decoded by built-in code.
-- **Transport:** stdio, using the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
+## MCP features
 
-## What it covers
+- Tools, prompts, resources and resource templates, argument completion, progress, cancellation.
+- Annotations: title and read-only, destructive, idempotent and open-world hints on every tool.
+- Resource updates: `resources/subscribe`, or `subscriptions/listen` on protocol version 2026-07-28.
+- Structured output for list, search and info tools.
+- Typed errors: `Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy ([errors.md](errors.md)).
+- Strict arguments: an undeclared parameter or unlisted value is `invalid_argument` naming the closest match.
+- Stale-server check: `server_status expectedCatalogDigest=...` and `corvus doctor`.
+- Size guard: each tool declares `anthropic/maxResultSizeChars`; larger results are kept for `read_result`.
+- Server instructions under 2,048 characters; details in the `guide` prompt.
 
-**MCP features:** 165 tools, 15 prompts, resources and resource templates, argument completion, progress notifications, cancellation.
-
-- **Annotations:** each tool has a title and read-only / destructive / idempotent / open-world annotations from one audited table (`src/Corvus/Mcp/Contract`).
-- **Resource updates:** subscribers get a notice after each workspace change, through `resources/subscribe` or, on protocol version 2026-07-28, the `resourceSubscriptions` of a `subscriptions/listen` stream.
-- **Structured output** for the list, search and info tools.
-- **Typed errors:** `Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](errors.md).
-- **Strict arguments:** an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets (`engine`, `kind`, `format`) are advertised as `enum`, and an unlisted value is `invalid_argument` with the closest one.
-- **Stale-server check:** `server_status expectedCatalogDigest=...`, `corvus doctor`.
-- **Response-size guard:** `read_result`; every tool declares `anthropic/maxResultSizeChars` so Claude Code keeps a default page in context instead of saving it to a file.
-- **Server instructions:** a core under 2,048 characters; details in the `guide` prompt.
-- **Workspace notices** (files reloaded from disk) at the top of the next tool result.
+## Tools
 
 | Area | Tools |
 |---|---|
-| Workspace | `save_session` / `load_session` (one JSON file: the session's files by path and SHA-256, unsaved .NET edits, native patches, user names and comments, notes, Il2Cpp builds (package, or metadata and binary), open minidumps; restored by SHA-256 with a per-item outcome and reason, here, on another machine, or onto another build with `targetBuild=other`; `dryRun` by default) · `load_assembly` (a file or folder, with progress; PE, ELF and Mach-O load as native images, `slice` picks a universal Mach-O's architecture; an Il2Cpp build folder or `global-metadata.dat` uses the built-in metadata reader: [Il2Cpp navigation](#il2cpp-navigation)) · `list_assemblies` (ids, versions, ReadyToRun / merged labels, unsaved edits; with `path`, the assemblies inside a container) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity with MVID and file SHA-256, TFM, counts; `view=references`: each reference and how it resolves; `view=metadata`: PE headers, metadata streams, table row counts, heap sizes, Il2Cpp detection, and every bad row (bad table, coded or heap index, with reason and file offset), method body that is not valid IL, and exception clause off instruction boundaries or out of range; `view=transforms`: each transformation layer (constants, proxies, control flow) with its state (restored, partial, unknown), sites and reasons, from a `simplify_methods` dry run that changes nothing; encoded bodies (not valid IL) and assemblies loaded from bytes or resolve handlers, counted as present; each layer names the identified transformation tool whose evidence explains it) |
-| Browse | `list_namespaces` · `list_types` · `get_type_info` (outline with tokens, constants, hex enum values, IL sizes, Il2Cpp RVAs and offsets; `section=methods` and the other sections page one kind; a FieldRVA field shows its data: RVA, file offset checked against the bytes, SHA-256, the methods reading it, elements decoded as the type they are read as, hex rows: [showcase](showcase/fieldrva-table.md)) · `get_type_hierarchy` · `get_attributes` (on a type, member, parameter, return value, assembly or module; arguments decoded with enums and `[Flags]` combinations by name, also as typed `{type, value, name}` records; `format=csharp` decompiles the assembly attributes: [showcase](showcase/attribute-arguments.md)) · `resolve_symbol`. Lists page by rows (`offset`, `limit`, `maxTokens`), with `nextOffset` in the text and the record |
-| Decompile | `decompile_member` (a whole type, or a member with its overloads; async, iterators and lambdas folded back; `simplified=true` shows the code after `simplify_methods` without editing; `provenance=true` adds token, IL hashes, file SHA-256 and MVID) · `get_il` (tokens, offsets, structured EH, a normalized IL hash and the raw IL SHA-256 per method: [docs/il-hash.md](il-hash.md); `source=true` adds the Portable PDB's source lines (embedded, or beside it with a matching id) at their IL offsets, with local names and SourceLink URLs: [showcase](showcase/source-lines.md)) · `export_project` (an assembly to a .csproj that builds: [Exported projects](#exported-projects); written whole or not at all, `overwrite=true` replaces a previous export; reports progress and failed types; an `.apk` / `.aab` gives a Gradle project: manifest and resources decoded at their canonical paths, the resource table as values XML, assets, `jniLibs`, Java through JADX when configured, else smali) |
-| Search | `search_symbols` (substring, wildcard or regex) · `search_strings` (paged; for Il2Cpp dummy assemblies, whose bodies are empty, the build's literals: [Il2Cpp string literals](#il2cpp-string-literals)) · `search_constants` (IL literals, const and enum values, attribute arguments, and static array data such as S-boxes, CRC and crypto tables, read element by element as the array's type) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
-| Cross-references | `find_references` (methods, including calls through base / interface methods and static delegate fields; fields by read / write / address; properties; events; types in every position; `kind=overrides`: overrides and implementations; rows reached through a base declaration have `basis=derived`) · `find_callees`. These and the call-graph tools also take framework symbols the loaded code uses (`System.IDisposable::Dispose`) |
-| Call graph | `get_call_tree` (callers or callees N levels deep, one row per node in tree order; repeats, recursion and virtual dispatch marked) · `find_call_paths` (shortest call chains from a method or from entry points to a target; direct calls preferred, virtual hops marked, `directOnly=true` for direct calls only; also into native code: through native callers across loaded images, imports, RTTI virtual calls and resolved function pointers, from native roots or managed methods through P/Invoke, each step with its call site and edge kind) |
-| Compare builds | `compare_assemblies` (added, removed and renamed types, members and events; per matched member: rename, signature, body by normalized IL hash, flags and attributes, field offset and RVA; members matched in tiers, unique only, ambiguous ones listed with candidates; methods moved to another type paired by identical body; members that cannot be judged (invalid IL, unreadable signatures) marked unknown, not removed or added; IL fingerprints, string literals and constants pair rebuilds whose every name changed; `tokenMap=true` keeps the full old → new token map as a result that `read_result outputPath=` writes as JSON; capabilities added or removed: the `survey_features` rules and kept capa labels one build has and the other lacks, and with the malcontent rule pack installed (`corvus rules fetch malcontent`) its behaviours (rule file paths such as `net/http/request`, highest risk first), in `changes`; `compare_native_images` reports both too) · `find_counterpart` (where a type or member went in the new build, with tier and confidence; `diff=true` / `il=true` add a unified diff of the pair's C# / normalized IL with the new build's renames applied first, so a pure rename is no change; for a type, each changed, added or removed member) · `compare_folders` (two folders, zip-family packages or files, entry by entry: modified, added, removed, moved by content (ambiguous moves listed), case-only renames; links reported, not followed; locked files unreadable; archives compared by central-directory CRC-32 and size without reading entries; an incomplete side is never reported unchanged; changed binaries with MVID, assembly and file version, machine, timestamp and a next call; inline diffs of small text files, or `noDiffs=true` to only list them; inventories cached so paging does not re-hash; two package archives (`.tgz`, `.whl`, `.vsix`, `.crx`, `.xpi`) or two folders with a package manifest also get the review findings added or removed between the versions, and the endpoints their code names, native files, permissions and what runs on open, checkout or build, in `changes`, led by a one-line policy summary in the notes) |
-| Resources | `list_resources` (SHA-256 and file offsets; Win32 rows with file ranges, icon groups paired with their RT_ICON entries, icon and bitmap headers decoded) · `get_resource` (text, hex, `.resources` entries, WPF `.baml` as XAML with each event handler (`Click`, `EventSetter`) joined to its code-behind method and token: all 391 handlers that six WPF programs' Connect methods hook up resolve, and their 184 BAML entries parse; `outputPath` extracts to disk) |
-| Containers | `unpack_container` (extracts and loads the assemblies, each labelled ReadyToRun / merged, from single-file bundles, Costura, NuGet, Xamarin / MAUI APKs, embedded images; gives every file of Electron `.asar` (integrity checked), Unity WebGL `.data`, HAR and mitmproxy captures; a pcap / pcapng's HTTP/1.x, HTTP/2 and HTTP/3 objects and TCP streams, TLS and QUIC decrypted with `keyLog`; archives and firmware, JavaScript bundles and source maps: [Extracting containers](#extracting-containers)) · `search_container` (types and members by name across every assembly in a container, without extracting; capped, with a truncation flag; other `kind=` values search files: see [Extracting containers](#extracting-containers)) |
-| JavaScript | `analyze_js` (a `.js` file's bundler (webpack, esbuild, Vite, Parcel, Metro...), module table, one module's code, string and name search, reverse requires, webpack runtime, endpoints and routes, secrets, data flow, two-build diff, readable layout with bindings renamed by scope, source maps, React Native Hermes bytecode and HarmonyOS Ark bytecode: see [JavaScript](#javascript-analyze_js) below) |
-| File inspection | `summarize_file` (one report: hashes, identity, strong name and Authenticode with digest check, toolchain markers, container wrapping, features, typed strings, entry points; opens containers; Electron executables and `.asar` add Electron / Chromium / Node versions, fuses, archive integrity, the `package.json` main entry and `webPreferences` values with file:line; a loaded native image adds triage: top functions by references with a thunk / wrapper / leaf / dispatcher / complex role, top strings, import groups, entry points, roots and leaves) · `survey_features` (rule-based capabilities over APIs, P/Invoke imports and strings, with evidence; MASVS findings for Android and Apple apps at method and offset) · `extract_strings` (URLs, domains, IPs, paths, registry keys, mutexes, user agents, crypto keys; Unity asset field values; JSON / CSV export) · `extract_embedded` (resources, static arrays and strings decoded through base64 / hex / gzip / deflate / XOR). See [File inspection](#file-inspection) |
-| Unity builds | `unity_overview` (one structured call over a build folder, an .apk / .ipa or a zipped build in place, and WebGL builds through their .data and .wasm: engine version per source, scripting backend (`il2cpp` / `mono`) with evidence, metadata state (`readable`, `encrypted`, `header_tampered`, ...), toolchain and middleware markers (optional Detect It Easy: `detectItEasy=true`), platform and architecture, and the next tool calls with arguments) |
-| Android packages (`.apk`, `.aab`, `.apks` / `.xapk` / `.apkm`; read natively, any host) | `get_android_manifest` (package, versions, SDKs; permissions incl. `-sdk-23` and `maxSdkVersion`, declared permissions with protection levels; application flags with the network security config file; every component with explicit and effective exported state and the reason, permissions, intent filters, launcher, deep links, meta-data; queries; highlights) · `list_android_resources` (every resource and configuration: id, type, name, qualifiers, typed value; styles, arrays, plurals) · `get_android_resource` (an entry with binary XML decoded and references named, or `@type/name` values per configuration; `savePath` writes it) |
-| Android DEX | `list_dex_classes` (every class of every `classes*.dex`, inner classes included) · `get_dex_class` (fields with static values, methods with exact ids `Lpkg/C;->m(I)V` so overloads never collide, Java signatures, annotations, Kotlin `@Metadata`, inner classes, parameter names) · `disassemble_dex` (smali of one method (never all overloads at once) or a class, in baksmali's layout with resolved operands, line numbers, try / catch and data; `format=annotated` adds offsets and code units; `format=simplified` adds the string each decoder call returns: see [Android string decoders](#android-string-decoders); a jar or `.class` gives the `javap -c -p` listing, read in-process and equal to javap on 19,937 classes of six jars) |
-| Android Java | `decompile_java` (Java / Kotlin source of a class or one exact overload through the JADX headless server, one session per package kept loaded; smali where JADX fails; output cached on disk by package SHA-256 and class, so a later server answers in under 50 ms without Java; `engine=vineflower` gives Vineflower's source of a jar or `.class` class beside JADX's) · `search_dex` (strings loaded by code with each use, and the strings decoder calls return, labelled recovered with decoder and call site; types, members with use counts, constants, opcodes) · `find_dex_references` (callers, field readers and writers, class and string uses, or what a method calls and touches, each with method and code offset) |
-| Android bindings | `map_java_dotnet` (Xamarin / .NET for Android: a Java wrapper class or method to its .NET type or method and back, crc64 wrapper names computed as the build does, methods through `[Register]` or the registered method they override; `get_android_manifest` names each component's .NET type; Unity Mono: the C# that reaches a Java class or member through `AndroidJavaClass` / `AndroidJavaObject`, `AndroidJavaProxy` or `AndroidJNI`, matched to exact DEX ids with a confidence) · `list_jni_bindings` (Java native methods paired with their code in `lib/<abi>/*.so`: `Java_` exports by JNI name mangling, overloads included, and `RegisterNatives` tables found in the libraries' data with their class from the `FindClass` string; unbound methods and stray exports listed). R8 / ProGuard names, `summarize_file` on a package and `view=layers`: see [Android packages](#android-packages) |
-| Android devices (adb from `CORVUS_ADB`, `PATH` or the SDK) | `list_android_devices` · `get_android_device_info` (read only; properties with an SDK / ABI / fingerprint summary and emulator evidence; `view=` processes, features, services, settings or the files of a directory; `view=screen` writes a screenshot PNG with its size; `view=window` the focused app and activity, resolved to its DEX class in a package already read; `view=display` sizes, density and display devices; `view=bugreport` streams a bugreport zip into a new or empty directory under a byte budget) · `list_android_packages` · `get_android_package_info` (versions, paths, ABI, flags, every permission with its install or runtime grant state) · `pull_android_package` (base and split APKs into a new or empty directory with SHA-256, then read like `summarize_file`) · `pull_android_file` · `read_android_log` (logcat by process, tag, priority and time, cut at a byte budget with `truncated=true`) · `install_android_package` (APK, split set or directory) · `uninstall_android_package`; the last two change the device and are off unless the server runs with `--allow-device-changes` |
-| Il2Cpp | `get_il2cpp_info` (RVA, VA, file offset, slots, field offsets, tokens; a method's function bounds, shared code, generic instantiations and string literals; a type's metadata slots and vtable) · `find_method_by_address` (the methods at or containing an IDA / Ghidra address): see [Il2Cpp navigation](#il2cpp-navigation) · `export_il2cpp_symbols` (IDA / Ghidra scripts with names and prototypes, a C header with struct layouts, JSON) |
-| Native bindings | `generate_cpp_binding` (C++ binding for a type in a Mono or Il2Cpp application: class lookup, field offsets, exact-overload method lookups, typed accessors, invoke wrappers; generic definitions as C++ templates. Styles: `mono` (Mono embedding API), `il2cpp` (Il2Cpp runtime exports, with each method's code pointer), `hostapi` (a host function table found in `projectDir`); without `style` it is picked from the project, and the header's first line says which and why) |
-| Patch (in memory, `dryRun` on all) | `rename_symbol` · `rename_namespace` · `stub_method` · `patch_method_csharp` (new body in C#: lambdas, async, `yield`, LINQ, private members accessible) · `add_members_csharp` · `add_types_csharp` · `patch_method_il` (IL assembler that accepts edited `get_il` output; replace or prepend) · `simplify_methods` (for transformed code: string-decoder calls run in a sandboxed IL interpreter and become literals; constant branches, dead code and flattened control flow cleaned up; forwarders and delegate-field call proxies call their real target; every result stack-verified; whatever is left alone is reported with a reason code: [docs/simplify.md](simplify.md)) · `save_assembly` (atomic write; an existing file is replaced only with `overwrite=true`, the loaded file only with `replaceOriginal=true` behind `--allow-replace-original`, keeping a `.bak`; `versioned=true` writes the next numbered copy; untouched bodies and signatures kept byte for byte and the written image checked against the original: [docs/saving.md](saving.md)) |
-| Edit history | `list_edits` · `diff_edits` (before/after decompiled C# of pending edits) · `undo_edit` · `revert_edits` · `export_edits` / `apply_edits` (replayable JSON edit scripts to re-apply a patch set to a new build; a dry run applies and compiles every edit, then rolls back). Unsaved .NET edits and native patches are journaled per user after every change; loading a file whose last session ended unsaved names the journal to replay (`apply_edits`, or `migrate_native_patches` with the same image twice) |
-| Notes | `record_note` (a finding, question, hypothesis or todo anchored to a native address, .NET member, file or dump; kept per user by file SHA-256 / module MVID across sessions and server processes; native notes show in IDA as marked positions and in Ghidra as bookmarks of category Corvus; evidence entries name a tool call with its result's SHA-256 so a check can re-run it, or link a saved record (a kept result or `last:N`) that supports or refutes the note) · `update_note` (partial update guarded by the note's revision; a conflict returns the current note; `verify=true` re-checks the linked records as `read_result format=verify` does, session observations included: a hypothesis turns confirmed or refuted when they verify and name its anchor, else stays open, each record's verdict kept) · `list_notes` (by status, kind, anchor, tag and text; an address lists its function's notes) |
+| Workspace | `load_assembly`: load a file or folder: .NET, PE, ELF, Mach-O, metadata builds |
+| | `list_assemblies`: loaded ids, versions and flags; with a path, the assemblies inside a container |
+| | `unload_assembly`: remove an assembly or close a dump |
+| | `reload_assembly`: re-read an assembly from disk |
+| | `add_search_directory`: add a folder for resolving references |
+| | `get_assembly_info`: identity, references, metadata tables, bad rows, transformation layers |
+| | `save_session`: write files, edits, patches, names and notes to one JSON file |
+| | `load_session`: restore by SHA-256, here or on another build (`targetBuild=other`); `dryRun` by default |
+| Browse | `list_namespaces`: namespaces with type counts |
+| | `list_types`: types by namespace, name and kind |
+| | `get_type_info`: outline of a type without decompiling; FieldRVA data decoded |
+| | `get_type_hierarchy`: bases, interfaces and derived types |
+| | `get_attributes`: custom attributes with decoded arguments |
+| | `resolve_symbol`: every match of a symbol string or token |
+| Decompile | `decompile_member`: C# of a type or member; state machines and lambdas folded back |
+| | `get_il`: IL with tokens, offsets, normalized IL hash ([il-hash.md](il-hash.md)) and source lines |
+| | `export_project`: an assembly as a buildable C# project; a package as a Gradle project |
+| | `decompile_native`: pseudocode of a native function through IDA or Ghidra |
+| | `search_decompiled`: regex over the pseudocode of every function |
+| Search | `search_symbols`: types and members by substring, wildcard or regex |
+| | `search_strings`: string literals with the method and IL offset using each |
+| | `search_constants`: numbers in IL, constants, attributes and static arrays |
+| | `search_il`: IL instruction-sequence patterns with wildcards |
+| Cross-references | `find_references`: every use of a method, field, property, event or type |
+| | `find_callees`: what a method calls, reads, writes and creates |
+| Call graph | `get_call_tree`: callers or callees several levels deep |
+| | `find_call_paths`: shortest call chains to a method, into native code too |
+| Compare builds | `compare_assemblies`: renamed, moved, added, removed and changed members of two builds |
+| | `find_counterpart`: where a type or member went in the new build |
+| | `compare_folders`: two folders, packages or files, entry by entry; links not followed |
+| Resources | `list_resources`: managed and Win32 resources with SHA-256 and offsets |
+| | `get_resource`: read or extract a resource; BAML as XAML |
+| Containers | `unpack_container`: extract and load what a container holds ([containers](#containers)) |
+| | `search_container`: search a container's assemblies or files without extracting |
+| JavaScript | `analyze_js`: bundle modules, endpoints, data flow, source maps, Hermes and Ark bytecode |
+| File inspection | `summarize_file`: one report on any file: hashes, identity, signature, contents ([views](#summarize_file-views)) |
+| | `survey_features`: capabilities from APIs, imports, strings and constants, with evidence |
+| | `extract_strings`: typed values: URLs, IPs, paths, registry keys, keys |
+| | `extract_embedded`: embedded content decoded until a known format appears |
+| Builds | `summarize_build`: a build folder's version, scripting backend, metadata state and next calls |
+| Android packages | `get_android_manifest`: the decoded manifest with effective component exposure |
+| | `list_android_resources`: every resource and configuration |
+| | `get_android_resource`: one entry, binary XML decoded |
+| Android DEX | `list_dex_classes`: classes of every DEX file |
+| | `get_dex_class`: one class with fields, methods and Kotlin metadata |
+| | `disassemble_dex`: smali of a method or class; decoded strings with format=simplified |
+| Android Java | `decompile_java`:Java source through JADX or Vineflower; smali where JADX fails; cached on disk |
+| | `search_dex`: strings, types, members, constants and opcodes in DEX code |
+| | `find_dex_references`: cross-references in DEX code |
+| Android bindings | `map_java_dotnet`: Java wrappers to .NET types and back |
+| | `list_jni_bindings`: Java native methods paired with their native code |
+| Android devices | `list_android_devices`: devices and emulators adb sees |
+| | `get_android_device_info`: properties, processes, screen, window, bugreport; read only |
+| | `list_android_packages`: installed packages |
+| | `get_android_package_info`: one package with permissions and grant state |
+| | `pull_android_package`: copy an installed package's APKs |
+| | `pull_android_file`: copy one device file |
+| | `read_android_log`: logcat by process, tag, priority and time |
+| | `install_android_package`: install an APK or split set (`--allow-device-changes`) |
+| | `uninstall_android_package`: remove an app (`--allow-device-changes`) |
+| Compiled metadata | `get_method_addresses`: addresses, vtable slots and field offsets of methods ([metadata](#compiled-metadata)) |
+| | `find_method_by_address`: the method or metadata slot at a native address |
+| | `export_method_symbols`: IDA and Ghidra scripts, a C header and JSON |
+| | `apply_metadata_names`: name a native binary's functions from its metadata |
+| | `generate_cpp_binding`: C++ binding code for a managed type |
+| .NET edits | `rename_symbol`: rename a type or member |
+| | `rename_namespace`: move a namespace's types |
+| | `stub_method`: replace a body with a constant return |
+| | `patch_method_csharp`: replace a body with C# ([patching](#patching)) |
+| | `add_members_csharp`: add C# members to a type |
+| | `add_types_csharp`: add C# types to an assembly |
+| | `patch_method_il`: rewrite a body from IL text |
+| | `simplify_methods`: fold string decoders in a sandboxed IL interpreter, clean control flow ([simplify.md](simplify.md)) |
+| | `save_assembly`: write a patched copy, verified against the original ([saving.md](saving.md)) |
+| Edit history | `list_edits`: unsaved edits in order |
+| | `diff_edits`: before and after C# of edited members |
+| | `undo_edit`: undo one edit |
+| | `revert_edits`: discard every edit |
+| | `export_edits`: an edit script bound to its build |
+| | `apply_edits`: replay an edit script, on a new build too |
+| Notes | `record_note`: a finding, question, hypothesis or todo kept per binary |
+| | `update_note`: change a note; verify its evidence |
+| | `list_notes`: notes by status, kind, anchor, tag and text |
+| Native overview | `get_pe_info`: headers, sections, mitigations, signature, anomalies of PE, ELF and Mach-O |
+| | `list_imports`: imports per library, bound to their exports |
+| | `list_exports`: exports with ordinals, forwarders and demangled names |
+| | `resolve_address`: what an address is: section, symbol, function, data, method |
+| | `get_engine_status`: IDA and Ghidra sessions of an image; never starts an engine |
+| Native code | `list_functions`: functions with names, sizes and flags |
+| | `list_globals`: named data outside code |
+| | `disassemble`: MASM disassembly of a function |
+| | `inspect_instruction`: operands, registers, flags, memory and flow per instruction |
+| | `search_instructions`: instructions by mnemonic, operand or value |
+| | `get_cfg`: basic blocks, edges and switch tables |
+| | `get_exception_info`: exception handling of a function |
+| Native references | `find_xrefs`: code and data references to an address |
+| | `native_call_tree`: callers or callees through thunks and imports |
+| | `get_call_arguments`: argument values at call sites |
+| | `trace_native_values`: a value traced to its sources or uses across functions |
+| | `resolve_call_targets`: targets of indirect calls with basis and confidence |
+| | `find_virtual_calls`: virtual calls resolved through RTTI or MethodTables |
+| Native functions | `analyze_native_function`: everything known about one function, in bounded sections |
+| | `trace_native_feature`: from a text or name to the code behind a behaviour |
+| | `find_similar_functions`: functions like a given one, ranked with evidence |
+| Native data | `search_native_strings`: strings referenced by code or data |
+| | `search_bytes`: byte patterns with wildcards and masks |
+| | `read_bytes`: bytes or typed values at an address |
+| | `convert_number`: a number in every base, width and byte order |
+| Symbols and types | `load_pdb`: PDB or DWARF names, types and source lines |
+| | `search_pdb_symbols`: symbols of the loaded debug information |
+| | `list_cpp_classes`: C++, Delphi and Free Pascal classes from RTTI and VMTs |
+| | `get_native_type`: layout of a native type, with field values |
+| | `get_nativeaot_info`: what NativeAOT metadata recovers (.NET 7-10) |
+| Emulate and script | `emulate_native`: emulate code, nothing run natively ([emulation](#emulation-emulate_native)) |
+| | `ida_python`: IDAPython in the image's IDA worker (`--ida-scripting`) |
+| | `ghidra_script`: a Ghidra script in the image's Ghidra worker (`--ghidra-scripting`) |
+| | `export_engine_database`: the engine database for the engine's GUI |
+| Engine types | `set_native_type`: set a function prototype or global type |
+| | `set_native_local`: rename or retype a pseudocode local |
+| | `get_native_frame`: stack frame and decompiler locals |
+| | `set_native_stack_var`: rename, retype, create or delete a stack variable |
+| | `declare_native_types`: declare or edit C types in the engine |
+| | `list_native_types`: browse the engine's types |
+| | `define_native`: make code, a function, data or undefined bytes |
+| | `reanalyze_native`: re-run the engine's auto-analysis |
+| | `set_native_operand`: set how an operand displays |
+| Native edits | `rename_native`: name an address |
+| | `comment_native`: comment an address |
+| | `export_native_annotations`: names and comments as IDA or Ghidra scripts, JSON or a header |
+| | `patch_bytes`: replace bytes in memory |
+| | `patch_asm`: assemble x86 or x64 code; unsafe sites refused with a reason; others use `patch_bytes` |
+| | `list_native_edits`: patches, names, comments and type edits |
+| | `undo_native_edit`: undo native edits |
+| | `export_native_patches`: patches as IDAPython, .dif, IPS or JSON |
+| | `save_native`: write a patched copy ([native-editing.md](native-editing.md)) |
+| New builds | `update_to_new_build`: carry names, types, patches and notes to a new build |
+| | `migrate_native_patches`: reapply patches where the original bytes match |
+| | `compare_native_images`: match functions of two native builds |
+| | `diff_function`: one function's changes between builds |
+| | `map_address_between_builds`: where an old address is in the new build |
+| | `migrate_native_names`: copy names to a new build, or from a static library |
+| | `make_code_pattern`: a rebuild-stable byte pattern for an address |
+| | `search_code_pattern`: find a byte pattern in loaded images |
+| .NET and native | `verify_native_imports`: check P/Invoke imports against library exports |
+| | `get_r2r_code`: ReadyToRun precompiled code of a method |
+| | `find_r2r_method`: the managed method at a ReadyToRun address |
+| Crash dumps | `open_minidump`: open a minidump, core dump or region set; DAC fetched only with `downloadDac=true` |
+| | `dump_stack`: a thread's call stack, managed frames named |
+| | `dump_heap`: .NET heap of a dump or session |
+| | `dump_object`: one .NET object with its fields |
+| | `read_dump_memory`: dump memory at an address |
+| | `symbolize_stack_text`: resolve crash text against the loaded build |
+| | `bucket_minidumps`: group dumps by crash signature |
+| Running programs | `inspect_process`: read-only view of a running Windows process; nothing written or suspended |
+| | `live_session`: attach (`--allow-live-attach`) or start (`--allow-live-spawn`); `--live-allow` limits targets |
+| | `live_break`: stop points with named stacks; managed DAC fetched only with `downloadDac=true` |
+| | `live_watch`: record calls with arguments and results |
+| | `live_read`: registers and memory of a held thread; YARA scan of memory (Windows, Linux) |
+| | `live_events`: page a session's events |
+| | `live_coverage`: code coverage of a run; compare two runs |
+| | `live_timeline`: files, registry keys, endpoints and processes a program opens (Windows) |
+| | `live_console`: scripted console run (Windows; `--allow-live-spawn`) |
+| | `live_script`: your own Frida script in the program (`--live-scripting`) |
+| Session | `server_status`: version, catalog digest, limits, engines, unusable tools |
+| | `read_result`: page, search or save a kept result; kept on disk 7 days |
 
-### JavaScript (`analyze_js`)
-
-- **Bundles:** module tables of webpack, esbuild, Browserify, Parcel, AMD, SystemJS, Metro and Rollup / Vite ES-module chunks (ids, original paths where kept, requires); search over strings and names with original positions; which modules require one.
-- **webpack runtime:** its require function under any name, module table, helpers, public path, chunk-loading global and pushed chunk ids, each chunk's file name folded from the chunk-filename function, and each async load with its chunks and the module required after.
-- **Endpoints and routes:** requests made through fetch, axios (with `axios.create` base URLs), XMLHttpRequest, jQuery, WebSocket, EventSource, sendBeacon, HTTP-client `get` / `post` and GraphQL operations, with constants and templates folded and URL wrapper functions followed to their callers; router tables of React Router, Vue Router, Angular and Next.js build manifests; original positions through the map. The same rows come from `search_container kind=endpoint` on a script, zip or `.asar`, joined to a capture.
-- **Secrets:** key-like literals by provider pattern, Firebase and AWS config objects, high-entropy values of secret-named variables; masked.
-- **Two builds compared** module by module: paired by original path, then a normalized syntax hash with module ids folded, then shared strings, then along the require graph; webpack id renumbering pairs as identical; changed modules with their string changes and, for one module, a token diff. `compare_folders` points modified scripts here.
-- **Data flow** on the syntax tree, `view=flow` forward and `view=origins` back, from a name, quoted literal, line:column, `sinks` / `sink:<kind>` or `module:<id>`. Followed: assignments and destructuring, arguments to parameters, returns to call sites, closures, object and class properties (private names too), webpack requires, exports and getters, promise chains (then, await, `new Promise` resolve), collection callbacks. Sinks: fetch, XMLHttpRequest, WebSocket, EventSource, sendBeacon, HTTP clients, child_process, fs, eval / Function, postMessage, Electron IPC, BrowserWindow and loadURL, shell, workers, dynamic import, DOM HTML. Each step has its line:column, module and original position; a network sink carries the `view=endpoints` row, an IPC sink its channel pairing from the app's Electron graph, a contextBridge method's parameters the page calls of it. Where the tree cannot follow (computed key or call, external module or global, unresolved caller) the flow ends in an explicit unknown. Breadth-first, each state once, within step, time and allocation budgets that mark a cut walk partial: pdf.js's 462 KB `openjpeg_nowasm_fallback.js` with every sink traced back and its literals and `Module` forward, parse included, takes 0.4 s and 24 MB allocated; `pdf.worker.mjs` (1.9 MB) 1.5 s.
-- **Hermes bytecode** (React Native, versions 59–96; a bundle or the one in an APK, AAB or `.ipa`), read in-process: header, function table, string table, Metro modules from the global code, a function disassembled (equal to hbcdump on versions 76, 83, 84, 89 and 96) or decompiled to structured JavaScript-like code with closures, nested functions and `dependencyMap` references named, and the users of a function or string.
-- **Ark bytecode** (HarmonyOS and OpenHarmony `.abc`, a file or the one in a `.hap`, `.hsp` or `.app`), read in-process: header and checksum, records with their fields, methods, a method disassembled with its literal arrays, method operands and try blocks (equal to ark_disasm from the OpenHarmony 5.1.0 SDK on every instruction of 16,823 functions), string and name search, and the users of a method or string.
-- **Readable layout:** `view=beautify` lays out a minified script or module one statement per line, with blocks and object literals indented and comments kept; semicolons the parser inserted are written out. `query` renames bindings by scope (`a=total`, or `a@line:column=total` where several share a name) and `auto` names minified ones from evidence: a require or import source, a constructor, a getter call, a destructured key, a callback position (`.then`, `.map`, `.reduce`, event listeners, Promise executors), a catch parameter, a loop counter. A rename that would shadow or capture another name is refused with the reason; script globals, exports and names a direct eval or `with` can reach stay fixed; shorthand properties, imports and exports keep their external names. `line` and `column` start the page at an original position. Checked on real scripts: each keeps its token sequence, and after renaming its bindings and their site counts.
-- **React components:** `view=react` lists the components of a compiled bundle with the hooks each calls and the components it renders, read from its element calls (`jsx`, `jsxs`, `createElement`): functions, `memo` and `forwardRef` wrappers, classes and Babel-compiled classes, named by declaration, binding or `displayName`; the React and ReactDOM versions; and how many element calls the components hold. `view=jsx` with `query=` a component name writes its element calls back as JSX. Checked on real bundles: at least 90 % of element calls held by components, versions equal to the version each bundle assigns.
-- **React Server Components payloads:** `summarize_file view=flight` reads a flight payload, from a raw response (Next.js `.rsc`, `text/x-component`) or from the `self.__next_f.push` chunks of a page: rows by tag, client module references with their chunk files and export, server action ids, resource hints, errors with their digest, and the element tree from row 0 with client components named by module and export. Length-prefixed text and binary rows are skipped by their length; a cut stream keeps the rows it holds and names the cut. Checked on a Next.js build: each prerendered page and its `.rsc` decode to the same rows, and every chunk file named exists in the build.
-- **Source maps:** inline, by `sourceMappingURL` or a sibling `.map`; a minified line:column mapped to the original source and name; original sources listed and paged from `sourcesContent`.
-
-### Android string decoders
-
-`disassemble_dex format=simplified` adds, after each call to a string decoder (a static method of the package returning a
-string, called with constants of the call's block), the string it returns or why it is not known.
-
-- **How:** a bounded Dalvik interpreter runs the decoder twice from its classes' static-initializer state and keeps a result only when both runs agree and no other code writes a static field it reads.
-- **Bounds:** 100,000 instructions per call (1,000,000 per static initializer), 1,000,000 array elements and string characters, call depth 8; a package-wide pass stops after 10 s (a later search continues it).
-- **Reasons a call is not folded:** not-constant, unsupported-call, unsupported-instruction, unsupported-value, mutable-static, cache-dependent, platform-dependent, instance-object, static-initializer, no-code, invalid-code, runtime-error; for a partial result, instruction-budget, memory-limit, call-depth.
-- **Checked:** 5 decoder shapes (XOR over a char array, base64 with a key, a reversing StringBuilder, a nested helper, a table the static initializer fills) fold to their strings; the refusal cases each name their reason.
-
-### Android packages
-
-- **`mapping=`** (an R8 / ProGuard `mapping.txt`) on `list_dex_classes`, `get_dex_class`, `search_dex`, `disassemble_dex` and `decompile_java` puts each class's and member's original name beside its id. Smali gets `# = original` comments; in Java the names go into the source, each identifier matched to its class, field or method by its place in the code and the references of the enclosing method; a name whose candidates disagree is kept and listed. Original names are accepted as input; the mapping is kept for later calls on the package; inlined frames are skipped and the count of entries found in the DEX is stated. Without a mapping, transformed classes are named from their Kotlin `@Metadata` or, as a marked hint, their source file attribute.
-- **`summarize_file`** on a package adds its runtimes with evidence (.NET for Android, Unity Il2Cpp / Mono, Flutter, React Native / Hermes, Kotlin / Java), ABIs, DEX files and the APK signature verdict.
-- **`view=layers`:** one graph of the package's code layers (DEX, native libraries, .NET, Il2Cpp, JS bundle, web code) with verified edges (JNI exports and RegisterNatives tables, `[Register]` and crc64 wrapper names, Unity Java calls by class, Il2Cpp metadata addresses, React Native module names, Cordova `exec()` services through config.xml, Capacitor plugin names and methods, R8-renamed annotations included) and coverage per edge kind; edges paged by offset and limit.
-
-**Resources:** `corvus://assemblies`, `corvus://assembly/{assembly}/info`, `corvus://assembly/{assembly}/type/{type}`
-(decompiled C#), `corvus://assembly/{assembly}/il/{symbol}`, `corvus://native/{image}/segments` (sections with exclusive
-ends and r/w/x), `corvus://native/{image}/entrypoints` (entry point, TLS callbacks, exports with ordinals),
-`corvus://native/{image}/type/{name}` (as `get_native_type`), `corvus://guide/{topic}` (the guide topics).
+**Resources:** `corvus://assemblies`, `corvus://assembly/{assembly}/info`, `corvus://assembly/{assembly}/type/{type}`,
+`corvus://assembly/{assembly}/il/{symbol}`, `corvus://native/{image}/segments`, `corvus://native/{image}/entrypoints`,
+`corvus://native/{image}/type/{name}`, `corvus://guide/{topic}`.
 
 **Prompts:** `analyze_assembly`, `find_feature`, `explain_type`, `plan_patch`, `map_native_address`, `analyze_native`,
-`trace_native_feature`, `find_api_usage`, `patch_native`, `compare_builds`, `triage_crash`, `investigate_feature` (a described behaviour traced to its code, with an evidence bundle and the unknowns), `check_reimplementation` (a native function emulated on chosen inputs against expected outputs), `guide` (one topic of the full guidance: `dotnet`, `native`, `il2cpp`, `containers`, `edits`, `builds`, `idapython`, `dumps`, `errors`), `getting_started`.
+`trace_native_feature`, `find_api_usage`, `patch_native`, `compare_builds`, `triage_crash`, `investigate_feature`,
+`check_reimplementation`, `guide` (topics: dotnet, native, aot, containers, edits, builds, idapython, dumps, errors),
+`getting_started`.
 
-**Completion:** assembly, native image and open dump ids, type names (full or short), file paths (binaries, dumps, or build folders and packages, by argument) and guide topics for prompt and resource-template arguments.
+**Completion:** assembly, image and dump ids, type names, file paths and guide topics.
 
-### Native images
+**Edits:** kept in memory until saved; .NET edit tools and native patches take `dryRun`. `save_assembly` replaces
+an existing file only with `overwrite=true`; both save tools replace the loaded file only with `replaceOriginal=true`
+behind `--allow-replace-original`, keeping a `.bak`.
 
-**What loads.** PE (`.exe`, `.dll`, `.sys`), ELF (`.so`, executables) and Mach-O (`.dylib`, executables, one slice of a
-universal file) load with `load_assembly`, or with any native tool given a path. x86, x64, ARM64 and 32-bit ARM /
-Thumb-2 are decoded by our own engine; other instruction sets go through IDA, else Ghidra, when installed, marked
-"(via IDA)" or "(via Ghidra)".
+**Running programs:** the session tools refuse every call until a `--allow-live*` switch is on, and need a Python with
+Frida's bindings ([live-inspection.md](live-inspection.md)).
 
-- **Headerless code** (firmware, a memory region): `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`, one entry per layout (`fw.bin[thumb@0x8000000]`), analyzed from its entry by our engine, and by IDA or Ghidra at the same base and processor (each layout keeps its own engine database). `summarize_file view=raw` names the instruction sets an unknown file (or each region no firmware signature claims) reads as and the load bases its pointers imply, each with its `load_assembly` call; `format=raw` without `arch` names them in its error. A Thumb image starting with a Cortex-M vector table, or an m68k image starting with its reset vectors, enters at its reset handler; on x86-16 and DOS MZ images, the handlers of near-pointer dispatch tables seed Ghidra.
-- **Import overrides** on `load_assembly` set how both engines import an image before their first analysis: `processor=` (IDA's `-p`, checked against its processor modules), `language=` and `compilerSpec=` (Ghidra's, checked against its `.ldefs`; the compiler spec also sets IDA's compiler), `seeds=` (functions, code and labels, named or not), `disableAnalyzers=`. Each set gets its own engine database beside the default one; `get_engine_status` and the provenance name it.
-- **Ghidra archives and projects:** a `.gzf` (from Ghidra or `export_engine_database`) loads the file it was made from, checked against its recorded SHA-256, and Ghidra opens the archive as the database without analyzing; a `.gpr` (with `program=` when it holds several) is read through a copy in the cache and opened the same way, the project left unchanged.
-- **A database open in IDA:** run `corvus_connect.py` (`corvus ida-script` writes it) in IDA 9 or newer and start Corvus with `CORVUS_IDA_CONNECT=1`; an image whose SHA-256 matches IDA's record of its input then reads and edits that database while the analyst works in it, with no local IDA install. The script serves 127.0.0.1 behind a token in a file only its user can read. Corvus never opens, rebases, saves, closes or deletes that database: a different base is refused, and a closed session only detaches.
+## Native images
 
-**Built in vs external.** Everything below is built in (PE parser, Iced disassembler, function discovery, MSVC
-RTTI / exception data / name demangling, PDB reader) unless marked. These need IDA (through idalib) or Ghidra (through a
-Java worker built on first use): `decompile_native`; `search_decompiled` (their pseudocode); `emulate_native` (Ghidra
-p-code; `engine=ours` is built in for x86, x64 and ARM64; `engine=speakeasy` uses speakeasy); `ida_python` / `ghidra_script`; `list_functions view=candidates`;
-and every `engine=ida|ghidra` mode. Reliability runs and their numbers: [docs/native-maturity.md](native-maturity.md);
-editing contract: [docs/native-editing.md](native-editing.md); engine databases (identity, reuse, invalidation, cold and
-warm times): [docs/engine-databases.md](engine-databases.md).
-
-| Area | Tools |
-|---|---|
-| Overview | `get_pe_info` (headers; mitigations, for ELF also CET IBT / shadow stack and BTI / PAC from the GNU property note; sections with entropy, PDB match, version resource, rich header, Authenticode, overlay, anything malformed; ELF program headers, soname, NDK note, build id, relocations; Mach-O slices, segments, libraries, fixups, code signature with its requirements as codesign prints them, entitlements, FairPlay encryption; capability groups from static imports; same answer with or without the code index) · `list_imports` (per DLL or library; `bind=true` resolves each to its export, `includeDynamic=true` adds GetProcAddress imports) · `list_exports` (ordinals, forwarders and re-exports, MSVC and Itanium names demangled) · `list_resources` / `get_resource` (Win32 resources decoded) · `resolve_address` (RVA / VA / file offset to section, symbol, function and offset, instruction boundary or data item, references by kind, import target, Il2Cpp method, the field of a PDB global) · `get_engine_status` (each IDA or Ghidra session of an image: opening with stage and elapsed time, or the engine's view: version, language, compiler, format, analysis complete or partial, warnings, function counts, entry points, input hashes, memory blocks, database, worker pid, unsaved edits; never starts an engine) |
-| Code | `list_functions` (names from user / PDB / NativeAOT metadata / Il2Cpp / IDA library recognition / exports / discovery, with size and flags; `view=candidates` lists code IDA or Ghidra decoded outside any function, most referenced first, for `define_native kind=function`) · `list_globals` (named data outside code from every name source, with PDB and user types and sizes; `engine=ida\|ghidra` adds the engine's defined data with type and value; paged) · `disassemble` (MASM with named calls, data and call arguments; NativeAOT string literals and vtable calls; warns at mid-instruction, data and bss addresses, renders strings, pointers and switch tables as data and resynchronizes, names the gaps between a function's blocks) |
-| Instructions | `inspect_instruction` (what an address is: instruction start, mid-instruction with the covering instruction, data item, bss; operands with base / index / scale / displacement and access, registers and flags read and written, flow with fallthrough, references, call arguments; built in for x86, x64, ARM64 (pre / post-index writeback, extends, ADRP pairs) and ARM32 / Thumb (shifted registers, register lists, IT blocks, literal loads, MOVW / MOVT pairs); other instruction sets through IDA or Ghidra) · `search_instructions` (mnemonic, operand and line regexes and an operand value over every function, one function or a range; paged within a scan budget; also over IDA's or Ghidra's listing) · `get_cfg` (blocks, edges, switch cases with values per target, default and bias, also through IDA; unresolved jumps with the reason) · `get_exception_info` (MSVC try blocks, unwind maps, SEH scopes, funclets, from x86 frames and x64 / ARM64 `.pdata`; ELF / Mach-O LSDA call sites, landing pads and caught types) |
-| References and calls | `find_xrefs` (code and data references, also across loaded images and through import slots, thunks and virtual calls; struct members `Type::member` through IDA or Ghidra) · `native_call_tree` (callers / callees across loaded images, P/Invoke and C++/CLI seams, RTTI virtual calls; `calls=all\|direct\|virtual`; `direction=both`: one level of callers and callees by call site with call / jump, direct / indirect, external and virtual flags) · `get_call_arguments` (recovered argument values per call site, each with its derivation) |
-| Values and call targets | `trace_native_values` (a value traced back to its sources or forward to its uses across functions: merges, loops, callers' arguments, callee returns, writers and readers of globals, API constants decoded; budgets with follow-up calls for what they leave out; `engine=ida` or `ghidra` takes each function's slice from Hex-Rays microcode or Ghidra p-code, falling back per function) · `resolve_call_targets` (targets of call sites with basis and confidence: imports, thunks, constant and GetProcAddress pointers, RTTI virtual calls, NativeAOT interface calls through their dispatch cells, writers of global function pointers, pointer tables, `deep=true` through callers; `scope=image` lists every unresolved indirect site with its reason; `engine=ida` or `ghidra` merges that engine's view) |
-| Functions and features | `analyze_native_function` (one function, or up to 16, in bounded sections: identity with xref counts, signature evidence, frame, callers with reachability, callees with targets and arguments, data, flow with loops, switches and cyclomatic complexity, annotations with the capa labels a survey kept; optional constants, parameter values from callers and pseudocode; `component=true` over several: internal calls, shared globals and strings, interface or internal; a failing section keeps the others) · `trace_native_feature` (from a text to the code behind a behaviour: matching strings, names, imports, exports and RTTI classes, their references through string interiors, pointer tables and import calls with arguments, functions ranked by evidence, hubs that reach several; failures per seed) · `find_similar_functions` (functions like a given one, ranked by score with evidence: instruction-shape similarity ignoring registers, addresses and constants, containment for inlined copies, CFG shape, shared strings, constants, imports and callees; identical and same-shape copies first; across every loaded image of the architecture with `scope=all`; `view=duplicates` groups same-shape bodies, `view=clusters` links near-duplicates image-wide through MinHash bands; sketches built once per code index) |
-| Strings and bytes | `search_native_strings` (also Il2Cpp and NativeAOT string literals; `engine=ida\|ghidra` adds unreferenced strings the engine defined, in its string types) · `search_bytes` (hex with `??` and nibble wildcards (`4?`), per-bit masks (`40&F8`, `mask=`), or text; up to 50 patterns a call without an engine; `memory=engine\|ida\|ghidra` searches the engine's loaded bytes and marks hits the loader fixed up) · `read_bytes` (hex dump, or `type=` values: integers in either byte order, floats, pointers with their target's name, string runs; uninitialized bytes as `??`) · `convert_number` (decimal, signed, hex, binary, octal, LE / BE bytes, ASCII and float views of a number at a width) |
-| Engine preference | `engine=auto\|ours\|ida\|ghidra` on `list_functions`, `disassemble`, `search_instructions`, `get_cfg`, `find_xrefs`, `native_call_tree`, `resolve_call_targets` and `trace_native_values` (server default `--engine` / `CORVUS_ENGINE`). `auto`: the first engine (IDA, then Ghidra) that has analyzed the image's bytes, open in this process or saved in the analysis cache, else ours; never depends on earlier calls. `ours`: the built-in index only. `ida` / `ghidra`: that engine's analysis, started or waited for (one image can have both). Our names win over the engine's, and RTTI virtual-call edges it lacks are added. `inspect_instruction` takes `auto\|ours\|ida\|ghidra`; its `auto` is the built-in decoder for x86, x64, ARM32 and ARM64, and IDA (else Ghidra) for other instruction sets. Every result names its engine. |
-| Symbols and classes | `load_pdb` (the matching PDB from beside the file, the CodeView path, symbol path or caches; for ELF and Mach-O, DWARF 2-5: see [Debug information](#debug-information-load_pdb); `download=true` from a symbol server, or debuginfod by build id; names saved per file hash and reapplied on later loads; `clear=true` removes them) · `search_pdb_symbols` · `list_cpp_classes` (RTTI classes, bases, vftables: MSVC on PE, Itanium typeinfo and vtables on ELF / Mach-O; Delphi (32- and 64-bit, 2009+ and earlier) and Free Pascal classes from their VMTs with parent chain, unit, instance size, virtual methods (named from TObject, the published method table or `Class.vmt_N`), published methods and published fields with their classes; `engine=ghidra` lists Ghidra's class namespaces, PDB classes too, with function counts and vftables, `namespaces=true` adds the other namespaces and libraries; `engine=ida` lists IDA's C++ structs with bases, vftable slots and Class:: function counts) |
-| Types and runtimes | `get_native_type` (a type's layout by name, id or typed address from the PDB, RTTI, Il2Cpp and the engine's types: fields with offsets, sizes and bit fields, padding, bases, vftable slots named, enums by value, function types; ambiguous names list their ids; `at=0x48` names the field at an offset, also through unions, arrays and pointers; an address in a PDB global gives its field path; `read=true` adds each field's value from the image's bytes, at a typed address or with a name at any address) · `find_virtual_calls` (virtual call sites resolved through RTTI; `crossCheck=true` compares with IDA, else Ghidra) · `apply_il2cpp_names` (Il2Cpp method names, string literals and metadata slots onto GameAssembly.dll, also pushed into IDA; saved and reapplied like PDB names) · `get_nativeaot_info` (a NativeAOT image's runtime version, sections, recovery stages, MethodTables, named method bodies, frozen strings, statics with their types, interface dispatch cells; .NET 7-10 in PE, ELF and Mach-O, 64- and 32-bit; its names apply on load as the nativeaot layer, below PDB names, and go into IDA, Ghidra and `export_native_annotations`). Node-API add-ons (`.node`) name their callbacks after the JavaScript names they register (`js_<name>`, `js_get_` / `js_set_`, `js_Class_member`), from the constant arguments of napi_create_function, napi_define_properties, napi_define_class and napi_module_register, as the napi layer. Dart AOT images (Dart 3.13 program snapshots: product, 64-bit, with or without the compressed pointers of Flutter's mobile builds) name their code from the snapshot's Function and Class objects as the VM prints them (`Ledger.balanceOf`, `new Ledger`, closures under their parent), as the dart layer; other layouts are reported as not read |
-| Decompile | `decompile_native` (Hex-Rays pseudocode through IDA's idalib worker, or Ghidra's decompiler through a Java worker (`CORVUS_GHIDRA_DIR`, a JDK); analysis cached per file hash; an IDA `.i64` beside the input made from the same bytes is used as a starting copy; our names, patches, Il2Cpp prototypes, RTTI class structs and PDB types are pushed in, so pseudocode shows real struct and member names; `functions=[...]` decompiles several in one request with a per-function deadline, deduplicated, keeping partial results; `callersOf=` the callers of a function by the engine's references; `engine=all` compares one function's pseudocode from each installed engine, in turn, one item per engine; `--prewarm ida\|ghidra\|auto` analyzes images in the background as they load) · `search_decompiled` (a regex over the pseudocode of every function or a filtered set, in batches sized to the decompiler pool, reusing earlier calls; stops at a function count, time budget or hit limit with a cursor to continue) |
-| Emulate and script | `emulate_native` (static emulation, nothing run natively: see [Emulation](#emulation-emulate_native)) · `ida_python` (IDAPython in the image's IDA worker, code or a script file, `persist=true` saves the database; off unless `--ida-scripting` / `CORVUS_IDA_SCRIPTING=1`) · `ghidra_script` (a Java GhidraScript in the image's Ghidra worker, or Python through PyGhidra when `CORVUS_GHIDRA_PYTHON` names a Python with it (the worker then starts under that Python); one transaction, rolled back on failure, saved after; off unless `--ghidra-scripting` / `CORVUS_GHIDRA_SCRIPTING=1`) · `export_engine_database` (the image's engine database with everything pushed into it, for the engine's GUI: a compressed `.i64` copy for IDA, a packed `.gzf` for Ghidra; Ghidra's own types alone as a `.h` header or `.gdt` archive) |
-| Engine types (IDA or Ghidra; edits saved per file hash, re-applied to a new database, exported and carried to new builds) | `set_native_type` (function prototypes and global types; user types win over recovered ones; `items` applies many in one request) · `set_native_local` (rename / retype a pseudocode local or argument, by name or stack offset; `inferStruct` (Ghidra) declares a struct from a pointer local's field accesses and types the local, carried to IDA as kept edits; `storage` moves an argument to a register, in IDA as a `__usercall` prototype, in Ghidra as custom storage, `auto` back) · `get_native_frame` (stack frame members and decompiler locals; several functions, comma-separated, in one engine request) · `set_native_stack_var` (rename / retype / create / delete a stack frame member; `items` edits many) · `declare_native_types` (C structs, unions, enums and typedefs, winning over recovered types of the same name; `typeName` with `members` adds, changes or removes enum members, with `fields` struct or union members (by name or offset; `+name@0x10: type` inserts and moves later members down); `resize` sets a struct's size, `nameGaps` names its unnamed gaps, each undone by `undo_native_edit`; `delete` and `rename` edit a named type, and a rename follows into the other edits) |
-| Engine types: browse, define, reanalyze | `list_native_types` (browse the database's types, one in full with member offsets; `related=true` names the types each refers to) · `define_native` (make code, a function (with its end), data (byte / word / dword / qword / float / double / string / string16 / a C type, with `[count]`) or undefined bytes at an address, or (Ghidra) clear or set an instruction's flow override and repair its function; replayed in order on a new database) · `reanalyze_native` (the engine's auto-analysis run again over the image or a range within a time budget, with analyzer options for that run; `analyzers=true` lists them with their values; also completes an analysis the open cut short) · `set_native_operand` (an operand as hex / dec / oct / bin / char, offset, stack variable, enum member or struct offset, or back to the default; Ghidra uses equates and references; `items` sets many) |
-| Edit (in memory, `dryRun` on patches) | `rename_native` · `comment_native` (kept per file hash across restarts) · `export_native_annotations` (IDA / Ghidra scripts, JSON, C header; the user's names over the NativeAOT and Il2Cpp layers; `format=objc-header` writes a Mach-O's Objective-C classes, protocols and categories in class-dump's layout and spellings, ivars, properties at their accessors with `@synthesize` / `@dynamic`, named structures, and its Swift types as comments; no macOS or class-dump needed) · `patch_bytes` · `patch_asm` (x86 / x64 only: MASM assembled at the address, relocation-correct under ASLR; other architectures are refused, pass their bytes to `patch_bytes`; `extend=true` moves code too large for its site into a relocation stub in a code cave or a new section; unsafe sites are refused with a reason code) · `list_native_edits` (patches and name layers; `search=` finds names and comments by text) · `undo_native_edit` · `export_native_patches` (IDAPython, IDA `.dif`, IPS / IPS32 or JSON, each reproducing `save_native`'s bytes) · `save_native` (patched copy, checksum recomputed, relocations re-checked, verified after writing; the loaded file is replaced only with `replaceOriginal=true` behind `--allow-replace-original`, keeping a `.bak`; `versioned=true` writes the next numbered copy). Contract: [docs/native-editing.md](native-editing.md) |
-| New builds | `update_to_new_build` (one call carries names, comments, PDB / Il2Cpp layers, byte patches, code patterns, notes and the Il2Cpp method mapping to a new build, with a reason code for whatever did not carry; for two .NET assemblies, notes on members follow `find_counterpart`; `dryRun` by default) · `migrate_native_patches` (byte patches reapplied only where the new build's original bytes match) · `compare_native_images` (function matches in tiers, unique only; capabilities added or removed, as for `compare_assemblies`; Mach-O builds report them not checked; `engine=ida` or `ghidra` instead compares the file with that engine's memory per section, naming each differing range patched, engine fixup, rebased relocation, zero fill, unknown or differs) · `diff_function` (one matched function's aligned instruction diff with build-independent operands: calls by matched name, branch targets as aligned labels, strings by text, data by mapped address; or a unified diff of both builds' IDA pseudocode) · `map_address_between_builds` · `migrate_native_names` (also from a static library or object file, COFF or ELF: each function names the start that holds its bytes, and a call to another name refuses it) · `make_code_pattern` (rebuild-stable IDA-style pattern; on ARM64 branch, ADRP and low-12 fields masked; `anchor=xrefs` makes one at every reference, IDA's included) · `search_code_pattern` |
-| .NET and native together | `verify_native_imports` (each `[DllImport]` checked against the real DLL's exports; Linux / macOS / Android / iOS targets on any host: `.so` / `.dylib` probed as .NET does along the RID chain, ELF / Mach-O exports, C++ mangled names, `__Internal` in an Il2Cpp binary, wrong_platform and arch_mismatch; verified / contradicted / unresolved / dynamic_only / not_checked with a reason code, plus run-time loading sites in the IL) · `get_r2r_code` / `find_r2r_method` (a method's ReadyToRun precompiled code, and the method at a native address) · the .NET call tools take native exports as symbols (`kernel32.dll!CreateFileW`) and follow P/Invokes into native code; mixed-mode C++/CLI assemblies also load as native images |
-| Crash dumps | `open_minidump` (Windows user-mode minidump: exception, faulting thread, instruction and registers, modules, threads; module files found by path, by name in `imageDirectories`, then by timestamp and size (renamed copies, loaded images, local symbol stores); for .NET (CoreCLR, single-file apps included, and .NET Framework, 64- and 32-bit) the managed exception with its inner chain, threads and heap state through the runtime's signature-checked DAC, found locally or downloaded only with `downloadDac=true`; a 32-bit dump is decoded by the bundled 32-bit decoder process, which checks the DAC's hash before loading it) · `dump_stack` (x64 unwind through `.pdata`, x86 frame pointers and the module PDB's frame data, ARM64 frame records and the link register; frames named from loaded images, PDBs and exports; .NET frames from the runtime's own walk with token, IL offset, the loaded assembly of that build and the C# statement at that IL offset; Mono JIT code named from the Mono runtime's report beside a Unity dump, whose managed exception `open_minidump` shows) |
-| Dump analysis | `dump_heap` (.NET heap statistics by type, or matching objects, bounded; of a dump, or of a session's running program without stopping it) · `dump_object` (a .NET object's fields, string or array elements, references expanded; of a dump or a session) · `read_dump_memory` · `symbolize_stack_text` (crash text without a dump: Unity Player.log / error.log backtraces, Mono and Il2Cpp managed lines, .NET exception text, WER Report.wer, Event Log 1000/1026, debugger stacks, Android tombstones; each frame resolved against the loaded build with a build check by time stamp, MVID, BuildId or name, and the C# statement at a frame's IL offset) · `bucket_minidumps` (a folder of dumps grouped by crash signature: exception code, faulting function and top frames, managed for .NET; offsets and versions per bucket, a representative dump each, incremental). ELF and Mach-O core dumps and region sets: see [Other dump files](#other-dump-files) |
-| WebAssembly | A `.wasm` module loads as a native image: see [WebAssembly](#webassembly) below. |
-| Live processes | `inspect_process` (read-only view of a running local Windows process: modules, memory regions, threads and call stacks with named addresses; `view=windows`: the UI Automation tree with each window's class procedure, the parent procedure a control notifies, and a window image; query and read handles only, nothing written or suspended: [docs/live-inspection.md](live-inspection.md)) · `live_session` (list local processes, attach to one with `--allow-live-attach`, or start one suspended with `--allow-live-spawn`, both limited to the programs `--live-allow` lists when set; modules matched to loaded images; `device=<adb serial>` opens the session on a program running on an Android device that runs frida-server (a device path, package, process name or pid), its modules' files pulled from the device when a frame or stop point needs them and matched to loaded images by GNU build id; with `childNames`, each child process the program starts is held at its start, listed by `action=children` and opened as its own session by `action=attach_child`; `inspect_process process=live-1` reads the same process; `program=inspector:PORT` attaches to a Node or Electron program's V8 inspector instead: stop points at original source lines through the scripts' source maps, paused frames named by original position, console output as events, and on an Electron main process `action=ipc`: each IPC route seen with its count and value shape, joined to the main and renderer code sites of the static IPC graph ([docs/live-inspection.md](live-inspection.md#v8-inspector)); `program=jdwp:PORT` attaches to a JVM's JDWP agent: every thread with its stack, stop points at `File.java:LINE`, including classes loaded later ([docs/live-inspection.md](live-inspection.md#jvm-jdwp)); `program=ttd:PATH` replays a TTD recording: stop points, watched calls, stacks and memory at each position ([docs/live-inspection.md](live-inspection.md#time-travel-recordings-ttd)); `action=snapshot` saves the process as a dump file (MiniDumpWriteDump, gcore or lldb) opened for the dump tools; a program emulated on ARM64 is refused, since the snapshot would hold the emulator's threads) · `live_break` (stop points by name, `module!export`, `name+0xN`, address, `file:line` or managed method (`Ns.Type::Method`), deferred until the module loads or the managed method is compiled; `continue` resumes held threads; the next stop with a named stack, managed frames named by the runtime (its DAC downloaded only with `live_session downloadDac=true`), and PDB or DWARF source lines; on a device, native frames named from the device's libraries (MiniDebugInfo included) and the held thread's Java frames from the thread dump ART writes on SIGQUIT, each joined to its DEX method and dex pc in the packages the class loaders list (for `disassemble_dex`) (Android 14 x86_64 emulator checked, Frida 17.24.3)) |
-| Live tracing | `live_watch` (every call of a function recorded with arguments and return value, decoded from the PDB or DWARF prototype or the known-API table with flags and enums by name; batched and rate-limited, over 100,000 calls a second) · `live_read` (memory at any address or in a module by name, as typed values, strings read to their terminator or 256-byte rows; a held thread's registers when asked; `rules=` scans the program's writable memory (heap, stacks, data sections) with YARA rules, each match at its address named through the images, from a capture deleted after the scan; Windows and Linux, not supported on macOS) · `live_events` (the session's event ring paged with a cursor, by kind, thread or watch) · `live_coverage` (code coverage of a run: which functions ran and how often, drawn on the static call graph as DOT; which managed methods ran, from the runtime; the functions unique to each of two runs) · `live_timeline` (Windows only: a timestamped event trace (ETW) of the files, registry keys, endpoints and child processes the program opens; paged with a cursor, each name counted in a report) · `live_console` (Windows only: a scripted console run under the pseudoconsole (ConPTY): send, wait, resize and delay steps, each step's outcome, the transcript paged with a cursor; needs `--allow-live-spawn`) · `live_script` (your own Frida script in the program, with `--live-scripting`). The session tools are off unless the server runs with `--allow-live-attach`, `--allow-live-spawn`, `--live-scripting` or `--allow-live`, and need a Python with Frida's bindings: [docs/live-inspection.md](live-inspection.md#sessions) |
-| Session | `server_status` (version and commit, program path with an `expectedExecutable` check, install kind, start time, negotiated protocol and client, tool catalog digest with an `expectedCatalogDigest` check, limits, toolsets, tools or modes that cannot work here with reason and fix, long-running tools, available engines and how to fix a missing one, IDA background-analysis state, open and total notes; sections for the budget, kept results, caches, the calls running (tool, time so far) and the latest 5 finished (tool, outcome, time), leftover calls and lock holders, worker processes, the run id and the `corvus.json` read) · `read_result` (a kept result by its content id `r-<12 hex>`, kept on disk 7 days across restarts: pages by `maxTokens`, `query` searches its lines, `format=json\|jsonl` gives the structured record, `outputPath` writes it whole and returns its SHA-256) |
+- PE, ELF and Mach-O (one slice of a universal file) load with `load_assembly`, or with any native tool given a path.
+- x86, x64, ARM64 and ARM32 / Thumb-2 are decoded by Corvus's engine; other instruction sets go through IDA, else
+  Ghidra, marked "(via IDA)" or "(via Ghidra)".
+- Headerless code: `load_assembly format=raw arch=x86|x64|arm|thumb|arm64 base=… entry=…`; `summarize_file view=raw`
+  suggests the instruction set and load base.
+- Import overrides on `load_assembly`: `processor=`, `language=`, `compilerSpec=`, `seeds=`, `disableAnalyzers=`; each
+  set gets its own engine database.
+- Ghidra `.gzf` archives (checked against their recorded SHA-256) and `.gpr` projects open as the database without
+  analysis; projects are left unchanged.
+- A database open in IDA: run `corvus_connect.py` (from `corvus ida-script`) in IDA 9+ and start Corvus with
+  `CORVUS_IDA_CONNECT=1`; no local IDA install is needed.
+  - The script serves 127.0.0.1 behind a token in a file only its user can read.
+  - Corvus never rebases, saves, closes or deletes that database; a different base is refused; a closed session only
+    detaches.
+- Need IDA (idalib) or Ghidra: `decompile_native`, `search_decompiled`, `ida_python`, `ghidra_script`,
+  `list_functions view=candidates`, the default `emulate_native` engine, and every `engine=ida|ghidra` mode.
+- Engine choice (`engine=auto|ours|ida|ghidra`, server default `--engine` / `CORVUS_ENGINE`): `auto` uses the first
+  engine that has analyzed the image (IDA, then Ghidra), else Corvus's index. Corvus's names win over the engine's.
+  Every result names its engine.
+- Node-API add-ons, Dart AOT snapshots (Dart 3.0-3.13) and NativeAOT images get names from their own metadata.
+- More: [native-maturity.md](native-maturity.md), [native-editing.md](native-editing.md),
+  [engine-databases.md](engine-databases.md).
 
 ### Debug information (`load_pdb`)
 
-For ELF and Mach-O, `load_pdb` reads DWARF 2-5 from the image itself, a separate `.debug` / `.dbg` file found by build id
-(`.build-id` trees, `CORVUS_DEBUG_DIRS`) or `.gnu_debuglink`, a dSYM bundle, or, without one, the object files a Mach-O
-debug map names; split units come from `.dwo` files or a `.dwp` package, and the names and types dwz moved into a
-supplementary file are followed. It is read by the server on any host (compressed sections, type units; a 1 GB debug file
-in about 50 MB of working set) into the same names, types and prototypes as a PDB, with source lines, inlined calls, and
-the parameters and locals in scope (with their register or frame slot) for `resolve_address`.
+- PE: the matching PDB from beside the file, the CodeView path, the symbol path or caches; `download=true` uses a
+  symbol server.
+- ELF and Mach-O: DWARF 2-5 from the image, a `.debug` file by build id (`CORVUS_DEBUG_DIRS`) or `.gnu_debuglink`, a
+  dSYM, `.dwo` / `.dwp`, or the object files of a Mach-O debug map; `download=true` uses debuginfod.
+- Gives names, types, prototypes, source lines, inlined calls, and the locals in scope at an address.
+- Read on any host.
+- Names are saved per file hash and reapplied on later loads; `clear=true` removes them.
 
 ### Emulation (`emulate_native`)
 
-- **Default (Ghidra p-code):** static emulation in Ghidra's emulator from a function or address, nothing run natively. Arguments by the calling convention, registers, memory writes, strings and buffers in a private scratch area. Calls step into the image or return `stubs=` values (`*=0` answers every call). Stops on return, a stop address, or an instruction or time budget; an unmodelled call or unmapped read is an error naming the address. Reports the return value, changed registers, written memory with decoded strings, reads and a trace.
-- **`engine=ours`:** the same request, report and stop reasons from the built-in emulator, with no engine installed: x86, x64 and ARM64 integer code (general registers, flags, string operations, 128-bit vector moves and the ARM64 population count). `auto` picks it when Ghidra is not available. Floating point, vector arithmetic, system calls and segment bases stop the run naming the instruction. Verified: clang 14 `-O2` output of nine routines (hashes, CRC, base64, sort, jump table, 64-bit multiply and divide) returns the same values on all three as computed in the test and as Ghidra 12.1.4; 400 random x64 integer sequences agree with the host processor on registers and defined flags.
-- **`engine=speakeasy`:** runs a whole PE from its entry point or `address`, or raw x86/x64 code from `address`, in speakeasy 2.0.0b9 (`CORVUS_EMULATOR`) in the worker host, with Windows APIs modelled and nothing run natively. Reports the API calls with arguments and return values, the files the program wrote (each saved), and its image, allocations and stack after the run as a region set `open_minidump` reads. An API the emulator does not model stops the run by name, keeping the calls before it as a partial result. Verified with speakeasy 2.0.0b9 on Windows: a built x86 and x64 program's 5 kernel32 calls listed in order, its written file saved, the decoded text at its allocation in the region set.
+- Default: Ghidra's p-code emulator from a function or address, in a private scratch area; nothing run natively.
+  - Stops on return, a stop address, or an instruction or time budget.
+  - Calls step into the image or return `stubs=` values; an unmodelled call stops the run naming the address.
+  - Reports the return value, changed registers, written memory with decoded strings and a trace.
+- `engine=ours`: built in, no engine needed; x86, x64 and ARM64 integer code. `auto` picks it without Ghidra.
+  - Floating point, vector arithmetic, system calls and segment bases stop the run naming the instruction.
+- `engine=speakeasy`: a whole PE or raw x86/x64 code in speakeasy 2.0.0b9 (`CORVUS_EMULATOR`) in the worker host,
+  Windows APIs modelled, nothing run natively.
+  - An unmodelled API stops the run by name, keeping the calls before it.
+  - Reports API calls, written files and memory as a region set `open_minidump` reads.
 
 ### Other dump files
 
-- **Linux and Android ELF core dumps** open through the same tools: threads and registers (x64, x86, ARM64, ARM, ppc64, s390x, riscv64), the signal, mapped modules matched to local files by GNU build id, process and auxv facts, `.eh_frame` CFI unwinding (DWARF expressions evaluated) with a frame-pointer or back-chain fallback, and memory reads. A .NET core's managed exception, `dump_heap` and `dump_object` go through Microsoft's signature-checked DAC for Linux targets, a Windows DLL this server loads only on Windows (`mscordaccore.dll` stored under the build id of `libcoreclr.so`), checked against the version of the runtime file in `imageDirectories`.
-- **macOS Mach-O core dumps** (lldb's `process save-core`, the kernel's): ARM64 and x86_64 threads, images from lldb's image list or dyld's dyld_all_image_infos matched to local files by UUID, stacks walked through the frame records.
-- **Region sets:** memory regions saved by any tool open as a dump through a `"format": 1` JSON manifest naming each region file with its base address and size (optionally the modules). Read through `open_minidump` views summary, modules and memory and `read_dump_memory` at the regions' addresses, with modules rebuilt from that memory. Threads and the exception read as unknown; overlapping regions are refused with both named; a missing region file reads as unknown for its range.
+- Linux and Android ELF core dumps: threads, registers, signal, modules matched by build id, CFI unwinding.
+  - .NET cores use Microsoft's signature-checked DAC for Linux targets, loaded only on Windows and checked against
+    the runtime file version in `imageDirectories`.
+- macOS Mach-O core dumps: ARM64 and x86_64 threads, images matched by UUID.
+- Region sets: memory region files listed in a `"format": 1` JSON manifest open as a dump; threads read as unknown.
+  - Overlapping regions are refused; a missing region file reads as unknown for its range.
 
 ### WebAssembly
 
-A `.wasm` module (not Webcil, which `unpack_container` converts) loads as a native image through the loader's format
-registry; addresses are file offsets, a function's is its body's. A component (component model binary) opens as its
-largest core module; `unpack_container` extracts each core module, nested components' too. Function names come from the
-name section, exports, imports and an Emscripten symbol map beside the module (`<name>.js.symbols`), else `func_<index>`.
-A 64 MB module is indexed in 1.6 s, with no size limit below 4 GiB.
+- A `.wasm` module loads as a native image; a component opens as its largest core module.
+- Webcil is not read as a module; `unpack_container` converts it.
+- Names from the name section, exports, imports and an Emscripten symbol map; no size limit below 4 GiB.
+- `disassemble`: WAT equal to `wasm2wat`.
+- `decompile_native`: a structured view without an engine; `engine=ghidra` answers unsupported unless
+  `CORVUS_GHIDRA_EXTENSIONS` names a WebAssembly extension.
+- `list_functions`, `find_xrefs`, `native_call_tree`, `get_cfg`, `inspect_instruction`, `search_native_strings`: the
+  module's own index, `call_indirect` edges included.
+- `compare_native_images`: imports, exports and functions paired by name, then body hash.
 
-- **`disassemble`:** the function's WAT, byte-equal to `wasm2wat` (WABT 1.0.42) on 23 modules, the runtime's three Emscripten builds among them.
-- **`decompile_native`:** a lifted view without an engine: the operand stack folded into expressions in evaluation order, labeled blocks and loops, typed memory accesses, calls by name, constants inside data segments annotated with their string. `engine=ghidra` asks Ghidra only when a WebAssembly language is installed: Ghidra 12.1.4 ships none, so it answers unsupported at once and names an extension in `CORVUS_GHIDRA_EXTENSIONS` as the next step.
-- **Index:** `list_functions`, `find_xrefs`, `native_call_tree`, `get_cfg`, `inspect_instruction` and `search_native_strings` read the module's own index: calls and tail calls to functions and imports, `call_indirect` edges to the table's functions of the same type, global reads and writes, function references, element-segment pointers, constant addresses inside data segments.
-- **`get_pe_info`:** counts, memories, tables, imports by module, custom sections and the validation verdict.
-- **`compare_native_images`:** imports and exports with their signatures (`view=interface`: added, removed, changed); every function paired by name, then by an identical body hash (function, global and type indexes hashed as names and signatures, so moved code keeps its hash), each pair marked identical, body changed or signature changed. The runtime's 9.0 and 10.0 builds: 8,631 of 8,689 functions paired, 4,446 identical.
+## Compiled metadata
 
-## Reliability
+Managed code compiled ahead of time to native code: a build folder, `global-metadata.dat` with `GameAssembly.dll`,
+`libil2cpp.so`, `GameAssembly.so`, `GameAssembly.dylib` or `UnityFramework`.
 
-| Concern | How it is handled |
+- `load_assembly` reads metadata versions 24-39 with the built-in reader; no external tool is needed.
+- Packages: `.apk`, `.xapk`, `.apks`, `.aab` (`slice=` picks the ABI), `.ipa` or `.app`.
+- Unreadable metadata is an error with a reason (`encrypted_or_transformed`, `unsupported_version`,
+  `binary_mismatch_or_transformed`, ...).
+- 32-bit ARM builds whose code registration is not found report `registration_not_found_armv7` or
+  `armv7_unreadable`; load the arm64-v8a build.
+- Encrypted metadata is not decrypted; `summarize_build` reports it; load a copy dumped from memory instead.
+- FairPlay-encrypted iOS binaries fail with `encrypted_fairplay`.
+- Metadata alone (no binary): types, methods, fields and string literals; no addresses or field offsets.
+- Folders of dummy assemblies with `[Address]` attributes also load.
+- With `script.json` beside them: every function start, generic instantiations and metadata slots are named.
+- With `stringliteral.json` or `script.json`: `search_strings` searches the build's literals; with an x64
+  `GameAssembly.dll`, each literal names the functions that load it.
+- `find_method_by_address` takes an RVA, VA or file offset (`kind=auto` guesses).
+- Reads are cached per user (`CORVUS_AOT_CACHE`).
+
+## Containers
+
+- `unpack_container` extracts the code inside a file and loads its assemblies (`extractOnly=true` only extracts).
+- It reads bytes only and never runs the file.
+- Nested containers open too, up to 4 levels deep.
+- `list_assemblies path=` lists a container's assemblies without writing anything.
+- `search_container` finds types and members by name across a container's assemblies: default 100 matches, up to
+  5,000.
+
+| Container | What comes out |
 |---|---|
-| Locked files | Assemblies are read into memory; files on disk are never locked. |
-| Concurrency | Reads share a lock; edits take it exclusively; a call cancelled while waiting for the lock returns at once. Stress-tested with interleaved readers and writers, and with 40 parallel MCP calls. |
-| Corrupt or transformed bodies | The IL scanner stops at invalid opcodes instead of throwing; `decompile_member` on a type falls back to member-by-member output with IL for the broken part. |
-| Post-processed metadata | Out-of-range names and coded indexes that some third-party toolchains leave are read leniently by dnlib but not by the decompiler; such assemblies are decompiled from a copy normalized by dnlib, with the same tokens, and the output says so. |
-| Invisible names | Names made of zero-width, bidi and control characters (U+202E reverses the rest of a line, U+001B starts a terminal escape sequence) are shown as `\uXXXX`, as the decompiler does; symbols are accepted back in that form. |
-| Huge output | Paged by estimated tokens per part (`offset` / `maxTokens`, `nextOffset` in both parts); pages come from a cache. A result with no natural order sends its head and is kept on disk (`CORVUS_RESULT_CACHE`) for `read_result` to page, search or export. `read_result format=evidence` writes a findings bundle: kept results or the session's latest calls (`last:N`) with tool, arguments, input SHA-256s, text and record. `format=verify` re-runs every call through the same pipeline and names each record whose input or content differs (also one entry, `bundle.json#r-…`, or a kept result; `against=` compares with another result without running anything). `compare_assemblies`, `compare_native_images` and `compare_folders` take `oldResult` / `newResult` (a kept result, `last:N` or a bundle entry of one tool) and compare items by key; an item absent from a side that holds one page is `unknown`, not removed or added. `diff_function` diffs two kept code results the same way, without the images. Each names the inputs it used. |
-| Files changing on disk | Watched: clean assemblies reload automatically; ones with unsaved edits are left alone and the agent is told. |
-| Slow first queries | Method bodies are indexed and the call graph built in the background after loading, in small chunks that never block edits. |
-| Runaway work | Each decompilation stops after `--timeout` (default 180 s; `export_project` 10×). A call to a tool not marked long-running ends with a retryable `timeout` error after twice `--timeout` (with its partial result when the tool kept one). MCP cancellation stops a call in flight or waiting for the workspace lock. |
-| Vague names | The symbol resolver accepts many spellings and tokens; ambiguity and misses return candidates. |
-| Unexpected exceptions | Returned as tool errors; the server keeps running. |
-| Files that crash a reader | `summarize_file`, the container listing, search and extraction, and dump reads parse in a worker process: a crash, stack overflow or memory exhaustion ends the worker, the call fails with a named error, and the server keeps answering. Results are byte for byte the same as in process; a warm worker adds under 1 ms to a small read. `--in-process-parsing` reads in the server instead. |
-| Invalid patches | IL is stack-validated, C# is compiled (errors point at your line), and nothing changes on failure. Patched assemblies are executed in the tests to prove the IL is valid at runtime. |
+| .NET single-file bundle | every manifest entry, compressed bundles inflated |
+| Costura.Fody | each embedded assembly |
+| NuGet (`.nupkg`), zip, `.vsix`, `.xap` | assemblies, deps files, nested packages |
+| Xamarin / MAUI `.apk` / `.aab` | assemblies from every store format, per ABI |
+| Java runtime image (`lib/modules`) | every resource, as `jimage extract` writes it |
+| Electron `.asar` | every file, integrity checked against the app's declared hash |
+| WebGL `.data` (UnityWebData) | every file with its role |
+| Godot `.pck` | every file, Godot 3 and 4 |
+| Qt resources (`.rcc` or compiled in) | every file, Qt 5 and 6 |
+| Flash SWF | tags, ActionScript blocks, images, sounds |
+| Unreal pak and IoStore | every file or chunk, decompressed; encrypted indexes named |
+| GameMaker data file | chunks, code entries, strings, textures, audio |
+| Lua 5.1-5.4 and LuaJIT 2.0/2.1 bytecode | functions with listings and strings |
+| Compiled AutoIt script | the script source, rebuilt for EA06 |
+| Frozen Python (PyInstaller, py2exe, cx_Freeze, Nuitka onefile) | modules as `.pyc`, the entry script, the Python version |
+| HAR, mitmproxy flows | one file per response body |
+| squashfs, cramfs, ext2/3/4, FAT, JFFS2, UBI, UBIFS | every file and link |
+| uImage, FIT, Android boot, TRX | kernels, ramdisks, device trees |
+| `.deb`, `.a`, `.rpm`, AppImage, snap, apk v3, Flatpak | package facts and every file |
+| Office OLE documents | streams, VBA source, Excel 4.0 macros, OLE packages |
+| PDF | embedded files, JavaScript, XFA forms; streams with `allFiles` |
+| `.lnk` | appended data |
+| OneNote `.one` | embedded files |
+| ISO / UDF, VHD / VHDX (NTFS, FAT, ext) | every file of each partition |
+| Apple `.dmg`, HFS+, APFS | every file; encrypted APFS volumes named |
+| `Assets.car` | renditions; bitmaps as PNG with `allFiles` |
+| `.cab`, `.msi` / `.msp` / `.mst` | files, custom action binaries and scripts |
+| Squirrel, WiX Burn, NSIS, Inno Setup, ClickOnce | installed files under their install paths |
+| Firmware image | each embedded filesystem, boot image and archive |
+| ESP32 flash image | bootloader, partition table, every partition |
+| iNES ROM | PRG and CHR banks, with the `format=raw` load call |
+| JavaScript bundle and source map | one file per module; the original source tree |
+| pcap / pcapng | HTTP objects and TCP streams ([captures](#captures)) |
+| anything else | .NET images carved from the raw bytes |
 
-Measured on a real Unity application (36 assemblies, 40,895 types, ~300k methods):
+Untrusted input:
 
-- Load all assemblies: 94 ms.
-- Decompile every one of its 23,327 application types concurrently: 40 s, with 0 failures.
-- First full string search: 2.7 s; repeat searches: 0.3 s.
-- Type cross-references across everything: 1.9 s.
-- Compare two builds of the main assembly (11k types): about 5 s.
-- Export IDA/Ghidra scripts and a C header for a whole Il2Cpp build (93k functions, 9k structs): 3.6 s; the header compiles with clang.
-- Il2Cpp string literals of one build (41k literals, 254 MB script.json, 216 MB GameAssembly.dll): indexed with every code
-  reference in 1.5 s on first use (42 MB kept, with the script.json index below); 98.7% of the literals are loaded by code, 97.3% by a dummy method.
-- Il2Cpp navigation index of the same build (288k function starts, 573k script.json methods, 38k metadata and 91k
-  MethodInfo slots): 0.9-1.4 s on first use, 27 MB kept (823k methods: 1.2-1.7 s, 34 MB); then about 1 ms per address
-  lookup. On 200 sampled addresses per kind, every function start, interior address, generic instantiation, literal,
-  metadata and MethodInfo slot is named correctly.
+- Output stays inside the output directory; `..`, rooted and drive parts are dropped; device names get a `_` prefix.
+- Runnable extensions (`.exe`, `.bat`, `.ps1`, `.lnk`, ...) get a `.bin` suffix; `.dll` is kept.
+- A corrupt entry is skipped with a note; a corrupt container fails with an error.
+- Limits: 512 MB per item, 4 GB and 20,000 files per extraction.
+- Default output: a folder under the temp directory named by the file and its SHA-256. A given directory must be new,
+  empty, or an earlier extract of the same file.
 
-## Il2Cpp navigation
+Labels:
 
-`load_assembly` on an Il2Cpp build folder or its `global-metadata.dat` (with `GameAssembly.dll` beside it) reads the
-metadata with the built-in reader (versions 24-39); no external dumper is needed. On a build with v31 metadata read from
-a memory dump, methods, RVAs, vtable slots, fields, field offsets and every `script.json` method match the reference
-dummy assemblies and `script.json` 100%. First read 15 s; reloads from the per-user cache `CORVUS_IL2CPP_CACHE` take 0.1 s.
-
-- **Errors:** unreadable metadata is an error with a reason (`encrypted_or_transformed`, `unsupported_version`, `binary_mismatch_or_transformed`, ...); unreadable items are listed by reason in the load report.
-- **Encrypted metadata** is not decrypted: `unity_overview` reports it (`encrypted`, `header_tampered`); the reader takes a decrypted copy dumped from the running program's memory.
-- **Mobile and Unix builds:** an `.apk` / `.xapk` / `.apks` / `.aab` (`libil2cpp.so` of one ABI, `slice=` picks it; only the binary, metadata and version files are extracted to the cache), an extracted Android package, an `.ipa` or iOS `.app` (`UnityFramework`; FairPlay-encrypted binaries fail with `encrypted_fairplay`), a macOS `.app` (`GameAssembly.dylib`) or a Linux build (`GameAssembly.so`).
-- **Code registration:** when the metadata search misses it, it is found from the module list (Unity 6 armeabi-v7a), or built from the module array the program fills at run time (Unity 2021.3 armeabi-v7a, 2023.2 Linux), with generic method bodies mapped from the pointer array found in the data. 32-bit ARM builds that still fail report `registration_not_found_armv7` / `armv7_unreadable` and point to the arm64-v8a build.
-
-**Metadata alone.** `global-metadata.dat` without its binary (pulled from a device, or dumped from memory) still gives the
-inventory as dummy assemblies: images, types with flags, nesting, value type or enum, generic parameters; methods with
-flags and parameter names; fields, properties, events and metadata tokens; every string literal for `search_strings`.
-Each Unity sub-version layout of the header version is tried; the first whose names and ranges read back consistently
-is kept. Types a signature names live in the binary, so they show as `TypeInBinary`, and there are no addresses or field
-offsets. On a v31 build (159 images, 31,540 types, 230,177 methods) the read takes 6 s and gives the same images, types,
-methods, fields and literals as the read with the binary. With the binary, each field also carries its custom attributes
-by type ([SerializeField], [SerializeReference], [HideInInspector] and the like, without arguments); a module whose
-attribute data did not read is listed in the load report and its fields carry none.
-
-Folders of dummy assemblies with `[Address]` attributes also load, as below.
-
-**Addresses.** With dummy assemblies alone, the known function starts are the dummy methods' `[Address]` RVAs;
-`find_method_by_address` then reports the preceding method as "probably inside", because generic instantiations (a third
-to a half of a build's functions) have no dummy method and can sit in between. With `script.json` in the dummy assembly
-folder or its parent, its `Addresses` and `ScriptMethod` entries give every function start, so a function ends where the
-next starts (or at the end of its section, when `GameAssembly.dll` is there too), and the address is named by:
-
-- the dummy methods starting there and the `script.json` names of the instantiations sharing the code (shared generic
-  bodies and identical code folding put over 30k methods on one function: a total, then `offset` / `limit`);
-- a string literal slot, a `ScriptMetadata` slot (`Ns.Type_TypeInfo` class pointer, `_var` type, `Field$` data) with
-  the dummy type it describes, or a `ScriptMetadataMethod` slot (`Method$Ns.Type.M()`) with the function it describes;
-- nothing, when the address is more than 0x40000 bytes past the last function start before it, or outside the
-  executable sections.
-
-`kind=auto` reads an address at or above the image base (from the `VA` values in `script.json`, or the binary's) as a
-VA, any other as an RVA, and as a file offset only when the RVA finds nothing; `kind` forces one reading.
-
-**Methods and types.** `get_il2cpp_info` gives a method's function bounds, how many methods share its code, its
-MethodInfo slot and, for a generic method or a method of a generic type, the `script.json` instantiations with their
-RVAs; a type's metadata slots (for a generic type, those of its instantiations); and with `slot=N` the method
-implementing vtable slot N (searching base types; `slot=all` lists the vtable). Names only `script.json` has are accepted
-as the symbol: `List`1<int>::Add`, `System.Collections.Generic.List<int>$$Add`, `List<System.Int32>.Add` (generic
-arguments also match by simple name), a type alone for all its instantiated methods, `Ns.Type_TypeInfo`,
-`Method$Ns.Type.M()`. A literal's slot comes from `search_strings`.
-
-**Overload matching.** `script.json` names drop arity, so one name can stand for several dummy methods
-(`Action<int>$$.ctor`: the `.ctor` of every `Action` arity; `List<int>$$IndexOf`: three overloads). An instantiation is
-matched by the generic argument counts of the name, then the parameter count of its C prototype, then its C types
-(`int32_t`, `X_o` by value, `X_o*`, `X_array*`, `Il2CppObject*`, enums as their underlying type) compared with each
-candidate's types as declared and with the arguments substituted; a unique best match wins. When candidates share the
-same C signature (two enums of one width, `T` and `in T`, the same method in two assemblies), the instantiation is
-reported ambiguous with the candidates listed, on the instantiation and on each candidate. On two builds, 95% and 92% of
-the instantiations of such names resolve to one method; every resolved one that the reference `dump.cs` lists is the
-overload it lists it under, and every ambiguous one has that overload among its candidates.
-
-The index keeps sorted arrays and the names as pooled UTF-8 (type and method parts separately); signatures and
-metadata names are read back from `script.json` by file offset when shown.
-
-## Il2Cpp string literals
-
-Dummy assemblies have empty method bodies, so the build's string literals are not in them. With `stringliteral.json`
-(or `script.json`) in the dummy assembly folder or its parent, `search_strings` searches those literals too, each with
-the RVA of its slot (the global the code loads the string object from). With `GameAssembly.dll` (x64) there as well, the
-executable sections are scanned once for RIP-relative `mov` / `lea` of the slots; each load is attributed to the
-function containing it (function starts from `script.json`'s `Addresses`) and named by the dummy method whose
-`[Address]` RVA starts there, or by the `script.json` name (generic instantiations have no dummy method).
-`get_il2cpp_info` on a method lists the literals its native code loads; `find_method_by_address` names a literal slot.
-
-The files are read on first use, streamed (`script.json` is hundreds of MB), and kept until they change or the dummy
-assemblies are unloaded. With an assembly filter, only literals used by that assembly's methods are listed. Literals a
-program stores encrypted are shown as stored. 32-bit and non-PE binaries (`libil2cpp.so`) are not scanned.
-
-## Extracting containers
-
-`unpack_container` takes a file, extracts the .NET code inside it, and loads the assemblies it finds (`extractOnly=true`
-to only extract). It reads bytes only and never runs the file. An extracted file that is itself a container (a
-Costura-wrapped app inside a single-file bundle, a `.nupkg` inside a zip) is opened too, up to 4 levels deep, into a
-`<name>_unpacked` folder next to it. Archives and firmware (tar, `.tar.gz` / `.tgz`, `.tar.bz2`, `.tar.xz`, 7z, RAR, xar
-(macOS `.pkg`), cpio (`.pkg` Data, initramfs), single gzip / bzip2 / xz files, the filesystems and boot images below,
-apk v3) list every entry and extract binaries and nested packages, or every file with `allFiles`, in process on every OS.
-
-| Container | How it is recognized | What comes out |
-|---|---|---|
-| .NET single-file bundle (`PublishSingleFile`) | The bundle signature in an apphost: Windows PE, Linux ELF or macOS Mach-O | Every manifest entry under its bundle path: assemblies, native libraries, `.deps.json`, `.runtimeconfig.json`, symbols. Compressed bundles (`EnableCompressionInSingleFile`) are inflated; every entry is checked against its declared size. |
-| Costura.Fody | A .NET assembly with `costura.*` / `costura32.*` / `costura64.*` manifest resources | Each embedded assembly under its original name, inflated when the resource ends in `.compressed`. |
-| NuGet package (`.nupkg`) | A zip with a `.nuspec` | `lib/`, `runtimes/` and `tools/` assemblies (one per target framework), and nested packages. |
-| Xamarin / MAUI `.apk` / `.aab` | A zip with `AndroidManifest.xml` | Assemblies, `XALZ` (LZ4) and `XAZS` (Zstandard) ones decompressed. Assembly stores are parsed, so entries keep their names and ABI (`assemblies/<abi>/Name.dll`, with `.pdb` / `.config` data when present): v1 `assemblies[.<abi>].blob` (names from `assemblies.manifest`, else the metadata), v2 / v3 raw or inside `libassemblies.<abi>.blob.so` (`payload` section) and `libassembly-store.so` (`_assembly_store` symbol). A store that does not parse is scanned for PE images and `XALZ` chunks, with a note. An assembly repeated in several per-ABI stores is written once. |
-| Other zips (`.zip`, `.vsix`, `.xap`) | Zip signature | `.dll` / `.exe` / `.winmd`, `.deps.json` / `.runtimeconfig.json`, and nested packages; an unpack of a plain zip writes every file. |
-| Java runtime image (`lib/modules` of a JDK or a jlink image) | `0xCAFEDADA` in either byte order, jimage format 1.0 or 1.1 | Every resource as `module/path` with its size and compression, as `jimage list` shows it; extracted resources come out decompressed (zip, and compact-cp string sharing restored into the class file), the bytes `jimage extract` writes. A large image is read as a stream: only its index and the extracted resources are held. |
-| Standalone `XALZ` / `XAZS` file | `XALZ` / `XAZS` magic | The decompressed assembly. |
-| Electron `.asar` | The pickle header with a JSON file tree | Every file, `.asar.unpacked` ones included, links written as copies of their targets. Each file's SHA-256 and 4 MiB block hashes are checked (`ok`, `hash_mismatch`, `block_mismatch` with the first bad block, `no_integrity`, `unpacked_missing`; an extracted add-on Authenticode-signed after packing is `ok_signed_after_packing`), and the header hash against the one the app declares (the executable's `INTEGRITY/ELECTRONASAR` resource, or `ElectronAsarIntegrity` in `Info.plist`): good, bad or absent. Names with a separator, `..`, `:` or a control character are listed, never written. |
-| Unity WebGL `.data` (also `.gz`, `.br`, `.unityweb`) | `UnityWebData1.0` | Every file with its role (Il2Cpp metadata and its version, serialized files, bundles), the Unity version, and the `.wasm` / `.framework.js` / `.loader.js` beside it named. |
-| Godot resource pack (`.pck`, or embedded in an exported executable) | `GDPC`; an executable ending in the pack's size and `GDPC` | Every file of the pack directory (formats 1-4: Godot 3 and 4) with its role (binary and compressed resources, textures, compiled GDScript, import maps, project settings) and the engine version. Encrypted directories and files and the entries a patch pack removes are noted. |
-| Qt resource collection (`.rcc`, or compiled into a program) | `qres`; in a PE, ELF or Mach-O image, a resource tree whose names pass Qt's hash | Every file with its path, locale (Qt's language and territory numbers), storage and modification time, zlib and zstd files expanded (format versions 1-3). Collections compiled into a program (`qRegisterResourceData`) are found by their structure (names that pass Qt's hash, data entries chained in offset order), a one-file collection by the x64, ARM64 or x86 code that loads it; Qt 5 and 6, GCC and MSVC layouts. Checked against Qt 6.8 (QResource). |
-| Flash SWF (`.swf`) | `FWS`, `CWS` (zlib) or `ZWS` (LZMA) | The tags of the file and its sprites; each ActionScript 3 block (DoABC) with a class outline (base class, interfaces, traits); ActionScript 1/2 actions per frame; images (JPEG with its JPEGTables, PNG and GIF; lossless bitmaps as PNG), sounds (MP3; PCM as WAV) and binary data, named by SymbolClass and ExportAssets. Checked against swfdump of the Apache Flex SDK 4.16.1. |
-| Unreal pak (`.pak`) | The footer magic `0x5A6F12E1` at a footer size of versions 1-11 | Every file of the index with its size and compression method (legacy index, and the encoded entries and full directory index of version 10 on); Zlib, Gzip, Zstandard and LZ4 blocks are decompressed, other methods listed. The version, mount point and the encryption key GUID are reported; a pak with an encrypted index is named, with nothing listed. |
-| Unreal IoStore container (`.utoc` with `.ucas` beside it) | `-==--==--==--==-` | Every chunk with its id, type and size, named by the directory index under the mount point; chunk data is read from the `.ucas` files (partitions `_s1` on) and Zlib, Gzip, Zstandard and LZ4 blocks are decompressed. The TOC version, container id and encryption key GUID are reported; an encrypted container is listed, not read. |
-| GameMaker data file (`data.win`, `game.unx`, `game.ios`, `game.droid`) | `FORM` then a `GEN8` chunk | The chunk inventory, bytecode version, game name and declared version; code entries with their argument and local counts (functions of a script named with their parent), the string table as `strings.txt`, and the embedded PNG texture pages and audio. Code compiled to native code (YYC) is reported. |
-| Lua bytecode (`luac` output of Lua 5.1-5.4) | `ESC Lua` and the version byte | Every function with its source lines and the luac header counts (parameters, slots, upvalues, locals, constants, functions); `listing.txt` with each instruction's opcode, operands and line and each function's constants, and `strings.txt`. A stripped chunk is reported. |
-| LuaJIT bytecode (`luajit -b` output, LuaJIT 2.0 and 2.1) | `ESC LJ` and dump version 1 or 2 | Every prototype with its source lines, parameters, frame size, upvalues and constants; `listing.txt` with each instruction's opcode and operands, and `strings.txt`. A stripped dump and FFI constants are reported. |
-| Compiled AutoIt script (`.a3x`, or an executable from Aut2Exe) | A 16-byte marker then `AU3!EA05` or `AU3!EA06` | Every record with its stored path, sizes and file time; the script as `script.au3`: the source text of EA05 (AutoIt 3.2.4 and earlier), or rebuilt from the EA06 token stream (3.2.6 and later) with the vendor's spelling of keywords, functions and macros; the files the script adds with FileInstall under `files/`. Comments and layout are not compiled, so a rebuilt script has neither. |
-| Frozen Python program: PyInstaller, py2exe, cx_Freeze, Nuitka; a PYZ archive or a library zip of `.pyc` files on its own | The PyInstaller cookie (`MEI\x0c\x0b\x0a\x0b\x0e`) after the bootloader; a `PYTHONSCRIPT` resource; a launcher naming cx_Freeze; a Nuitka onefile payload (`KAY` and a Zstandard stream, or RCDATA resource 27); `PYZ\0`; a zip mostly of `.pyc` files | Every file with its role (entry script, bootstrap script, module, package, native module, Python runtime, data) and the Python version with its source (archive cookie, runtime library name or `.pyc` magic). **PyInstaller** (2.0 to 6.x): the CArchive and PYZ modules, each `.pyc` with the header 5.3+ strips rebuilt; names and bytes equal pyinstxtractor's; `--key` builds (3.x to 5.x) decrypted with the key from `pyimod00_crypto_key`. **py2exe:** the boot scripts and the program's script, each as its own `.pyc`, and the library zip appended or beside the executable. **cx_Freeze:** `lib/library.zip` and the `__main__` module that starts the program. Opened from its folder, the runtime library, native modules and `lib/` modules beside the executable are listed too. **Nuitka:** a onefile payload's files are listed and extracted, with a note that the program's own code is compiled to native code; a Nuitka standalone program is detected and described (compiled to native code, no bytecode to read), not extracted. `summarize_file view=python` summarizes; on a `.pyc` it shows the disassembly as the `dis` module of that Python version prints it (2.7 and 3.0 to 3.14; equal to `dis` on each standard library), the functions and the imports, and the source when `CORVUS_PY_DECOMPILER` names a decompiler. |
-| HAR, mitmproxy flow files | A JSON `log.entries` array; tnetstrings | One file per response body, named `host/path` (query folded into a short hash, extension from the MIME type), decoded from base64 and its `Content-Encoding` (gzip, deflate, br, zstd). Nothing is fetched or replayed. |
-| squashfs 4.0 | `hsqs` superblock | Every file and link from the inode and directory tables; gzip, LZMA, LZO, xz, LZ4 and Zstandard blocks and fragments. |
-| cramfs | Its magic in either byte order, at 0 or 512 | Every file and link; zlib pages, direct and uncompressed block pointers. |
-| ext2 / ext3 / ext4 | The superblock at 1024 | Every file and link through block maps, extent trees and inline data. |
-| FAT12 / FAT16 / FAT32 | A boot sector with a consistent parameter block | Every file under its long name, along the cluster chains. |
-| JFFS2 | A node header with a valid CRC, either byte order | The newest version of each name and data range; zlib, LZO, LZMA, rtime pages. |
-| UBI | Erase-counter headers with valid CRCs | Each volume, rebuilt from its newest logical blocks and named from the volume table, then opened (UBIFS, squashfs). |
-| UBIFS | A superblock node | The newest inode, entry and data block of each file; deflate, LZO and Zstandard blocks. |
-| U-Boot uImage, FIT, Android boot, TRX | Their headers (CRC-checked where they carry one) | Kernels, ramdisks, device trees and partitions, decoded by their compression; a headerless kernel comes with the `load_assembly format=raw` call for its architecture and load address. |
-| Debian package (`.deb`), static library (`.a`) | The `!<arch>` ar magic; a package starts with `debian-binary` | A package's name, version, architecture, dependencies and description from its control file; the files of `data.tar` (gzip, xz, Zstandard or plain) at the root and the control files under `DEBIAN/`, as `dpkg-deb --raw-extract` lays them out. A library's object files under their GNU or BSD long names. |
-| RPM package (`.rpm`, `.src.rpm`) | The lead magic `ED AB EE DB` | The name, version, release and architecture, summary, license, build host and time, dependency counts and the signature header's digests and signatures; every file of the header with its size, mode, owner, link target and digest, and whether it is a configuration file or absent from the payload (`%ghost`); the payload (cpio, compressed with gzip, bzip2, xz, LZMA or Zstandard) extracted, and the install scriptlets under `scripts/`. |
-| AppImage (type 2), snap (`.snap`) | An ELF with `AI` 2 at identification offset 8 and a squashfs image after its section headers; a squashfs image holding `meta/snap.yaml` | The files of the squashfs image; for an AppImage the runtime size, squashfs offset, update information, whether it is signed and the root desktop entry's name, command, icon and version; for a snap its name, version, summary, base, grade, confinement and apps. |
-| apk v3 package and index (`.apk`, `packages.adb`) | `ADB` magic: stored, deflate or Zstandard | A package's name, version, architecture, description, license and dependencies (`depends`, `provides`, `install_if`) in a note, every file and link from its path tree, file data from its data blocks, scripts as `.post-install` and the like; an index lists each package with architecture, size and dependencies. Signatures are counted, not verified. |
-| Office document (`.doc`, `.xls`, `.ppt`, `.msg`, `vbaProject.bin`) | An OLE compound file (D0 CF 11 E0) that is not a Windows Installer database | Every stream listed (control characters as `[n]`, as 7-Zip names them); VBA module sources decompressed (MS-OVBA) as `.bas` / `.cls` / `.frm`, also from the VBA storage a PowerPoint 97-2003 stream compresses; Excel 4.0 macro formulas decoded from their BIFF tokens into `xlm_macros.txt`; OLE Package objects under their embedded name; an encrypted OOXML package (standard or agile encryption) opened with the passwords olevba tries (Excel's and PowerPoint's built-in ones, five short numeric ones) and written as `EncryptedPackage.zip`. OOXML documents (`.docm`, `.xlsm`) are zips: their `vbaProject.bin` and embedded objects open as nested containers. |
-| PDF | `%PDF-` in the first 1 KiB | Embedded files under their file specification names (`EmbeddedFiles/`), JavaScript actions and document-level scripts as `.js`, XFA forms as `.xml`; with `allFiles` every stream, decoded through FlateDecode (PNG and TIFF predictors), LZWDecode, ASCIIHexDecode, ASCII85Decode and RunLengthDecode. Objects are read in file order as pdf-parser reads them, including earlier versions from incremental updates and objects in object streams; a file encrypted with the empty user password (RC4 40 to 128 bits, AES-128, AES-256) is decrypted. |
-| Windows shortcut (`.lnk`) | The 0x4C header with the shell link class id | Data appended after the last extra data block, as `overlay.bin`; `summarize_file view=lnk` reads the fields. |
-| OneNote section (`.one`) | The section or table-of-contents file GUID | Each embedded file from its FileDataStoreObject, in file order, with an extension from its content (`.exe`, `.dll`, `.hta`, `.bat`, ...); file names the section's properties mention are noted beside them. |
-| Optical disc image (`.iso`, `.img`) | "CD001" at sector 16 or a UDF anchor at sector 256 | Every file of the UDF tree (file and extended file entries; short, long and embedded allocation descriptors) when present, else the Joliet tree, else the primary tree with Rock Ridge names and symbolic links; the El Torito boot image as `[BOOT]/Boot-<media>.img`. Read in ranges: a 730 MB image lists in 0.5 s. |
-| Virtual disk (`.vhd`, `.vhdx`) | The `conectix` footer (fixed and dynamic VHD) or the `vhdxfile` identifier | MBR (with extended partitions) or GPT partitions, each opened by the reader its first sectors match, files under `partition<n>/`: NTFS (the MFT along its own data runs, update sequence fixups, attribute list pieces joined, LZNT1-compressed files decompressed, named streams such as `Zone.Identifier` as `file:stream`), FAT, ext2/3/4, ISO 9660 / UDF; a disk without a partition table is read as one volume. Unallocated blocks read as zeros; a differencing disk's parent blocks are not read. |
-| Apple disk image (`.dmg`) | A UDIF `koly` trailer with an XML partition table | The files of each HFS+ or APFS partition, read in place through its raw, zero, ADC, zlib, bzip2, LZFSE and xz chunks; other partitions named and extracted as images. |
-| HFS+ and HFSX volume | `H+` or `HX` at offset 1024 | The catalog's tree: files through their extents and the extents overflow file, symbolic links, hard links as their file, decmpfs zlib, LZVN and LZFSE files (types 3, 4, 7, 8, 11, 12); names composed (NFC); other compression types named, not read. |
-| APFS container | `NXSB` at offset 32 | Each volume's current tree from the newest checkpoint whose object map reads (an older one when the newest is damaged): files through their extents (sealed volumes through the file extent tree), holes as zeros, symbolic links, hard links, decmpfs zlib, LZVN and LZFSE files from the attribute or the resource fork, FIFOs, devices and sockets as entries; several volumes list under their names. Encrypted volumes named, not read; snapshots counted. |
-| Compiled asset catalog (`Assets.car`) | A BOM store whose variables name `CARHEADER` | Each rendition under its asset with its size, scale, idiom, appearance and gamut (`Icon/icon~ipad@2x.png`); with `allFiles`, bitmaps as PNG (uncompressed, zip, LZFSE, KCBC row chunks, deepmap-2) and images cropped from packed images. Original data (PDF, SVG, JPEG, data) as stored; colors and gradients described. Other compressions and pixel formats (ASTC, HEVC, RGBW) are named per rendition and counted. |
-| Cabinet (`.cab`) | `MSCF` 1.3 | Every file of every folder: stored, MSZIP (each block decoded with the previous block's 32 KiB as history) or LZX (window 2^15 to 2^21, verbatim / aligned / uncompressed blocks, E8 translation); Quantum folders and files continued across cabinets are listed, not extracted. |
-| Windows Installer package (`.msi`, `.msp`, `.mst`) | A compound file whose root class id names a package, patch or transform | Installed files from the embedded cabinets under their install paths (Directory table resolved, system folders by their usual names, as msiextract writes them), Binary-table streams under `Binary/` (custom action DLLs, EXEs and scripts, named by their script language), inline custom action scripts under `CustomAction/`; with `allFiles` every table as tab-separated text under `tables/` and other streams under `streams/`. Files in external cabinets are listed, not extracted. |
-| Squirrel installer (`Setup.exe`) | A native stub with resource `DATA/131` | The release zip's files (`RELEASES`, the full `.nupkg`, the updater) as the zip reader lists them; each release with its size and SHA-1. |
-| WiX Burn bundle (`.exe`) | A native stub with a `.wixburn` section | Every payload of the user interface cabinet and the attached cabinets under its manifest path (`ux/manifest.xml` is the manifest), as `wix burn extract` writes them; payloads downloaded at install time listed with their URL. |
-| NSIS installer (`.exe`) | A native stub followed by the NSIS first header at a 512-byte boundary | Every file the install script extracts, under its install path (`$INSTDIR` dropped, other folders such as `$PLUGINSDIR` kept), as 7-Zip lists them; LZMA, deflate or stored, solid or per file; the uninstaller listed. bzip2 and the x86 branch filter are reported, not decoded. |
-| Inno Setup installer (`.exe`) | A native loader with the setup offset table (RCDATA 11111); data formats 5.5 to 7.1 (before 6.3, the Unicode builds) | Every file under its destination name (`{app}\...`), each checked against its SHA-1 or SHA-256; LZMA, LZMA2, zlib, bzip2 or stored chunks, executables with the call-address filter undone; the uninstaller and external files listed. Password-encrypted files are listed, not extracted. |
-| ClickOnce deployment (`.application` or its publish folder) | The deployment manifest naming the application manifest, which lists each file with its size and digest | Every listed file under its install name from `Application Files\<version>` (`.deploy` names mapped back), each checked against its digest; product, publisher, version, install mode, update location, entry point, trust level and signer; unlisted files and other publishes in the folder noted. A manifest read alone is listed, not extracted. |
-| Flatpak bundle (`.flatpak`) | An OSTree static delta superblock (GVariant) whose metadata starts with the `flatpak` magic | The ref, commit, build time and the app's metadata keys (runtime, command, permissions); a delta from no earlier commit is applied and every file and link of the commit's tree written under its path (`metadata`, `files/`, `export/`), each object checked against its SHA-256. |
-| Firmware image (flash dump, vendor update) | A filesystem or boot image found past its start, or an archive after a vendor header | Each filesystem, boot image, archive and sized executable carved out at its offset and opened by its own reader; compressed streams decoded; an archive after a vendor header (a factory image) read as the image's own level, the header named when its format is known (a Sercomm header, for one). |
-| ESP32 flash image (a flash dump or merged `.bin`) | An ESP32-family bootloader image (`0xE9`) at 0, 0x1000 or 0x2000 and an ESP-IDF partition table after it | The bootloader, the partition table and every partition under its label (`nvs.bin`, `factory.bin`), as gen_esp32part.py lists them; a partition cut by the end of the file is kept to that point and noted, one past it is listed only. |
-| iNES and NES 2.0 ROM image (`.nes`) | The `NES` header | `prg-cpu.bin`, the 6502's 0x8000-0xFFFF as the mapper sets it at power-on (bank 0 and the last bank; the last 32 KiB for 32 KiB-switching mappers; a 16 KiB image mirrored), every 16 KiB PRG bank when there are more than two, `chr-rom.bin` and `trainer.bin`; notes name the mapper, sizes, mirroring, the NMI, reset and IRQ vectors and the `load_assembly format=raw arch=6502 base=0x8000` call. |
-| JavaScript bundle and source map | A webpack, esbuild, Browserify, Parcel, AMD, SystemJS or Metro bundle; a script with a source map, or the `.map` itself | One file per module, named by the bundler's key or dependency map, else by the source map, else by id, with a `modules.json` list. A source map's original tree goes under `original/`, each source from `sourcesContent` or the file beside the map, with `sources.json` naming the sources without content. |
-| pcap / pcapng | The pcap or pcapng file magic | HTTP objects and TCP streams: see [Captures](#captures). |
-| Anything else | No known format | .NET images and `XALZ` chunks carved out of the raw bytes (installers, memory dumps), validated by their PE headers. |
-
-A plain .NET assembly is reported as containing nothing, and an apphost without a bundle as a launcher for the .dll
-beside it. NativeAOT executables are identified, with a note that they have no IL to decompile.
-
-**Output.** Structured: the detected container, the output directory, one entry per file (`path`, `kind`, `size`,
-`sha256`, `origin` (where in the container it came from and how it was decoded), `loadedAs` (the workspace id, if
-loaded), and for .NET assemblies `readyToRun` and `merged`), and notes about anything skipped.
-
-**Listing without extracting.** `list_assemblies` with `path` walks the container the same way (same parser, same limits,
-nested containers included) without writing or loading anything, and returns a `container` section: each managed
-assembly's path inside the container, full name, version, size, SHA-256, origin, `readyToRun` and `merged`. A plain
-assembly lists itself. A zip cut off or missing its central directory (a broken download) still lists its entries from
-their local headers (sizes from the header, zip64 field, or a streamed zip's data descriptor, checked by CRC), with a
-note; encrypted or damaged entries are skipped by name. A container with nothing readable returns a tool error saying
-what is wrong. For an archive (`.asar`, Unity WebGL `.data`, HAR, flows) the section also lists every entry with its size
-and flags (integrity verdict, extracted, link target; role; method, status and URL), paged by `offset` / `limit` and
-filtered by path. Without `path`, `list_assemblies` lists the workspace.
-
-**Searching metadata.** `search_container` searches every managed assembly in a container (or a plain assembly) by
-name, also without writing or loading. Matching is as in `search_symbols`: case-insensitive substring, `*` / `?`
-wildcards, full-name matching when the query contains `.` or `:`. `kind` narrows it to `type`, `method`, `field` or
-`property`. Each match gives the assembly's path inside the container, the assembly name, the full member name and the
-kind, best first (exact, then prefix, then substring). At most `limit` matches are returned (default 100, up to 5,000);
-`total` counts every match and `truncated` says whether some were left out.
+- `readyToRun`: precompiled native code beside the IL; the IL still decompiles.
+- `merged`: traces of ILRepack or ILMerge, with the original module count where known; inputs are not split back.
 
 ### Searching files (`search_container kind=`)
 
-Other kinds search files rather than metadata.
+| Kind | Finds |
+|---|---|
+| `electron` | windows, preloads, bridge methods, IPC channels paired across processes, sinks, native add-on calls |
+| `feature` | from a UI or error text to its handler, IPC hops and sinks |
+| `endpoint` | endpoints the code names (Retrofit, OkHttp, Refit, HttpClient, gRPC, ...), or request templates of a capture |
+| `request` | every request of a HAR, mitmproxy or `.saz` capture; values only with `values=true` |
+| `packet` | pcap frames matching a Wireshark display filter |
+| `dart` | strings and identifiers of a Dart AOT snapshot |
+| `hermes` | strings and function names of a Hermes bundle |
+| `yara` | YARA rule matches ([YARA rules](#yara-rules)) |
 
-- **`kind=electron`:** where an Electron app's own scripts cross a boundary, each with `file:line:column` and the call, read on the syntax tree with names resolved through `require`, esbuild's `__require`, webpack module ids and export getters, destructuring renames and interop wrappers. Rows: windows with their preload path (through `path.join(__dirname, ...)` and option objects built from constants); `contextBridge` keys and the methods they expose with the channels each sends; IPC channels handled in main and used from renderers (also through wrapper functions and bridge methods that forward the channel, and the pages' `window.api.x(...)` calls), each literal channel paired with the other side's sites in both directions or marked unpaired; `child_process`, `fs` and `shell` sinks (`node:` names and synchronous calls too); native add-ons loaded or called, each add-on found under `app.asar.unpacked` (a relative path, `bindings('name')` or a package holding a `.node` file) and each function called on it joined to its native function through the add-on's N-API registrations, node-addon-api `exports.Set` included. The query matches the channel, the call or the row kind (e.g. `ipc-main`). `summarize_file view=electron` counts the literal channels paired.
-- **`kind=feature`:** follows a UI, log or error text from an Electron app or script to where it leads: the handler beside it (an `onClick` / `click` / `action` function in the same object, as compiled JSX and menu templates hold them) or the functions around it, the functions they call, then each IPC send to its main-process handler and each bridge call to its preload method, ending at sinks and native calls (a native call at the add-on function its N-API registration names); one row per chain, the steps in the detail.
-- **`kind=endpoint` on app code** (APK, AAB, `.ipa`, DEX, .NET assembly, Mach-O, or a container of them): the endpoints the code names, each with its client, method id or member and location. Retrofit methods from their HTTP annotations and `@Query` names (R8-renamed annotation types mapped back through Retrofit's own parser: HTTP methods by the verb each type is parsed to, `@Query` by the parser's instance-of order), joined to `baseUrl` through `create(Api.class)`; OkHttp / Ktor / Volley / `java.net.URL` / WebView calls (R8-renamed OkHttp and Ktor known by their own URL handling code and followed through wrappers that pass a String parameter on, marked renamed; the header counts the code files read), with `StringBuilder` and Kotlin template URLs folded to `{}` templates; Refit attributes (with `RestService.For` base URLs and the query names unannotated parameters become); `HttpClient` / `HttpRequestMessage` / `WebClient` calls with interpolated and concatenated URLs; generated gRPC client methods in Java and C#, every gRPC method of an embedded descriptor; Mach-O URL strings with the functions that load them; absolute URL literals no call consumes (XML namespaces left out).
-- **`kind=endpoint` on a capture** (HAR, mitmproxy): each request template once (numeric and id path segments folded, query values never shown) with its request count and statuses; the capture read as a stream at any size (one entry or flow in memory).
-- **`capture=`** (HAR, mitmproxy, `.saz`, pcap) joins both sides: a code row a captured request instantiates is marked `code+capture` and names the requests; captured templates no code explains are marked `capture`. With a capture as `path` and another as `capture=`, the two are compared template by template: `added`, `removed`, `changed` (statuses, request header names, response types, response JSON, SSE, NDJSON and WebSocket message shapes, or GraphQL operations differ, each difference named) and `same`.
-- **`kind=request`** on a HAR, mitmproxy or `.saz` capture: every request in capture order, streamed at any size (a 524 MB HAR in 2.4 s): URL template, request header and cookie names, request body type and size, GraphQL operation names from the body or query, status, HTTP version, time, response type and size, server-sent event and NDJSON messages grouped by event and JSON key shape, WebSocket messages by direction and shape. Header, cookie and query values and message text only with `values=true`.
-- **`kind=packet`** on a pcap or pcapng: see [Captures](#captures).
-- **`kind=dart`** on a Flutter app (`libapp.so`, `App.framework/App`, or an APK or `.ipa` holding one): the Dart AOT isolate snapshot's string pool, every distinct `package:` and `dart:` URI and identifier token with its offset (the query matches the string or its kind, e.g. `identifier`).
-- **`kind=hermes`:** the strings and function names of a Hermes bytecode bundle (or the one in an APK or `.ipa`) with their ids and use counts.
-- **`kind=yara`:** see [YARA rules](#yara-rules) below.
-
-`compare_folders` compares two `.asar` archives entry by entry without extracting (the app's declared SHA-256 per file,
-or the hashed data).
+- `capture=` joins code rows to captured requests; two captures compare template by template.
+- `compare_folders` compares two `.asar` archives without extracting.
 
 ### Captures
 
-**`search_container kind=packet`** on a pcap or pcapng takes a Wireshark display filter as the query and lists the
-matching frames in capture order: frame number, time, source and destination with ports, the top protocol decoded, and
-the values of the fields the filter names.
-
-- **Filter syntax:** `==`, `!=`, `>`, `<`, `>=`, `<=`, `contains`, `matches` (case-insensitive regex), `in {…}`; networks (`ip.addr==10.0.0.0/8`); bare fields and protocols as presence tests; `and` / `or` / `not` with parentheses.
-- **Fields decoded in-process, no TShark:** `frame.number` / `len`; `ip.addr` / `src` / `dst` / `proto`, the same for `ipv6`; `tcp` and `udp` ports, `tcp.flags.*`, `tcp.len`; `dns.qry.name` / `type`, `dns.a` / `aaaa` / `cname`, `dns.flags.response`; `http.host`, `http.request.method` / `uri`, `http.user_agent`, `http.response.code`; `tls.handshake.extensions_server_name` (`tls.sni`), `_alpn_str` (`tls.alpn`), `tls.handshake.ja3`, `tls.handshake.ja4`, with a ClientHello split over in-order segments joined.
-- **Cleartext HTTP/2:** `http2.type`, `streamid`, `header.name` / `value`, `headers.authority` / `method` / `path` / `scheme` / `status` / `user_agent`; each direction's stream joined and its HPACK table kept, headers given to the frame whose fragment completes them.
-- **QUIC:** `quic.version`, `long.packet_type`, `dcid`, `scid`; client Initials decrypted with the keys their connection id derives, CRYPTO frames joined over packets, so `tls.sni` and `tls.alpn` cover QUIC too.
-- **SMB2:** `smb2.cmd`, `tree`, `filename`, the names carried by tree, file and message id; NTLMSSP `ntlmssp.auth.username` / `domain` / `hostname`.
-- **Kerberos:** `kerberos.msg_type`, `CNameString`, `SNameString`, `realm`, `crealm`, the ticket of a TGS request included.
-- **Checked:** on the fixture captures these select the same frames as `tshark -2 -Y`.
-- **Other fields** run through TShark when `CORVUS_TSHARK` (or `PATH`, or the default Wireshark folder) finds it, on Windows, Linux and macOS; its field output is streamed and paged the same way, with the named fields' values.
-- **Size:** the capture is streamed, so its size is not limited (a 1 GiB pcapng filters at about 650 MB/s from the file cache); `total` counts every match and `offset` / `limit` page them.
-
-**`unpack_container`** on a pcap or pcapng reassembles TCP (segments in order, retransmissions dropped, holes written as
-counted gaps; a 1.07 GB capture in 4 s with 106 MB of memory) and writes what the connections carried:
-
-- HTTP/1.x responses (Content-Length, chunked, until close), HTTP/1.x request bodies under `requests/`, and HTTP/2 streams (HPACK followed per side), as files named host/path like HAR bodies, decoded by their Content-Encoding;
-- TLS 1.2 and 1.3 decrypted with `keyLog` (an `SSLKEYLOGFILE`) or the pcapng's own decryption secrets blocks (AES-GCM and ChaCha20-Poly1305 suites, TLS 1.3 key updates and early data followed);
-- every other TCP stream as its client and server bytes under `streams/` (decrypted ones under `tls-streams/`);
-- HTTP/3 over QUIC v1 and v2 (UDP): Initial packets decrypted with the keys the connection id derives, 0-RTT and 1-RTT packets with `keyLog` secrets (all three TLS 1.3 suites, key updates followed), STREAM frames joined in any order, QPACK followed per side with its dynamic table; responses and request bodies written as HTTP/1.x and HTTP/2 ones are;
-- `tls.json`: one row per TLS connection with version, cipher suite, ALPN, JA3, JA4, JA4S and whether it was decrypted (or why not), and one per QUIC connection.
+- `kind=packet` takes a Wireshark display filter and lists matching frames with the fields it names.
+- Decoded in process: frame, IP, TCP, UDP, DNS, HTTP, TLS (SNI, ALPN, JA3, JA4), cleartext HTTP/2, QUIC Initials,
+  SMB2, NTLMSSP, Kerberos.
+- Other fields run through TShark when `CORVUS_TSHARK`, `PATH` or the Wireshark folder finds it.
+- Captures are streamed; size is not limited.
+- `unpack_container` on a capture reassembles TCP and writes:
+  - HTTP/1.x and HTTP/2 bodies, decoded by Content-Encoding;
+  - TLS 1.2 and 1.3 decrypted with `keyLog` or the pcapng's own secrets;
+  - HTTP/3 over QUIC v1 and v2;
+  - other streams under `streams/`;
+  - `tls.json`: version, suite, ALPN, JA3, JA4, JA4S and decryption state per connection.
 
 ### YARA rules
 
-`search_container kind=yara`; unavailable with `CORVUS_WORKER_HOST=0`.
-
-- **Rule packs:** `query=pack:<name>` reads every rule file of a pack installed with `corvus rules fetch` ([cli.md](cli.md)); Corvus ships no rules.
-- **Rules:** the query is a rule file, a folder of `.yar` and `.yara` files, or, when it names neither, the rule text itself (origin `query` in errors). Compiled and run by YARA-X 1.22.0 in a `corvus worker` process, so a fault in the engine ends the worker and not the server. A rule that does not compile is named with its file, line, column and error; the other rules still run.
-- **What is scanned:** the file, then each member of the container it is (nested containers opened, compressed members decompressed; files over 512 MB are scanned as one file), so a match inside a compressed member is found at its member path.
-- **Dump files:** a minidump or core file is scanned by its captured memory: one block scan over every region at its virtual address (a rule's patterns may sit in different regions), then each region as a file of its own for modules, `filesize` and `uint16(0)`. Regions are contiguous captured ranges cut at module bounds and at 64 MB; rows name the region and offsets are virtual addresses. Patterns that cross a region boundary are not matched.
-- **Rows:** each rule that matched, with the file or member path, namespace, tags, metadata and every pattern match as offset and length (at most 100 per pattern).
-- **Modules:** `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`, `time`, `lnk`; not `cuckoo` or `vt`. On the fixture rules the matches equal those of `yr scan`.
-- **Platforms:** the release archives and the .NET tool ship the library for win-x64, win-arm64, linux-x64, linux-arm64 (glibc 2.34 or later), osx-x64 and osx-arm64; on musl, or elsewhere, the scan is refused naming the platform until `CORVUS_YARA_LIBRARY` names a build.
-
-**ReadyToRun** (`readyToRun`): the image carries precompiled native code next to its IL (crossgen2,
-`PublishReadyToRun`, the shared framework itself). The IL is still there and decompiles normally.
-
-**Merged assemblies** (`merged`, omitted when there is no sign of merging):
-
-| Tool | Trace | Original module count |
-|---|---|---|
-| ILRepack | An `ILRepack.List` resource listing every merged assembly (unless run with `/noRepackRes`) | Exact, with the names |
-| ILMerge | No marker of its own, but a later input's non-public type that clashes is renamed to `Input.Name` (compiler-generated types) or `Input<key>.Name`, next to the first input's `Name`. C# cannot declare a dotted type name, so the pair is reliable | At least (renamed inputs + 1), with the renamed inputs' names. Inputs with no clashing types leave no trace |
-| Either, pre-Roslyn inputs | Several `<PrivateImplementationDetails>{MVID}` helper classes, one per original module | At least that many |
-
-This is detection and labelling only: merged assemblies are not split back into their inputs.
-
-Malformed and untrusted input is expected:
-
-- **Output stays inside the output directory.** Entry names are split on both `/` and `\`; `.`, `..`, rooted and drive
-  parts are dropped. Every final path is checked against the output root before writing. Reserved device names (`CON`,
-  `NUL`, ...) get a `_` prefix.
-- **Nothing extracted can be double-clicked.** Runnable extensions (`.exe`, `.bat`, `.ps1`, `.lnk`, ...) get a `.bin`
-  suffix. `.dll` is kept so extracted assemblies still resolve by name.
-- **Corrupt or truncated data.** Every offset and length is bounds-checked and overflow-safe. A corrupt container fails
-  with a clear error; a corrupt *entry* is skipped with a note and the rest still comes out.
-- **Decompression bombs.** Each item is limited to 512 MB, a whole extraction to 4 GB and 20,000 files. An `XALZ` header
-  that claims more than LZ4 could produce from its data is rejected before anything is allocated.
-- **Output directory.** By default a folder under the temp directory named after the file and its SHA-256. A directory
-  you pass must be new, empty, or an earlier extract of the same file (a marker file records which). An unrelated
-  directory is never written into.
+- `search_container kind=yara`; the query is a rule file, a folder, rule text, or `pack:<name>` from `corvus rules
+  fetch` ([cli.md](cli.md)). Corvus ships no rules.
+- Run by YARA-X 1.22.0 in a worker process; unavailable with `CORVUS_WORKER_HOST=0`.
+- Scans the file, then each member of a container; minidumps and cores by their captured memory.
+- Modules: `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`, `time`, `lnk`.
+- Shipped for win-x64, win-arm64, linux-x64, linux-arm64 (glibc 2.34+), osx-x64 and osx-arm64; elsewhere set
+  `CORVUS_YARA_LIBRARY`.
 
 ## File inspection
 
-Four tools that read an assembly's metadata, IL, resources and signature without executing it. Each takes a loaded
-`assembly` or a `path`; `summarize_file` also accepts containers (bundles, packages, APKs, zips) and summarizes up to
-25 assemblies inside.
-
 | Tool | Output |
 |---|---|
-| `summarize_file` | File hashes, type and entropy. Per assembly: identity (name, version, MVID, target framework, GUI / console / library, architecture, ReadyToRun, merged), strong name and Authenticode signature, toolchain markers and heuristics, the protection product with its evidence and a confidence (ConfuserEx, .NET Reactor, Eazfuscator.NET, SmartAssembly, Babel, Dotfuscator: marker types and attributes, or the shape of the runtime code each loads; also in `get_assembly_info`; identification only), container wrapping (embedded assemblies, decoded embedded content, high-entropy sections), features, a summary of typed strings, and entry points (Main, module initializers, native exports, installer / service / AppDomainManager / COM watches). For a NativeAOT executable: runtime version, module sections, and counts of the method names, MethodTables and frozen strings its metadata recovers. `highlights` lists the notable findings. The default `view=overview` keeps to identity, hashes, signature, the assemblies, highlights, entry points and value counts; the other views are [listed below](#summarize_file-views); `all` gives every detail (the record's `views` names those that apply). Files over 64 MiB are streamed: see [Large files](#large-files). `stixPath=` writes a STIX 2.1 bundle for MISP or OpenCTI: the file and hashed members, URLs, domains and IP addresses (at most 5,000, else labelled partial), each with where it was found (tests check it against the OASIS STIX 2.1 schemas). |
-| `survey_features` | Rules over the APIs the code calls, the native functions it imports, its string literals and (native) crypto and hash constants (AES, SHA-256/512, MD5, SHA-1, CRC-32, Blowfish, ChaCha, TEA, FNV, MurmurHash3 tables and immediates), in categories: network, execution, registry, autostart, local data, protected storage, environment checks, code loading, discovery, crypto. Each matched feature has its evidence (pattern, count, up to 5 locations). The default page lists each feature with its match count; `category` (a category, a technique prefix, or `all`) adds the evidence, marked `basis=derived` when it is a string or argument constant. |
-| `survey_features` on app packages | `.apk`, `.aab`, `.dex`, `.ipa` or a Mach-O in its `.app` get MASVS-mapped rules instead (Android) or as well (Apple): WebView JavaScript bridges, JavaScript and file access, TLS errors continued, trust managers and hostname verifiers that accept everything, cleartext and user CAs (manifest, network security config, App Transport Security), certificate pinning (OkHttp, network security config pins, TrustKit, Alamofire, `NSPinnedDomains`), root / unlock / emulator / instrumentation / debugger checks, run-time code loading, MD5 / SHA-1, weak ciphers and ECB, keys and IVs built from literals, embedded private keys and service tokens, keychain items readable while locked. Each finding has a rule id, MASVS control, severity, a review note and the DEX method id with its code offset (or the function and address); code in widely shipped library packages is counted apart, and weaknesses seen only there are left out and named in a note. |
-| `survey_features` on Il2Cpp dummy assemblies | Also capa's capabilities of the Il2Cpp binary (with `CORVUS_CAPA`): each function's direct calls to the methods script.json or the dummy methods name are given to capa as .NET features, and each matched rule becomes a feature of category `capa` by rule name, with its namespace as evidence at up to 5 matching functions; indirect and virtual calls are not followed, and calls into code several methods share are counted apart. Checked on a self-built x64 Il2Cpp binary with capa 10.0.0 (write file, registry query and HTTP request match at the calling functions); not checked on a Unity build. |
-| `survey_features category=capa` on PE, ELF and .NET files | capa's behaviour labels of the whole file (with `CORVUS_CAPA`, run in the worker host): each rule capa's own report lists becomes a feature of category `capa`, with its namespace as evidence at up to 5 functions (a .NET method by token and name, a file-scope rule at `(file)`) and its ATT&CK and MBC entries as further evidence; capa's file limitations are notes. capa reads the whole file, which can take minutes, so it runs for `category=capa` only; the labels are then kept for that file, and `analyze_native_function` shows those matched in the function under annotations. Without capa the category is reported not checked; Mach-O files are not checked, as capa does not read them. Checked against capa 10.0.0 on a built x64 program: process creation, a registry write and process exit labelled at their functions. |
-| `extract_strings` | URLs, domains, IPv4 / IPv6, email addresses, file paths, named pipes, registry keys, mutex names, user agents and crypto keys from string literals, constants, resource text and decoded embedded text, with the APIs each value is passed to; a whole base64 or hex literal is reported as `encoded` with its decoded length, at most 100 per assembly. Rows are paged (offset / limit); every value is kept as a result that `read_result` with `outputPath` writes as CSV (`format=text`) or JSON. On a Unity build folder, an .apk / .ipa / zip holding one, or a serialized file or bundle, it also reads the string fields of MonoBehaviour assets, located as `file: Asset (Script: Ns.Class).field` (`mirrors[1]` for a list element), and the values of TextAssets that hold JSON, XML or INI config, located as `file: Name (TextAsset)`; other TextAssets are counted, not read. A whole base64 or hex field value is `encoded` too, at most 100 per file; nothing is decrypted. On an Il2Cpp build no earlier load read, it reads the metadata and binary into the cache for the script layouts when an asset needs one (metadata up to 512 MiB, binary up to 2 GiB; `load_assembly` reuses the read). Assets whose layout did not read are counted unknown with their reasons and mark the result partial. Limits: 2,000 asset files, 4 GiB read (`maxAssetBytes` lowers it), 1 GiB per file, 500,000 field strings, 4 MiB and 50,000 values per TextAsset; packages extract at most 4 GiB of assets; `timeLimit` stops the read and keeps the rows read. |
-| `extract_embedded` | Embedded resources, `.resources` entries, static byte arrays and string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR until a recognized kind appears (PE / .NET images, archives, ELF / Mach-O, text), plus high-entropy blobs. Each item shows its source and encoding chain, e.g. `base64 > xor key 5a > gzip`. `save=true` writes them with defanged names; `load=true` also loads the .NET ones; `xorText=true` adds a single-byte XOR search over text (see below); images (png, jpeg, gif, ico) are only counted unless `includeMedia=true`. A container path (`.apk`, `.nupkg`, zip, bundle) searches every assembly inside; rows are paged by `offset` / `limit`. |
+| `summarize_file` | hashes, identity, signature, protection product, containers, highlights, entry points |
+| `survey_features` | capabilities by category with evidence; MASVS findings for Android and Apple apps |
+| `survey_features category=capa` | capa labels of PE, ELF and .NET files (`CORVUS_CAPA`) |
+| `extract_strings` | URLs, domains, IPs, paths, registry keys, mutexes, keys; serialized asset fields |
+| `extract_embedded` | embedded items with their decoding chain (`base64 > xor key 5a > gzip`) |
+
+- `summarize_file` reads up to 25 assemblies inside a container.
+- `stixPath=` writes a STIX 2.1 bundle of the file, its members and network indicators.
+- Features describe API use, not whether the code runs.
+- `extract_embedded xorText=true` recovers repeating XOR keys of 1-16 bytes over text; off by default.
+- Authenticode digest and signature checks are exact; chain trust uses the machine's root store; revocation is not
+  checked.
 
 ### `summarize_file` views
 
-Pass the name as `view=` (`view=managed`, `view=sqlite`, ...).
+Pass the name as `view=`.
 
-| View | What it reads |
+| View | Reads |
 |---|---|
-| `managed` | The file and each assembly's details. |
-| `dependencies` | The components a file ships, each with its evidence (confidence, method, location in the file) and a package URL only where package-level evidence names it: see [Dependencies](#dependencies-view). |
-| `native` | ELF / Mach-O facts, packers and protectors, NativeAOT recovery counts; on a loaded native image, the triage above. |
-| `android` | Manifest facts, runtimes with evidence, ABIs, DEX, signature; `view=layers` graphs the code layers: [Android packages](#android-packages). |
-| `electron` | Versions, fuses, archive integrity, `package.json` entry, `webPreferences` values; counts the literal IPC channels paired. |
-| `go` | Toolchain, main package and module, dependencies and build settings. |
-| `sqlite` | A SQLite 3 database read by its own B-tree reader (no SQL, no native library, pages read on demand): page size, encoding, journal mode, the schema as stored, row counts and the first rows of each table (a row stored before `ALTER TABLE ADD COLUMN` reads the column's default; a VIRTUAL generated column, computed rather than stored, reads NULL). The committed frames of a -wal file beside it are applied (the latest committed copy of each page, checked by salts and checksum chain), with every frame listed per page as applied, superseded, uncommitted or stale. `table=` pages any table by rowid or primary key order with `columns=` (rowid included), `offset=` and `limit=`, the total and the next offset. |
-| `sqlite-recover` | Deleted rows carved from freed cells in live pages of rowid and WITHOUT ROWID tables, freelist pages and the -wal frames not applied; a record too large for its page read on through its overflow pages, a row from before `ALTER TABLE ADD COLUMN` taken with its defaults. Each is validated by its record header against a table's columns and affinities, dropped when it equals a live row, and marked as a candidate with its source and method; `table=`, `offset=`, `limit=` page them. |
-| `leveldb` | A LevelDB database (Chromium Local Storage and IndexedDB, Electron apps) read from any of its files (CURRENT, MANIFEST, `.ldb`/`.sst` table, `.log`), no library: the comparator, each file's level or log role, the live records in key order merged by sequence number (`offset=`, `limit=`), and the records the live state no longer shows (deleted keys, older versions, tables the MANIFEST no longer lists) with the file each came from. |
-| `lmdb` | An LMDB environment (`data.mdb`, or one file without a folder), no library: page size, map size, the live and previous transactions, the named databases with their flags and entry counts, a page of one database's records (`table=` names it; `offset=`, `limit=`) with duplicate values and overflow values, and the records only the previous commit or a freed page no commit reaches still holds. |
-| `ese` | An Extensible Storage Engine database (`.edb`), no library: page size, format, shutdown state, the catalog's tables with columns and indexes, a page of one table's records (`table=` names it; `offset=`, `limit=`) with multi-valued, long and compressed (7-bit, Xpress, LZ4) values, and the records deleted nodes, free space and pages no tree reaches still hold. |
-| `berkeleydb` | A Berkeley DB file (btree, hash, recno and queue databases, either byte order, checksummed pages), no library: access method, version, page size, the named databases with their kind and flags, a page of one database's records (`table=` names it; `offset=`, `limit=`) with overflow items and on-page and off-page duplicates, and the records deleted items, consumed queue records, the free space of tree pages and pages no tree reaches still hold. |
-| `realm` | A Realm file (format 24; formats 10 to 23 read unverified), no library: file format, the tables of the current commit with their columns and object counts, a page of one class's objects (`table=` names it; `offset=`, `limit=`) with every column type, links, mixed values, lists, sets and dictionaries, and the objects the previous commit and free space hold that the current commit deleted or changed. |
-| `flutter` | Dart AOT snapshots of a Flutter app (libapp.so, App.framework/App, or the one inside an APK or .ipa) with their version hash and features, and the isolate's string pool: the packages its `package:` URIs name (the app's, pub's with the version a pub cache path gives, the Flutter SDK's), its `dart:` libraries and counts, plus the strings older snapshots keep only as string objects of the data or instructions image (one- and two-byte, read by class id, Smi length and size tag: 20,723 more on an ARM32 Flutter app); `search_container kind=dart` pages every string; on a Dart 3.0 to 3.13 snapshot, the number of functions it names. On a Flutter engine: the Dart VM version and build id. |
-| `rust` | The crate list cargo-auditable embeds in .dep-v0 (root crate, every crate with version, source and kind, and the dependency edges); without it, the rustc commit and the crates the panic locations' source paths name (fd 10.5: 23 crates). |
-| `certificate` | A certificate file (PEM with any blocks, DER, PKCS #7 `.p7b`, PKCS #12 `.p12` / `.pfx`), no store: a page of its certificates with subject, issuer, serial, validity, key, signature algorithm, SHA-256 and SHA-1 fingerprints, the SHA-256 SPKI pin (`sha256/...`, as Android pin-sets and OkHttp write it), alternative names, usages, basic constraints and key identifiers; the chains its certificates form, built by issuer name, key identifier and verified signature, each with where it ends (self-signed root, an issuer not in the file) and its problems (a signature that does not verify, an issuer that is not a CA, a path length exceeded, an expired certificate, an order other than leaf to root); this machine's trust verdict per chain; keys (type and pin, never their bytes), requests, CRLs and PKCS #7 signers; PKCS #12 contents a password protects are named, not read. Checked against openssl 3.2.4 on real certificate files. `survey_features` on an APK names the certificate file a pin matches. |
-| `evtx` | A Windows event log file (`.evtx`), no event log service: header facts (version, chunks, dirty flag, checksums), counts by level, provider and event id, the time span, and a page of events (`offset=`, `limit=`; `table=` keeps one provider, event id or provider/id) with their System fields and event data, rendered from binary XML as wevtutil renders them. Records left in a chunk's free space are recovered and marked. Checked against wevtutil on real logs. |
-| `procmon` | A Process Monitor backing file (`.pml`) or its CSV export: capture facts (computer, Windows version, processors), the process table with command lines and start and end times, counts by operation, process and result, the time span, and a page of events (`offset=`, `limit=`; `table=` keeps one process name, PID, operation or result) with time, thread, class, path, result, duration and the detail of process, image, thread and network events. Checked against Process Monitor's CSV export. |
-| `registry` | A registry hive file (NTUSER.DAT, SOFTWARE, SYSTEM, an app's `settings.dat`, Amcache.hve), no registry API: base block facts (stored name, format, last write, dirty flag, checksum), key and value counts, the deleted keys and values recovered from free cells with their paths, and one key (`table=` names its path, the root by default) with a page of its subkeys and values, each value read by its type. Checked against the Offline Registry Library (offreg.dll). |
-| `qlog` | A qlog file (QUIC and HTTP/3 event log; JSON, JSON-SEQ, draft 01 / 02 array events): each trace's vantage point, connection id, time span, event counts by name, packets sent and received by type, drops and connection closes, and a page of events (`offset=`, `limit=`). |
-| `pcap` | A pcap / pcapng capture in one streaming pass, no TShark: Ethernet, VLAN, SLL / SLL2, raw IP and loopback; the largest TCP/UDP flows, DNS names with A / AAAA / CNAME answers, TLS ClientHello server names with ALPN, JA4 and JA3, HTTP/1.x request templates, and patterns worth reviewing (many long, high-entropy DNS names under one domain; one host's connections to one server at a regular interval). `search_container kind=endpoint` lists the same requests and names, and also reads HAR, mitmproxy and Fiddler `.saz` captures. |
-| `nib` | A compiled nib, NIBArchive or keyed archive: classes, outlets and actions, each action resolved to its implementation in the enclosing app's executable through the Objective-C metadata. |
-| `xbf` | A UWP or WinUI compiled XAML file (XAML Binary Format (XBF) 2.x) decoded back to XAML, with resources, styles, templates and visual states; each event handler the code-behind's generated Connect method hooks up is written on its element and resolved to its method and token in a .NET assembly beside the file. XBF 1, an unknown node or damaged metadata read as partial, naming where reading stopped; handlers of C++/WinRT and .NET Native code-behind are reported unknown. Pages built by the XAML compiler of Windows App SDK 2.5.4-experimental read back with every element and handler. |
-| `pri` | A package resource index (`resources.pri`, the file MakePri.exe writes for a UWP, WinUI or MSIX package), no MRT API: format and resource maps, the qualifiers in use (language, scale, contrast, theme, target size and the rest), and a page of named resources (`offset=`, `limit=`; `table=` keeps names containing the text) with each candidate's qualifiers, type and value: a string, a path in the package, or embedded data with its size and kind. A name whose candidates are in a split file of the package (`resources.<qualifier>.pri`) is listed and noted. |
-| `esp32` | An ESP32-family flash image, partition table, NVS partition or app image, no ESP-IDF: header, segments with their memory regions, checksum, SHA-256 and app or bootloader description as `esptool image-info` shows them; each partition with its type, flags and place in the file; then a page of NVS values by namespace and key (`offset=`, `limit=`; `table=` keeps one namespace), v2 blobs joined from their chunks, as `nvs_tool.py` reads them. |
-| `model` | A safetensors, GGUF, ONNX, PyTorch checkpoint or pickle file, nothing unpickled or run: metadata, a page of tensors (name, type, shape, offset, size; `offset=`, `limit=`) and the parameter count, with the format's rules checked (safetensors offsets and sizes, GGUF alignment and tensor extents, PyTorch storage sizes). ONNX: IR version, producer, opsets, the graph's inputs and outputs with their types, operator counts, subgraphs, functions and external data files. Pickles (protocol 2 to 5, and the object pickle of a `torch.save` zip or legacy file): the globals imported and called, persistent ids, and the imports and opcodes `torch.load(weights_only=True)` refuses by default. |
-| `plist` | Binary or XML property lists as JSON; NSKeyedArchiver archives decoded into their object graph. |
-| `apple` | An `.ipa` or `.app` folder: Info.plist facts, every Mach-O with its role and a signature verdict per slice from its page hashes, the main executable's entitlements, the provisioning profile's kind. |
-| `installer` | A Windows Installer package: product, summary information, files and their cabinets, every custom action with what it runs (DLL, EXE, JScript, VBScript, nested install), where its code comes from, when it runs (sequence tables and conditions) and as whom (immediate, deferred as the user or as LocalSystem), registry values, services and shortcuts. Worth reviewing: custom actions running code, the noteworthy calls of their scripts by line, autostart registry values, automatic services, files in the Startup folder. |
-| `lnk` | A Windows shortcut's target as the shell resolves it (from the link info, the ID list's long names (URI items as their address) or the environment block), with arguments, working directory, icon, show command and hot key; times, target size and attributes, drive type, volume serial and label, network share; the tracker block's machine id and the MAC address in its file GUID, known and special folders, shim layer, installer descriptor; flags and extra data blocks; appended data. Worth reviewing: a command interpreter, script host or system tool as target, arguments padded or longer than the properties dialog shows, encoded or downloading commands, URLs, a minimized window, a document icon on a program, appended data. On the 498 shortcuts of a Windows 11 machine's Start Menu and desktops, target, arguments, working directory, icon and window style equal the shell's own reading (WScript.Shell) on 487; on 9 the shell resolves no target where this view names one (URLs, shell folders, missing files); 2 differ in a working directory the shell drops. 498 read in 3.8 s in one batch. |
-| `office` | An OLE, OOXML, SYLK or OneNote document's active content: VBA projects with their modules and references, Excel 4.0 macro sheets with their visibility, defined names (Auto_Open) and decoded formulas, OLE Package objects with their source path, external relationships (remote templates, linked objects), and findings over the macro text with each one's module and line: autorun entry points, noteworthy calls, URLs, IP addresses and executable names, hex and base64 strings decoded and scanned again. Keyword sets and matching are olevba's; findings equal its own on 98 of the 103 documents of its test set (the others: two .xlsm / .xltm macro sheets only this view reads, and three text files olevba scans as macros: a CSV and two Office 2003 XML). Encrypted OOXML packages are opened with the passwords olevba tries. |
-| `pdf` | Version, objects in the file and in object streams, streams, incremental updates, encryption; pdfid's keyword counts, with names written in `#xx` escapes counted apart; every action (JavaScript, Launch with its program and parameters, URI, SubmitForm, GoToR / GoToE, ImportData) with its trigger (document open, page and annotation events, field events, document-level scripts, links); JavaScript and XFA scripts with noteworthy calls by object and line; embedded files with name, type and SHA-256. On 60 PDFs (45 of Acrobat's own, 15 written with PyMuPDF and pypdf: JavaScript, embedded files, object streams, incremental updates, RC4 and AES encryption) the keyword counts equal pdfid 0.2.10's and the object, stream and /JS object lists equal pdf-parser 0.7.14's; a 17.7 MB PDF reads in 1.3 s, where each of them takes 14.8 s. |
-| `firmware` | Formats found at offsets inside an opaque image: over 140 signatures (filesystems, boot and kernel images, firmware headers, archives, compressed streams, executables, keys and certificates, media), each checked against its own header and sized from it where possible; nothing is searched inside a filesystem, boot image or archive of known size. Each region of 4 KiB or more that no signature claims is listed for `view=raw`. |
-| `raw` | Headerless code (firmware, a memory region), or each region no firmware signature claims: the instruction sets it reads as, scored by return, prologue and epilogue signatures against chance (x86, x64, ARM, Thumb, ARM64, MIPS, PowerPC, RISC-V, m68k; 6502 and 16-bit x86 not checked), and the load bases where the most distinct pointer values land on string starts, or a Cortex-M vector table's handlers; each with its `load_assembly format=raw` call. 12 public libraries relocated to a chosen base: instruction set and base found for all 12. |
-| `wasm` | A WebAssembly module's imports by module, exports, memories, function counts, toolchain (from the producers section or its import shapes), name-section names, and an in-process validation verdict with its first errors located by function and offset (section rules and type checking of every function; the verdict equals `wasm-validate` on 72 modules; no size limit). GC-proposal modules (recursion groups, sub types, struct and array types, typed references, the struct, array, cast and i31 instructions) are read, written as WAT and validated with subtyping and non-nullable local initialization. The JS glue beside it (Emscripten, wasm-bindgen as an import object or an ES module, Go's `wasm_exec.js`) is joined to the imports by name, not URL text: each import's provider with its line:column, the import object, the instantiate calls and the exports the glue reads. A component shows its world as `wasm-tools component wit` resolves it: each import and export (interface, function or type), every interface's named types (records, variants, enums, flags, resources, aliases) and functions with their signatures in WIT syntax, async functions, streams and futures included, and the export types of nested components instantiated with their arguments. |
-| `harmony` | A HarmonyOS or OpenHarmony module (`.hap`, `.hsp`) or application bundle (`.app`), or a bare `.abc`: bundle name, version, API levels, model (stage `module.json` or FA `config.json`), device types, abilities and extension abilities with their actions, URIs and exported flag, requested permissions with their reasons and scenes, native libraries, and each Ark bytecode file's version, checksum, record and method counts; `analyze_js` reads its code. |
-| `hermes` | A React Native Hermes bytecode bundle, or the one an APK, AAB or `.ipa` carries: version, function and string counts, Metro modules; `analyze_js` reads its code. |
-| `protobuf` | Recovers `.proto` definitions from embedded FileDescriptorProto descriptors (raw in native images (C++, Go), Java descriptorData string constants in DEX code, C# base64 descriptorData in .NET assemblies), each rebuilt as `.proto` source that protoc compiles back to the same descriptor: messages, fields with numbers, types and options, maps, groups, oneofs, proto3 optional, enums, services with streaming, extensions, reserved ranges, editions features. Messages themselves are not decoded. An APK or `.ipa` is read when the view is asked for; `offset` and `limit` page the files. |
-| `page` | A saved web page (`.html` with the files saved beside it), nothing fetched or run: each script and integrity-bearing link with where its bytes are (inline, saved file, `data:` URL, not saved), its Subresource Integrity checked with the strongest listed algorithm, cross-origin code without integrity, import map entries with addresses on other origins, and the meta Content Security Policy with each script's verdict (allowed by hash, nonce, `'unsafe-inline'` or the source matching its URL, blocked, or unknown when it depends on an unsaved page URL) and what weakens it. A policy in the response headers is not saved with a page and is reported as unknown. |
-| `script` | PowerShell, batch, VBScript / VBA and JavaScript, or the script blocks of an .hta, .wsf or page, with transformation layers peeled to plain text by a bounded evaluator, nothing run: Invoke-Expression, encoded-command, Execute / Eval, cmd /c, mshta, WScript.Shell and eval / Function / packer layers, each with its decoding chain (base64, deflate, char codes, XOR, format, replace, reverse, SecureString, MSXML base64); obfuscator.io string arrays (rotation, base64 and RC4 decoders, wrappers), proxy objects, flattened switch loops and dead branches restored; constants folded in place; the calls worth reviewing; `offset` pages the plain text. 39 of 39 Invoke-Obfuscation outputs and 13 of 13 obfuscator.io outputs read as the original; 12 of 12 Invoke-Obfuscation launchers (cmd, wmic, rundll32, environment variables, stdin, clipboard, mshta) followed to the PowerShell they start. |
-| `package` | An npm tarball, PyPI wheel or sdist, VS Code `.vsix` or browser extension (`.crx` with its CRX3 / CRX2 key proofs verified and its id, `.xpi`, or a zip with its manifest), reviewed before installing, nothing run: the scripts the package manager runs at install (npm lifecycle scripts and node-gyp builds, `setup.py` and its cmdclass, in-tree build backends, `.pth` start-up lines, `vscode:uninstall`) and what their code reaches (network, processes, host details, environment and credential files, collection endpoints, decoded or transformed code read through the script readers); entry points (main, bin, exports, console scripts, background and content scripts, commands, activation events); permissions and host permissions; native binaries; a wheel's RECORD hashes checked; names close to popular packages; the agent configuration a package or a repository archive carries, also read from one of its agent files (`CLAUDE.md`, `.mcp.json`, `.claude/settings.json`, `.vscode/tasks.json` and the like) for the repository folder around it: bidirectional, zero-width and Unicode tag characters in instruction files at file and line, tag runs decoded to their hidden text, Claude Code hooks (those that run without a tool call marked), MCP servers with their command, and VS Code tasks that run on folder open; for a source folder (`summarize_file path=<folder>`), what runs on open, checkout or build: git hooks in `.git/hooks` and `.husky`, `.git/config` commands (`core.fsmonitor`, filters, `!` aliases), dev container commands (`initializeCommand` runs on the host), `.envrc`, MSBuild `Exec` steps (those a Visual Studio design-time build reaches marked) and inline tasks, Cargo `build.rs`, Gradle process starts and wrapper URLs, CMake `execute_process`, and npm `prepare`; with GuardDog (`CORVUS_GUARDDOG`, Linux and macOS), its rule matches over npm and PyPI packages at file and line; signed provenance beside the package file (a Sigstore bundle `<file>.sigstore.json`, npm's attestations `<file>.attestations.json`, PyPI's `<file>.provenance`) checked offline: subject digest, DSSE signature, certificate chain to the pinned Sigstore trust root at the log time, signed entry timestamp, and the source repository, commit and workflow the certificate names (npm's publish attestation against npm's pinned keys; revocation not checked); each finding noteworthy or worth reviewing. 0 of 68 popular npm, PyPI, VS Code and Chrome Web Store packages are marked noteworthy. |
-| `python` | A frozen Python program, PYZ archive or library zip of `.pyc` files: the freezer, the Python version and where it came from, entry scripts, module names, native modules, the runtime library and data files. A `.pyc`: its disassembly, paged by `offset`. |
-| `unity` | A Unity serialized file (.assets, levelN, sharedassetsN, globalgamemanagers) or UnityFS bundle (uncompressed, LZMA or LZ4 blocks): each MonoBehaviour asset with its name, script class and fields as `field = value`, laid out from the file's own type tree, else the script's assembly in the Managed folder beside it, else the Il2Cpp metadata a load of the build or `extract_strings` read. Each asset names its layout source; a layout is kept only when it reads exactly the object's size; a field the assembly cannot lay out (an engine type the engine lays out itself, a [SerializeReference] field, a field whose type is in an Il2Cpp binary that was not read, a private field whose attribute data did not read) is reported unknown with its reason. `script=` keeps one class; `offset` and `limit` page the assets. `extract_strings` on the same file classifies the string fields. |
+| `managed` | each assembly's details |
+| `dependencies` | shipped components with evidence ([below](#dependencies-view)) |
+| `native` | ELF / Mach-O facts, packers, NativeAOT counts, triage of a loaded image |
+| `android` | manifest, runtimes, ABIs, DEX, signature; `view=layers` graphs the code layers |
+| `apple` | `.ipa` / `.app`: Info.plist, Mach-O signatures, entitlements, profile |
+| `electron` | versions, fuses, archive integrity, `webPreferences` |
+| `go` | toolchain, modules, build settings |
+| `rust` | crates from cargo-auditable or panic paths |
+| `flutter` | Dart snapshot version, packages, string pool |
+| `sqlite` | schema and rows, WAL applied, no SQL engine |
+| `sqlite-recover` | deleted rows carved from free space and WAL |
+| `leveldb`, `lmdb`, `ese`, `berkeleydb`, `realm` | records, and records the live state no longer shows |
+| `registry` | a hive's keys and values, deleted ones recovered |
+| `evtx` | event log records, free-space records recovered |
+| `procmon` | Process Monitor events |
+| `pcap` | flows, DNS, TLS fingerprints, HTTP templates, beaconing hints |
+| `qlog` | QUIC and HTTP/3 event logs |
+| `certificate` | certificates, chains, SPKI pins, trust verdict |
+| `nib`, `xbf`, `pri`, `plist` | compiled UI and resource files decoded |
+| `esp32` | ESP32 images, partitions, NVS values |
+| `model` | safetensors, GGUF, ONNX, PyTorch, pickle; nothing unpickled |
+| `installer` | MSI custom actions, services, autostart entries |
+| `lnk` | a shortcut's target, arguments and noteworthy traits |
+| `office` | VBA, Excel 4.0 macros, OLE packages, findings by line |
+| `pdf` | keywords, actions, scripts, embedded files |
+| `firmware` | formats found at offsets in an opaque image |
+| `raw` | likely instruction sets and load bases of headerless code |
+| `wasm` | imports, exports, validation verdict, a component's WIT world |
+| `harmony`, `hermes` | HarmonyOS modules and Hermes bundles |
+| `protobuf` | `.proto` definitions recovered from embedded descriptors |
+| `page` | a saved web page's scripts, integrity hashes and CSP |
+| `script` | PowerShell, batch, VBScript and JavaScript deobfuscated, nothing run |
+| `package` | npm, PyPI, VS Code and browser packages before install; source folders |
+| `python` | frozen Python programs; `.pyc` disassembly |
+| `assets` | serialized asset files and bundles: each asset's fields |
+| `flight` | React Server Components payloads |
 
 ### Dependencies view
 
-`summarize_file view=dependencies` lists the components a file ships.
-
-- **.NET:** NuGet packages, runtime packs and projects from a bundled or adjacent deps.json, with the package SHA-512 and dependency edges; a package no runtime asset loads is marked excluded. Without a deps.json, assemblies (bundled, Costura, in a package) by name and informational version; an assembly version alone names no package version, so the version is reported unknown, with no package URL. The runtime's assemblies are one Microsoft.NETCore.App component.
-- **Go:** modules and the standard library from the build information; Go programs give the package URLs syft gives.
-- **Rust:** crates from cargo-auditable or the crates.io source paths.
-- **Frozen Python** (PyInstaller, py2exe, cx_Freeze, Nuitka onefile): the interpreter with the version its runtime library names, the distributions its .dist-info and .egg-info metadata name with their Requires-Dist edges, and every other top-level package by import name, with the version its `__version__` binds (read from the bytecode, or from Nuitka's constants) or with its version unknown and where it was found.
-- **Android:** the Java libraries Maven pom.properties name (group, artifact and version give a Maven package URL) and META-INF version files (AndroidX `<group>_<artifact>.version` gives one; a module file such as kotlinx_coroutines_core.version keeps its version without one; a file whose content is no version reads as unknown); each native library once with its ABIs; the libraries a native library's code names by version string (OpenSSL, zlib, libpng, libcurl, libjpeg-turbo); .NET for Android assemblies and an Il2Cpp build read as here. A split set (.apks, .xapk, .apkm) is one app, each library located in the APK that ships it (`config.arm64_v8a.apk!/lib/arm64-v8a/libfoo.so`).
-- **Il2Cpp build** (its folder, global-metadata.dat, APK or split set): Unity with the version its files name and the engine and class-library assemblies as its locations; the build's own assemblies as the subject named by its product; every other assembly by name with its version unknown.
-- **SBOM:** `sbomPath=` writes the components as a CycloneDX 1.6 SBOM (tests check it against the CycloneDX 1.6 schema); an existing file is refused unless `overwrite=true`.
-- **Advisories:** components with a package URL are matched offline by osv-scanner (`CORVUS_OSV_SCANNER`, against the databases it downloaded; Corvus makes no network request) and reported with the component, OSV id, aliases, summary, highest CVSS score and fixed versions, equal to osv-scanner 2.7.0's for the app's own packages.lock.json. Without osv-scanner, or when it fails, advisories are reported not checked with the reason, never as none.
-- **Compared with syft 1.55.0:** a script with five pinned PyPI packages frozen by PyInstaller 6.22.3, py2exe 0.14.2.0 and Nuitka 4.2.2 lists all five with package URLs on each, where syft lists none; a framework-dependent single-file bundle with NLog and Newtonsoft.Json lists both, where syft lists none; syft lists no package in an APK.
+- .NET: packages from deps.json with SHA-512; without one, assemblies by name with versions unknown.
+- Go modules, Rust crates, frozen Python distributions, Android Maven and native libraries.
+- `sbomPath=` writes a CycloneDX 1.6 SBOM; an existing file needs `overwrite=true`.
+- Advisories: matched offline by osv-scanner (`CORVUS_OSV_SCANNER`); without it they are reported not checked.
 
 ### Large files
 
-`summarize_file` reads a file over 64 MiB as a stream, never holding it whole: hashes, captures, SQLite (pages mapped,
-not copied), zip (SAZ, NuGet), HAR, mitmproxy flows, APK and IPA packages (signatures verified in ranges, the Flutter app
-image read alone), property lists and keyed archives (values kept to 1 MiB), WebAssembly modules (data segment contents
-and large custom sections left out), native images (PE, ELF, Mach-O held to the end of their last section or segment; an
-overlay, a single-file bundle's entries, embedded .NET images and the Authenticode digest read in ranges) and tar / 7z /
-gzip archives. A 2 GB capture adds about 10 MB to the working set, a 1 GB APK 15 MB, a native image with a 1 GB overlay
-about 85 MB. A native image's own sections and a module's code are still read whole.
+- Files over 64 MiB are streamed: hashes, captures, SQLite, zip, HAR, packages, plists, WebAssembly, native images,
+  tar / 7z / gzip.
+- A native image's own sections and a module's code are still read whole.
 
-Limits:
+## JavaScript (`analyze_js`)
 
-- **Features describe API use.** A rule matches when the code calls, imports or contains what the rule lists (an
-  HTTP client call matches "send HTTP requests"); it does not tell whether or when the code runs.
-- **XOR keys are recovered from known file headers** (PE, ZIP, gzip), so XOR is undone when it covers a binary or
-  compressed item, with keys up to the header's length (up to 3 bytes for gzip, 4 for ZIP, 16 for PE). XOR straight
-  over plain text has no known plaintext to recover a key from, so by default it is not decoded.
-- **`xorText=true`** (`extract_embedded`, off by default) recovers repeating XOR keys of 1-16 bytes over text in
-  resources and arrays not readable as they are: UTF-8 text in any script (English, Arabic, Cyrillic, CJK...) and UTF-16
-  text, including structured configuration (JSON, XML, URL lists, key=value / INI). Key lengths come from the index of
-  coincidence (flat, encrypted-looking data is skipped at once); each key byte is chosen for the bytes it covers, then
-  refined by how likely the decoded character pairs are, with known starts of configuration (`{"`, `https://`, `<?xml`,
-  `[`) tried as plaintext for the first key bytes; text in other scripts is refined as UTF-8. A decode is kept only when
-  it is natural text (valid in its encoding, no control or stray characters, words of real length with vowels in Latin
-  script, likely letter pairs, natural repetition in CJK) or parses as JSON / XML / config lines. Such items show
-  `xor key 1337c0de (brute-forced)` (`, UTF-16 text` for UTF-16, returned as UTF-8) in their chain. Measured on 30 real
-  assemblies (libraries with codec and opcode tables, PowerShell, WPF and Unity applications): no false decodes,
-  32 seconds for all of them.
-- **Authenticode:** the digest check (was the file changed after signing?) and the signature check are exact. Whether the
-  chain is trusted depends on the machine's root store; revocation is not checked (offline and deterministic).
-- **Lookalikes are excluded:** XML / schema namespace URLs, version numbers that look like IP addresses, and file
-  names or namespaces that look like domain names are not reported as values.
-- Corrupt or truncated assemblies give a tool error saying what is unreadable; inside a container, one unreadable
-  assembly is noted and the others are still summarized.
+- Bundles: webpack, esbuild, Browserify, Parcel, AMD, SystemJS, Metro, Rollup / Vite chunks; module table, requires.
+- webpack runtime: chunks, public path, async loads.
+- Endpoints and routes: fetch, axios, XMLHttpRequest, WebSocket, GraphQL; React Router, Vue Router, Angular, Next.js.
+- Secrets: key-like literals by provider pattern, masked.
+- Two builds compared module by module.
+- Data flow: `view=flow` forward and `view=origins` back to sinks; unfollowable steps end as unknown.
+- `view=beautify`: one statement per line; `query` renames bindings by scope.
+- `view=react` and `view=jsx`: components, hooks and JSX of a compiled bundle.
+- Hermes bytecode versions 59-96 and Ark bytecode: disassembly, decompiled view, users of a function or string.
+- Source maps: inline, by `sourceMappingURL` or a sibling `.map`.
+
+## Android
+
+- `mapping=` (R8 / ProGuard `mapping.txt`) on the DEX tools puts original names beside ids.
+- `disassemble_dex format=simplified` runs string decoders in a bounded Dalvik interpreter.
+  - 100,000 instructions per call, call depth 8, 10 s per package-wide pass.
+  - A call not folded names its reason (`not-constant`, `mutable-static`, `instruction-budget`, ...).
+- `summarize_file` on a package names its runtimes, ABIs, DEX files and signature verdict.
+- Device tools find adb through `CORVUS_ADB`, `PATH` or the SDK; installs and uninstalls need `--allow-device-changes`.
+
+## Reliability
+
+| Concern | Handling |
+|---|---|
+| Locked files | assemblies are read into memory; files are never locked |
+| Concurrency | reads share a lock, edits take it exclusively |
+| Broken bodies | decompiled member by member, IL for the broken part |
+| Lenient metadata | decompiled from a normalized copy with the same tokens |
+| Invisible names | zero-width, bidi and control characters shown as `\uXXXX` |
+| Large output | paged by tokens; overflow kept for `read_result` |
+| Files changing on disk | clean assemblies reload; edited ones stay and the agent is told |
+| Long calls | `--timeout` per decompilation (default 180 s); `timeout` error at twice that |
+| Crashing inputs | file reads run in a worker process; the server keeps answering |
+| Invalid patches | IL is stack-validated, C# compiled; nothing changes on failure |
+
+- `read_result format=evidence` writes a findings bundle; `format=verify` re-runs its calls and names what changed.
+- `compare_assemblies`, `compare_native_images` and `compare_folders` take `oldResult` / `newResult` to compare kept
+  results.
 
 ## Symbol syntax
 
@@ -587,36 +528,23 @@ Ns.Type::Method  Ns.Type.Method   Ns.Type::Method(int, string)      Ns.Type::.ct
 
 ## Patching
 
-**C#:** pass only the new body.
+C#: pass only the new body.
 
 ```
 patch_method_csharp  method="App.Account::Withdraw(int)"
                      code="if (amount <= 0) return; _balance -= amount;"
 ```
 
-The body is compiled as a static helper against the real assembly (accessibility checks off), with `this` and implicit
-members rewritten to the instance. The new IL is transplanted, with references mapped back to the original definitions
-and reference scopes. Lambdas, closures, async, `yield`, LINQ and local functions work: the compiler-generated closure
-and state-machine types are copied into the target. Members that would be inaccessible at runtime are relaxed, or an
-`IgnoresAccessChecksTo` attribute is added for other assemblies.
+- The body compiles against the real assembly with access checks off; lambdas, async, `yield` and LINQ work.
 
-**New members and types:**
+New members and types:
 
 ```
 add_members_csharp  type="App.Shop"  code="private int _bonus; public int Bonus(int x) => x + _bonus;"
 add_types_csharp    assembly="App"   code="namespace Extensions { public static class Diagnostics { public static void Trace() { } } }"
 ```
 
-**History:** every edit is recorded. `diff_edits` shows the decompiled C# before and after; `undo_edit` removes one edit
-(the rest are replayed); `export_edits` writes a JSON script tied to its build (file SHA-256, MVID and assembly
-identity); `apply_edits` replays it, by token on the same build and by name on a new one. Another build is refused with a
-conflict error naming expected vs actual unless `targetBuild=other` (try `dryRun=true` first), and the report says what
-was remapped. Scripts from before this check apply with a warning. When a target was renamed in the new build, load the
-build the script was made from as well: `apply_edits` then follows the target through the same content match as
-`compare_assemblies` and reports the new name.
-
-**IL:** call `get_il` on the method, edit the instruction lines, and pass them back. The `/* token */` comments resolve
-operands exactly. Hand-written IL works too:
+IL: edit the `get_il` lines and pass them back; `/* token */` comments resolve operands.
 
 ```
 ldarg.0
@@ -629,47 +557,14 @@ ldc.i4.0
 ret
 ```
 
-`mode=prepend` inserts code before the original body and can branch into it by its offsets (`bge IL_0000`).
-`.local <type>` declares a local variable.
+- `mode=prepend` inserts code before the original body; `.local <type>` declares a local.
+- `export_edits` binds a script to its build (SHA-256, MVID); `apply_edits` refuses another build unless
+  `targetBuild=other`.
 
 ## Exported projects
 
-`export_project` writes a project meant to build, not just to read. On a survey of 30 real assemblies (NuGet libraries
-such as Newtonsoft.Json, System.Text.Json, NLog, SharpCompress, AsmResolver and BouncyCastle; PowerShell 7's
-System.Management.Automation; a transformed, Costura-wrapped WPF app; Windows Store installers; Unity assemblies),
-every one whose dependencies exist on disk builds with no errors, and a rebuilt BouncyCastle computes the same results
-as the original. What makes that work:
-
-- **References for the target framework:** framework assemblies of the project's own .NET version (its reference pack
-  when that runtime is not installed), the .NET Standard reference assembly for netstandard libraries, .NET Framework
-  reference assemblies for .NET Framework apps (and a path for the ones outside them), dependencies from the NuGet
-  cache built for that framework, Windows Runtime metadata from the Windows SDK (one union `Windows.winmd`) and from
-  installed app packages.
-- **Wrapped dependencies:** assemblies inside the exported one (Costura) are written to `lib\` and referenced.
-- **Project settings the build needs:** `StartupObject` from the entry point, public signing with the original public
-  key (friend assemblies that grant internals by key keep doing so), preserialized resources for a .NET Framework
-  project whose `.resx` holds images or other non-string data (`dotnet build` requires them; 4.6.2 or later).
-- **Output the decompiler engine gets wrong, rewritten** (also in `decompile_member`): span-slicing `ref` temporaries,
-  `scoped` locals, initialized `stackalloc`, base constructor calls in bodies, constructor parameters in field
-  initializers, nested locals of one name, struct enumerators disposed by pattern, trimmed getters, bools used as
-  integers, negative constants cast to unsigned types, null-conditional extension calls, framework type names that clash
-  across imported namespaces, compiler-reserved and source-generator attributes, and transformation leftovers (renamed
-  `value` parameters, unspeakable parameter names, dropped `new()` constraints, a renamed `Main`). LINQ comes out as
-  method calls in exports.
-- A method the engine cannot decompile at all keeps the engine's explanation and throws `NotSupportedException`.
-
-**Dependencies that are not on the machine** (an assembly missing from a partial dump) do not stop decompilation: a
-stand-in is rebuilt from how the loaded code uses it: every type it references or forwards to it with its kind (struct,
-enum, interface, delegate, exception, attribute), every member with its exact signature, properties and events, the
-virtual members the code overrides, and what generic constraints require. The decompiler then reads the rest against
-real types (no "unknown result type" guesses, properties instead of accessor calls), `get_assembly_info` lists the
-reference as `not found; stub built from what the loaded code uses (N types, M members)`, and an exported project
-references the stand-in from `lib\` (with a note saying so) and builds. Enum member names of a missing enum are compiled
-away, so its values show as numbers (`(Mode)2`).
-
-Also recovered: local functions the engine drops (compiled into a closure because lambdas capture their variables),
-and a constructor's work the engine shows as field initializers or a primary constructor: `decompile_member` on such
-a constructor shows it inside its type, trimmed to what runs as part of it.
-
-On 30 real assemblies, including an application with three dependencies missing, every exported project builds with 0
-errors.
+- `export_project` writes a project meant to build.
+- References: the project's own framework (its reference pack when not installed), NuGet cache, Windows SDK metadata.
+- Costura-wrapped dependencies go to `lib\` and are referenced.
+- Missing dependencies are rebuilt as stand-ins from how the code uses them; the project still builds.
+- Known decompiler output errors are rewritten; a method that cannot be decompiled throws `NotSupportedException`.

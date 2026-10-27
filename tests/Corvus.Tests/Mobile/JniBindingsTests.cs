@@ -51,13 +51,13 @@ public class JniBindingsTests
         uint table1 = Data + 0x100, table2 = Data + 0x200, junk = Data + 0x300;
         var relocations = new List<ElfWriter.Reloc>();
         void Ptr(uint slot, uint target) => relocations.Add(new(slot, 1027, Addend: target));
-        // table 1: reg(I)V, unique in the DEX code; table 2: init()V, declared by two classes
+        // Table 1: reg(I)V, unique in the DEX code; table 2: init()V, declared by two classes.
         Ptr(table1, strings["reg"]); Ptr(table1 + 8, strings["(I)V"]); Ptr(table1 + 16, Text + 0x40);
         Ptr(table2, strings["init"]); Ptr(table2 + 8, strings["()V"]); Ptr(table2 + 16, Text + 0x48);
-        // not a table: the name pointer is not a Java identifier
+        // Not a table: the name pointer is not a Java identifier.
         Ptr(junk, strings["not a name"]); Ptr(junk + 8, strings["()V"]); Ptr(junk + 16, Text + 0x48);
 
-        // JNI_OnLoad: x1 = "com/example/jni/Third", x2 = table 2 (FindClass, RegisterNatives); then the native functions
+        // JNI_OnLoad: x1 = "com/example/jni/Third", x2 = table 2 (FindClass, RegisterNatives); then the native functions.
         var code = new List<uint>();
         code.AddRange(Address(Text, strings["com/example/jni/Third"], 1));
         code.AddRange(Address(Text + 8, table2, 2));
@@ -86,7 +86,7 @@ public class JniBindingsTests
 
     /// <summary>A table's class found through the code index is kept per library, so paging calls do not rebuild the index.</summary>
     [Fact]
-    public void TableOwnersFromTheCodeIndexAreKeptPerLibrary()
+    public void Table_owners_from_the_code_index_are_kept_per_library()
     {
         using var dir = new TempDir();
         var library = Library($"lib{Guid.NewGuid():N}.so");
@@ -100,9 +100,9 @@ public class JniBindingsTests
         Assert.Equal("class_string", Owner());
     }
 
-    /// <summary>Relocation, symbol and unwind sections are not scanned for tables: in an Il2Cpp library they are most of the data and hold none.</summary>
+    /// <summary>Relocation, symbol and unwind sections are not scanned for tables: in an AOT library they are most of the data and hold none.</summary>
     [Fact]
-    public void TablesAreReadFromDataSectionsOnly()
+    public void Tables_are_read_from_data_sections_only()
     {
         using var dir = new TempDir();
         int Tables(string section)
@@ -116,19 +116,19 @@ public class JniBindingsTests
 
     /// <summary>The owner search reads references and strings: virtual call resolution, 40-50 % of a large ARM32 library's index, is skipped.</summary>
     [Fact]
-    public void TheOwnerIndexSkipsVirtualCallResolution() => Assert.False(JniBindings.IndexOptions.ResolveVirtualCalls);
+    public void The_owner_index_skips_virtual_call_resolution() => Assert.False(JniBindings.IndexOptions.ResolveVirtualCalls);
 
     [Theory]
     [InlineData("Lcom/example/my_pkg/Na$Inner;", "do_it", "Java_com_example_my_1pkg_Na_00024Inner_do_1it")]
     [InlineData("Lp/C;", "mé", "Java_p_C_m_000e9")]
-    public void ShortNamesAreMangled(string cls, string method, string expected) => Assert.Equal(expected, JniBindings.ShortName(cls, method));
+    public void Short_names_are_mangled(string cls, string method, string expected) => Assert.Equal(expected, JniBindings.ShortName(cls, method));
 
     [Fact]
-    public void LongNamesMangleTheParameters() =>
+    public void Long_names_mangle_the_parameters() =>
         Assert.Equal("Java_p_C_f__Ljava_lang_String_2_3I_3_3J", JniBindings.LongName("Lp/C;", "f", "(Ljava/lang/String;[I[[J)V"));
 
     [Fact]
-    public void ExportsTablesAndUnboundMethodsArePaired()
+    public void Exports_tables_and_unbound_methods_are_paired()
     {
         using var dir = new TempDir();
         var plain = new ElfWriter { Text = new byte[0x20], SoName = "libplain.so", Symbols = [new("plain_function", ElfWriter.TextRva, 4)] }.Build();
@@ -142,7 +142,7 @@ public class JniBindingsTests
         var lib = Assert.Single(r.Libraries);
         Assert.Equal(("lib/arm64-v8a/libnative.so", 5, true, 2, 2), (lib.Library, lib.JavaExports, lib.HasJniOnLoad, lib.RegisterNativesTables, lib.RegisteredMethods));
         Assert.Contains(r.Notes, n => n.Contains("abi=all"));
-        // a library without JNI content is counted, not listed (.NET for Android ships hundreds of them)
+        // A library without JNI content is counted, not listed (.NET for Android ships hundreds of them).
         Assert.Contains(r.Notes, n => n.StartsWith("1 of 2 libraries have no Java_ export"));
         Assert.Contains($"static_export {Native}->hello()Ljava/lang/String; Java_com_example_jni_Native_hello 0x1020 ", rows);
         Assert.Contains($"static_export {Native}->add(II)I Java_com_example_jni_Native_add__II 0x1024 ", rows);
@@ -168,7 +168,7 @@ public class JniBindingsTests
     /// <summary>The .NET for Android runtime library (a real NDK build) with the Java side of its runtime class declared in a test-built DEX.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void RealRuntimeLibraryExportsBindTheirJavaMethods()
+    public void Real_runtime_library_exports_bind_their_Java_methods()
     {
         const string Runtime = "Lmono/android/Runtime;";
         var b = new DexBuilder();
@@ -191,14 +191,14 @@ public class JniBindingsTests
             Assert.Equal(("static_export", $"Java_mono_android_Runtime_{m}"), (row.Kind, row.Symbol));
             Assert.StartsWith("0x", row.Address);
         }
-        // imported from another library, not exported here
+        // Imported from another library, not exported here.
         Assert.Contains(r.Items, i => i is { Kind: "unresolved", JavaMethod: "Lnet/dot/android/crypto/DotnetProxyTrustManager;->verifyRemoteCertificate(J)Z" });
-        // init and initInternal are not declared in this DEX
+        // init and initInternal are not declared in this DEX.
         Assert.Contains(r.Items, i => i is { Kind: "export_only", Symbol: "Java_mono_android_Runtime_initInternal" });
     }
 
     [Fact]
-    public void PackageWithoutLibrariesListsEveryNativeMethodAsUnresolved()
+    public void Package_without_libraries_lists_every_native_method_as_unresolved()
     {
         using var dir = new TempDir();
         var path = AndroidSamples.Save(dir, "plain.apk", AndroidSamples.Apk(30, ("classes.dex", Dex())));

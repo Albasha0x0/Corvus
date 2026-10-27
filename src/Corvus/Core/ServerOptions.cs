@@ -2,15 +2,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Startup options. Command line:
+/// <summary>Startup options from the command line and CORVUS_* environment variables.</summary>
+/// <remarks>
+/// Command line:
 ///   --load &lt;path&gt;        assembly file or directory to load at startup (repeatable)
 ///   --search-dir &lt;dir&gt;   extra directory for resolving references (repeatable)
 ///   --max-output &lt;n&gt;     max characters per tool response page (default 60000)
 ///   --timeout &lt;seconds&gt;  per-call decompilation timeout (default 180)
 ///   --no-index            do not index method bodies / build the call graph in the background
 ///   --no-watch            do not reload assemblies when their files change on disk
-///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, il2cpp or hostapi
+///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, aot or hostapi
 ///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
 ///   --prewarm &lt;e&gt;        start an engine's analysis of each native image in the background right after it loads (one at a time):
 ///                         ida, ghidra or auto (the preferred engine installed); --ida-prewarm is --prewarm ida
@@ -34,7 +35,7 @@ namespace Corvus.Core;
 /// CORVUS_CODE_INDEX_CACHE, CORVUS_CODE_INDEX_CACHE_MB and CORVUS_CODE_INDEX_CACHE_DAYS set the code index cache defaults; CORVUS_LOG_LEVEL sets --log-level;
 /// CORVUS_TOOLSETS sets --toolsets; CORVUS_ENGINE_REQUEST_TIMEOUT and CORVUS_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens;
 /// CORVUS_ENGINE_ANALYSIS=none opens images in IDA and Ghidra without auto-analysis; CORVUS_MAX_OUTPUT_TOKENS replaces the client's output ceiling.
-/// </summary>
+/// </remarks>
 public sealed class ServerOptions
 {
     public List<string> Preload { get; } = new();
@@ -54,11 +55,8 @@ public sealed class ServerOptions
     /// <summary>Project directory generate_cpp_binding scans for a host table when the call gives none.</summary>
     public string? BindingProject { get; set; }
 
-    /// <summary>
-    /// The engine whose session opens for each native image in the background right after it loads (one image at a time,
-    /// cancelled on unload), so the first engine call does not wait for auto-analysis: Ida, Ghidra or Auto (the preferred
-    /// engine installed); null: off (default).
-    /// </summary>
+    /// <summary>The engine (Ida, Ghidra or Auto) that opens each loaded native image in the background, one at a time; null: off (default).</summary>
+    /// <remarks>Cancelled on unload; the first engine call then does not wait for auto-analysis.</remarks>
     public EngineMode? Prewarm { get; set; }
 
     public const string PrewarmVariable = "CORVUS_PREWARM";
@@ -70,10 +68,7 @@ public sealed class ServerOptions
 
     public const string IdaScriptingVariable = "CORVUS_IDA_SCRIPTING";
 
-    /// <summary>
-    /// The file tools (summarize, container listing, search and extraction, dump reads) parse in the server process instead
-    /// of a <c>corvus worker</c> process, where a file that crashes a reader ends the server (default off).
-    /// </summary>
+    /// <summary>File tools parse in the server process, not a <c>corvus worker</c>, so a reader crash ends the server (default off).</summary>
     public bool InProcessParsing { get; set; }
 
     public const string InProcessParsingOption = "--in-process-parsing";
@@ -181,10 +176,7 @@ public sealed class ServerOptions
     /// <summary>Tool families registered (<see cref="Core.Toolsets"/>); session is always among them.</summary>
     public IReadOnlySet<string> Toolsets { get; set; } = Core.Toolsets.Default;
 
-    /// <summary>
-    /// Saved native code indexes, so reopening an image loads its index instead of building it again; null = off
-    /// (the default for options not parsed from a command line, so embedded and test servers write nothing).
-    /// </summary>
+    /// <summary>Saved native code indexes; null = off, the default outside command-line parsing so embedded servers write nothing.</summary>
     public Native.Code.CodeIndexCacheOptions? CodeIndexCache { get; set; }
 
     /// <summary>The options <see cref="Parse"/> reads a value after (the tool CLI tells them from tool arguments).</summary>
@@ -220,7 +212,7 @@ public sealed class ServerOptions
                 case "--no-watch": o.WatchFiles = false; break;
                 case "--binding-style":
                     var style = Next().Trim().ToLowerInvariant();
-                    o.BindingStyle = style is "mono" or "hostapi" or "il2cpp" ? style : throw new ArgumentException($"--binding-style must be mono, il2cpp or hostapi, not '{style}'");
+                    o.BindingStyle = style is "mono" or "hostapi" or "aot" ? style : throw new ArgumentException($"--binding-style must be mono, aot or hostapi, not '{style}'");
                     break;
                 case "--binding-project": o.BindingProject = Next(); break;
                 case "--ida-prewarm": prewarm = "ida"; break;
@@ -258,7 +250,7 @@ public sealed class ServerOptions
             if (cacheRoot != null) c = c with { Root = cacheRoot };
             if (cacheMb is { } m) c = c with { MaxBytes = m << 20 };
             if (cacheDays is { } d) c = c with { MaxAge = TimeSpan.FromDays(d) };
-            // an explicit option turns the cache on even when the environment turned it off
+            // An explicit option turns the cache on even when the environment turned it off.
             if (o.CodeIndexCache != null || cacheRoot != null || cacheMb != null || cacheDays != null) o.CodeIndexCache = c;
         }
         if (logLevel != null)
@@ -300,7 +292,7 @@ public sealed class ServerOptions
         return o;
     }
 
-    // ---- Client profile ----
+    // Client profile.
 
     /// <summary>The client id from --client or CORVUS_CLIENT (see <see cref="ClientProfiles"/>); null: detected from the handshake.</summary>
     public string? Client { get; set; }
@@ -340,7 +332,7 @@ public sealed class ServerOptions
                 : throw new ArgumentException($"{ClientProfiles.MaxOutputTokensVariable} must be a number of tokens (500 or more), not '{tokens}'");
     }
 
-    // ---- Catalog whitelist and call trace ----
+    // Catalog whitelist and call trace.
 
     /// <summary>Tools a --tools-file whitelist names (null: no whitelist); applied after <see cref="Toolsets"/>, session tools always kept.</summary>
     public IReadOnlySet<string>? ToolAllowList { get; set; }
@@ -406,11 +398,8 @@ public sealed class ServerOptions
     };
 }
 
-/// <summary>
-/// Where the native code tools take functions, cross-references and control-flow graphs from: Auto (the first engine,
-/// IDA then Ghidra, that has analyzed the image's bytes, open or saved in the analysis cache, else the built-in index), Ours (the built-in index only; no engine is asked), Ida or Ghidra (that engine's analysis,
-/// started and waited for when needed).
-/// </summary>
+/// <summary>Source of native functions, xrefs and CFGs: Auto (an analyzed engine, IDA first, else ours), Ours, Ida or Ghidra.</summary>
+/// <remarks>Auto takes an engine whose analysis is open or saved in the analysis cache; Ida and Ghidra start and wait for theirs.</remarks>
 public enum EngineMode { Auto, Ours, Ida, Ghidra }
 
 public static class EngineModes

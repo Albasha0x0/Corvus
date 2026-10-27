@@ -50,16 +50,10 @@ public sealed record NativeSection(string Name, uint Rva, uint VirtualSize, uint
     public bool IsExecutable => (Access & (SectionAccess.Execute | SectionAccess.Code)) != 0;
 }
 
-/// <summary>
-/// One imported function. <see cref="SlotRva"/> is the IAT slot the loader fills, which code reads through
-/// ("call [slot]"); for delay-loaded imports it is the delay IAT slot.
-/// </summary>
+/// <summary>One imported function; <see cref="SlotRva"/> is the IAT slot the loader fills (the delay IAT slot when delay-loaded).</summary>
 public sealed record NativeImport(string Module, string? Name, ushort? Ordinal, ushort Hint, uint SlotRva, bool IsDelayLoad);
 
-/// <summary>
-/// One exported entry. <see cref="ForwardedTo"/> is set (and <see cref="Rva"/> points at the forwarder string) for forwarded exports;
-/// <see cref="Version"/> is an ELF symbol version as the name's suffix: @@NAME for the default, @NAME for another.
-/// </summary>
+/// <summary>One export; <see cref="ForwardedTo"/> is set for a forwarder, <see cref="Version"/> is an ELF version (@@NAME default, @NAME other).</summary>
 public sealed record NativeExport(string? Name, uint Ordinal, uint Rva, string? ForwardedTo, string? Version = null);
 
 /// <summary>A function range from the exception directory (.pdata) on x64, ARM64 and ARM.</summary>
@@ -86,10 +80,7 @@ public enum ImageSymbolBinding
     Local,
 }
 
-/// <summary>
-/// A defined symbol of the image's own symbol tables (ELF .dynsym/.symtab, Mach-O nlist, a PE's COFF symbol table when
-/// its linker kept it). <see cref="Version"/> is the ELF symbol version. PDB symbols are separate.
-/// </summary>
+/// <summary>A defined symbol of the image's own symbol tables (ELF, Mach-O nlist, PE COFF); not PDB symbols.</summary>
 public sealed record ImageSymbol(string Name, uint Rva, ulong Size, ImageSymbolKind Kind, ImageSymbolBinding Binding, string? Section, string? Version = null);
 
 /// <summary>Where a declared function start comes from.</summary>
@@ -111,11 +102,7 @@ public readonly record struct DeclaredFunction(uint Rva, uint? Size, DeclaredSou
 /// <summary>A range whose file bytes are encrypted (Mach-O LC_ENCRYPTION_INFO with a nonzero cryptid).</summary>
 public sealed record EncryptedRange(uint Rva, uint Size, uint CryptId);
 
-/// <summary>
-/// A native executable image as loaded from disk: headers, mapped sections and the directories code analysis needs.
-/// Implementations snapshot the file into memory, never throw on malformed content after construction, and
-/// report what they could not read in <see cref="Issues"/>.
-/// </summary>
+/// <summary>A native image snapshot; never throws on malformed content after construction and reports it in <see cref="Issues"/>.</summary>
 public interface INativeImage
 {
     ImageFormat Format => ImageFormat.Pe;
@@ -152,12 +139,7 @@ public interface INativeImage
     string? BuildId => null;
     IReadOnlyList<EncryptedRange> EncryptedRanges => [];
 
-    /// <summary>
-    /// Copies mapped bytes starting at <paramref name="rva"/> into <paramref name="destination"/> as the loader would
-    /// map them (headers, section raw data, zero fill past raw data). Returns the number of bytes copied, which is
-    /// less than requested only at the end of the image or at an unmapped gap. Pointers the loader fixes up hold
-    /// their targets at <see cref="ImageBase"/> (ELF and Mach-O rebases applied); bound import slots read as 0.
-    /// </summary>
+    /// <summary>Copies bytes at <paramref name="rva"/> as mapped at <see cref="ImageBase"/> (rebases applied, bound import slots 0); returns the count, short only at a gap or the end.</summary>
     int Read(uint rva, Span<byte> destination);
 
     bool TryRvaToFileOffset(uint rva, out long fileOffset);

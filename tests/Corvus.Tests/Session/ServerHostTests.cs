@@ -12,7 +12,7 @@ namespace Corvus.Tests;
 public class ServerHostTests
 {
     [Fact]
-    public void Preload_LoadsNativeImagesToo()
+    public void Preload_loads_native_images_too()
     {
         using var dir = new TempDir();
         var options = new ServerOptions();
@@ -50,7 +50,7 @@ public class ServerHostTests
     }
 
     [Fact]
-    public async Task TheHandshakeName_SelectsTheClientProfile()
+    public async Task The_handshake_name_selects_the_client_profile()
     {
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
         Pipe toServer = new(), toClient = new();
@@ -76,7 +76,7 @@ public class ServerHostTests
     }
 
     [Fact]
-    public async Task StreamTransport_ServesTheCatalogAndTools()
+    public async Task Stream_transport_serves_the_catalog_and_tools()
     {
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
         options.Preload.Add(Env.FixturePath);

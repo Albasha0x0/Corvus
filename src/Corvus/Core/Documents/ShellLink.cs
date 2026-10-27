@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// A Windows shortcut (.lnk, MS-SHLLINK): header flags, times and show command; the target from the ID list (shell items
-/// with their long names) and the link info (local path, volume serial and label, network share); the name, relative
-/// path, working directory, arguments and icon strings; the extra data blocks (environment target, tracker machine id and
-/// MAC address, known and special folders, shim layer, installer descriptor); and any data appended after the last block.
-/// </summary>
+/// <summary>A Windows shortcut (MS-SHLLINK): header, target, strings, extra data blocks and any data appended after them.</summary>
 internal sealed class ShellLink
 {
     public uint Flags { get; private set; }
@@ -114,7 +109,7 @@ internal sealed class ShellLink
         WorkingDirectory = Str(0x10);
         Arguments = Str(0x20);
         IconLocation = Str(0x40);
-        // extra data blocks until the terminal block (size under 4)
+        // Extra data blocks until the terminal block (size under 4).
         while (pos + 4 <= d.Length)
         {
             int size = (int)BinaryPrimitives.ReadUInt32LittleEndian(s[pos..]);
@@ -173,7 +168,7 @@ internal sealed class ShellLink
                 parts.Add(Encoding.Latin1.GetString(item[5..]).Split('\0')[0]);
             else if (type == 0x61 && item.Length > 6)
             {
-                // a URI item: the address is the string in it with a scheme
+                // A URI item: the address is the string in it with a scheme.
                 var text = (item[3] & 0x80) != 0 ? Encoding.Unicode.GetString(item[6..][..((item.Length - 6) & ~1)]) : Encoding.Latin1.GetString(item[6..]);
                 var uri = UriText.Match(text);
                 if (uri.Success) return uri.Value;
@@ -186,10 +181,10 @@ internal sealed class ShellLink
         return start >= 0 ? string.Join(@"\", parts.Skip(start)) : string.Join(@"\", parts);
     }
 
-    /// <summary>The long name of a file entry item, from its 0xBEEF0004 extension block.</summary>
     // NonBacktracking matches in linear time, so no match timeout.
     private static readonly System.Text.RegularExpressions.Regex UriText = new(@"[A-Za-z][A-Za-z0-9+.\-]*://[^\0\s]+", System.Text.RegularExpressions.RegexOptions.NonBacktracking);
 
+    /// <summary>The long name of a file entry item, from its 0xBEEF0004 extension block.</summary>
     private static string? LongName(ReadOnlySpan<byte> item)
     {
         for (int i = 14; i + 8 <= item.Length; i++)
@@ -271,7 +266,7 @@ internal sealed class ShellLink
                 MachineId = Encoding.Latin1.GetString(body.Slice(8, 16)).TrimEnd('\0');
                 var droidFile = new Guid(body.Slice(40, 16));
                 Droid = $"{new Guid(body.Slice(24, 16))} {droidFile}";
-                // a version 1 GUID ends with the MAC address of the machine that made it
+                // A version 1 GUID ends with the MAC address of the machine that made it.
                 if ((droidFile.ToByteArray()[7] >> 4) == 1) MacAddress = string.Join(":", droidFile.ToByteArray()[10..].Select(x => x.ToString("x2", System.Globalization.CultureInfo.InvariantCulture)));
                 break;
             case 0xA0000004: ExtraBlocks.Add("ConsoleFE"); break;

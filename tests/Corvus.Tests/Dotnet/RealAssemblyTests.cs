@@ -14,7 +14,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void DecompilesEveryTopLevelTypeOfDnlibConcurrently()
+    public void Decompiles_every_top_level_type_of_dnlib_concurrently()
     {
         using var env = new Env(DnlibPath);
         var types = env.Fixture.Module.Types.Where(t => t.FullName != "<Module>").ToList();
@@ -40,7 +40,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void SearchAndCrossReferencesScaleOnTheIlSpyEngine()
+    public void Search_and_cross_references_scale_on_the_ILSpy_engine()
     {
         using var env = new Env(IlSpyPath);
         env.Workspace.Load(DnlibPath);
@@ -65,7 +65,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CSharpPatchOfRealCodeRunsAfterSave()
+    public void CSharp_patch_of_real_code_runs_after_save()
     {
         using var env = new Env(DnlibPath);
         env.Edit(() => env.Edits.PatchMethodCSharp(env.One("dnlib.DotNet.UTF8String::ToString()"), "return \"patched:\" + String;", false, default));
@@ -89,7 +89,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void ExportsDnlibAsProject()
+    public void Exports_dnlib_as_project()
     {
         using var env = new Env(DnlibPath);
         using var dir = new TempDir();
@@ -103,7 +103,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     /// <summary>A real app's assemblies (CORVUS_ASSEMBLY_DIR): decompile, search, cross-reference and patch its own code.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.AssemblyDir)]
-    public void RealAssembliesEndToEnd()
+    public void Real_assemblies_load_search_and_decompile()
     {
         using var ws = new AssemblyWorkspace();
         var options = new ServerOptions();
@@ -158,23 +158,23 @@ public class RealAssemblyTests(ITestOutputHelper output)
         Assert.Contains("ret", compiled.Listing);
     }
 
-    /// <summary>A real DummyDll folder of Il2Cpp dummy assemblies (CORVUS_IL2CPP_DUMMY_DIR).</summary>
+    /// <summary>A real folder of dummy assemblies with [Address] attributes (CORVUS_AOT_DUMMY_DIR).</summary>
     [Trait("Speed", "Slow")]
-    [RequiresRealDataFact(RealData.Il2CppDummyDir)]
-    public void Il2CppDummyDllFolder()
+    [RequiresRealDataFact(RealData.AotDummyDir)]
+    public void A_dummy_assembly_folder_loads_and_decompiles()
     {
         using var ws = new AssemblyWorkspace();
         var sw = Stopwatch.StartNew();
-        var report = ws.LoadDirectory(RealData.Path(RealData.Il2CppDummyDir), false);
+        var report = ws.LoadDirectory(RealData.Path(RealData.AotDummyDir), false);
         output.WriteLine($"loaded {report.Loaded.Count} assemblies in {sw.ElapsedMilliseconds} ms");
         Assert.NotEmpty(report.Loaded);
 
-        var il2cpp = new Services.Il2CppService(ws);
-        var index = ws.Assemblies.SelectMany(il2cpp.GetIndex).Where(e => e.Rva != null).ToList();
+        var aot = new Services.AotMetadataService(ws);
+        var index = ws.Assemblies.SelectMany(aot.GetIndex).Where(e => e.Rva != null).ToList();
         Assert.NotEmpty(index);
 
         // Round-trip a sample of real RVAs: every exact start maps back to the methods sharing that RVA.
-        var navigator = new Services.Il2CppNavigator(ws, il2cpp, new Services.Il2CppStringService(ws, il2cpp));
+        var navigator = new Services.AotNavigator(ws, aot, new Services.AotStringService(ws, aot));
         var rng = new Random(42);
         foreach (var entry in Enumerable.Range(0, 300).Select(_ => index[rng.Next(index.Count)]))
         {
@@ -191,11 +191,11 @@ public class RealAssemblyTests(ITestOutputHelper output)
 
     /// <summary>With a dummy-DLL mscorlib also loaded, app code compiles without CS0433 and binds to the real mscorlib.</summary>
     [Trait("Speed", "Slow")]
-    [RequiresRealDataFact(RealData.AssemblyDir, RealData.Il2CppDummyDir)]
-    public void AppAndIl2CppDummySetLoadedTogether()
+    [RequiresRealDataFact(RealData.AssemblyDir, RealData.AotDummyDir)]
+    public void An_app_and_a_dummy_assembly_set_load_together()
     {
         using var env = new Env(Env.FixturePath);
-        env.Workspace.LoadDirectory(RealData.Path(RealData.Il2CppDummyDir), false);   // dummy set first: its mscorlib loads first
+        env.Workspace.LoadDirectory(RealData.Path(RealData.AotDummyDir), false);   // dummy set first: its mscorlib loads first
         var report = env.Workspace.LoadDirectory(RealData.Path(RealData.AssemblyDir), false);
         var app = report.Loaded.Where(RealData.IsAppAssembly).MaxBy(a => a.Module.GetTypes().Count())!;
         var type = env.Workspace.Read(() => app.Module.GetTypes().First(t => t.IsClass && !t.IsAbstract && !t.HasGenericParameters
@@ -214,7 +214,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     /// <summary>Real assemblies with encrypted method bodies are flagged and decompile with a warning.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.AssemblyDir)]
-    public void EncryptedBodiesInARealFolderAreFlagged()
+    public void Encrypted_bodies_in_a_real_folder_are_flagged()
     {
         using var env = new Env(Env.FixturePath);
         var loaded = env.Workspace.LoadDirectory(RealData.Path(RealData.AssemblyDir), false).Loaded;
@@ -226,13 +226,13 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var method = env.Workspace.Read(() => asm.Module.GetTypes().SelectMany(t => t.Methods).First(asm.BodyHealth.IsInvalid));
         var code = new Services.DecompilerService(env.Workspace, new ServerOptions()).DecompileMembers(asm, [method], default);
         Assert.Contains("this method body is not valid IL", code);
-        Assert.Contains("IL: ", env.Workspace.Read(() => new Services.AssemblyReport(env.Workspace, new Services.Il2CppService(env.Workspace)).Build(asm)));
+        Assert.Contains("IL: ", env.Workspace.Read(() => new Services.AssemblyReport(env.Workspace, new Services.AotMetadataService(env.Workspace)).Build(asm)));
     }
 
     /// <summary>Two builds loaded together (CORVUS_COMPARE_OLD_DIR / NEW_DIR): each binds its references within its own folder.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
-    public void TwoRealBuildsBindToTheirOwnFolders()
+    public void Two_real_builds_bind_to_their_own_folders()
     {
         using var ws = new AssemblyWorkspace(new ServerOptions());
         var newer = ws.LoadDirectory(RealData.Path(RealData.CompareNewDir), false).Loaded;   // newer first: worst case for the older one

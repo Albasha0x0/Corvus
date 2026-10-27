@@ -5,11 +5,7 @@ using Corvus.Core;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// S12.3 real data for the tools no family test covers on a real library: native reading on a PE and an ELF (e_sqlite3),
-/// P/Invoke verification (a runtime assembly), a matching PDB (HarfBuzzSharp),
-/// session, notes and workspace tools on Newtonsoft.Json.
-/// </summary>
+/// <summary>Real data for tools no family test covers on a real library.</summary>
 [Trait("Data", "Real"), Trait("Speed", "Slow")]
 public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
@@ -58,13 +54,13 @@ public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
         Assert.True((await Call(c, "find_xrefs", On(("address", "sqlite3_free")))).Record.GetProperty("total").GetInt32() >= 1);
         await Call(c, "get_call_arguments", On(("address", "sqlite3_open")));
         await Call(c, "resolve_call_targets", On(("address", "sqlite3_open"), ("scope", "function")));
-        // compact record: the engine note in its own field, no instruction text per site (the text has it), no empty target lists
+        // Compact record: the engine note in its own field, no instruction text per site (the text has it), no empty target lists.
         var (targetsText, targets) = await Call(c, "resolve_call_targets", On(("scope", "image")));
         Assert.StartsWith("ours", targets.GetProperty("engine").GetString());
         Assert.False(string.IsNullOrEmpty(targets.GetProperty("engineNote").GetString()));
         Assert.DoesNotContain(targets.GetProperty("notes").EnumerateArray(), n => n.GetString()!.StartsWith("Engine:", StringComparison.Ordinal));
         Assert.All(targets.GetProperty("items").EnumerateArray(), i => Assert.False(i.TryGetProperty("text", out _)));
-        // measured 1.32x (PE) and 1.41x (ELF: import targets carry evidence the text leaves out), from 1.64x
+        // Measured 1.32x (PE) and 1.41x (ELF: import targets carry evidence the text leaves out), from 1.64x.
         int recordTokens = TokenEstimate.Of(targets.GetRawText()), textTokens = TokenEstimate.Of(targetsText);
         Assert.True(recordTokens <= textTokens * 145 / 100, $"record {recordTokens}, text {textTokens}");
         Assert.Contains($"of {firstArgument}", (await Call(c, "trace_native_values", On(("address", "sqlite3_open"), ("location", firstArgument)))).Text);
@@ -73,8 +69,8 @@ public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
         Assert.Contains("sqlite3_open", (await Call(c, "trace_native_feature", On(("query", "sqlite3_open")))).Text);
         await Call(c, "find_similar_functions", On(("address", "sqlite3_open"), ("limit", 5)));
         await Call(c, "find_virtual_calls", On(("limit", 5)));
-        var unity = await c.CallToolAsync("unity_overview", new Dictionary<string, object?> { ["path"] = image });
-        Assert.True(unity.IsError == true && Text(unity).Contains("not_a_unity_build", StringComparison.Ordinal), Text(unity)); // a real native library is no Unity build
+        var summary = await c.CallToolAsync("summarize_build", new Dictionary<string, object?> { ["path"] = image });
+        Assert.True(summary.IsError == true && Text(summary).Contains("not_a_build", StringComparison.Ordinal), Text(summary)); // a real native library is no build
     }
 
     /// <summary>Every find_similar_functions view keeps its rows in items: a walk by nextOffset sees each of total once.</summary>
@@ -139,10 +135,10 @@ public sealed class ToolRealDataTests(Xunit.Abstractions.ITestOutputHelper outpu
         Assert.Contains("hb_buffer_create", (await Call(client, "search_pdb_symbols", new() { ["image"] = "libHarfBuzzSharp.dll", ["query"] = "hb_buffer_create" })).Text);
         var (typeText, type) = await Call(client, "get_native_type", new() { ["image"] = "libHarfBuzzSharp.dll", ["name"] = "hb_glyph_info_t" });
         Assert.Contains("codepoint", typeText);
-        // compact record: false, zero and empty fields are left out
+        // Compact record: false, zero and empty fields are left out.
         Assert.False(type.GetProperty("type").TryGetProperty("forwardOnly", out _));
         Assert.False(type.TryGetProperty("candidates", out _));
-        // measured 1.37-1.48x (one row object per field; the text is a table)
+        // Measured 1.37-1.48x (one row object per field; the text is a table).
         foreach (var name in new[] { "hb_glyph_info_t", "hb_segment_properties_t", "hb_feature_t" })
         {
             var (t, r) = await Call(client, "get_native_type", new() { ["image"] = "libHarfBuzzSharp.dll", ["name"] = name });

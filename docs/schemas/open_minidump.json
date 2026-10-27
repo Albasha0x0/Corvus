@@ -69,7 +69,7 @@
           "type": "boolean"
         },
         "runtime": {
-          "description": "Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.",
+          "description": "Managed runtime loaded in the process (CoreCLR, CLR, Mono) or AOT; null for none.",
           "type": "string"
         }
       },
@@ -105,7 +105,7 @@
           "type": "string"
         },
         "symbolSource": {
-          "description": "Where the name came from: user, pdb, il2cpp, discovered, export, nearest_export, none.",
+          "description": "Where the name came from: user, pdb, metadata, discovered, export, nearest_export, none.",
           "type": "string"
         },
         "instruction": {

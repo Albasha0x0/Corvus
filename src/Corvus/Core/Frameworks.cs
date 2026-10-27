@@ -3,10 +3,7 @@ using dnlib.DotNet;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Locates installed .NET shared frameworks, reference packs, NuGet packages, .NET Framework 4 and Windows Runtime
-/// metadata so references resolve against the framework version the requester targets, not the newest installed.
-/// </summary>
+/// <summary>Locates installed frameworks, reference packs and packages so references resolve against the requester's target version.</summary>
 internal static class Frameworks
 {
     public sealed record Shared(string Name, Version Version, string Dir);
@@ -48,7 +45,8 @@ internal static class Frameworks
                         .Select(x => new Shared(name, x.Version!, x.Dir)));
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-                break; // first root containing this framework wins
+                // The first root containing this framework wins.
+                break;
             }
         return list.OrderBy(s => Array.IndexOf(SharedNames, s.Name)).ThenByDescending(s => s.Version).ToList();
     });
@@ -77,11 +75,8 @@ internal static class Frameworks
         return !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, "System.Runtime.dll")) ? dir : null;
     });
 
-    /// <summary>
-    /// Framework directories for a reference of <paramref name="version"/>. For 5.0+: the same major per shared
-    /// framework, else its reference pack, else the nearest newer major. Otherwise the newest. .NET Framework
-    /// requesters search the .NET Framework directory first.
-    /// </summary>
+    /// <summary>Framework directories for a reference of <paramref name="version"/>: for 5.0+ the same major, its reference pack, else nearest newer; otherwise the newest.</summary>
+    /// <remarks>.NET Framework requesters search the .NET Framework directory first.</remarks>
     public static IEnumerable<string> DirectoriesFor(Version? version, bool netFramework)
     {
         var result = new List<string>();
@@ -101,14 +96,12 @@ internal static class Frameworks
             if (pick != null) result.Add(pick.Dir);
         }
         if (RuntimeDir.Value is { } runtime) result.Add(runtime);
-        if (!netFramework) result.AddRange(NetFramework.Value); // last resort for .NET Framework-only assemblies
+        // Last resort for .NET Framework-only assemblies.
+        if (!netFramework) result.AddRange(NetFramework.Value);
         return result.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Targeting-pack directory for a shared framework major, from dotnet packs, the NuGet cache or the download cache
-    /// (<c>packs/Microsoft.NETCore.App.Ref/6.0.x/ref/net6.0</c>); downloaded when none has it.
-    /// </summary>
+    /// <summary>The targeting-pack directory for a shared framework major; downloaded when no local cache has it.</summary>
     public static string? ReferencePackDir(string framework, int major) =>
         InstalledReferencePackDir(framework, major) ?? ReferencePacks.Get(framework + ".Ref", major);
 
@@ -133,10 +126,7 @@ internal static class Frameworks
         return null;
     }
 
-    /// <summary>
-    /// netstandard.dll reference assembly: 2.1 from the NETStandard.Library.Ref pack, 2.0 from the NETStandard.Library
-    /// package. Preferred over runtime facades because it exposes the exact API.
-    /// </summary>
+    /// <summary>The netstandard.dll reference assembly, preferred over runtime facades for its exact API.</summary>
     public static string? NetStandardFile(Version? version)
     {
         if (version is not { Major: 2 }) return null;
@@ -152,10 +142,7 @@ internal static class Frameworks
             : null;
     }
 
-    /// <summary>
-    /// The facade of <paramref name="name"/> beside netstandard.dll (System.Runtime.InteropServices forwarding to
-    /// netstandard) for a .NET Standard 2.x requester; null for other requesters or names outside the standard.
-    /// </summary>
+    /// <summary>The facade of <paramref name="name"/> beside netstandard.dll for a .NET Standard 2.x requester; null otherwise.</summary>
     public static string? NetStandardFacade(string name, string? requesterFramework)
     {
         if (name.Equals("netstandard", StringComparison.OrdinalIgnoreCase)
@@ -197,10 +184,7 @@ internal static class Frameworks
         return FirstExisting(Path.Combine(root, name.ToLowerInvariant()), d => tfms.Select(t => Path.Combine(d, "lib", t, name + ".dll")).FirstOrDefault(File.Exists) ?? "");
     }
 
-    /// <summary>
-    /// Assembly from the NuGet package of the same name, using the best compatible lib/TFM folder. Version preference:
-    /// exact, lowest same-major at or above it, newest same-major, newest.
-    /// </summary>
+    /// <summary>An assembly from the NuGet package of the same name, best compatible TFM; exact version first, then same major.</summary>
     public static string? NuGetFile(string name, Version? version, bool netFramework, string? requesterFramework = null)
     {
         if (NuGetRoot.Value is not { } root || name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
@@ -220,7 +204,8 @@ internal static class Frameworks
                         Version? v = null;
                         try { v = System.Reflection.AssemblyName.GetAssemblyName(file).Version; } catch { }
                         list.Add((file, v, rank));
-                        break; // best TFM folder for this package version
+                        // The best TFM folder for this package version.
+                        break;
                     }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
@@ -244,10 +229,7 @@ internal static class Frameworks
             .Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     });
 
-    /// <summary>
-    /// .winmd for a Windows Runtime API contract or <c>Windows</c>: the contract's own file (exact version, else newest),
-    /// else the SDK union metadata <c>Windows.winmd</c>, which contains every Windows Runtime type.
-    /// </summary>
+    /// <summary>The .winmd for a Windows Runtime contract, else the SDK union metadata <c>Windows.winmd</c>.</summary>
     public static string? WindowsMetadataFile(string name, Version? version)
     {
         bool contract = name.StartsWith("Windows.", StringComparison.Ordinal) && name.EndsWith("Contract", StringComparison.Ordinal);
@@ -291,10 +273,7 @@ internal static class Frameworks
         return map.ToDictionary(kv => kv.Key, kv => kv.Value.File, StringComparer.OrdinalIgnoreCase);
     });
 
-    /// <summary>
-    /// Installed app package roots for the current user, read from the registry package repository because
-    /// WindowsApps cannot be enumerated without elevation, while individual package folders are readable.
-    /// </summary>
+    /// <summary>Installed app package roots for the current user, from the registry, since WindowsApps needs elevation to list.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static IEnumerable<string> InstalledPackageFolders()
     {
@@ -325,10 +304,7 @@ internal static class Frameworks
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }
     }
 
-    /// <summary>
-    /// NuGet lib TFMs usable by a modern requester, best first, excluding any newer than its target framework.
-    /// All of them when the target framework is unknown.
-    /// </summary>
+    /// <summary>NuGet lib TFMs usable by a modern requester, best first, none newer than its target; all when it is unknown.</summary>
     private static string[] CompatibleTfms(string? requesterFramework)
     {
         if (requesterFramework == null) return ModernTfms;
@@ -344,10 +320,7 @@ internal static class Frameworks
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyDictionary<string, HashSet<string>>> TypeIndex = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Public top-level type names (with `arity) per namespace in the framework <paramref name="targetFramework"/>
-    /// compiles against, i.e. what a using directive brings into scope. Null when that framework is not installed.
-    /// </summary>
+    /// <summary>Public top-level type names per namespace in the target framework; null when it is not installed.</summary>
     public static IReadOnlyDictionary<string, HashSet<string>>? PublicTypeNames(string? targetFramework)
     {
         List<string>? files = null;
@@ -404,25 +377,15 @@ internal static class Frameworks
     /// <summary>The TargetFrameworkAttribute value, e.g. ".NETCoreApp,Version=v8.0".</summary>
     public static string? TargetFrameworkOf(ModuleDef module) => Read(module)?.TargetFramework;
 
-    /// <summary>
-    /// The framework of an assembly without a TargetFrameworkAttribute, from the core assemblies it references:
-    /// netstandard 2.x; System.Runtime 4.0 / 4.1 contracts (netstandard 1.x); mscorlib 2.0 (.NET Framework 3.5); mscorlib
-    /// 4.0 next to netstandard or UnityEngine (the Unity .NET 4.x profile, close to .NET Framework 4.8). Null otherwise.
-    /// </summary>
+    /// <summary>The framework of an assembly without a TargetFrameworkAttribute, from its core references; null when unknown.</summary>
     public static string? InferTargetFramework(ModuleDef module) => Read(module) is { TargetFramework: null } f ? f.Inferred : null;
 
-    /// <summary>
-    /// The framework references are resolved for: the TargetFrameworkAttribute, else a .NET Standard framework inferred
-    /// from the references (a netstandard1.x contract must not bind to the newest runtime's API, e.g. Volatile.Read(ref readonly)).
-    /// </summary>
+    /// <summary>The framework references resolve for: the TargetFrameworkAttribute, else an inferred .NET Standard framework.</summary>
     public static string? RequesterFramework(ModuleDef module) => Read(module) is { } f
         ? f.TargetFramework ?? (f.Inferred?.StartsWith(".NETStandard", StringComparison.Ordinal) == true ? f.Inferred : null)
         : null;
 
-    /// <summary>
-    /// .NET Framework, or .NET Standard 1.x, whose contracts .NET Framework 4.5 implements: their references bind to .NET
-    /// Framework, as the newest runtime's facades would change the API (Volatile.Read(ref T) read as ref readonly, shown as 'in').
-    /// </summary>
+    /// <summary>True for .NET Framework and .NET Standard 1.x, whose references bind to .NET Framework to keep the API unchanged.</summary>
     public static bool ResolvesAsNetFramework(ModuleDef module) =>
         TargetsNetFramework(module) || RequesterFramework(module)?.StartsWith(".NETStandard,Version=v1.", StringComparison.OrdinalIgnoreCase) == true;
 
@@ -470,10 +433,7 @@ internal static class Frameworks
 
     private static readonly ConditionalWeakTable<ModuleDef, ImageFacts> Facts = new();
 
-    /// <summary>
-    /// Reads via System.Reflection.Metadata rather than dnlib: this runs during dnlib assembly resolution, where
-    /// enumerating custom attributes would re-enter a dnlib lock. Not cached on failure.
-    /// </summary>
+    /// <summary>Reads with System.Reflection.Metadata, since dnlib attributes would re-enter a dnlib lock here; not cached on failure.</summary>
     private static ImageFacts? Read(ModuleDef module)
     {
         if (Facts.TryGetValue(module, out var known)) return known;
@@ -504,7 +464,8 @@ internal static class Frameworks
                     var type = reader.GetTypeReference((System.Reflection.Metadata.TypeReferenceHandle)parent);
                     if (reader.GetString(type.Name) != "TargetFrameworkAttribute" || reader.GetString(type.Namespace) != "System.Runtime.Versioning") continue;
                     var blob = reader.GetBlobReader(ca.Value);
-                    if (blob.Length >= 3 && blob.ReadUInt16() == 1) tfm = blob.ReadSerializedString(); // 0x0001 prolog, then the framework name
+                    // The 0x0001 prolog, then the framework name.
+                    if (blob.Length >= 3 && blob.ReadUInt16() == 1) tfm = blob.ReadSerializedString();
                 }
             }
             var facts = new ImageFacts(name, tfm, refs, tfm == null ? Infer(versions, refs) : null);
@@ -514,10 +475,7 @@ internal static class Frameworks
         catch (Exception) { return null; }
     }
 
-    /// <summary>
-    /// True if the TargetFramework attribute says .NET Framework, or, without one, mscorlib is referenced without
-    /// System.Runtime or netstandard.
-    /// </summary>
+    /// <summary>True when the target framework is .NET Framework, or without one, mscorlib is referenced alone.</summary>
     public static bool TargetsNetFramework(ModuleDef module)
     {
         if (Read(module) is not { } f) return false;
@@ -569,10 +527,7 @@ internal static class Frameworks
         targetFramework?.Split(",Version=v", 2) is [var id, var ver] && id.Equals(".NETCoreApp", StringComparison.OrdinalIgnoreCase)
         && Version.TryParse(ver, out var v) ? v.Major : null;
 
-    /// <summary>
-    /// True for System.Private.CoreLib, a .NETCoreApp target framework, or a reference to System.Private.CoreLib or
-    /// System.Runtime. Includes modern .NET facades such as mscorlib.
-    /// </summary>
+    /// <summary>True for modern .NET: CoreLib itself, a .NETCoreApp target, or a CoreLib or System.Runtime reference.</summary>
     public static bool IsModernNet(ModuleDef module)
     {
         if (Read(module) is not { } f) return false;
@@ -584,10 +539,7 @@ internal static class Frameworks
     public static string? NetFrameworkFile(string name) =>
         NetFramework.Value.Select(d => Path.Combine(d, name + ".dll")).FirstOrDefault(File.Exists);
 
-    /// <summary>
-    /// Reference assembly directories for a ".NETFramework,Version=vX.Y" target: the installed targeting pack, else the
-    /// Microsoft.NETFramework.ReferenceAssemblies package. Null when neither is present.
-    /// </summary>
+    /// <summary>Reference assembly directories for a .NET Framework target; null when neither pack nor package is present.</summary>
     public static IReadOnlyList<string>? NetFrameworkReferenceDirs(string? targetFramework)
     {
         if (targetFramework?.Split(",Version=v", 2) is not [var id, var ver] || !id.Equals(".NETFramework", StringComparison.OrdinalIgnoreCase)) return null;

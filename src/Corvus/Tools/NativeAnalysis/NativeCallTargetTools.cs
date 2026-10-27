@@ -52,15 +52,14 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
-    [Description("Targets of call and tail-jump sites (x86, x64, ARM) with basis and confidence: branches, import and GOT slots, thunks, constant " +
-                 "pointers, CFG dispatch, GetProcAddress, RTTI virtual calls, NativeAOT dispatch cells, global writers, pointer tables. Unresolved: " +
-                 "reason, trace_native_values call. engine= merges its targets.")]
+    [Description("Resolve the targets of call and tail-jump sites, indirect ones included, with basis and confidence. " +
+                 "An unresolved site names its reason and the trace_native_values call to follow. engine= merges that engine's targets.")]
     public Task<string> ResolveCallTargets(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call, or an address in a function (its sites): " + NativeTools.AddressDescription)] string? address = null,
         [Description("image: all indirect sites. Default: site at a call, else function.")] string? scope = null,
         [Description("Default all; indirect: all but direct branches.")] string? status = null,
-        [Description("Trace pointers passed as parameters back into the callers (slower).")] bool deep = false,
+        [Description("Trace pointer parameters back into the callers (slower).")] bool deep = false,
         [Description(NativeCodeTools.EngineDescription)] string? engine = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max sites (max 1000).")] int limit = 75,

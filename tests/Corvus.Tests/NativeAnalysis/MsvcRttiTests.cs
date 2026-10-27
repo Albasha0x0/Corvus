@@ -29,7 +29,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
     [Theory]
     [InlineData(Environment.SpecialFolder.System)]
     [InlineData(Environment.SpecialFolder.SystemX86)]
-    public void StandardLibraryExceptionHierarchy(Environment.SpecialFolder folder)
+    public void The_standard_library_exception_hierarchy_is_recovered(Environment.SpecialFolder folder)
     {
         var path = SystemCppRuntime(folder);
         if (path == null) return; // no Visual C++ runtime installed
@@ -53,16 +53,16 @@ public class MsvcRttiTests(ITestOutputHelper output)
         Assert.Empty(Assert.Single(result.Classes, c => c.Name == "std::exception").Bases);
         CheckInvariants(image, result);
 
-        // without relocations the same structures are found by the other checks alone
+        // Without relocations the same structures are found by the other checks alone.
         var plain = MsvcRtti.Analyze(MsvcTestImage.TryLoad(path, withRelocations: false)!);
         Assert.False(plain.Stats.UsedRelocations);
         Assert.Equal(result.Classes.Select(c => (c.Name, c.Vtables.Count)), plain.Classes.Select(c => (c.Name, c.Vtables.Count)));
     }
 
     [Fact]
-    public void ImageWithoutRttiYieldsNothing()
+    public void An_image_without_RTTI_yields_no_classes()
     {
-        // a .NET assembly is a PE image without MSVC RTTI
+        // A .NET assembly is a PE image without MSVC RTTI.
         var image = PeFile.Open(typeof(MsvcRtti).Assembly.Location);
         var result = MsvcRtti.Analyze(image);
         Assert.Empty(result.Classes);
@@ -159,7 +159,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
         ["V"] = ["V::v"],
         ["D"] = ["D::v"],
         ["E"] = ["E::k", "|", "V::v"],
-        // E, the base with a vfptr, is laid out first; V is the virtual base at the end
+        // E, the base with a vfptr, is laid out first; V is the virtual base at the end.
         ["F"] = ["F::k", "|", "F::v"],
         ["G"] = ["G::`scalar deleting destructor'", "G::f"],
         ["ns::T1<int>"] = ["ns::T1<int>::`scalar deleting destructor'", "ns::T1<int>::f"],
@@ -172,7 +172,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
     [Trait("Speed", "Slow")]
     [InlineData("x64")]
     [InlineData("x86")]
-    public void CompiledSampleMatchesTheLinkerMap(string arch)
+    public void A_compiled_sample_matches_the_linker_map(string arch)
     {
         var vcvars = VisualStudio.VcVarsAll();
         if (vcvars == null) return; // no Visual C++ build tools
@@ -206,12 +206,12 @@ public class MsvcRttiTests(ITestOutputHelper output)
                     + (MsvcDemangler.Demangle(n).Kind == MsvcSymbolKind.Thunk ? " [thunk]" : "")).Distinct())
                 : $"0x{rva:X}";
 
-            // descriptors are where the compiler's own symbols say
+            // Descriptors are where the compiler's own symbols say.
             Assert.Equal(map[$"??_R0{c.DecoratedName[1..]}@8"], c.TypeDescriptorRva);
             Assert.Equal(c.HierarchyRva, map[map.Keys.Single(k => k.StartsWith("??_R3", StringComparison.Ordinal) &&
                 MsvcDemangler.Undecorate(k) == $"{name}::`RTTI Class Hierarchy Descriptor'")]);
 
-            // every base class descriptor matches its symbol's encoded displacements and attributes
+            // Every base class descriptor matches its symbol's encoded displacements and attributes.
             foreach (var b in c.Bases)
             {
                 var symbol = byRva[b.DescriptorRva].Single(n => n.StartsWith("??_R1", StringComparison.Ordinal));
@@ -219,7 +219,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
                 Assert.Equal($"{b.Name}::`RTTI Base Class Descriptor at ({b.Mdisp}, {b.Pdisp}, {b.Vdisp}, {(uint)b.Attributes})'", text);
             }
 
-            // vftables: one per ??_7 symbol of the class, its locator at the ??_R4 symbol with the same suffix
+            // Vftables: one per ??_7 symbol of the class, its locator at the ??_R4 symbol with the same suffix.
             var vftableSymbols = map.Keys.Where(k => k.StartsWith("??_7", StringComparison.Ordinal) &&
                 MsvcDemangler.Undecorate(k, MsvcNameStyle.NameOnly)!.StartsWith(name + "::`vftable'", StringComparison.Ordinal)).ToList();
             Assert.Equal(vftableSymbols.Select(s => map[s]).Order(), c.Vtables.Select(v => v.VftableRva).Order());
@@ -229,7 +229,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
                 Assert.Equal(map["??_R4" + vftable[4..]], v.LocatorRva);
             }
 
-            // slot targets, primary vftable first, "|" between vftables
+            // Slot targets, primary vftable first, "|" between vftables.
             var slots = new List<string>();
             foreach (var v in c.Vtables)
             {
@@ -242,7 +242,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
         }
         Assert.True(slotErrors.Count == 0, string.Join("\n", slotErrors));
 
-        // the hierarchies themselves
+        // The hierarchies themselves.
         Assert.Empty(classes["A"].Bases);
         Assert.Equal(MsvcHierarchyAttributes.MultipleInheritance, classes["C"].Attributes);
         Assert.Equal(["A", "B"], classes["C"].Bases.Select(b => b.Name));
@@ -256,10 +256,10 @@ public class MsvcRttiTests(ITestOutputHelper output)
         Assert.Equal(MsvcHierarchyAttributes.None, classes["D"].Attributes);
         Assert.Equal(MsvcHierarchyAttributes.MultipleInheritance | MsvcHierarchyAttributes.VirtualInheritance, classes["F"].Attributes);
         Assert.Equal(arch == "x64" ? 16u : 8u, classes["D"].Vtables.Single().Offset);
-        // the vtordisp field sits 4 bytes before the virtual base subobject
+        // The vtordisp field sits 4 bytes before the virtual base subobject.
         Assert.Equal(4u, classes["I"].Vtables.Single().ConstructorDisplacementOffset);
 
-        // no vftable runs into another one, with or without RTTI (P1..P3 have none and are not reported)
+        // No vftable runs into another one, with or without RTTI (P1..P3 have none and are not reported).
         var vftableStarts = map.Where(m => m.Key.StartsWith("??_7", StringComparison.Ordinal)).Select(m => m.Value).ToHashSet();
         Assert.Contains(map["??_7P1@@6B@"], vftableStarts);
         Assert.DoesNotContain(result.Classes, c => c.Name.StartsWith('P'));
@@ -267,12 +267,12 @@ public class MsvcRttiTests(ITestOutputHelper output)
         int Overruns(MsvcRttiResult r) => r.Classes.SelectMany(c => c.Vtables)
             .Count(v => Enumerable.Range(1, v.SlotRvas.Count - 1).Any(k => vftableStarts.Contains(v.VftableRva + (uint)(k * ptr))));
         Assert.Equal(0, Overruns(result));
-        // the layout does put an RTTI-less vftable right after an RTTI one: without code references it is overrun
+        // The layout does put an RTTI-less vftable right after an RTTI one: without code references it is overrun.
         var blind = MsvcRtti.Analyze(image, new MsvcRttiOptions { CodeReferences = [] });
         output.WriteLine($"overruns without code references: {Overruns(blind)}");
         Assert.True(Overruns(blind) > 0);
 
-        // without relocations: the same vftables; on x86 their ends are not checked against code (no relocated operands)
+        // Without relocations: the same vftables; on x86 their ends are not checked against code (no relocated operands).
         var plain = MsvcRtti.Analyze(MsvcTestImage.TryLoad(dir.File("sample.dll"), withRelocations: false)!);
         Assert.Equal(
             result.Classes.SelectMany(c => c.Vtables.Select(v => (c.Name, v.VftableRva))),
@@ -307,14 +307,11 @@ public class MsvcRttiTests(ITestOutputHelper output)
 /// <summary>The System32 / SysWOW64 RTTI sweep, timed per file.</summary>
 public class MsvcRttiSweepTests(ITestOutputHelper output)
 {
-    /// <summary>
-    /// Every DLL and EXE in System32 and SysWOW64: no exception, bounded time per file, structural invariants, and the
-    /// same classes and vftable starts with and without the relocation cross-check.
-    /// </summary>
+    /// <summary>Every System32 and SysWOW64 image: no exception, bounded time, invariants, and the same classes with and without the relocation cross-check.</summary>
     [WindowsFact]
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void SweepSystemImages()
+    public void RTTI_of_every_system_image_reads_without_issues()
     {
         var files = MsvcCorpus.SystemDirectories().Distinct(StringComparer.OrdinalIgnoreCase)
             .SelectMany(d => MsvcCorpus.SafeFiles(d, "*.dll").Concat(MsvcCorpus.SafeFiles(d, "*.exe"))).ToList();

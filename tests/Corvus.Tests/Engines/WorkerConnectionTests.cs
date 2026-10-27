@@ -14,14 +14,11 @@ public class WorkerConnectionTests
     private static readonly TimeSpan NoLimit = TimeSpan.FromMinutes(10);
     private static readonly WorkerConnectionOptions Concurrent = new() { Concurrent = true, CancelGrace = TimeSpan.FromSeconds(10) };
 
-    /// <summary>
-    /// The error of the first of at most 5 tries whose request reached the worker's input before its time limit ran out;
-    /// the last try's error when none did.
-    /// </summary>
     /// <summary>Waits until <paramref name="condition"/> holds; fails after a minute.</summary>
     private static Task Until(Func<bool> condition) =>
         Task.Run(async () => { while (!condition()) await Task.Delay(5); }).WaitAsync(TimeSpan.FromMinutes(1));
 
+    /// <summary>The error of the first of at most 5 tries whose request reached the worker before its limit; else the last try's.</summary>
     private static async Task<ToolError> TimedOutAfterTheWrite(Func<Task<ToolError>> attempt)
     {
         for (int i = 1; ; i++)
@@ -379,8 +376,7 @@ public class WorkerConnectionTests
         }
     }
 
-    // Regression: two push runs on 2026-10-26 ended with an unhandled "Stream was not readable" thrown on a stderr
-    // reader thread that made its StreamReader after the connection was disposed.
+    // Regression: a stderr reader made after disposal threw an unhandled "Stream was not readable" (two push runs on 2026-10-26).
     [Fact]
     public void A_connection_disposed_before_its_reader_threads_run_ends_without_an_unhandled_error()
     {

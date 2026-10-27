@@ -31,12 +31,9 @@ public sealed class EditJournalTests : IDisposable
         File.WriteAllText(file, doc.ToJsonString());
     }
 
-    /// <summary>
-    /// A save (under the shared lock, then the journal's gate), a queued writer and a sync after another call (the gate, then the
-    /// shared lock) used to deadlock: the sync held the gate while the queued writer kept it out of the shared lock.
-    /// </summary>
+    /// <summary>Regression: a save, a queued writer and a sync after another call deadlocked on the journal gate and the shared lock.</summary>
     [Fact]
-    public async Task SaveSyncAndAQueuedWriterDoNotDeadlock()
+    public async Task Save_sync_and_a_queued_writer_do_not_deadlock()
     {
         using var env = new Env(Copy());
         var journal = new EditJournal(env.Workspace, Store(), env.History);
@@ -57,7 +54,7 @@ public sealed class EditJournalTests : IDisposable
 
     /// <summary>A sync waiting for the journal's gate stops when its call is cancelled; the next sync journals the change.</summary>
     [Fact]
-    public void ASyncWaitingForTheGateStopsWhenItsCallIsCancelled()
+    public void A_sync_waiting_for_the_gate_stops_when_its_call_is_cancelled()
     {
         using var env = new Env(Copy());
         var journal = new EditJournal(env.Workspace, Store(), env.History);
@@ -83,7 +80,7 @@ public sealed class EditJournalTests : IDisposable
     }
 
     [Fact]
-    public void EditsAreJournaledAndOfferedToTheNextSession()
+    public void Edits_are_journaled_and_offered_to_the_next_session()
     {
         string journalFile;
         using (var env = new Env(Copy()))
@@ -115,7 +112,7 @@ public sealed class EditJournalTests : IDisposable
 
     /// <summary>Many abandoned sessions give one notice: the newest in full, the rest counted.</summary>
     [Fact]
-    public void ManyLostSessionsGiveOneNoticeNamingTheNewest()
+    public void Many_lost_sessions_give_one_notice_naming_the_newest()
     {
         string newest;
         using (var env = new Env(Copy()))
@@ -145,7 +142,7 @@ public sealed class EditJournalTests : IDisposable
     }
 
     [Fact]
-    public void SaveRevertAndUnloadRemoveTheJournal()
+    public void Save_revert_and_unload_remove_the_journal()
     {
         using var env = new Env(Copy());
         var journal = new EditJournal(env.Workspace, Store(), env.History);
@@ -175,7 +172,7 @@ public sealed class EditJournalTests : IDisposable
 
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task PatchesAreJournaledAndReplayedOnTheSameBuild()
+    public async Task Patches_are_journaled_and_replayed_on_the_same_build()
     {
         using var env = new Env();
         var store = Store();

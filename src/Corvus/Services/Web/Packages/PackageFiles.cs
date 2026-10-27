@@ -4,11 +4,7 @@ using System.IO.Compression;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <summary>
-/// The files of a package: a zip (.whl, .vsix, .xpi, .zip), a tar.gz (npm tarball, Python sdist), a .crx (its header
-/// read, the zip after it), a folder, one manifest file, or an agent configuration file (its repository's agent files). Entries are read within limits: entry count, size per file
-/// and in total; a file over the per-file limit is listed with its size and not read.
-/// </summary>
+/// <summary>A package's files from a zip, tar.gz, .crx, folder, manifest or agent file; files over the limits are listed, not read.</summary>
 internal sealed class PackageFiles
 {
     public const int MaxEntries = 50_000;
@@ -78,7 +74,6 @@ internal sealed class PackageFiles
             files.Notes.Add($"{files.Container}: stopped reading at entry {files.Count + 1}: {ex.Message}");
             return files;
         }
-        // one manifest file: package.json, manifest.json, setup.py, pyproject.toml, extension.vsixmanifest, PKG-INFO / METADATA
         var name = Path.GetFileName(path);
         if (name is "package.json" or "manifest.json" or "setup.py" or "setup.cfg" or "pyproject.toml" or "extension.vsixmanifest" or "PKG-INFO" or "METADATA")
         {
@@ -95,10 +90,7 @@ internal sealed class PackageFiles
         return null;
     }
 
-    /// <summary>
-    /// The folder an agent configuration file belongs to (the parent of .claude, .cursor, .vscode or .github when it sits
-    /// in one), or null when <paramref name="path"/> is no agent configuration file.
-    /// </summary>
+    /// <summary>The repository folder of an agent configuration file, or null when <paramref name="path"/> is none.</summary>
     internal static string? AgentRoot(string path)
     {
         var parts = Path.GetFullPath(path).Replace('\\', '/').Split('/');
@@ -122,7 +114,7 @@ internal sealed class PackageFiles
             ct.ThrowIfCancellationRequested();
             Add(rel, new FileInfo(file).Length, () => ReadFile(file));
         }
-        Notes.Add($"agent configuration read from {Path.GetFileName(root)}'s root files and its {string.Join(", ", AgentFiles.Folders)} folders; instruction files in other subfolders are not read");
+        Notes.Add($"agent configuration read from {Path.GetFileName(root)} root files and {string.Join(", ", AgentFiles.Folders)}; other subfolders not read");
     }
 
     private void Add(string path, long size, Func<byte[]?> read)

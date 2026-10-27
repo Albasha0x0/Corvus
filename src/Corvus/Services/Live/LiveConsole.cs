@@ -15,10 +15,7 @@ public sealed record LiveConsoleStep(int Number, string Line, string Verb, strin
 /// <summary>What a step did: done, stopped (with why) or not run.</summary>
 public sealed record LiveConsoleOutcome(LiveConsoleStep Step, string Outcome, long Milliseconds, string? Detail);
 
-/// <summary>
-/// A program run under a console host: its screen output as plain text lines in a bounded ring, and the outcome of each
-/// script step.
-/// </summary>
+/// <summary>A program run under a console host: its output as plain text lines in a bounded ring, and each script step's outcome.</summary>
 public sealed class LiveConsoleRun
 {
     public const int Capacity = 20_000;
@@ -189,10 +186,8 @@ public sealed partial class LiveSessionService
         _consoles.TryGetValue(id?.Trim() ?? "", out var r) ? r
             : throw new ToolError(ErrorCode.NotFound, $"No console run '{id}'.", "live_console action=list shows the runs; action=start begins one");
 
-    /// <summary>
-    /// Steps, one per line (an element may hold several): send &lt;text&gt;, wait &lt;text&gt;, resize &lt;columns&gt; &lt;rows&gt;,
-    /// delay &lt;ms&gt;; blank lines and lines starting with # are left out. Text takes \r, \n, \t, \e, \xHH and \\.
-    /// </summary>
+    // Text escapes: \r, \n, \t, \e, \xHH and \\.
+    /// <summary>Parses send/wait &lt;text&gt;, resize &lt;columns&gt; &lt;rows&gt; and delay &lt;ms&gt; lines; skips blank and # lines; throws on a bad step.</summary>
     public static IReadOnlyList<LiveConsoleStep> ParseConsoleScript(IEnumerable<string> script)
     {
         var steps = new List<LiveConsoleStep>();

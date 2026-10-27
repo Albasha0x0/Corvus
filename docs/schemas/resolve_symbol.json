@@ -38,7 +38,7 @@
       "type": "integer"
     },
     "notEvaluated": {
-      "description": "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.",
+      "description": "Inputs the regex timed out on (1 s each), left out; non-zero means the results are incomplete.",
       "type": "integer"
     },
     "totalExact": {

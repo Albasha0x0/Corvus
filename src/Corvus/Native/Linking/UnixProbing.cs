@@ -2,10 +2,7 @@ using System.Text.Json;
 
 namespace Corvus.Native.Linking;
 
-/// <summary>
-/// The platform an app's P/Invoke declarations bind on: <see cref="Os"/> (windows, linux, osx, android, ios), the
-/// runtime identifier when known (linux-arm64), and where that came from.
-/// </summary>
+/// <summary>The platform P/Invoke declarations bind on: OS (windows, linux, osx, android, ios), runtime identifier when known, and its source.</summary>
 public sealed record TargetPlatform(string Os, string? Rid, string Source)
 {
     public bool IsWindows => Os == "windows";
@@ -46,22 +43,12 @@ public sealed record TargetPlatform(string Os, string? Rid, string Source)
     }
 }
 
-/// <summary>
-/// How .NET resolves a P/Invoke library name off Windows: the target platform from what the app ships (deps.json
-/// runtime targets, native libraries beside it, runtimes/&lt;rid&gt;/native), the probing names (lib prefix and .so /
-/// .dylib suffix added when absent; a name with a suffix tried verbatim first) and folders (the app folder, then
-/// runtimes/&lt;rid&gt;/native along the RID fallback chain, then folders the caller adds), with the libraries that
-/// exist only for another platform reported.
-/// </summary>
+/// <summary>P/Invoke library probing off Windows: target platform, probing names and folders, and libraries shipped only for another platform.</summary>
 public static class UnixProbing
 {
     public static readonly string[] Platforms = ["auto", "windows", "linux", "osx", "android", "ios"];
 
-    /// <summary>
-    /// The target platform: <paramref name="requested"/> when it names one, else <paramref name="hint"/> (the platform of
-    /// an Il2Cpp binary), else the app's deps.json runtime target, its runtimes/&lt;rid&gt; folders when they name one
-    /// OS, the native libraries beside it, and windows.
-    /// </summary>
+    /// <summary>The target platform: <paramref name="requested"/>, else <paramref name="hint"/>, else deps.json, runtimes folders, libraries beside the app, then windows.</summary>
     public static TargetPlatform Detect(string appDirectory, string? requested, TargetPlatform? hint = null)
     {
         var deps = DepsRids(appDirectory);
@@ -113,11 +100,7 @@ public static class UnixProbing
         return [.. names.Distinct(StringComparer.Ordinal)];
     }
 
-    /// <summary>
-    /// The library file for <paramref name="module"/>: probed in the app folder, runtimes/&lt;rid&gt;/native along the
-    /// fallback chain, then <paramref name="extraFolders"/>; also the files with a probing name (any suffix) that ship
-    /// only under another platform's runtimes folder.
-    /// </summary>
+    /// <summary>The library file for <paramref name="module"/> (null when not found), the folders searched, and matches shipped only for other platforms.</summary>
     public static (string? File, List<string> Searched, List<string> OtherPlatforms) Locate(string module, string appDirectory, TargetPlatform platform, IEnumerable<string>? extraFolders = null)
     {
         var searched = new List<string>();

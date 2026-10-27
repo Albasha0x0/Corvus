@@ -5,13 +5,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// A thin Mach-O image (32 or 64-bit, either byte order), or one slice of a universal file, parsed from an in-memory
-/// snapshot. Construction throws only when the bytes are not Mach-O; anything else that cannot be read is reported in
-/// <see cref="Issues"/>. Addresses are RVAs from the __TEXT segment (the image base); __PAGEZERO is not mapped. The
-/// image view applies rebases (chained fixups and rebase opcodes, PAC bits stripped) and reads bind slots as 0;
-/// <see cref="Fixups"/> tells what each slot binds to. File offsets are relative to the slice. Thread-safe for reading.
-/// </summary>
+/// <summary>A thin Mach-O image or universal slice: __TEXT-relative RVAs, slice-relative file offsets, rebases applied, binds read as 0; throws only when not Mach-O. Thread-safe for reading.</summary>
 public sealed partial class MachOFile : INativeImage
 {
     private const int MaxCommands = 1 << 16;
@@ -46,10 +40,7 @@ public sealed partial class MachOFile : INativeImage
         return FromBytes(bytes, info.FullName, slice);
     }
 
-    /// <summary>
-    /// Parses a copy of <paramref name="bytes"/>: a thin image, or the slice of a universal file chosen by
-    /// <paramref name="slice"/> (see <see cref="MachOFat.Select"/>). <paramref name="path"/> is only reported back.
-    /// </summary>
+    /// <summary>Parses a copy of <paramref name="bytes"/>, choosing a universal slice by <paramref name="slice"/>; <paramref name="path"/> is only reported back.</summary>
     public static MachOFile FromBytes(ReadOnlySpan<byte> bytes, string path = "", string? slice = null)
     {
         if (bytes.Length > PeLimits.MaxFileSize)

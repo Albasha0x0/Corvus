@@ -29,11 +29,10 @@ public sealed partial class NativeTools
     public sealed record NumberConversions(IReadOnlyList<ConvertedNumber> Items);
 
     [McpServerTool(Name = "convert_number", Title = "Convert a number", UseStructuredContent = true, OutputSchemaType = typeof(NumberConversions))]
-    [Description("Exact number conversions: signed, unsigned decimal, hex, binary, octal at a width, LE and BE bytes and their ASCII, the bits as " +
-                 "float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C suffixes, 'ABCD' (C multi-character " +
-                 "constant) or \"text\" (bytes in memory order).")]
+    [Description("Convert numbers exactly: signed and unsigned decimal, hex, binary, octal, LE and BE bytes with their ASCII, and the " +
+                 "bits as float or double.")]
     public Task<string> ConvertNumber(
-        [Description("Numbers to convert.")] string[] numbers,
+        [Description("Decimal, 0x or h-suffixed hex, 0b, 0o, C suffixes, 'ABCD' (C char constant) or \"text\" (memory order).")] string[] numbers,
         [Description("Width in bytes: 1, 2, 4 or 8 (default: smallest that fits).")] int? size = null) => Task.Run(() =>
     {
         if (numbers is not { Length: > 0 }) throw new ToolError(ErrorCode.InvalidArgument, "No numbers given.", "numbers=[\"0x41424344\", \"-1\"]");

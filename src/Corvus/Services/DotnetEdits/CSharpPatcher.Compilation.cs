@@ -19,8 +19,7 @@ public sealed partial class CSharpPatcher
             nullableContextOptions: NullableContextOptions.Disable,
             metadataImportOptions: MetadataImportOptions.All,
             checkOverflow: false);
-        // Roslyn's internal IgnoreAccessibility binder flag (used by scripting/IDE tooling): patched code may access
-        // private and internal members of the original assembly.
+        // Roslyn's internal IgnoreAccessibility binder flag lets patched code reach non-public members of the target.
         var flags = typeof(CSharpCompilationOptions).GetProperty("TopLevelBinderFlags", BindingFlags.Instance | BindingFlags.NonPublic);
         flags?.SetValue(options, Enum.ToObject(flags.PropertyType, 1u << 22));
         return options;
@@ -47,15 +46,11 @@ public sealed partial class CSharpPatcher
         return SingleCoreLibrary(references, images);
     }
 
-    /// <summary>
-    /// The images of a target's reference closure (the target's own first, replaced by the caller), the names not found,
-    /// and those resolved to stand-ins.
-    /// </summary>
+    /// <summary>A target's reference closure (target first), the names not found, and those resolved to stand-ins.</summary>
     private sealed record ReferenceClosure(int Generation, int Version, IReadOnlyList<(string Name, byte[] Image, string Path)> Images, IReadOnlyList<string> Missing,
         HashSet<string> StandIns);
 
-    // Per assembly state: every compile of an edit and of the edits after it reads the same reference bytes, so Roslyn and
-    // the reference copies below reuse what they made from them.
+    // Cached per assembly so later compiles reuse the same reference bytes and Roslyn symbols.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, ReferenceClosure> Closures = new();
 
     private ReferenceClosure Closure(LoadedAssembly asm)
@@ -112,10 +107,7 @@ public sealed partial class CSharpPatcher
         return closure;
     }
 
-    /// <summary>
-    /// Writes the target's reference copy (<see cref="FriendImage"/>) on another thread while the caller decompiles the
-    /// shadow: for a large assembly both take seconds. The compile that needs it waits for it on the cache lock.
-    /// </summary>
+    /// <summary>Writes the target's <see cref="FriendImage"/> in the background while the caller decompiles.</summary>
     private void PrefetchFriendImage(LoadedAssembly asm, CancellationToken ct)
     {
         var bytes = asm.GetImageBytes();
@@ -124,12 +116,8 @@ public sealed partial class CSharpPatcher
         _ = Task.Run(() => FriendImage(bytes, friend, standIns, CancellationToken.None), ct);
     }
 
-    /// <summary>
-    /// References are imported with their internals, so a non-public top-level type defined under the same full name in two
-    /// of them (System.SR is in most runtime libraries) is ambiguous (CS0433). The copy that counts is the target's own,
-    /// else the one of the assembly the target references by that name, else the only public one; the other non-public
-    /// copies (all of them when none is public and none is used) are renamed out of reach in their reference copies.
-    /// </summary>
+    /// <summary>Renames duplicate non-public types (CS0433, such as System.SR) out of reach, keeping the target's own copy,
+    /// else the one the target references, else the only public one.</summary>
     private static void HideClashingTypes(LoadedAssembly asm, List<(string Name, byte[] Image, string Path)> images, List<MetadataReference> references,
         IReadOnlySet<string> clashing, CancellationToken ct)
     {
@@ -151,8 +139,7 @@ public sealed partial class CSharpPatcher
             foreach (int i in owners.Where(i => i != winner && (winner == 0 || !Public(i))))
                 Hide(i, name);
         }
-        // CS0104 between a type of the target and one of a reference (System.Func, Lazy, Tuple in a library that predates them
-        // and defines its own, compiled now against a newer framework): the target's type is the one its code meant.
+        // CS0104 between a target type and a reference type (an old library's own Func or Tuple): keep the target's.
         var own = all[0].Select(t => t.FullName).ToHashSet(StringComparer.Ordinal);
         foreach (var pair in clashing.Where(c => c.StartsWith(AmbiguousPrefix, StringComparison.Ordinal)))
         {
@@ -213,11 +200,8 @@ public sealed partial class CSharpPatcher
     /// <summary>One reference object per image: Roslyn reuses the symbols it read from it in later compilations.</summary>
     private static MetadataReference Reference(byte[] image) => References.GetValue(image, i => MetadataReference.CreateFromImage(i));
 
-    /// <summary>
-    /// The image with the public key tokens of its references to <paramref name="names"/> removed (a stand-in has no public
-    /// key, so a reference naming one by its token does not bind to it, CS0012) and any-version references reset (see
-    /// <see cref="IsAnyVersion"/>); null when it needs neither.
-    /// </summary>
+    /// <summary>The image with key tokens of references to stand-ins removed (CS0012) and any-version references reset;
+    /// null when it needs neither.</summary>
     private static byte[]? ReferenceCopy(byte[] image, HashSet<string> names, CancellationToken ct) =>
         TokenFreeImages.Get(image, string.Join(",", names.Order(StringComparer.OrdinalIgnoreCase)), () => RewriteReferences(image, names), ct);
 
@@ -241,10 +225,8 @@ public sealed partial class CSharpPatcher
         }
     }
 
-    /// <summary>
-    /// A compile reference changed by <paramref name="change"/>, written as metadata only: Roslyn reads no method body or
-    /// resource of a reference, and writing them took seconds per large reference. Written as it is when that fails.
-    /// </summary>
+    /// <summary>The image changed by <paramref name="change"/>, metadata only (Roslyn reads no bodies); a full write when
+    /// that fails.</summary>
     private static byte[] Rewritten(byte[] image, Action<ModuleDefMD> change)
     {
         try
@@ -278,10 +260,7 @@ public sealed partial class CSharpPatcher
         }
     }
 
-    /// <summary>
-    /// 65535.65535.65535.65535, written by some tools for "any version": taken literally, it needs a newer assembly than any
-    /// that exists (CS1705), while version 0.0.0.0 binds to whichever is referenced.
-    /// </summary>
+    /// <summary>Version 65535.x, written for "any version"; it fails with CS1705 unless reset to 0.0.0.0.</summary>
     private static bool IsAnyVersion(Version? v) => v is { Major: 65535 };
 
     /// <summary>Name suffix of the assembly a patch is compiled into (it references the target).</summary>
@@ -289,17 +268,10 @@ public sealed partial class CSharpPatcher
 
     private static readonly DerivedImages FriendImages = new();
 
-    /// <summary>
-    /// The target image as a compile reference that grants the patch assembly access to its internals
-    /// ([InternalsVisibleTo]). The decompiled declaration compiled with the patch is a separate assembly: its internal
-    /// members using internal types of the target failed the accessibility consistency checks (CS0050-CS0061), which
-    /// ignoring access checks does not cover. References to <paramref name="standIns"/> lose their public key token
-    /// and any-version references are reset (see <see cref="ReferenceCopy"/>). Only metadata is written: Roslyn reads no method body or resource of a
-    /// reference, and rewriting them made the first patch of a large assembly take seconds. Cached per image.
-    /// </summary>
+    /// <summary>The target as a metadata-only compile reference with [InternalsVisibleTo] for the patch assembly, which
+    /// avoids CS0050-CS0061; references fixed as in <see cref="ReferenceCopy"/>. Cached per image.</summary>
     internal static byte[] FriendImage(byte[] image, string friend, HashSet<string> standIns, CancellationToken ct) =>
         FriendImages.Get(image, friend + "|" + string.Join(",", standIns.Order(StringComparer.OrdinalIgnoreCase)),
-            // Metadata only, as a plain IL image (also for ReadyToRun and mixed-mode targets); else written as it is.
             () => Friend(image, friend, standIns, metadataOnly: true) ?? Friend(image, friend, standIns, metadataOnly: false) ?? image, ct)!;
 
     private static byte[]? Friend(byte[] image, string friend, HashSet<string> standIns, bool metadataOnly)
@@ -309,7 +281,7 @@ public sealed partial class CSharpPatcher
             using var module = ModuleDefMD.Load(image);
             if (module.Assembly is not { } assembly) return image;
             FixReferences(module, standIns);
-            // The core library defines the attribute: a reference to it would give the core library an assembly reference, and Roslyn none.
+            // Reuse the core library's own attribute: a reference would give it an assembly reference Roslyn rejects.
             ICustomAttributeType ctor = module.Find("System.Runtime.CompilerServices.InternalsVisibleToAttribute", isReflectionName: false)?
                                             .FindMethod(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String)) is { } own
                 ? own
@@ -334,14 +306,8 @@ public sealed partial class CSharpPatcher
         }
     }
 
-    /// <summary>
-    /// Roslyn takes the core library to be the one assembly without references that defines System.Object, and finds
-    /// none when there are two. A .NET target's closure has System.Private.CoreLib, while netstandard (and mscorlib)
-    /// resolve to reference assemblies that define every type themselves, for the decompiler's sake. For compiling,
-    /// such duplicates are replaced by the facade of the same name next to the core library, or dropped. Out-of-band
-    /// packages in a System.Private.CoreLib closure (System.Memory for a netstandard library) define types the core
-    /// library defines too (CS0433), so they are replaced by the runtime's own assemblies of the same name.
-    /// </summary>
+    /// <summary>References with one core library: Roslyn finds none when two define System.Object. Extra core libraries
+    /// become their facades or are dropped; out-of-band packages become the runtime's own copies (CS0433).</summary>
     private static List<MetadataReference> SingleCoreLibrary(List<MetadataReference> references, List<(string Name, byte[] Image, string Path)> images)
     {
         var cores = Enumerable.Range(0, images.Count).Where(i => IsCoreLibrary(images[i].Image)).ToList();
@@ -361,8 +327,7 @@ public sealed partial class CSharpPatcher
             for (int i = 1; i < images.Count; i++) // 0 is the target
                 if (i != keep && !replaced.ContainsKey(i) && !string.Equals(Path.GetDirectoryName(images[i].Path), dir, StringComparison.OrdinalIgnoreCase)
                     && Sibling(images[i].Name) is { } runtime
-                    // An out-of-band package is never newer than the runtime's own copy; a newer image is another framework's
-                    // (WPF's WindowsBase 9.0 beside the runtime's 4.0 facade, CS1705 / CS7069).
+                    // A newer image belongs to another framework (WPF's WindowsBase), not an out-of-band package.
                     && AssemblyVersion(runtime) >= AssemblyVersion(images[i].Image))
                     replaced[i] = runtime;
         if (replaced.Count == 0) return references;
@@ -422,10 +387,7 @@ public sealed partial class CSharpPatcher
         catch (InvalidOperationException) { return false; }
     }
 
-    /// <summary>
-    /// Images made from an image and a key, once per pair while the image lives. Each is made outside any lock: a caller
-    /// waiting for another thread's result (seconds for a large assembly) stops when its call is cancelled.
-    /// </summary>
+    /// <summary>Images derived from an image and a key, made once per pair outside any lock so waiters can cancel.</summary>
     internal sealed class DerivedImages
     {
         private sealed record Entry(string Key, TaskCompletionSource<byte[]?> Done);
@@ -528,7 +490,7 @@ public sealed partial class CSharpPatcher
         }
         if (errors.Count > 20) sb.AppendLine($"  … {errors.Count - 20} more");
         if (errors.Any(e => UserNodeAt(e) == null))
-            sb.AppendLine(ContextErrors + " come from the decompiled declaration of the surrounding type (e.g. signatures the decompiler cannot express). If they persist, use patch_method_il.");
+            sb.AppendLine(ContextErrors + " come from the decompiled surrounding type; use patch_method_il if they persist.");
         if (missing.Count > 0)
             sb.AppendLine($"Unresolved references (load them or add_search_directory): {string.Join(", ", missing)}");
         return sb.ToString();

@@ -11,12 +11,8 @@ internal interface ITcpConsumer
     void End();
 }
 
-/// <summary>
-/// TCP reassembly: each direction's segments are put in sequence order, retransmitted and overlapping bytes dropped, and
-/// handed on in order. Segments ahead of a hole wait up to <see cref="MaxPending"/> bytes per direction; past that, once the
-/// receiver acknowledges past the hole, at a FIN or RST and at the end of the capture the hole becomes a gap of its size. A connection ends at FIN or RST from both
-/// sides, at RST, or when <see cref="MaxConnections"/> are open (the oldest ends).
-/// </summary>
+/// <summary>TCP reassembly per direction; a hole becomes a gap past <see cref="MaxPending"/>, on acknowledgement, or at the end.</summary>
+/// <remarks>A connection ends at FIN from both sides, at RST, or as the oldest when <see cref="MaxConnections"/> are open.</remarks>
 internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
 {
     public const int MaxConnections = 20_000;
@@ -62,7 +58,7 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
         {
             if (rst || (payload.Length == 0 && !syn)) return;
             if (_open.Count >= MaxConnections) Close(_open.MinBy(o => o.Value.LastSeen).Key);
-            // the SYN's sender is the client; a SYN-ACK's receiver; else the higher port
+            // The client is the SYN's sender, a SYN-ACK's receiver, else the higher port.
             bool srcClient = syn ? !ack : p.SrcPort != p.DstPort ? p.SrcPort > p.DstPort : true;
             var (client, clientPort, server, serverPort) = srcClient ? (p.Src, p.SrcPort, p.Dst, p.DstPort) : (p.Dst, p.DstPort, p.Src, p.SrcPort);
             var info = new TcpConnectionInfo(_count++, PacketDecoder.Endpoint(p.V6, client, clientPort), PacketDecoder.Endpoint(p.V6, server, serverPort), serverPort, micros);
@@ -85,7 +81,8 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
     private void Segment(Connection c, bool fromClient, Direction d, uint seq, ReadOnlySpan<byte> payload)
     {
         long ahead = unchecked((int)(seq - d.Next));
-        if (ahead + payload.Length <= 0) return; // all of it delivered already
+        // All of it was delivered already.
+        if (ahead + payload.Length <= 0) return;
         if (ahead <= 0)
         {
             Deliver(c, fromClient, d, payload[(int)-ahead..]);
@@ -122,10 +119,7 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
         }
     }
 
-    /// <summary>
-    /// The receiver acknowledged a hole up to a waiting segment: those bytes were delivered but never captured and are not
-    /// sent again, so the hole is a gap now rather than at the end (the two directions stay in step).
-    /// </summary>
+    /// <summary>Turns an acknowledged hole into a gap now, since its bytes were delivered uncaptured and will not be resent.</summary>
     private void Acknowledged(Connection c, bool fromClient, Direction d, uint ack)
     {
         if (!d.Started) return;

@@ -2,10 +2,7 @@ using System.Security.Cryptography;
 
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// A slice's signature checked against its bytes: every code page against its slot in the primary code directory, and
-/// Info.plist against special slot 1 when it is given. The CMS signer is named, never verified: no verdict says trusted.
-/// </summary>
+/// <summary>A slice's code page and Info.plist hashes checked against its code directory; the CMS signer is named, never verified, so no verdict says trusted.</summary>
 public sealed record SignatureVerdict(string Verdict, string? Identifier, string? TeamId, string? Signer, int Pages, int PagesDiffering, IReadOnlyList<string> Reasons)
 {
     public static SignatureVerdict Of(MachOFile image, byte[]? infoPlist = null)

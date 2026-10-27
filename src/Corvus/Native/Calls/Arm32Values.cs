@@ -19,14 +19,7 @@ internal sealed record A32Val(A64Kind Kind, uint At, string Why)
     public bool SameAs(A32Val o) => Kind == o.Kind && Num == o.Num && Rva == o.Rva && Loc == o.Loc && Kind is not (A64Kind.Merge or A64Kind.Field or A64Kind.Unknown);
 }
 
-/// <summary>
-/// Backward data flow in a 32-bit ARM function: the value a register or stack slot holds before an instruction, through
-/// copies, constants (mov, mvn, movw / movt), address forming (adr, ADD of PC and a literal-pool offset, relocated MOVW /
-/// MOVT), loads (literal pools, globals, GOT slots, stack slots, fields), push / pop of saved registers, call results in
-/// r0, conditional (IT or A32 condition) writes as merges with the prior value, and the merges of predecessor paths; loops
-/// end in a cycle value. VFP registers (s0-s31, d0-d31): vmov of constants, core registers and other VFP registers, vldr of
-/// literal pools, locals and globals, results in s0 / d0.
-/// </summary>
+/// <summary>Backward data flow in a 32-bit ARM function: the value a core or VFP register or stack slot holds before an instruction; loops end in a cycle value.</summary>
 internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
 {
     public const int MaxPaths = 16;
@@ -97,8 +90,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
         return result;
     }
 
-    /// <summary>Whether a cycle value is among <paramref name="v"/>'s inputs, each shared merge input walked once (a plain walk is
-    /// exponential in the merge depth).</summary>
+    /// <summary>Whether a cycle value is among <paramref name="v"/>'s inputs; shared merge inputs are walked once.</summary>
     internal static bool ContainsCycle(A32Val v, HashSet<A32Val> acyclic)
     {
         if (v.Kind == A64Kind.Cycle) return true;
@@ -121,7 +113,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
     {
         var s = code.Blocks[block][k];
         var v = Write(loc, s, block, k, depth);
-        // a conditional write: either the new value or the one before
+        // A conditional write gives the new value or the one before.
         if (v != null && s.I.IsConditional && v.Kind != A64Kind.Unknown)
         {
             var prior = Before(loc, block, k, depth);
@@ -139,7 +131,6 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
 
         int r = loc.Value;
         if ((i.Writes & (1 << r)) == 0) return null;
-        // pop restores a register from its slot
         if (i.Mnemonic == "pop" && s.Sp is { } sp)
         {
             int rank = System.Numerics.BitOperations.PopCount((uint)(i.Op(0).Value & ((1 << r) - 1)));
@@ -264,7 +255,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
         if (code.Slot(s) is not { } slot) return null;
         int bytes = i.Mnemonic is "strd" ? 8 : i.AccessSize;
         if (loc.Value < slot || loc.Value >= slot + bytes) return null;
-        // vstr s: the single register's value; vstr d: its low and high words
+        // vstr s stores one register; vstr d its low and high words.
         if (i.Mnemonic == "vstr" && A32Function.Vfp(i.Op(0)) is { } stored)
             return stored.Value < A32Function.VfpD && loc.Value == slot ? Chain(Before(stored, block, k, depth), at)
                 : A32Val.Unknown($"part of {A32Function.Name(stored, null)} stored there by {at}", s.Rva);
@@ -288,7 +279,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
         if (s.Facts.HasMem) return Loaded(s.Facts.MemTarget + (uint)extra, size, s.Rva, at, constant: false);
         if (m.Index != ArmOperand.NoReg)
         {
-            // base + index: a GOT base plus a slot offset, both known
+            // Base + index: a known GOT base plus a known slot offset.
             var b = Value(m.Reg, s, block, k, depth);
             var x = Value(m.Index, s, block, k, depth);
             if (m.Shift == ArmShift.None || m.Amount == 0)
@@ -352,15 +343,12 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
     {
         if (va < Image.ImageBase || va - Image.ImageBase >= Image.SizeOfImage) return new A32Val(A64Kind.Const, at, why) { Num = va };
         uint rva = (uint)(va - Image.ImageBase);
-        // a Thumb code pointer names its function
+        // A Thumb code pointer (bit 0 set) names its function.
         if ((rva & 1) != 0 && Image.SectionAt(rva) is { IsExecutable: true }) rva &= ~1u;
         return new A32Val(A64Kind.Addr, at, why) { Rva = rva };
     }
 
-    /// <summary>
-    /// A load from a known address: an import slot, a GOT slot of a function this image exports, a writable global (its
-    /// writers), or the image's contents (literal pools and read-only data: relocated pointers become addresses).
-    /// </summary>
+    /// <summary>A load from a known address: import or GOT slot, writable global (its writers), or the image's contents.</summary>
     private A32Val Loaded(uint rva, int size, uint at, string why, bool constant)
     {
         if (host.ImportAt(rva) != null) return new A32Val(A64Kind.Import, at, why) { Rva = rva };

@@ -51,10 +51,11 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
-    public void RandomBinary_IsNotText_ButUtf8AndAsciiAre()
+    public void Random_binary_is_not_text_but_UTF8_and_ASCII_are()
     {
         var noise = new byte[] { 0x4E, 0x17, 0xC3, 0xE8, 0xDE, 0x9E, 0xE9, 0x68, 0xA9, 0x47, 0xB5, 0xF2, 0xE8, 0xB5, 0xAB, 0xDA, 0x8A, 0x56, 0xBC, 0xD4, 0xF1, 0x71 };
-        Assert.False(Blob.LooksLikeText(noise)); // high bytes that do not form valid UTF-8
+        // High bytes that do not form valid UTF-8.
+        Assert.False(Blob.LooksLikeText(noise));
         Assert.True(Blob.LooksLikeText(Encoding.UTF8.GetBytes("工具SkinId：不存在！ - a translated message")));
         Assert.True(Blob.LooksLikeText(Encoding.Latin1.GetBytes("A plain sentence with one café in it, mostly ASCII.")));
         Assert.Equal("portable pdb", Blob.Identify("BSJB\x01\x00\x01\x00"u8));
@@ -62,7 +63,7 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
-    public void Embedded_ResourcesContainerIsNotABlob_ImagesAreCounted_PdbsRecognized()
+    public void Embedded_resources_container_is_not_a_blob_images_are_counted_PDBs_recognized()
     {
         var pdb = File.ReadAllBytes(Path.ChangeExtension(Env.FixturePath, ".pdb"));
         var host = Save("App.exe", ContainerFixtures.Module("App",
@@ -70,18 +71,20 @@ public class RealWorldShapeTests : IDisposable
             ("costura.app.pdb.compressed", ContainerFixtures.Deflate(pdb)),
             ("noise", Encoding.ASCII.GetBytes(Convert.ToBase64String(Random(48, 7))))));
         var report = Inspection.ExtractEmbedded(null, host, false, null, false, default);
-        Assert.DoesNotContain(report.Contents, c => c.Source == "resource 'App.g.resources'"); // its entries are examined instead
+        // Its entries are examined instead.
+        Assert.DoesNotContain(report.Contents, c => c.Source == "resource 'App.g.resources'");
         Assert.Contains(report.Contents, c => c.Source == "resource 'App.g.resources:assets/blob.bin'" && c.Kind.StartsWith("high-entropy"));
         Assert.DoesNotContain(report.Contents, c => c.Kind == "png");
         Assert.Contains(report.Notes, n => n == "Images not listed: 4 png (includeMedia=true lists and saves them).");
         var pdbItem = Assert.Single(report.Contents, c => c.Source == "resource 'costura.app.pdb.compressed'");
         Assert.Equal(("portable pdb", "deflate"), (pdbItem.Kind, string.Join(">", pdbItem.Encoding)));
-        Assert.DoesNotContain(report.Contents, c => c.Kind == "text"); // base64 of random bytes is not text
+        // base64 of random bytes is not text.
+        Assert.DoesNotContain(report.Contents, c => c.Kind == "text");
         Assert.Equal(4, Inspection.ExtractEmbedded(null, host, false, null, false, default, includeMedia: true).Contents.Count(c => c.Kind == "png"));
     }
 
     [Fact]
-    public void XorZip_NeedsARealArchive_NotJustTheMarkers()
+    public void XOR_zip_needs_a_real_archive_not_just_the_markers()
     {
         // Random data with zip markers under a 4-byte key is not an archive.
         var data = Random(4096, 3);
@@ -97,7 +100,7 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
-    public void Values_VersionNumbersAreNotAddresses_PathsStopAtQuotes()
+    public void Values_version_numbers_are_not_addresses_paths_stop_at_quotes()
     {
         var path = Save("Values.dll", ContainerFixtures.Module("Values",
             ("costura.metadata", Encoding.ASCII.GetBytes(
@@ -109,7 +112,7 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
-    public void Summary_CosturaHostFirst_ImagesCounted_ResourcesDoNotMakeTextHighEntropy()
+    public void Summary_Costura_host_first_images_counted_resources_do_not_make_text_high_entropy()
     {
         var fixture = File.ReadAllBytes(Env.FixturePath);
         var host = Save("Host.exe", ContainerFixtures.Module("Host",
@@ -122,17 +125,19 @@ public class RealWorldShapeTests : IDisposable
         Assert.Equal("Costura.Fody (embedded assemblies)", s.Container);
         Assert.Equal(["Host", "TestFixture"], s.Assemblies.Select(a => a.Identity.Name));
         var main = s.Assemblies[0];
-        Assert.Equal(1, main.Wrapping.EmbeddedAssemblyTotal); // the PDB and the metadata file are not assemblies
+        // The PDB and the metadata file are not assemblies.
+        Assert.Equal(1, main.Wrapping.EmbeddedAssemblyTotal);
         Assert.Empty(main.Wrapping.HighEntropySections);
         Assert.DoesNotContain(main.Wrapping.Contents, c => c.Kind == "png");
         Assert.Contains(main.Notes, n => n.Contains("images not listed: 4 png"));
         Assert.Contains("[Host.exe] 1 embedded assembly(ies) (Costura or similar).", s.Highlights);
-        Assert.Empty(s.Assemblies[1].Highlights); // brief
+        // Brief.
+        Assert.Empty(s.Assemblies[1].Highlights);
         Assert.Empty(s.Assemblies[1].Values.Top);
     }
 
     [Fact]
-    public void Summary_MainAssemblyFirst_SatellitesSkipped_FrameworkQuiet_CopiesOnce()
+    public void Summary_main_assembly_first_satellites_skipped_framework_quiet_copies_once()
     {
         // Variants differ in content; identical files would be deduplicated by the container walker.
         static byte[] Variant(string name, string marker) => ContainerFixtures.Module(name, m => m.Types.Add(new TypeDefUser("", marker, m.CorLibTypes.Object.TypeDefOrRef)));
@@ -147,11 +152,12 @@ public class RealWorldShapeTests : IDisposable
         Assert.Equal(["App", "Helper", "System.Text.Json"], s.Assemblies.Select(a => a.Identity.Name));
         Assert.Contains("2 satellite resource assembly(ies) (translations) not summarized.", s.Notes);
         Assert.Contains(s.Notes, n => n.StartsWith("App: 1 more build(s) of the same assembly not summarized (net8.0/App.dll)"));
-        Assert.DoesNotContain(s.Highlights, h => h.StartsWith("[System.Text.Json.dll]")); // framework capabilities are not findings
+        // Framework capabilities are not findings.
+        Assert.DoesNotContain(s.Highlights, h => h.StartsWith("[System.Text.Json.dll]"));
     }
 
     [Fact]
-    public void Android_WithoutDotNet_IsLabelledSo()
+    public void Android_without_dotnet_is_labelled_so()
     {
         var apk = Save("app.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1, 2, 3]), ("classes.dex", [4, 5, 6]), ("lib/arm64-v8a/libfoo.so", [7])));
         Assert.Equal("Android package (no .NET runtime or assemblies)", Inspection.Summarize(null, apk, default).Container);
@@ -160,22 +166,23 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
-    public void Android_UnityMonoAndAppBundle_AreLabelledSo()
+    public void Android_Mono_and_AOT_packages_and_app_bundles_are_labelled_so()
     {
-        var unity = Save("unity.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1]), ("lib/armeabi-v7a/libmonobdwgc-2.0.so", [2]),
+        var monoApk = Save("mono.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1]), ("lib/armeabi-v7a/libmonobdwgc-2.0.so", [2]),
             ("assets/bin/Data/Managed/Assembly-CSharp.dll", ContainerFixtures.Module("Assembly-CSharp", _ => { }))));
-        Assert.Equal("Android package (Unity Mono)", Inspection.Summarize(null, unity, default).Container);
-        var il2cpp = Save("il2cpp.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1]), ("lib/arm64-v8a/libil2cpp.so", [2]),
+        Assert.Equal("Android package (Mono)", Inspection.Summarize(null, monoApk, default).Container);
+        var aot = Save("aot.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1]), ("lib/arm64-v8a/libil2cpp.so", [2]),
             ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA])));
-        Assert.Equal("Android package (Unity Il2Cpp)", Inspection.Summarize(null, il2cpp, default).Container);
+        Assert.Equal("Android package (AOT)", Inspection.Summarize(null, aot, default).Container);
         var aab = Save("app.aab", ContainerFixtures.Zip(("BundleConfig.pb", [1]), ("base/manifest/AndroidManifest.xml", [2]), ("base/dex/classes.dex", [3])));
         Assert.Equal("Android App Bundle (no .NET runtime or assemblies)", Inspection.Summarize(null, aab, default).Container);
     }
 
     [Fact]
-    public void Certificates_TimestampedSignatureWithAnExpiredCertificate_IsTrusted()
+    public void Certificates_timestamped_signature_with_an_expired_certificate_is_trusted()
     {
-        if (!OperatingSystem.IsWindows()) return; // needs the Windows root store
+        // Needs the Windows root store.
+        if (!OperatingSystem.IsWindows()) return;
         // Find a signed file whose certificate expired after it was timestamped.
         var candidates = new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) + @"\dotnet\shared", Environment.SystemDirectory }
             .Where(Directory.Exists)
@@ -192,12 +199,12 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
-    public async Task AddSearchDirectory_WithoutAssemblies_PointsToTheSubfolders()
+    public async Task Add_search_directory_without_assemblies_points_to_the_subfolders()
     {
         var root = _dir.File("shared");
         Directory.CreateDirectory(Path.Combine(root, "8.0.1"));
         File.Copy(Env.FixturePath, Path.Combine(root, "8.0.1", "TestFixture.dll"));
-        var tools = new Corvus.Tools.WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
+        var tools = new Corvus.Tools.WorkspaceTools(_workspace, new AotMetadataService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
         var text = await tools.AddSearchDirectory(root);
         Assert.Contains("has no assemblies itself; subfolders are not searched. Add one of these instead:", text);
         Assert.Contains(Path.Combine(root, "8.0.1"), text);
@@ -205,7 +212,7 @@ public class RealWorldShapeTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void UndoConflict_NamesTheEditByItsListNumber()
+    public void Undo_conflict_names_the_edit_by_its_list_number()
     {
         using var env = new Env();
         env.Edit(() => env.Edits.StubMethod(env.One("Secret::Validate"), "true"));                                                     // #1
@@ -218,7 +225,7 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
-    public void IlPrepend_OntoAnEncryptedBody_SaysWhy()
+    public void IL_prepend_onto_an_encrypted_body_says_why()
     {
         var bytes = File.ReadAllBytes(Env.FixturePath);
         // Overwrite CheckPreview's code with an unused opcode.
@@ -238,12 +245,13 @@ public class RealWorldShapeTests : IDisposable
         }
         using var env = new Env(Save("enc/TestFixture.dll", bytes));
         var error = Assert.Throws<ToolError>(() => env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckPreview"), "nop", "prepend", false))).Message;
-        Assert.Contains("is not valid IL (encrypted, or dumped from memory before decryption): there is no code to prepend to", error);
-        env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckPreview"), "ldc.i4.1\nret", "replace", false)); // replace still works
+        Assert.Contains("is not valid IL (encrypted, or dumped before decryption): there is nothing to prepend to", error);
+        // Replace still works.
+        env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckPreview"), "ldc.i4.1\nret", "replace", false));
     }
 
     [Fact]
-    public void Binding_InheritedGenericProperty_CommentShowsTheTypeArgument()
+    public void Binding_inherited_generic_property_comment_shows_the_type_argument()
     {
         using var env = new Env();
         var code = new CppBindingGenerator().Generate(env.Fixture, env.Def<TypeDef>("Fixture.Model.Bank", SymbolKind.Type), ["Instance"], false, "mono");

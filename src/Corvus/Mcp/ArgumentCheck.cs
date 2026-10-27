@@ -3,19 +3,11 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Checks tool call arguments against the tool's input schema before they are bound to the method's parameters, so a
-/// wrong JSON type is an invalid_argument error that names the parameter instead of a serializer exception.
-/// </summary>
+/// <summary>Checks tool call arguments against the input schema before binding, so a wrong JSON type is an invalid_argument error naming the parameter.</summary>
 public static class ArgumentCheck
 {
-    /// <summary>
-    /// Throws <see cref="ToolError"/> for an argument name the schema does not declare (with the closest declared names),
-    /// an argument of the wrong JSON type, or a string outside its parameter's "enum" (and the <see cref="ParameterDomains"/>
-    /// aliases of <paramref name="tool"/>). A null for an optional parameter that does not take null is removed, so the
-    /// parameter's default applies (some clients send null for "not given").
-    /// Integer parameters are all <see cref="int"/>, so integers outside its range are rejected here too.
-    /// </summary>
+    /// <summary>Throws <see cref="ToolError"/> for an undeclared name, a wrong JSON type, a value outside the enum or an int out of range; drops nulls for optional parameters.</summary>
+    // Some clients send null for "not given", so the parameter's default applies.
     public static void Apply(JsonElement inputSchema, IDictionary<string, JsonElement>? arguments, string? tool = null)
     {
         if (arguments == null || arguments.Count == 0) return;
@@ -76,11 +68,8 @@ public static class ArgumentCheck
         "projectDir", "scriptPath", "sbomPath", "stixPath", "dacPath", "imageDirectories",
     };
 
-    /// <summary>
-    /// Checks a path argument before any tool opens it, so the host's file API never sees a name it rejects (a JIT that
-    /// inlines System.IO hides where such an exception came from). Returns false for an empty optional path, which counts
-    /// as not given; throws invalid_argument naming the parameter for an empty required one or a malformed one.
-    /// </summary>
+    /// <summary>Checks a path argument; false for an empty optional path, invalid_argument for an empty required or malformed one.</summary>
+    // Checked before any tool opens it: a JIT that inlines System.IO hides where a path exception came from.
     private static bool CheckPath(string name, string value, bool required, string? tool, JsonElement property)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -98,10 +87,8 @@ public static class ArgumentCheck
         return true;
     }
 
-    /// <summary>
-    /// Throws <see cref="MissingParameter"/> for the first required parameter the call does not pass. Runs after
-    /// <see cref="Apply"/>, so a misspelt name is reported as unknown (with the intended name) rather than as missing.
-    /// </summary>
+    /// <summary>Throws <see cref="MissingParameter"/> for the first required parameter not passed.</summary>
+    // Runs after Apply, so a misspelt name is reported as unknown with the intended name, not as missing.
     public static void RequireAll(JsonElement inputSchema, IDictionary<string, JsonElement>? arguments, string? tool = null)
     {
         foreach (var name in Required(inputSchema))
@@ -183,10 +170,7 @@ public static class ArgumentCheck
         };
     }
 
-    /// <summary>
-    /// Declared names close to <paramref name="name"/>, closest first (at most three): same name ignoring case and
-    /// separators, an edit distance within a third of the length (at least 2), or one name containing the other.
-    /// </summary>
+    /// <summary>Up to three declared names close to <paramref name="name"/>, closest first: case or separator variants, small edit distance, or containment.</summary>
     public static List<string> Suggest(string name, IReadOnlyList<string> declared)
     {
         var key = Normalize(name);
@@ -225,11 +209,7 @@ public static class ArgumentCheck
         return d[a.Length, b.Length];
     }
 
-    /// <summary>
-    /// A file system exception for a path taken from the arguments (empty, too long, malformed, missing, denied) as a
-    /// tool error, decided by its type and, for an argument exception, by the System.IO parameter it names; null for
-    /// anything else, which stays an internal error.
-    /// </summary>
+    /// <summary>A file system exception for an argument path as a tool error; null for anything else, which stays an internal error.</summary>
     public static ToolError? FileSystemError(Exception ex)
     {
         // Not by stack frames: an optimizing JIT inlines System.IO into the caller, so its frames are not always there.

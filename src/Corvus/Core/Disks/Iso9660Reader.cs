@@ -4,11 +4,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Core.Disks;
 
-/// <summary>
-/// ISO 9660 and UDF optical disc images (.iso, .img): the UDF file system when the image carries one (it describes files
-/// ISO 9660 cannot), else the Joliet tree, else the primary tree with Rock Ridge names; every file listed, binaries and
-/// packages (all files with allFiles) extracted, read in ranges.
-/// </summary>
+/// <summary>ISO 9660 and UDF disc images: UDF when present, else Joliet, else the primary tree with Rock Ridge names.</summary>
 internal sealed class Iso9660Reader : IContainerReader
 {
     private const int Sector = 2048;
@@ -106,14 +102,16 @@ internal sealed class Iso9660Reader : IContainerReader
             {
                 _tree.Token.ThrowIfCancellationRequested();
                 int len = data[pos];
-                if (len == 0) { pos = (pos / Sector + 1) * Sector; continue; } // records do not cross a sector
+                // Records do not cross a sector.
+                if (len == 0) { pos = (pos / Sector + 1) * Sector; continue; }
                 if (len < 34 || pos + len > data.Length) break;
                 var r = data.AsSpan(pos, len);
                 pos += len;
                 int nameLen = r[32];
                 if (33 + nameLen > len) continue;
                 var raw = r.Slice(33, nameLen);
-                if (nameLen == 1 && raw[0] is 0 or 1) continue; // . and ..
+                // The . and .. entries.
+                if (nameLen == 1 && raw[0] is 0 or 1) continue;
                 bool dir = (r[25] & 0x02) != 0;
                 string name = _joliet ? Encoding.BigEndianUnicode.GetString(raw) : Encoding.ASCII.GetString(raw);
                 var systemUse = r[(33 + nameLen + ((nameLen & 1) == 0 ? 1 : 0))..];
@@ -127,7 +125,7 @@ internal sealed class Iso9660Reader : IContainerReader
                 }
                 uint ext = BinaryPrimitives.ReadUInt32LittleEndian(r[2..]);
                 long fileSize = BinaryPrimitives.ReadUInt32LittleEndian(r[10..]);
-                // a file of several extents: records with the multi-extent flag, then the last
+                // A file of several extents: records with the multi-extent flag, then the last.
                 if (pending.Count > 0 && pending[^1].Name == name && !dir && (r[25] & 0x80) == 0 && pending[^1].Size < 0)
                 {
                     pending[^1] = (name, pending[^1].Extent, -pending[^1].Size + fileSize, false);

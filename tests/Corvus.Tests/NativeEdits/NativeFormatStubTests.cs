@@ -79,7 +79,7 @@ public sealed class NativeFormatStubTests(ITestOutputHelper output) : IDisposabl
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task ExtendedPatch_RoundTripsAndUndoes(string fmt, StubPlacement placement)
+    public async Task Extended_patch_round_trips_and_undoes(string fmt, StubPlacement placement)
     {
         var bytes = fmt == "elf" ? Elf(out var ro) : MachO(out ro);
         var ext = fmt == "elf" ? ".so" : ".dylib";
@@ -135,7 +135,7 @@ public sealed class NativeFormatStubTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public async Task GrownSegment_ExportsSegmentInIdaAndJson()
+    public async Task Grown_segment_exports_segment_in_IDA_and_JSON()
     {
         var (native, index, edits, _, entry, _) = await Load("export.so", Elf(out var ro), ro);
         var newBytes = X86Assembler.Assemble(NativeArch.X64, native.Image.ImageBase + entry, "mov eax, 2").Bytes;
@@ -158,7 +158,7 @@ public sealed class NativeFormatStubTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public async Task SignedMachO_patch_reports_the_signature_no_longer_matches()
+    public async Task Signed_MachO_patch_reports_the_signature_no_longer_matches()
     {
         var (native, index, edits, _, entry, _) = await Load("signed.dylib",
             MachO(out _, new MachOWriter.Signature("com.example.test")), 0);

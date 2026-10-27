@@ -16,16 +16,9 @@ public sealed record LiveThread(
     uint Id, string? Name, uint? SuspendCount, int? Priority, int? BasePriority, ulong? Teb, ulong? StartAddress,
     ulong? StackLow, ulong? StackHigh, DumpContext? Context, string? Error);
 
-/// <summary>
-/// A running Windows process read without changing it. The process handle has PROCESS_QUERY_INFORMATION |
-/// PROCESS_VM_READ and nothing else; each thread is opened for one capture with THREAD_GET_CONTEXT |
-/// THREAD_QUERY_INFORMATION and closed right after. Modules come from the loader list (EnumProcessModulesEx, which reads
-/// the target's memory), regions from VirtualQueryEx, threads from the system thread snapshot (no handle to the target),
-/// registers from GetThreadContext / Wow64GetThreadContext on the running thread (no suspension: a snapshot that may be
-/// slightly stale for a thread running user code). Nothing is written, no thread is suspended, created or resumed, no
-/// debugger is attached. Disposing closes the process handle; <see cref="HandlesOpened"/> and <see cref="HandlesClosed"/>
-/// count every handle to the target.
-/// </summary>
+/// <summary>A running Windows process read through query and read access only: nothing is written, suspended or debugged.</summary>
+/// <remarks>The process handle has PROCESS_QUERY_INFORMATION | PROCESS_VM_READ; each thread is opened for one capture with
+/// THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION. Registers of a running thread may be slightly stale.</remarks>
 public sealed class LiveProcess : IProcessMemory, IDisposable
 {
     /// <summary>The access mask of the process handle.</summary>
@@ -66,10 +59,7 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
     /// <summary>Whether register contexts can be read from this server (same architecture, or a WoW64 target of an x64 server).</summary>
     public bool CanReadContexts => _serverArch == Arch || (_serverArch == NativeArch.X64 && Arch == NativeArch.X86 && Wow64);
 
-    /// <summary>
-    /// Opens the process for reading. Typed errors: provider_unavailable off Windows, not_found for no such process,
-    /// access_denied, unsupported for a 64-bit process seen from a 32-bit server.
-    /// </summary>
+    /// <summary>Opens the process for reading; throws provider_unavailable, not_found, access_denied or unsupported.</summary>
     public static LiveProcess Attach(int pid, CancellationToken ct = default)
     {
         if (!OperatingSystem.IsWindows())
@@ -145,7 +135,7 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
             Arch = wow ? NativeArch.X86 : Environment.Is64BitOperatingSystem ? NativeArch.X64 : NativeArch.X86;
         }
         if (_serverArch is NativeArch.X86 or NativeArch.Arm && Is64Bit)
-            throw new ToolError(ErrorCode.Unsupported, $"process {Pid} is 64-bit and this server runs as a 32-bit process, which cannot read a 64-bit address space.",
+            throw new ToolError(ErrorCode.Unsupported, $"process {Pid} is 64-bit; a 32-bit server cannot read it.",
                 "run the 64-bit build of the server") { Details = new { reason = "bitness_mismatch", target = Arch.ToString(), server = _serverArch.ToString() } };
     }
 
@@ -172,7 +162,7 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
         var handles = new nint[1024];
         uint needed = 0;
         bool ok = false;
-        // the loader list can change between calls: retry a few times with the size it asks for
+        // The loader list can change between calls: retry with the size it asks for.
         for (int attempt = 0; attempt < 4 && !ok; attempt++)
         {
             ok = LiveNative.EnumProcessModulesEx(_process, handles, (uint)(handles.Length * IntPtr.Size), out needed, LiveNative.LIST_MODULES_ALL);
@@ -182,7 +172,7 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
         }
         if (!ok)
         {
-            // a process that is still starting (no loader data yet), or one that just exited
+            // A process still starting (no loader data yet), or one that just exited.
             ModulesNote = $"the module list could not be read: {new Win32Exception(Marshal.GetLastPInvokeError()).Message}";
             return;
         }
@@ -242,7 +232,7 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
     {
         if (destination.IsEmpty || _disposed) return 0;
         if (TryRead(address, destination) == destination.Length) return destination.Length;
-        // a range that crosses an unreadable page: page by page up to the first failure
+        // A range crossing an unreadable page is read page by page up to the first failure.
         int done = 0;
         while (done < destination.Length)
         {
@@ -365,10 +355,7 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
         return new LiveThread(id, name, suspend, priority, basePriority, teb, start, low, high, ctx, error2);
     }
 
-    /// <summary>
-    /// The stack range from the thread's TEB (NT_TIB StackLimit..StackBase). A WoW64 thread's 32-bit TEB follows its
-    /// 64-bit one (WowTebOffset, else +0x2000).
-    /// </summary>
+    /// <summary>The stack range from the thread's TEB; a WoW64 thread's 32-bit TEB follows its 64-bit one.</summary>
     private (ulong?, ulong?) StackBounds(ulong teb)
     {
         if (Wow64 && IntPtr.Size == 8)

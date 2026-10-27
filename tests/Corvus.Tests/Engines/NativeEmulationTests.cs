@@ -307,7 +307,7 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
     [GhidraFact]
     public async Task An_unmapped_read_is_an_error_naming_the_address_and_mapped_memory_reads_back()
     {
-        // Ghidra 12.0's emulator does not say why it reads, so a data read cannot be told from the decoder's read-ahead
+        // Ghidra 12.0's emulator does not say why it reads, so a data read cannot be told from the decoder's read-ahead.
         if (Version.Parse(GhidraInstallation.Locate(null, out _, out _)!.Version) >= new Version(12, 1))
         {
             var e = await Assert.ThrowsAsync<ToolError>(() => Run("Deref", registers: "rcx=0x1234"));

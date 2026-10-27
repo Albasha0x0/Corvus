@@ -5,10 +5,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// The built-in engine's per-function slices (x86 / x64): backward through <see cref="ValueResolver"/> in slice mode,
-/// forward through <see cref="ForwardSlicer"/>. Slices are memoized per function and seed, so repeated traces reuse them.
-/// </summary>
+/// <summary>The built-in x86 / x64 slices: backward through <see cref="ValueResolver"/>, forward through <see cref="ForwardSlicer"/>; memoized per function and seed.</summary>
 internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceProvider
 {
     public const string EngineName = "ours";

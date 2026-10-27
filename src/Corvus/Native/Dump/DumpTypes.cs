@@ -58,11 +58,7 @@ public sealed record DumpMemoryRegion(ulong Base, ulong AllocationBase, uint All
 /// <summary>MINIDUMP_HANDLE_DESCRIPTOR(_2).</summary>
 public sealed record DumpHandle(ulong Handle, string? TypeName, string? ObjectName, uint Attributes, uint GrantedAccess, uint HandleCount, uint PointerCount);
 
-/// <summary>
-/// A thread's register context. x64: <see cref="Gpr"/> in unwind-code order (rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi,
-/// r8-r15); x86: eax, ecx, edx, ebx, esp, ebp, esi, edi. <see cref="Complete"/> is false when the dump held fewer bytes
-/// than the CONTEXT structure (the missing registers read as 0).
-/// </summary>
+/// <summary>A thread's register context; <see cref="Gpr"/> is in unwind-code order (rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8-r15).</summary>
 public sealed class DumpContext
 {
     public DumpContext(NativeArch arch) => Arch = arch;
@@ -90,10 +86,7 @@ public sealed class DumpContext
         return c;
     }
 
-    /// <summary>
-    /// A CONTEXT record (x64 CONTEXT, x86 CONTEXT / WOW64_CONTEXT, ARM64 frame registers) as stored by MiniDumpWriteDump
-    /// and returned by GetThreadContext; null when the bytes are too short or the architecture has no layout here.
-    /// </summary>
+    /// <summary>A CONTEXT record (x64, x86 / WOW64, ARM64 frame registers); null when too short or the architecture has no layout.</summary>
     public static DumpContext? Parse(NativeArch arch, ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length < 8) return null;
@@ -125,7 +118,7 @@ public sealed class DumpContext
                 c.Gpr[4] = U32(bytes, 0xC4);
                 break;
             case NativeArch.Arm64:
-                // ContextFlags, Cpsr, X0-X28, Fp, Lr, Sp, Pc: only the frame registers are kept
+                // ContextFlags, Cpsr, X0-X28, Fp, Lr, Sp, Pc: only the frame registers are kept.
                 c.Complete = bytes.Length >= 0x110;
                 c.ContextFlags = U32(bytes, 0);
                 c.Flags = U32(bytes, 4);

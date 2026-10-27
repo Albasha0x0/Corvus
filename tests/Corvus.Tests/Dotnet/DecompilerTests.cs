@@ -9,7 +9,7 @@ public class DecompilerTests : IDisposable
     public void Dispose() => _env.Dispose();
 
     [Fact]
-    public void DecompilesTypeWithNestedTypes()
+    public void Decompiles_type_with_nested_types()
     {
         var code = _env.Decompiler.DecompileType(_env.Fixture, _env.Def<TypeDef>("Account"), default);
         Assert.Contains("public class Account : Entity, IChargeable", code);
@@ -29,7 +29,7 @@ public class DecompilerTests : IDisposable
     [InlineData("Account::_balance", "private int _balance")]
     [InlineData("Account::.ctor", "AccountCount++")]
     [InlineData("Vec2::Length", "MathF.Sqrt")]
-    public void DecompilesMembersBackToSource(string symbol, string expected) =>
+    public void Decompiles_members_back_to_source(string symbol, string expected) =>
         Assert.Contains(expected, _env.Decompile(symbol));
 
     [Theory]
@@ -37,11 +37,11 @@ public class DecompilerTests : IDisposable
     [InlineData("IChargeable", "interface IChargeable")]
     [InlineData("Vec2", "struct Vec2")]
     [InlineData("Container", "where T : class")]
-    public void DecompilesEveryTypeKind(string type, string expected) =>
+    public void Decompiles_every_type_kind(string type, string expected) =>
         Assert.Contains(expected, _env.Decompiler.DecompileType(_env.Fixture, _env.Def<TypeDef>(type, SymbolKind.Type), default));
 
     [Fact]
-    public void DisassemblesWithTokensAndOffsets()
+    public void Disassembles_with_tokens_and_offsets()
     {
         var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::CheckPreview").Member, default);
         Assert.Contains("ldstr \"PREVIEW-CODE-42\"", il);
@@ -50,14 +50,14 @@ public class DecompilerTests : IDisposable
     }
 
     [Fact]
-    public void DisassemblesTypesFieldsPropertiesEvents()
+    public void Disassembles_types_fields_properties_events()
     {
         foreach (var (symbol, directive) in new[] { ("Account", ".class"), ("Account::_balance", ".field"), ("Account::Balance", ".property"), ("Account::Closed", ".event") })
             Assert.Contains(directive, _env.Decompiler.Disassemble(_env.Fixture, _env.One(symbol).Member, default));
     }
 
     [Fact]
-    public void ExportsProjectWithProgressAndRefusesNonEmptyDirectory()
+    public void Exports_project_with_progress_and_refuses_non_empty_directory()
     {
         using var dir = new TempDir();
         var progress = new List<string>();
@@ -70,11 +70,11 @@ public class DecompilerTests : IDisposable
     }
 
     [Fact]
-    public void AssemblyAttributes() =>
+    public void Assembly_attributes_decompile() =>
         Assert.Contains("TargetFramework", _env.Decompiler.DecompileAssemblyAttributes(_env.Fixture, default));
 
     [Fact]
-    public void CallerCancellation_IsNotAToolError()
+    public void Caller_cancellation_is_not_a_tool_error()
     {
         using var env = new Env();
         var decompiler = new Services.DecompilerService(env.Workspace, new ServerOptions());
@@ -85,16 +85,16 @@ public class DecompilerTests : IDisposable
     }
 
     [Fact]
-    public void AssemblyReportCoversIdentityPeAndReferences()
+    public void Assembly_report_covers_identity_PE_and_references()
     {
         var report = _env.Report.Build(_env.Fixture);
-        foreach (var expected in new[] { "Id: TestFixture", "Target framework", "PE32", "Sections:", ".text", "Metadata streams", "References:", "System.Runtime", "Il2Cpp metadata: 2 methods" })
+        foreach (var expected in new[] { "Id: TestFixture", "Target framework", "PE32", "Sections:", ".text", "Metadata streams", "References:", "System.Runtime", "AOT metadata: 2 methods" })
             Assert.Contains(expected, report);
     }
 
     /// <summary>A constructor with nothing stored before its base call is shown alone; one with field initializers in its type.</summary>
     [Fact]
-    public void ConstructorsWithoutInitializersAreShownAlone()
+    public void Constructors_without_initializers_are_shown_alone()
     {
         var alone = _env.Decompile("PremiumAccount::.ctor");
         Assert.DoesNotContain("they run as part of this constructor", alone);
@@ -106,7 +106,7 @@ public class DecompilerTests : IDisposable
 
     /// <summary>A simplified view with nothing to simplify decompiles the loaded assembly as it is.</summary>
     [Fact]
-    public void SimplifiedViewWithoutChangesIsThePlainDecompile()
+    public void Simplified_view_without_changes_is_the_plain_decompile()
     {
         var member = _env.One("Account::CheckPreview").Member;
         var simplified = _env.Workspace.Read(() => _env.Decompiler.DecompileSimplified(_env.Fixture, [member], new Corvus.Services.Simplify.SimplifyOptions(), default));
@@ -134,7 +134,7 @@ public class DecompilerTests : IDisposable
 
     /// <summary>A write that changes no assembly keeps the decompiler's type systems; an edit of the assembly replaces its own.</summary>
     [Fact]
-    public void TypeSystemsOutliveWritesThatChangeNoAssembly()
+    public void Type_systems_outlive_writes_that_change_no_assembly()
     {
         var first = _env.Workspace.Read(() => _env.Decompiler.GetTypeSystem(_env.Fixture));
         _env.Workspace.Write(() => 0);

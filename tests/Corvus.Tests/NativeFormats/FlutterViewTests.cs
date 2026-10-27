@@ -213,7 +213,7 @@ public sealed class FlutterViewTests(ITestOutputHelper output)
                 Symbols = [new("_kDartVmSnapshotData", ElfWriter.DataRva, 0x100, Type: 1), new("_kDartIsolateSnapshotData", ElfWriter.DataRva + 0x100, (uint)(data.Length - 0x100), Type: 1)],
             }.Build();
         }
-        // place the image at an aligned file offset: the data section's offset is known after a first build
+        // Place the image at an aligned file offset: the data section's offset is known after a first build.
         var first = Build(0);
         var isolateAt = DartScan.Snapshots(first)[1].Offset;
         var imageAt = isolateAt + Snapshot(features: features).Length + 11;
@@ -274,7 +274,7 @@ public sealed class FlutterViewTests(ITestOutputHelper output)
         Assert.Equal(strings, pool.PackageUris);
         Assert.InRange(pool.Identifiers, 1, strings + 1);
         Assert.False(pool.Capped);
-        // the target is 1 s in a Release build (about 0.5 s measured); the Debug test build runs about 3x slower
+        // The target is 1 s in a Release build (about 0.5 s measured); the Debug test build runs about 3x slower.
         PerfBudget.Time("mobile/flutter-pool-scan-cpu", took, TimeSpan.FromSeconds(3), output);
     }
 }

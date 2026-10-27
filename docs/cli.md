@@ -1,44 +1,50 @@
 # Command line
 
-Every tool, prompt and resource also runs from a terminal. Commands and argument types come from the tool catalog,
-and each call runs the server in process, so a terminal call gets the same argument checks, limits and errors as an
-agent's. Tool reference: [tools.md](tools.md); setup commands (`install`,
-`status`, ...): [installation.md](installation.md).
+Every tool, prompt and resource also runs from a terminal, with the same argument checks, limits and errors as an
+agent's call. Tool reference: [tools.md](tools.md). Setup commands (`install`, `status`, ...):
+[installation.md](installation.md).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `<tool> [name=value ...]` | Call a tool: `corvus decompile_member --load app.dll member=Ns.Type::Method`. |
-| `call <tool> [name=value ...]` | The same, with the tool name after `call`. |
-| `tools [filter]` | The tools by toolset, with their effect (read-only, edit, destructive; long-running) and first sentence. `--json` prints a table. |
-| `describe <tool\|prompt>` | Description, parameters (type, required, default, values), annotations, structured output and an example call. `help <name>` is the same. `--json` prints the catalog entry. |
-| `batch <file\|->` | Run several calls in one session ([below](#batch)). |
-| `batch --file <path> --json` | Read one file with a fixed set of read-only steps and print one JSON document ([below](#file-batch)). |
-| `prompts` | The prompts and their arguments. |
-| `prompt <name> [name=value ...]` | A prompt's text, ready to pipe into any agent. |
-| `resources` | The resources and resource templates. |
-| `read <uri>` | One resource, e.g. `corvus://guide/native`. |
-| `completion <bash\|zsh\|pwsh>` | A shell completion script for commands, tools and parameter names. |
-| `rules [list]`, `rules fetch <pack>` | List the installed and known YARA rule packs (malcontent, yara-forge-core); `fetch` downloads one from GitHub, refuses it unless its SHA-256 equals the pinned one, and installs its rules and license under the data folder's `rules/<pack>/<version>/` for `search_container kind=yara query=pack:<name>`. |
-| `ida-script [folder]` | Write `corvus_connect.py` and the worker it imports (default folder: `<IDA user directory>/corvus`). Run it in IDA with File > Script file: with `CORVUS_IDA_CONNECT=1`, Corvus reads and edits that open database instead of analyzing its own copy. |
+| `<tool> [name=value ...]` | call a tool: `corvus decompile_member --load app.dll member=Ns.Type::Method` |
+| `call <tool> [name=value ...]` | the same, with the tool name after `call` |
+| `tools [filter]` | tools by toolset with their effect and first sentence; `--json` prints a table |
+| `describe <tool\|prompt>` | description, parameters, annotations, output and an example; also `help <name>` |
+| `batch <file\|->` | run several calls in one session ([below](#batch)) |
+| `batch --file <path> --json` | read one file with fixed read-only steps into one JSON document ([below](#file-batch)) |
+| `prompts` | prompts and their arguments |
+| `prompt <name> [name=value ...]` | a prompt's text, ready to pipe into an agent |
+| `resources` | resources and resource templates |
+| `read <uri>` | one resource, such as `corvus://guide/native` |
+| `completion <bash\|zsh\|pwsh>` | a shell completion script |
+| `rules [list]`, `rules fetch <pack>` | list or install YARA rule packs (malcontent, yara-forge-core) |
+| `ida-script [folder]` | write `corvus_connect.py` for using a database open in IDA |
 
-Tool names are accepted in snake case or kebab case (`decompile-member`). `corvus help` lists the setup commands and
-these.
+- Tool names are accepted in snake case or kebab case (`decompile-member`).
+- `corvus help` lists the setup commands and these.
+- `rules fetch` downloads a pack from GitHub, refuses it unless its SHA-256 matches the pinned value, and installs it
+  under the data folder's `rules/<pack>/<version>/` for `search_container kind=yara query=pack:<name>`.
+- `ida-script` writes to `<IDA user directory>/corvus` by default. Run the script in IDA (File > Script file) and start
+  Corvus with `CORVUS_IDA_CONNECT=1`.
 
 ## Arguments
 
 | Form | Meaning |
 |---|---|
-| `name=value` | Typed by the parameter's schema: integers (also `0x` hex), numbers, `true`/`false` (also `1`/`0`, `yes`/`no`), arrays as JSON (`[1,2]`) or comma-separated (`a,b`), objects as JSON; anything else is text. |
-| `name:=<json>` | The value as raw JSON. |
-| `name=@file` | The value read from a file, e.g. a C# body for `patch_method_csharp`. Text that starts with `@` (an Android resource such as `@xml/config`) goes as JSON: `name:='"@xml/config"'`. |
-| `name=@-` | The value read from standard input. |
-| `--args '<json object>'` | All arguments as one JSON object (`--json '{...}'` is the same); `name=value` pairs override its members. |
-| `--args-file F` | The JSON object from a file (`-` for standard input). |
+| `name=value` | typed by the parameter's schema (below) |
+| `name:=<json>` | the value as raw JSON |
+| `name=@file` | the value read from a file, such as a C# body |
+| `name=@-` | the value read from standard input |
+| `--args '<json object>'` | all arguments as one JSON object (also `--json '{...}'`); `name=value` pairs override it |
+| `--args-file F` | the JSON object from a file (`-` for standard input) |
 
-An undeclared parameter is reported as `invalid_argument` with the closest declared names. Quote values that hold
-spaces or shell characters: `member='Ns.Type::Method(int, string)'`.
+- Types: integers (also `0x` hex), numbers, `true`/`false` (also `1`/`0`, `yes`/`no`), arrays as JSON (`[1,2]`) or
+  comma-separated (`a,b`), objects as JSON; anything else is text.
+- Text starting with `@` (such as `@xml/config`) goes as JSON: `name:='"@xml/config"'`.
+- An undeclared parameter is `invalid_argument` with the closest declared names.
+- Quote values with spaces or shell characters: `member='Ns.Type::Method(int, string)'`.
 
 ## Server options
 
@@ -66,9 +72,10 @@ Files are not watched for changes in a command-line session.
 
 ## Batch
 
-`batch steps.jsonl` runs every step in one session, so ids (`app.dll#2`) and unsaved in-memory edits carry over. The
-file is a JSON array or JSON Lines; each step is `{"tool": "...", "args": {...}}` (`arguments` also accepted); lines
-starting with `#` are comments. Every tool name is checked before the first step runs.
+- `batch steps.jsonl` runs every step in one session; ids (`app.dll#2`) and unsaved edits carry over.
+- The file is a JSON array or JSON Lines of `{"tool": "...", "args": {...}}` (`arguments` also accepted); `#` starts a
+  comment line.
+- Every tool name is checked before the first step runs.
 
 ```json
 {"tool": "load_assembly", "args": {"path": "app.dll"}}
@@ -76,22 +83,25 @@ starting with `#` are comments. Every tool name is checked before the first step
 {"tool": "save_assembly", "args": {"assembly": "app", "outputPath": "app.patched.dll"}}
 ```
 
-Each step's output follows a `=== [n/total] tool` header; with `--json`, each step is one line
-`{step, tool, isError, text, structured, error}`. Later steps run after a failed one unless `--stop-on-error` is given.
-The exit code is the first failed step's.
+- Each step's output follows a `=== [n/total] tool` header; with `--json`, one line per step
+  `{step, tool, isError, text, structured, error}`.
+- Later steps run after a failed one unless `--stop-on-error` is given.
+- The exit code is the first failed step's.
 
 ### File batch
 
-`batch --file sample.bin --json` reads one file with a fixed set of read-only steps and prints one JSON document, for
-pipelines that scan files without an agent. Nothing in the file runs; no network calls are made.
+`batch --file sample.bin --json` reads one file with fixed read-only steps and prints one JSON document, for pipelines
+without an agent. Nothing in the file runs; no network calls are made.
 
 | Section | Reads | Runs when |
 |---|---|---|
-| `summary` | `summarize_file`: type, hashes, signature, container, assemblies, highlights | always |
-| `container` | `search_container kind=file`: the files inside, not extracted | the summary names a container |
-| `strings` | `extract_strings`: typed values (URLs, domains, IPs, paths, registry keys, encoded values); in a container, from its own assemblies, each location prefixed with the assembly's path; in Unity data, from MonoBehaviour string fields and config TextAssets, each location naming the file and asset | the file is a .NET assembly, a container that holds them, a Unity serialized file or bundle, or a folder, package or zip that holds a Unity build |
-| `yara` | `search_container kind=yara`: the rules that matched the file and its members, in a worker process | `--rules` names a rule file or folder; `unavailable`, with the reason, when `CORVUS_WORKER_HOST=0` |
-| `unity` | `unity_overview`: engine version, scripting backend (Il2Cpp or Mono), Il2Cpp metadata version and state, markers | the input is a folder, package or zip that holds a Unity build |
+| `summary` | `summarize_file`: type, hashes, signature, container, highlights | always |
+| `container` | `search_container kind=file`: the files inside | the summary names a container |
+| `strings` | `extract_strings`: typed values, by assembly or asset | .NET code, or serialized asset files |
+| `yara` | `search_container kind=yara`: matching rules | `--rules` names a rule file or folder |
+| `build` | `summarize_build`: version, scripting backend, metadata state | a build folder, package or zip |
+
+- `yara` is `unavailable`, with the reason, when `CORVUS_WORKER_HOST=0`.
 
 ```json
 {"schema": "corvus.batch/1", "corvus": "2.5.1",
@@ -103,35 +113,34 @@ pipelines that scan files without an agent. Nothing in the file runs; no network
    {"name": "container", "tool": "search_container", "status": "partial", "limit": "containerFiles", "result": {...}},
    {"name": "strings", "tool": "extract_strings", "status": "not_applicable", "reason": "..."},
    {"name": "yara", "tool": "search_container", "status": "not_applicable", "reason": "..."},
-   {"name": "unity", "tool": "unity_overview", "status": "not_applicable", "reason": "..."}]}
+   {"name": "build", "tool": "summarize_build", "status": "not_applicable", "reason": "..."}]}
 ```
 
 - `result` is the tool's structured output, as `--structured` prints it; `error` is the tool's error record.
-- `status`: `complete`, `partial`, `not_applicable`, `unavailable`, `error` or `timeout`. A `partial` section keeps
-  every row it read; `limit` names the limit reached, or `reason` names what else stopped it: the tool's own partial or
-  unknown coverage, an unavailable facet, a response cut to fit, a failed page. `complete` is true only when every
-  section is `complete` or `not_applicable`.
-- Each step pages through its tool's results until its limit or the last row; `result` holds the rows of every page.
-- Limits: `--time-limit <seconds>` for the whole run (default 120, at most 86400); `--limit containerFiles=N`,
-  `--limit strings=N`, `--limit yaraMatches=N` (default 500 each); `--limit assetBytes=N` for the Unity asset files
-  the `strings` step reads (default 1 GiB; a direct `extract_strings` call reads up to 4 GiB); at most 25 summary
-  highlights. The `strings` step reads Unity assets for at most half the time left, then keeps the rows read. The
-  `limits` record holds the values used.
-- Exit code 0 when the document is written, whatever the section statuses; 124 when the time limit ended the run (the
-  document is still written, finished sections kept, the rest marked `timeout`); 2 for a missing file or a bad option,
-  with nothing on stdout.
-- The schema name changes to `corvus.batch/2` only when a field is renamed or removed; new fields keep `/1`.
+- `status`: `complete`, `partial`, `not_applicable`, `unavailable`, `error` or `timeout`.
+- A `partial` section keeps every row it read; `limit` names the limit reached, or `reason` names what stopped it.
+- `complete` is true only when every section is `complete` or `not_applicable`.
+- Each step pages through its tool's results; `result` holds the rows of every page.
+- `--time-limit <seconds>`: the whole run (default 120, at most 86400).
+- `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
+- `--limit assetBytes=N`: asset bytes the `strings` step reads (default 1 GiB; a direct `extract_strings` call reads
+  up to 4 GiB).
+- The `strings` step reads assets for at most half the time left, then keeps the rows read.
+- At most 25 summary highlights. The `limits` record holds the values used.
+- Exit codes: 0 when the document is written, whatever the section statuses; 124 when the time limit ended the run (finished sections kept, the rest
+  `timeout`); 2 for a missing file or bad option, nothing on stdout.
+- The schema becomes `corvus.batch/2` only when a field is renamed or removed; new fields keep `/1`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | Success. A result can still be partial; `--json` shows `error.partial` when it is. |
-| 1 | The tool returned an error: `not_found`, `ambiguous`, `conflict`, `not_loaded`, `limit_exceeded`, `internal`, ... |
-| 2 | Usage error: unknown command, tool or option, malformed `name=value`, or the server's `invalid_argument`. |
-| 3 | Environment: `provider_unavailable` or `unsupported` (for example no IDA, or `inspect_process` off Windows). |
-| 124 | `timeout` (the convention of `timeout(1)`). |
-| 130 | Cancelled with Ctrl+C. The first Ctrl+C cancels the call in flight and waits for the tool to stop; a second ends the process. |
+| 0 | success; a partial result shows `error.partial` with `--json` |
+| 1 | tool error: `not_found`, `ambiguous`, `conflict`, `not_loaded`, `limit_exceeded`, `internal`, ... |
+| 2 | usage error (unknown command, tool or option, malformed `name=value`), or the server's `invalid_argument` |
+| 3 | environment: `provider_unavailable` or `unsupported` (no IDA, `inspect_process` off Windows) |
+| 124 | `timeout`, as `timeout(1)` |
+| 130 | Ctrl+C: the first cancels the call and waits; a second ends the process |
 
 ## Examples
 

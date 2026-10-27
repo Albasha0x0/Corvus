@@ -7,11 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Every way a session's program ends, repeated per target: a return from main with watched calls still queued, _exit,
-/// an access violation, termination from outside, a close at the start of the exit, and an exit held in a module's
-/// shutdown past the 10 s limit. Each run ends with the program gone, the session's worker ended and no call left waiting.
-/// </summary>
+/// <summary>Every way a program ends, per target, leaves the program gone, the worker ended and no call waiting.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -63,7 +59,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
             var session = $"live-{run}";
             var pid = await Spawn(server, exe, session, "exit", $"{calls}");
             await Ok(server, "live_watch", new() { ["session"] = session, ["action"] = "set", ["at"] = "AddLine", ["rateLimit"] = 100_000 });
-            // no stop point: the wait ends with the program
+            // No stop point: the wait ends with the program.
             var sw = Stopwatch.StartNew();
             var ended = await Ok(server, "live_break", new() { ["session"] = session, ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 120 });
             Output.WriteLine($"run {run}: the wait returned {sw.ElapsedMilliseconds} ms after the start");
@@ -73,7 +69,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
             Assert.Equal(calls, await Watched(server, session));
             Assert.Contains($"lines {calls}", await Events(server, session, kind: "output", log: false));
 
-            // calls after the end are refused by the session's state, not by the backend
+            // Calls after the end are refused by the session's state, not by the backend.
             foreach (var (tool, args) in new (string, Dictionary<string, object?>)[]
             {
                 ("live_break", new() { ["session"] = session, ["action"] = "set", ["at"] = "AddLine" }),
@@ -198,7 +194,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
         var exe = Build(target);
         var name = Regex.Escape(target.Exe("lifecycle"));
         await using var server = await Server();
-        // odd runs close while the exiting thread is held at AtExit, even runs release it and close at once
+        // Odd runs close while the exiting thread is held at AtExit, even runs release it and close at once.
         for (int run = 1; run <= 2 * Runs; run++)
         {
             var session = $"live-{run}";
@@ -248,7 +244,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
         const int together = 5;
         await using var server = await Server();
         int next = 0, held = 0;
-        // two rounds of five sessions at once, each program held in its exit
+        // Two rounds of five sessions at once, each program held in its exit.
         for (int round = 0; round < Runs / together; round++)
         {
             var heldBefore = held;
@@ -282,8 +278,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
                     Output.WriteLine($"{session}: exited {sw.Elapsed.TotalSeconds:F1} s after the start");
                     Assert.Matches(@"exit code 7(?![0-9xX])", exited);
                     var errors = await Events(server, session, kind: "error");
-                    // The program's hold-<pid> marks a hold entered: Windows can end the exit without the TLS callback
-                    // (1 in 10 quiet, more under load; cause unconfirmed, perhaps a loader lock a terminated thread held).
+                    // hold-<pid> marks a hold entered: Windows can end the exit without the TLS callback (1 in 10; cause unconfirmed).
                     if (File.Exists(Path.Combine(folder, $"hold-{pid}")))
                     {
                         held++;
@@ -326,7 +321,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
         File.WriteAllBytes(worker, Native.Providers.EmbeddedScript.Read("Corvus.Native.Providers.Live.live_worker.py"));
         var agent = _dir.File("live_agent.js");
         File.WriteAllText(agent, "this is not a script (");
-        // Frida unpacks its helpers into TEMP and a killed worker leaves them: a folder of the test's own, as the server gives each worker
+        // Frida unpacks its helpers into TEMP and a killed worker leaves them: a folder of the test's own, as the server gives each worker.
         var temp = Directory.CreateDirectory(_dir.File("worker-temp")).FullName;
         var start = new ProcessStartInfo(python.Executable, new[] { "-I", "-u", worker, agent })
             { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
@@ -338,7 +333,7 @@ public sealed class LiveLifecycleRealTests(ITestOutputHelper output) : LiveToolC
         while ((reply = p.StandardOutput.ReadLine()) != null && !reply.Contains("\"id\":1", StringComparison.Ordinal)) { }
         Assert.NotNull(reply);
         Assert.Contains("\"ok\":false", reply);
-        // the server ends a worker that failed to open without a close (its timeout, or its own end): nothing else ends the program
+        // The server ends a worker that failed to open without a close (its timeout, or its own end): nothing else ends the program.
         p.Kill();
         Assert.True(p.WaitForExit(20_000), "the worker did not end");
         var left = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exe)); // a unique name: only this start's program

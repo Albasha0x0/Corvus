@@ -19,10 +19,7 @@ public static partial class ToolOutput
 
     private static readonly ConcurrentDictionary<(string Path, long Length, long Ticks), string> FileHashes = new();
 
-    /// <summary>
-    /// The provenance of a result (S5.1), for _meta: inputs with SHA-256 (and MVID), tool, a hash of the arguments, engine,
-    /// version and, on a success, a hash of the result and its coverage. Costs the model nothing; at most about 1 KB.
-    /// </summary>
+    /// <summary>A result's provenance for _meta: inputs with SHA-256, tool, argument hash, engine, version and, on success, result hash and coverage; about 1 KB at most.</summary>
     internal static JsonObject Provenance(string tool, IDictionary<string, JsonElement>? args, AssemblyWorkspace? workspace, string? engine,
         CallToolResult result, OutputCall call, string? resultSha256 = null)
     {
@@ -61,10 +58,8 @@ public static partial class ToolOutput
         return p;
     }
 
-    /// <summary>
-    /// SHA-256 of the canonical structured JSON (sorted keys, compact), else of the text blocks, leaving out the
-    /// workspace notices (notices[] and the final notice block); without notices the hash is the one earlier versions gave.
-    /// </summary>
+    /// <summary>SHA-256 of the canonical structured JSON, else of the text, without workspace notices.</summary>
+    // Without notices the hash equals the one earlier versions gave.
     public static string ResultSha256(CallToolResult result)
     {
         if (result.StructuredContent is { } s)

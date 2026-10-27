@@ -15,11 +15,8 @@ public sealed partial class LiveSessionService
 
     private static readonly TimeSpan CaptureTimeout = TimeSpan.FromMinutes(10);
 
-    /// <summary>
-    /// The matches of the YARA rules <paramref name="query"/> names (rule text, a file or folder, or an installed pack) in
-    /// the program's writable memory: heap, stacks and data sections, saved by the session to a temporary file that is
-    /// deleted after the scan. Refuses a program on macOS, and a session backend that cannot save memory.
-    /// </summary>
+    // The memory goes to a private temporary file deleted after the scan.
+    /// <summary>Matches of the YARA rules <paramref name="query"/> names in the program's writable memory; refuses macOS and backends without capture.</summary>
     public async Task<LiveYaraScan> ScanMemoryAsync(LiveSession session, string query, CancellationToken ct)
     {
         Live(session);
@@ -40,7 +37,7 @@ public sealed partial class LiveSessionService
             }
             catch (ToolError e) when (e.Code is ErrorCode.InvalidArgument or ErrorCode.NotFound && e.Message.StartsWith("unknown op", StringComparison.Ordinal))
             {
-                throw new ToolError(ErrorCode.Unsupported, $"the {session.Backend} session worker cannot save program memory, so the scan is not checked.",
+                throw new ToolError(ErrorCode.Unsupported, $"the {session.Backend} session worker cannot save program memory; the scan is not checked.",
                     "start the session again with this server's worker (live_session action=close, then start)");
             }
             List<LiveModuleState> modules;
@@ -58,8 +55,8 @@ public sealed partial class LiveSessionService
             int listed = saved.GetProperty("listed").GetInt32(), left = saved.GetProperty("left").GetInt32();
             var notes = new List<string>
             {
-                $"Writable memory of the running program: {listed:N0} ranges, {bytes:N0} bytes saved while it ran, so memory that changed meanwhile may be missed; " +
-                "image code and read-only data are not scanned (search_container kind=yara on a module's file scans them).",
+                $"Writable memory: {listed:N0} ranges, {bytes:N0} bytes saved while the program ran; changes meanwhile may be missed. " +
+                "Image code and read-only data are not scanned (search_container kind=yara scans a module's file).",
             };
             if (unread > 0) notes.Add($"{unread:N0} bytes could not be read (freed or protected meanwhile); they are unknown, not clean.");
             if (left > 0) notes.Add($"{left:N0} ranges past the {MaxCaptureBytes >> 20:N0} MB capture limit were not scanned.");

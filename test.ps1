@@ -1,5 +1,5 @@
-# Runs the tests. The quick set by default; -Full runs everything (slow, IDA and Ghidra tests; set CORVUS_GHIDRA_DIR for
-# Ghidra) and, on a clean tree, stamps the tree it passed on, so a later -Full -IfChanged (or release.ps1) skips a repeat.
+# Runs the tests: the quick set by default. -Full adds slow, IDA and Ghidra tests (CORVUS_GHIDRA_DIR) and stamps a
+# clean tree it passed on, so -Full -IfChanged and release.ps1 skip a repeat.
 # Usage:  ./test.ps1                      # before each commit: the quick tests of the families changed since origin/main
 #         ./test.ps1 -All                 # the whole quick set
 #         ./test.ps1 -Full                # full suite (before a release or a gate run)
@@ -8,9 +8,8 @@
 #         ./test.ps1 -Affected            # quick set plus the slow tests of the families changed since origin/main (before a push)
 #         ./test.ps1 -Filter <expr>       # any dotnet test filter, quick or full
 #         ./test.ps1 -Full -Reuse         # only the families whose inputs changed since their last full pass (test-reuse.psm1)
-#         ./test.ps1 -Full -Background    # after a push: -Reuse on the committed HEAD (-Commit: that commit) in a worktree of its own; returns at once
-#                                         #   (-Exhaustive: release strength, the passes a patch release takes;
-#                                         #   -Whole: exhaustive without reuse, the pass a minor release gates on)
+#         ./test.ps1 -Full -Background    # after a push: -Reuse on HEAD (or -Commit) in its own worktree; returns at once
+#                                         #   (-Exhaustive: patch release strength; -Whole: exhaustive without reuse)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
 #         ./test.ps1 -Status              # the last background run: passed / failed / running, its log, and run times
 #         ./test.ps1 -Wait                # returns when the background run and any run queued behind it end: 0 passed, 1 not
@@ -20,7 +19,7 @@
 #         ./test.ps1 -Remote -Filter <filter> -Repeat 20  # runs the filter 20 times on the test host CORVUS_TEST_REMOTE names, from this working tree
 #         ./test.ps1 -HostTier            # the host tier's classes on that test host; records the families they pass (host-tier.ps1)
 #         ./test.ps1 -Full -Coverage      # also collects line coverage (coverlet) and checks Ratchets/coverage.txt
-#         ./test.ps1 -CoverageMap         # which source files each family's tests (and each slow class) run (a whole background run refreshes it weekly): -Reuse keys on them
+#         ./test.ps1 -CoverageMap         # source files each family and slow class runs, for -Reuse (refreshed weekly)
 #         ./test.ps1 -Mutation [-Target sqlite,pe]  # mutation testing of the core readers (Stryker.NET; tests/mutation.json),
 #                                         #   surviving mutants checked against Ratchets/mutation-survivors.txt (gates and releases)
 #Requires -Version 7.0
@@ -118,8 +117,7 @@ if ($RemoteRun) {
 if ($Status) {
     if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
     $text = (Get-Content $result -Raw).Trim()
-    # A run that ended without writing its result (killed, or its worktree
-    # broke) leaves "running" and its record behind.
+    # A killed run, or one whose worktree broke, leaves "running" and its record behind.
     $record = Join-Path $gitDir 'corvus-background.json'
     if ($text -match ' running since ' -and (Test-Path $record)) {
         $run = Get-Content $record -Raw | ConvertFrom-Json
@@ -155,8 +153,7 @@ if ($Status) {
     exit 0
 }
 
-# Starts timing a test run: the machine's load is sampled on a thread meanwhile, the tests log their permit waits,
-# and the collection orderer reads the history of the run's mode (Support/CollectionOrder.cs).
+# Starts timing a run: samples machine load, logs permit waits, and points the collection orderer at the history.
 function Start-RunTiming([string]$mode) {
     $env:CORVUS_TEST_HISTORY = $timeHistory; $env:CORVUS_TEST_MODE = $mode
     Import-Module (Join-Path $root 'test-time.psm1') -Force
@@ -165,17 +162,15 @@ function Start-RunTiming([string]$mode) {
     Remove-Item $env:CORVUS_PERMIT_LOG -ErrorAction SilentlyContinue
 }
 
-# Builds the test project and adds the build's seconds to the run's timed build ($buildSeconds), which the history
-# records only when the tests then run without building.
+# Builds the test project and adds its seconds to $buildSeconds.
 function Invoke-TestBuild {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     & dotnet build $tests --nologo @buildPriority -v q
     $script:buildSeconds += $clock.Elapsed.TotalSeconds
 }
 
-# A quick run starts the classes that run alone in a test process of their own, beside the parallel ones, as what
-# they need alone (the thread pool, process-wide variables) is per process; full and push runs keep them in the one
-# process, after the parallel classes. Starts the built tests $filter selects; Receive-AloneRun waits for the job.
+# Quick runs start alone classes in their own test process beside the parallel ones, since what they need alone is
+# per process. Receive-AloneRun waits for the job.
 function Start-AloneRun([string]$filter, [string]$resultsDir, [string[]]$more = @()) {
     Start-ThreadJob -ArgumentList $tests, $buildPriority, $filter, $resultsDir, $more -ScriptBlock {
         param($tests, $priority, $filter, $resultsDir, $more)
@@ -193,8 +188,7 @@ function Receive-AloneRun($job, [string]$trx, [string]$resultsDir) {
     if ("$($lines[-1])" -match '^exit=(-?\d+)$') { [int]$Matches[1] } else { 1 }
 }
 
-# Records a run's TRX times in the history and the time report and prints the report's one line. Timing never fails
-# a run: an error is printed and the run's exit code stands.
+# Records a run's TRX times in the history and report. Timing never fails a run: errors are printed only.
 function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extra = @{}) {
     try {
         # The wait for the heavy lock is recorded on its own, not as run time.
@@ -221,15 +215,10 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
     }
 }
 
-# The perf run: the speed measurements ([Trait("Perf", "Timing")]) with their budgets enforced (CORVUS_PERF=1), one
-# test at a time, alone on the machine. It holds the heavy lock and every permit, so no other test process runs heavy
-# work beside it, and its own tests take no permit (CORVUS_PERMITS_HELD). A test over budget runs up to 4 more times
-# and counts as over only when most of its 5 samples are. A measurement whose value is past 1.5 times its baseline in
-# Ratchets/perf-baseline.txt has its tests run 4 more times, and regresses when the median of each sample's worst value
-# is (PerfRegressions). The run fails only on a test over budget or a regressed measurement that was also so in the
-# perf run before (.git/corvus-perf-verdicts.json), so one slow run is reported, and a second in a row fails. Work
-# outside the run that took no lock still slows it: when other processes used over 25% of the machine in more than a
-# tenth of the 10 s samples, the run is partial, records no verdict and exits 3.
+# Perf run: Perf=Timing tests with budgets enforced, one at a time, under the heavy lock and every permit.
+# Over budget counts only when most of 5 samples are; past 1.5x Ratchets/perf-baseline.txt (median of 5) regresses.
+# Fails only when the previous perf run flagged the same test too, so one slow run is reported, two in a row fail.
+# Other processes over 25% of the machine in over a tenth of the 10 s samples: partial, no verdict, exit 3.
 $perfVerdicts = Join-Path $gitDir 'corvus-perf-verdicts.json'
 if ($Perf) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
@@ -312,9 +301,8 @@ if ($Perf) {
     }
 }
 
-# Mutation testing: one Stryker.NET run (CORVUS_STRYKER, else dotnet-stryker on PATH) over the files and tests of the
-# targets in tests/mutation.json, which holds every Stryker option. Stryker compiles the whole project once per run
-# whatever is mutated, so targets share one run; MutationTests splits the report per target and checks the survivors.
+# Mutation testing: one Stryker.NET run (CORVUS_STRYKER, else PATH) over the tests/mutation.json targets.
+# Stryker compiles the whole project per run, so targets share one; MutationTests checks survivors per target.
 if ($Mutation) {
     $stryker = if ($env:CORVUS_STRYKER) { $env:CORVUS_STRYKER } else { (Get-Command dotnet-stryker -ErrorAction SilentlyContinue).Source }
     if (-not $stryker) { Write-Host 'Mutation testing skipped: Stryker.NET not found (dotnet tool install -g dotnet-stryker, or set CORVUS_STRYKER).' -ForegroundColor Yellow; exit 0 }
@@ -348,16 +336,15 @@ if ($Mutation) {
     exit $code
 }
 
-# A full run on the committed HEAD in a worktree of its own, so building and testing here continue meanwhile. The worktree
-# is kept for the next run; its stamp counts for -IfChanged and release.ps1 (same tree). A request while a run is
-# going is queued: when the run ends, one run starts on the newest commit queued, at the strongest strength asked
-# meanwhile, so runs always finish and pushes in between share one run.
+# Background run: a full run of HEAD in a kept worktree of its own; its stamp counts for -IfChanged and release.ps1.
+# A request while a run is going is queued: one run then starts on the newest queued commit at the strongest strength,
+# so runs always finish and pushes in between share one run.
 $running = Join-Path $gitDir 'corvus-background.json'
 $lastPassed = Join-Path $gitDir 'corvus-background.passed'
 $queued = Join-Path $gitDir 'corvus-background.next'
 
-# Waits while a run's record names a live process or a run is queued. The last run's process starts the queued run
-# after removing both files, so the wait also lasts while that process lives.
+# Waits while a run is live or queued; the last run's process starts the queued one after removing both files, so the
+# wait also lasts while that process lives.
 if ($Wait) {
     $dispatcher = $null
     while ($true) {
@@ -373,8 +360,7 @@ if ($Wait) {
 }
 
 if ($Background) {
-    # The pre-push hook names the pushed commit: HEAD of this checkout may hold commits nobody pushed. ($commit is
-    # $Commit: PowerShell names ignore case.)
+    # The pre-push hook names the pushed commit, as HEAD may hold unpushed commits. $commit is $Commit (case-insensitive).
     $named = $Commit
     $commit = (git -C $root rev-parse "$(if ($named) { $named } else { 'HEAD' })^{commit}" 2>$null)
     if ($LASTEXITCODE -ne 0) { Write-Host "No commit '$named' here." -ForegroundColor Red; exit 2 }
@@ -389,10 +375,9 @@ if ($Background) {
         Write-Host "A run on $($previous.commit.Substring(0, 8)) is going; queued: a run on $($commit.Substring(0, 8)) ($asked) when it ends (./test.ps1 -Status)."
         exit 0
     }
-    # CORVUS_BACKGROUND_DIR: where the worktrees go, e.g. a folder the antivirus does not scan (script fixtures)
+    # CORVUS_BACKGROUND_DIR: where the worktrees go, such as a folder the antivirus does not scan.
     $bgRoot = if ($env:CORVUS_BACKGROUND_DIR) { $env:CORVUS_BACKGROUND_DIR } else { [IO.Path]::GetTempPath() }
-    # One worktree serves every run: checking out the next commit in it keeps the restored packages and bin/obj, so the
-    # run builds incrementally. Untracked files go; a missing or broken worktree is made again.
+    # One reused worktree keeps packages and bin/obj for incremental builds; a missing or broken one is made again.
     $dir = Join-Path $bgRoot 'corvus-bg-worktree'
     $reusedTree = $false
     if (Test-Path (Join-Path $dir '.git')) {
@@ -412,7 +397,7 @@ if ($Background) {
     # Routine by default; release strength records the passes a release takes.
     $flags = '-Full' + $(if ($Whole) { ' -Exhaustive' } elseif ($Exhaustive) { ' -Exhaustive -Reuse' } else { ' -Reuse' })
     $short = $commit.Substring(0, 8)
-    # the previous run's log and result stay readable (-Status) after the next run starts
+    # Keep the previous run's log and result readable for -Status.
     if (Test-Path $log) {
         Move-Item -Force $log "$log.previous"
         if (Test-Path $result) { Add-Content -Path "$log.previous" -Value "Result: $((Get-Content $result -Raw).Trim())" }
@@ -420,11 +405,10 @@ if ($Background) {
     Set-Content -Path $result -Value "$short running since $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -NoNewline
     # Thread dumps of engine workers stopped for time stay next to the log.
     $stalls = Join-Path $gitDir 'corvus-stalls'
-    # File open times in the permit folder and the temporary folder, with disk and memory counters, every 10 s of the
-    # run (test-time.psm1 Invoke-IoSampler), so a stalled run shows its window.
+    # File open times and disk and memory counters every 10 s, so a stalled run shows its window.
     $permitDir = Join-Path $tempRoot 'corvus-test-data/permits'
     New-Item -ItemType Directory -Force $permitDir | Out-Null
-    # A whole run also refreshes a coverage map 6 days old (-Reuse drops one at 7), while its record keeps pushes queued.
+    # A whole run refreshes a coverage map over 6 days old (-Reuse drops it at 7) while its record keeps pushes queued.
     $script = @"
 Set-Location '$dir'
 `$env:CORVUS_STALL_DIR = '$stalls'
@@ -472,9 +456,9 @@ function Get-Family([string]$path) {
     $p = $path -replace '\\', '/'
     switch -Regex ($p) {
         '^src/Corvus/(Tools|Services)/Shared/' { return '*' }
-        '^src/Corvus/(Tools|Services)/(Dotnet|DotnetEdits|NativeAnalysis|Engines|NativeEdits|Builds|Containers|Mobile|Dumps|Il2Cpp|NativeAot|Session|Web)/' { return $Matches[2] }
+        '^src/Corvus/(Tools|Services)/(Dotnet|DotnetEdits|NativeAnalysis|Engines|NativeEdits|Builds|Containers|Mobile|Dumps|AotMetadata|NativeAot|Session|Web)/' { return $Matches[2] }
         '^src/Corvus/Services/Analysis/' { return 'Containers' }
-        '^src/Corvus/Services/Il2CppRaw/' { return 'Il2Cpp' }
+        '^src/Corvus/Services/AotBuild/' { return 'AotMetadata' }
         '^src/Corvus/Services/Mobile/' { return 'Mobile' }
         '^src/Corvus/Services/Simplify/' { return 'DotnetEdits' }
         '^src/Corvus/Native/Providers/' { return 'Engines' }
@@ -503,15 +487,14 @@ function Get-FamilyClasses([string]$family) {
     } | Sort-Object -Unique
 }
 
-# The commit gate: the quick tests of the families a change touches (committed since $Base, uncommitted and untracked),
-# by the coverage map where it knows a file, plus the contract tests; shared code runs the whole quick set. The full
-# run after the push (the pre-push hook) runs everything.
+# Commit gate: quick tests of the families changed since $Base (by the coverage map where known) plus Contract.
+# Shared code runs the whole quick set.
 if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMap -or $SecondGhidra -or $Background -or $HostTier)) {
     $changed = @(git -C $root diff --name-only $Base) + @(git -C $root ls-files --others --exclude-standard) | Where-Object { $_ } | Sort-Object -Unique
     if (-not $changed) { Write-Host "Nothing changed since ${Base}; ./test.ps1 -All runs the whole quick set."; exit 0 }
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $coveredBy = Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json')
-    # files outside src/ and tests/ (docs, scripts) go to the families whose tests read repository files
+    # Files outside src/ and tests/ go to the families whose tests read repository files.
     $readers = @(Get-RootReaders $tests)
     $families = @(@($changed | ForEach-Object {
         if ($coveredBy -and $coveredBy[$_]) { $coveredBy[$_] } elseif ($_ -notmatch '^(src|tests)/') { $readers } else { Get-Family $_ } }) + 'Contract' | Sort-Object -Unique)
@@ -559,8 +542,7 @@ if ($Affected) {
     }
 }
 
-# The tree a full run passed on, and whether its sweeps were exhaustive, kept in .git so it is never committed. Only a
-# clean tree has a hash worth recording.
+# The clean tree a full run passed on and its sweep mode, kept in .git; a dirty tree has no hash worth recording.
 function Get-CleanTree {
     if (git -C $root status --porcelain) { return $null }
     return (git -C $root rev-parse 'HEAD^{tree}').Trim()
@@ -591,16 +573,14 @@ if ($Full -and $IfChanged) {
     }
 }
 
-# Per-family passes: every full run on a clean tree records which families passed under which input key (SDK, OS build,
-# engine settings and the family's files; test-reuse.psm1), and -Reuse runs only the families whose key changed.
+# Full runs on a clean tree record each passed family's input key; -Reuse runs only families whose key changed.
 $familyStamps = Join-Path $gitDir 'corvus-family-stamps.json'
 $selectionMisses = Join-Path $gitDir 'corvus-selection-misses.txt'
 $coverageMapFile = Join-Path $gitDir 'corvus-coverage-map.json'
 $mode = if ($Exhaustive) { 'exhaustive' } else { 'sampled' }
 $familyKeys = $null; $built = $false
 $wholeSuite = $Full -and -not $Filter
-# A push run leaves the host tier's families to the tier's nightly run on the test host, but for their smoke tests and
-# the families that failed there, which it runs whole until a tier run passes them again.
+# Push runs leave host tier families to the test host, except smoke tests and families that failed there.
 $tierSkip = @()
 if ($Reuse -and $wholeSuite -and -not $Coverage) {
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
@@ -617,7 +597,7 @@ if ($Stamp) {
     if ($tree -ne $run.tree) { Write-Host "The saved run was on tree $($run.tree); this tree is $(if ($tree) { $tree } else { 'not clean' }). Run the suite again." -ForegroundColor Red; exit 2 }
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
-    # the classes the run keyed on their own, by their 'class:<name>' keys
+    # Classes the run keyed on their own, by their 'class:<name>' keys.
     $own = @{}; foreach ($name in $run.keys.Keys | Where-Object { $_ -like 'class:*' }) { $own[$name.Substring(6)] = $true }
     $classes = Split-ClassMap (Get-ClassMap $tests) $own
     $passed = @(Get-UndeferredFamilies @(Get-PassedFamilies $lastTrx $classes $run.code) $classes @($run.deferred))
@@ -628,8 +608,7 @@ if ($Stamp) {
     exit 0
 }
 
-# The Engines tests again with a second Ghidra (the oldest supported, say), keyed like a family with that Ghidra in the
-# settings: unchanged inputs skip it, and a retry under the same key runs only the tests that failed.
+# Engines tests on a second Ghidra, keyed like a family: unchanged inputs skip; a retry runs only the failures.
 $secondStamp = Join-Path $gitDir 'corvus-second-ghidra.json'
 
 # Writes the first three lines of each named test's failure message in a TRX file.
@@ -656,13 +635,13 @@ function Invoke-SecondGhidra {
         Write-Host "Engine tests on the second Ghidra: rerunning the $(@($last.failed).Count) that failed on these inputs."
     }
     $results = Join-Path $tempRoot "corvus-trx-second-$PID"
-    # CORVUS_TEST_ENGINE=ghidra: the IDA-only tests skip; another Ghidra version cannot change them
+    # CORVUS_TEST_ENGINE=ghidra skips IDA-only tests, which another Ghidra cannot change.
     $saved = $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS, $env:CORVUS_TEST_ENGINE
     $env:CORVUS_GHIDRA_DIR = $env:CORVUS_SECOND_GHIDRA_DIR; $env:CORVUS_ALL_TESTS = '1'; $env:CORVUS_TEST_ENGINE = 'ghidra'
     try { & dotnet test $tests --nologo @buildPriority --filter $filter --logger 'trx;LogFileName=second.trx' --results-directory $results | Out-Host; $code = $LASTEXITCODE }
     finally { $env:CORVUS_GHIDRA_DIR, $env:CORVUS_ALL_TESTS, $env:CORVUS_TEST_ENGINE = $saved }
     $trx = Join-Path $results 'second.trx'
-    # The log and a kept copy name each failure's cause, as for the main run: the results folder is removed below.
+    # Keep failure causes in the log and a saved copy; the results folder is removed below.
     if ($code -ne 0 -and (Test-Path $trx)) {
         Write-FailureMessages $trx @(Get-FailedTests $trx)
         $failedRun = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$((git -C $root rev-parse --short HEAD).Trim())-second"
@@ -683,9 +662,9 @@ function Invoke-SecondGhidra {
 }
 if ($SecondGhidra) { exit (Invoke-SecondGhidra) }
 
-# One instrumented run per family records the source files its tests ran; failures do not matter here (timing budgets
-# fail under instrumentation), only what ran. The slow classes of the last full run (30 s or more, outside the always-run
-# folders) get a run of their own, so -Reuse keys each on its own files. Read-CoverageMap drops the map after a week.
+# One instrumented run per family records the source files its tests ran; failures are ignored, only what ran counts.
+# Slow classes (30 s or more in the last full run) get their own run, so -Reuse keys each on its own files.
+# Read-CoverageMap drops the map after a week.
 if ($CoverageMap) {
     Import-Module (Join-Path $root 'test-reuse.psm1') -Force
     $classMap = Get-ClassMap $tests
@@ -709,11 +688,11 @@ if ($CoverageMap) {
         foreach ($family in $classMap.Keys | Sort-Object) {
             $own = if (Test-AlwaysRunFolder $family) { @() } else { @($classMap[$family] | Where-Object { $_ -in $slow }) }
             foreach ($class in $own) {
-                # a class without a report stays with its family
+                # A class without a report stays with its family.
                 if ($run = Get-MapFiles $class @($class)) { $classes[$class] = [ordered]@{ family = $family; files = $run.Files } }
             }
             $rest = @($classMap[$family] | Where-Object { -not $classes[$_] })
-            # a family without a report keeps the folder rules for every file
+            # A family without a report keeps the folder rules for every file.
             if (-not $rest) { $families[$family] = @() }
             elseif ($run = Get-MapFiles $family $rest) { $families[$family] = $run.Files }
         }
@@ -756,8 +735,7 @@ if (($wholeSuite -or $HostTier) -and (Get-CleanTree)) {
 }
 elseif ($Reuse) { Write-Host 'Reuse needs a clean tree and the whole suite: nothing is reused.' }
 
-# The host tier's nightly run (host-tier.ps1): its classes run on the test host, and the families they prove there
-# record passes under this tree's keys. This machine only builds for the keys and reads the results back.
+# Host tier run (host-tier.ps1): classes run on the test host; families passed there are recorded under this tree's keys.
 if ($HostTier) {
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
     # Not $target: PowerShell names ignore case, and -Target is a [string[]] parameter.
@@ -809,17 +787,14 @@ if ($Full) {
 
 $arguments = @('test', $tests, '--nologo') + $buildPriority
 if ($built) { $arguments += '--no-build' }
-# Measurements, accuracy oracles and the largest inputs (Tier=Release) run at release strength only; a filter given
-# on the command line and coverage runs (the floors count them) keep them.
+# Tier=Release tests run at release strength only, or with a command-line filter or coverage (the floors count them).
 $runFilter = if ($Full -and -not $Exhaustive -and -not $Coverage -and -not $PSBoundParameters.ContainsKey('Filter')) { if ($Filter) { "($Filter)&Tier!=Release" } else { 'Tier!=Release' } } else { $Filter }
-# An offloaded run sends the engine-free heavy classes it would run to another machine (test-remote.psm1) and runs the
-# rest here meanwhile; with no usable target every class runs here.
+# Offload sends engine-free heavy classes to another machine and runs the rest here; without a target all run here.
 $offload = if ($wholeSuite -and -not $Coverage) { Import-Module (Join-Path $root 'test-remote.psm1') -Force; Get-OffloadTarget $root $Exhaustive.IsPresent } else { $null }
 $offloadHandle = $null; $sent = @(); $offloadRecord = $null; $offloadClock = $null
 if ($offload) {
     $candidates = @(Get-RemoteClasses $tests -TestHost:($offload.Kind -eq 'ssh') -hostVariables $offload.Variables); $mixed = @(Get-MixedClasses $tests)
-    # The engine classes are dealt by engine permits times logical processors: the host runs the small machine's count,
-    # this machine its own; a host whose processors are unknown counts as many as here.
+    # Engine classes are dealt by engine permits times logical processors; an unknown host counts as many as here.
     Import-Module (Join-Path $root 'test-time.psm1') -Force
     $permitSource = Join-Path $tests 'Support/MachinePermits.cs'
     $hereWork = (Get-EnginePermits $permitSource (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory) * [Environment]::ProcessorCount
@@ -837,7 +812,7 @@ if ($offload) {
         $candidates = @($candidates | Where-Object { $_ -notin $ghidraHere })
         Write-Host "Ghidra classes split: $($ghidraHere.Count) run here, the rest on $($offload.Name)."
     }
-    # The real-data classes are dealt the same way: all of them on the host left this machine idle for its last 17 min.
+    # Real-data classes are dealt the same way; all on the host left this machine idle for 17 min.
     $dataHere = if ($offload.Kind -eq 'ssh') { @(Get-RealDataLocalClasses $tests (Get-FastestClassSeconds $timeHistory) $offload.Variables $hostPart) } else { @() }
     if ($dataHere) {
         $candidates = @($candidates | Where-Object { $_ -notin $dataHere })
@@ -858,8 +833,8 @@ if ($offload) {
     else { $offloadRecord.state = 'idle'; $offloadRecord.note = 'no class to send' }
     Save-RemoteRecord $gitDir $offloadRecord
 }
-# A push run leaves the host group's classes to the nightly whole run unless a test host takes them: the timed and
-# working-set classes need a machine no other run loads, and the real-data classes are the longest of a run here.
+# Push runs leave host group classes to the nightly run unless a test host takes them: they need an unloaded machine
+# or run longest.
 $deferred = @(); $hostGroup = @()
 if ($wholeSuite -and -not $Coverage) {
     Import-Module (Join-Path $root 'test-remote.psm1') -Force
@@ -886,11 +861,10 @@ $arguments += @('--logger', 'trx;LogFileName=full.trx', '--results-directory', $
 $runMode = if ($Affected -or $PSBoundParameters.ContainsKey('Filter')) { 'filter' } elseif (-not $Full) { 'quick' } elseif ($Reuse) { 'push' } else { 'full' }
 $timing = @{}
 if ($Reuse -and $familyKeys) { $timing.reused = @($kept).Count; $timing.families = $classMap.Count }
-# A test that runs past its hang limit ends the run with a dump (kept in .git/corvus-hang-<time>). The limits hold
-# today's slowest tests with room: 2 min for a quick test (slowest 41 s) and 30 min in a full run (slowest 27 min).
+# A test past its hang limit ends the run with a dump in .git/corvus-hang-<time>.
+# Limits: 2 min quick (slowest 41 s), 30 min full (slowest 27 min).
 $hangLimit = if ($Full) { '30m' } else { '120s' }
-# A full run's hang dump keeps the heap, so the task an awaited cleanup never completed can be found; a quick run's
-# 2 min limit mostly catches slow tests under load, and a mini dump names them.
+# Full runs dump the heap to find a stuck awaited task; quick runs take a mini dump, enough to name a slow test.
 $hangDump = if ($Full) { 'full' } else { 'mini' }
 $arguments += @('--blame-hang', '--blame-hang-timeout', $hangLimit, '--blame-hang-dump-type', $hangDump)
 $quarantineFile = Join-Path $tests 'Ratchets/quarantine.txt'
@@ -934,8 +908,7 @@ try {
     $trx = Join-Path $results 'full.trx'
     if ($aloneJob) { $aloneCode = Receive-AloneRun $aloneJob $trx (Join-Path $results 'alone'); if ($code -eq 0) { $code = $aloneCode } }
     if ($offloadHandle) {
-        # The other machine's results join the local ones. A class that failed there, proved less there or has no
-        # results there runs once more here, and its result here is the one that counts.
+        # Remote results join the local ones; a class that failed, proved less or has no results there reruns here.
         $got = Receive-Offload $offloadHandle (Join-Path $results 'offload')
         $offloadRecord.seconds = [math]::Round($offloadClock.Elapsed.TotalSeconds, 1)
         $here = @(); $notes = @()
@@ -948,12 +921,11 @@ try {
             if ($got.Waited) { $notes += "waited $($got.Waited) s for another run there" }
             if ($got.Trx) {
                 Copy-Item $got.Trx (Join-Path $gitDir "corvus-remote/$(Get-TargetFileName $offload.Name).trx") -Force
-                # A target may run more classes than this run needed (it does not reuse passes); only the sent ones count.
+                # A target may run more classes than were sent; only the sent ones count.
                 Join-TrxFiles $trx @($trx, $got.Trx) (@($here) + @($candidates | Where-Object { $_ -notin $sent })) $mixed
             }
-            # Live classes a test host left without a full result take the results of the push's own GitHub live jobs
-            # where those prove them, instead of a rerun here under the live permits. A class that failed on the host
-            # still reruns here: a pass on GitHub must not hide a failure two Windows machines could see.
+            # Live classes the host left without a full result take the push's GitHub live results where they prove
+            # them. A class that failed on the host still reruns here, so a GitHub pass never hides it.
             $failedThere = @($got.Failed | ForEach-Object Class)
             $liveHere = if ($offload.Kind -eq 'ssh' -and $here) { @($here | Where-Object { $_ -notin $failedThere -and $_ -in @(Get-RemoteClasses $tests -Group live) }) } else { @() }
             if ($liveHere) {
@@ -1001,7 +973,7 @@ try {
     $recordFailed = $false
     if ($familyKeys -and (Test-Path $trx)) {
         $commit = (git -C $root rev-parse --short HEAD).Trim()
-        # saved before recording, so a recording step that fails costs no rerun (-Stamp)
+        # Saved before recording, so a failed recording step costs no rerun (-Stamp).
         Copy-Item $trx $lastTrx -Force
         if (-not $Reuse) { Copy-Item $trx $lastWholeTrx -Force }
         $run = [ordered]@{ tree = $tree; mode = $mode; reused = [bool]$Filter; code = $code; keys = $familyKeys; commit = $commit; at = (Get-Date -Format 'yyyy-MM-dd HH:mm'); deferred = @($deferred + $tierSkip) }
@@ -1045,7 +1017,7 @@ try {
             if ($split.Blocking.Count -gt $again.Count) { $labels += "$($split.Blocking.Count - $again.Count) more failed test(s) not rerun (the rerun takes 25)" }
             Set-Content -Path (Join-Path $gitDir 'corvus-last-run-labels.txt') -Value $labels
             Write-Host "Failures after one rerun (the run stays failed):`n  $($labels -join "`n  ")" -ForegroundColor Red
-            # The log and a kept copy of the results name each failure's cause after the next run replaces the TRX.
+            # Keep failure causes in the log and a saved copy, since the next run replaces the TRX.
             Write-FailureMessages $trx $split.Blocking
             $failedRun = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$((git -C $root rev-parse --short HEAD).Trim())"
             Save-FailedRun (Join-Path $gitDir 'corvus-failed-runs') $failedRun @($trx, $rerunTrx)
@@ -1058,7 +1030,7 @@ try {
         New-Item -ItemType Directory -Force $kept | Out-Null
         $dumps | Copy-Item -Destination $kept
         Write-Host "A test ran past its hang limit ($hangLimit): dump and test sequence in $kept." -ForegroundColor Red
-        # Full dumps (over 100 MB) are kept in the newest three hang folders only; older folders keep their test sequence.
+        # Full dumps (over 100 MB) stay in the newest three hang folders; older ones keep their test sequence.
         Get-ChildItem $gitDir -Directory -Filter 'corvus-hang-*' | Sort-Object Name -Descending | Select-Object -Skip 3 |
             ForEach-Object { Get-ChildItem $_.FullName -Filter '*.dmp' | Where-Object Length -gt 100MB | Remove-Item -Force -ErrorAction SilentlyContinue }
     }
@@ -1071,7 +1043,7 @@ try {
             # Kept in .git for a report tool or a later floor check (CORVUS_COVERAGE_REPORT=<file>).
             Copy-Item $reports[0].FullName (Join-Path $gitDir 'corvus-coverage.cobertura.xml') -Force
             Write-Host "Report: $(Join-Path $gitDir 'corvus-coverage.cobertura.xml')"
-            # Instrumentation slows every test, so timing budgets can fail here; the plain full run gates them, this run gates the floors.
+            # Instrumentation can fail timing budgets; the plain full run gates those, this run gates the floors.
             if ($code -ne 0) { Write-Host 'Some tests failed under coverage instrumentation (timing budgets are expected to); the floor check decides this run.' -ForegroundColor Yellow }
             $env:CORVUS_COVERAGE_REPORT = $results
             try { & dotnet test $tests --nologo @buildPriority --no-build --filter 'FullyQualifiedName~CoverageFloorTests' }

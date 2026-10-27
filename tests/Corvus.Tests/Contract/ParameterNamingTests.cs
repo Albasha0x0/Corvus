@@ -22,21 +22,21 @@ public class ParameterNamingTests
         (t["inputSchema"]!["properties"] as JsonObject ?? []).Select(p => ((string)t["name"]!, p.Key, p.Value!.AsObject())));
 
     [Fact]
-    public void NamesAreCamelCase()
+    public void Names_are_camel_case()
     {
         foreach (var (tool, name, _) in Parameters())
             Assert.Matches("^[a-z][a-zA-Z0-9]{0,39}$", name);
     }
 
     [Fact]
-    public void NamesAreCanonical()
+    public void Names_are_canonical()
     {
         var violations = Parameters().Where(p => Forbidden.ContainsKey(p.Name)).ToDictionary(p => $"{p.Tool}.{p.Name}", p => $"use {Forbidden[p.Name]}");
         Ratchet.Check("parameter-names", "parameters use the canonical names of S7.1", violations);
     }
 
     [Fact]
-    public void BooleansDefaultToFalse()
+    public void Booleans_default_to_false()
     {
         var violations = Parameters().Where(p => Type(p.Schema) == "boolean" && p.Schema["default"] is JsonValue d && d.TryGetValue<bool>(out var b) && b)
             .ToDictionary(p => $"{p.Tool}.{p.Name}", _ => "defaults to true");

@@ -265,7 +265,7 @@ public sealed class JvmClassTests(Xunit.Abstractions.ITestOutputHelper output)
             try { ours = JvmListing.Class(JvmClass.Read(File.ReadAllBytes(file))); }
             catch (InvalidDataException ex) { ours = "error: " + ex.Message; }
             // javap 24+ prints a diagnostic line before a member whose flags carry a bit the JVMS leaves unassigned there (ACC_ENUM on a
-            // scalac method), then lists the member: the diagnostic is not part of the listing
+            // scalac method), then lists the member: the diagnostic is not part of the listing.
             var theirs = string.Join('\n', expected[file].Split('\n').Where(l => !l.StartsWith("Error: Access Flags: Unmatched bit position ", StringComparison.Ordinal)));
             if (ours == theirs) continue;
             if (differing++ == 0) first = $"{names[file]}\n{FirstDifference(theirs, ours)}";
@@ -337,10 +337,7 @@ internal static class JavapOracle
     }
 }
 
-/// <summary>
-/// Runs when a JDK 23+ is found (JAVA_HOME, PATH), checked when a test runs (java -version); its javap reads through
-/// the ClassFile API, the layout matched.
-/// </summary>
+/// <summary>Runs when a JDK 23+ is found at run time; its javap reads through the ClassFile API.</summary>
 [Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.TheoryDiscoverer, RunTimeSkips.Assembly)]
 public sealed class JavapTheoryAttribute : TheoryAttribute, IRunTimeSkip
 {

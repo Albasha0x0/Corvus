@@ -26,15 +26,7 @@ public sealed record PascalMethod(string Name, uint Rva, int Offset);
 /// <param name="Type">The field's class, from the field table's class table; null when unresolved.</param>
 public sealed record PascalField(string Name, uint Offset, string? Type);
 
-/// <summary>
-/// Recovers Object Pascal classes (Delphi, Free Pascal) from their VMTs, any pointer size. Delphi VMTs are anchored by the
-/// self pointer (vmtSelfPtr equals the VMT address), Free Pascal ones by the instance size followed by its negation. Every
-/// candidate is validated: table pointers inside the image, a class name of identifier characters, an instance size not
-/// below the parent's, and a parent chain that ends at TObject or an import. The result uses the C++ RTTI model:
-/// <see cref="MsvcRttiClass.TypeDescriptorRva"/> is the VMT, the bases are the parent chain, and the vftable holds the
-/// slots from the first virtual method an object's VMT pointer reaches at a non-negative offset (Delphi: offset 0;
-/// Free Pascal: Destroy).
-/// </summary>
+/// <summary>Recovers Delphi and Free Pascal classes from validated VMTs, as C++ RTTI classes whose type descriptor is the VMT.</summary>
 public static class PascalVmt
 {
     private const int MaxSlots = 4096;
@@ -55,7 +47,7 @@ public static class PascalVmt
     private static readonly Layout[] Layouts =
     [
         new("Delphi", false, -22, -14, -13, -12, -18, -17, -16, [-21, -20, -19, -18, -17, -16, -15, -14], -11, DelphiVirtuals),
-        // CPP_ABI_SUPPORT targets (64-bit Windows and the LLVM platforms): three more TObject virtual methods after Destroy
+        // CPP_ABI_SUPPORT targets (64-bit Windows, LLVM platforms) add three TObject virtual methods after Destroy.
         new("Delphi", false, -25, -17, -16, -15, -21, -20, -19, [-24, -23, -22, -21, -20, -19, -18, -17], -14, [.. DelphiVirtuals, "CPP_ABI_1", "CPP_ABI_2", "CPP_ABI_3"]),
         new("Delphi (before 2009)", false, -19, -11, -10, -9, -15, -14, -13, [-18, -17, -16, -15, -14, -13, -12, -11], -8, DelphiVirtuals[3..]),
         new("Free Pascal", true, 0, 3, 0, 2, 7, 6, 5, [3, 4, 5, 6, 7, 8, 9, 10, 11], 12,
@@ -98,7 +90,7 @@ public static class PascalVmt
             foreach (var s in image.Sections)
             {
                 if (s.RawSize == 0 || s.MappedSize < 4 * _ptr || s.Rva >= image.SizeOfImage || IsMetadata(s.Name)) continue;
-                // VMTs are initialized data: only the section's file bytes
+                // VMTs are initialized data, so only the section's file bytes are scanned.
                 long length = image.FileBytesLength(s);
                 if (length < 4 * _ptr || length > MaxSectionBytes || _scanned + length > 2 * MaxSectionBytes) continue;
                 ct.ThrowIfCancellationRequested();
@@ -110,10 +102,10 @@ public static class PascalVmt
                 {
                     ulong value = Word(bytes, i), next = Word(bytes, i + (uint)_ptr);
                     uint rva = s.Rva + i;
-                    // Delphi: the self pointer holds the VMT address a fixed distance above it
+                    // Delphi: the self pointer holds the VMT address a fixed distance above it.
                     foreach (var l in Layouts)
                         if (!l.Fpc && value == image.ImageBase + rva + (ulong)(-l.SelfPtr * _ptr)) Consider(rva + (uint)(-l.SelfPtr * _ptr), l);
-                    // Free Pascal: InstanceSize, then -InstanceSize
+                    // Free Pascal: InstanceSize, then -InstanceSize.
                     if (value is > 0 and < MaxInstanceSize && next == ((ulong)-(long)value & Mask)) Consider(rva, Layouts[^1]);
                 }
             }
@@ -154,7 +146,7 @@ public static class PascalVmt
             {
                 if (c.ParentField == 0) continue;
                 ToRva(c.ParentField, out var at);
-                // Free Pascal before 3.1 points at the parent VMT itself; Delphi and later Free Pascal at a pointer to it
+                // Free Pascal before 3.1 points at the parent VMT; Delphi and later Free Pascal at a pointer to it.
                 if (c.Layout.Fpc && _byVmt.TryGetValue(at, out var direct) && direct.Layout == c.Layout) c.Parent = direct;
                 else if (_importAt.TryGetValue(at, out var imp)) c.ExternalParent = imp.Name is { } n ? ImportedClass(n) : $"{imp.Module}#{imp.Ordinal}";
                 else if (TryPointer(at, out var va) && ToRva(va, out var p) && _byVmt.TryGetValue(p, out var parent) && parent.Layout == c.Layout) c.Parent = parent;
@@ -177,7 +169,7 @@ public static class PascalVmt
                 }
                 if (reason != null) { c.Valid = false; Reject(c.Vmt, reason); }
             }
-            // a class whose ancestor was dropped later in the pass
+            // Drop classes whose ancestor was dropped later in the pass.
             bool changed = true;
             while (changed)
             {
@@ -193,7 +185,7 @@ public static class PascalVmt
 
         public MsvcRttiResult Result(TimeSpan elapsed)
         {
-            // structure starts: a slot run ends at the next one
+            // Structure starts: a slot run ends at the next one.
             var starts = new SortedSet<uint>();
             foreach (var c in _byVmt.Values)
             {
@@ -228,7 +220,7 @@ public static class PascalVmt
                 var virtuals = Virtuals(c, slots, published, slotsOf);
                 var unit = UnitOf(c);
                 var info = new PascalClass(l.Compiler, c.Vmt, c.Size, unit, virtuals, published[c], Fields(c));
-                // the model's vftable: the slots at non-negative offsets
+                // The model's vftable: the slots at non-negative offsets.
                 int skip = l.Fpc ? 0 : -l.Standard;
                 var userSlots = l.Fpc ? slots : slots.Skip(skip).ToList();
                 uint table = l.Fpc ? (uint)(c.Vmt + l.Standard * _ptr) : c.Vmt;
@@ -245,10 +237,7 @@ public static class PascalVmt
             return new MsvcRttiResult(classes, tds, _skipped, notes, stats);
         }
 
-        /// <summary>
-        /// The slots from TObject's first virtual method on: code pointers up to a structure start, a word that is not a
-        /// code pointer or a known structure's address (Free Pascal ends the run with nil).
-        /// </summary>
+        /// <summary>The slots from TObject's first virtual method up to a structure start or a non-code word, and why the run ended.</summary>
         private (List<uint>, string) Slots(Candidate c, SortedSet<uint> starts)
         {
             var slots = new List<uint>();
@@ -272,7 +261,7 @@ public static class PascalVmt
             Dictionary<Candidate, (List<uint> Slots, string End)> slotsOf)
         {
             var l = c.Layout;
-            // a published method of the class or an ancestor names the slot it fills
+            // A published method of the class or an ancestor names the slot it fills.
             var names = new Dictionary<uint, string>();
             for (var k = c; k != null; k = k.Parent)
                 foreach (var m in published[k]) names.TryAdd(m.Rva, k.Name + "." + m.Name);
@@ -331,7 +320,7 @@ public static class PascalVmt
                 for (uint i = 0; i < tabCount; i++)
                     types.Add(TryPointer(tab + 2 + i * (uint)_ptr, out var refVa) && ToRva(refVa, out var refRva) ? ClassAt(refRva) : null);
             int offsetSize = c.Layout.Fpc ? _ptr : 4;
-            // Free Pascal numbers the class table from 1
+            // Free Pascal numbers the class table from 1.
             int bias = c.Layout.Fpc ? 1 : 0;
             for (uint i = 0, e = at + 2 + (uint)_ptr; i < count; i++)
             {
@@ -361,7 +350,7 @@ public static class PascalVmt
             if (!TryField(c.Vmt, c.Layout.TypeInfo, out var va) || va == 0 || !ToRva(va, out var ti)) return null;
             if (ShortString(ti + 1) is not { } name || !string.Equals(name, c.Name, StringComparison.OrdinalIgnoreCase)) return null;
             uint data = ti + 2 + (uint)name.Length;
-            // newer Free Pascal puts an attribute table pointer before ClassType
+            // Newer Free Pascal puts an attribute table pointer before ClassType.
             foreach (var at in new[] { data, data + (uint)_ptr })
                 if (TryPointer(at, out var cls) && cls == image.ImageBase + c.Vmt)
                     return ShortString(at + 2 * (uint)_ptr + 2);
@@ -407,10 +396,7 @@ public static class PascalVmt
             return true;
         }
 
-        /// <summary>
-        /// A length-prefixed name: a letter or underscore, then letters, digits and the punctuation of qualified and generic
-        /// names (. &lt; &gt; , $).
-        /// </summary>
+        /// <summary>A length-prefixed identifier (letters, digits, _ . &lt; &gt; , $), or null.</summary>
         private string? ShortString(uint rva)
         {
             Span<byte> b = stackalloc byte[256];

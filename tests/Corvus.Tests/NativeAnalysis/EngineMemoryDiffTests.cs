@@ -106,10 +106,7 @@ public sealed class EngineMemoryDiffTests
         Assert.Equal(16, pages[0].Hash.Length);
     }
 
-    /// <summary>
-    /// An engine holding <paramref name="memory"/> where <paramref name="held"/> is set; pages come from the interface's
-    /// default (runs digested here, as with a worker without page digests) and fixups only when scripted.
-    /// </summary>
+    /// <summary>An engine holding <paramref name="memory"/> where <paramref name="held"/> is set; pages from the interface's default, fixups only when scripted.</summary>
     private sealed class ScriptedEngine(byte[] memory, bool[] held) : INativeEngineControl
     {
         public EngineFixupList? Fixups { get; init; }

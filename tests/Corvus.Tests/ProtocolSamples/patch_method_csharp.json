@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] Dry run — compiled OK; Fixture.Model.Secret::Validate(string) would become:\n  IL_0000: ldc.i4.1\n  IL_0001: ret\nNothing changed (dry run); pass dryRun=false to apply.\nDigest f22b09f1ba84c430 (the applied edit and the save report the same)."
+    "[TestFixture] Dry run — compiled OK; Fixture.Model.Secret::Validate(string) would become:\n  IL_0000: ldc.i4.1\n  IL_0001: ret\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 503ce60b56c7acf5 (the applied edit and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -18,6 +18,6 @@
       }
     ],
     "editIds": [],
-    "digest": "f22b09f1ba84c430"
+    "digest": "503ce60b56c7acf5"
   }
 }

@@ -5,7 +5,7 @@ namespace Corvus.Native.Diff;
 /// <summary>Options of <see cref="BuildMatcher"/>.</summary>
 public sealed record MatchOptions
 {
-    /// <summary>Match on names from non-discovered sources (exports, PDB, user, Il2Cpp); thunks always match by their import.</summary>
+    /// <summary>Match on names from non-discovered sources (exports, PDB, user, metadata); thunks always match by their import.</summary>
     public bool UseNames { get; init; } = true;
     /// <summary>Least similarity a fuzzy match needs.</summary>
     public double MinScore { get; init; } = 0.7;
@@ -56,16 +56,7 @@ public sealed class MatchResult
     public FunctionMatch? ForOldStart(uint start) => Old.ByStart.TryGetValue(start, out var i) ? ByOld[i] : null;
 }
 
-/// <summary>
-/// Matches the functions of two builds of one image in tiers; each tier accepts a pair only when it is unique on both
-/// sides among the functions still unmatched: (1) the same name from a non-discovered source, the same import for
-/// thunks, or identical bytes after masking addresses; (2) the same canonical graph with the same instruction shapes;
-/// (3) the same imports, strings and constants; (4) call-graph propagation from matched pairs to callees in the same
-/// position, to mutually best callers / callees, by callers and callees in common, and to the same slot of matched tables
-/// of function pointers (vtables), to a fixed point; (5) fuzzy similarity above a threshold with a
-/// margin over the runner-up on both sides. Tiers 4 and 5 alternate until nothing changes; then identical code between matched
-/// neighbors pairs by its place (tier 4).
-/// </summary>
+/// <summary>Matches the functions of two builds in tiers (name or bytes, structure, signature, call graph, fuzzy); each pair is unique on both sides.</summary>
 public sealed class BuildMatcher
 {
     private readonly ImagePrints _old, _new;
@@ -102,25 +93,25 @@ public sealed class BuildMatcher
 
     private void Run()
     {
-        // tier 1
+        // Tier 1.
         UniqueKey(p => p.ThunkImport is { } t ? "thunk:" + t : null, 1, "import_thunk", null);
         if (_options.UseNames)
         {
-            // each source on its own, so a user rename on one side does not hide the export or PDB name both share
+            // Each source on its own, so a user rename on one side does not hide a name both share.
             var oldExports = Exports(_old.Index);
             var newExports = Exports(_new.Index);
             UniqueKey(p => oldExports.GetValueOrDefault(p.Start), q => newExports.GetValueOrDefault(q.Start), 1, "name", null);
-            foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.ObjC, NativeNameSource.Swift, NativeNameSource.Dart, NativeNameSource.User })
+            foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Metadata, NativeNameSource.ObjC, NativeNameSource.Swift, NativeNameSource.Dart, NativeNameSource.User })
                 UniqueKey(p => _old.Index.Sourced.NameAt(p.Start, source), q => _new.Index.Sourced.NameAt(q.Start, source), 1, "name", null);
         }
         UniqueKey(p => p.Failed || p.Instructions < 2 ? null : p.BytesHash, 1, "identical_bytes", "identical_code");
-        // tier 2
+        // Tier 2.
         UniqueKey(p => p.Failed || p.Instructions < 3 ? null : p.StructHash, 2, "structure", "same_structure",
             (o, n) => Similarity(o, n) >= 0.6);
-        // tier 3: needs a meaningful signature and a compatible shape
+        // Tier 3 needs a meaningful signature and a compatible shape.
         UniqueKey(p => p.Failed || p.SignatureItems == 0 || (p.SignatureItems < 2 && p.Strings.Length == 0) ? null : p.SignatureHash, 3, "signature", "same_signature",
             (o, n) => Similarity(o, n) >= _options.NeighborScore);
-        // tiers 4 and 5
+        // Tiers 4 and 5 alternate until nothing changes.
         for (int round = 0; round < 4; round++)
         {
             _ct.ThrowIfCancellationRequested();
@@ -132,11 +123,7 @@ public sealed class BuildMatcher
         if (Sequence() > 0) PropagateAll();
     }
 
-    /// <summary>
-    /// Pairs the unmatched functions between two matched neighbors that moved by the same distance with the unmatched
-    /// functions at that distance in the new build, when their code is identical or the same shape: identical copies
-    /// (templates, folded helpers) no other tier tells apart keep their place in the layout.
-    /// </summary>
+    /// <summary>Pairs identical unmatched functions between neighbors that moved by the same distance, by their place in the layout.</summary>
     private int Sequence()
     {
         var order = Enumerable.Range(0, _o.Length).OrderBy(i => _o[i].Start).ToArray();
@@ -245,10 +232,7 @@ public sealed class BuildMatcher
         }
     }
 
-    /// <summary>
-    /// Callees in the same position: matched callees that keep their order are anchors, and between two anchors (or
-    /// the list ends) gaps of equal length are paired one for one when compatible.
-    /// </summary>
+    /// <summary>Pairs compatible callees one for one in equal-length gaps between matched callees that keep their order.</summary>
     private void CalleePositions(int[] olds, int[] news)
     {
         if (olds.Length == 0 || news.Length == 0) return;
@@ -272,11 +256,7 @@ public sealed class BuildMatcher
         }
     }
 
-    /// <summary>
-    /// Context votes: an unmatched function gets a vote for each unmatched function of the other build that is called by
-    /// the counterpart of one of its callers, or calls the counterpart of one of its callees. Mutually best candidates
-    /// with a clear lead and a compatible shape are paired (this separates identical copies by where they are used).
-    /// </summary>
+    /// <summary>Pairs mutually best candidates by votes from matched callers and callees, separating identical copies by use.</summary>
     private int Context()
     {
         var votes = new Dictionary<(int O, int N), int>();
@@ -354,10 +334,7 @@ public sealed class BuildMatcher
         return (tables, at);
     }
 
-    /// <summary>
-    /// Tables of function pointers matched by the matched functions in their slots (votes for a new table and a slot
-    /// offset); unmatched functions in the same slot of matched tables are paired when compatible.
-    /// </summary>
+    /// <summary>Matches function pointer tables by their matched slots, then pairs compatible functions in the same slot.</summary>
     private int TableSlots()
     {
         _oldTables ??= Tables(_old, _ct);

@@ -36,7 +36,7 @@ public sealed class AndroidRealPackageTests(Xunit.Abstractions.ITestOutputHelper
     }
 
     [Fact]
-    public async Task DexAndBridgeTools()
+    public async Task DEX_and_mapping_tools_answer_on_a_real_package()
     {
         var apk = Apk();
         await using var server = await InProcessServer.StartAsync();
@@ -65,7 +65,7 @@ public sealed class AndroidRealPackageTests(Xunit.Abstractions.ITestOutputHelper
 
     /// <summary>decompile_java on the real jar of .class files, when the JADX server is configured.</summary>
     [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER")]
-    public async Task DecompileJavaOnAJar()
+    public async Task Decompile_java_reads_a_real_jar_of_class_files()
     {
         await using var server = await InProcessServer.StartAsync();
         var (java, record) = await Call(server.Client, "decompile_java", new() { ["path"] = RealPackages.File(Ref, Version, "ref", "net9.0", "mono.android.jar"), ["symbol"] = "mono.android.TypeManager" });

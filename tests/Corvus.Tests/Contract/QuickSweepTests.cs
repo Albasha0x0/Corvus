@@ -3,10 +3,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The quick slice of the contract sweep (S12.1): every tool but the long-running ones, once with plausible arguments and
-/// once with an invalid call, against the fixtures; each answer is a success that matches its output schema or a coded error.
-/// </summary>
+/// <summary>Every tool but the long-running ones, once valid and once invalid, answers with a schema-valid success or a coded error.</summary>
 public sealed class QuickSweepTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     /// <summary>Tools left out besides the long-running class, with the reason.</summary>
@@ -15,7 +12,7 @@ public sealed class QuickSweepTests(Xunit.Abstractions.ITestOutputHelper output)
     public static bool Covers(string tool) => ToolContract.Of(tool).Latency != LatencyClass.Long && !LeftOut.ContainsKey(tool);
 
     [Fact]
-    public async Task EveryCoveredToolKeepsTheContract()
+    public async Task Every_covered_tool_keeps_the_contract()
     {
         using var dir = new TempDir();
         await using var client = await ContractSweep.StartAsync(dir);

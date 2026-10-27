@@ -3,11 +3,7 @@ using Corvus.Core.Logs;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=procmon: a Process Monitor backing file (.pml) or CSV export as a timeline: capture facts and processes, counts
-/// by operation, process and result, the time span, then a page of events (offset=, limit=) in file order; table= keeps
-/// the events of one process name, PID, operation or result.
-/// </summary>
+/// <summary>view=procmon: a Process Monitor .pml or CSV log as counts and a page of events (offset=, limit=); table= keeps one process, PID, operation or result.</summary>
 internal sealed class ProcmonFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxNames = 40, MaxProcesses = 500, MaxText = 400;

@@ -1,10 +1,9 @@
-# The host tier's nightly run: test.ps1 -HostTier on HEAD in a worktree of its own, which runs the tier's classes on
-# the test host CORVUS_TEST_REMOTE names and records the families they pass. This machine only builds for the family
-# keys and reads the results back, so the task has no idle condition. Opt-in: -Register adds a Windows scheduled task
-# that runs this script daily; nothing registers it otherwise. Each run is logged to .git/corvus-host-tier.log, the
-# test.ps1 output to .git/corvus-host-tier.log.run.
+# Runs test.ps1 -HostTier on HEAD in its own worktree; the tier's classes run on the test host CORVUS_TEST_REMOTE
+# names, and the families they pass are recorded.
+# This machine only builds and reads results back, so the task has no idle condition.
+# Log: .git/corvus-host-tier.log; test.ps1 output: .git/corvus-host-tier.log.run.
 # Usage:  ./host-tier.ps1                         # one run now (what the task runs)
-#         ./host-tier.ps1 -Register [-At 02:00]   # registers the task for the current user
+#         ./host-tier.ps1 -Register [-At 02:00]   # adds a daily scheduled task for the current user (opt-in)
 #         ./host-tier.ps1 -Unregister             # removes it
 # The task runs while the user is logged on and sees the user's environment variables (CORVUS_TEST_REMOTE).
 #Requires -Version 7.0

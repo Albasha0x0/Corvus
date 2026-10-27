@@ -5,11 +5,7 @@ using Corvus.Native;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Values of C-typed items read from a native image's mapped bytes: integers (sign from the type's spelling), floats,
-/// pointers with the name of their target, characters and strings, enums by enumerator, bit fields; other types as their
-/// leading bytes. Shared by get_native_type read=true and read_bytes type=.
-/// </summary>
+/// <summary>Values of C-typed items read from a native image's mapped bytes; unknown types show their leading bytes.</summary>
 public static class NativeValues
 {
     /// <summary>Most array elements a value lists.</summary>
@@ -42,10 +38,7 @@ public static class NativeValues
         ["string"] = new("string", 1), ["string16"] = new("string16", 2),
     };
 
-    /// <summary>
-    /// How <paramref name="type"/> reads, or null for an aggregate or unknown name. Pointers (ptr, T *) take <paramref name="pointerSize"/>;
-    /// size_t / intptr_t like types too.
-    /// </summary>
+    /// <summary>How <paramref name="type"/> reads, or null for an aggregate or unknown name; pointer-sized types take <paramref name="pointerSize"/>.</summary>
     public static Scalar? Classify(string type, int pointerSize)
     {
         var t = Normalize(type);
@@ -72,11 +65,7 @@ public static class NativeValues
         return open > 0 && long.TryParse(t[(open + 1)..^1], NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0 ? (t[..open].Trim(), n) : null;
     }
 
-    /// <summary>
-    /// The value of <paramref name="size"/> bytes at <paramref name="rva"/> read as <paramref name="type"/>; null for
-    /// unknown sizes. A bit field reads its bits from the storage unit; <paramref name="enumerators"/> name an enum's value;
-    /// <paramref name="nameAt"/> names pointer targets.
-    /// </summary>
+    /// <summary>The value of <paramref name="size"/> bytes at <paramref name="rva"/> read as <paramref name="type"/>; null for unusable sizes.</summary>
     public static string? Read(INativeImage image, uint rva, long size, string type, Func<uint, string?>? nameAt = null,
         IReadOnlyList<NativeTypeEnumerator>? enumerators = null, int? bitOffset = null, int? bitSize = null)
     {

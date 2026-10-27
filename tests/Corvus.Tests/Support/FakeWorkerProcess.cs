@@ -6,11 +6,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A worker thread behind anonymous pipes, speaking <see cref="WorkerProtocol"/> with concurrent requests. Ops: echo,
-/// save, sleep {ms} (cancellable), hold (until <see cref="Release"/>, cancellable), partial (until cancelled, then a result marked partial), stubborn (ignores cancel),
-/// timeout (the request's time limit), set {key,value} / get {key} (per-process state), crash, exit_with_message {message}, exit_late {message} (pipes close, exit 500 ms later), close, cancel; <see cref="Ops"/> adds or replaces ops.
-/// </summary>
+/// <summary>A worker thread behind anonymous pipes speaking <see cref="WorkerProtocol"/>, with scripted ops (echo, sleep, hold, partial, crash, exit_late and others); <see cref="Ops"/> adds or replaces ops.</summary>
 internal sealed class FakeWorkerProcess : ChildProcess
 {
     private readonly AnonymousPipeServerStream _toWorker = new(PipeDirection.Out);
@@ -143,7 +139,7 @@ internal sealed class FakeWorkerProcess : ChildProcess
                     Kill();
                     break;
                 case "exit_with_message":
-                    // stdout closes first and the message follows, as two pipes of one exit can be read
+                    // Stdout closes first and the message follows, as two pipes of one exit can be read.
                     lock (_write) _workerOut.Dispose();
                     Thread.Sleep(200);
                     lock (_write)

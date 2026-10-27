@@ -1,9 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// The tool calls this server is running and the latest it finished, for server_status: tool, start, and for a finished
-/// call its time and outcome. Bounded: <see cref="Kept"/> finished calls.
-/// </summary>
+/// <summary>Running tool calls and the last <see cref="Kept"/> finished ones, for server_status.</summary>
 public sealed class CallActivity
 {
     public const int Kept = 5;

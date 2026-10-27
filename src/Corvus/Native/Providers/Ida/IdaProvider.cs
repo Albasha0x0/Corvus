@@ -12,10 +12,7 @@ public sealed record IdaProviderOptions
     public string? PythonPath { get; init; }
     /// <summary>Root of the private input copies and databases; null: <see cref="AnalysisCache.DefaultRoot"/>.</summary>
     public string? CacheRoot { get; init; }
-    /// <summary>
-    /// Run with the user's IDA directory (IDAUSR) and therefore the user's plugins. Off by default: the worker gets a
-    /// private IDAUSR, so third-party plugins neither slow down nor destabilize headless analysis.
-    /// </summary>
+    /// <summary>Use the user's IDAUSR and plugins; off by default so third-party plugins stay out of headless analysis.</summary>
     public bool UseUserPlugins { get; init; }
     /// <summary>Time the worker gets to save and exit on close before it is killed.</summary>
     public TimeSpan ShutdownGrace { get; init; } = TimeSpan.FromSeconds(30);
@@ -29,20 +26,13 @@ public sealed record IdaProviderOptions
     public int JournalSaveThreshold { get; init; } = 100;
     /// <summary>Time a request that timed out or was cancelled gets to stop after the worker is asked to; then the worker is killed.</summary>
     public TimeSpan CancelGrace { get; init; } = TimeSpan.FromSeconds(10);
-    /// <summary>
-    /// Attach to a database open in IDA (served by corvus_connect.py) when its input is the image; null:
-    /// CORVUS_IDA_CONNECT=1. Off by default.
-    /// </summary>
+    /// <summary>Attach to a database corvus_connect.py serves for the same input; null: CORVUS_IDA_CONNECT=1. Off by default.</summary>
     public bool? Connect { get; init; }
     /// <summary>Folder of the connection files; null: the corvus folder of each IDA user directory.</summary>
     internal string? ConnectFolder { get; init; }
 }
 
-/// <summary>
-/// IDA Pro through idalib, driven by a Python worker process (Native/Providers/Ida/ida_worker.py) per session. The
-/// worker runs inside a kill-on-close Job Object on Windows, works on a private copy of the input and keeps its
-/// .i64 database per SHA-256 in the analysis cache.
-/// </summary>
+/// <summary>IDA Pro through idalib: one Python worker per session, in a kill-on-close job on Windows, on a private input copy, with its .i64 cached per SHA-256.</summary>
 public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDecompilerProvider
 {
     public const string ProviderId = "ida";
@@ -76,10 +66,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         return ProviderAvailability.Ok(Id, details);
     }
 
-    /// <summary>
-    /// <paramref name="local"/> when no database is served, else available through the served databases, named in
-    /// the details by IDA process id and database.
-    /// </summary>
+    /// <summary><paramref name="local"/> when no database is served, else available with the served databases in the details.</summary>
     private ProviderAvailability Connected(ProviderAvailability local)
     {
         if (!IdaConnection.Enabled(_options.Connect) || IdaConnection.List(_options.ConnectFolder) is not { Count: > 0 } served) return local;
@@ -112,7 +99,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     /// <summary>The static checks; <paramref name="unanswered"/> when no Python answered within <paramref name="probeTimeout"/>.</summary>
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static(TimeSpan probeTimeout, out bool unanswered)
     {
-        // locating Python runs processes: a call waiting here stops when it is cancelled
+        // Locating Python runs processes: a call waiting here stops when it is cancelled.
         using (AssemblyWorkspace.Lock(_availabilityLock))
         {
             unanswered = false;
@@ -235,11 +222,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             $"Set CORVUS_DATA_DIR (or {AnalysisCache.RootVariable}) to a folder whose analysis cache path is at most {Math.Max(3, fits)} characters (now {cacheRoot.Length}: {cacheRoot}).");
     }
 
-    /// <summary>
-    /// The symbol path for a worker: the directory of the PDB the server located first (IDA analyzes a copy of the image,
-    /// so it cannot look next to the original), then the configured path (_NT_SYMBOL_PATH, else pdb.cfg, else IDA's
-    /// default). Null leaves IDA's configuration alone.
-    /// </summary>
+    /// <summary>Worker symbol path: the located PDB's directory (IDA sees only a copy), then the configured path; null keeps IDA's.</summary>
     internal static string? SymbolPathWith(string? pdbPath, string? idaDirectory = null)
     {
         if (string.IsNullOrEmpty(pdbPath) || Path.GetDirectoryName(pdbPath) is not { Length: > 0 } dir) return null;
@@ -298,10 +281,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         }
     }
 
-    /// <summary>
-    /// IDAUSR for the worker: an empty per-user directory with the user's license files copied in, so IDA finds its
-    /// license but none of the user's plugins or scripts.
-    /// </summary>
+    /// <summary>Private IDAUSR for the worker: the user's license files only, no plugins or scripts.</summary>
     private string PrivateUserDirectory()
     {
         var dir = PrivateFolder.Create(Path.Combine(Cache.Root, ProviderId, "idausr"));
@@ -335,11 +315,11 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         if (message.StartsWith("decompilation failed:", StringComparison.Ordinal))
             return "Decompile it with engine=ghidra or read it with disassemble.";
         if (message.Contains("open_database returned", StringComparison.Ordinal))
-            return $"IDA could not open the file: check that the input is a PE, ELF or Mach-O image and that both paths are readable and at most {MaxWindowsPath} characters on Windows (CORVUS_DATA_DIR moves them).";
+            return $"Check that the input is a readable PE, ELF or Mach-O image; on Windows paths are limited to {MaxWindowsPath} characters (CORVUS_DATA_DIR moves them).";
         return code switch
         {
             ErrorCode.Timeout => WorkerConnection.TimeoutNext(message),
-            ErrorCode.ProviderUnavailable => "Retry once (the session restarts IDA from the saved database); if it persists, run the provider probe and check the IDA install, its license and the Python it uses.",
+            ErrorCode.ProviderUnavailable => "Retry once; the session restarts IDA from the saved database. If it persists, run the provider probe and check the IDA install, license and Python.",
             ErrorCode.Unsupported => "Use the built-in disassembly for this architecture.",
             ErrorCode.NotFound => "List the functions to find a valid address.",
             _ => null,

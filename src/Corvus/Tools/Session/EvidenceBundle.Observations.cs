@@ -3,11 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// Saved records of observations of a running program: the call cannot be repeated, so a record is checked by what it
-/// names instead: each named address's image still has the recorded SHA-256, and the address still resolves to the
-/// recorded name in the static model.
-/// </summary>
+/// <summary>Observation records of a running program, checked by their named addresses: same image SHA-256, same name at each address.</summary>
 public static partial class EvidenceBundle
 {
     /// <summary>Tools whose saved records are observations of a running program.</summary>

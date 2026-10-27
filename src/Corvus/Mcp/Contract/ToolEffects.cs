@@ -4,26 +4,13 @@ using ModelContextProtocol.Server;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// What each tool does to its environment: the one source of the tools' MCP annotations (applied at startup by
-/// <see cref="Apply"/>; [McpServerTool] attributes set none). Audited against each tool's code.
-/// <list type="bullet">
-/// <item>ReadOnly: changes nothing loaded and writes no file. Loading an image named by path (the native and ReadyToRun tools
-/// accept a path) counts as reading: it adds the file to the session as load_assembly would. Private caches (the IDA
-/// database, downloaded reference packs and PDBs) do not count.</item>
-/// <item>Destructive: can replace or discard existing state: method bodies, names, bytes or edits in the workspace, or an
-/// existing file. False for tools that only add (new members, a newly loaded file, files in an empty directory).</item>
-/// <item>Idempotent: the same call again has no further effect.</item>
-/// <item>OpenWorld: some argument value can make the call launch a process (IDA through idalib, Python, a Ghidra JVM, diec), reach the network
-/// or read another running process; so every tool with an engine parameter is open-world. Not counted: server-wide settings
-/// (--engine, --prewarm) and a reference pack download (any .NET tool can trigger one when an assembly targets a .NET
-/// version that is not installed; CORVUS_OFFLINE=1 turns it off) and the revocation check when a DAC loads (cached data
-/// only with CORVUS_OFFLINE=1).</item>
-/// <item>LongRunning (not an MCP annotation): a call can run for more than ~10 s on large inputs: whole-assembly or whole-image
-/// work, an external engine, or the first use of a native image, which waits for its code index. Advertised as a
-/// description suffix, as _meta "corvus/longRunning": true, and in server_status.</item>
-/// </list>
-/// </summary>
+/// <summary>What each tool does to its environment: the one source of its MCP annotations, audited against its code.</summary>
+// ReadOnly: changes nothing loaded, writes no file; loading an image named by path and private caches count as reading.
+// Destructive: can replace or discard state (bodies, names, bytes, edits, an existing file); false for tools that only add.
+// Idempotent: the same call again has no further effect.
+// OpenWorld: some argument can launch a process, reach the network or read another process; every tool with an engine parameter.
+// OpenWorld leaves out server-wide settings, reference pack downloads and the DAC revocation check (off with CORVUS_OFFLINE=1).
+// LongRunning (not an MCP annotation): a call can exceed ~10 s; advertised as a description suffix, _meta and in server_status.
 public static partial class ToolEffects
 {
     public sealed record Effects(bool ReadOnly, bool Destructive, bool Idempotent, bool OpenWorld, bool LongRunning);
@@ -34,7 +21,8 @@ public static partial class ToolEffects
         new(false, destructive, idempotent, openWorld, longRunning);
 
     public const string LongRunningMetaKey = "corvus/longRunning";
-    public const string LongRunningSuffix = " [Long-running.]"; // the guide (errors) says what it means: over 10 s
+    // The errors guide topic says what it means: over 10 s.
+    public const string LongRunningSuffix = " [Long-running.]";
 
     /// <summary>Every tool's row, by family; the rows are in the per-family files beside this one.</summary>
     internal static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, Effects>> ByFamily = new Dictionary<string, IReadOnlyDictionary<string, Effects>>(StringComparer.Ordinal)
@@ -43,7 +31,7 @@ public static partial class ToolEffects
         ["dotnet"] = DotnetTools(),
         ["containers"] = ContainersTools(),
         ["edit"] = EditTools(),
-        ["il2cpp"] = Il2CppTools(),
+        ["aot"] = AotTools(),
         ["native"] = NativeTools(),
         ["native-edit"] = NativeEditTools(),
         ["builds"] = BuildsTools(),
@@ -66,11 +54,9 @@ public static partial class ToolEffects
     /// <summary>Tools that can run long, by name.</summary>
     public static IEnumerable<string> LongRunning => Table.Where(t => t.Value.LongRunning).Select(t => t.Key).Order(StringComparer.Ordinal);
 
-    /// <summary>
-    /// Claude Code saves a text result over 50,000 characters to a file unless the tool raises this limit (capped at 500,000).
-    /// This value is over the default page plus ResponseBudget.Slack, so a default page stays in context.
-    /// </summary>
+    /// <summary>The _meta key that raises Claude Code's text result limit.</summary>
     public const string MaxResultSizeMetaKey = "anthropic/maxResultSizeChars";
+    // Claude Code saves a text result over 50,000 characters to a file (cap 500,000); this keeps a default page plus ResponseBudget.Slack in context.
     public const int MaxResultSizeChars = 100_000;
 
     /// <summary>Claude Code loads these tools' definitions up front instead of behind tool search.</summary>

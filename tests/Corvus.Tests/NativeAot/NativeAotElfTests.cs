@@ -10,10 +10,7 @@ public class NativeAotElfTests
 {
     private const uint RelativeX64 = 8;
 
-    /// <summary>
-    /// An x64 ELF whose data holds the debug header cookie, a frozen region and two module headers whose row pointers are
-    /// zero in the file; the first is named by the given way, the second only a scan would find.
-    /// </summary>
+    /// <summary>An x64 ELF with two module headers whose row pointers are zero in the file; the first is listed, the second only a scan finds.</summary>
     private static ElfFile Image(bool symbols, bool modulesSection) => ElfFile.FromBytes(Bytes(symbols, modulesSection), "app");
 
     private static byte[] Bytes(bool symbols, bool modulesSection)
@@ -58,7 +55,7 @@ public class NativeAotElfTests
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public void ListedHeader_IsTheOneTheImageNames(bool symbols, bool modulesSection)
+    public void The_listed_header_is_the_one_the_image_names(bool symbols, bool modulesSection)
     {
         var image = Image(symbols, modulesSection);
         Assert.True(NativeAotLocator.HasMarkers(image));
@@ -72,7 +69,7 @@ public class NativeAotElfTests
     }
 
     [Fact]
-    public void SummarizeFile_ReportsNativeAotElf()
+    public void Summarize_file_reports_NativeAOT_ELF()
     {
         using var dir = new TempDir();
         var path = dir.File("app");
@@ -86,7 +83,7 @@ public class NativeAotElfTests
     }
 
     [Fact]
-    public void UnlistedHeaders_AreScannedFor()
+    public void Unlisted_headers_are_found_by_a_scan()
     {
         var image = Image(symbols: false, modulesSection: false);
         Assert.False(NativeAotLocator.HasMarkers(image));

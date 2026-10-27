@@ -353,10 +353,7 @@ public sealed partial class DalvikEvaluator
         return string.Concat(text.Chunk(76).Select(x => new string(x) + newline));
     }
 
-    /// <summary>
-    /// Base-64 as android.util.Base64.decode reads it (strict: false; characters outside the alphabet are skipped) or as
-    /// java.util.Base64's basic and URL decoders do (strict: true). Padding is optional; data after it is an error.
-    /// </summary>
+    /// <summary>Base-64 as android.util.Base64 (lenient) or java.util.Base64 (<paramref name="strict"/>) decodes it.</summary>
     private static byte[] Base64Decode(string text, int flags, bool strict)
     {
         bool url = (flags & 8) != 0;

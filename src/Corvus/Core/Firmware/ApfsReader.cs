@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// APFS containers (Apple File System Reference): the newest checkpoint whose object map reads, each volume's file-system
-/// tree, file data through its extents (and the file extent tree of a sealed volume), symbolic links, hard links, files
-/// compressed with decmpfs, and FIFOs, devices and sockets as entries. Encrypted volumes are named, not read; snapshots
-/// are counted, and the current tree is listed.
-/// </summary>
+/// <summary>APFS containers from the newest readable checkpoint; encrypted volumes are named, not read, snapshots counted.</summary>
 internal sealed class ApfsReader : IContainerReader
 {
     public string Kind => "apfs";
@@ -154,10 +149,7 @@ internal sealed class ApfsReader : IContainerReader
             return newest.ToDictionary(kv => kv.Key, kv => kv.Value.Paddr);
         }
 
-        /// <summary>
-        /// Every leaf record (key, value) of the B-tree rooted at <paramref name="root"/>; with <paramref name="map"/> the
-        /// tree's child ids are virtual and resolved through it, otherwise they are physical blocks.
-        /// </summary>
+        /// <summary>Every leaf record of the B-tree; child ids resolve through <paramref name="map"/> when given, else are physical blocks.</summary>
         private IEnumerable<(byte[] Key, byte[] Value)> Records(ulong root, Dictionary<ulong, ulong>? map, string what)
         {
             var seen = new HashSet<ulong>();

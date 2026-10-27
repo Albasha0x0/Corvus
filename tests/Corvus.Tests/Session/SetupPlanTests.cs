@@ -73,7 +73,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void WithoutATerminalOrYes_ExistingRegistrationsAreRefreshed_AndNewClientsOnlyNamed()
+    public void Without_a_terminal_or_yes_existing_registrations_are_refreshed_and_new_clients_only_named()
     {
         ExistingAndNew();
         var (code, output) = _home.Run("install", "--no-check");
@@ -93,7 +93,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void CorvusYes_AddsNewClientsUnattended()
+    public void CORVUS_YES_adds_new_clients_unattended()
     {
         ExistingAndNew();
         var (code, output) = _home.Run(_home.Env(variables: new Dictionary<string, string> { ["CORVUS_YES"] = "1" }), "install", "--no-check");
@@ -102,7 +102,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void DryRun_WritesNothing_AndJsonDescribesEachClient()
+    public void Dry_run_writes_nothing_and_JSON_describes_each_client()
     {
         ExistingAndNew();
         var before = _home.Snapshot();
@@ -139,7 +139,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void Interactive_ShowsThePlanAndAsksOnce_YesRegisters_NoSkips()
+    public void Interactive_shows_the_plan_and_asks_once_yes_registers_no_skips()
     {
         ExistingAndNew();
         var questions = new List<string>();
@@ -162,7 +162,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void Json_IsNonInteractive_AndReportsTheResult()
+    public void JSON_mode_is_non_interactive_and_reports_the_result()
     {
         ExistingAndNew();
         var (code, output) = _home.Run(_home.Env(interactive: true), "install", "--no-check", "--json", "--yes");
@@ -175,7 +175,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void RefreshOnly_NeverAddsClients()
+    public void Refresh_only_never_adds_clients()
     {
         ExistingAndNew();
         var (code, output) = _home.Run("install", "--no-check", "--refresh-only", "--yes");
@@ -186,7 +186,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void Strict_WritesNothingWhenAFileIsBlocked()
+    public void Strict_writes_nothing_when_a_file_is_blocked()
     {
         ExistingAndNew();
         _home.Write("{ not json", ".kiro", "settings", "mcp.json");
@@ -203,7 +203,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void UnknownOptions_AreUsageErrors_AndWriteNothing()
+    public void Unknown_options_are_usage_errors_and_write_nothing()
     {
         ExistingAndNew();
         var before = _home.Snapshot();
@@ -220,7 +220,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void InstallCommand_PlansForTheProgramTheScriptsPutInPlace()
+    public void Install_command_plans_for_the_program_the_scripts_put_in_place()
     {
         ExistingAndNew();
         var final = _home.Path("root", "current", OperatingSystem.IsWindows() ? "corvus.exe" : "corvus");
@@ -235,7 +235,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void Update_TakesAVersionOrDryRun_AndNoClientNames()
+    public void Update_takes_a_version_or_dry_run_and_no_client_names()
     {
         Assert.Equal("https://api.github.com/repos/o/r/releases/latest", Installation.ReleaseApi("o/r", null));
         Assert.Equal("https://api.github.com/repos/o/r/releases/tags/v1.2.0", Installation.ReleaseApi("o/r", "1.2.0"));
@@ -250,7 +250,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void UninstallDryRun_ListsRemovals_AndChangesNothing()
+    public void Uninstall_dry_run_lists_removals_and_changes_nothing()
     {
         ExistingAndNew();
         var before = _home.Snapshot();

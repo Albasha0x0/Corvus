@@ -34,7 +34,7 @@ public sealed class Arm64FormatCodeTests(ITestOutputHelper output)
         var thunks = index.Functions.Where(f => (f.Flags & FunctionFlags.Thunk) != 0).ToList();
         Assert.NotEmpty(thunks);
         Assert.All(thunks, t => Assert.StartsWith("j_", t.Name));
-        // calls reach imports through the thunks
+        // Calls reach imports through the thunks.
         var called = image.Imports.Where(i => index.Callers(i).Count > 0).ToList();
         Assert.True(called.Count * 2 > image.Imports.Count(i => i.Name != null && !i.Name.StartsWith("__", StringComparison.Ordinal)) / 2, $"{called.Count} of {image.Imports.Count} imports called");
 
@@ -82,7 +82,7 @@ public sealed class Arm64FormatCodeTests(ITestOutputHelper output)
             FunctionStarts = [MachOWriter.TextOffset], DataInCode = [(data, 4, 1)],
         };
         var bytes = w.Build();
-        // the writer names the section __const: make it __cfstring
+        // The writer names the section __const: make it __cfstring.
         var from = Encoding.ASCII.GetBytes("__const\0\0\0\0\0\0\0\0\0__DATA_CONST");
         int at = bytes.AsSpan().IndexOf(from);
         Assert.True(at > 0);

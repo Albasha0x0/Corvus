@@ -6,11 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Tiered matching in compare_assemblies / find_counterpart: each pairing names its tier and confidence, a key shared by
-/// several members is reported as ambiguous with its candidates, and flag or attribute changes over an identical body
-/// are reported as metadata changes.
-/// </summary>
+/// <summary>Tiered matching names each pairing's tier and confidence, reports ambiguous keys with candidates, and reports metadata-only changes.</summary>
 public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -52,7 +48,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public async Task CompareAndCounterpart_NameTiersAmbiguityAndMetadataChanges()
+    public async Task Compare_and_counterpart_report_name_tiers_ambiguity_and_metadata_changes()
     {
         using var env = new Env(Write("v1", V1));
         var newer = env.Workspace.Load(Write("v2", V2));
@@ -86,7 +82,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public async Task CompareAndCounterpart_MethodsMovedToAnotherType()
+    public async Task Compare_and_counterpart_follow_methods_moved_to_another_type()
     {
         const string before = """
             public class Source
@@ -154,7 +150,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task Counterpart_DiffOfDecompiledCodeAndNormalizedIl_Bounded()
+    public async Task The_counterpart_diff_of_decompiled_code_and_normalized_IL_is_bounded()
     {
         static string Big(int k) => "public class Big { public int Edit(int x) { return x + " + k + "; } public static int Many(int s) {\n" +
             string.Concat(Enumerable.Range(0, 400).Select(i => $"s = s * {i + k} + {i};\n")) + "return s; } }";
@@ -180,7 +176,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public async Task Counterpart_DiffReadsRenamesAsTheNewBuildAndDiffsATypeByMember()
+    public async Task Counterpart_diff_reads_renames_as_the_new_build_and_diffs_a_type_by_member()
     {
         const string before = """
             public class Engine
@@ -222,7 +218,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public async Task Compare_StructuredResult_AndTokenMapExport()
+    public async Task Compare_returns_a_structured_result_and_exports_a_token_map()
     {
         using var env = new Env(Write("v1", V1));
         var newer = env.Workspace.Load(Write("v2", V2));
@@ -270,7 +266,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public async Task CompareAndCounterpart_EveryChangeOfAMember_AndEventsAddedRemoved()
+    public async Task Compare_and_counterpart_report_every_member_change_and_added_or_removed_events()
     {
         const string before = """
             public class Multi
@@ -322,14 +318,10 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("changes: none", await tools.FindCounterpart("Multi::Kept", env.Fixture.Id, newer.Id));
     }
 
-    /// <summary>
-    /// Newtonsoft.Json 12.0.2 -> 13.0.1 -> 13.0.4: matches per tier and the ambiguous members. Against the comparer before
-    /// tiers, no match was lost; five array-data fields of &lt;PrivateImplementationDetails&gt; that it had paired by position
-    /// are now paired by identical data.
-    /// </summary>
+    /// <summary>Newtonsoft.Json 12.0.2 -> 13.0.1 -> 13.0.4: matches per tier and ambiguous members; no match lost against the comparer before tiers.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void RealLibraryUpgrades_MatchesPerTier()
+    public void Real_library_upgrades_match_per_tier()
     {
         AssemblyComparer.Comparison Compare(AssemblyWorkspace ws, string a, string b)
         {

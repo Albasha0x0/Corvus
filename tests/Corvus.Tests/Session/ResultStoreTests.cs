@@ -22,7 +22,7 @@ public sealed class ResultStoreTests : IDisposable
     private static string Reason(ToolError e) => JsonSerializer.SerializeToElement(e.Details).GetProperty("reason").GetString()!;
 
     [Fact]
-    public void SameTextGetsTheSameId()
+    public void Same_text_gets_the_same_ID()
     {
         var store = new ResultStore(ResultCacheOptions.MemoryOnly);
         var a = store.Keep("hello", Origin());
@@ -34,21 +34,21 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
-    public void ReadableAfterRestart_WithTheSameFolder()
+    public void Results_are_readable_after_a_restart_with_the_same_folder()
     {
         var id = new ResultStore(Disk()).Keep("line 1\nline 2", Origin(), record: """{"items":[1,2]}""");
         var kept = new ResultStore(Disk()).Read(id.ToUpperInvariant());
         Assert.Equal("line 1\nline 2", kept.Text);
         Assert.Equal("""{"items":[1,2]}""", kept.Record);
         Assert.Equal("list_types", kept.Info.Tool);
-        // the side record: arguments canonical with secrets masked, their hash over the unmasked form
+        // The side record: arguments canonical with secrets masked, their hash over the unmasked form.
         Assert.Equal("""{"assembly":"app","password":"[redacted]"}""", kept.Info.Arguments);
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData("""{"assembly":"app","password":"hunter2"}"""u8)), kept.Info.ArgumentsSha256);
         Assert.Equal(13, kept.Info.Chars);
     }
 
     [Fact]
-    public void EvictedIdSaysSoAndNamesTheOriginalCall()
+    public void An_evicted_ID_says_so_and_names_the_original_call()
     {
         var store = new ResultStore(Disk(maxBytes: 1_000));
         var first = store.Keep(new string('a', 700), Origin());
@@ -65,7 +65,7 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
-    public void MemoryOnlyEvictionAlsoGivesTheReason()
+    public void Memory_only_eviction_also_gives_the_reason()
     {
         var store = new ResultStore(ResultCacheOptions.MemoryOnly) { MemoryLimit = 1_000 };
         var first = store.Keep(new string('a', 700), Origin());
@@ -74,7 +74,7 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
-    public void SizeCapIsEnforced()
+    public void The_size_cap_is_enforced()
     {
         var store = new ResultStore(Disk(maxBytes: 2_000));
         for (int i = 0; i < 10; i++) store.Keep(i + new string('x', 500), Origin());
@@ -120,7 +120,7 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
-    public void EntriesUnusedPastTheAgeLimitAreEvicted()
+    public void Entries_unused_past_the_age_limit_are_evicted()
     {
         var store = new ResultStore(Disk());
         var id = store.Keep("old", Origin());
@@ -133,18 +133,18 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
-    public void TruncatedEntryIsAMiss()
+    public void A_truncated_entry_is_a_miss()
     {
         var id = new ResultStore(Disk()).Keep("0123456789", Origin());
         File.WriteAllText(Path.Combine(_dir.Path, id + ".txt"), "01234");
         NotFound(() => new ResultStore(Disk()).Read(id));
-        // keeping it again repairs the entry
+        // Keeping it again repairs the entry.
         new ResultStore(Disk()).Keep("0123456789", Origin());
         Assert.Equal("0123456789", new ResultStore(Disk()).Read(id).Text);
     }
 
     [Fact]
-    public void OffKeepsResultsInMemoryOnly()
+    public void Off_keeps_results_in_memory_only()
     {
         var options = ResultCacheOptions.FromEnvironment(name => name == ResultCacheOptions.RootVariable ? "off" : null);
         Assert.Null(options.Root);
@@ -171,7 +171,7 @@ public sealed class ResultStoreTests : IDisposable
     private Corvus.Tools.SessionTools Tools(ResultStore store) => new(null!, null!, new ServerOptions(), store);
 
     [Fact]
-    public void ReadResultPagesByTokensAtLineEnds()
+    public void Read_result_pages_by_tokens_at_line_ends()
     {
         var store = new ResultStore(Disk());
         var text = string.Concat(Enumerable.Range(0, 1_000).Select(i => $"line {i:D4} alpha\n"));
@@ -197,7 +197,7 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
-    public void ReadResultSearchesLinesWithOffsets()
+    public void Read_result_searches_lines_with_offsets()
     {
         var store = new ResultStore(ResultCacheOptions.MemoryOnly);
         var id = store.Keep("alpha\nBeta one\ngamma\nbeta two\n", Origin());
@@ -209,7 +209,7 @@ public sealed class ResultStoreTests : IDisposable
     }
 
     [Fact]
-    public void ReadResultWritesTheExactBytesToOutputPath()
+    public void Read_result_writes_the_exact_bytes_to_output_path()
     {
         var store = new ResultStore(ResultCacheOptions.MemoryOnly);
         var text = "résumé\r\nline 2\n" + new string('z', 50_000);
@@ -232,7 +232,7 @@ public sealed class ResultStoreTests : IDisposable
 
     /// <summary>uninstall keeps the default results folder (and names it) unless --purge-data, which removes it.</summary>
     [Fact]
-    public void UninstallPurgeRemovesKeptResults()
+    public void Uninstall_purge_removes_kept_results()
     {
         var root = Path.Combine(_dir.Path, "install");
         var dataRoot = Path.Combine(_dir.Path, "data");
@@ -248,7 +248,7 @@ public sealed class ResultStoreTests : IDisposable
     /// <summary>A second server process (here the command line) reads an id the first one kept.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task ReadableFromAnotherProcess()
+    public async Task Results_are_readable_from_another_process()
     {
         var id = new ResultStore(Disk()).Keep("kept in one process\nread in another", Origin());
         var start = new System.Diagnostics.ProcessStartInfo("dotnet")

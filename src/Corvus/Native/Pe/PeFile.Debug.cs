@@ -15,10 +15,7 @@ public sealed record PeDebugEntry(
     uint AddressOfRawData,
     uint PointerToRawData);
 
-/// <summary>
-/// A CodeView debug record: "RSDS" (PDB 7.0: GUID, age, path) or "NB10" (PDB 2.0: <see cref="Timestamp"/>, age, path;
-/// <see cref="Guid"/> empty).
-/// </summary>
+/// <summary>A CodeView record: "RSDS" (PDB 7.0) or "NB10" (PDB 2.0, <see cref="Guid"/> empty).</summary>
 public sealed record PeCodeView(string Format, Guid Guid, uint Age, string PdbPath, uint Timestamp = 0);
 
 public sealed partial class PeFile

@@ -29,9 +29,9 @@ public sealed class WasmGhidraTests : IDisposable
         var error = await Assert.ThrowsAsync<ToolError>(() => analysis.DecompileNative(native.Id, function, engine: "ghidra"));
         Assert.Equal(ErrorCode.Unsupported, error.Code);
         Assert.Contains("has no WebAssembly language", error.Message);
-        Assert.Contains("omit engine for the built-in WebAssembly lift", error.Remediation);
+        Assert.Contains("omit engine for the built-in WebAssembly reader", error.Remediation);
         Assert.Equal(0, engines.Ghidra!.WorkersStarted);
-        // without engine the built-in lift answers
+        // Without engine the built-in lift answers.
         Assert.Contains(function, await analysis.DecompileNative(native.Id, function));
     }
 }

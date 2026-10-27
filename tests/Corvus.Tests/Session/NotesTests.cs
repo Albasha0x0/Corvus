@@ -29,7 +29,7 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
-    public void RecordUpdateAndReadBack()
+    public void Notes_record_update_and_read_back()
     {
         var store = Store();
         var note = store.Record("decoder at the second call", "hypothesis", null, NoteAnchor.Global, ["crypto", "crypto"], ["get_il x"], "tester");
@@ -44,7 +44,7 @@ public sealed class NotesTests : IDisposable
         Assert.Equal(["xor"], updated.Tags);
         Assert.Equal("get_il x", Assert.Single(updated.Evidence).Text);
 
-        // a fresh store (another process) reads the same note
+        // A fresh store (another process) reads the same note.
         var read = Store().All().Single();
         Assert.Equal((updated.Id, updated.Revision, updated.Text, updated.Updated), (read.Id, read.Revision, read.Text, read.Updated));
         Assert.Equal(updated.Tags, read.Tags);
@@ -52,7 +52,7 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
-    public void StaleRevisionIsAConflictCarryingTheCurrentNote()
+    public void A_stale_revision_is_a_conflict_carrying_the_current_note()
     {
         var store = Store();
         var note = store.Record("first", null, null, NoteAnchor.Global, null, null, null);
@@ -67,7 +67,7 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
-    public async Task ConcurrentWritersKeepEveryNote()
+    public async Task Concurrent_writers_keep_every_note()
     {
         var anchor = new NoteAnchor(NoteAnchor.Native, Sha256: new string('a', 64), Rva: 0x1000, Label: "x@0x1000");
         var a = Store();
@@ -79,7 +79,7 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
-    public async Task DecompileOutputCountsOpenNotes()
+    public async Task Decompile_output_counts_open_notes()
     {
         using var env = new Env();
         var notes = new NotesService(new AnnotationStore(_dir.File("annotations")));
@@ -95,7 +95,7 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
-    public async Task AnchorsResolveAndFilter()
+    public async Task Anchors_resolve_and_filter()
     {
         var (tools, workspace, notes) = Tools();
         var image = McpProtocolTests.NativeSample(_dir);
@@ -149,7 +149,7 @@ public sealed class NotesTests : IDisposable
         await using var server = await InProcessServer.StartAsync();
         var sqlite = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", "win-x64", "native", "e_sqlite3.dll");
         await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = sqlite });
-        // disassemble annotates from the code index once it is built: wait for it, so the re-run during verification matches
+        // Disassemble annotates from the code index once it is built: wait for it, so the re-run during verification matches.
         Assert.NotEqual(true, (await server.Client.CallToolAsync("list_functions", new Dictionary<string, object?> { ["image"] = "e_sqlite3.dll", ["limit"] = 1 })).IsError);
         Assert.NotEqual(true, (await server.Client.CallToolAsync("disassemble", new Dictionary<string, object?> { ["image"] = "e_sqlite3.dll", ["address"] = "sqlite3_complete" })).IsError);
 
@@ -175,14 +175,14 @@ public sealed class NotesTests : IDisposable
         Assert.Equal("confirmed", (string)confirmed["status"]!);
         Assert.StartsWith("verified: same content", (string)confirmed["evidence"]![0]!["verdict"]!);
         Assert.Equal("refuted", (string)(await Hypothesis("e_sqlite3.dll@sqlite3_complete", "refutes"))["status"]!);
-        // the record verifies but is about another function: the hypothesis stays open
+        // The record verifies but is about another function: the hypothesis stays open.
         var open = await Hypothesis("e_sqlite3.dll@sqlite3_open_v2", "supports");
         Assert.Equal("open", (string)open["status"]!);
         Assert.StartsWith("does not name the note's anchor", (string)open["evidence"]![0]!["verdict"]!);
     }
 
     [Fact]
-    public async Task EvidenceReRunsAndMatchesByResultSha256()
+    public async Task Evidence_reruns_and_matches_by_result_SHA256()
     {
         await using var server = await InProcessServer.StartAsync();
         var args = new Dictionary<string, object?> { ["assembly"] = "TestFixture", ["limit"] = 3 };
@@ -212,7 +212,7 @@ public sealed class NotesTests : IDisposable
 
     /// <summary>Note files from before evidence objects (corvus-notes/1, evidence as strings) read as text entries.</summary>
     [Fact]
-    public void FormatOneEvidenceStringsReadAsText()
+    public void Evidence_strings_of_format_1_read_as_text()
     {
         var store = Store();
         Directory.CreateDirectory(store.Root);

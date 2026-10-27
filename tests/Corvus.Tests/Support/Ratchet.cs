@@ -1,10 +1,8 @@
 namespace Corvus.Tests;
 
 /// <summary>
-/// A guard that lands before every tool complies: today's violations are listed in Ratchets/&lt;name&gt;.txt and the list may
-/// only shrink. A new violation fails; so does a listed entry that now complies, until it is removed.
-/// An entry ending in "# permanent: &lt;reason&gt;" is a reviewed exemption that stays (gate G2: only those remain).
-/// CORVUS_UPDATE_RATCHETS=1 drops the entries that comply and writes a missing list from today's state; it never adds to one.
+/// Ratchets/&lt;name&gt;.txt lists today's violations and may only shrink; new violations and complying entries fail.
+/// "# permanent: &lt;reason&gt;" entries stay. CORVUS_UPDATE_RATCHETS=1 drops complying entries and never adds.
 /// </summary>
 internal static class Ratchet
 {

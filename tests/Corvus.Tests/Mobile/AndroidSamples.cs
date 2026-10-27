@@ -69,7 +69,8 @@ internal static class AndroidSamples
     /// <summary>As <see cref="Apk(int, ValueTuple{string, byte[]}[])"/> with <paramref name="networkConfig"/> as the network security config.</summary>
     public static byte[] Apk(byte[] networkConfig, int targetSdk = 30, params (string Name, byte[] Data)[] extra)
     {
-        var resources = Resources(); // assigns the ids the manifest references
+        // Assigns the ids the manifest references.
+        var resources = Resources();
         return ContainerFixtures.Zip([
             ("AndroidManifest.xml", Manifest(targetSdk)),
             ("resources.arsc", resources),
@@ -133,7 +134,8 @@ internal static class AndroidSamples
         var data = main.Method("data", "V", [], 9,
             Asm.FillArrayData(0, 4), Asm.ReturnVoid(), Asm.ArrayPayload(4, 1, -2, 0x7fffffff));
         data.Registers = 1;
-        main.Method("abstractLike", "V", [], 0x101); // native: no code
+        // Native: no code.
+        main.Method("abstractLike", "V", [], 0x101);
 
         var helper = b.Class(Helper, 0x11, source: "Helper.kt").Field("level", "I", 9);
         helper.Annotations.Add(("Lkotlin/Metadata;", 1, [("k", 1), ("d2", new[] { "Lcom/example/app/Helper;", "log", "", "msg", "" })]));

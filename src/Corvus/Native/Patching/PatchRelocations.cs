@@ -8,22 +8,13 @@ namespace Corvus.Native.Patching;
 /// <summary>How a patch treats the base relocations under it: plan them from the new bytes, keep them all, or neutralize them all.</summary>
 public enum RelocationMode { Auto, Keep, Neutralize }
 
-/// <summary>
-/// A displacement or immediate inside patch bytes: its byte offset and size, the raw value, and what the operand is
-/// (memory displacement with or without base/index registers, immediate) and whether it was written as a symbol or
-/// with 'offset' (an explicit address).
-/// </summary>
+/// <summary>A displacement or immediate in patch bytes, flagged when written as a symbol or with 'offset'.</summary>
 public readonly record struct OperandConstant(int Offset, int Size, ulong Value, bool IsDisplacement, bool HasBase, bool HasIndex, bool FromSymbol);
 
 /// <summary>A 2-byte rewrite of one relocation entry inside the relocation directory.</summary>
 public readonly record struct RelocationEdit(uint SlotRva, long FileOffset, ushort Original, ushort Replacement);
 
-/// <summary>
-/// One relocation consequence of a patch: <see cref="Action"/> is kept (the entry still covers an address in the new
-/// bytes), neutralized (set to ABSOLUTE so the loader no longer adds the load delta into the new bytes), added (a new
-/// entry written into an ABSOLUTE slot of the page's block) or unrelocated (an address with no entry: only correct at
-/// the preferred base).
-/// </summary>
+/// <summary>One relocation effect of a patch: kept, neutralized, added or unrelocated (correct only at the preferred base).</summary>
 public sealed record RelocationChange(string Action, uint TargetRva, PeRelocationType Type, uint? SlotRva, string? Note);
 
 /// <summary>The relocation side of a patch: the entry rewrites, the per-entry report and notes.</summary>
@@ -32,13 +23,9 @@ public sealed record RelocationPlan(IReadOnlyList<RelocationEdit> Edits, IReadOn
     public static readonly RelocationPlan None = new([], [], []);
 }
 
-/// <summary>
-/// Base-relocation planning for byte patches. The Windows loader adds (actual base - preferred base) to every location
-/// a HIGHLOW / DIR64 entry names, whatever bytes are there, so a patch must (1) neutralize entries that now point into
-/// bytes that are not an address and (2) give new absolute addresses an entry. Entries are rewritten in place: a
-/// neutralized entry becomes IMAGE_REL_BASED_ABSOLUTE (type 0), and a new one reuses an ABSOLUTE slot (a neutralized
-/// entry or the block's alignment padding) in the block of the same 4 KB page. The directory never grows.
-/// </summary>
+/// <summary>Plans base-relocation rewrites for byte patches in place; the directory never grows.</summary>
+/// <remarks>The loader adds the load delta at every HIGHLOW or DIR64 entry whatever bytes are there, so entries now in
+/// non-address bytes become ABSOLUTE and new addresses reuse an ABSOLUTE slot in the block of the same 4 KB page.</remarks>
 public static class PatchRelocations
 {
     /// <summary>A relocation entry slot in the directory: where it is and its current 16-bit value.</summary>
@@ -63,10 +50,7 @@ public static class PatchRelocations
     public static bool IsRelocatable(PeFile image) =>
         (image.Coff.Characteristics & 0x0001) == 0 && image.Directory(PeDirectory.BaseRelocation) is { Rva: not 0, Size: not 0 };
 
-    /// <summary>
-    /// Every entry slot of the relocation directory, walked as the loader walks it (a block smaller than its header
-    /// ends the walk). Slots that are not backed by file bytes are skipped (they cannot be rewritten).
-    /// </summary>
+    /// <summary>Every file-backed entry slot of the relocation directory, walked as the loader walks it.</summary>
     public static List<Slot> ReadSlots(PeFile image)
     {
         var slots = new List<Slot>();
@@ -103,11 +87,7 @@ public static class PatchRelocations
         return slots;
     }
 
-    /// <summary>
-    /// The displacements and immediates of the instructions in <paramref name="bytes"/> decoded at <paramref name="ip"/>:
-    /// linearly from offset 0 (stopping at an invalid instruction), or at the given instruction offsets. Branch
-    /// displacements and RIP-relative operands are relative, so they are left out.
-    /// </summary>
+    /// <summary>Absolute displacements and immediates of the instructions in <paramref name="bytes"/> at <paramref name="ip"/>.</summary>
     public static List<OperandConstant> Decode(int bitness, ulong ip, byte[] bytes, IReadOnlyList<(int Offset, bool ImmSymbol, bool DispSymbol)>? at = null)
     {
         var result = new List<OperandConstant>();
@@ -159,13 +139,7 @@ public static class PatchRelocations
         _ => 0,
     };
 
-    /// <summary>
-    /// Plans the relocation side of overwriting <paramref name="original"/> with <paramref name="replacement"/> at
-    /// <paramref name="rva"/>. <paramref name="operands"/> are the constants of the new bytes when they are code (null for
-    /// data, where the new value at each entry decides); <paramref name="inferImmediates"/> treats an in-image 32-bit
-    /// immediate as an address (raw bytes, where there is no symbol intent). Throws no_relocation_slot when a new address
-    /// has no ABSOLUTE slot in its page's block, unless <paramref name="force"/>.
-    /// </summary>
+    /// <summary>Plans relocations for a patch at <paramref name="rva"/>; <paramref name="operands"/> is null for data and <paramref name="inferImmediates"/> treats in-image 32-bit immediates as addresses. Throws no_relocation_slot unless <paramref name="force"/>.</summary>
     public static RelocationPlan Plan(PeFile image, uint rva, byte[] original, byte[] replacement,
         IReadOnlyList<OperandConstant>? operands, bool inferImmediates, RelocationMode mode, bool force)
     {
@@ -211,7 +185,7 @@ public static class PatchRelocations
                     inferImmediates && o.Size == 4 && !image.Is64Bit ? "immediate inside the image" : null;
                 if (why != null) needed[at] = (type, why);
                 else if (o.Size == 4 && !image.Is64Bit)
-                    notes.Add($"the value 0x{o.Value:X} at {Va(image, at)} lies inside the image but was written as a number, so it is not relocated (write 'offset 0x{o.Value:X}' or a name to relocate it).");
+                    notes.Add($"the in-image value 0x{o.Value:X} at {Va(image, at)} was written as a number and is not relocated; write 'offset 0x{o.Value:X}' or a name.");
             }
         }
         else
@@ -230,7 +204,8 @@ public static class PatchRelocations
 
         var changes = new List<RelocationChange>();
         var edits = new Dictionary<int, ushort>(); // slot index -> new value
-        var freed = new List<int>();               // neutralized slots, reusable for new entries
+        // Neutralized slots, reusable for new entries.
+        var freed = new List<int>();
         foreach (var i in overlapping)
         {
             var s = slots[i];
@@ -279,10 +254,10 @@ public static class PatchRelocations
             {
                 if (!force)
                     throw new ToolError(ErrorCode.Conflict,
-                        $"no_relocation_slot: the new address at {Va(image, at)} ({n.Why}) needs a base relocation, and the relocation block of page 0x{page:X} has no free (ABSOLUTE) slot to hold one; under ASLR or a rebase the loader would leave it pointing at the preferred base.",
+                        $"no_relocation_slot: the new address at {Va(image, at)} ({n.Why}) needs a base relocation, but the block of page 0x{page:X} has no free ABSOLUTE slot.",
                         (image.Is64Bit ? "write the reference RIP-relative (e.g. 'lea rax, [target]' / 'mov rax, [target]'); " : "") +
-                        "or load the address from data that is already relocated (an existing pointer or IAT slot); or pass allowUnsafe=true to accept a patch that is only correct at the preferred base. " +
-                        "Clearing DYNAMIC_BASE would also avoid it but weakens the binary's ASLR; it is not done automatically.");
+                        "or load it from relocated data (a pointer or IAT slot); or pass allowUnsafe=true to accept a patch correct only at the preferred base. " +
+                        "Clearing DYNAMIC_BASE weakens ASLR and is never done automatically.");
                 changes.Add(new RelocationChange("unrelocated", at, n.Type, null, "allowUnsafe=true: no free slot in the page's block; only correct at the preferred base"));
                 continue;
             }

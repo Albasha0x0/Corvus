@@ -23,13 +23,12 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         bool Saved);
 
     [McpServerTool(Name = "ida_python", Title = "Run IDAPython on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run Python in the IDA worker holding the image database (idalib): IDAPython imported, base = image base, globals persist " +
-                 "(reset=true clears); returns the final expression value, stdout, stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1): the " +
-                 "code has server rights. Not journaled: persist=true saves.")]
+    [Description("Run IDAPython against the image database and return the last expression's value, stdout and stderr. Off unless " +
+                 "--ida-scripting (CORVUS_IDA_SCRIPTING=1); the code runs with server rights and is not undoable.")]
     public Task<string> IdaPython(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Python source (or scriptPath).")] string? code = null,
-        [Description("Clear globals of earlier calls.")] bool reset = false,
+        [Description("Python source (or scriptPath); base is the image base.")] string? code = null,
+        [Description("Clear globals kept from earlier calls.")] bool reset = false,
         [Description("Default auto.")] string? engine = null,
         [Description("A .py file to run instead of code.")] string? scriptPath = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
@@ -51,7 +50,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
             if (new FileInfo(path).Length > MaxScriptBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} is over {MaxScriptBytes / 1024} KB.");
             code = await File.ReadAllTextAsync(path, cancellationToken);
         }
-        // IDAPython runs in IDA only, whatever the server's default engine
+        // IDAPython runs in IDA only, whatever the server's default engine.
         var ida = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ida" : engine.Trim();
         if (!ida.Equals("ida", StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.InvalidArgument, $"ida_python runs in IDA, not in '{ida}'.", "omit engine or pass engine=ida");
@@ -60,20 +59,18 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         var session = await engines.Session(native, "ida", new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
         EngineReport.Answered(new EngineChoice("ida", "IDAPython runs in IDA"), engines, session);
-        // the database as the other engine tools leave it
+        // Push first, so the script sees the database as the other engine tools leave it.
         if (names != null) await names.EnsureAsync(native, session, cancellationToken);
         if (types != null) await types.EnsureAsync(native, session, cancellationToken);
         if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
         var r = await session.RunScriptAsync(code ?? "", reset, cancellationToken);
-        NativeUserTypePush.Touch(session); // cached engine output may be stale now
+        // Cached engine output may be stale now.
+        NativeUserTypePush.Touch(session);
         if (persist) await session.SaveAsync(cancellationToken);
         return Outcome(native.Id, "ida", r, persist, allowError, "the script raised");
     });
 
-    /// <summary>
-    /// A script's outcome in both parts; the text past the call's budget is kept whole under a resultId. An exception is an
-    /// error (its output in partial) unless <paramref name="allowError"/>.
-    /// </summary>
+    /// <summary>A script's outcome; an exception is an error with the output as partial, unless <paramref name="allowError"/>.</summary>
     private static string Outcome(string image, string engine, NativeScriptResult r, bool saved, bool allowError, string what)
     {
         var sb = new StringBuilder();
@@ -96,16 +93,15 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     private const int MaxScriptBytes = 1 << 20;
 
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run Java or Python (PyGhidra, CORVUS_GHIDRA_PYTHON) in the Ghidra worker: a GhidraScript class, a run() body (imports first; " +
-                 "currentProgram, println, FlatProgramAPI) or name= an installed script. One transaction: saved on return, rolled back on an " +
-                 "exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has server rights.")]
+    [Description("Run a Java or Python Ghidra script against the image in one transaction: saved on return, rolled back on an exception. " +
+                 "Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1); the code runs with server rights.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Java (a GhidraScript class, or statements for run()) or Python source.")] string? code = null,
+        [Description("Java (a GhidraScript class, or a run() body with imports first) or Python source.")] string? code = null,
         [Description("Instead of code: a script in the Ghidra script folders or DATA/ghidra_scripts.")] string? name = null,
         [Description("With name: script arguments (getScriptArgs).")] string[]? args = null,
         [Description("Seconds before the script is cancelled (1-3600).")] int timeoutSeconds = 120,
-        [Description("java (default) or python; name *.py is Python.")] string? language = null,
+        [Description("java (default) or python (needs CORVUS_GHIDRA_PYTHON); name *.py is Python.")] string? language = null,
         [Description("Default auto.")] string? engine = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description("Return an exception as the result, not an error.")] bool allowError = false,
@@ -131,7 +127,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         var provider = engines.Provider("ghidra");
         if (python && provider is Native.Providers.Ghidra.GhidraProvider { PythonHost: null } plain)
             throw new ToolError(ErrorCode.Unsupported,
-                "Python scripts run through PyGhidra, which runs Python only in a JVM its Python process starts: the Ghidra workers here run in a plain JVM" +
+                "Python scripts need PyGhidra; the Ghidra workers here run in a plain JVM" +
                 (plain.PythonProblem is { } problem ? $" ({problem})." : "."),
                 $"set {Native.Providers.Ghidra.GhidraOptions.PythonVariable} to a Python 3.9+ with PyGhidra (python -m pip install --no-index -f <ghidra>/Ghidra/Features/PyGhidra/pypkg/dist pyghidra) and restart the server; or write the script in Java");
         var (native, _) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, "rva:0"), cancellationToken);

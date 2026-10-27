@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// RPM packages (lead, signature header, header, payload): the package fields and the file list as the header records
-/// them, with modes, owners, link targets and digests; the payload decompressed and read as cpio for the file contents;
-/// the install scriptlets under scripts/. A file the header lists but the payload omits (%ghost) is noted as such.
-/// </summary>
+/// <summary>RPM packages: header fields and file list, the cpio payload's contents, scriptlets under scripts/, %ghost files noted.</summary>
 internal sealed class RpmReader : IContainerReader
 {
     private const int MaxEntries = 1_000_000;
@@ -27,10 +23,7 @@ internal sealed class RpmReader : IContainerReader
         public IEnumerable<int> Tags => tags.Keys;
     }
 
-    /// <summary>
-    /// Reads a header structure at <paramref name="at"/> (magic 8E AD E8, index entries, data store); <paramref name="end"/>
-    /// is the offset after it. Throws <see cref="InvalidDataException"/> on a damaged header.
-    /// </summary>
+    /// <summary>Reads a header structure (magic 8E AD E8) and its end offset; throws <see cref="InvalidDataException"/> when damaged.</summary>
     internal static Header ReadHeader(ReadOnlySpan<byte> d, int at, out int end)
     {
         if (at > d.Length - 16 || !d[at..].StartsWith((ReadOnlySpan<byte>)[0x8E, 0xAD, 0xE8])) throw new InvalidDataException($"no header at 0x{at:X}");

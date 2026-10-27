@@ -14,7 +14,7 @@ public partial class ProtocolSampleTests
     private const string In = "samples/";
 
     /// <summary>Images that tools annotate or name persistently: a random tail gives each run its own hash (and sidecar).</summary>
-    private static readonly string[] FreshImages = ["edit.dll", "tiny.dll", "typed.dll", "il2cpp.dll"];
+    private static readonly string[] FreshImages = ["edit.dll", "tiny.dll", "typed.dll", "metadata.dll"];
 
     private static string InputsFolder => Path.Combine(Path.GetDirectoryName(Env.FixturePath)!, "samples");
 
@@ -24,7 +24,7 @@ public partial class ProtocolSampleTests
         var dir = new TempDir(InputsFolder);
         File.WriteAllBytes(dir.File("loaded.dll"), [.. NativePeTests.KitchenSink(is64: true), 0xC1]);
         File.WriteAllBytes(dir.File("edit.dll"), NativePeTests.KitchenSink(is64: true));
-        File.WriteAllBytes(dir.File("il2cpp.dll"), NativePeTests.KitchenSink(is64: true));
+        File.WriteAllBytes(dir.File("metadata.dll"), NativePeTests.KitchenSink(is64: true));
         File.WriteAllBytes(dir.File("aot.dll"), NativeAotHeaderTests.Sample().Build());
         McpProtocolTests.PdbSample(dir);
         PdbTypeFixture.Image(dir);
@@ -35,7 +35,7 @@ public partial class ProtocolSampleTests
         }
         AndroidSamples.Save(dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex())));
         AndroidSamples.SaveXamarin(dir);
-        UnityOverviewTests.MonoSample(dir);
+        BuildSummaryTests.MonoSample(dir);
         McpProtocolTests.JsSample(dir);
         File.Copy(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), dir.File("lz4.nupkg"));
         McpProtocolTests.FolderPair(dir, "old");

@@ -69,7 +69,7 @@ public class PdbOracleTests(ITestOutputHelper output)
     [Trait("Speed", "Slow")]
     [InlineData("x64")]
     [InlineData("x86")]
-    public void CompiledSampleMatchesItsLinkerMap(string arch)
+    public void A_compiled_sample_matches_its_linker_map(string arch)
     {
         var vcvars = VisualStudio.VcVarsAll();
         if (vcvars == null) return; // no Visual C++ build tools
@@ -102,7 +102,7 @@ public class PdbOracleTests(ITestOutputHelper output)
         var errors = new List<string>();
         foreach (var m in ours)
         {
-            // every symbol of the map is at the same address in the PDB: externals as publics, statics as procedures or data
+            // Every symbol of the map is at the same address in the PDB: externals as publics, statics as procedures or data.
             bool isPublic = publics.Contains((m.Name, m.Rva));
             if (!names.TryGetValue(m.Rva, out var n)) { errors.Add($"{m.Name} @ {m.Rva:X}: no PDB name"); continue; }
             if (m.Function != n.IsFunction) errors.Add($"{m.Name} @ {m.Rva:X}: function {m.Function} in the map, {n.IsFunction} in the PDB");
@@ -114,7 +114,7 @@ public class PdbOracleTests(ITestOutputHelper output)
             if (!names.Values.Any(n => n.Name == expect)) errors.Add($"no PDB name '{expect}'");
         Assert.True(errors.Count == 0, string.Join("\n", errors));
 
-        // with the PDB's functions as roots, the code index has a function at every function of the map
+        // With the PDB's functions as roots, the code index has a function at every function of the map.
         var starts = names.Values.Where(n => n.IsFunction).Select(n => n.Rva).ToArray();
         var index = NativeCodeIndex.Build(image, new CodeIndexOptions { SymbolStarts = starts });
         var missing = ours.Where(m => m.Function && index.FunctionByStart(m.Rva) == null).Select(m => m.Name).ToList();
@@ -124,7 +124,7 @@ public class PdbOracleTests(ITestOutputHelper output)
     /// <summary>Downloads the PDB of a system DLL from Microsoft's symbol server; runs only with CORVUS_NETWORK_TESTS=1.</summary>
     [OptInFact("CORVUS_NETWORK_TESTS")]
     [Trait("Speed", "Slow")]
-    public async Task DownloadsASystemPdbWhenNetworkTestsAreOn()
+    public async Task Downloads_a_system_PDB_when_network_tests_are_on()
     {
         var dll = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "kernel32.dll");
         if (!File.Exists(dll)) return;
@@ -140,7 +140,7 @@ public class PdbOracleTests(ITestOutputHelper output)
     /// <summary>Every PDB in the local symbol caches (up to 400): read without exception; the issues and the slowest read are reported.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void EveryCachedPdbReads()
+    public void Every_cached_PDB_reads()
     {
         var files = PdbLocator.LocalStores([])
             .Where(Directory.Exists)
@@ -172,7 +172,7 @@ public class PdbOracleTests(ITestOutputHelper output)
     /// <summary>System DLLs whose matching PDB is in a local symbol cache (_NT_SYMBOL_PATH, C:\symbols, ...): every named export has a PDB symbol at its address.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void SystemDllsWithCachedPdbsAgreeWithTheirExports()
+    public void System_DLLs_with_cached_PDBs_agree_with_their_exports()
     {
         var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
         if (system.Length == 0 || !Directory.Exists(system)) return;
@@ -199,7 +199,7 @@ public class PdbOracleTests(ITestOutputHelper output)
             var exports = image.Exports.Where(e => e.ForwardedTo == null && e.Name != null && image.SectionAt(e.Rva) is { IsExecutable: true }).ToList();
             int missing = exports.Count(e => !at.Contains(e.Rva));
             exportsChecked += exports.Count;
-            // a handful of exports may be aliases the PDB does not record; most must be there
+            // A handful of exports may be aliases the PDB does not record; most must be there.
             if (missing > Math.Max(2, exports.Count / 100)) errors.Add($"{Path.GetFileName(path)}: {missing} of {exports.Count} exports have no PDB symbol");
         }
         output.WriteLine($"{checkedImages} DLLs with cached PDBs, {exportsChecked} exports checked; slowest read {slowestMs} ms: {slowest}");

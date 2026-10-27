@@ -84,7 +84,7 @@ final class InsnOps {
                     pseudo = new PseudoDisassembler(w.program).disassemble(a);
                 }
                 catch (Exception e) {
-                    // not decodable
+                    // Not decodable.
                 }
                 if (pseudo == null) {
                     item.addProperty("status", "invalid");

@@ -110,7 +110,7 @@ public static partial class MsvcEh
                 uint parent;
                 if ((unwind & 1) != 0)
                 {
-                    // the unwind data field points at the RUNTIME_FUNCTION of the parent
+                    // The unwind data field points at the RUNTIME_FUNCTION of the parent.
                     if (!_r.Bytes(unwind & ~1u, link)) return current.BeginRva;
                     parent = BinaryPrimitives.ReadUInt32LittleEndian(link);
                 }
@@ -167,10 +167,7 @@ public static partial class MsvcEh
             _ => (MsvcEhScheme.Unknown, false),
         };
 
-        /// <summary>
-        /// A handler with no name (linked statically): the format that decodes for most of the functions that use it
-        /// (at most 64 tried), GS data alone when none does but the data looks like a cookie offset.
-        /// </summary>
+        /// <summary>Format of an unnamed handler: the one that decodes most of its users (at most 64 tried), else GS data.</summary>
         private MsvcEhScheme Classify(List<HandlerUse> uses)
         {
             var sample = uses.Count <= 64 ? uses : uses.Where((_, k) => k % (uses.Count / 64 + 1) == 0).Take(64).ToList();
@@ -233,10 +230,7 @@ public static partial class MsvcEh
             return false;
         }
 
-        /// <summary>
-        /// SCOPE_TABLE: count, then (begin, end, handler, jump target) records. A record with a jump target is an
-        /// __except (handler = filter funclet or constant); without, a __finally (handler = termination funclet).
-        /// </summary>
+        /// <summary>SCOPE_TABLE records; a jump target makes a record an __except, none a __finally.</summary>
         private Decoded? ScopeTable(uint at, List<(uint Begin, uint End)> ranges, out string? reason)
         {
             reason = null;
@@ -284,10 +278,7 @@ public static partial class MsvcEh
             return d;
         }
 
-        /// <summary>
-        /// FuncInfo of __CxxFrameHandler3: magic, max state, unwind map, try blocks with their handler arrays, and
-        /// (x64) the IP-to-state map. x86 holds virtual addresses (relocated), x64 image-relative offsets.
-        /// </summary>
+        /// <summary>__CxxFrameHandler3 FuncInfo; x86 holds relocated VAs, x64 image-relative offsets.</summary>
         private Decoded? FuncInfo3Uncached(uint info, bool is64, out string? reason)
         {
             reason = null;
@@ -310,7 +301,7 @@ public static partial class MsvcEh
             if (!Ptr(8, out uint unwindMap) || !Ptr(16, out uint tryMap) || !Ptr(24, out uint ipMap)) { reason = "FuncInfo pointer outside the image or not relocated"; return null; }
             var d = new Decoded { Scheme = MsvcEhScheme.Cxx3, DataRva = info, MaxState = maxState, GsDataOffset = 4 };
 
-            // unwind map: (to state, action)
+            // Unwind map: (to state, action).
             if (maxState > 0)
             {
                 if (!_r.IsMapped(unwindMap)) { reason = $"unwind map {unwindMap:X} is not mapped"; return null; }
@@ -329,7 +320,7 @@ public static partial class MsvcEh
                 }
             }
 
-            // try blocks: (try low, try high, catch high, catch count, handler array)
+            // Try blocks: (try low, try high, catch high, catch count, handler array).
             if (nTry > 0)
             {
                 var raw = new byte[nTry * 20];
@@ -374,7 +365,7 @@ public static partial class MsvcEh
                 }
             }
 
-            // IP-to-state map (x64; x86 keeps the state in the frame)
+            // IP-to-state map; x86 keeps the state in the frame.
             if (is64 && nIp > 0)
             {
                 var raw = new byte[nIp * 8];
@@ -391,11 +382,7 @@ public static partial class MsvcEh
             return d;
         }
 
-        /// <summary>
-        /// FH4 FuncInfo4: a header byte, then (by its flags) the BBT flags, unwind map, try block map, the
-        /// IP-to-state map (directly or through the segment table of separated code) and, for catch funclets, the
-        /// frame offset. Offsets are image-relative; IPs are relative to <paramref name="function"/>.
-        /// </summary>
+        /// <summary>FH4 FuncInfo4; offsets are image-relative, IPs relative to <paramref name="function"/>.</summary>
         private Decoded? FuncInfo4(uint info, uint function, List<(uint Begin, uint End)> ranges, bool probe, out string? reason)
         {
             reason = null;
@@ -417,7 +404,7 @@ public static partial class MsvcEh
 
             if (separated)
             {
-                // segment table: count, then (segment begin, IP-to-state map of that segment)
+                // Segment table: count, then (segment begin, IP-to-state map of that segment).
                 if (!_r.IsData(segments)) { reason = $"segment table {segments:X} is not in data"; return null; }
                 var s = new Fh4Cursor(_r.Window(segments, 4096));
                 uint n = s.ReadUnsigned();
@@ -454,11 +441,7 @@ public static partial class MsvcEh
             }
         }
 
-        /// <summary>
-        /// FH4 unwind map: count, then entries of (next offset &lt;&lt; 2 | type) and, by type, the action and object offset.
-        /// The next offset counts bytes back from the entry to the entry of the state it unwinds to; back to the
-        /// map's start (or 0) is no state.
-        /// </summary>
+        /// <summary>FH4 unwind map; a next offset back to the map's start (or 0) is no state.</summary>
         private bool Fh4UnwindMap(uint map, Decoded d, out string? reason)
         {
             if (!_r.IsData(map)) { reason = $"unwind map {map:X} is not in data"; return false; }
@@ -497,12 +480,12 @@ public static partial class MsvcEh
                     entries.Add(new MsvcEhUnwind(s, -1, kind, type != 0 ? action : null, obj));
                     if (type == 3) children.Add(new MsvcEhChild(action, MsvcEhChildKind.Unwind));
                 }
-                // resolve next offsets to states
+                // Resolve next offsets to states.
                 for (int s = 0; s < entries.Count; s++)
                 {
                     int position = positions[s];
                     uint back = nexts[s];
-                    // back to the start of the map (its count): no state
+                    // Back to the start of the map (its count): no state.
                     if (back == 0 || back == position) continue;
                     if (back > position || !offsets.TryGetValue(position - (int)back, out int to) || to >= s)
                         return (true, $"unwind state {s} links {back} bytes back to no earlier entry");
@@ -518,11 +501,7 @@ public static partial class MsvcEh
             return true;
         }
 
-        /// <summary>
-        /// FH4 try block map: count, then (try low, try high, catch high, handler array offset); each handler array:
-        /// count, then a header byte and by its flags the adjectives, type descriptor, catch object offset, the handler,
-        /// and zero to two continuation addresses (function-relative unless flagged as image-relative).
-        /// </summary>
+        /// <summary>FH4 try block map with handler arrays; continuations are function-relative unless flagged image-relative.</summary>
         private bool Fh4TryMap(uint map, uint function, Decoded d, out string? reason)
         {
             if (!_r.IsData(map)) { reason = $"try block map {map:X} is not in data"; return false; }
@@ -581,7 +560,7 @@ public static partial class MsvcEh
                             if (!_r.IsCode(cont)) return (true, $"catch {k}: continuation {cont:X} is not in executable code");
                         catches.Add(new MsvcEhCatch(handler, adjectives, type, null, null, catchObject, continuations));
                         children.Add(new MsvcEhChild(handler, MsvcEhChildKind.Catch));
-                        // function-relative continuations of a catch funclet's own FuncInfo4 are relative to the parent
+                        // Function-relative continuations of a catch funclet's own FuncInfo4 are relative to the parent.
                         if (!d.IsCatch || (h & 8) != 0)
                             foreach (var cont in continuations) children.Add(new MsvcEhChild(cont, MsvcEhChildKind.Continuation));
                     }

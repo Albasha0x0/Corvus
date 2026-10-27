@@ -6,11 +6,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// Node-API (N-API) registrations of a .node add-on, recovered statically: the JavaScript name each native callback is
-/// exposed under. Reads the constant arguments of napi_create_function, napi_define_properties and napi_define_class calls
-/// (property descriptor arrays in the image's data) and the napi_module of napi_module_register.
-/// </summary>
+/// <summary>Node-API registrations of a .node add-on: the JavaScript name of each native callback, from constant call arguments.</summary>
 public static class NodeApi
 {
     /// <param name="Function">RVA of the native callback.</param>
@@ -80,15 +76,11 @@ public static class NodeApi
         }
         if (CallAnalysis.Supports(index)) Setters(index, CallAnalysis.For(index), found, ct);
         if (unresolved > 0)
-            notes.Add($"{unresolved} registering call(s) with arguments not constant in the caller (built at run time, or passed in by a wrapper such as node-addon-api): get_call_arguments shows them");
+            notes.Add($"{unresolved} registering call(s) with non-constant arguments; get_call_arguments shows them");
         return new Result(found, notes);
     }
 
-    /// <summary>
-    /// node-addon-api's exports.Set("name", Function::New(env, callback)): a napi_set_named_property (or napi_set_property
-    /// after napi_create_string_utf8) whose name is constant; the callback is the last code address passed to a call of the
-    /// same function since the previous setter. A pattern, not a table: recorded with kind function and the setter as Via.
-    /// </summary>
+    /// <summary>node-addon-api exports.Set: a constant-named property setter; the callback is the last code address passed since the previous setter.</summary>
     private static void Setters(NativeCodeIndex index, CallAnalysis analysis, List<Registration> found, CancellationToken ct)
     {
         var image = index.Image;
@@ -166,10 +158,7 @@ public static class NodeApi
         return va >= image.ImageBase && va - image.ImageBase < image.SizeOfImage ? (uint)(va - image.ImageBase) : null;
     }
 
-    /// <summary>
-    /// napi_property_descriptor[count]: utf8name, name, method, getter, setter, value, attributes, data (pointer-sized fields).
-    /// Entries named by a napi_value instead of utf8name are skipped.
-    /// </summary>
+    /// <summary>Reads napi_property_descriptor[count] (8 pointer-sized fields); entries without utf8name are skipped.</summary>
     private static void Descriptors(NativeCodeIndex index, CallArgument? array, ulong? count, string? owner, string via, uint call, List<Registration> found)
     {
         var image = index.Image;

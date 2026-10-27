@@ -8,10 +8,7 @@ using static Corvus.Tests.FirmwareFilesystemTests;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Boot images (uImage, FIT, Android boot, TRX) and whole firmware images: the parts found at their offsets are carved out
-/// and opened by their own readers, down to the programs inside, the same from a stream as from memory.
-/// </summary>
+/// <summary>Boot and whole firmware images: parts carved at their offsets and opened by their readers, streamed or in memory.</summary>
 public sealed class FirmwareImageTests
 {
     private static uint Crc32(ReadOnlySpan<byte> b) => ~Crc.Raw(0xFFFFFFFF, b);
@@ -49,7 +46,7 @@ public sealed class FirmwareImageTests
         Assert.Equal("kernel", item.Name);
         Assert.Equal(kernel, item.Bytes);
         Assert.Contains("arch mips", item.Origin);
-        // headerless code gets the call that maps it
+        // Headerless code gets the call that maps it.
         var raw = Containers.Open(UImage(Gzip(new byte[4096]), arch: 22), "raw.uimage", AnalysisLimits.Default, default);
         Assert.Contains(raw.Notes, n => n.Contains("load_assembly format=raw arch=arm64 base=0x80060000 entry=0x80060000", StringComparison.Ordinal));
     }
@@ -218,7 +215,7 @@ public sealed class FirmwareImageTests
         AssertTree(Containers.Open(squash.Bytes, squash.Name, AnalysisLimits.Default, default, allFiles: true));
         var overlay = c.Items.Single(i => i.Name == "0x100000.jffs2");
         AssertTree(Containers.Open(overlay.Bytes, overlay.Name, AnalysisLimits.Default, default, allFiles: true), "version.txt 3");
-        // read as a stream, the same parts
+        // Read as a stream, the same parts.
         var streamed = Containers.OpenStream(() => new MemoryStream(dump), dump.AsSpan(0, 4096), "flash.bin", AnalysisLimits.Default, default)!;
         Assert.Equal(c.Items.Select(i => (i.Name, Blob.Sha256(i.Bytes))), streamed.Items.Select(i => (i.Name, Blob.Sha256(i.Bytes))));
     }
@@ -232,7 +229,7 @@ public sealed class FirmwareImageTests
         File.WriteAllBytes(path, FlashDump());
         var report = new UnpackService(workspace).Unpack(path, dir.File("out"), load: false, AnalysisLimits.Default, default);
         Assert.Equal("firmware image", report.Container);
-        // the root filesystem's programs, ELF files a native load reads at their own architecture
+        // The root filesystem's programs, ELF files a native load reads at their own architecture.
         var busybox = report.Files.Where(f => f.Path.Replace('\\', '/').EndsWith("_unpacked/bin/busybox", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(busybox);
         Assert.All(busybox, f => Assert.Equal("elf", f.Kind));
@@ -246,20 +243,20 @@ public sealed class FirmwareImageTests
     {
         var header = new byte[0x200];
         new Random(7).NextBytes(header);
-        // a header, then a uImage kernel and a squashfs root
+        // A header, then a uImage kernel and a squashfs root.
         var kernel = UImage(Gzip(Isa("mips32be.elf")));
         var bare = Containers.Open([.. header, .. kernel, .. FsFixture("squashfs-gzip.img")], "vendor.img", AnalysisLimits.Default, default);
         Assert.Equal("firmware image", bare.Kind);
         Assert.Contains(bare.Items, i => i.Name == "0x200.uimage");
         Assert.Contains(bare.Items, i => i.Name == $"0x{0x200 + kernel.Length:X}.squashfs");
-        // a header, then a zip holding the flash image: unpacked down to the root filesystem's programs
+        // A header, then a zip holding the flash image: unpacked down to the root filesystem's programs.
         using var dir = new TempDir();
         using var workspace = new AssemblyWorkspace(new ServerOptions());
         var path = dir.File("factory.img");
         File.WriteAllBytes(path, [.. header, .. ContainerFixtures.Zip(("flash.bin", FlashDump()))]);
         var report = new UnpackService(workspace).Unpack(path, dir.File("out"), load: false, AnalysisLimits.Default, default);
         Assert.Equal("firmware image", report.Container);
-        // the zip is read at the top level, keeping nesting levels for the filesystems inside
+        // The zip is read at the top level, keeping nesting levels for the filesystems inside.
         Assert.Contains(report.Files, f => Path.GetRelativePath(report.OutputDirectory, f.Path).Replace('\\', '/') == "flash.bin_unpacked/0x30000.squashfs_unpacked/bin/busybox");
     }
 
@@ -285,7 +282,7 @@ public sealed class FirmwareImageTests
         Assert.Contains($"0x10000 U-Boot uImage {UImage(Gzip(Isa("mips32be.elf"))).Length}", hits);
         Assert.Contains($"0x30000 squashfs (little endian) {SquashfsUsed()}", hits);
         Assert.Contains(hits, h => h.StartsWith("0x100000 JFFS2 filesystem (big endian) ", StringComparison.Ordinal));
-        // nothing is reported inside the squashfs it sized
+        // Nothing is reported inside the squashfs it sized.
         Assert.DoesNotContain(facts.Signatures, h => Convert.ToInt64(h.Offset, 16) is > 0x30000 and < 0x30000 + 4096);
     }
 
@@ -294,7 +291,7 @@ public sealed class FirmwareImageTests
     {
         var dump = new byte[0x20000];
         dump.AsSpan().Fill(0xFF);
-        // a squashfs 3.0 superblock: its 64-bit size at offset 63
+        // A squashfs 3.0 superblock: its 64-bit size at offset 63.
         var sb = dump.AsSpan(0x1000);
         "hsqs"u8.CopyTo(sb);
         BinaryPrimitives.WriteUInt32LittleEndian(sb[28..], 3);

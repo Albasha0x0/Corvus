@@ -10,10 +10,7 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// In-memory edits: visible immediately in decompile/IL/search output, written to disk only by save_assembly. Each mutating
-/// tool returns an <see cref="EditOutcome"/> naming the edit ids it recorded.
-/// </summary>
+/// <summary>In-memory .NET edits, seen by every read and written to disk only by save_assembly.</summary>
 [McpServerToolType]
 public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager,
     EditJournal? journal = null, ResultStore? results = null, ServerOptions? options = null)
@@ -62,8 +59,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Replace a method body (methods, constructors, accessors) with C# compiled against the assembly; private members accessible, " +
-                 "lambdas, LINQ, async and yield work. Errors name your lines.")]
+    [Description("Replace a method, constructor or accessor body with C# compiled against the assembly; private members are accessible. " +
+                 "Errors name your lines.")]
     public Task<string> PatchMethodCSharp(
         [Description(SymbolDescription)] string method,
         [Description("Statements of the new body only.")] string code,
@@ -81,8 +78,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Add C# members (methods, fields, properties, events, constructors, nested types) to a class or struct; private members accessible. " +
-                 "No field or property initializers.")]
+    [Description("Add C# members to a class or struct; private members are accessible. No field or property initializers.")]
     public Task<string> AddMembersCSharp(
         [Description(ToolSupport.SymbolDescription)] string type,
         [Description("C# member declarations.")] string code,
@@ -176,8 +172,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Replay an export_edits script, with each edit's outcome. Another build needs targetBuild=other: symbols by name, renames followed " +
-                 "when the source build is loaded.")]
+    [Description("Replay an export_edits script, with each edit's outcome. Another build needs targetBuild=other.")]
     public Task<string> ApplyEdits(
         [Description("The .json edit script.")] string path,
         [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,
@@ -207,12 +202,11 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rewrite a method body from IL text (stack-validated): edit the get_il lines and pass them back (syntax: guide edits). replace swaps " +
-                 "the body; prepend runs before it and can branch to its IL_xxxx labels.")]
+    [Description("Rewrite a method body from IL text, stack-validated: edit the get_il lines and pass them back (syntax: guide edits).")]
     public Task<string> PatchMethodIL(
         [Description(SymbolDescription)] string method,
         [Description("IL instructions, one per line.")] string il,
-        [Description("replace or prepend.")] string mode = "replace",
+        [Description("replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels.")] string mode = "replace",
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(DryRunDefaultTrueDescription)] bool dryRun = true,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
@@ -222,9 +216,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Clean transformed method bodies: fold (string decoders with constant inputs run in a safe IL interpreter), cfg (constant branches, " +
-                 "dead code, flattened control flow), inline (forwarders, delegate call proxies). Bodies are stack-verified; what is left has a " +
-                 "reason code (docs/simplify.md).")]
+    [Description("Clean transformed method bodies: fold (string decoders run in a safe IL interpreter), cfg (constant branches, flattened " +
+                 "control flow), inline (forwarders, call proxies). What is left has a reason code (docs/simplify.md).")]
     public Task<string> SimplifyMethods(
         [Description("Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required without symbol.")] string? assembly = null,
@@ -255,14 +248,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken));
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", UseStructuredContent = true, OutputSchemaType = typeof(EditService.SavedFile))]
-    [Description("Write an assembly and its edits to a new file, atomically (replaceOriginal=true keeps a .bak; a file changed since load is " +
-                 "refused). Untouched bodies keep their bytes; members the writer changed are listed, with reason codes (docs/saving.md).")]
+    [Description("Write an assembly and its edits to a new file, atomically; a file changed since load is refused. " +
+                 "Members the writer changed are listed with reason codes (docs/saving.md).")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output path (.wasm writes Webcil for Blazor); default ORIGINAL.patched.dll.")] string? outputPath = null,
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
         [Description("Write nothing if the writer would change any member (default: save, list them).")] bool strict = false,
-        [Description("Replace the loaded file (needs --allow-replace-original).")] bool replaceOriginal = false,
+        [Description("Replace the loaded file, keeping a .bak (needs --allow-replace-original).")] bool replaceOriginal = false,
         [Description("Write NAME.N.dll, the first free N.")] bool versioned = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
@@ -273,10 +266,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return ToolOutput.Report(report, saved);
     }, cancellationToken);
 
-    /// <summary>
-    /// Runs an edit and returns its outcome: the edits it recorded (none for a dry run), the changes <paramref name="changes"/>
-    /// names (given the edits recorded), and the text with the edit ids and the pending count, or how to apply a preview.
-    /// </summary>
+    /// <summary>Runs an edit: the edits it recorded (none for a dry run), its changes, and text with the edit ids and pending count.</summary>
     private static string Outcome(LoadedAssembly asm, bool dryRun, Func<string> edit, Func<IReadOnlyList<EditRecord>, IReadOnlyList<EditChange>> changes)
     {
         int before = asm.Edits.Count;
@@ -311,10 +301,7 @@ public sealed record EditListItem(int Number, string EditId, string Tool, string
 
 public sealed record EditList(string Assembly, IReadOnlyList<EditListItem> Items, int Offset, int Total);
 
-/// <summary>
-/// The output schema of the single edits: the fields of <see cref="EditOutcome"/> a caller acts on (the record carries the
-/// rest); kept small because every tool's schema is sent in tools/list.
-/// </summary>
+/// <summary>Output schema of the single edits: the <see cref="EditOutcome"/> fields a caller acts on, kept small for tools/list.</summary>
 public sealed record EditResult(bool Applied, bool DryRun, IReadOnlyList<EditResult.Change> Changes, IReadOnlyList<string> EditIds)
 {
     public sealed record Change(string Kind, string Target);

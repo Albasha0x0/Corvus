@@ -5,11 +5,7 @@ using System.Xml;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// ECMA-376 document encryption (MS-OFFCRYPTO 2.3.4.5 standard and 2.3.4.10 agile): an encrypted OOXML package is opened
-/// with the passwords olevba tries: Excel's and PowerPoint's built-in ones (which documents saved without a user password
-/// carry) and five short numeric ones; any other password leaves it encrypted.
-/// </summary>
+/// <summary>ECMA-376 standard and agile encryption, opened with the passwords olevba tries (Excel's and PowerPoint's defaults, five short numeric ones); any other leaves it encrypted.</summary>
 internal static class OfficeCrypto
 {
     public static readonly string[] Passwords = ["VelvetSweatshop", "/01Hannes Ruescher/01", "123", "1234", "12345", "123456", "4321"];

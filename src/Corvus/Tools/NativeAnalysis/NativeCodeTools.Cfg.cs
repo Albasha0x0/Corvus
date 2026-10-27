@@ -95,10 +95,7 @@ public sealed partial class NativeCodeTools
     /// <summary>A block of get_cfg: its row (with its switch and unresolved jump lines) and its record.</summary>
     internal sealed record CfgRow(CfgBlock Block, uint Start, uint End, string Line);
 
-    /// <summary>
-    /// get_cfg's page (shared by both engines): block rows from offset, the switches and unresolved jumps of the page's blocks,
-    /// and a summary of the whole function.
-    /// </summary>
+    /// <summary>get_cfg's page for both engines: block rows from offset, their switches and unresolved jumps, and a function summary.</summary>
     internal static string CfgPage(string image, string function, string address, EngineChoice choice, string title, List<CfgRow> rows,
         List<(uint Jump, CfgSwitch Switch)> switches, List<(uint At, CfgUnresolvedJump Jump)> unresolved, IReadOnlyList<string> tailCalls, bool cut,
         int offset, int limit)

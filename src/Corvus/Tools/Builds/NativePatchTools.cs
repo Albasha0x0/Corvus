@@ -13,7 +13,7 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
-/// <summary>A native image's byte patches outside the session: export for IDA / patchers, and migration to a new build.</summary>
+/// <summary>Exports a native image's byte patches and carries them to a new build.</summary>
 [McpServerToolType]
 public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, EditJournal? journal = null)
 {
@@ -36,13 +36,12 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
     }, ct);
 
     [McpServerTool(Name = "export_native_patches", Title = "Export native patches", UseStructuredContent = true, OutputSchemaType = typeof(PatchExportReport))]
-    [Description("Write the image's byte patches for other tools: ida an IDAPython script (at rebased RVAs, where the original bytes are found), dif " +
-                 "an IDA .dif, ips (offsets below 16 MB) or ips32, json the full set (for migrate_native_patches). Relocation edits and PE checksum " +
-                 "included: a .dif or IPS applied to the original gives the save_native bytes.")]
+    [Description("Write the image's byte patches as an IDAPython script, an IDA .dif, IPS or a JSON set for migrate_native_patches. " +
+                 "Relocation edits and the PE checksum are included.")]
     public async Task<string> ExportNativePatches(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
-        [Description("Default json.")] string? format = null,
+        [Description("Default json; ips takes offsets below 16 MB.")] string? format = null,
         [Description("Overwrite outputPath.")] bool overwrite = false,
         CancellationToken cancellationToken = default)
     {
@@ -96,9 +95,8 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "migrate_native_patches", Title = "Migrate patches to a new build", UseStructuredContent = true, OutputSchemaType = typeof(MigrationPatchReport))]
-    [Description("Carry byte patches from an old build to a new one via the build match (compare_native_images). A patch is reapplied only where " +
-                 "the mapped address holds the original bytes (patch_asm patches re-assembled), else refused with a reason code. Same image " +
-                 "as old and new, with patchSet: replays it.")]
+    [Description("Carry byte patches from an old build to a new one through the function match. A patch applies only where the mapped " +
+                 "address holds its original bytes, else is refused; the same image twice with patchSet replays the set.")]
     public Task<string> MigrateNativePatches(
         [Description("Old build: image id or path (its in-memory patches are the source unless patchSet).")] string oldImage,
         [Description("New build: image id or path (the second load gets an id like name#2).")] string newImage,
@@ -153,7 +151,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             source = "in_memory";
         }
 
-        // the match is on both builds' original bytes; the live new index is rebuilt after each applied patch so later patches see earlier ones
+        // The match uses original bytes; the new index is rebuilt after each patch so later patches see earlier ones.
         var pair = sameBuild ? null : await pairs.Match(oldImage, newImage, new MatchOptions { UseNames = !codeOnly }, progress.Part(0, 0.8), cancellationToken);
         var newIndex = pair?.NewIndex ?? (await pairs.Open(newImage, progress.Part(0, 0.8), cancellationToken)).Index;
         var oldIndex = pair?.OldIndex ?? newIndex;

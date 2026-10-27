@@ -74,7 +74,7 @@ public sealed partial class DeviceService
         ];
     }
 
-    // "com.example.app/com.example.app.Main" or "com.example.app/.Main" inside a window or activity record
+    // Matches "com.example.app/com.example.app.Main" or "com.example.app/.Main" in a window or activity record.
     [GeneratedRegex(@"\b([A-Za-z][\w]*(?:\.[\w]+)+)/(\.?[\w.$]+)")]
     private static partial Regex Component();
 
@@ -91,7 +91,7 @@ public sealed partial class DeviceService
                 activity = (m.Groups[1].Value, m.Groups[2].Value.StartsWith('.') ? m.Groups[1].Value + m.Groups[2].Value : m.Groups[2].Value);
         }
         var lines = Lines(serial, "window", "reading the window state").Select(l => l.Trim()).ToList();
-        // the app first: a dialog or the IME can hold window focus while the activity stays focused
+        // The app first: a dialog or the IME can hold window focus while the activity stays focused.
         foreach (var (key, name) in new[] { ("mFocusedApp=", "focused app"), ("mCurrentFocus=", "focused window") })
             if (lines.FirstOrDefault(l => l.StartsWith(key, StringComparison.Ordinal)) is { } line) Take(line, name);
         if (activity == null)
@@ -127,7 +127,7 @@ public sealed partial class DeviceService
         return rows;
     }
 
-    // "DisplayDeviceInfo{"Built-in Screen": uniqueId=..., 1080 x 2400, modeId 1, ...}"
+    // Matches DisplayDeviceInfo{"Built-in Screen": uniqueId=..., 1080 x 2400, modeId 1, ...}.
     [GeneratedRegex(@"DisplayDeviceInfo\{""([^""]*)"":?\s*(.*)\}\s*$")]
     private static partial Regex DisplayDevice();
 
@@ -150,17 +150,14 @@ public sealed partial class DeviceService
         return rows;
     }
 
-    /// <summary>
-    /// A bugreport in a new or empty directory: the zip streamed by bugreportz -s (Android 9+); else the zip bugreportz writes
-    /// on the device, pulled after a size check; else (before Android 7) the text report. Each is held to <see cref="MaxBugreportBytes"/>.
-    /// </summary>
+    /// <summary>Writes a bugreport to a new or empty directory: streamed zip (Android 9+), pulled zip, or text (before Android 7), each bounded by <see cref="MaxBugreportBytes"/>.</summary>
     private List<AndroidProperty> Bugreport(string serial, string? outputPath, CancellationToken ct)
     {
         var dir = EmptyDirectory(outputPath is { Length: > 0 } p ? p : Path.Combine(Path.GetTempPath(), "corvus-device", $"{SafeSerial(serial)}-bugreport-{Stamp()}"));
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var name = $"bugreport-{SafeSerial(serial)}-{Stamp()}";
         var zip = Path.Combine(dir, name + ".zip");
-        // a device without bugreportz -s answers with usage text or an error: not a failure yet
+        // A device without bugreportz -s answers with usage text or an error, which is not a failure yet.
         var (_, size, sha) = Stream(ExternalTools.Arguments(Adb, "bugreport-stream", ("serial", serial)), zip, MaxBugreportBytes, "collecting the bugreport", ct, check: false);
         var method = "bugreportz -s (streamed)";
         if (!IsZip(zip))

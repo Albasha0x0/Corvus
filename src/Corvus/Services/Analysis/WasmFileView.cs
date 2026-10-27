@@ -29,7 +29,7 @@ internal sealed class WasmFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         if (!WasmModule.IsWasm(file.Head)) return null;
-        // a component's facts are its largest core module's: the program, beside adapters and shims
+        // A component's facts are its largest core module's: the program, not its adapters and shims.
         var cores = Core.WebAssembly.WasmComponent.Looks(file.Head) ? Core.WebAssembly.WasmComponent.CoreModules(file.Bytes) : null;
         var world = cores != null ? Core.WebAssembly.WasmWorld.Read(file.Bytes, ct) : null;
         var main = cores is { Count: > 0 } ? cores.MaxBy(c => c.Length) : default;
@@ -39,7 +39,7 @@ internal sealed class WasmFileView : IFileSummaryView
         var binary = Core.WebAssembly.WasmBinary.Read(bytes, ct);
         if (compact != null)
         {
-            // sizes as the file has them; the bulk left out is named
+            // Section sizes as the file has them; the bulk left out is named.
             m.Sections.Clear();
             m.Sections.AddRange(compact.Sections);
         }

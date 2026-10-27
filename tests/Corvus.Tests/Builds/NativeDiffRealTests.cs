@@ -9,11 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Build matching on real pairs of builds found at run time: versions of one DLL in a local symbol store (C:\symbols,
-/// with their PDBs) and side-by-side .NET runtimes. Functions named alike in both builds' PDBs (or exports) are the
-/// ground truth; the matcher runs without names and is scored per tier.
-/// </summary>
+/// <summary>Build matching on real build pairs found at run time, scored per tier against functions named alike in both builds' PDBs or exports.</summary>
 [Trait("Speed", "Slow")]
 public class NativeDiffRealTests(ITestOutputHelper output)
 {
@@ -29,7 +25,7 @@ public class NativeDiffRealTests(ITestOutputHelper output)
             {
                 var name = Path.GetFileName(dir);
                 var files = Directory.EnumerateDirectories(dir).Select(d => Path.Combine(d, name)).Where(File.Exists).ToList();
-                // the installed copies are builds too (their PDB is often in the store)
+                // The installed copies are builds too (their PDB is often in the store).
                 var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
                 files.AddRange(new[] { "System32", "SysWOW64" }.Select(s => Path.Combine(windows, s, name)).Where(File.Exists));
                 if (files.Count > 1) groups.Add((name, files));
@@ -61,7 +57,7 @@ public class NativeDiffRealTests(ITestOutputHelper output)
             foreach (var arch in images.GroupBy(i => i.Pe.Arch).Where(g => g.Key is NativeArch.X64 or NativeArch.X86))
             {
                 var ordered = arch.Where(i => i.Pdb || name is "coreclr.dll" or "clrjit.dll").DistinctBy(i => i.Version).OrderBy(i => i.Version).ToList();
-                // same major.minor only: a pair from one release line
+                // Same major.minor only: a pair from one release line.
                 for (int k = 1; k < ordered.Count; k++)
                 {
                     if (ordered[k].Version >> 32 != ordered[k - 1].Version >> 32) continue;
@@ -83,7 +79,7 @@ public class NativeDiffRealTests(ITestOutputHelper output)
         var (newIndex, newNames, _) = Load(newPath, ct);
         var match = BuildMatcher.Match(ImagePrints.Build(oldIndex, ct), ImagePrints.Build(newIndex, ct), new MatchOptions { UseNames = false }, ct);
 
-        // truth: a name unique among the functions of each build
+        // Truth: a name unique among the functions of each build.
         Dictionary<string, int> Unique(ImagePrints prints, Dictionary<uint, string> names)
         {
             var result = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -109,7 +105,7 @@ public class NativeDiffRealTests(ITestOutputHelper output)
             else if (truthTargets.Contains(p.New)) wrong[p.Tier]++;
         }
 
-        // why truth pairs were missed
+        // Why truth pairs were missed.
         var missed = new Dictionary<string, int>();
         foreach (var (o, n) in truth)
         {
@@ -124,7 +120,7 @@ public class NativeDiffRealTests(ITestOutputHelper output)
             missed[why] = missed.GetValueOrDefault(why) + 1;
         }
 
-        // address mapping: instructions inside truth pairs whose functions are byte-identical after masking map to the same index
+        // Address mapping: instructions inside truth pairs whose functions are byte-identical after masking map to the same index.
         var mapper = new AddressMapper(match);
         int tried = 0, mapped = 0;
         var decoderOld = new MaskedDecoder(oldIndex.Image);
@@ -139,7 +135,7 @@ public class NativeDiffRealTests(ITestOutputHelper output)
             tried++;
             if (mapper.Map(oldCode[k].Rva, ct).NewRva == newCode[k].Rva) mapped++;
         }
-        // code patterns made in the old build, searched in the new one: found once at the counterpart
+        // Code patterns made in the old build, searched in the new one: found once at the counterpart.
         var patterns = new Dictionary<string, int>();
         var newSections = CodePatterns.CodeSections(newIndex.Image);
         foreach (var (o, n) in truth.Where((_, i) => i % Math.Max(1, truth.Count / 100) == 0).Take(100))

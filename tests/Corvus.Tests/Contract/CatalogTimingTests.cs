@@ -4,10 +4,7 @@ using ModelContextProtocol.Client;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// SC-11 latency: initialize ≤ 1 s and tools/list p50 ≤ 50 ms over stdio on a quiet machine (MachineLoad scales both). CORVUS_SERVER_EXE names a published server to
-/// time (the release figure); without it the test build runs through dotnet and only tools/list is held to its target.
-/// </summary>
+/// <summary>initialize within 1 s and tools/list p50 within 50 ms over stdio, scaled by MachineLoad; CORVUS_SERVER_EXE times a published server, else only tools/list is held.</summary>
 [Trait("Speed", "Slow")]
 public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
 {
@@ -15,7 +12,7 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
 
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task InitializeAndToolsListAreFast()
+    public async Task Initialize_and_tools_list_stay_within_their_time_budget()
     {
         var exe = Environment.GetEnvironmentVariable(ServerExeVariable);
         using var dir = new TempDir();
@@ -46,8 +43,7 @@ public class CatalogTimingTests(Xunit.Abstractions.ITestOutputHelper output)
         PerfBudget.AtMost("catalog/tools-list-p50", p50, 50, "ms", output, load);
         if (exe != null) PerfBudget.Time("catalog/initialize", initialize, TimeSpan.FromSeconds(1), output, load);
 
-        // tools/list is answered from one serialized listing, not from the tools on each request. The start-up task or
-        // the first request builds it: under load the task can start after the first read (push run on 6bc63376).
+        // tools/list is answered from one serialized listing; under load the start-up task can begin after the first read (push run on 6bc63376).
         await using var server = await InProcessServer.StartAsync();
         var mcp = server.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ModelContextProtocol.Server.McpServerOptions>>().Value;
         var (_, served) = Corvus.Mcp.ToolListCache.Counts(mcp);

@@ -7,12 +7,9 @@ namespace Corvus.Services.Analysis;
 /// <summary>A feature traced from a literal: the file it is in, the literal, and the steps to where the chain ends.</summary>
 internal sealed record FeatureTrace(string File, string Literal, IReadOnlyList<string> Steps, string? Addon, string? Function);
 
-/// <summary>
-/// search_container kind=feature: a UI or log literal followed through the app. The literal's handler (a sibling
-/// on*/click/action function in the same object, as compiled JSX props and menu templates hold them, else the enclosing
-/// function) and the functions it calls in that file (three levels); the IPC sends, bridge calls and native calls they
-/// reach; each channel to its main-process handler and what that reaches; each native call to the add-on function.
-/// </summary>
+/// <summary>search_container kind=feature: a UI or log literal traced through its handler to IPC, bridge, sink and native calls.</summary>
+// The handler is a sibling on*/click/action function in the same object (JSX props, menu templates), else the
+// enclosing function; calls are followed three levels in the file, channels to their main-process handler.
 internal sealed partial class ElectronGraph
 {
     private const int MaxSeeds = 20, MaxReached = 60, MaxTraces = 200;
@@ -43,7 +40,7 @@ internal sealed partial class ElectronGraph
                 ct.ThrowIfCancellationRequested();
                 var steps = new List<string> { $"literal \"{Clip(value)}\" at {p.Site(literal)}" };
                 if (Handlers(p, literal, objects, steps) is { } handlers && Follow(p, handlers, steps, traces, file, value, 0, ct)) continue;
-                // a callback's literal (console.log in onConnect) leads nowhere itself: the functions around it, innermost first
+                // A callback's literal (console.log in onConnect) leads nowhere itself: try the functions around it, innermost first.
                 var outer = Enclosing(p, literal);
                 bool reached = false;
                 foreach (var (fn, fnScope) in outer.Take(3))
@@ -64,7 +61,8 @@ internal sealed partial class ElectronGraph
     /// <summary>Function-valued siblings of the literal in its object (onClick, click, action, handler...).</summary>
     private static List<(Node Function, JsScope Scope)>? Handlers(JsProgram p, Node literal, List<(ObjectExpression Object, JsScope Scope)> objects, List<string> steps)
     {
-        for (int i = objects.Count - 1; i >= 0; i--) // innermost first
+        // Innermost first.
+        for (int i = objects.Count - 1; i >= 0; i--)
         {
             var (o, scope) = objects[i];
             if (o.Start > literal.Start || o.End < literal.End) continue;
@@ -89,7 +87,7 @@ internal sealed partial class ElectronGraph
         var found = new List<(Node, JsScope)>();
         p.Walk((node, scope) =>
         {
-            // a module wrapper spanning most of a large file reaches everything: not a lead
+            // A module wrapper spanning most of a large file reaches everything, so it is skipped.
             if (node is IFunction && node.Start <= literal.Start && literal.End <= node.End && scope.Factory == null
                 && !(p.Text.Length > 20_000 && node.End - node.Start > p.Text.Length / 2)) found.Add((node, scope));
         }, default);

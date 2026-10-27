@@ -2,12 +2,7 @@ using System.Diagnostics;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// Migration only: the install scripts' layout from before the rename, &lt;LocalAppData&gt;\NetDecompilerMcp on Windows (data
-/// shared the folder) and $XDG_DATA_HOME/net-decompiler-mcp elsewhere, with NetDecompilerMcp(.exe) on PATH. Its update
-/// fetches the release asset named for it and runs current/NetDecompilerMcp(.exe) install, a copy of this program; that
-/// run moves the program to the current layout. An install from the current layout removes what is left of the old one.
-/// </summary>
+/// <summary>Migration only: the install layout from before the rename, moved to the current layout on its next install or update.</summary>
 internal static class LegacyInstall
 {
     public static string ExeName => OperatingSystem.IsWindows() ? "NetDecompilerMcp.exe" : "NetDecompilerMcp";
@@ -18,11 +13,7 @@ internal static class LegacyInstall
     /// <summary>Whether <paramref name="root"/> is the old layout's install root.</summary>
     public static bool IsRoot(SetupEnvironment env, string root) => SamePath(root, Root(env));
 
-    /// <summary>
-    /// When this process runs from the old layout: copies its build to the current layout, puts that on PATH instead, runs
-    /// <paramref name="args"/> there (the install that renames registrations to the new program; its first start moves
-    /// the data) and removes the old program files. Null when this process is not in the old layout.
-    /// </summary>
+    /// <summary>From the old layout: copies the build to the current layout, runs <paramref name="args"/> there and removes the old files; else null.</summary>
     public static int? Relocate(string[] args, TextWriter output, SetupEnvironment env)
     {
         if (Installation.Root() is not { } root || !IsRoot(env, root)) return null;
@@ -56,10 +47,7 @@ internal static class LegacyInstall
         return code;
     }
 
-    /// <summary>
-    /// Removes the old layout's program files, its PATH entry or ~/.local/bin link, and the folder once empty; data there
-    /// was moved by the data folder's migration. Null when there is no old install.
-    /// </summary>
+    /// <summary>Removes the old layout's program files, PATH entry or link and the empty folder; null when there is no old install.</summary>
     public static string? Remove(SetupEnvironment env, string newRoot)
     {
         var root = Root(env);
@@ -69,10 +57,8 @@ internal static class LegacyInstall
         return root;
     }
 
-    /// <summary>
-    /// Deletes each old build no process runs from (a folder holding a running program cannot be renamed on Windows; a
-    /// half-deleted one would fail its server), then current and the folders once empty.
-    /// </summary>
+    /// <summary>Deletes each old build no process runs from, then current and the empty folders.</summary>
+    // Windows cannot rename a folder holding a running program, and a half-deleted build would fail its server.
     internal static void RemoveVersions(string root)
     {
         var versions = Path.Combine(root, "versions");

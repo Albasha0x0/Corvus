@@ -19,7 +19,7 @@ namespace Corvus.Tools;
 public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeNamePush? names = null,
     NativeCodeService? code = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null, NotesService? notes = null)
 {
-    /// <summary>The native image named by id or path (loaded by path when needed).</summary>
+    /// <summary>The native image named by id or path, loaded by path when needed.</summary>
     internal static LoadedNative ResolveImage(AssemblyWorkspace workspace, string image)
     {
         return Targets.Native(workspace, image);
@@ -58,9 +58,8 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<CppClass> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI", UseStructuredContent = true, OutputSchemaType = typeof(CppClassList))]
-    [Description("C++ classes from RTTI (MSVC on PE, Itanium on ELF, Mach-O): demangled names, bases (offsets, virtual, multiple inheritance), " +
-                 "vftables with slot targets; rejects by reason. Delphi, Free Pascal: VMT classes. Mach-O: ObjC classes, categories, protocols, Swift " +
-                 "types. engine=ghidra: its class namespaces; ida: its C++ structs.")]
+    [Description("C++ classes from RTTI with bases and vftables; also Delphi / Free Pascal VMT classes and Mach-O ObjC and Swift types. " +
+                 "engine=ida or ghidra lists that engine's classes.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name substring (case-insensitive).")] string? filter = null,
@@ -68,7 +67,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max classes.")] int limit = 100,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        [Description("auto or ours (default: RTTI), ida or ghidra.")] string? engine = null,
+        [Description("Class source (default auto: RTTI).")] string? engine = null,
         [Description("engine=ghidra: plain namespaces and libraries too.")] bool namespaces = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
@@ -143,7 +142,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         var (native, _) = Resolve(image, "rva:0");
         var result = native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken));
         var pe = native.Image;
-        // slot targets are named from the code index, built for this when it is not yet
+        // Slot targets are named from the code index, built here when not ready.
         var index = !slots || code == null ? null : code.Ready(native) ?? code.Index(native, null, cancellationToken).GetAwaiter().GetResult();
         var classes = result.Classes.Where(c => filter == null || c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
         int pascalCount = result.Classes.Count(c => c.Pascal != null);
@@ -168,7 +167,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
             foreach (var v in c.Vtables)
             {
                 sb.Append($"\n  vftable {NativeAddress.Va(pe, v.VftableRva)} for subobject +0x{v.Offset:X}: {Plural(v.SlotRvas.Count, "slot")}");
-                // Object Pascal slots are listed by name with the VMT data
+                // Object Pascal slots are listed by name with the VMT data.
                 if (slots && c.Pascal == null)
                     for (int i = 0; i < v.SlotRvas.Count; i++)
                         sb.Append($"\n    [{i}] {(v.SlotRvas[i] == 0 ? "(import)" : NativeAddress.Va(pe, v.SlotRvas[i]))}" +
@@ -224,9 +223,8 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
-    [Description("Check imports against library exports. .NET: each P/Invoke by the runtime lookup (search order, API sets, A/W, stdcall names, " +
-                 "ordinals, forwarders, RID, __Internal) and run-time loading in IL. Mach-O: each load command as dyld resolves it. Verdicts: " +
-                 "verified, contradicted (with reason), unresolved, dynamic_only, not_checked.")]
+    [Description("Check P/Invoke declarations (or Mach-O load commands) against library exports, as the loader resolves them. " +
+                 "Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.")]
     public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only this verdict or reason (contradicted, missing_export...).")] string? status = null,
@@ -237,7 +235,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
-        // a loaded Mach-O image (no managed assembly of that name): its load commands and bound symbols
+        // A loaded Mach-O image with no managed assembly of that name.
         var macho = workspace.Read(() =>
         {
             if (workspace.FindNative(assembly) is not { Image: Native.MachO.MachOFile } n) return null;
@@ -264,15 +262,12 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         if (checks.Count == 0) notes.Add($"{asm.Id} declares no P/Invoke methods.");
         if (filter != null && !NativeImportVerifier.Statuses.Contains(filter) && selected.Count == 0 && checks.Count > 0)
             notes.Add($"No declaration has status or reason '{filter}'.");
-        notes.Add("A declaration that is unresolved or contradicted statically does not rule out dynamic loading: native code can also be loaded at run " +
-                  "time (NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, a DllImportResolver), by this assembly (dynamicLoads lists what its IL does) " +
-                  "or by another one in the process.");
+        notes.Add("Unresolved or contradicted does not rule out run-time loading, by this assembly (dynamicLoads) or another in the process.");
         if (result.DynamicTruncated) notes.Add("dynamicLoads stopped at 2000 call sites.");
         if (!result.Platform.IsWindows || result.Platform.Source != "default")
             notes.Add($"Target platform: {result.Platform.Os}{(result.Platform.Rid != null ? $" ({result.Platform.Rid})" : "")}, from {result.Platform.Source}.");
         if (!OperatingSystem.IsWindows() && result.Platform.IsWindows)
-            notes.Add("This host has no Windows system DLLs: DLLs next to the assembly are checked (exports, ordinals, forwarders); declarations bound to " +
-                      "system DLLs are unresolved (system_dll_not_on_host).");
+            notes.Add("No Windows system DLLs on this host: declarations bound to them are unresolved (system_dll_not_on_host).");
         var loads = result.DynamicLoads.Take(20).ToList();
         var head = new StringBuilder($"{asm.Id}: {Plural(checks.Count, "P/Invoke declaration")}" + (counts.Count > 0
             ? ": " + string.Join(", ", counts.Select(c => $"{c.Count} {c.Status} ({c.Reason})")) : "") + "\n");
@@ -302,8 +297,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         var counts = checks.Where(c => c.EntryPoint.Length == 0).GroupBy(c => (c.Status, c.Reason)).OrderBy(g => Array.IndexOf(NativeImportVerifier.Statuses, g.Key.Status))
             .Select(g => new VerdictCount(g.Key.Status, g.Key.Reason, g.Count())).ToList();
         int libraries = checks.Count(c => c.EntryPoint.Length == 0);
-        List<string> notes = ["Mach-O mode: each load command resolved as dyld does (@rpath, @loader_path, @executable_path), its slice and compatibility version " +
-                              "checked, and the symbols bound to it looked up in its exports; system libraries live in the dyld shared cache and are not checked."];
+        List<string> notes = ["Load commands resolved as dyld does; libraries in the dyld shared cache are not checked."];
         var head = $"{native.Id}: {Plural(libraries, "load command")}" + (counts.Count > 0 ? ": " + string.Join(", ", counts.Select(c => $"{c.Count} {c.Status} ({c.Reason})")) : "") + "\n";
         var page = selected.Skip(offset).Take(limit).ToList();
         return ToolOutput.List(page, offset, limit, selected.Count,

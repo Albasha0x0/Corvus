@@ -5,28 +5,16 @@ namespace Corvus.Native;
 /// <summary>One signature's hits in a region, and how many chance alone would give.</summary>
 public sealed record SignatureCount(string Name, int Hits, double Expected);
 
-/// <summary>
-/// An instruction set a headerless region reads as. <see cref="Score"/> is the signature hits above twice chance per
-/// 64 KiB, each signature capped at <see cref="RawCandidates.SignatureCap"/>; a signature another instruction set shares
-/// counts only once one of this set's own clears chance. <see cref="Evidence"/> lists each signature.
-/// </summary>
+/// <summary>An instruction set a headerless region reads as; <see cref="Score"/> is signature hits above twice chance per 64 KiB.</summary>
 public sealed record IsaCandidate(string Arch, double Score, IReadOnlyList<SignatureCount> Evidence);
 
-/// <summary>
-/// A load base for a region: <see cref="Votes"/> distinct pointer values that land on a string start when the region is
-/// mapped at <see cref="Base"/>, less those that land inside a string; <see cref="Strings"/> of the region's strings
-/// referenced from a start; <see cref="Source"/> is
-/// "pointers" or "vector table" (a Cortex-M reset handler and its neighbours, votes 0).
-/// </summary>
+/// <summary>A load base: <see cref="Votes"/> pointers landing on string starts less those inside strings; <see cref="Source"/> "pointers" or "vector table" (a Cortex-M reset handler, votes 0).</summary>
 public sealed record BaseCandidate(ulong Base, int Votes, int Strings, string Source);
 
 /// <summary>The load bases a region's pointers imply for one instruction set, best first, with what bounded the count.</summary>
 public sealed record BaseReport(IReadOnlyList<BaseCandidate> Bases, int Pointers, int Targets, bool Clear, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// Reads headerless code (firmware, a memory region) for the instruction sets it can be and the load bases its absolute
-/// pointers imply. Pure and bounded: nothing is decoded or run; every limit reached is named in the notes.
-/// </summary>
+/// <summary>Scores headerless code for its instruction set and load base; pure and bounded, nothing is decoded or run, and every limit reached is named in the notes.</summary>
 public static class RawCandidates
 {
     /// <summary>Lowest score a candidate is reported with; data and text stay under 2.</summary>
@@ -88,8 +76,7 @@ public static class RawCandidates
             new("movem.l <regs>, -(sp)", Unit.Be16, 0x48E7, 0xFFFF)]),
     ];
 
-    // A signature with the same encoding in another instruction set (c.ret in riscv32 and riscv64) tells them apart only
-    // through the signatures each has alone.
+    // A signature shared with another instruction set counts only once one of the set's own clears chance.
     private static readonly bool[][] Shared = [.. Table.Select(t => t.Signatures.Select(s =>
         Table.Count(o => o.Signatures.Any(x => x.Unit == s.Unit && x.Value == s.Value && x.Mask == s.Mask &&
                                                (x.Bytes ?? []).AsSpan().SequenceEqual(s.Bytes ?? []))) > 1).ToArray())];
@@ -165,8 +152,7 @@ public static class RawCandidates
         Words(halves, 1, 2, byUnit[(int)Unit.Le32At2], counts, little ? Order.Low : Order.LowSwapped, ct);
     }
 
-    // How a unit's value is built from halfwords read in host order: Low puts the first halfword in the low half, High
-    // in the high half (a Thumb-2 instruction); Swapped reverses the bytes of the value read.
+    // Where the first host-order halfword goes (High for Thumb-2); Swapped reverses the bytes.
     private enum Order { Low, LowSwapped, High, HighSwapped }
 
     // Signatures are indexed by the bits every mask of the unit tests, so most words cost one table read.
@@ -225,12 +211,7 @@ public static class RawCandidates
         }
     }
 
-    /// <summary>
-    /// The load bases <paramref name="data"/>'s aligned pointers imply when read as <paramref name="isa"/>, best first:
-    /// each distinct pointer value votes for every <see cref="BaseAlignment"/>-aligned base that puts it on a string start,
-    /// and the best bases lose a vote for each pointer value they put inside a string.
-    /// A Thumb image starting with a Cortex-M vector table adds the base its handlers imply. 16-bit code is not searched.
-    /// </summary>
+    /// <summary>The load bases the aligned pointers of <paramref name="data"/> imply, best first; 16-bit code is not searched.</summary>
     public static BaseReport Bases(ReadOnlySpan<byte> data, RawArch isa, CancellationToken ct = default)
     {
         var notes = new List<string>();
@@ -306,8 +287,7 @@ public static class RawCandidates
         return [.. runs.OrderByDescending(r => r.Item2).ThenBy(r => r.Item1).Take(MaxRanked)];
     }
 
-    // NUL-preceded printable runs of MinString or more bytes ending in NUL, the targets string pointers name; their
-    // other bytes are set in inside.
+    // NUL-delimited printable runs of at least MinString bytes; their non-first bytes are set in inside.
     private static int[] Strings(ReadOnlySpan<byte> data, System.Collections.BitArray inside, List<string> notes, CancellationToken ct)
     {
         var found = new List<int>();
@@ -354,11 +334,7 @@ public static class RawCandidates
         return values;
     }
 
-    /// <summary>
-    /// The base a Cortex-M vector table at the start of a Thumb image implies: an aligned initial stack pointer, an odd
-    /// reset handler, and vectors 2 to 15 each zero or odd. The base is the handlers' lowest address rounded down to
-    /// the image size's power of two, so every handler lands inside; null without such a table.
-    /// </summary>
+    /// <summary>The base a Cortex-M vector table at the start of a Thumb image implies; null without such a table.</summary>
     public static ulong? VectorTableBase(ReadOnlySpan<byte> data, RawArch isa)
     {
         if (!isa.Thumb || isa.BigEndian || data.Length < 64) return null;

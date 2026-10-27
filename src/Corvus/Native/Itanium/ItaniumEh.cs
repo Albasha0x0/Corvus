@@ -9,10 +9,7 @@ namespace Corvus.Native.Itanium;
 /// <param name="Actions">"cleanup", "catch (T)", "catch (...)" or "throw() filter", in the order the personality tries them.</param>
 public sealed record ItaniumCallSite(uint Start, uint End, uint? LandingPad, IReadOnlyList<string> Actions);
 
-/// <summary>
-/// The exception handling of one function: where its unwind data comes from, the personality routine, its LSDA
-/// (.gcc_except_table / __gcc_except_tab) and the call-site table read from it.
-/// </summary>
+/// <summary>One function's exception handling: unwind data source, personality routine, LSDA and its call-site table.</summary>
 /// <param name="Source">"DWARF CFI" (.eh_frame / __eh_frame), "compact unwind" (__unwind_info) or "ARM EHABI" (.ARM.exidx / .ARM.extab).</param>
 public sealed record ItaniumEhFunction(uint Begin, uint End, string Source, string? Personality, uint? Lsda, IReadOnlyList<ItaniumCallSite> CallSites,
     IReadOnlyList<string> Notes);
@@ -54,12 +51,7 @@ public sealed class ItaniumEhTable
     }
 }
 
-/// <summary>
-/// Itanium C++ ABI exception handling on ELF and Mach-O: .eh_frame FDEs (CIE augmentation: personality, LSDA), Mach-O
-/// compact unwind entries (personality index, LSDA index), 32-bit ARM .ARM.exidx / .ARM.extab entries (EHABI personality,
-/// unwind opcodes, the LSDA of a generic personality), the LSDA call-site, action and type tables, and the frame a
-/// function's CFA rules or unwind opcodes describe (for the dossier).
-/// </summary>
+/// <summary>Itanium C++ ABI exception handling on ELF and Mach-O: .eh_frame, compact unwind and .ARM.exidx entries, LSDA tables and frames.</summary>
 public static class ItaniumEh
 {
     private const int MaxFdes = 1 << 20;
@@ -68,10 +60,7 @@ public static class ItaniumEh
 
     public static ItaniumEhTable Of(INativeImage image) => Tables.GetValue(image, i => Build(i, names: true));
 
-    /// <summary>
-    /// The landing pads of every function with exception tables, with whether one catches (else it only cleans up). Not cached
-    /// and without names: the code index reads it once per build.
-    /// </summary>
+    /// <summary>Every function's landing pads and whether each catches; not cached, the code index reads it once per build.</summary>
     internal static List<(uint Function, uint Pad, bool Catches)> LandingPads(INativeImage image) =>
         [.. Build(image, names: false).Functions.SelectMany(f => f.CallSites.Where(c => c.LandingPad != null)
             .Select(c => (f.Begin, c.LandingPad!.Value, c.Actions.Any(a => a.StartsWith("catch", StringComparison.Ordinal)))))];
@@ -153,7 +142,7 @@ public static class ItaniumEh
     private sealed class Lsda(INativeImage image, Dictionary<uint, NativeImport> imports, Dictionary<uint, string> types, bool names)
     {
         private readonly int _ptr = image.Is64Bit ? 8 : 4;
-        // read once per section: a large image has hundreds of thousands of LSDAs in one section
+        // Read once per section: a large image has hundreds of thousands of LSDAs in one section.
         private readonly Dictionary<uint, byte[]> _sections = [];
 
         private byte[] SectionBytes(NativeSection s)
@@ -245,7 +234,7 @@ public static class ItaniumEh
                 ulong action = ar.Uleb();
                 pos += ar.Position;
                 ulong s = lpStart + start;
-                // call sites lie in their function: one outside is not a GCC table (NativeAOT's own EH data has the same slot)
+                // Call sites lie in their function; one outside means not a GCC table (NativeAOT EH data uses the same slot).
                 if (!Rva(image, s, out uint sr) || sr < functionStart || sr >= functionEnd) { why = "call-site table"; break; }
                 uint? padRva = pad != 0 && Rva(image, lpStart + pad, out uint pr) ? pr : null;
                 var names = new List<string>();
@@ -256,11 +245,7 @@ public static class ItaniumEh
             return result;
         }
 
-        /// <summary>
-        /// The scope descriptors of the ARM personalities (EHABI 9.2) from <paramref name="at"/> to a zero word: a scope (16-bit
-        /// length and offset for pr1, 32-bit for pr2; bit 0 of each gives the kind), then a cleanup's landing pad, a catch's
-        /// landing pad and type (-1: any, -2: a no-throw region), or an exception specification's types and optional landing pad.
-        /// </summary>
+        /// <summary>The pr1/pr2 scope descriptors (EHABI 9.2) from <paramref name="at"/> to a zero word; catch type -1 is any, -2 a no-throw region.</summary>
         public List<ItaniumCallSite>? ArmScopes(uint at, uint functionStart, bool wide)
         {
             var section = image.SectionAt(at);
@@ -276,9 +261,9 @@ public static class ItaniumEh
                 at += 4;
                 return true;
             }
-            // a Thumb landing pad's bit 0 is dropped
+            // A Thumb landing pad's bit 0 is dropped.
             uint? Prel31(uint word, uint from) => ((from + (uint)((int)(word << 1) >> 1)) & ~1u) is var r && image.SectionAt(r) != null ? r : null;
-            // R_ARM_TARGET2 as Linux and Android resolve it: pc-relative, indirect through a GOT slot
+            // R_ARM_TARGET2 as Linux and Android resolve it: pc-relative, indirect through a GOT slot.
             string Type(uint word, uint from) => PointerName((ulong)((long)image.ImageBase + from + (int)word), indirect: true);
             while (result.Count < MaxCallSites && Word(out uint first) && first != 0)
             {
@@ -347,7 +332,7 @@ public static class ItaniumEh
                 else if (typeBase >= 0)
                 {
                     long p = typeBase - filter * size;
-                    // a zero entry is catch (...) under any encoding, pc-relative ones included
+                    // A zero entry is catch (...) under any encoding, pc-relative ones included.
                     if (d.Has(p, size) && d.Span(p, size).IndexOfAnyExcept((byte)0) < 0) names.Add("catch (...)");
                     else if (!EhFrame.TryReadPointer(d, ref p, (byte)(ttEnc & 0x7F), va, 0, image.Is64Bit, out var ti)) names.Add("catch (?)");
                     else names.Add(ti == 0 ? "catch (...)" : $"catch ({PointerName(ti, (ttEnc & 0x80) != 0)})");
@@ -360,10 +345,7 @@ public static class ItaniumEh
 
     private readonly record struct Compact(uint Start, uint End, uint Encoding, uint? Lsda, uint? Personality);
 
-    /// <summary>
-    /// One .ARM.exidx entry: [Begin, End) to the next entry (merged neighbors share one), the ARM-defined personality index
-    /// (compact model) or the generic personality's address, the unwind opcodes, and the LSDA following them.
-    /// </summary>
+    /// <summary>One .ARM.exidx entry: [Begin, End) to the next entry, the personality index or address, the unwind opcodes and the LSDA.</summary>
     private sealed record EhabiEntry(uint Begin, uint End, bool CantUnwind, int? PersonalityIndex, ulong? Personality, byte[] Opcodes, uint? Lsda, string? Note);
 
     private static readonly ConditionalWeakTable<INativeImage, List<EhabiEntry>> ExidxTables = new();
@@ -388,7 +370,7 @@ public static class ItaniumEh
         {
             var (begin, word, wordAt) = raw[i];
             uint end = i + 1 < raw.Count && raw[i + 1].Begin > begin ? raw[i + 1].Begin : Math.Max(begin, textEnd);
-            // the linker's sentinel past the end of .text
+            // The linker's sentinel past the end of .text.
             if (image.SectionAt(begin) is not { IsExecutable: true }) continue;
             if (word == 1) { result.Add(new EhabiEntry(begin, end, true, null, null, [], null, null)); continue; }
             if ((word & 0x80000000) != 0)
@@ -418,7 +400,7 @@ public static class ItaniumEh
                     ops.AddRange([(byte)(e0 >> 8), (byte)e0]);
                     Words(extab + 4, (int)(e0 >> 16 & 0xFF));
                 }
-                // pr1 / pr2: the scope descriptors follow the unwind opcodes
+                // pr1 / pr2: the scope descriptors follow the unwind opcodes.
                 uint? descriptors = index is 1 or 2 ? extab + 4 + 4 * (e0 >> 16 & 0xFF) : null;
                 result.Add(new EhabiEntry(begin, end, false, index, null, [.. ops], descriptors, null));
                 continue;
@@ -506,10 +488,7 @@ public static class ItaniumEh
         public CfaState Clone() => new() { Register = Register, Offset = Offset, Saved = new(Saved) };
     }
 
-    /// <summary>
-    /// The frame the CFI of the function at <paramref name="rva"/> sets up: the CFA rule and saved registers where the prologue
-    /// ends (the deepest state before the first rule that shrinks it), or the compact unwind encoding on Mach-O.
-    /// </summary>
+    /// <summary>The frame the function at <paramref name="rva"/> sets up: CFA rule and saved registers at prologue end, or the Mach-O compact unwind encoding.</summary>
     public static UnwindFrame? Frame(INativeImage image, uint rva)
     {
         var cfi = CfiOf(image);
@@ -602,16 +581,13 @@ public static class ItaniumEh
         if (fde.Cie.Personality != null) notes.Add("has a personality routine" + (fde.Lsda != null ? " and an LSDA (get_exception_info)" : ""));
         var saved = final.Saved.Where(kv => kv.Key != fde.Cie.ReturnColumn || image.Arch is NativeArch.Arm64 or NativeArch.Arm)
             .OrderBy(kv => kv.Value).Select(kv => $"{RegisterName(image, kv.Key)} at [CFA{(kv.Value < 0 ? "-" : "+")}{Math.Abs(kv.Value):X}h]").ToList();
-        // x86 / x64: the CFA counts the return address the call pushed
+        // x86 / x64: the CFA counts the return address the call pushed.
         long allocation = final.Offset - (image.Arch is NativeArch.X64 or NativeArch.X86 ? (image.Is64Bit ? 8 : 4) : 0);
         return new UnwindFrame("DWARF CFI", begin, begin + (uint)Math.Min(fde.Range, uint.MaxValue - begin), (int)Math.Min(bestLoc, int.MaxValue), allocation, saved,
             final.Register >= 0 && final.Register != sp ? cfaReg : null, notes);
     }
 
-    /// <summary>
-    /// The frame EHABI unwind opcodes undo: the stack popped before anything else (the allocation), registers restored, vsp
-    /// from a frame register.
-    /// </summary>
+    /// <summary>The frame EHABI unwind opcodes undo: the allocation popped, registers restored, vsp from a frame register.</summary>
     private static UnwindFrame FromEhabi(EhabiEntry e)
     {
         var saved = new List<string>();

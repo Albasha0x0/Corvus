@@ -13,12 +13,12 @@ public enum FeatureKinds
     Imports = 4,
     Exports = 8,
     Classes = 16,
-    /// <summary>Immediates and displacements in code equal to the query's number (only when the query is one).</summary>
+    /// <summary>Immediates and displacements in code equal to the query's number, when the query is one.</summary>
     Constants = 32,
     All = Strings | Names | Imports | Exports | Classes | Constants,
 }
 
-/// <summary>An open engine session's view for a trace: its defined strings and its references to an address (blocking calls).</summary>
+/// <summary>An open engine session's strings and references for a trace; blocking calls.</summary>
 public sealed record FeatureEngine(string Id, IReadOnlyList<(uint Rva, string Text)> Strings, Func<uint, IReadOnlyList<uint>> RefsTo);
 
 /// <summary>A polymorphic class for seeding: its name, vftable and slot targets (from RTTI).</summary>
@@ -40,12 +40,7 @@ public sealed record FeatureHub(NativeFunction Function, string Name, IReadOnlyL
 public sealed record FeatureTraceResult(string Query, IReadOnlyList<FeatureSeed> Seeds, int TotalSeeds, IReadOnlyList<FeatureFunction> Functions, IReadOnlyList<FeatureHub> Hubs,
     bool HubsTruncated, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// From a text to the code behind it: seeds (strings, names, imports, exports, RTTI classes matching the query), their
-/// references (string interiors included, one pointer-table hop, import calls with their arguments), the functions holding
-/// them ranked by evidence, and hubs (callers reaching several of those functions). Every stage is bounded; a seed that
-/// fails records its error and the rest continues. Results are cached per index and names version.
-/// </summary>
+/// <summary>Traces a text to the code behind it: seeds, their references, ranked functions and hubs; bounded, cached per index and names version.</summary>
 public sealed class FeatureTrace
 {
     public const int MaxEvidencePerSeed = 200;
@@ -171,7 +166,7 @@ public sealed class FeatureTrace
             }, ct);
         }
         if (_engine == null) return;
-        // strings only the engine defines
+        // Strings only the engine defines.
         foreach (var (rva, text) in _engine.Strings)
         {
             ct.ThrowIfCancellationRequested();
@@ -209,7 +204,7 @@ public sealed class FeatureTrace
         try { hits = _calls != null ? X86Constants(value, ct) : Arm64Trace.Supports(_index) ? Arm64Constants(value, ct) : supported ? Arm32Constants(value, ct) : []; }
         catch (Exception e) when (e is not OperationCanceledException) { (hits, failure) = ([], e); }
         if (!supported) _notes.Add("constants in code are searched on x86 / x64 and ARM only");
-        // no instruction holds it: no seed (one at address 0 with no references reads as a match)
+        // No instruction holds it: no seed, since an empty one at address 0 reads as a match.
         if (hits.Count == 0 && failure == null) return;
         Seed("constant", hits.Count > 0 ? hits[0].Site : 0, text, id =>
         {
@@ -224,7 +219,7 @@ public sealed class FeatureTrace
         bool fits32 = value <= uint.MaxValue || value >> 31 == 0x1_FFFF_FFFF;
         if (value >= 0x100)
         {
-            // the encoded immediate or displacement: 4 bytes (sign-extended to 64 bits when needed), else 8
+            // The encoded immediate or displacement: 4 bytes sign-extended, else 8.
             var pattern = fits32 ? BitConverter.GetBytes((uint)value) : BitConverter.GetBytes(value);
             var seen = new HashSet<uint>();
             foreach (var section in _index.Image.Sections.Where(s => s.IsExecutable))
@@ -302,7 +297,7 @@ public sealed class FeatureTrace
                 bool holds = false;
                 var insn = s.I;
                 for (int k = 1; k < insn.OperandCount && !holds; k++) holds = A64Function.Imm(in insn, k) is { } imm && (ulong)imm == value;
-                // mov / movk sequences build wider constants
+                // mov / movk sequences build wider constants.
                 if (!holds && s.I.Mnemonic == AsmArm64.Arm64Mnemonic.MOVK && A64Function.Gpr(s.I, 0) is var r and >= 0 and < 31)
                     holds = trace.ConstantAfter(f, s.Rva, $"x{r}", ct) is { } built && (built == value || (uint)built == (uint)value && value <= uint.MaxValue);
                 if (!holds) continue;
@@ -437,7 +432,7 @@ public sealed class FeatureTrace
             Seed("class", c.Vftable, c.Name, id =>
             {
                 foreach (var x in _index.RefsTo(c.Vftable).Where(x => _index.FunctionAt(x.From) != null))
-                    Add(x.From, "vftable", $"installs or reads {c.Name}'s vftable (constructor, destructor or a virtual call)", id);
+                    Add(x.From, "vftable", $"installs or reads {c.Name}'s vftable", id);
                 foreach (var (slot, i) in c.Slots.Select((s, i) => (s, i)).DistinctBy(x => x.s).Take(64))
                     if (_index.FunctionByStart(slot) != null) Add(slot, "method", $"slot {i} of {c.Name}'s vftable", id);
             }, ct);

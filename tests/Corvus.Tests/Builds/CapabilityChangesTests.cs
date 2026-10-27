@@ -11,10 +11,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// What an update can now do: the capabilities two builds or two package versions differ by, in compare_assemblies,
-/// compare_native_images and compare_folders. Each pair is built here and differs only by the calls named.
-/// </summary>
+/// <summary>The capabilities two builds or package versions differ by, from pairs built here that differ only by the calls named.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposable
 {
@@ -168,7 +165,7 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         var old = new InspectionService.FeatureReport("old.exe", 1, [], ["native image: rules over static and late-bound imports"]);
         var @new = old with { Notes = [.. old.Notes, "section .text: only the first 64 of 128 bytes are analyzed"] };
         var (_, notes) = CapabilityChanges.Of((old, false), (@new, false));
-        Assert.Contains("the new build's survey is partial, so a row may stand for code it could not read: section .text: only the first 64 of 128 bytes are analyzed", notes);
+        Assert.Contains("the new build's survey is partial, so a row may stand for unread code: section .text: only the first 64 of 128 bytes are analyzed", notes);
         Assert.DoesNotContain(notes, n => n.StartsWith("the old build", StringComparison.Ordinal));
     }
 

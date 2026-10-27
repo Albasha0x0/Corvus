@@ -24,7 +24,7 @@ public class WalkBlocksTests
             {
                 var b = graph.Blocks[i];
                 Assert.Equal((b.Start, b.End), (blocks.Starts[i], blocks.Ends[i]));
-                // successors inside the function, tail calls left out, each once in edge order
+                // Successors inside the function, tail calls left out, each once in edge order.
                 var expected = b.Successors.Where(e => e.Kind != EdgeKind.TailCall).Select(e => starts.IndexOf(e.To)).Where(t => t >= 0).Distinct().ToArray();
                 Assert.Equal(expected, blocks.Successors(i).ToArray());
                 checkedBlocks++;

@@ -11,8 +11,7 @@ public sealed class TestRemoteTests : IDisposable
 
     private static string Quote(string path) => "'" + path.Replace("'", "''") + "'";
 
-    // The host script lowers itself to below-normal priority, which a push run at full CPU starves: on 2fce80f1 it
-    // had not ended after 60 s.
+    // A push run at full CPU starves the below-normal host script: on 2fce80f1 it had not ended after 60 s.
     private const int ScriptExitMs = 300_000;
 
     /// <summary>A TRX file with one result per (class, outcome), an outcome "Passed@40" lasting 40 s (else 1 s).</summary>
@@ -824,7 +823,7 @@ public sealed class TestRemoteTests : IDisposable
         if (lines is ["skip"]) return;
         Assert.Contains("all=MinidumpTests,WasmTests", lines);
         Assert.Contains("returned=WasmTests", lines);
-        Assert.Contains("families=Accuracy,Builds,Containers,DotnetEdits,Il2Cpp,Mobile,NativeAot,NativeEdits,NativeFormats,Support", lines);
+        Assert.Contains("families=Accuracy,AotMetadata,Builds,Containers,DotnetEdits,Mobile,NativeAot,NativeEdits,NativeFormats,Support", lines);
         // A push run keeps the smoke tests of the classes it leaves out.
         Assert.Contains("filter=((Tier!=Release)&FullyQualifiedName!~.WasmTests&FullyQualifiedName!~.MinidumpTests)|Smoke=push", lines);
         Assert.Contains("bare=(FullyQualifiedName!~.WasmTests)|Smoke=push", lines);
@@ -844,7 +843,7 @@ public sealed class TestRemoteTests : IDisposable
         Source("Web", "W.cs", "public sealed class WasmTests { [Fact] public void M() { } }");
         Source("Mobile", "A.cs", "public class ApkRealTests { [RequiresRealDataFact(RealData.Apps)] public void M() { } }");
         Source("Mobile", "B.cs", "public class BundleRealTests { [RequiresRealDataFact(\"CORVUS_BUNDLES\")] public void M() { } }");
-        Source("Il2Cpp", "I.cs", "public class MetaIdaTests { [IdaFact] public void M() { } }\npublic class MetaGhidraTests { [GhidraFact] public void M() { } }");
+        Source("AotMetadata", "I.cs", "public class MetaIdaTests { [IdaFact] public void M() { } }\npublic class MetaGhidraTests { [GhidraFact] public void M() { } }");
         Source("Dumps", "D.cs", "public class DumpLiveTests { [LiveRealDataFact] public void M() { } }");
         Source("NativeFormats", "F.cs", "public class FirmwareComparisonTests { [Fact] public void M() { } }");
         Source("Live", "L.cs", "public class LiveTargetTests { [Fact] public void M() { } }");
@@ -932,7 +931,7 @@ public sealed class TestRemoteTests : IDisposable
         var lines = TestReuseTests.Run($$"""
             Import-Module {{Module}}
             Import-Module {{Quote(Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1"))}}
-            $map = @{ Web = @('WasmTests', 'CaptureTests', 'WasmTheoryAttribute'); Dumps = @('MinidumpTests'); Mobile = @('ApkTests', 'ApkRealTests'); Il2Cpp = @('MetaTests')
+            $map = @{ Web = @('WasmTests', 'CaptureTests', 'WasmTheoryAttribute'); Dumps = @('MinidumpTests'); Mobile = @('ApkTests', 'ApkRealTests'); AotMetadata = @('MetaTests')
                 'class:EarlyTests' = @('EarlyTests'); Builds = @('DiffTests') }
             $sent = 'WasmTests', 'CaptureTests', 'MinidumpTests', 'ApkTests', 'MetaTests', 'EarlyTests', 'DiffTests'
             $got = [pscustomobject]@{ Started = $true; Trx = {{Quote(remote)}}; Failed = @([pscustomobject]@{ Class = 'MinidumpTests'; Platform = 'host' }); Note = 'exit 1' }
@@ -951,12 +950,12 @@ public sealed class TestRemoteTests : IDisposable
         if (lines is ["skip"]) return;
         // Mobile has a class that was not sent, Web an attribute class (the hand run on 03378fef recorded no NativeAot
         // pass for one); EarlyTests took 1 s there and 40 s in the last run here; DiffTests has no result there.
-        Assert.Contains("passed=Il2Cpp,Web", lines);
+        Assert.Contains("passed=AotMetadata,Web", lines);
         Assert.Contains("failed=Dumps", lines);
         Assert.Contains("unproven=DiffTests,EarlyTests", lines);
         Assert.Contains("cut=", lines);
         Assert.Contains("none=|WasmTests", lines);
-        Assert.Contains("status=failed on abc12345 at now on tester@host2 (7 classes, 90.5 s); recorded: Il2Cpp, Web; failed there: Dumps; "
+        Assert.Contains("status=failed on abc12345 at now on tester@host2 (7 classes, 90.5 s); recorded: AotMetadata, Web; failed there: Dumps; "
             + "no full result there: DiffTests, EarlyTests; kept here: ApkRealTests (CORVUS_APPS not set there); exit 1", lines);
     }
 }

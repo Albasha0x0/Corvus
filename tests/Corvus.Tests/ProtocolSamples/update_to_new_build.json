@@ -51,7 +51,7 @@
         "detail": "not in include"
       },
       {
-        "category": "il2cpp_names",
+        "category": "metadata_names",
         "status": "not_included",
         "considered": 0,
         "carried": 0,
@@ -87,7 +87,7 @@
         "detail": "not in include"
       },
       {
-        "category": "il2cpp_mapping",
+        "category": "method_mapping",
         "status": "not_included",
         "considered": 0,
         "carried": 0,

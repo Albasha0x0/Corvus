@@ -12,11 +12,15 @@ public static partial class ToolEffects
         // Files and containers (nothing executed)
         ["summarize_file"] = Reads(),
         ["survey_features"] = Reads(),
-        ["extract_strings"] = Reads(), // read_result outputPath exports the kept values
-        ["extract_embedded"] = Changes(destructive: false, idempotent: true), // writes unique names, never over a different file
+        // With read_result, outputPath exports the kept values.
+        ["extract_strings"] = Reads(),
+        // Writes unique names, never over a different file.
+        ["extract_embedded"] = Changes(destructive: false, idempotent: true),
         ["search_container"] = Reads(),
-        ["unpack_container"] = Changes(destructive: false, idempotent: true, longRunning: true), // extracts into an empty directory (or its own earlier unpack) and loads
-        ["unity_overview"] = Reads(openWorld: true), // headers and listings only; detectItEasy=true launches diec
+        // Extracts into an empty directory (or its own earlier unpack) and loads.
+        ["unpack_container"] = Changes(destructive: false, idempotent: true, longRunning: true),
+        // Headers and listings only; detectItEasy=true launches diec.
+        ["summarize_build"] = Reads(openWorld: true),
     };
 }
 
@@ -43,6 +47,6 @@ public sealed partial record ToolContract
         ["extract_embedded"] = Row(O.List, L.Interactive, core: true, sort: "assembly, then resources, static data, strings", noDryRun: "writes new names only, never over a different file"),
         ["search_container"] = Row(O.List, L.Interactive, core: true, sort: "exact, prefix, then substring matches; container entry, metadata order"),
         ["unpack_container"] = Row(O.Edit, L.Long, lean: true, core: true, noDryRun: "extracts only into an empty directory or its own earlier unpack"),
-        ["unity_overview"] = Row(O.Report, L.Interactive, core: true),
+        ["summarize_build"] = Row(O.Report, L.Interactive, core: true),
     };
 }

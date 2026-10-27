@@ -4,12 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Lua;
 
-/// <summary>
-/// Reads LuaJIT bytecode dumps (luajit -b) of dump versions 1 (LuaJIT 2.0) and 2 (LuaJIT 2.1): the header flags, the
-/// chunk name, and every prototype with its code, constants and upvalue count. Prototypes are kept in file order
-/// (children before their parent); the last is the main function. Local names are not read: Locals is 0. Throws
-/// InvalidDataException on a damaged dump.
-/// </summary>
+/// <summary>Reads LuaJIT dumps, versions 1 and 2, in file order with main last; throws InvalidDataException when damaged.</summary>
 public static class LuaJitBytecode
 {
     public const string Kind = "LuaJIT bytecode";

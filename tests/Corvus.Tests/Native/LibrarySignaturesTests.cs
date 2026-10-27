@@ -14,7 +14,7 @@ public sealed class LibrarySignaturesTests : IDisposable
 
     private const ushort Amd64 = 0x8664;
 
-    // push rbx; sub rsp,20h; mov rbx,rcx; lea rcx,[rip+disp32]; call rel32; mov eax,[rbx+8]; add rsp,20h; pop rbx; ret
+    // push rbx; sub rsp,20h; mov rbx,rcx; lea rcx,[rip+disp32]; call rel32; mov eax,[rbx+8]; add rsp,20h; pop rbx; ret.
     private static readonly byte[] ParseHeader =
         [0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9, 0x48, 0x8D, 0x0D, 0, 0, 0, 0, 0xE8, 0, 0, 0, 0, 0x8B, 0x43, 0x08, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3];
 

@@ -6,10 +6,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The containers tools on real packages over stdio (F-CT acceptance): default pages within their class budget per part,
-/// row walks that reach every row once, readable text beside the record.
-/// </summary>
+/// <summary>The containers tools on real packages over stdio: pages within budget, complete row walks.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 public sealed class ContainerRealDataTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
@@ -39,7 +36,8 @@ public sealed class ContainerRealDataTests(Xunit.Abstractions.ITestOutputHelper 
         output.WriteLine($"{tool}({string.Join(", ", args.Select(a => $"{a.Key}={a.Value}"))}): text {TokenEstimate.Of(text)}, record {TokenEstimate.Of(raw)} (limit {limit})");
         Assert.True(TokenEstimate.Of(text) <= limit, $"{tool}: text over {limit}");
         Assert.True(TokenEstimate.Of(raw) <= limit, $"{tool}: record over {limit}");
-        Assert.DoesNotContain("{\"", text); // readable rows, not the record's JSON
+        // Readable rows, not the record's JSON.
+        Assert.DoesNotContain("{\"", text);
         return (text, JsonDocument.Parse(raw).RootElement.Clone());
     }
 
@@ -63,18 +61,19 @@ public sealed class ContainerRealDataTests(Xunit.Abstractions.ITestOutputHelper 
     }
 
     [Fact]
-    public async Task SummarizeFileOverviewAndViews()
+    public async Task Summarize_file_overview_and_views()
     {
         var (text, record) = await Call("summarize_file", new() { ["path"] = Package });
         Assert.Equal("NuGet package", record.GetProperty("container").GetString());
         Assert.Contains("managed", record.GetProperty("views").EnumerateArray().Select(v => v.GetString()));
         Assert.Contains("Newtonsoft.Json 13.0.0.0 library", text);
         var (_, managed) = await Call("summarize_file", new() { ["path"] = Package, ["view"] = "managed" });
-        Assert.Equal("Newtonsoft.Json", managed.GetProperty("detail").GetProperty("assemblies")[0].GetProperty("identity").GetProperty("name").GetString()); // one build of each assembly
+        // One build of each assembly.
+        Assert.Equal("Newtonsoft.Json", managed.GetProperty("detail").GetProperty("assemblies")[0].GetProperty("identity").GetProperty("name").GetString());
     }
 
     [Fact]
-    public async Task SurveyFeaturesCountsByDefaultAndListsEvidenceByCategory()
+    public async Task Survey_features_counts_by_default_and_lists_evidence_by_category()
     {
         var (text, record) = await Call("survey_features", new() { ["path"] = BouncyCastle });
         Assert.Contains(record.GetProperty("features").EnumerateArray(), f => f.GetProperty("category").GetString() == "crypto");
@@ -84,7 +83,7 @@ public sealed class ContainerRealDataTests(Xunit.Abstractions.ITestOutputHelper 
     }
 
     [Fact]
-    public async Task ExtractStringsPagesEveryValueOnce()
+    public async Task Extract_strings_pages_every_value_once()
     {
         var values = await Walk("extract_strings", new() { ["path"] = NLog, ["limit"] = 40 }, v => $"{v.GetProperty("type")} {v.GetProperty("value")}");
         Assert.Equal(values.Count, values.Distinct().Count());
@@ -97,7 +96,7 @@ public sealed class ContainerRealDataTests(Xunit.Abstractions.ITestOutputHelper 
     }
 
     [Fact]
-    public async Task ExtractEmbeddedReadsAPackage()
+    public async Task Extract_embedded_reads_a_package()
     {
         var (_, record) = await Call("extract_embedded", new() { ["path"] = Package });
         Assert.Equal("newtonsoft.json.13.0.4.nupkg", record.GetProperty("assembly").GetString());
@@ -105,7 +104,7 @@ public sealed class ContainerRealDataTests(Xunit.Abstractions.ITestOutputHelper 
     }
 
     [Fact]
-    public async Task SearchContainerAndUnpackContainerPageTheirRows()
+    public async Task Search_container_and_unpack_container_page_their_rows()
     {
         var (_, found) = await Call("search_container", new() { ["path"] = Package, ["query"] = "JsonConvert", ["kind"] = "type" });
         Assert.Equal("type", found.GetProperty("items")[0].GetProperty("kind").GetString());

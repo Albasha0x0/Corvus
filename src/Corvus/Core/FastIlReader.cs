@@ -7,14 +7,8 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Decodes method bodies from the in-memory image with System.Reflection.Metadata; materializing dnlib bodies costs
-/// ~0.1 ms per method and does not scale across threads. Operand tokens resolve through the dnlib module (cached per
-/// token), yielding ordinary dnlib <see cref="Instruction"/> objects.
-///
-/// Used only for assemblies without unsaved edits; otherwise the dnlib module is the source of truth.
-/// Locals and parameters are given as int indices, not dnlib Local/Parameter objects.
-/// </summary>
+/// <summary>Decodes unedited method bodies with System.Reflection.Metadata into dnlib instructions; locals are int indices.</summary>
+/// <remarks>dnlib bodies cost ~0.1 ms per method and do not scale across threads.</remarks>
 public static class FastIlReader
 {
     public sealed record Body(IList<Instruction> Instructions, IReadOnlyList<TypeSig> LocalTypes, IReadOnlyList<(ITypeDefOrRef CatchType, uint HandlerOffset)> Catches)
@@ -26,8 +20,7 @@ public static class FastIlReader
         public bool InitLocals { get; init; }
     }
 
-    /// <summary>An exception region. Start instructions are inclusive, end instructions exclusive (null: the end of the body
-    /// or a boundary that is not an instruction start, as in corrupt bodies).</summary>
+    /// <summary>An exception region, starts inclusive, ends exclusive; a null end is the body's end or a boundary off an instruction.</summary>
     public sealed record Region(ExceptionHandlerType Kind, Instruction? TryStart, Instruction? TryEnd, Instruction? HandlerStart, Instruction? HandlerEnd,
         Instruction? FilterStart, ITypeDefOrRef? CatchType);
 
@@ -85,7 +78,8 @@ public static class FastIlReader
         }
         catch
         {
-            return null; // unreadable body header (corrupt image): treat as no body
+            // An unreadable body header counts as no body.
+            return null;
         }
     }
 
@@ -106,8 +100,7 @@ public static class FastIlReader
     {
         var list = new List<Instruction>();
         var branches = new List<(Instruction Instr, object Targets, int Next)>();
-        // Corrupt bodies (memory-dumped or transformed images) stop at the first invalid opcode or truncated operand;
-        // instructions read so far are kept.
+        // A corrupt body stops at the first invalid opcode or truncated operand, keeping what was read.
         while (reader.RemainingBytes > 0)
         {
             int offset = reader.Offset;
@@ -116,7 +109,8 @@ public static class FastIlReader
             var op = first == 0xFE ? OpCodes.TwoByteOpCodes[reader.ReadByte()] : OpCodes.OneByteOpCodes[first];
             if (op.Code is Code.UNKNOWN1 or Code.UNKNOWN2 || reader.RemainingBytes < OperandSize(op.OperandType)) break;
             var instr = new Instruction(op) { Offset = (uint)offset };
-            object? branchTargets = null; // relative to the end of this instruction
+            // Relative to the end of this instruction.
+            object? branchTargets = null;
             switch (op.OperandType)
             {
                 case OperandType.InlineNone:
@@ -159,7 +153,8 @@ public static class FastIlReader
                 case OperandType.InlineString:
                     instr.Operand = metadata.GetUserString(MetadataTokens.UserStringHandle(reader.ReadInt32() & 0x00FFFFFF));
                     break;
-                default: // InlineField / InlineMethod / InlineType / InlineTok / InlineSig: a metadata token
+                // InlineField, InlineMethod, InlineType, InlineTok, InlineSig: a metadata token.
+                default:
                     instr.Operand = resolve(reader.ReadUInt32());
                     break;
             }

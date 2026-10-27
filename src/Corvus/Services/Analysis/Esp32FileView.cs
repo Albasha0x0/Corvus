@@ -3,11 +3,8 @@ using Corvus.Core.Firmware.Esp32;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=esp32: an ESP32-family flash image, partition table, NVS partition or app image, read as esptool image_info,
-/// gen_esp32part.py and nvs_tool.py read them: the image headers, segments and app description, each partition and its
-/// place in the file, then a page of NVS values (table= keeps one namespace; offset=, limit=).
-/// </summary>
+/// <summary>view=esp32: an ESP32 flash, partition table, NVS or app image's headers, partitions and a page of NVS values (table= namespace; offset=, limit=).</summary>
+// Fields follow esptool image_info, gen_esp32part.py and nvs_tool.py.
 internal sealed class Esp32FileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, PreviewBytes = 64, MaxText = 500;

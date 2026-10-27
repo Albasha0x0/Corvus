@@ -45,11 +45,7 @@ public sealed record MadePattern(
     int? InstructionEnd,
     string Note);
 
-/// <summary>
-/// Code patterns that stay valid across rebuilds: instruction bytes with branch displacements, RIP-relative
-/// displacements and relocated / in-image absolute addresses as wildcards, extended one instruction at a time until the
-/// pattern occurs once in the image's executable sections; or anchored at an instruction that references the address.
-/// </summary>
+/// <summary>Code patterns with addresses as wildcards, grown until unique in the executable sections, so they survive rebuilds.</summary>
 public static class CodePatterns
 {
     public const int MaxPatternBytes = 512;
@@ -75,7 +71,7 @@ public static class CodePatterns
         var hits = new List<uint>();
         total = 0;
         if (pattern.Length == 0) return hits;
-        // anchor the scan on the first fixed byte
+        // Anchor the scan on the first fixed byte.
         int first = Array.IndexOf(pattern.Mask, true);
         if (first < 0) return hits;
         byte lead = pattern.Bytes[first];
@@ -102,11 +98,7 @@ public static class CodePatterns
         return hits;
     }
 
-    /// <summary>
-    /// A unique pattern for <paramref name="rva"/>: starting at the address (anchor "address"), or when that is not unique
-    /// within <paramref name="maxBytes"/> and <paramref name="allowReference"/>, at or shortly before an instruction that
-    /// references the address (anchor "reference"; the operand position tells how to recover the address from a hit).
-    /// </summary>
+    /// <summary>A unique pattern at <paramref name="rva"/> (anchor "address"), else near a referencing instruction (anchor "reference").</summary>
     public static MadePattern Make(NativeCodeIndex index, uint rva, int maxBytes, bool allowReference, bool referenceOnly, CancellationToken ct)
     {
         maxBytes = Math.Clamp(maxBytes, 8, MaxPatternBytes);
@@ -133,11 +125,7 @@ public static class CodePatterns
             "no instruction that references the address yields a unique pattern");
     }
 
-    /// <summary>
-    /// A unique pattern at each instruction that references <paramref name="rva"/> (the built-in references, plus
-    /// <paramref name="extraSites"/> from an engine), shortest first, at most <paramref name="max"/>: several independent
-    /// signatures, so a new build that changed one site still has the others.
-    /// </summary>
+    /// <summary>Up to <paramref name="max"/> unique patterns at instructions referencing <paramref name="rva"/>, shortest first.</summary>
     public static List<MadePattern> MakeAtReferences(NativeCodeIndex index, uint rva, int maxBytes, int max, IEnumerable<uint> extraSites, CancellationToken ct)
     {
         maxBytes = Math.Clamp(maxBytes, 8, MaxPatternBytes);

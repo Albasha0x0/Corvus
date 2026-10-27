@@ -11,10 +11,7 @@ namespace Corvus.Tests;
 /// <summary>Searches whose regex timed out on some inputs, and reads cut short, say so instead of looking complete.</summary>
 public class IncompleteResultTests
 {
-    /// <summary>
-    /// Exponential backtracking on <see cref="Slow"/>: times out; every short input fails fast. The lookbehind keeps it
-    /// off NonBacktracking, which would match it in linear time.
-    /// </summary>
+    /// <summary>Times out by exponential backtracking on <see cref="Slow"/>; the lookbehind keeps it off NonBacktracking.</summary>
     private const string Catastrophic = "^(a|aa)+(?<!b)$";
 
     private static readonly string Slow = new string('a', 60) + "Z";
@@ -32,7 +29,7 @@ public class IncompleteResultTests
     }
 
     [Fact]
-    public void MatcherCountsTimeouts()
+    public void The_matcher_counts_timeouts()
     {
         // Short inputs under the default limit: on a busy machine even they can take 50 ms.
         var quickTimeouts = new RegexTimeouts();
@@ -72,7 +69,7 @@ public class IncompleteResultTests
     }
 
     [Fact]
-    public async Task SearchNativeStringsReportsStringsTheRegexTimedOutOn()
+    public async Task Search_native_strings_reports_strings_the_regex_timed_out_on()
     {
         using var limit = RegexTimeouts.UseLimit(TimeSpan.FromMilliseconds(50));
         using var dir = new TempDir();
@@ -96,7 +93,7 @@ public class IncompleteResultTests
     }
 
     [Fact]
-    public async Task ReadBytesReportsAReadCutShort()
+    public async Task Read_bytes_reports_a_read_cut_short()
     {
         using var dir = new TempDir();
         var path = dir.File("slow.dll");
@@ -114,7 +111,7 @@ public class IncompleteResultTests
     public sealed class Managed
     {
         [Fact]
-        public async Task SearchStringsAndSymbolsReportTimeouts()
+        public async Task Search_strings_and_symbols_report_timeouts()
         {
             using var limit = RegexTimeouts.UseLimit(TimeSpan.FromMilliseconds(50));
             using var dir = new TempDir();
@@ -123,7 +120,7 @@ public class IncompleteResultTests
                 public class {{Slow}} { public static string Get() => "{{Slow}}"; }
                 """));
             using var env = new Env(path);
-            var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings);
+            var search = new SearchTools(env.Workspace, env.Search, env.AotMetadata, env.MetadataStrings);
 
             var collector = ToolOutput.Collect();
             var strings = await search.SearchStrings(Catastrophic, regex: true);

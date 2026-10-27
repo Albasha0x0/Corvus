@@ -4,10 +4,7 @@ using Corvus.Setup;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The guides (docs/guides) and showcases (docs/showcase) run on the samples built from samples/. Their checked blocks
-/// are executed in order and each output block must equal what the step prints now; CORVUS_UPDATE_DOCS=1 rewrites them.
-/// </summary>
+/// <summary>Checked blocks of docs/guides and docs/showcase print what the samples print now; CORVUS_UPDATE_DOCS=1 rewrites them.</summary>
 // Runs alone: it builds and exports into samples/, which other classes running at once can hold open.
 [Collection(nameof(SerialTimingTests))]
 public partial class SampleDocsTests
@@ -41,7 +38,7 @@ public partial class SampleDocsTests
     }
 
     [Fact]
-    public void PagesAreWellFormed()
+    public void Pages_are_well_formed()
     {
         var pages = Pages().ToList();
         Assert.True(pages.Count >= 5, $"only {pages.Count} guide and showcase pages");
@@ -91,7 +88,7 @@ public partial class SampleDocsTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public Task PagesMatchWhatTheStepsPrint() => CheckAsync(Pages().Where(p => !PackagePage(p)));
+    public Task Pages_match_what_the_steps_print() => CheckAsync(Pages().Where(p => !PackagePage(p)));
 
     internal static async Task CheckAsync(IEnumerable<string> pages)
     {
@@ -192,11 +189,7 @@ public partial class SampleDocsTests
         }
     }
 
-    /// <summary>
-    /// Output as the page shows it: repository paths relative with '/', package paths under ~/.nuget/packages/, and each
-    /// SHA-256, GUID and bundle id replaced by a label numbered in order of first appearance on the page (equal values keep
-    /// one label; builds change the values).
-    /// </summary>
+    /// <summary>Output as the page shows it: relative paths, ~/.nuget/packages/, and hashes, GUIDs and bundle ids replaced by numbered labels.</summary>
     internal static string Normalize(string text, Dictionary<string, string> labels)
     {
         // Packages first: the packages folder may lie inside the repository.
@@ -218,7 +211,7 @@ public partial class SampleDocsTests
     }
 
     [Fact]
-    public void NormalizeLabelsValuesAndPaths()
+    public void Normalization_labels_hashes_values_and_paths()
     {
         var labels = new Dictionary<string, string>();
         var a = new string('a', 64);
@@ -261,7 +254,7 @@ public partial class SampleDocsTests
 public class PackageDocsTests
 {
     [Fact]
-    public async Task PackagePagesMatchWhatTheStepsPrint()
+    public async Task Package_pages_match_what_the_steps_print()
     {
         var pages = SampleDocsTests.Pages().Where(SampleDocsTests.PackagePage).ToList();
         Assert.True(pages.Count >= 2, $"only {pages.Count} package showcase pages");

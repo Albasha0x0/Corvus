@@ -4,9 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// A decoded embedded item. Detail is the assembly name, PE machine and type, or the first 200 characters of text.
-/// </summary>
+/// <summary>A decoded embedded item; Detail is the assembly name, PE machine and type, or the first 200 characters of text.</summary>
 public sealed record EmbeddedContent(
     string Source,
     IReadOnlyList<string> Encoding,
@@ -26,12 +24,9 @@ public sealed record EmbeddedContent(
     public string? Basis => Kind.StartsWith("high-entropy", StringComparison.Ordinal) || Encoding.Any(e => e.Contains("brute-forced", StringComparison.Ordinal)) ? "inferred" : null;
 }
 
-/// <summary>
-/// Finds embedded content in resources, static byte arrays and long string literals. Candidates are decoded up to
-/// <see cref="MaxDecodeDepth"/> steps (hex, base64, gzip / zlib, header-derived XOR, raw deflate) until a known kind is
-/// reached. XOR over text without a known header is only tried via <see cref="TryXorText"/> (opt-in). Undecoded data of
-/// 1 KB or more at 7.5+ bits per byte is reported as high-entropy data.
-/// </summary>
+/// <summary>Finds embedded content in resources, static byte arrays and long strings, decoded up to <see cref="MaxDecodeDepth"/> steps.</summary>
+// Steps: hex, base64, gzip, zlib, header-derived XOR, raw deflate; text XOR only when opted in. Undecoded data of
+// 1 KB or more at 7.5+ bits per byte is reported as high-entropy.
 public static class Embedded
 {
     private const int MinStringLength = 64;
@@ -90,7 +85,8 @@ public static class Embedded
         bool xorText)
     {
         var kind = Blob.Identify(data);
-        if (kind == ".resources" && chain.Count == 0) return; // entries are examined individually
+        // .resources entries are examined individually.
+        if (kind == ".resources" && chain.Count == 0) return;
         if (IsBinaryKind(kind) && kind is not ("gzip" or "zlib"))
         {
             if (chain.Count > 0 || reportRaw) add(Make(data, source, chain, kind));
@@ -202,10 +198,7 @@ public static class Embedded
         ("gzip", [0x1F, 0x8B, 0x08]),
     ];
 
-    /// <summary>
-    /// Repeating-key XOR derived as header XOR data. Accepted only if the key is periodic across the whole header and
-    /// the decoded data parses as the format.
-    /// </summary>
+    /// <summary>A repeating XOR key derived from a known header, accepted when periodic and the decode parses; else null.</summary>
     internal static (byte[] Key, byte[] Decoded)? TryXor(byte[] data)
         => TryXorWithHeaders(data);
 
@@ -217,11 +210,8 @@ public static class Embedded
     private static string XorLabel((byte[] Key, byte[] Decoded, bool Utf16) x) =>
         $"xor key {Convert.ToHexStringLower(x.Key)} (brute-forced{(x.Utf16 ? ", UTF-16 text" : "")})";
 
-    /// <summary>
-    /// Brute-forces a repeating XOR key (1-16 bytes) over UTF-8 or UTF-16LE text with no known header. Key length is
-    /// chosen by column index of coincidence; each key byte by per-column text likelihood, then refined. Accepted only
-    /// when the input is unreadable and the decode passes <see cref="ReadableText"/>. UTF-16 results are returned as UTF-8.
-    /// </summary>
+    /// <summary>Brute-forces a 1-16 byte XOR key over unreadable data whose decode is readable text (UTF-16 returned as UTF-8); else null.</summary>
+    // Key length by column index of coincidence; each key byte by per-column text likelihood, then refined.
     internal static (byte[] Key, byte[] Decoded, bool Utf16)? TryXorText(byte[] data)
     {
         if (data.Length < MinXorTextLength) return null;
@@ -232,14 +222,16 @@ public static class Embedded
             .Select(l => (Length: l, Coincidence: Coincidence(sample, l))).ToList();
         if (lengths.Count == 0) return null;
         double top = lengths.Max(x => x.Coincidence);
-        if (top < 0.02) return null; // flat: compressed, encrypted or random
+        // Flat: compressed, encrypted or random.
+        if (top < 0.02) return null;
         var candidates = lengths.Where(x => x.Coincidence >= Math.Max(0.02, top * 0.6)).Select(x => x.Length).Take(3).ToList();
         // UTF-16 first: its XORed zero high bytes can otherwise refine into look-alike UTF-8 letters.
         foreach (bool utf16 in new[] { true, false })
             foreach (int length in candidates)
             {
                 var scored = new byte[length];
-                var counts = new int[2 * 256]; // a column's bytes by value; UTF-16 keeps low and high bytes apart
+                // A column's bytes by value; UTF-16 keeps low and high bytes apart.
+                var counts = new int[2 * 256];
                 var present = new List<int>();
                 for (int column = 0; column < length; column++)
                 {
@@ -296,7 +288,8 @@ public static class Embedded
                     if (best == null || rank > best.Value.Score) best = (key, rank);
                 }
                 if (best is not { } chosen) continue;
-                var shortest = Shortest(chosen.Key); // a detected length may be a multiple of the true key length
+                // A detected length may be a multiple of the true key length.
+                var shortest = Shortest(chosen.Key);
                 var full = Apply(data, shortest);
                 if (!ReadableText(full.AsSpan(0, Math.Min(full.Length, 65536)).ToArray(), utf16)) continue;
                 return (shortest, utf16 ? Encoding.UTF8.GetBytes(Encoding.Unicode.GetString(full)) : full, utf16);
@@ -325,9 +318,10 @@ public static class Embedded
     private static double[,] TrainBigrams(string text)
     {
         var counts = new double[128, 128];
+        // Smoothing for unseen pairs.
         for (int a = 0; a < 128; a++)
             for (int b = 0; b < 128; b++)
-                counts[a, b] = 0.05; // smoothing for unseen pairs
+                counts[a, b] = 0.05;
         for (int i = 0; i + 1 < text.Length; i++)
             if (text[i] < 128 && text[i + 1] < 128) counts[text[i], text[i + 1]] += 1;
         var logs = new double[128, 128];
@@ -465,7 +459,8 @@ public static class Embedded
         >= (byte)'A' and <= (byte)'Z' => 2,
         >= (byte)'0' and <= (byte)'9' or (byte)'.' or (byte)',' or (byte)'\n' or (byte)'\r' or (byte)'\t' or (byte)'\'' or (byte)'"' or (byte)'-' => 1,
         >= 0x21 and <= 0x7E => 0,
-        >= 0x80 and <= 0xBF or >= 0xC2 and <= 0xF4 => 1, // UTF-8 lead and continuation bytes
+        // UTF-8 lead and continuation bytes.
+        >= 0x80 and <= 0xBF or >= 0xC2 and <= 0xF4 => 1,
         _ => -8,
     };
 
@@ -489,10 +484,7 @@ public static class Embedded
         @"^(?:[a-z][a-z0-9+.\-]*://[\w.\-]*[a-z][\w.\-]*\S*|[a-z_][\w.\-\[\] ]{0,63}\s*[=:]\s*\S.*|(?=[\w.\-]*[a-z])[\w\-]+(?:\.[\w\-]+)+:\d{1,5}|[a-z]:\\[\w .\\\-]*[a-z][\w .\\\-]*|/(?:[\w.\-]*[a-z][\w.\-]*/?)+|#\s*[a-z].*|;\s*[a-z].*|\[[a-z][^\]]*\])$",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    /// <summary>
-    /// JSON or XML that parses (a truncated sample is allowed), or lines that are mostly URLs, key/value pairs,
-    /// host:port, paths, comments or [sections].
-    /// </summary>
+    /// <summary>Whether the text is JSON or XML that parses (truncation allowed), or mostly config lines (URLs, key=value, paths).</summary>
     private static bool StructuredText(byte[] bytes, bool utf16)
     {
         if (utf16 && bytes.Length % 2 == 1) bytes = bytes[..^1];
@@ -502,7 +494,8 @@ public static class Embedded
         text = text.Trim();
         if (text.Length < 24 || text.Any(c => char.IsControl(c) && c is not ('\n' or '\r' or '\t'))) return false;
         if (text.Count(c => c is >= ' ' and <= '~' or '\n' or '\r' or '\t') < text.Length * 0.9) return false;
-        if (text.Count(char.IsLetter) < text.Count(c => !char.IsWhiteSpace(c)) * 0.3) return false; // numeric tables
+        // Rejects numeric tables.
+        if (text.Count(char.IsLetter) < text.Count(c => !char.IsWhiteSpace(c)) * 0.3) return false;
 
         if (text[0] is '{' or '[')
         {
@@ -637,13 +630,12 @@ public static class Embedded
         if (utf16) return bytes;
         int end = bytes.Length, back = 0;
         while (end > 0 && back < 3 && (bytes[end - 1] & 0xC0) == 0x80) { end--; back++; }
-        if (end > 0 && bytes[end - 1] >= 0xC0) return bytes[..(end - 1)]; // lead byte without continuation
+        // A lead byte without its continuation.
+        if (end > 0 && bytes[end - 1] >= 0xC0) return bytes[..(end - 1)];
         return back > 0 && end > 0 && bytes[end - 1] < 0x80 ? bytes[..end] : bytes;
     }
 
-    /// <summary>
-    /// True when even or odd positions are dominated by three values: UTF-16 text misread as UTF-8.
-    /// </summary>
+    /// <summary>True when even or odd positions are dominated by three values: UTF-16 text misread as UTF-8.</summary>
     private static bool Utf16Shaped(byte[] bytes)
     {
         // Non-ASCII UTF-8 also alternates byte classes; exclude it.
@@ -676,9 +668,7 @@ public static class Embedded
         return seen.Count < blocks / 2;
     }
 
-    /// <summary>
-    /// Validates gzip beyond the magic (which any recovered key reproduces): reserved flags clear and ISIZE matches.
-    /// </summary>
+    /// <summary>Validates gzip beyond the magic any recovered key reproduces: reserved flags clear and ISIZE matching.</summary>
     private static bool IsRealGzip(byte[] data)
     {
         if (data.Length < 18 || (data[3] & 0xE0) != 0) return false;
@@ -686,9 +676,7 @@ public static class Embedded
         return BitConverter.ToUInt32(data, data.Length - 4) == (uint)inflated.Length;
     }
 
-    /// <summary>
-    /// Validates zip beyond the local header (which any recovered key reproduces): the archive opens with printable entry names.
-    /// </summary>
+    /// <summary>Validates zip beyond the local header any recovered key reproduces: it opens with printable entry names.</summary>
     private static bool IsRealZip(byte[] data)
     {
         try

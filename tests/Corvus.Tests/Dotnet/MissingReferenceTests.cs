@@ -74,7 +74,7 @@ public class MissingReferenceTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void MissingDependency_IsRebuiltFromUse_SoTheRestDecompilesAndBuilds()
+    public void Missing_dependency_is_rebuilt_from_use_so_the_rest_decompiles_and_builds()
     {
         var lib = Compile("Lib", Library);
         var app = _dir.File("App.dll");
@@ -99,14 +99,14 @@ public class MissingReferenceTests : IDisposable
         var out_ = _dir.File("export");
         var result = env.Decompiler.ExportProject(env.Fixture, out_, null, default);
         Assert.True(File.Exists(Path.Combine(out_, "lib", "Lib.dll")));
-        Assert.Contains("not found on the machine that exported this project", File.ReadAllText(result.ProjectFile!));
+        Assert.Contains("not found at export: lib\\ holds stand-ins whose methods throw", File.ReadAllText(result.ProjectFile!));
         var (exitCode, output) = Tools.Dotnet(null, "build", result.ProjectFile!, "-nologo", "-clp:NoSummary;ErrorsOnly");
         Assert.True(exitCode == 0, string.Join("\n", Regex.Matches(output, @"[^\\/\r\n]+\.cs\(\d+,\d+\): error [^\r\n]*").Select(m => m.Value).Distinct()));
     }
 
     /// <summary>A stub built twice from the same use is the same bytes: its MVID and PE timestamp come from its content.</summary>
     [Fact]
-    public void MissingDependency_StubIsTheSameBytesOnEveryBuild()
+    public void Missing_dependency_stub_is_the_same_bytes_on_every_build()
     {
         var lib = Compile("Lib", Library);
         var app = _dir.File("App.dll");
@@ -119,12 +119,9 @@ public class MissingReferenceTests : IDisposable
         Assert.NotEqual(Guid.Empty, module.Mvid);
     }
 
-    /// <summary>
-    /// An exported project of MediatR (MediatR.Contracts missing) did not build: the stub left out types named only by
-    /// [assembly: TypeForwardedTo], and its ref readonly property lacked [IsReadOnly], so C# rejected it (CS0570).
-    /// </summary>
+    /// <summary>Regression: a missing-dependency stub left out forwarded types and [IsReadOnly] on a ref readonly property (CS0570).</summary>
     [Fact]
-    public void MissingDependency_StubHasForwardedTypesAndReadOnlyRefs()
+    public void Missing_dependency_stub_has_forwarded_types_and_read_only_refs()
     {
         var lib = Compile("Lib", """
             namespace Lib
@@ -152,12 +149,9 @@ public class MissingReferenceTests : IDisposable
             """, stub.Value.Image);
     }
 
-    /// <summary>
-    /// Building one stub read the owner's attributes, whose enum argument resolved the other missing assembly, whose stub
-    /// read the same attribute list again: dnlib's list lock is not re-entrant (LockException on LINQPad and Codist).
-    /// </summary>
+    /// <summary>Regression: stubs of two missing assemblies that name each other re-entered dnlib's attribute list lock (LockException).</summary>
     [Fact]
-    public void TwoMissingDependencies_ThroughEnumAttributeArguments_OnOneOwner()
+    public void Two_missing_dependencies_through_enum_attribute_arguments_on_one_owner()
     {
         var a = Compile("LibA", "namespace LibA { public enum ModeA { Off, On } }");
         var b = Compile("LibB", "namespace LibB { public enum ModeB { Low, High } }");
@@ -183,7 +177,7 @@ public class MissingReferenceTests : IDisposable
     }
 
     [Fact]
-    public void LocalFunction_CapturedByLambdas_IsNotLost()
+    public void Local_function_captured_by_lambdas_is_not_lost()
     {
         var path = _dir.File("Local.dll");
         File.WriteAllBytes(path, Compile("Local", """

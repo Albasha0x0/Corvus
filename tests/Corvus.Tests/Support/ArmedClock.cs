@@ -3,10 +3,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A fake clock that reports each timer the code under test arms, so a test moves time only once the timer it means
-/// to fire exists: no sleeps and no wall-clock waits. Time starts at zero and moves only in <see cref="RunUntilAsync"/>.
-/// </summary>
+/// <summary>A fake clock that reports each armed timer, so a test moves time only once its timer exists; time starts at zero and moves only in <see cref="RunUntilAsync"/>.</summary>
 internal sealed class ArmedClock : TimeProvider
 {
     private readonly FakeTimeProvider _time = new();
@@ -30,12 +27,7 @@ internal sealed class ArmedClock : TimeProvider
         return timer;
     }
 
-    /// <summary>
-    /// Fires the armed timers in the order they were armed, moving the clock to each one's due time, until
-    /// <paramref name="done"/> completes; returns how far the clock has moved. A timer due later than
-    /// <paramref name="within"/> of the start is not fired and stays armed for the next run. Fails after a minute
-    /// without progress.
-    /// </summary>
+    /// <summary>Fires armed timers in order until <paramref name="done"/> completes and returns the time moved; timers past <paramref name="within"/> stay armed; fails after a minute without progress.</summary>
     public async Task<TimeSpan> RunUntilAsync(Task done, TimeSpan? within = null)
     {
         var later = new List<DateTimeOffset>();

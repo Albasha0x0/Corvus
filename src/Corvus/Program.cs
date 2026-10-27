@@ -26,8 +26,8 @@ catch (Exception ex)
     return 2;
 }
 
-// Parallel decompilation (export_project, comparisons) occupies a pool thread per core; spare threads let the transport
-// read a cancellation or the next request at once instead of after the pool grows, which takes seconds.
+// Parallel decompilation takes a pool thread per core; spare threads let the transport read a cancellation or the next
+// request at once, not after the pool grows (seconds).
 ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
 ThreadPool.SetMinThreads(Math.Max(minWorkers, Environment.ProcessorCount * 2 + 8), minIo);
 

@@ -183,11 +183,13 @@ internal sealed class Vhdx : DiskStream
     {
         long block = at / _blockSize, within = at % _blockSize;
         long run = _blockSize - within;
-        long index = block + block / _chunkRatio; // a sector bitmap entry follows every chunk of payload entries
+        // A sector bitmap entry follows every chunk of payload entries.
+        long index = block + block / _chunkRatio;
         if (index >= _bat.Length) return (-1, run);
         ulong e = _bat[index];
         int state = (int)(e & 7);
-        if (state is not (6 or 7)) return (-1, run); // not present, zero, unmapped: zeros
+        // Not present, zero or unmapped blocks read as zeros.
+        if (state is not (6 or 7)) return (-1, run);
         return ((long)(e >> 20) * (1 << 20) + within, run);
     }
 }

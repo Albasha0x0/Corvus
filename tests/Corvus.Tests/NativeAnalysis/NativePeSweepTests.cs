@@ -8,18 +8,13 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The native PE parser over every PE file under System32 and SysWOW64: no exception, no internal error, bounded time,
-/// and agreement with System.Reflection.PortableExecutable (headers, sections), AsmResolver.PE (imports, exports,
-/// relocations, TLS, .pdata, CodeView, resources) and dumpbin (imports incl. delay-load, exports, load config).
-/// CORVUS_PE_SWEEP_LIMIT caps the file count; CORVUS_PE_SWEEP_REPORT names a file for the full report.
-/// </summary>
+/// <summary>The PE parser over System32 and SysWOW64 agrees with System.Reflection.PortableExecutable, AsmResolver.PE and dumpbin; CORVUS_PE_SWEEP_LIMIT, CORVUS_PE_SWEEP_REPORT.</summary>
 public sealed class NativePeSweepTests(ITestOutputHelper output)
 {
     [WindowsFact]
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
-    public void System32AndSysWow64AgreeWithOracles()
+    public void System32_and_SysWOW64_images_agree_with_reference_readers()
     {
         int limit = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_SWEEP_LIMIT"), out int l) ? l : int.MaxValue;
         var phases = new TestPhases(output);

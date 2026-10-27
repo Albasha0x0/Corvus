@@ -5,13 +5,9 @@ using Corvus.Core.Protobuf;
 namespace Corvus.Services.Analysis.Endpoints;
 
 /// <summary>
-/// Endpoints and protobuf descriptors in an app's DEX files. Retrofit interface methods come from their HTTP annotations
-/// (the annotation types named, or, when R8 renamed them, mapped back through Retrofit's own annotation parser, which tests
-/// each type and then names its HTTP method); base URLs from Retrofit.Builder.baseUrl joined through create(Api.class).
-/// Calls into OkHttp, Ktor, Volley, java.net.URL, WebView and gRPC are followed through one method's registers in code
-/// order: const-string, StringBuilder chains, String.concat / format and Kotlin string templates fold to templates.
-/// Absolute URL literals no call consumes are listed as client url. Java descriptorData (Latin-1 string constants in one
-/// method) is read as FileDescriptorProto. Add every DEX of the app, then <see cref="Finish"/>.
+/// Endpoints and protobuf descriptors in an app's DEX files: Retrofit annotations (renamed ones recovered through
+/// Retrofit's parser), HTTP client calls folded to URL templates, and unconsumed URL literals.
+/// Add every DEX of the app, then call <see cref="Finish"/>.
 /// </summary>
 internal sealed class DexEndpoints
 {
@@ -32,9 +28,11 @@ internal sealed class DexEndpoints
 
     private const string QueryType = "Lretrofit2/http/Query;";
     private readonly List<(DexFile Dex, string File)> _dexes = [];
-    private readonly Dictionary<string, Sink> _sinks = new(StringComparer.Ordinal); // renamed library methods (and wrappers) by id
+    // Renamed library methods and their wrappers, by id.
+    private readonly Dictionary<string, Sink> _sinks = new(StringComparer.Ordinal);
     private readonly HashSet<string> _libraryClasses = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _valueAndEncoded = new(StringComparer.Ordinal); // annotation types with value() and encoded()
+    // Annotation types with value() and encoded().
+    private readonly HashSet<string> _valueAndEncoded = new(StringComparer.Ordinal);
     private readonly List<List<string>> _instanceOfChains = [];
     private readonly List<Annotated> _annotated = [];
     private readonly Dictionary<string, string> _verbOfType = new(StringComparer.Ordinal);
@@ -52,7 +50,8 @@ internal sealed class DexEndpoints
         public string? Type;
         public StringBuilder? Builder;
         public bool BuilderLiteral;
-        public int Const = -1; // offset of the const-string that loaded it
+        // Offset of the const-string that loaded it.
+        public int Const = -1;
         public static readonly Reg Unknown = new() { Text = "{}" };
     }
 
@@ -92,7 +91,7 @@ internal sealed class DexEndpoints
                 if (em.CodeOffset == 0 || dex.Code(em.CodeOffset) is not { } code) continue;
                 if (Count(code.Instructions, 0x20) >= 8)
                 {
-                    // Retrofit's parameter annotation parser: one instance-of per annotation type, in its source order
+                    // Retrofit's parameter annotation parser: one instance-of per annotation type, in source order.
                     var chain = Dalvik.Decode(code.Instructions).Where(i => i.Opcode == 0x20).Select(i => dex.Type(i.Index)).Distinct().ToList();
                     if (chain.Count >= 8) _instanceOfChains.Add(chain);
                 }
@@ -150,10 +149,8 @@ internal sealed class DexEndpoints
     private static int Count(ushort[] code, int opcode) => Ops(code).Count(o => o.Op == opcode);
 
     /// <summary>
-    /// OkHttp and Ktor methods R8 renamed, by their own code: OkHttp's Request.Builder.url(String) rewrites "ws:" / "wss:",
-    /// its HttpUrl parser throws "Expected URL scheme 'http' or 'https'..."; Ktor's URL parser tests "mailto", "about", "tel"
-    /// and splits on "@/\?#". Their String parameters carry the URL. Then, up to three levels, any method passing one of
-    /// its own String parameters straight to such a parameter is a wrapper with the same client.
+    /// Finds renamed OkHttp and Ktor URL methods by the string constants their code loads, then up to three levels of
+    /// wrappers that pass a String parameter through.
     /// </summary>
     private void RenamedClients(CancellationToken ct)
     {
@@ -206,7 +203,7 @@ internal sealed class DexEndpoints
                         var method = dex.Method(em.MethodIndex);
                         if (_sinks.ContainsKey(method.Descriptor) || !method.Proto.Parameters.Contains("Ljava/lang/String;")) continue;
                         if (!Ops(code.Instructions).Any(o => o.Op is >= 0x6e and <= 0x72 or >= 0x74 and <= 0x78 && targets.ContainsKey(code.Instructions[o.At + 1]))) continue;
-                        // the register of each String parameter: parameters take the last Ins registers, this first
+                        // Parameters take the last Ins registers, this first.
                         var parameterOf = new Dictionary<int, int>();
                         int r = code.Registers - code.Ins + ((em.Access & 0x8) == 0 ? 1 : 0);
                         for (int k = 0; k < method.Proto.Parameters.Count; k++)
@@ -257,7 +254,8 @@ internal sealed class DexEndpoints
     {
         var regs = new Dictionary<int, Reg>();
         var consumed = new HashSet<int>();
-        bool library = Client(method.Class) != null || _libraryClasses.Contains(method.Class); // the HTTP library's own code calling itself
+        // The HTTP library's own code calling itself.
+        bool library = Client(method.Class) != null || _libraryClasses.Contains(method.Class);
         Reg result = Reg.Unknown;
         string? lastType = null;
         var verbCandidates = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -289,7 +287,8 @@ internal sealed class DexEndpoints
                 case 0x1c:
                     regs[i.A] = new Reg { Type = dex.Type(i.Index), Text = "{}" };
                     continue;
-                case 0x1f or 0x20: // check-cast, instance-of
+                // check-cast, instance-of.
+                case 0x1f or 0x20:
                     lastType = dex.Type(i.Index);
                     if (i.Opcode == 0x20) regs[i.A] = Reg.Unknown;
                     continue;
@@ -302,13 +301,14 @@ internal sealed class DexEndpoints
                 case 0x22:
                     regs[i.A] = dex.Type(i.Index) == "Ljava/lang/StringBuilder;" ? new Reg { Builder = new StringBuilder(), Text = "{}" } : Reg.Unknown;
                     continue;
-                case >= 0x52 and <= 0x6d: // iget / iput / sget / sput
+                // iget, iput, sget, sput.
+                case >= 0x52 and <= 0x6d:
                     if (i.IsFieldRead) regs[i.A] = new Reg { Text = "{" + dex.Field(i.Index).Name + "}" };
                     continue;
             }
             if (i.Ref != DalvikRef.Method || !i.IsInvoke)
             {
-                // anything else that writes vA leaves it unknown
+                // Anything else that writes vA leaves it unknown.
                 if (i.Format is DalvikFormat.F12x or DalvikFormat.F11x or DalvikFormat.F22x or DalvikFormat.F21s or DalvikFormat.F23x or DalvikFormat.F22b
                     or DalvikFormat.F22s or DalvikFormat.F22c or DalvikFormat.F32x or DalvikFormat.F31i or DalvikFormat.F21c or DalvikFormat.F21h or DalvikFormat.F51l)
                     regs.Remove(i.A);
@@ -367,7 +367,7 @@ internal sealed class DexEndpoints
                     ktorVerbs.Add(name[3..].ToUpperInvariant());
                     continue;
             }
-            // volley: new XRequest(int method, String url, ...)
+            // Volley: new XRequest(int method, String url, ...).
             if (cls.StartsWith("Lcom/android/volley/", StringComparison.Ordinal) && name == "<init>" && args.Count >= 3 && callee.Proto.Parameters is ["I", "Ljava/lang/String;", ..])
             {
                 Row(args[1].Int is { } v and >= 0 and <= 7 ? VolleyVerbs[v] : "*", args[2], "volley", i.Offset);
@@ -410,7 +410,7 @@ internal sealed class DexEndpoints
 
         List<Reg> Arguments(DexMethodRef callee, DalvikInstruction i)
         {
-            // registers per argument: this, then each parameter (long and double take two)
+            // This, then each parameter; long and double take two registers.
             var list = new List<Reg>();
             int r = 0;
             bool isStatic = i.Opcode is 0x71 or 0x77;
@@ -489,8 +489,7 @@ internal sealed class DexEndpoints
     }
 
     /// <summary>
-    /// Retrofit's @Query type when R8 renamed it: its parameter parser tests each annotation type in source order (Url, Path,
-    /// Query, ..., Field, ...), and of those with value() and encoded() Query is the second (after Path, before Field).
+    /// Retrofit's renamed @Query type, or null: the second type with value() and encoded() in its parser's instance-of order.
     /// </summary>
     private string? QueryAnnotation()
     {

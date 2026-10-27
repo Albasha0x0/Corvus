@@ -21,7 +21,7 @@ public sealed class AppleNameLayerTests
     }
 
     [Fact]
-    public async Task ObjcLayer_NamesMethodsClassesAndReferences()
+    public async Task The_ObjC_layer_names_methods_classes_and_references()
     {
         using var dir = new TempDir();
         var (bytes, layout) = AppleObjcTests.Sample();
@@ -39,7 +39,7 @@ public sealed class AppleNameLayerTests
         Assert.Equal("selRef_create", index.NameAt(layout["selref:create"]));
         Assert.Equal("_OBJC_PROTOCOL_$_Pet", index.NameAt(layout["Pet"]));
 
-        // engines receive the layer; a user name wins at its address
+        // Engines receive the layer; a user name wins at its address.
         code.Annotations(native).SetName(0x1010, "my_speak");
         index.SetUserName(0x1010, "my_speak");
         Assert.Equal("my_speak", index.NameAt(0x1010));
@@ -49,7 +49,7 @@ public sealed class AppleNameLayerTests
     }
 
     [Fact]
-    public async Task SwiftLayer_MangledNamesShownDemangled()
+    public async Task The_Swift_layer_shows_mangled_names_demangled()
     {
         using var dir = new TempDir();
         var (bytes, layout) = AppleSwiftTests.Sample();
@@ -64,7 +64,7 @@ public sealed class AppleNameLayerTests
     }
 
     [Fact]
-    public async Task ListCppClasses_And_GetNativeType_ShowObjcAndSwift()
+    public async Task Class_and_type_tools_show_ObjC_and_Swift_types()
     {
         using var dir = new TempDir();
         var options = new ServerOptions { BackgroundIndexing = false };
@@ -104,7 +104,7 @@ public sealed class AppleNameLayerTests
     public sealed class AutoAppleNamesVariable
     {
         [Fact]
-        public async Task AutoApply_CanBeTurnedOff()
+        public async Task Applying_names_on_load_can_be_turned_off()
         {
             using var dir = new TempDir();
             Environment.SetEnvironmentVariable(AppleNames.AutoVariable, "0");

@@ -7,11 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Parameters and locals with their locations at an address (clang from CORVUS_LLVM_BIN): frame slots at -O0, the
-/// argument registers of the ABI at the entry of an optimized function (DWARF 5 .debug_loclists, DWARF 4 .debug_loc),
-/// and a loop's locals only inside the loop.
-/// </summary>
+/// <summary>Parameters and locals with their locations at an address: frame slots at -O0, ABI registers at an optimized entry, loop locals only in the loop.</summary>
 [Trait("Speed", "Slow")]
 public sealed class DwarfVariablesTests(ITestOutputHelper output)
 {
@@ -51,7 +47,7 @@ public sealed class DwarfVariablesTests(ITestOutputHelper output)
         Assert.Equal("long", entry["k"].Type);
         foreach (var name in new[] { "p", "k", "local" }) Assert.Matches(new Regex(@"^\[rbp-0x[0-9A-F]+\]$"), entry[name].Location);
         Assert.False(entry.ContainsKey("inner"));
-        // somewhere in the loop body the loop's locals are in scope, at their own slots
+        // Somewhere in the loop body the loop's locals are in scope, at their own slots.
         var all = pdb.Source!.Lookup([.. Enumerable.Range(0, (int)work.Size).Select(i => work.Rva!.Value + (uint)i)]);
         var inLoop = all.First(a => a?.Variables?.Any(v => v.Name == "inner") == true)!.Variables!;
         Assert.Equal(["p", "k", "local", "i", "inner"], inLoop.Select(v => v.Name));

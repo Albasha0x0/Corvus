@@ -5,9 +5,7 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// Background indexing after assemblies load: decodes every method body once (warming the operand caches the
-/// fast IL reader uses) and builds the call graph, so the first search / cross-reference / call tree is as fast as the
-/// following ones. Work is done in small chunks under the shared lock, so edits are never blocked for long.
+/// Decodes every method body and builds the call graph after a load, in small shared-lock chunks so edits are not blocked.
 /// </summary>
 public sealed class IndexingService : IDisposable
 {
@@ -78,7 +76,8 @@ public sealed class IndexingService : IDisposable
                     int start = i;
                     _workspace.Read(() =>
                     {
-                        if (!_workspace.Assemblies.Contains(asm)) return 0; // unloaded meanwhile
+                        // Unloaded meanwhile.
+                        if (!_workspace.Assemblies.Contains(asm)) return 0;
                         foreach (var t in types.Skip(start).Take(ChunkSize))
                             foreach (var m in t.Methods)
                                 FastIlReader.Read(asm, m);

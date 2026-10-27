@@ -63,7 +63,7 @@ public sealed class CaptureTests : IDisposable
     });
 
     [Fact]
-    public void HarListsResponsesNamedByUrl()
+    public void HAR_lists_responses_named_by_URL()
     {
         var path = _dir.File("session.har");
         File.WriteAllBytes(path, Har());
@@ -83,7 +83,7 @@ public sealed class CaptureTests : IDisposable
     }
 
     [Fact]
-    public void HarUnpacksDecodedBodiesInsideTheOutput()
+    public void HAR_unpacks_decoded_bodies_inside_the_output()
     {
         var path = _dir.File("session.har");
         File.WriteAllBytes(path, Har());
@@ -96,7 +96,7 @@ public sealed class CaptureTests : IDisposable
     }
 
     [Fact]
-    public void OtherJsonIsNotACapture()
+    public void Other_JSON_is_not_a_capture()
     {
         var contents = Containers.Open("""{"log":{"level":"debug"}}"""u8.ToArray(), "settings.json", AnalysisLimits.Default, default);
         Assert.Equal("none", contents.Kind);
@@ -149,7 +149,7 @@ public sealed class CaptureTests : IDisposable
     ];
 
     [Fact]
-    public void MitmproxyFlowsListAndDecodeResponses()
+    public void Mitmproxy_flows_list_and_decode_responses()
     {
         var path = _dir.File("capture.flows");
         File.WriteAllBytes(path, Flows());
@@ -167,7 +167,7 @@ public sealed class CaptureTests : IDisposable
     }
 
     [Fact]
-    public void DamagedFlowFilesKeepWhatWasRead()
+    public void Damaged_flow_files_keep_what_was_read()
     {
         var flows = Flows();
         var damaged = flows[..(flows.Length - 10)];
@@ -179,7 +179,7 @@ public sealed class CaptureTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(Captures), typeof(TNetString))]
-    public void FlowFuzzNeverThrowsUnexpectedly()
+    public void Flow_fuzz_never_throws_unexpectedly()
     {
         var failures = FormatFuzz.Run(Flows(), bytes =>
         {

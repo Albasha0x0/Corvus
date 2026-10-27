@@ -22,20 +22,14 @@ public enum PdbSymbolKind
     LocalData,
 }
 
-/// <summary>
-/// One symbol with an address. <see cref="Rva"/> is null when the segment:offset does not map into the image.
-/// <see cref="TypeIndex"/>: the type record of a procedure or data symbol (TPI; IPI for the _ID procedure kinds), 0 for others.
-/// </summary>
+/// <summary>A symbol with an address; <see cref="Rva"/> null when unmapped, <see cref="TypeIndex"/> 0 without a type record.</summary>
 public sealed record PdbSymbol(PdbSymbolKind Kind, string Name, ushort Segment, uint Offset, uint? Rva, uint Size, int Module, uint TypeIndex = 0)
 {
     /// <summary>DWARF: the linkage (mangled) name, when there is one.</summary>
     public string? LinkageName { get; init; }
     /// <summary>DWARF: a function's parameter names in order (null where unnamed).</summary>
     public IReadOnlyList<string?>? ParameterNames { get; init; }
-    /// <summary>
-    /// PDB: the variable names of a procedure's own scope in record order, only the parameters where S_LOCAL marks them.
-    /// MSVC and clang-cl write parameters first, so a prototype's n parameters are the first n.
-    /// </summary>
+    /// <summary>PDB: variable names of a procedure's own scope in record order, only the parameters where S_LOCAL marks them; MSVC and clang-cl write parameters first.</summary>
     public IReadOnlyList<string>? FrameNames { get; init; }
 
     public bool IsFunction => Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc or PdbSymbolKind.PublicFunction or PdbSymbolKind.Thunk;
@@ -60,10 +54,7 @@ public enum DebugInfoFormat { Pdb, Dwarf }
 /// <summary>A source position in <see cref="Function"/> (an inlined function in a frame).</summary>
 public sealed record DebugSourceFrame(string Function, string? File, int Line);
 
-/// <summary>
-/// What debug information says about an address: its source line and the functions there, innermost first; an
-/// inlined frame's line is its call site in the next frame. The last frame is the function itself.
-/// </summary>
+/// <summary>An address's source line and functions, innermost first; an inlined frame's line is its call site in the next frame, and the last frame is the function itself.</summary>
 public sealed record DebugSourceInfo(string? File, int Line, IReadOnlyList<DebugSourceFrame> Frames)
 {
     /// <summary>DWARF: the parameters and locals in scope at the address, with their locations there.</summary>
@@ -78,10 +69,7 @@ public interface IDebugSourceLookup
 {
     /// <summary>One answer per RVA; null where the debug information has none.</summary>
     IReadOnlyList<DebugSourceInfo?> Lookup(IReadOnlyList<uint> rvas, CancellationToken ct = default);
-    /// <summary>
-    /// The code addresses of <paramref name="line"/> in the files whose path ends with <paramref name="file"/>, lowest
-    /// first; a line with no code moves to the next line that has some, as debuggers place a stop point.
-    /// </summary>
+    /// <summary>Code addresses of <paramref name="line"/> in files ending with <paramref name="file"/>, lowest first; a line without code moves to the next.</summary>
     IReadOnlyList<PdbLineAddress> Addresses(string file, int line, CancellationToken ct = default);
     /// <summary>Units with a line table.</summary>
     int LineTables { get; }
@@ -92,12 +80,7 @@ public interface IDebugSourceLookup
 /// <summary>A section of the image as the PDB recorded it (IMAGE_SECTION_HEADER).</summary>
 public sealed record PdbSection(string Name, uint VirtualAddress, uint VirtualSize, uint Characteristics);
 
-/// <summary>
-/// A native PDB (MSF 7.0): identity (PDB info stream GUID and age, DBI age), module list, section headers, OMAP, and
-/// the symbols with addresses (publics, global and local data, and functions from the module streams). Type records
-/// (TPI) are read on demand by <see cref="PdbTypeModel"/>. Only the superblock check throws; every
-/// later problem is recorded in <see cref="Issues"/> and the readable part is kept.
-/// </summary>
+/// <summary>A native PDB (MSF 7.0): identity, modules, sections, OMAP and symbols; only the superblock check throws, other problems go to <see cref="Issues"/>.</summary>
 public sealed class PdbFile
 {
     private const int InfoStream = 1;
@@ -174,10 +157,7 @@ public sealed class PdbFile
         StreamCount = msf.StreamCount;
     }
 
-    /// <summary>
-    /// Reads a PDB file page by page. <paramref name="imageSections"/> (the image's section table) maps addresses when the
-    /// PDB has no section header stream.
-    /// </summary>
+    /// <summary>Reads a PDB page by page; <paramref name="imageSections"/> maps addresses when the PDB has no section headers.</summary>
     public static PdbFile Open(string path, IReadOnlyList<NativeSection>? imageSections = null, CancellationToken ct = default)
     {
         using var msf = MsfFile.Open(path);
@@ -248,10 +228,7 @@ public sealed class PdbFile
         return NamedStream(info.AsSpan(28), "/names");
     }
 
-    /// <summary>
-    /// A stream of the named stream map after the info header: the names buffer, then a hash table (size, capacity, present
-    /// and deleted bit vectors, then one (name offset, stream) pair per present bucket); -1 when absent or malformed.
-    /// </summary>
+    /// <summary>A stream of the named stream map after the info header; -1 when absent or malformed.</summary>
     internal static int NamedStream(ReadOnlySpan<byte> map, string wanted)
     {
         if (map.Length < 4) return -1;
@@ -320,7 +297,7 @@ public sealed class PdbFile
         ReadSectionHeaders(msf, offsets[6], sizes[6], imageSections);
         Modules = ReadModules(msf, offsets[0], sizes[0]);
 
-        // the symbol record stream holds publics and global data (and references to module procedures)
+        // The symbol record stream holds publics and global data (and references to module procedures).
         if (symRecordStream != 0xFFFF && msf.HasStream(symRecordStream))
             ReadSymbols(msf, symRecordStream, 0, msf.StreamSize(symRecordStream), -1, symbols, ct);
         else if (symRecordStream == 0xFFFF || symRecordStream >= msf.StreamCount)
@@ -335,7 +312,7 @@ public sealed class PdbFile
                 _log.Add($"module {m.Index} ({m.Name}): symbol stream {m.SymbolStream} is missing");
                 continue;
             }
-            // the module stream starts with a 4-byte signature (4 = C13)
+            // The module stream starts with a 4-byte signature (4 = C13).
             ReadSymbols(msf, m.SymbolStream, 4, m.SymbolBytes - 4, m.Index, symbols, ct);
             if (symbols.Count >= PdbLimits.MaxSymbols) break;
         }
@@ -350,7 +327,7 @@ public sealed class PdbFile
 
     private void ReadSectionHeaders(MsfFile msf, long offset, long size, IReadOnlyList<NativeSection>? imageSections)
     {
-        // optional debug header: stream numbers of FPO, exception, fixup, OMAP to/from source, section headers, ...
+        // Optional debug header: stream numbers of FPO, exception, fixup, OMAP to/from source, section headers, ...
         int count = (int)Math.Min(size / 2, 16);
         var streams = new int[11];
         Array.Fill(streams, 0xFFFF);
@@ -365,7 +342,7 @@ public sealed class PdbFile
         _addressSections = Sections;
         if (msf.HasStream(streams[4]) && msf.HasStream(streams[10]))
         {
-            // the image was rearranged after linking: symbols address the original sections, mapped through OMAP
+            // The image was rearranged after linking: symbols address the original sections, mapped through OMAP.
             var original = ReadSectionStream(msf, streams[10]);
             var omap = ReadOmap(msf, streams[4]);
             if (original.Count > 0 && omap.Length > 0)
@@ -456,7 +433,7 @@ public sealed class PdbFile
             r.TryRead(fixedPart);
             int stream = Le16(fixedPart, 34);
             uint symBytes = Le32(fixedPart, 36), c11Bytes = Le32(fixedPart, 40), c13Bytes = Le32(fixedPart, 44);
-            // two zero-terminated names follow (module name, object file name), then padding to 4
+            // Two zero-terminated names follow (module name, object file name), then padding to 4.
             int avail = (int)Math.Min(nameBuf.Length, r.Remaining);
             int got = msf.Read(DbiStream, r.Position, nameBuf.AsSpan(0, avail));
             var span = nameBuf.AsSpan(0, got);
@@ -490,7 +467,7 @@ public sealed class PdbFile
         var r = new MsfStreamReader(msf, stream, start, length);
         var record = new byte[ushort.MaxValue + 1];
         int n = 0;
-        // the procedure whose own scope is being read (index in symbols, -1 for none), the scope depth and its variable names
+        // The procedure whose own scope is being read (index in symbols, -1 for none), the scope depth and its variable names.
         int proc = -1, depth = 0;
         List<string>? frame = null;
         bool marked = false;
@@ -524,7 +501,8 @@ public sealed class PdbFile
             switch (kind)
             {
                 case 0x1110 or 0x1147 or 0x110F or 0x1146 or 0x1155 or 0x1156 or 0x1102 or 0x1103 or 0x1104 or 0x1132 or 0x114D or 0x115D:
-                    depth++; // procedures, thunks, blocks, with, separated code and inlined call sites open a scope
+                    // Procedures, thunks, blocks, with, separated code and inlined call sites open a scope.
+                    depth++;
                     break;
                 case 0x0006 or 0x114F or 0x114E: // S_END, S_PROC_ID_END, S_INLINESITE_END
                     if (depth > 0 && --depth == 0 && proc >= 0)
@@ -538,7 +516,8 @@ public sealed class PdbFile
                     int nameAt = kind switch { 0x1111 => 10, 0x110B => 8, _ => 6 };
                     if (data.Length <= nameAt) break;
                     bool parameter = kind == 0x113E && (Le16(data, 4) & 1) != 0;
-                    if (kind == 0x113E && !marked && parameter) { frame.Clear(); marked = true; } // S_LOCAL flags parameters: keep only those
+                    // S_LOCAL flags parameters: keep only those.
+                    if (kind == 0x113E && !marked && parameter) { frame.Clear(); marked = true; }
                     if (marked && !parameter) break;
                     int z = data[nameAt..].IndexOf((byte)0);
                     if (z > 0 && z <= PdbLimits.MaxNameLength) frame.Add(Encoding.UTF8.GetString(data.Slice(nameAt, z)));

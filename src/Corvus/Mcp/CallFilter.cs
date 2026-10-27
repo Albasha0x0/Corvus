@@ -10,10 +10,7 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// The tools/call pipeline around every tool: argument checks and clamps, the output budget per part, structured content,
-/// errors as results, notices, provenance, the frame safety net and resource update notifications.
-/// </summary>
+/// <summary>The tools/call pipeline: argument checks, output budget, structured content, errors as results, notices, provenance and resource notifications.</summary>
 internal static partial class CallFilter
 {
     /// <summary>CORVUS_RESULT_MODE=json: the text block is the compact structured JSON (the spec's SHOULD) instead of readable text.</summary>
@@ -60,7 +57,7 @@ internal static partial class CallFilter
         using var waits = AssemblyWorkspace.CancelWaitsWith(cancellationToken, tool);
         services?.GetService<ResourceSubscriptions>()?.Check();
         if (tool != null && !ToolEffects.Of(tool).ReadOnly) services?.GetService<Services.EditJournal>()?.Sync();
-        // the whole content, before the budget cuts it; read_result's own pages are not findings
+        // Recorded whole, before the budget cuts it; read_result's own pages are not findings.
         if (tool is not (null or "read_result") && result.IsError != true && services?.GetService<RecentCalls>() is { } recent)
             recent.Add(CallLog.Origin(tool, request?.Arguments) with { Inputs = ToolOutput.Inputs(request?.Arguments, services.GetService<AssemblyWorkspace>()) }, result);
         if (options != null && services!.GetService<ResultStore>() is { } store)
@@ -92,10 +89,8 @@ internal static partial class CallFilter
         return result;
     }
 
-    /// <summary>
-    /// The estimate parts are fitted to: 5% under the budget, as the estimate runs up to 10% low on rare names and packed
-    /// string tables (against o200k) and the budget allows 5% over.
-    /// </summary>
+    /// <summary>The token estimate parts are fitted to: 5% under the budget.</summary>
+    // The estimate runs up to 10% low on rare names and packed string tables (against o200k); the budget allows 5% over.
     public static int FitTokens(int budget) => budget - budget / 20;
 
     /// <summary>The call's token budget per part: maxTokens, else the class default; within the client's ceiling.</summary>
@@ -114,10 +109,7 @@ internal static partial class CallFilter
         return Math.Min(tokens, ceiling);
     }
 
-    /// <summary>
-    /// limit below 1 or offset below 0: invalid_argument naming the range; limit above <see cref="MaxLimit"/>: clamped and
-    /// reported. Returns the limit the call applies (the schema default when not given), or null without a limit parameter.
-    /// </summary>
+    /// <summary>The limit the call applies (schema default when not given), or null without a limit; out of range is invalid_argument, over MaxLimit is clamped and reported.</summary>
     private static int? Clamp(JsonElement? inputSchema, CallToolRequestParams? request, List<string> warnings)
     {
         if (inputSchema is not { } schema || !schema.TryGetProperty("properties", out var properties)) return null;
@@ -155,13 +147,13 @@ internal static partial class CallFilter
         // Stopped one grace period early, so even work that ignores its token is answered for by the deadline.
         using var expiry = deadline is { } limit ? new CancellationTokenSource(Remaining(Early(limit), time.GetElapsedTime(received)), time) : null;
         using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry?.Token ?? CancellationToken.None);
-        // at the cap a call with a deadline waits for room until that deadline; session tools (server_status) and joins never wait
+        // At the cap a call waits for room until its deadline; session tools and joins never wait.
         if (leftovers != null && deadline != null && tool != null && Toolsets.FamilyOf(tool) != Toolsets.Session && joins?.IsRunning(joinKey!) != true
             && !await leftovers.WaitForRoom(call.Token))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return (ErrorResult.From(new ToolError(ErrorCode.ProviderUnavailable,
-                $"the server is busy: {leftovers.Running} cancelled or timed-out calls are still finishing in the background (at most {leftovers.Max}); this call waited {deadline.Value.TotalSeconds:0} s and was not started.",
+                $"the server is busy: {leftovers.Running} cancelled or timed-out calls are still finishing (at most {leftovers.Max}); this call waited {deadline.Value.TotalSeconds:0} s and did not start.",
                 "retry after details.retryAfterMs; server_status shows when they are done")
             { Details = new { retryAfterMs = (long)LeftoverWork.RetryAfter.TotalMilliseconds, leftoverCalls = leftovers.Running, max = leftovers.Max } }, tool), output);
         }
@@ -299,11 +291,7 @@ internal static partial class CallFilter
         public TimeSpan Limit { get; } = limit;
     }
 
-    /// <summary>
-    /// The tool's result; cancelled by the client or past the deadline, the work gets <see cref="DeadlineGrace"/> to stop, then
-    /// the call returns while <paramref name="shared"/> (the run behind <paramref name="work"/>) finishes in the background,
-    /// counted in <paramref name="leftovers"/>.
-    /// </summary>
+    /// <summary>The tool's result; on cancel or deadline the work gets <see cref="DeadlineGrace"/> to stop, then finishes in the background, counted in <paramref name="leftovers"/>.</summary>
     private static async Task<T> WithinDeadline<T>(Task<T> work, Task shared, CancellationToken call, TimeSpan? deadline, CancellationToken client,
         LeftoverWork? leftovers, TimeProvider time)
     {
@@ -341,11 +329,7 @@ internal static partial class CallFilter
     private static partial Regex MissingParameter();
 }
 
-/// <summary>
-/// Calls of one server that were cancelled by the client or passed their deadline and still run in the background (their
-/// token is cancelled; the work ignored it). At <see cref="Max"/> of them, a new call with a deadline waits for one to
-/// finish until that deadline, then is refused as busy.
-/// </summary>
+/// <summary>Cancelled or timed-out calls still running in the background; at <see cref="Max"/>, a new call waits until its deadline, then is refused as busy.</summary>
 public sealed class LeftoverWork
 {
     public const string MaxVariable = "CORVUS_MAX_LEFTOVER_CALLS";

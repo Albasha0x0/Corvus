@@ -51,10 +51,7 @@ internal static partial class ArkOpcodes
         return Plain[code[at]];
     }
 
-    /// <summary>
-    /// The instructions of a method body in order; decoding stops at an undefined opcode or a truncated instruction,
-    /// and <paramref name="stopped"/> names the offset (-1 when the whole body decoded).
-    /// </summary>
+    /// <summary>A method body's instructions; <paramref name="stopped"/> is the offset of a bad opcode, or -1 when all decoded.</summary>
     public static List<ArkInstruction> Decode(ReadOnlySpan<byte> code, out int stopped)
     {
         var list = new List<ArkInstruction>();

@@ -2,14 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// A32 / T32 decoding over the code of a 32-bit ARM image, in the state <see cref="Arm32Modes"/> gives each function
-/// (BLX targets switch it). IT blocks make the instructions they cover conditional. A register file per linear run
-/// tracks constants (MOVW / MOVT, MOV, literal loads) and addresses (ADR, PC-relative ADD, relocated MOVW / MOVT pairs and
-/// literals), so literal pools and PC-relative pairs become data references, loads from import slots make the
-/// following BX / BLX an import jump or call, and branches through a register holding a code address become direct.
-/// One instance per thread.
-/// </summary>
+/// <summary>Decodes 32-bit ARM image code in each function's state, tracking registers to resolve references; one per thread.</summary>
 internal sealed class Arm32Decoder : ICodeDecoder
 {
     private enum Known : byte { None, Constant, Address, ImportSlot }
@@ -26,9 +19,9 @@ internal sealed class Arm32Decoder : ICodeDecoder
     private readonly byte[] _scratch = new byte[4];
     private readonly Known[] _kind = new Known[16];
     private readonly uint[] _value = new uint[16];
-    // a MOVW whose relocation (PE THUMB_MOV32 / ARM_MOV32) makes the MOVT that completes it an address
+    // A MOVW whose THUMB_MOV32 / ARM_MOV32 relocation makes the completing MOVT an address.
     private readonly bool[] _relocatedLow = new bool[16];
-    // an address read from an unrelocated literal of a fixed-address image: a PC-relative offset when added to the PC
+    // An unrelocated literal of a fixed-address image: a PC-relative offset when added to the PC.
     private readonly bool[] _literal = new bool[16];
     private ArmInstruction _last;
     private bool _thumb = true;
@@ -36,14 +29,14 @@ internal sealed class Arm32Decoder : ICodeDecoder
     private uint _expected = uint.MaxValue;
     private int _itFirst, _itMask, _itLeft, _itIndex;
 
-    // the current linear run, for switch dispatch and bound matching
+    // The current linear run, for switch dispatch and bound matching.
     private const int RingSize = 64;
     private readonly ArmInstruction[] _ring = new ArmInstruction[RingSize];
     private readonly uint[] _ringRva = new uint[RingSize];
     private int _ringHead, _ringCount;
     private IndexBound _runBound;
 
-    // callee-saved r4-r11 holding one address in the whole function (hoisted PIC bases)
+    // Callee-saved r4-r11 holding one address in the whole function: hoisted PIC bases.
     private const int FirstSaved = 4, LastSaved = 11;
     private readonly uint[] _saved = new uint[16];
     private readonly byte[] _savedState = new byte[16]; // 0 unknown, 1 one address, 2 several
@@ -178,7 +171,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
 
         insn = new Insn { Rva = rva, Length = length };
         bool conditional = _last.IsConditional;
-        // bx lr / mov pc, lr after the run computed lr (adr; add lr, lr, index, lsl #2): a jump table dispatch, not a return
+        // bx lr / mov pc, lr after the run computed lr is a jump table dispatch, not a return.
         if (_last.Flow == ArmFlow.Return && _last.Mnemonic is "bx" or "mov" && ComputedLr()) _last.Flow = ArmFlow.IndirectJump;
         switch (_last.Flow)
         {
@@ -245,10 +238,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
     public bool IsStateSwitchStub(uint rva) =>
         _image.Read(rva, _scratch.AsSpan(0, 2)) == 2 && BinaryPrimitives.ReadUInt16LittleEndian(_scratch) == 0x4778 && Modes.At(rva);
 
-    /// <summary>
-    /// BX / BLX / a load into PC: through an import slot (an import call or jump), or to a code address a register or
-    /// literal holds (a direct branch, the state from bit 0; "bx pc" switches to ARM at the next word).
-    /// </summary>
+    /// <summary>Resolves BX / BLX / a load into PC through an import slot or a known code address; bit 0 gives the state.</summary>
     private void Through(ref Insn insn, uint rva)
     {
         var i = _last;
@@ -264,7 +254,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         else if (i.Mnemonic == "add" && i.OperandCount == 3 && i.Op(1).Kind == ArmOperandKind.Register && i.Op(2).Kind == ArmOperandKind.Register
                  && (i.Op(1).Reg == Pc) != (i.Op(2).Reg == Pc))
         {
-            // add pc, rX, pc with a constant rX (a long-branch veneer): the state from bit 0
+            // add pc, rX, pc with a constant rX is a long-branch veneer; bit 0 gives the state.
             int r = i.Op(1).Reg == Pc ? i.Op(2).Reg : i.Op(1).Reg;
             if (_kind[r] == Known.Constant)
             {
@@ -281,11 +271,11 @@ internal sealed class Arm32Decoder : ICodeDecoder
             insn.MemAccess = OperandAccess.Read;
             if (Modes.LocalSlots.TryGetValue(slot, out uint local))
             {
-                // a PLT stub of a function this image exports
+                // A PLT stub of a function this image exports.
                 target = _imageBase + (local & ~1u);
                 thumb = (local & 1) != 0;
             }
-            // a veneer or literal branch: ldr pc, [pc, #x] with the target in the literal
+            // A veneer or literal branch: ldr pc, [pc, #x] with the target in the literal.
             else if (i.Op(k).Reg == Pc && i.Op(k).Index == ArmOperand.NoReg && _image.Read(slot, _scratch) == 4)
             {
                 uint value = BinaryPrimitives.ReadUInt32LittleEndian(_scratch);
@@ -328,7 +318,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         if (RegisterValue(in i, op.Reg) is not { } b) return null;
         if (op.Indexing == ArmIndexing.PostIndex) return b;
         if (op.Index == ArmOperand.NoReg) return op.Subtract ? b - (uint)op.Value : b + (uint)op.Value;
-        // base + index: one must be an address (a GOT base plus a slot offset, or a literal offset plus pc)
+        // Base + index: one must be an address, a GOT base or the pc.
         if (op.Shift != ArmShift.None && op.Amount != 0 || op.Subtract || RegisterValue(in i, op.Index) is not { } x) return null;
         bool address = op.Reg == Pc || _kind[op.Reg] == Known.Address || _kind[op.Index] == Known.Address;
         return address ? b + x : null;
@@ -444,10 +434,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         };
     }
 
-    /// <summary>
-    /// The destination of a word load from <paramref name="slot"/>: an import slot; a relocated pointer (an address, also
-    /// recorded as taken); a literal in code (a constant); otherwise unknown.
-    /// </summary>
+    /// <summary>What a word load from <paramref name="slot"/> yields: import slot, relocated address, code literal constant, or unknown.</summary>
     private void Loaded(ref Insn insn, int dest, uint slot)
     {
         if (_importSlots.Contains(slot)) { Set(dest, Known.ImportSlot, slot); return; }
@@ -529,7 +516,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         return i < _relocs.Length && _relocs[i] < rva + (uint)length;
     }
 
-    /// <summary>A fixed-address image (an ELF executable, or one without relocations) (a static executable): literal and MOVW / MOVT values inside it are addresses.</summary>
+    /// <summary>A fixed-address image (no relocations): literal and MOVW / MOVT values inside it are addresses.</summary>
     private bool FixedAddress => _fixed ??= _image is Elf.ElfFile { Type: 2 } || _relocs.Length == 0 && _imageBase >= 0x1000 && _image.Format != ImageFormat.Pe;
     private bool? _fixed;
 
@@ -684,13 +671,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         }
     }
 
-    /// <summary>
-    /// The jump table dispatch ending at the last instruction: TBB / TBH [rn, rm] (targets pc + 2 × entry); a load into
-    /// PC from [table, index, lsl #2] (absolute entries); ADD PC of a base and an entry loaded from such a table
-    /// (base-relative entries); ADD PC, PC, index, lsl #2 (a run of branches); BX / MOV PC of a loaded entry. The index is
-    /// bounded by cmp + b.hi / b.hs on the path, by the dispatch's own LS / LO condition, an and-mask or a bound carried
-    /// into the run.
-    /// </summary>
+    /// <summary>The jump table dispatch (TBB / TBH, PC loads, ADD PC forms) ending at the last instruction, with its index bound.</summary>
     public SwitchMatch? MatchSwitch(out string reason)
     {
         reason = SwitchMatch.NoDispatch;
@@ -713,7 +694,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         }
         if (j.Mnemonic == "add" && j.WritesPc)
         {
-            // add pc, pc, index, lsl #2: a run of branches right after the dispatch
+            // add pc, pc, index, lsl #2: a run of branches right after the dispatch.
             if (j.OperandCount == 3 && j.Op(1).Kind == ArmOperandKind.Register && j.Op(1).Reg == Pc && j.Op(2).Kind == ArmOperandKind.ShiftedRegister
                 && j.Op(2).Shift == ArmShift.Lsl && j.Op(2).Amount == 2 && j.Op(2).ShiftReg == ArmOperand.NoReg)
             {
@@ -747,7 +728,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
                 return m == null ? null : m with { Absolute = true };
             }
             var x = Back(lw);
-            // adr rB, table; ldr rE, [rB, index, lsl #2]; add rT, rB, rE; bx rT: entries relative to a base
+            // adr rB, table; ldr rE, [rB, index, lsl #2]; add rT, rB, rE; bx rT: base-relative entries.
             if (x.Mnemonic == "add" && x.OperandCount is 2 or 3 && x.Op(x.OperandCount - 1).Kind == ArmOperandKind.Register && x.Op(x.OperandCount - 2).Kind == ArmOperandKind.Register)
             {
                 int ra = x.Op(x.OperandCount - 2).Reg, rb = x.Op(x.OperandCount - 1).Reg;
@@ -760,7 +741,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
                     return m == null ? null : m with { Base = baseRva, Shift = 0, Signed = true };
                 }
             }
-            // adr rB, run; add rT, rB, index, lsl #2; mov pc, rT: a run of branches
+            // adr rB, run; add rT, rB, index, lsl #2; mov pc, rT: a run of branches.
             if (x.Mnemonic != "add" || x.OperandCount != 3 || x.Op(1).Kind != ArmOperandKind.Register || x.Op(2).Kind != ArmOperandKind.ShiftedRegister
                 || x.Op(2).Shift != ArmShift.Lsl || x.Op(2).Amount != 2 || x.Op(2).ShiftReg != ArmOperand.NoReg) return null;
             uint? runVa = x.Op(1).Reg == Pc ? PcValue(in x, literal: false) : Constant(lw + 1, x.Op(1).Reg);
@@ -786,10 +767,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         return true;
     }
 
-    /// <summary>
-    /// The bound of <paramref name="index"/> searched back from step <paramref name="from"/> (the dispatch's own condition
-    /// first): a SwitchMatch for the table, or null with the reason.
-    /// </summary>
+    /// <summary>The bound of <paramref name="index"/> searched back from step <paramref name="from"/>; null with the reason when none.</summary>
     private SwitchMatch? Bound(int from, int index, int entrySize, uint tableRva, out string reason)
     {
         reason = "switch index bound not found";
@@ -803,7 +781,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         {
             ref var x = ref Back(k);
             if (IsCall(in x)) return null;
-            // a conditional return (it hi; bxhi lr) leaves for out-of-range values as a branch to the default does
+            // A conditional return leaves for out-of-range values as a branch to the default does.
             if (!own && (Condition(in x) ?? (x.Flow == ArmFlow.Return && x.IsConditional ? x.Cond : null)) is { } cc)
             {
                 if (pending == null)
@@ -820,7 +798,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
                     uint? count = p switch { Hi or Ls => (uint)imm + 1, Hs or Lo => (uint)imm, _ => null };
                     if (count != null) return Match(count.Value) with { Default = pendingDefault, Bias = BiasBefore(k + 1, current) };
                 }
-                // cmp of the index shifted right (lsrs rC, index, #n; cmp rC, #imm): the bound scales by 2^n
+                // A cmp of the index shifted right by n scales the bound by 2^n.
                 else if (reg >= 0 && imm < 0x10000 && ShiftedFrom(k + 1, reg, current) is { } shift and > 0 and < 16)
                 {
                     uint? count = p switch { Hi or Ls => (uint)(imm + 1) << shift, Hs or Lo => (uint)imm << shift, _ => null };
@@ -854,11 +832,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
 
     public bool LastHasImplausibleDisplacement(uint rva) => false;
 
-    /// <summary>
-    /// A few address-forming instructions ending in a jump through an import slot: ELF PLT entries (add ip, pc, #..;
-    /// add ip, ip, #..; ldr pc, [ip, #..]!), their Thumb entry (bx pc; nop), long PLT entries (movw / movt / add pc),
-    /// Windows import thunks (movw / movt r12; ldr.w pc, [r12]).
-    /// </summary>
+    /// <summary>A few address-forming instructions ending in a jump through an import slot: ELF PLT entries or Windows import thunks.</summary>
     public uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot)
     {
         bool pinned = _pinned, thumb = _thumb;
@@ -871,7 +845,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
                 if (!Decode(rva, out var insn)) return null;
                 if (n == 0 && _thumb && _last.Raw == 0x4778)
                 {
-                    // bx pc; nop: the ARM entry follows
+                    // bx pc; nop: the ARM entry follows.
                     rva = (rva + 4) & ~3u;
                     Pin(false);
                     continue;

@@ -4,11 +4,8 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// Edits one server entry of a JSON-with-comments file in place: only the changed keys' text is replaced, inserted or
-/// removed, so comments, key order, indentation, line endings and the rest of the file stay as they were. Returns null
-/// for anything it does not handle; callers verify the result and otherwise rewrite the whole file.
-/// </summary>
+/// <summary>Edits one server entry of a JSON-with-comments file in place, keeping the rest; null for anything it does not handle.</summary>
+// Callers verify the result and otherwise rewrite the whole file.
 internal static class JsoncEditor
 {
     private abstract class Span
@@ -33,10 +30,7 @@ internal static class JsoncEditor
 
     private static readonly JsonSerializerOptions Relaxed = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    /// <summary>
-    /// <paramref name="text"/> with <paramref name="name"/> in the object at <paramref name="container"/> set to
-    /// <paramref name="entry"/> (null removes it), or null when the text cannot be edited in place.
-    /// </summary>
+    /// <summary><paramref name="text"/> with <paramref name="name"/> set to <paramref name="entry"/> (null removes it); null when it cannot edit in place.</summary>
     public static string? Edit(string text, IReadOnlyList<string> container, string name, JsonObject? entry)
     {
         try
@@ -189,10 +183,7 @@ internal static class JsoncEditor
         return at;
     }
 
-    /// <summary>
-    /// The whitespace before <paramref name="at"/> on its line when only whitespace precedes it (with
-    /// <paramref name="anywhere"/>, the line's leading whitespace whatever follows); else null.
-    /// </summary>
+    /// <summary>The whitespace before <paramref name="at"/> when only whitespace precedes it (anywhere: the line's indent); else null.</summary>
     private static string? LineIndent(string text, int at, bool anywhere = false)
     {
         int start = LineStart(text, at);

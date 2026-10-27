@@ -2,11 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Corvus.Native.Providers.Ghidra;
 
-/// <summary>
-/// A Ghidra install: version and Java range from Ghidra/application.properties, the launcher jars, and the native
-/// decompiler for this platform when it is built (Ghidra ships it for win_x86_64 and linux_x86_64 only). Located
-/// from the configured directory, else <see cref="GhidraOptions.DirectoryVariable"/>, else GHIDRA_INSTALL_DIR.
-/// </summary>
+/// <summary>A Ghidra install with its version, Java range and native decompiler (shipped for win_x86_64 and linux_x86_64 only), located from the option, <see cref="GhidraOptions.DirectoryVariable"/> or GHIDRA_INSTALL_DIR.</summary>
 public sealed record GhidraInstallation(string Directory, string Version, string Revision, int JavaMin, int? JavaMax, string? DecompilerPath, string Source)
 {
     public const string StandardDirectoryVariable = "GHIDRA_INSTALL_DIR";
@@ -37,10 +33,7 @@ public sealed record GhidraInstallation(string Directory, string Version, string
         return jars;
     }
 
-    /// <summary>
-    /// Finds and validates the install. <paramref name="explicitDirectory"/> wins over the environment. Returns null
-    /// with <paramref name="reason"/> and <paramref name="remediation"/> set when unusable.
-    /// </summary>
+    /// <summary>The validated install (<paramref name="explicitDirectory"/> first), or null with <paramref name="reason"/> and <paramref name="remediation"/> set.</summary>
     public static GhidraInstallation? Locate(string? explicitDirectory, out string reason, out string remediation)
     {
         string? dir = null, source = null;
@@ -128,10 +121,7 @@ public sealed record JavaRuntime(string Home, string Java, string Javac, int Maj
 {
     private static string Exe(string name) => OperatingSystem.IsWindows() ? name + ".exe" : name;
 
-    /// <summary>
-    /// The first usable JDK of <see cref="GhidraOptions.JavaVariable"/>, JAVA_HOME and java on PATH whose version is
-    /// within [<paramref name="min"/>, <paramref name="max"/>]; candidates tried are described in <paramref name="log"/>.
-    /// </summary>
+    /// <summary>The first JDK of <see cref="GhidraOptions.JavaVariable"/>, JAVA_HOME and PATH within [<paramref name="min"/>, <paramref name="max"/>]; tries go to <paramref name="log"/>.</summary>
     public static JavaRuntime? Locate(string? explicitHome, int min, int? max, List<string> log)
     {
         var candidates = new List<(string Path, string Source)>();

@@ -4,10 +4,7 @@ using Corvus.Native;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// NativeAOT recovery on production binaries: tools/ilc of the ILCompiler runtime packs is itself compiled with
-/// NativeAOT (.NET 8, 9, 10; x64, ARM64, x86 and ARM). Restored only for the full suite (CORVUS_ALL_TESTS=1).
-/// </summary>
+/// <summary>NativeAOT recovery on the ILCompiler packs' own tools/ilc (.NET 8, 9, 10; x64, ARM64, x86, ARM); restored only with CORVUS_ALL_TESTS=1.</summary>
 [Trait("Speed", "Slow")]
 public class NativeAotRealTests
 {
@@ -50,7 +47,7 @@ public class NativeAotRealTests
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public void Header_VersionAndSections(string sample)
+    public void The_header_gives_the_version_and_sections(string sample)
     {
         var (s, aot) = Open(sample);
         Assert.Single(aot.Headers);
@@ -73,7 +70,7 @@ public class NativeAotRealTests
     /// <summary>Interface dispatch cells in every format: most carry the interface method's name and have implementations.</summary>
     [Theory]
     [MemberData(nameof(Samples))]
-    public void DispatchCells_NamedWithImplementations(string sample)
+    public void Dispatch_cells_are_named_with_their_implementations(string sample)
     {
         var (_, aot) = Open(sample);
         var cells = aot.Dispatch.Cells;
@@ -87,7 +84,7 @@ public class NativeAotRealTests
     [Theory]
     [InlineData("win-x86 10.0.11")]
     [InlineData("linux-arm 10.0.11")]
-    public void Image32_ReadLikeTheOthers(string sample)
+    public void A_32_bit_image_reads_like_a_64_bit_one(string sample)
     {
         var (_, aot) = Open(sample);
         Assert.False(aot.Image.Is64Bit);
@@ -102,7 +99,7 @@ public class NativeAotRealTests
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public void Metadata_AllTypeDefinitionsNamed(string sample)
+    public void Metadata_names_every_type_definition(string sample)
     {
         var (_, aot) = Open(sample);
         var md = Assert.IsType<NativeAotMetadata>(aot.Metadata);
@@ -117,7 +114,7 @@ public class NativeAotRealTests
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public void Rehydration_ExpandsDehydratedImages(string sample)
+    public void Rehydration_expands_dehydrated_images(string sample)
     {
         var (s, aot) = Open(sample);
         var h = aot.Hydrated;
@@ -132,7 +129,7 @@ public class NativeAotRealTests
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public void NameMaps_NameMostFunctions(string sample)
+    public void Name_maps_name_most_functions(string sample)
     {
         var (_, aot) = Open(sample);
         var names = aot.Names;
@@ -150,7 +147,7 @@ public class NativeAotRealTests
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public void MethodTables_FoundAndNamed(string sample)
+    public void Method_tables_are_found_and_named(string sample)
     {
         var (_, aot) = Open(sample);
         var types = aot.Types;
@@ -169,7 +166,7 @@ public class NativeAotRealTests
     /// <summary>Dispatch maps: interface slots resolve to code, IEnumerator's slot 0 to MoveNext bodies.</summary>
     [Theory]
     [MemberData(nameof(Samples))]
-    public void DispatchMaps_ResolveInterfaceSlots(string sample)
+    public void Dispatch_maps_resolve_interface_slots(string sample)
     {
         var (_, aot) = Open(sample);
         var types = aot.Types;
@@ -184,7 +181,7 @@ public class NativeAotRealTests
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public void FrozenRegion_WalkedToTheEnd(string sample)
+    public void The_frozen_region_is_walked_to_the_end(string sample)
     {
         var (_, aot) = Open(sample);
         var frozen = aot.Frozen;

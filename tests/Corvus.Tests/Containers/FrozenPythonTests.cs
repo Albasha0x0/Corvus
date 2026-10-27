@@ -36,7 +36,8 @@ public sealed class FrozenPythonTests : IDisposable
         using var ms = new MemoryStream();
         ms.Write("PYZ\0"u8);
         ms.Write(Magic312);
-        ms.Write(new byte[8]); // table of contents offset, patched below; padding
+        // Table of contents offset, patched below; padding.
+        ms.Write(new byte[8]);
         var toc = new List<object>();
         foreach (var (name, type, code) in modules)
         {
@@ -135,7 +136,8 @@ public sealed class FrozenPythonTests : IDisposable
         var decoder = c.Items.Single(i => i.Name == "PYZ-00.pyz_extracted/json/decoder.pyc").Bytes;
         Assert.True(PyVersion.LooksLikePyc(decoder));
         Assert.Equal(Code("json/decoder.py", 42L), decoder[16..]);
-        Assert.DoesNotContain(c.Notes, n => n.StartsWith("One-folder", StringComparison.Ordinal)); // the runtime travels in the archive: onefile
+        // The runtime travels in the archive: onefile.
+        Assert.DoesNotContain(c.Notes, n => n.StartsWith("One-folder", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -151,7 +153,8 @@ public sealed class FrozenPythonTests : IDisposable
     public void The_stream_path_reads_the_same_program()
     {
         var bytes = PyInstallerSample();
-        var reader = Containers.ReaderFor(bytes.AsSpan(0, 0x800), "app.exe"); // the head: headers and sections, not the archive
+        // The head: headers and sections, not the archive.
+        var reader = Containers.ReaderFor(bytes.AsSpan(0, 0x800), "app.exe");
         Assert.IsType<FrozenPythonReader>(reader);
         var streamed = reader!.Open(new MemoryStream(bytes), "app.exe", allFiles: false, AnalysisLimits.Default, default)!;
         Assert.Equal(Roles(Containers.Open(bytes, "app.exe", AnalysisLimits.Default, default)), Roles(streamed));
@@ -224,7 +227,8 @@ public sealed class FrozenPythonTests : IDisposable
         Assert.Contains("python312.dll=Python runtime (beside the executable)", roles);
         Assert.Contains("lib/_socket.cp312-win_amd64.pyd=native module (beside the executable)", roles);
         Assert.Contains("lib/mypkg/__init__.pyc=package (beside the executable)", roles);
-        Assert.Equal(3, c.Items.Count); // the files beside it are listed, not copied
+        // The files beside it are listed, not copied.
+        Assert.Equal(3, c.Items.Count);
     }
 
     /// <summary>A Nuitka onefile payload: "KAY", then one Zstandard stream of (name, flags, size, data) records ending in an empty name.</summary>
@@ -294,7 +298,7 @@ public sealed class FrozenPythonTests : IDisposable
         var f = Assert.Single(module.Consts.OfType<PyCode>());
         Assert.Equal(("f", 2), (f.Name, f.ArgCount));
         Assert.Equal(["a", "b"], ((major, minor) is (3, >= 11) ? f.LocalsPlusNames : f.VarNames).Select(PyMarshal.Str));
-        // written without back references, read again: the same objects
+        // Written without back references, read again: the same objects.
         var again = Assert.IsType<PyCode>(PyMarshal.Read(PyMarshalWriter.Write(module, (major, minor)), (major, minor)));
         Assert.Equal(PyMarshalWriter.Write(module, (major, minor)), PyMarshalWriter.Write(again, (major, minor)));
     }

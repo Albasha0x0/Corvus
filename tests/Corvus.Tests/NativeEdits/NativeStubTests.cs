@@ -89,7 +89,7 @@ public class NativeStubTests(ITestOutputHelper output)
     [InlineData(NativeArch.X64, StubMode.After)]
     [InlineData(NativeArch.X86, StubMode.Before)]
     [InlineData(NativeArch.X86, StubMode.Replace)]
-    public async Task ExtendedPatch_RoundTripsThroughSaveAndPreservesOrder(NativeArch arch, StubMode mode)
+    public async Task Extended_patch_round_trips_through_save_and_preserves_order(NativeArch arch, StubMode mode)
     {
         using var h = new Harness();
         var (native, index, _, entry, ret) = await h.Load(arch);
@@ -138,7 +138,7 @@ public class NativeStubTests(ITestOutputHelper output)
     [InlineData(NativeArch.X64, StubMode.After)]
     [InlineData(NativeArch.X86, StubMode.Before)]
     [InlineData(NativeArch.X86, StubMode.Replace)]
-    public async Task GrownSection_RoundTripsThroughSaveAndPreservesOrder(NativeArch arch, StubMode mode)
+    public async Task Grown_section_round_trips_through_save_and_preserves_order(NativeArch arch, StubMode mode)
     {
         using var h = new Harness();
         var (native, index, _, entry, ret) = await h.Load(arch);
@@ -187,7 +187,7 @@ public class NativeStubTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task GrownSection_ExportsAndReappliesAcrossFormats()
+    public async Task Grown_section_exports_and_reapplies_across_formats()
     {
         using var h = new Harness();
         var (native, index, path, entry, _) = await h.Load(NativeArch.X64);
@@ -223,7 +223,7 @@ public class NativeStubTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task DryRun_ShowsStubAddressAndDisassembly_WithoutRecording()
+    public async Task Dry_run_shows_stub_address_and_disassembly_without_recording()
     {
         using var h = new Harness();
         var (native, index, path, entry, _) = await h.Load(NativeArch.X64);
@@ -237,7 +237,7 @@ public class NativeStubTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Undo_RestoresSiteAndCave()
+    public async Task Undo_restores_site_and_cave()
     {
         using var h = new Harness();
         var (native, index, _, entry, _) = await h.Load(NativeArch.X64);
@@ -254,7 +254,7 @@ public class NativeStubTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Refuses_BranchTargetInsideSite()
+    public async Task Refuses_branch_target_inside_site()
     {
         using var h = new Harness();
         // xor eax,eax ; inc eax (loop target) ; cmp eax,5 ; jb -> inc ; ret. The jb targets inside the displaced range.
@@ -274,7 +274,7 @@ public class NativeStubTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Refuses_WhenNoCave_And_OnArm64()
+    public async Task Refuses_when_no_cave_and_on_ARM64()
     {
         using var h = new Harness();
         // A tiny image with no filler cave after the function.
@@ -320,7 +320,7 @@ public class NativeStubTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public void ExtendedPatch_ChangesCompiledProgramOutput()
+    public void Extended_patch_changes_compiled_program_output()
     {
         var vcvars = VisualStudio.VcVarsAll();
         if (vcvars == null) return; // no MSVC toolchain
@@ -349,8 +349,7 @@ public class NativeStubTests(ITestOutputHelper output)
             var index = code2.Index(native, null, default).Result;
             if (index.Image.Arch != arch) continue;
 
-            // Find the "mov eax, 1" instruction inside the small value() function and extend-patch that site with a stub
-            // whose new code is "mov eax, 2" (replace mode), so value() returns 2.
+            // Extend-patch "mov eax, 1" in value() with "mov eax, 2" (replace mode), so value() returns 2.
             if (!TryFindMovEax1Site(index, out uint site)) { _output.WriteLine("mov eax,1 site not located"); continue; }
 
             var nb = X86Assembler.Assemble(arch, index.Image.ImageBase + site, "mov eax, 2").Bytes;
@@ -367,7 +366,7 @@ public class NativeStubTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public void GrownSection_ChangesCompiledProgramOutput()
+    public void Grown_section_changes_compiled_program_output()
     {
         var vcvars = VisualStudio.VcVarsAll();
         if (vcvars == null) return; // no MSVC toolchain
@@ -415,7 +414,7 @@ public class NativeStubTests(ITestOutputHelper output)
     /// <summary>A copy of a real System32 DLL: grown with a stub in a new section, it reloads and the trace jmp -> stub -> back holds.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public async Task GrownSection_RealSystem32Binary_ReloadsAndTraceHolds()
+    public async Task A_grown_section_in_a_System32_binary_reloads_and_its_trace_holds()
     {
         var src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "version.dll");
         if (!File.Exists(src)) return;

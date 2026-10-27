@@ -3,10 +3,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// This session's latest successful calls with their whole content (before the response budget cut it), so read_result
-/// format=evidence id=last:N can bundle what was just seen; bounded by count and characters, oldest dropped first.
-/// </summary>
+/// <summary>This session's latest successful calls with full content, for read_result format=evidence id=last:N; bounded by count and characters, oldest dropped first.</summary>
 public sealed class RecentCalls
 {
     private const int MaxCalls = 100;

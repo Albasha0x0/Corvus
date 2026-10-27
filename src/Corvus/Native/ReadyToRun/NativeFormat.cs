@@ -6,10 +6,7 @@ namespace Corvus.Native.ReadyToRun;
 /// <summary>Malformed ReadyToRun data; the service reports it as a typed error.</summary>
 public sealed class R2RFormatException(string message) : Exception(message);
 
-/// <summary>
-/// Bounds-checked little-endian reads of the mapped image by RVA; reads outside the image throw <see cref="R2RFormatException"/>.
-/// <paramref name="reader"/> replaces <see cref="INativeImage.Read"/> for views over derived bytes (rehydrated NativeAOT data).
-/// </summary>
+/// <summary>Bounds-checked little-endian reads by RVA; reads outside the image throw <see cref="R2RFormatException"/>; <paramref name="reader"/> replaces <see cref="INativeImage.Read"/> for derived bytes.</summary>
 public sealed class ImageView(INativeImage image, ImageView.Reader? reader = null)
 {
     public delegate int Reader(uint rva, Span<byte> destination);
@@ -69,10 +66,7 @@ public sealed class ImageView(INativeImage image, ImageView.Reader? reader = nul
     }
 }
 
-/// <summary>
-/// The runtime's native format (nativeformatreader.h): variable-length integers whose low bits give the length,
-/// sparse arrays (NativeArray) and hash tables (NativeHashtable). Offsets are RVAs.
-/// </summary>
+/// <summary>The runtime's native format (nativeformatreader.h): varints, NativeArray and NativeHashtable, by RVA.</summary>
 public static class NativeFormat
 {
     /// <summary>Decodes an unsigned integer at <paramref name="at"/>; returns the RVA after it.</summary>
@@ -156,10 +150,7 @@ public static class NativeFormat
         }
     }
 
-    /// <summary>
-    /// The RVA of every entry of a hash table: a header byte (bucket count shift, bucket offset size), the bucket
-    /// offsets, then per bucket (low hash byte, signed relative offset of the entry) pairs.
-    /// </summary>
+    /// <summary>The RVA of every entry of a NativeHashtable.</summary>
     public static List<uint> HashtableEntries(ImageView v, uint rva, uint end, int maxEntries)
     {
         uint header = v.U8(rva);

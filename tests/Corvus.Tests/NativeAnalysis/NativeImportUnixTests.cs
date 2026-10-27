@@ -8,10 +8,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// P/Invoke declarations checked against Linux, macOS and Android libraries on any host: target platform detection,
-/// .NET probing names and folders, ELF and Mach-O export matching, C++ mangled exports and __Internal in an Il2Cpp build.
-/// </summary>
+/// <summary>P/Invoke declarations checked against Linux, macOS and Android libraries on any host, including __Internal in a metadata build.</summary>
 public sealed class NativeImportUnixTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -56,7 +53,7 @@ public sealed class NativeImportUnixTests : IDisposable
     }
 
     [Fact]
-    public void UnixLibrariesAreProbedAndTheirExportsMatched()
+    public void Unix_libraries_are_probed_and_their_exports_matched()
     {
         var app = Put("app/App.dll", Roslyn.Compile("App", Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
         Put("app/runtimes/linux-arm64/native/libdbgshim.so", File.ReadAllBytes(NativeFixtures.LinuxArm64DbgShim));
@@ -101,7 +98,7 @@ public sealed class NativeImportUnixTests : IDisposable
     }
 
     [Fact]
-    public void InternalBindsToTheIl2CppBinary()
+    public void Internal_calls_of_dummy_assemblies_bind_to_the_native_library_beside_them()
     {
         // Dummy assemblies of an Android build with libil2cpp.so beside them.
         var dummy = Put("app/DummyDll/Assembly-CSharp.dll", Roslyn.Compile("Assembly-CSharp", Source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
@@ -114,11 +111,11 @@ public sealed class NativeImportUnixTests : IDisposable
         Assert.Contains("libil2cpp.so", target.Source);
         Assert.Equal("verified", checks["il2cpp_internal_fn"].Status);
         Assert.Equal("internal", checks["il2cpp_internal_fn"].Reason);
-        Assert.Equal("verified", checks["plain"].Status); // the Il2Cpp binary's folder is probed too
+        Assert.Equal("verified", checks["plain"].Status); // the AOT binary's folder is probed too
     }
 
     [Fact]
-    public void PlatformAndProbingFollowTheRuntime()
+    public void Platform_and_probing_follow_the_runtime()
     {
         var linux = new TargetPlatform("linux", "linux-x64", "test");
         Assert.Equal(["libfoo.so", "foo.so", "libfoo", "foo"], UnixProbing.ProbeNames("foo", linux));

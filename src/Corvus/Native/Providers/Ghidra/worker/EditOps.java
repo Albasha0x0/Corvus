@@ -1,5 +1,4 @@
-// The user's analysis edits (code, functions, data, undefined ranges) and operand display formats as apply_user_types
-// items, on Ghidra's listing.
+// The user's analysis edits and operand display formats from apply_user_types, on Ghidra's listing.
 package corvus.ghidra;
 
 import java.util.Set;
@@ -55,7 +54,7 @@ final class EditOps {
     static final String USER_ENUMS = "user_enums";
 
     /**
-     * Edits applied after the declarations and before the types: type edits, enums [[enum, member, value or null]], fields, then analysis
+     * Edits between declarations and types: type edits, enums [[enum, member, value or null]], fields, then analysis
      * [[rva, kind, end or null, type or null]] in the order made.
      */
     static void before(Worker w, Worker.Request r, JsonArray items) throws Exception {
@@ -172,10 +171,7 @@ final class EditOps {
         return FrameOps.item("stack_delete", rva, target, true, null, old, offset, "deleted");
     }
 
-    /**
-     * An operand's display: numeric formats and enum members as equates (the decompiler shows them too), offset as a memory
-     * reference, stack as a stack reference at the stack depth there; default removes the user's equates and references.
-     */
+    /** Operand display: formats and enum members as equates, offset and stack as references; default removes the user's. */
     static JsonArray operand(Worker w, Worker.Request r, long rva, int n, String display, String detail) throws Exception {
         String target = "operand " + n + " " + display + (detail != null ? " " + detail : "");
         Address a = w.space().getAddress(w.base + rva);
@@ -268,7 +264,7 @@ final class EditOps {
         var functions = w.program.getFunctionManager();
         switch (kind) {
             case "undefine": {
-                // at a function start without an end: the whole function
+                // At a function start without an end: the whole function.
                 Function f = functions.getFunctionAt(a);
                 if (last == null && f != null) last = f.getBody().getMaxAddress();
                 if (f != null) functions.removeFunction(a);
@@ -315,7 +311,7 @@ final class EditOps {
                 try {
                     Data d = DataUtilities.createData(w.program, a, dt, length > 0 ? length : -1, DataUtilities.ClearDataMode.CLEAR_ALL_CONFLICT_DATA);
                     if (!BUILTIN.contains(baseName(type))) {
-                        // recovered types leave a user-typed global alone
+                        // Recovered types leave a user-typed global alone.
                         Set<Long> user = TypeOps.userTyped(w);
                         user.add(rva);
                         TypeOps.setUserTyped(w, user);
@@ -327,7 +323,7 @@ final class EditOps {
                 }
             }
             case "flow": {
-                // type: the override to set (branch, call, call_return, return); none or null clears it; then the flow is repaired
+                // type: the flow override (branch, call, call_return, return); none or null clears it.
                 Instruction ins = listing.getInstructionAt(a);
                 if (ins == null) return item(rva, target, false, "rva 0x" + hex(rva) + " is not an instruction", null);
                 FlowOverride want;
@@ -339,7 +335,7 @@ final class EditOps {
                 }
                 FlowOverride was = ins.getFlowOverride();
                 ins.setFlowOverride(want);
-                // code the new flow reaches is decoded, and the function's body follows the flow again
+                // Code the new flow reaches is decoded and the function body follows it.
                 for (Address to : ins.getFlows())
                     if (listing.getInstructionAt(to) == null && memory.contains(to)) new DisassembleCommand(to, null, true).applyTo(w.program, r.monitor);
                 if (ins.getFallThrough() != null && listing.getInstructionAt(ins.getFallThrough()) == null)

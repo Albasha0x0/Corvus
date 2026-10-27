@@ -10,18 +10,10 @@ using Corvus.Native.Dump.Managed;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// One file read that can run in the server or in a <c>corvus worker</c>: its op name and the work, given the services of
-/// the process it runs in. Arguments and result cross the worker pipe as JSON.
-/// </summary>
+/// <summary>A file read that runs in the server or a <c>corvus worker</c>; arguments and result cross the pipe as JSON.</summary>
 public sealed record FileOp<TArgs, TResult>(string Name, Func<IServiceProvider, TArgs, CancellationToken, TResult> Run);
 
-/// <summary>
-/// Runs the file tools' reads in the "files" worker (<see cref="WorkerPool"/>), so a file that crashes, overflows the stack
-/// or exhausts memory in a reader ends the worker and not the server. The worker answers the same record the in-process
-/// path builds, and the tool renders it in the server, so both paths give the same result. In process when
-/// <see cref="ServerOptions.InProcessParsing"/> is set, the worker host is off, or a tool was made without options or a pool.
-/// </summary>
+/// <summary>Runs file reads in the "files" worker so a crashing reader ends the worker, not the server; in process when <see cref="ServerOptions.InProcessParsing"/> is set or no pool is given.</summary>
 public static class FileIsolation
 {
     public const string Kind = "files";
@@ -36,12 +28,7 @@ public static class FileIsolation
     public static WorkerPool? PoolFor(ServerOptions? options, WorkerPool? workers) =>
         options is { InProcessParsing: false } && (WorkerPool.Override ?? workers) is { Enabled: true } pool ? pool : null;
 
-    /// <summary>
-    /// The result of <paramref name="op"/> on <paramref name="args"/>: from the worker when <see cref="Isolated"/>, else
-    /// from <paramref name="inProcess"/>. <paramref name="file"/> names the input in a crash or limit error. A worker that
-    /// cannot start is provider_unavailable naming <see cref="ServerOptions.InProcessParsingVariable"/>; one that crashes
-    /// or reaches its memory limit fails the call with nothing from the read kept.
-    /// </summary>
+    /// <summary>The result of <paramref name="op"/>, from the worker when one is enabled; a worker that cannot start or crashes fails the call as provider_unavailable.</summary>
     public static async Task<TResult> RunAsync<TArgs, TResult>(ServerOptions? options, WorkerPool? workers, FileOp<TArgs, TResult> op, TArgs args, string file,
         Func<TResult> inProcess, CancellationToken cancellationToken)
     {
@@ -57,18 +44,13 @@ public static class FileIsolation
         catch (ToolError e) when (e.Code == ErrorCode.ProviderUnavailable)
         {
             throw new ToolError(ErrorCode.ProviderUnavailable, $"Reading {file} ('{op.Name}') ended the file worker; nothing from that read is kept. {e.Message}",
-                "the file stops this reader, while other files and calls still work; if the file is valid, report its type and size") { Retryable = false };
+                "other files and calls still work; if the file is valid, report its type and size") { Retryable = false };
         }
         return FileOps.Unwrap<TResult>(answer);
     }
 }
 
-/// <summary>
-/// The file reads a <c>corvus worker</c> answers. Each runs the same <see cref="FileOp{TArgs, TResult}"/> as the server's
-/// in-process path, over this process's own services, and answers {result} or the error the server would have shown:
-/// {error} for a <see cref="ToolError"/> (a path the file system rejects included), {exception} for any other failure.
-/// Running out of memory and cancellation are left to the worker host.
-/// </summary>
+/// <summary>The file reads a <c>corvus worker</c> answers: {result}, {error} for a <see cref="ToolError"/>, or {exception}.</summary>
 internal sealed class FileOps : IWorkerOps
 {
     private static readonly Lazy<ServiceProvider> Services = new(() =>
@@ -285,7 +267,7 @@ public static class FileWork
     public static string WriteSbom(InspectionService.FileSummary summary, string sbomPath, bool overwrite)
     {
         if (summary.Views.GetValueOrDefault("dependencies")?.Detail is not Services.Analysis.Dependencies.DependencyFacts facts)
-            throw new ToolError(ErrorCode.NotFound, "found no component in the file, so no SBOM was written.", "pass path= with a .NET app, bundle or package, or a Go or Rust program");
+            throw new ToolError(ErrorCode.NotFound, "Found no component in the file; no SBOM written.", "pass path= with a .NET app, bundle or package, or a Go or Rust program");
         var bytes = Services.Analysis.Dependencies.CycloneDx.Write(facts, summary.File.Path, summary.File.Sha256, ServerIdentity.InformationalVersion,
             DateTimeOffset.UtcNow, Guid.NewGuid());
         var full = SafeFile.WriteAllBytes(sbomPath, bytes, overwrite);

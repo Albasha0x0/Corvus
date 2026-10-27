@@ -2,7 +2,8 @@
 
 `export_project` writes an assembly out as a C# project. For the Notes sample, the exported project builds under this
 repository's warnings-as-errors settings, the rebuilt program prints the same export, and `compare_assemblies`
-measures how close the rebuilt code is to the original. Build the sample first ([guide 1](../guides/1-first-session.md#build-the-sample)).
+measures how close the rebuilt code is to the original. Build the sample first
+([guide 1](../guides/1-first-session.md#build-the-sample)).
 
 <!-- check: batch -->
 ```json

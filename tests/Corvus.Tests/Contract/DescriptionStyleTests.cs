@@ -22,7 +22,7 @@ public partial class DescriptionStyleTests
     private static partial Regex NoteToSelf();
 
     [Fact]
-    public void NoMachinePathsOrNotesToSelf()
+    public void Descriptions_carry_no_machine_paths_or_notes_to_self()
     {
         foreach (var (where, text) in Texts())
         {
@@ -32,7 +32,7 @@ public partial class DescriptionStyleTests
     }
 
     [Fact]
-    public void LongRunningSuffixOnlyFromToolEffects()
+    public void The_long_running_suffix_comes_only_from_tool_effects()
     {
         foreach (var tool in Tools)
         {
@@ -47,7 +47,7 @@ public partial class DescriptionStyleTests
 
     /// <summary>The first word says what comes back or what is done: a capitalized verb or noun, not "This tool", "Use" or "Tool".</summary>
     [Fact]
-    public void FirstSentenceSaysWhatTheToolReturns()
+    public void The_first_sentence_says_what_the_tool_returns()
     {
         var violations = new Dictionary<string, string>();
         foreach (var tool in Tools)
@@ -62,7 +62,7 @@ public partial class DescriptionStyleTests
 
     /// <summary>S7, with the paging parameters (offset, limit, maxTokens) described once by the server instructions.</summary>
     [Fact]
-    public void EveryParameterIsDescribed()
+    public void Every_parameter_is_described()
     {
         Assert.Contains("Paging: offset", Guide.Core);
         var violations = Texts().Where(t => t.Where.Contains('.') && string.IsNullOrWhiteSpace(t.Text) && !Catalog.PagingParameters.ContainsKey(t.Where[(t.Where.IndexOf('.') + 1)..]))

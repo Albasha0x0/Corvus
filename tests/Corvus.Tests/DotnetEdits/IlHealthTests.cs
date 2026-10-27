@@ -55,7 +55,7 @@ public class IlHealthTests : IDisposable
     }
 
     [Fact]
-    public void TheInstalledRuntime_HasNoInvalidBodies()
+    public void The_installed_runtime_has_no_invalid_bodies()
     {
         // False-positive guard over the running runtime's assemblies (R2R images still carry IL).
         var dir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
@@ -75,7 +75,7 @@ public class IlHealthTests : IDisposable
     }
 
     [Fact]
-    public void SomeBodiesInvalid_FlaggedInInfoAndDecompilation()
+    public void Some_bodies_invalid_flagged_in_info_and_decompilation()
     {
         var path = WriteCopy("partial", Corrupt(File.ReadAllBytes(Env.FixturePath), t => t == "Account"));
         using var env = new Env(path);
@@ -95,13 +95,13 @@ public class IlHealthTests : IDisposable
 
     /// <summary>Searches, reference lookups and build comparisons say how many bodies they could not read in full.</summary>
     [Fact]
-    public async Task SomeBodiesInvalid_SearchesAndComparisonsSayWhatWasSkipped()
+    public async Task Some_bodies_invalid_searches_and_comparisons_say_what_was_skipped()
     {
         var path = WriteCopy("skipped", Corrupt(File.ReadAllBytes(Env.FixturePath), t => t == "Account"));
         using var env = new Env(path);
         int invalid = env.Fixture.BodyHealth.Invalid;
         var note = $"Skipped: {invalid} method bodies not valid IL ({env.Fixture.Id} {invalid}), read only up to the first invalid instruction";
-        var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings);
+        var search = new SearchTools(env.Workspace, env.Search, env.AotMetadata, env.MetadataStrings);
         Assert.Contains(note, await search.SearchStrings("preview"));
         Assert.Contains(note, await search.SearchStrings("no such text anywhere"));
         Assert.Contains(note, await search.SearchConstants("12345678"));
@@ -112,16 +112,16 @@ public class IlHealthTests : IDisposable
         using var clean = new Env();
         var corrupt = clean.Workspace.Load(path);
         var compare = new CompareTools(clean.Workspace, new AssemblyComparer(clean.Workspace), clean.Decompiler);
-        Assert.Contains($"Skipped: {invalid} method bodies of the new build ({corrupt.Id}) are not valid IL (encrypted?) and were not compared",
+        Assert.Contains($"Skipped: {invalid} method bodies of the new build ({corrupt.Id}) are not valid IL and were not compared",
             await compare.CompareAssemblies(clean.Fixture.Id, corrupt.Id));
         Assert.Contains($"Skipped: 0 old and {invalid} new method bodies are not valid IL and were not compared",
             await compare.FindCounterpart("Fixture.Model.Account", clean.Fixture.Id, corrupt.Id));
-        Assert.DoesNotContain("Skipped:", await new SearchTools(clean.Workspace, clean.Search, clean.Il2Cpp, clean.Il2CppStrings)
+        Assert.DoesNotContain("Skipped:", await new SearchTools(clean.Workspace, clean.Search, clean.AotMetadata, clean.MetadataStrings)
             .SearchStrings("preview", assembly: clean.Fixture.Id));
     }
 
     [Fact]
-    public void AllBodiesInvalid_ReportedAsEncryptedEverywhere()
+    public void All_bodies_invalid_reported_as_encrypted_everywhere()
     {
         var clean = File.ReadAllBytes(Env.FixturePath);
         var path = WriteCopy("encrypted", Corrupt(clean, _ => true));
@@ -143,12 +143,9 @@ public class IlHealthTests : IDisposable
         Assert.Contains("Method bodies are not valid IL (encrypted or dumped before decryption)", one.Highlights);
     }
 
-    /// <summary>
-    /// A method renamed in a build whose bodies of that type are not valid IL cannot be paired by content: both sides are
-    /// "unknown", with the reason, not removed and added. Members whose counterpart evidence is intact keep their status.
-    /// </summary>
+    /// <summary>Members renamed in a build with invalid bodies are "unknown" with the reason, not removed and added; members with intact evidence keep their status.</summary>
     [Fact]
-    public async Task MembersWithoutCounterpart_AreUnknownWhenEvidenceIsMissing()
+    public async Task Members_without_counterpart_are_unknown_when_evidence_is_missing()
     {
         const string before = """
             public class Box { public int Foo(int x) { return x * 13 + 5; } public int Same() { return 4; } }
@@ -208,7 +205,7 @@ public class IlHealthTests : IDisposable
     private static readonly byte[] TryCatchIl = [0x02, 0x28, 1, 0, 0, 0x0A, 0x0A, 0xDE, 0x05, 0x26, 0x15, 0x0A, 0xDE, 0x00, 0x06, 0x2A];
 
     [Fact]
-    public void ExceptionClauses_FlagsExtentsBoundariesAndFilterOrder()
+    public void Exception_clauses_flags_extents_boundaries_and_filter_order()
     {
         static List<string> Issues(byte[] il, params IlHealth.Clause[] clauses) => IlHealth.ClauseIssues(il, clauses);
         static IlHealth.Clause Catch(int tryLength = 9, int handler = 9, int handlerLength = 5, bool typed = true, int flags = 0, int filter = -1) =>
@@ -241,7 +238,7 @@ public class IlHealthTests : IDisposable
 
     /// <summary>A try range shortened by one byte in the file is reported by get_assembly_info and get_il; the body itself stays valid IL.</summary>
     [Fact]
-    public async Task ExceptionClause_OffAnInstructionBoundary_ReportedInInfoAndIl()
+    public async Task Exception_clause_off_an_instruction_boundary_reported_in_info_and_IL()
     {
         var lab = new IlLab();
         var parse = new dnlib.DotNet.MemberRefUser(lab.Module, "Parse", dnlib.DotNet.MethodSig.CreateStatic(lab.T.Int32, lab.T.String), lab.T.Int32.TypeDefOrRef);

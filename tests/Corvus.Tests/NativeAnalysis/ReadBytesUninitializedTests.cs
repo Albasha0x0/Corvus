@@ -23,7 +23,7 @@ public class ReadBytesUninitializedTests
         using var dir = new TempDir();
         var path = Image(dir);
         using var h = new NativeToolHarness();
-        // the raw size is rounded to the file alignment: file data ends at 0x2200
+        // The raw size is rounded to the file alignment: file data ends at 0x2200.
         var dump = await h.Native.ReadBytes(path, "rva:0x21F0", 0x20);
         Assert.Contains("1400021F0  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00", dump);
         Assert.Contains("140002200  ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??  ????????????????", dump);

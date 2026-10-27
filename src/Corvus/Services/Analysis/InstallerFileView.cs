@@ -5,11 +5,7 @@ using Corvus.Core.Installers;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=installer: what an installer does when it runs, read without running it: the product, the files it installs
-/// and where, the code it runs (custom actions, script commands, run entries) with when and as whom, registry values,
-/// services and shortcuts, and what is worth reviewing (code run as LocalSystem, autostart entries, scripts' noteworthy calls).
-/// </summary>
+/// <summary>view=installer: an MSI's product, files, code it runs, registry values, services, shortcuts and review findings, without running it.</summary>
 internal sealed class InstallerFileView : IFileSummaryView
 {
     public sealed record Product(string? Name, string? Version, string? Manufacturer, string? ProductCode, string? UpgradeCode, string? Language);
@@ -53,7 +49,7 @@ internal sealed class InstallerFileView : IFileSummaryView
             steps.Add(new CodeStep(ca.Action, ca.Kind, ca.SourceKind == "inline" ? "inline" : $"{ca.SourceKind} {ca.Source}", target, ca.Execution, ca.Sequences));
             if (ca.Kind is "DLL" or "EXE" or "JScript" or "VBScript" or "nested install")
                 findings.Add(new MacroFinding("Suspicious", ca.Action, $"runs {ca.Kind} from {(ca.SourceKind == "inline" ? "inline text" : $"{ca.SourceKind} {ca.Source}")}, {ca.Execution}") { Location = "CustomAction" });
-            // script text: inline, from the Binary table, or a property's value
+            // Script text is inline, in the Binary table, or a property's value.
             string? script = ca.SourceKind == "inline" ? ca.Target
                 : ca.SourceKind == "Binary" && ca.Kind is "JScript" or "VBScript" && ca.Source != null && p.Binary(ca.Source, 16 << 20) is { } b ? Encoding.UTF8.GetString(b)
                 : ca.SourceKind == "Property" && ca.Kind is "JScript" or "VBScript" && ca.Source != null ? props.GetValueOrDefault(ca.Source) : null;

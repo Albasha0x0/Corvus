@@ -55,7 +55,7 @@ public class NativeArm64DiffTests
             Assert.True(pair != null, $"{name} unmatched");
             Assert.Equal(n.At[name], m.New.Functions[pair!.New].Start);
         }
-        // A and B only moved: identical once branch, page and low-12 fields are masked
+        // A and B only moved: identical once branch, page and low-12 fields are masked.
         Assert.Equal(m.Old.Functions[m.ForOldStart(o.At["A"])!.Old].BytesHash, m.New.Functions[m.ForOldStart(o.At["A"])!.New].BytesHash);
         Assert.Equal(m.Old.Functions[m.ForOldStart(o.At["B"])!.Old].BytesHash, m.New.Functions[m.ForOldStart(o.At["B"])!.New].BytesHash);
         Assert.Null(m.ByNew[m.New.ByStart[n.At["X"]]]);

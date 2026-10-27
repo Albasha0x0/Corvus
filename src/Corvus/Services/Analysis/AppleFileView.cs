@@ -6,11 +6,7 @@ using Corvus.Native.MachO;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=apple: an Apple bundle, from an .ipa (Payload/X.app, read in memory) or from a Mach-O inside an .app, .appex or
-/// .framework folder (summarize_file given the folder summarizes its main executable): what Info.plist declares, each
-/// Mach-O with its role and a signature verdict per slice, the main executable's entitlements and the provisioning profile.
-/// </summary>
+/// <summary>view=apple: an .ipa or bundle folder's Info.plist, Mach-O roles and signatures, entitlements and provisioning profile; a bundle folder summarizes its main executable.</summary>
 internal sealed class AppleFileView : IFileSummaryView
 {
     private const int MaxFiles = 50_000, MaxBinaries = 40;
@@ -171,7 +167,7 @@ internal sealed class AppleFileView : IFileSummaryView
 
     private static Profile? ReadProfile(byte[] cms)
     {
-        // a CMS envelope around an XML plist: the plist is read where it sits, the signature is not checked
+        // The XML plist is read in place inside the CMS envelope; the signature is not checked.
         int start = cms.AsSpan().IndexOf("<?xml"u8), end = cms.AsSpan().IndexOf("</plist>"u8);
         if (start < 0 || end < start || Plist.Read(cms.AsSpan(start, end + 8 - start)).Root is not PlistDict p) return null;
         int devices = (p["ProvisionedDevices"] as PlistArray)?.Items.Count ?? 0;
@@ -244,6 +240,7 @@ internal sealed class AppleFileView : IFileSummaryView
                 Read = (relative, max) =>
                 {
                     if (!entries.TryGetValue(relative, out var e) || (e.Length > max && max > 64)) return null;
+                    // A damaged entry reads as a missing one.
                     try
                     {
                         using var s = e.Open();
@@ -251,7 +248,7 @@ internal sealed class AppleFileView : IFileSummaryView
                         s.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
                         return buffer;
                     }
-                    catch (InvalidDataException) { return null; } // a damaged entry reads as a missing one
+                    catch (InvalidDataException) { return null; }
                 },
             };
         }

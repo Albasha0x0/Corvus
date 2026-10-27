@@ -4,13 +4,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods over randomly generated method bodies (<see cref="IlBodyGenerator"/>). For every seed: the engine
-/// never crashes and stays within its limits, every rewrite verifies and survives save / reload, two runs give the same
-/// image, and the simplified methods JIT-compile and return what the originals return (or throw the same exception).
-/// Seeds 1..CORVUS_FUZZ_COUNT (default 40) run by default; CORVUS_FUZZ_SEED=n runs one seed, CORVUS_FUZZ_SEED=random a fresh one.
-/// A failure names its seed.
-/// </summary>
+/// <summary>Generated bodies (<see cref="IlBodyGenerator"/>) simplify within limits, verify, round-trip, and return what the originals return; seeds 1..CORVUS_FUZZ_COUNT (default 40), CORVUS_FUZZ_SEED=n or random.</summary>
 [Trait("Speed", "Slow")]
 public sealed class SimplifyFuzzTests(ITestOutputHelper output) : IDisposable
 {
@@ -22,7 +16,7 @@ public sealed class SimplifyFuzzTests(ITestOutputHelper output) : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Fact]
-    public void GeneratedBodiesSimplifySafely()
+    public void Generated_bodies_simplify_safely()
     {
         var failures = new List<string>();
         var stats = new Stats();

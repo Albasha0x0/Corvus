@@ -79,7 +79,7 @@ public partial class UnpackTests
             new("Helper.dll", ContainerFixtures.Module("Helper", Array.Empty<(string, byte[])>()))));
         var helper = Assert.Single(facts.All);
         Assert.Equal(("Helper", (string?)null, false, (string?)null, "1.2.3.4"), (helper.Name, helper.Version, helper.VersionKnown, helper.Purl, helper.AssemblyVersion));
-        Assert.Contains(facts.Notes, n => n.Contains("package version is unknown", StringComparison.Ordinal));
+        Assert.Contains(facts.Notes, n => n.Contains("package version unknown, no package URL", StringComparison.Ordinal));
         using var bom = System.Text.Json.JsonDocument.Parse(CycloneDx.Write(facts, "Hello.exe", new string('0', 64), "1.0.0", DateTimeOffset.UnixEpoch, Guid.Empty));
         var properties = bom.RootElement.GetProperty("components")[0].GetProperty("properties").EnumerateArray()
             .ToDictionary(p => p.GetProperty("name").GetString()!, p => p.GetProperty("value").GetString());

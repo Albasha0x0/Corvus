@@ -6,10 +6,7 @@ using Corvus.Core;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Edit history of an assembly: listing, before/after diffs, and JSON edit scripts that re-apply a patch set,
-/// typically to a new build.
-/// </summary>
+/// <summary>Lists, diffs and exports an assembly's edits, and applies edit scripts to the same or a new build.</summary>
 public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService edits, DecompilerService decompiler, AssemblyComparer comparer)
 {
     public const string ScriptFormat = "corvus-edits/1";
@@ -26,10 +23,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
 
     public sealed record ScriptEdit(string Kind, Dictionary<string, string?> Args, string Description);
 
-    /// <summary>
-    /// An edit script. Sha256 (of the file the edits were made on) and Identity (its assembly full name) bind it to a
-    /// build; scripts written before they were recorded have neither and are accepted with a warning.
-    /// </summary>
+    /// <summary>An edit script bound to a build by Sha256 and Identity; older scripts lack both and apply with a warning.</summary>
     public sealed record Script(string Format, string Assembly, string? Mvid, string? Sha256, string? Identity, DateTime Created, List<ScriptEdit> Edits)
     {
         /// <summary><see cref="ArityLabels"/> when generic methods are labeled Method<T>(...); absent in older scripts.</summary>
@@ -115,11 +109,8 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         return script;
     }
 
-    /// <summary>
-    /// Applies a script's edits in order. On the same original image (matching MVID) recorded tokens are used; on another
-    /// build, symbols are resolved by name. With stopOnError, a failure rolls the assembly back to its state before the script.
-    /// A script bound to a build (SHA-256) is refused on any other file unless <paramref name="target"/> is Other.
-    /// </summary>
+    /// <summary>Applies a script's edits in order, by token on the same MVID, else by name; refuses another build unless
+    /// <paramref name="target"/> is Other. With stopOnError, a failure rolls the script back.</summary>
     public string Apply(string path, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct, TargetBuild target = TargetBuild.Same) =>
         Run(path, assembly, dryRun, stopOnError, ct, target).Report;
 
@@ -153,7 +144,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         string actualMvid = original.Mvid?.ToString() ?? "(none)", actualIdentity = original.Assembly?.FullName ?? original.Name;
         string buildCheck;
         if (script.Sha256 == null)
-            buildCheck = "WARNING: the script predates build binding (no sha256/identity recorded), so it is not checked against this build" +
+            buildCheck = "WARNING: the script predates build binding (no sha256), so it is not checked against this build" +
                          (script.Mvid == null ? "" : sameImage ? " (its MVID matches)" : $" (its MVID {script.Mvid} differs from this build's {actualMvid})") +
                          "; export it again to bind it.";
         else if (string.Equals(script.Sha256, asm.OriginalSha256, StringComparison.OrdinalIgnoreCase))
@@ -162,11 +153,10 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         {
             string mismatch = $"the script was made for sha256 {script.Sha256}, MVID {script.Mvid ?? "(none)"}, {script.Identity}; " +
                               $"{asm.Id} is sha256 {asm.OriginalSha256}, MVID {actualMvid}, {actualIdentity}" +
-                              (sameImage ? " (same MVID: the file was changed after compiling, e.g. saved with edits or re-signed)" : "");
+                              (sameImage ? " (same MVID: the file changed after compiling, such as saved with edits or re-signed)" : "");
             if (target == TargetBuild.Same)
                 throw new ToolError(ErrorCode.Conflict, $"The edit script {name} belongs to another build: {mismatch}.",
-                    "load the build the script was made from (matching sha256), or pass targetBuild=other to carry the edits to this build deliberately " +
-                    "(symbols re-resolved by name; load the source build too so renamed targets are followed); try it with dryRun=true first");
+                    "load the matching build, or pass targetBuild=other (symbols resolve by name) with dryRun=true first; load the source build too to follow renames");
             buildCheck = $"different build, carried over (targetBuild=other): {mismatch}";
         }
         bool legacy = script.Labels < ArityLabels;
@@ -180,8 +170,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
             edits.Remap = (record, key) =>
             {
                 ResolvedSymbol old;
-                // By the recorded token first: the script's own renames may have been applied to that build, so the
-                // recorded name (the name before the edit) may no longer exist there.
+                // Token first: the script's own renames may already be applied to that build.
                 if (SymbolResolver.TryParseToken(record.Arg(key + "Token") ?? "", out uint token) && (token & 0x00FFFFFF) != 0
                     && MetadataUtil.Try(() => originalBuild.Module.ResolveToken(token)) is IMemberDef byToken)
                     old = new ResolvedSymbol(originalBuild, byToken);
@@ -190,8 +179,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     try { old = SymbolResolver.ResolveOne(workspace, originalBuild.Id, record.Arg(key)!, SymbolResolver.ParseKind(record.Arg(key + "Kind")), legacyLabels: record.LegacyLabels); }
                     catch (ToolError) { return null; }
                 }
-                // Matched against the source build as loaded: the script's own edits (stubs, patches, renames) may have
-                // been applied to it, and a stubbed body no longer resembles its counterpart.
+                // Match against the unedited source build: a stubbed body no longer resembles its counterpart.
                 var source = originalBuild.IsDirty ? originalBuild.GetOriginalView(workspace.DnlibContext) : originalBuild;
                 comparison ??= comparer.Compare(source, asm, ct);
                 if (!ReferenceEquals(source, originalBuild))
@@ -247,7 +235,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     if (stopOnError && !dryRun)
                     {
                         edits.Rebuild(asm, before, ct);
-                        sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit (or pass continueOnError=true to skip failures).");
+                        sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit or pass continueOnError=true.");
                         return new ApplyOutcome(asm.Id, sb.ToString(), items.Select(x => x with { EditId = null }).ToList(), RolledBack: true);
                     }
                 }
@@ -260,21 +248,18 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                 edits.Rebuild(asm, before, CancellationToken.None);
         }
         sb.AppendLine(dryRun
-            ? $"{ok} would apply, {failed} would fail (dry run: every edit was applied and compiled, then rolled back; nothing changed)."
+            ? $"{ok} would apply, {failed} would fail (dry run: applied, compiled and rolled back; nothing changed)."
             : $"{ok} applied, {failed} failed.");
         if (!sameImage)
             sb.AppendLine($"Cross-build: {ok} edit(s) resolved by name, {allRemapped.Count} target(s) followed to a renamed counterpart" +
-                          (originalBuild == null ? " (the source build is not loaded, so renamed targets could not be followed)." : "."));
+                          (originalBuild == null ? " (load the source build to follow renamed targets)." : "."));
         return new ApplyOutcome(asm.Id, sb.ToString(), items, RolledBack: false);
     }
 
     private static string Short(string sha256) => sha256.Length > 16 ? sha256[..16] + "…" : sha256;
 
-    /// <summary>
-    /// Unified diffs of the decompiled C# of every member an edit touched, original vs current. The text is the same whatever
-    /// page is read, so every page reports one total; member diffs are cached for the next page.
-    /// </summary>
-    /// <param name="maxMembers">Members diffed at most: a whole-assembly simplify touches thousands, each decompiled twice.</param>
+    /// <summary>Unified diffs of the decompiled C# of each touched member, original vs current; cached across pages.</summary>
+    /// <param name="maxMembers">Members diffed at most; a whole-assembly simplify touches thousands.</param>
     public string Diff(LoadedAssembly asm, int? number, CancellationToken ct, int maxMembers = MaxDiffMembers)
     {
         if (asm.Edits.Count == 0)

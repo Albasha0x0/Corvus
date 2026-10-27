@@ -3,10 +3,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// S2.3 / S5: the same calls in two fresh server processes give byte-equal text and records, apart from a closed list of
-/// lines that name the moment or the process.
-/// </summary>
+/// <summary>The same calls in two fresh server processes give byte-equal text and records, apart from listed lines naming the moment or process.</summary>
 [Trait("Speed", "Slow")]
 public class DeterminismTests
 {
@@ -33,18 +30,16 @@ public class DeterminismTests
     private static bool Volatile(string line) => line.StartsWith("Engine: ida", StringComparison.Ordinal) || line.StartsWith("Engine: ghidra", StringComparison.Ordinal);
 
     [Fact]
-    public async Task TwoProcessesAnswerAlike()
+    public async Task Two_processes_answer_alike()
     {
         using var dir = new TempDir();
         var native = McpProtocolTests.NativeSample(dir);
-        // Its PDB beside it ends the search there: a miss would count the machine-wide symbol caches (WinDbg's,
-        // Visual Studio's), which other classes' tools create during a full run.
+        // Its PDB beside it ends the search, so machine-wide symbol caches other tests create are not counted.
         File.WriteAllBytes(dir.File("seed.pdb"), PdbBuilder.Sample(new Guid(Enumerable.Range(1, 16).Select(i => (byte)i).ToArray()), 1).Build());
         int run = 0;
         async Task<List<string>> RunAsync()
         {
-            // A data folder and temporary folder of its own: the shared ones change under the full set's other classes,
-            // and the PDB search counts the symbol caches that exist under the temporary folder.
+            // Own data and temporary folders: the shared ones change under other classes, and the PDB search counts symbol caches there.
             var temp = Directory.CreateDirectory(dir.File($"temp{++run}")).FullName;
             await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--load", Env.FixturePath],
                 new Dictionary<string, string?>
@@ -69,14 +64,11 @@ public class DeterminismTests
         Assert.DoesNotContain("PDB not found", first.Single(a => a.StartsWith("get_pe_info ", StringComparison.Ordinal)));
     }
 
-    /// <summary>
-    /// The native slice: the index-backed analysis tools on a real PE and ELF (e_sqlite3), each in two fresh processes with
-    /// data folders of their own (so each builds its index), give byte-equal text and records.
-    /// </summary>
+    /// <summary>The index-backed native tools on a real PE and ELF give byte-equal results in two fresh processes with their own data folders.</summary>
     [Theory, Trait("Data", "Real")]
     [InlineData("win-x64", "e_sqlite3.dll", "rcx")]
     [InlineData("linux-x64", "libe_sqlite3.so", "rdi")]
-    public async Task NativeAnalysisAnswersAlikeOnARealLibrary(string rid, string file, string firstArgument)
+    public async Task Native_analysis_answers_alike_on_a_real_library(string rid, string file, string firstArgument)
     {
         using var dir = new TempDir();
         var image = RealPackages.File("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "runtimes", rid, "native", file);
@@ -93,8 +85,7 @@ public class DeterminismTests
         int run = 0;
         async Task<List<string>> RunAsync()
         {
-            // Each process gets a temporary folder of its own: get_pe_info counts the symbol stores that exist, and an
-            // engine test of this run can create one (IDA's %TEMP%\ida) in the shared folder between the two processes.
+            // Own temporary folders: get_pe_info counts symbol stores, and an engine test can create one there between the two processes.
             var temp = Directory.CreateDirectory(dir.File($"temp{++run}")).FullName;
             await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--no-watch"],
                 new Dictionary<string, string?> { [Corvus.Native.Providers.DataFolder.RootVariable] = dir.File($"data{run}"), ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp });
@@ -136,7 +127,7 @@ public class DeterminismTests
             Assert.True((await client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = path })).IsError != true);
         (string Tool, Dictionary<string, object?> Args)[] calls =
         [
-            ("unity_overview", new() { ["path"] = UnityOverviewTests.MonoSample(dir) }),
+            ("summarize_build", new() { ["path"] = BuildSummaryTests.MonoSample(dir) }),
             ("get_pe_info", new() { ["image"] = "native.dll" }),
             ("find_similar_functions", new() { ["image"] = "native.dll", ["address"] = "First", ["scope"] = "all", ["minScore"] = 0 }),
             ("list_types", new() { ["assembly"] = "TestFixture" }),
@@ -155,12 +146,9 @@ public class DeterminismTests
         return outputs;
     }
 
-    /// <summary>
-    /// The harness's repeated-call cases: timings in unity_overview, get_pe_info's capability text and the image ids a
-    /// scope=all similarity search names (native.dll#2). Engine banners stay out of scope.
-    /// </summary>
+    /// <summary>Repeated-call cases of the harness; engine banners stay out of scope.</summary>
     [Fact]
-    public async Task HarnessRepeatedCallsAnswerAlike()
+    public async Task Repeated_calls_in_one_harness_answer_alike()
     {
         using var dir = new TempDir();
         var first = await HarnessCalls(dir);

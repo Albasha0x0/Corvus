@@ -4,18 +4,12 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Value-free descriptions of captured messages: the key shape of JSON ({id,items[{name}],meta{n}}), the events of a
-/// server-sent event stream and the lines of NDJSON grouped by shape, and the GraphQL operations a request names.
-/// </summary>
+/// <summary>Value-free shapes of captured messages: JSON keys, event stream and NDJSON groups, GraphQL operations.</summary>
 public static partial class MessageShapes
 {
     private const int MaxDepth = 4, MaxKeys = 24;
 
-    /// <summary>
-    /// The keys of a JSON value, sorted; nested objects in braces, arrays by their first element in brackets. Number and
-    /// id-like keys (a map keyed by ids) become {n} and {id}; a scalar is its type.
-    /// </summary>
+    /// <summary>The sorted key shape of a JSON value; id-like keys become {n} or {id}, a scalar is its type.</summary>
     public static string Of(JsonElement e) => e.ValueKind switch
     {
         JsonValueKind.Object or JsonValueKind.Array => Nested(e, 0),
@@ -47,7 +41,7 @@ public static partial class MessageShapes
     private static string Key(string name) =>
         name.Length > 0 && name.All(char.IsAsciiDigit) ? "{n}" : IdLike().IsMatch(name) ? "{id}" : name.Length > 64 ? name[..61] + "..." : name;
 
-    // GUIDs and long hex or base64url tokens, as endpoint templates treat path segments
+    // GUIDs and long hex or base64url tokens, as endpoint templates treat path segments.
     [GeneratedRegex("^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|[A-Za-z0-9_-]{24,})$")]
     private static partial Regex IdLike();
 
@@ -62,10 +56,7 @@ public static partial class MessageShapes
         catch (JsonException) { return null; }
     }
 
-    /// <summary>
-    /// An event stream's events or NDJSON's lines grouped by event name and data shape, most frequent first ("message
-    /// {choices[{delta}]} x11"); data that is not JSON counts as text. Null when the type is neither.
-    /// </summary>
+    /// <summary>Event stream or NDJSON messages grouped by shape, most frequent first; null for other types.</summary>
     public static (string Format, int Messages, List<(string Shape, int Count)> Groups)? Stream(string? mime, string text)
     {
         var type = (mime ?? "").Split(';')[0].Trim().ToLowerInvariant();
@@ -107,10 +98,7 @@ public static partial class MessageShapes
         return (format, messages, [.. counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key, StringComparer.Ordinal).Select(c => (c.Key, c.Value))]);
     }
 
-    /// <summary>
-    /// GraphQL operations a request names: from a JSON body (one object or a batch) by operationName, else the operation
-    /// keyword and name in its query text, or a persisted-query hash; from a GET by its query and operationName parameters.
-    /// </summary>
+    /// <summary>The GraphQL operations a request names, from its body or GET parameters.</summary>
     public static List<string> GraphQl(string url, string? body)
     {
         var found = new List<string>();
@@ -160,7 +148,7 @@ public static partial class MessageShapes
         return $"{keyword} {named ?? "(anonymous)"}";
     }
 
-    // the keyword opens the document (after comments); a shorthand "{ ... }" is an anonymous query
+    // The keyword opens the document after comments; a shorthand "{ ... }" is an anonymous query.
     [GeneratedRegex(@"^\s*(?:#[^\n]*\n\s*)*(query|mutation|subscription)\b\s*([_A-Za-z][_0-9A-Za-z]*)?", RegexOptions.CultureInvariant)]
     private static partial Regex OperationHead();
 }

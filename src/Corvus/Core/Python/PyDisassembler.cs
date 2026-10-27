@@ -3,11 +3,8 @@ using System.Text;
 
 namespace Corvus.Core.Python;
 
-/// <summary>
-/// Python bytecode as the dis module of its own version prints it (dis.dis on the code object): 2.7 and 3.0 to 3.14, with
-/// the line numbers, jump targets, argument details and exception table of that version and nested code objects after
-/// their parent. Nothing is run; indexes past a table print as such instead of failing.
-/// </summary>
+/// <summary>Python 2.7 and 3.0 to 3.14 bytecode as that version's dis.dis prints it; nothing is run.</summary>
+/// <remarks>Nested code objects follow their parent; an index past a table prints as such instead of failing.</remarks>
 public static class PyDisassembler
 {
     private const int OpNameWidth = 20, OpArgWidth = 5;
@@ -45,10 +42,7 @@ public static class PyDisassembler
         return found;
     }
 
-    /// <summary>
-    /// The module-level names <paramref name="code"/> binds to a string constant (LOAD_CONST, then STORE_NAME), first
-    /// binding kept; empty when the version's opcodes are unknown.
-    /// </summary>
+    /// <summary>Module-level names bound to string constants, first binding kept; empty when the opcodes are unknown.</summary>
     public static Dictionary<string, string> ModuleStrings(PyCode code, (int Major, int Minor) version)
     {
         var found = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -77,7 +71,7 @@ public static class PyDisassembler
         return sb.Length <= maxChars;
     }
 
-    // ---- reading the instructions ----
+    // Reading the instructions.
 
     private static List<Instruction> Unpack(byte[] code, PyOpcodes t)
     {
@@ -85,7 +79,7 @@ public static class PyDisassembler
         int extendedOp = t.Op("EXTENDED_ARG");
         if (!PyVersion.AtLeast(t.Version, 3, 6))
         {
-            // one byte, then a two-byte argument from HAVE_ARGUMENT up; EXTENDED_ARG supplies the high 16 bits
+            // One byte, then a two-byte argument from HAVE_ARGUMENT up; EXTENDED_ARG supplies the high 16 bits.
             long extended = 0;
             for (int i = 0; i < code.Length;)
             {
@@ -104,7 +98,7 @@ public static class PyDisassembler
             }
             return list;
         }
-        // wordcode: an opcode and an argument byte; 3.11+ follows some opcodes with inline cache entries
+        // Wordcode: an opcode and an argument byte; 3.11+ follows some opcodes with inline cache entries.
         long ext = 0;
         int caches = 0;
         bool v311 = PyVersion.AtLeast(t.Version, 3, 11);
@@ -117,7 +111,8 @@ public static class PyDisassembler
             {
                 long arg = code[i + 1] | ext;
                 ext = op == extendedOp ? unchecked(arg << 8) : 0;
-                if (v311 && ext >= 1L << 31) ext -= 1L << 32; // the C int the interpreter keeps
+                // The C int the interpreter keeps.
+                if (v311 && ext >= 1L << 31) ext -= 1L << 32;
                 list.Add(new(i, op, arg));
             }
             else
@@ -136,7 +131,7 @@ public static class PyDisassembler
         var v = t.Version;
         if (!PyVersion.AtLeast(v, 3, 6))
         {
-            // the label scan reads the bare two-byte argument; the listing adds EXTENDED_ARG
+            // The label scan reads the bare two-byte argument; the listing adds EXTENDED_ARG.
             if (rawArgument) arg &= 0xFFFF;
             return t.Is(i.Op, PyOpcodes.Kinds.JumpRelative) ? i.Offset + 3 + arg : t.Is(i.Op, PyOpcodes.Kinds.JumpAbsolute) ? arg : null;
         }
@@ -158,7 +153,7 @@ public static class PyDisassembler
         return labels;
     }
 
-    // ---- line numbers ----
+    // Line numbers.
 
     /// <summary>findlinestarts: (offset, line) where a source line starts; a null line (3.13) marks code without one.</summary>
     private static List<(int Offset, int? Line)> LineStarts(PyCode c, PyOpcodes t)
@@ -167,7 +162,7 @@ public static class PyDisassembler
         var starts = new List<(int, int?)>();
         if (!PyVersion.AtLeast(v, 3, 10))
         {
-            // co_lnotab: (bytecode increment, line increment) pairs; line increments are signed from 3.6
+            // co_lnotab: (bytecode increment, line increment) pairs; line increments are signed from 3.6.
             int? last = null;
             int line = c.FirstLineNo, addr = 0;
             var tab = c.LineTable;
@@ -193,7 +188,7 @@ public static class PyDisassembler
         {
             if (v313)
             {
-                // co_lines merges ranges of one line; 3.13 keeps every range, those without a line too
+                // co_lines merges ranges of one line; 3.13 keeps every range, those without a line too.
                 if (first || line != lastLine) starts.Add((start, line));
                 first = false;
                 lastLine = line;
@@ -218,7 +213,7 @@ public static class PyDisassembler
             {
                 int start = end;
                 int? line = null;
-                // empty ranges are skipped; their line increments still count
+                // Empty ranges are skipped; their line increments still count.
                 do
                 {
                     start = end;
@@ -286,7 +281,7 @@ public static class PyDisassembler
         return entries;
     }
 
-    // ---- argument details ----
+    // Argument details.
 
     private static string Item(object[] items, long index, Func<object, string> show) =>
         index >= 0 && index < items.Length ? show(items[index]) : $"<index {index} out of range>";
@@ -338,7 +333,7 @@ public static class PyDisassembler
         return "";
     }
 
-    // ---- the listings ----
+    // The listings.
 
     private static string Int(long n) => n.ToString(CultureInfo.InvariantCulture);
 

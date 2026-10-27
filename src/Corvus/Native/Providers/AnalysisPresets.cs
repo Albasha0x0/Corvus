@@ -3,15 +3,12 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// Named analyzer option sets for reanalyze_native preset=: built in, plus analysis-presets.json in the data folder,
-/// {"name": {"ida": ["OPTION=value", ...], "ghidra": [...]}}; a file entry replaces a built-in one of the same name.
-/// </summary>
+/// <summary>Analyzer option sets for reanalyze_native preset=: built in, overridden by name from analysis-presets.json in the data folder.</summary>
 public static class AnalysisPresets
 {
     public const string FileName = "analysis-presets.json";
 
-    // full: what Ghidra's standard profile caps or turns off, back at Ghidra's defaults; IDA's analysis has no profile
+    // "full" restores Ghidra defaults that its standard profile caps; IDA has no profile.
     private static readonly Dictionary<string, Dictionary<string, string[]>> BuiltIn = new(StringComparer.OrdinalIgnoreCase)
     {
         ["full"] = new(StringComparer.OrdinalIgnoreCase)

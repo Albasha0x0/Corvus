@@ -15,11 +15,7 @@ internal sealed record PdfEmbeddedFile(int Object, string Name, string? Descript
 /// <summary>A pdfid keyword: how often it occurs in the file's bytes and how many of those were written with #xx escapes.</summary>
 internal sealed record PdfKeywordCount(string Keyword, int Count, int Escaped);
 
-/// <summary>
-/// The active content of a PDF: actions with what triggers them (document open, page and field events, annotations,
-/// document-level scripts), JavaScript and XFA scripts with noteworthy calls, launched programs, URIs, embedded files, and
-/// pdfid's keyword counts over the raw bytes. Nothing is rendered or run.
-/// </summary>
+/// <summary>The active content of a PDF: triggered actions, scripts, launches, URIs, embedded files, pdfid counts; nothing is run.</summary>
 internal sealed class PdfDocument
 {
     public required PdfFile File { get; init; }
@@ -60,7 +56,7 @@ internal sealed class PdfDocument
         var count = new int[PdfidKeywords.Length];
         var escaped = new int[PdfidKeywords.Length];
         int colorsOver = 0;
-        // the word with a leading '/' slot; words longer than any keyword are only measured
+        // The word with a leading '/' slot; words longer than any keyword are only measured.
         Span<char> word = stackalloc char[16];
         int length = 0;
         bool hex = false, slash = false, afterColors = false, digits = true;
@@ -126,7 +122,7 @@ internal sealed class PdfDocument
     private void Analyze(CancellationToken ct)
     {
         var pdf = File;
-        // who refers to each object, by key: the trigger of an action stored as its own object
+        // Who refers to each object, by key: the trigger of an action stored as its own object.
         var referrers = new Dictionary<int, (int From, string Key)>();
         var embeddedNames = new Dictionary<int, (string Name, string? Description)>();
         var documentScripts = new HashSet<int>();
@@ -134,7 +130,7 @@ internal sealed class PdfDocument
         {
             ct.ThrowIfCancellationRequested();
             Walk(o.Value, o.Number, "", 0, (from, key, r) => referrers.TryAdd(r.Number, (from, key)));
-            // file specifications with embedded files, at any depth (often inline in a name tree)
+            // File specifications with embedded files, at any depth (often inline in a name tree).
             Dicts(o.Value, 0, d =>
             {
                 if (pdf.Resolve(d["EF"]) is not PdfDict ef) return;
@@ -143,7 +139,7 @@ internal sealed class PdfDocument
                     if (e.Value is PdfRef r) embeddedNames.TryAdd(r.Number, (name, pdf.Text(d["Desc"], o) is { Length: > 0 } desc ? desc : null));
             });
         }
-        // document-level scripts: the /JavaScript name tree under the catalog's /Names
+        // Document-level scripts: the /JavaScript name tree under the catalog's /Names.
         if (pdf.Resolve(pdf.Trailer?["Root"]) is PdfDict catalog && pdf.Resolve(catalog["Names"]) is PdfDict names && pdf.Resolve(names["JavaScript"]) is PdfDict tree)
             foreach (var r in NameTreeValues(tree, 0)) if (r is PdfRef rr) documentScripts.Add(rr.Number);
 
@@ -280,8 +276,7 @@ internal sealed class PdfDocument
         return null;
     }
 
-    // Scripts and XFA forms are read whole: NonBacktracking matches in linear
-    // time, so the rules take no match timeout.
+    // NonBacktracking matches in linear time, so the rules take no match timeout.
     private static Regex R(string pattern, RegexOptions options = RegexOptions.CultureInvariant) => new(pattern, options | RegexOptions.NonBacktracking);
 
     private static readonly Regex XfaScript = R(@"<script\b[^>]*>(.*?)</script>", RegexOptions.Singleline | RegexOptions.IgnoreCase);

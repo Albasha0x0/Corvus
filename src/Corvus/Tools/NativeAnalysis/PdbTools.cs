@@ -40,9 +40,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     }
 
     [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Load debug symbols for a native image: PDB (GUID and age checked) or DWARF (own sections, build-id, .gnu_debuglink, dSYM): names, " +
-                 "types, source lines. Searched: path, image folder, symbol paths and caches, CORVUS_DEBUG_DIRS. Names get source pdb (user names " +
-                 "win). Local matches load on their own.")]
+    [Description("Load PDB (GUID and age checked) or DWARF debug symbols for a native image: names, types, source lines. Searches path, the " +
+                 "image folder, symbol paths and CORVUS_DEBUG_DIRS; local matches load automatically.")]
     public Task<string> LoadPdb(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("PDB or debug file, dSYM, or a folder or symbol store to look in first.")] string? path = null,
@@ -120,7 +119,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         }
         text.AppendLine($"  {Plural(s.Names.Count, "address")} named ({s.Names.Count(n => n.IsFunction)} functions); {r.NamesApplied} applied as 'pdb' names" +
                         (r.UserNamesKept > 0 ? $", {r.UserNamesKept} keep the user's name" : ""));
-        text.AppendLine(r.SaveProblem == null ? "  saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them)"
+        text.AppendLine(r.SaveProblem == null ? "  saved: reapplied when this file loads again (clear=true removes them)"
             : $"  not saved for the next load: {r.SaveProblem}");
         if (r.NewFunctionStarts > 0)
             text.AppendLine($"  {Plural(r.NewFunctionStarts, "function")} named by the {(p.Format == DebugInfoFormat.Dwarf ? "DWARF" : "PDB")} were not found by discovery: " +
@@ -143,8 +142,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
     }
 
     [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(PdbSymbolList))]
-    [Description("Symbols of the PDB or DWARF loaded for a native image (load_pdb, or found automatically): address, kind, size, name, " +
-                 "signature (undecorated or demangled), object file or unit.")]
+    [Description("Search the PDB or DWARF symbols loaded for a native image: address, kind, size, name, signature, object file.")]
     public Task<string> SearchPdbSymbols(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name or decorated name substring (case-insensitive); empty for all.")] string? query = null,

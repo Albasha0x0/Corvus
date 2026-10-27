@@ -61,10 +61,7 @@ public sealed class ProtoService
     public List<ProtoOption> Options { get; } = [];
 }
 
-/// <summary>
-/// A FileDescriptorProto read from its wire format (descriptor.proto field numbers). Reads only what .proto text can say;
-/// source info is skipped and custom options are counted in <see cref="UnknownOptions"/>.
-/// </summary>
+/// <summary>A FileDescriptorProto from its wire format; custom options are counted in <see cref="UnknownOptions"/>.</summary>
 public sealed class ProtoFile
 {
     public string Name { get; set; } = "";
@@ -86,12 +83,7 @@ public sealed class ProtoFile
     /// <summary>Bytes of the descriptor read (the blob may continue with other data).</summary>
     public int Length { get; set; }
 
-    /// <summary>
-    /// Reads a FileDescriptorProto from the start of <paramref name="data"/>. Top-level fields must come in field-number
-    /// order with their declared wire types, as every serializer writes them; the first field that breaks this ends the
-    /// descriptor, so a blob followed by other bytes reads only the descriptor. Null when no file name ending in .proto
-    /// comes first or nothing else follows it.
-    /// </summary>
+    /// <summary>Reads a descriptor from the start of <paramref name="data"/>, ending at the first out-of-order field; null when none.</summary>
     public static ProtoFile? Read(ReadOnlySpan<byte> data)
     {
         var r = new WireReader(data);
@@ -234,7 +226,8 @@ public sealed class ProtoFile
             };
             if (!ok) return false;
         }
-        if (f.Type == 0 && f.TypeName != null) f.Type = 11; // unresolved descriptors may leave the type out
+        // Unresolved descriptors may leave the type out.
+        if (f.Type == 0 && f.TypeName != null) f.Type = 11;
         return f.Name.Length > 0 && f.Number > 0 && f.Type != 0;
     }
 
@@ -458,7 +451,8 @@ public sealed class ProtoFile
                 {
                     if (!inner.Tag(out int n, out int w)) return false;
                     if (FeatureSet.TryGetValue(n, out var f) && OptionValue(ref inner, w, f, file) is { } value) options.Add(new("features." + f.Name, value));
-                    else if (inner.Skip(w)) file.UnknownOptions++; // language features (pb.cpp, pb.java) are extensions
+                    // Language features (pb.cpp, pb.java) are extensions.
+                    else if (inner.Skip(w)) file.UnknownOptions++;
                     else return false;
                 }
                 continue;

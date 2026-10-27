@@ -4,7 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Tools;
 
-/// <summary>patch_bytes value + type: a number as an integer of a width and signedness, a float or a pointer; little-endian unless *be.</summary>
+/// <summary>Encodes a patch_bytes value as an integer, float or pointer of its type; little-endian unless the type ends in be.</summary>
 internal static class TypedValue
 {
     public static readonly string[] Types = ["i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f64", "ptr", "i16be", "u16be", "i32be", "u32be", "i64be", "u64be", "f32be", "f64be"];

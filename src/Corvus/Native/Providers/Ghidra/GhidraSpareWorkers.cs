@@ -1,10 +1,6 @@
 namespace Corvus.Native.Providers.Ghidra;
 
-/// <summary>
-/// Started and initialized Ghidra workers with no program open, one per launch command, so the next open adopts one
-/// instead of starting a JVM. A spare is kept while a provider uses its command and for <see cref="Linger"/> after the
-/// last one is disposed, so providers that follow one another share it; a spare that fails to start is dropped.
-/// </summary>
+/// <summary>Idle started Ghidra workers, one per launch command, kept while used and for <see cref="Linger"/> after; failed starts are dropped.</summary>
 internal static class GhidraSpareWorkers
 {
     private sealed class Slot
@@ -66,10 +62,7 @@ internal static class GhidraSpareWorkers
         return null;
     }
 
-    /// <summary>
-    /// Starts the next spare of <paramref name="command"/> once <paramref name="after"/> is ready or closed, so two JVMs
-    /// do not start at once; does nothing while one is kept or starting.
-    /// </summary>
+    /// <summary>Starts the next spare once <paramref name="after"/> is ready or closed, so two JVMs never start at once; no-op while one exists.</summary>
     public static void Refill(string command, Func<WorkerConnection> launch, WorkerConnection after, TimeSpan startTimeout)
     {
         Slot slot;
@@ -111,11 +104,7 @@ internal static class GhidraSpareWorkers
         lock (Sync) slot.Start = start;
     }
 
-    /// <summary>
-    /// Ends every spare, the ones still starting included, and waits up to <paramref name="wait"/> for them to exit; the
-    /// leak check calls it before it deletes the worker folder and counts processes. <paramref name="command"/> limits it
-    /// to one launch command.
-    /// </summary>
+    /// <summary>Ends every spare (or those of <paramref name="command"/>), starting ones included, and waits up to <paramref name="wait"/>.</summary>
     public static void EndAll(TimeSpan wait, string? command = null)
     {
         List<WorkerConnection> ended = [];

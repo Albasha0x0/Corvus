@@ -24,11 +24,8 @@ public sealed record NoteAnchor(
     [JsonIgnore] public string StoreKey => Kind == DotNet ? "mvid-" + Mvid!.ToLowerInvariant() : Sha256?.ToLowerInvariant() ?? "global";
 }
 
-/// <summary>
-/// Where a note's claim was seen: a tool call (tool, args) whose result hashes to resultSha256, so it can be re-run and
-/// compared; a saved record (result, a kept result id) that supports or refutes the note, with the verdict of its last
-/// check; or free text. A plain string (note files before evidence objects) reads as text.
-/// </summary>
+/// <summary>Where a note's claim was seen: a rerunnable tool call with its result hash, a saved record that supports or
+/// refutes it, or text; a plain string reads as text.</summary>
 [JsonConverter(typeof(NoteEvidenceConverter))]
 public sealed record NoteEvidence(
     [property: JsonPropertyName("tool")] string? Tool = null,
@@ -85,11 +82,8 @@ public sealed record Note(
 public sealed record NoteChange(string? Status = null, string? Text = null, string? AppendText = null, IReadOnlyList<string>? AddTags = null,
     IReadOnlyList<string>? RemoveTags = null, IReadOnlyList<NoteEvidence>? AddEvidence = null, string? Kind = null);
 
-/// <summary>
-/// Analyst notes, persisted per user beside the annotation sidecars (&lt;annotations&gt;/notes/&lt;sha256 | mvid-guid | global&gt;.json)
-/// so a binary's notes follow its identity. Writes go through <see cref="LockedJsonFile"/>, so server processes sharing
-/// the store never drop each other's notes; a per-note revision decides concurrent updates.
-/// </summary>
+/// <summary>Analyst notes stored per binary identity beside the annotations; locked writes keep processes from dropping
+/// each other's notes, and a per-note revision decides concurrent updates.</summary>
 public sealed class NotesService(AnnotationStore store)
 {
     // 3: evidence entries may link a saved record (result, expect, verdict); 2 had objects (tool, args, resultSha256, text); 1 strings, read as text.
@@ -145,10 +139,8 @@ public sealed class NotesService(AnnotationStore store)
         return t;
     }
 
-    /// <summary>
-    /// Checks evidence entries: a tool call or a text, each within <see cref="MaxEvidenceChars"/>; a call without resultSha256
-    /// takes the hash of this process's latest identical call, if any (else <paramref name="unmatched"/> names it).
-    /// </summary>
+    /// <summary>Checks evidence entries; a call without resultSha256 takes this process's latest identical call's hash, else
+    /// goes in <paramref name="unmatched"/>.</summary>
     public static List<NoteEvidence> CheckEvidence(IReadOnlyList<NoteEvidence>? entries, List<string>? unmatched = null)
     {
         var list = new List<NoteEvidence>();
@@ -194,7 +186,8 @@ public sealed class NotesService(AnnotationStore store)
             if (size > MaxEvidenceChars) throw new ToolError(ErrorCode.LimitExceeded, $"An evidence entry is {size} characters as JSON; the limit is {MaxEvidenceChars}.");
             int i = list.FindIndex(x => x.Key == e.Key);
             if (i < 0) list.Add(e);
-            else if (e.ResultSha256 != null) list[i] = e; // the same call again: its latest result
+            // The same call again keeps its latest result.
+            else if (e.ResultSha256 != null) list[i] = e;
         }
         if (list.Count > MaxEvidence) throw new ToolError(ErrorCode.LimitExceeded, $"A note holds at most {MaxEvidence} evidence entries ({list.Count} given).");
         return list;
@@ -233,10 +226,8 @@ public sealed class NotesService(AnnotationStore store)
         return note;
     }
 
-    /// <summary>
-    /// Applies <paramref name="change"/> when the note is at <paramref name="expectedRevision"/>; otherwise a Conflict whose
-    /// details carry the current note, so the caller can merge without another call.
-    /// </summary>
+    /// <summary>Applies <paramref name="change"/> at <paramref name="expectedRevision"/>, else a Conflict carrying the current
+    /// note.</summary>
     public Note Update(string id, int expectedRevision, NoteChange change)
     {
         var key = KeyOf(id) ?? throw new ToolError(ErrorCode.NotFound, $"No note has the id '{id}'.", "list_notes shows the ids");
@@ -267,10 +258,7 @@ public sealed class NotesService(AnnotationStore store)
         return updated!;
     }
 
-    /// <summary>
-    /// Adds notes made elsewhere (a session file, another build): a note whose id exists is kept as it is unless the incoming
-    /// revision is higher. Returns (added, updated, unchanged).
-    /// </summary>
+    /// <summary>Adds notes made elsewhere; an existing id is replaced only by a higher revision. Returns the counts.</summary>
     public (int Added, int Updated, int Unchanged) Import(IEnumerable<Note> notes)
     {
         int added = 0, updated = 0, unchanged = 0;

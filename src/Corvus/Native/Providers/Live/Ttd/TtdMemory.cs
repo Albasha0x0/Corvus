@@ -3,11 +3,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Providers.Live.Ttd;
 
-/// <summary>
-/// A recording's memory at the cursor's position, as a process image the dump stack walker reads. Each module's image
-/// is its file on disk when the header matches (TTD keeps only the pages the program touched), else the image rebuilt
-/// from the recording.
-/// </summary>
+/// <summary>A recording's memory at the cursor for the stack walker; module images come from disk when headers match, since TTD keeps only touched pages.</summary>
 internal sealed class TtdMemory(TtdReplay replay) : IProcessMemory
 {
     private readonly Dictionary<ulong, PeFile?> _images = [];

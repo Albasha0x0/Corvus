@@ -15,27 +15,23 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// One call that carries the work done on an old build of a native image to its new build: user names and comments,
-/// imported name layers (PDB, Il2Cpp), byte patches (stub extensions re-created), rebuild-stable code patterns, and the
-/// Il2Cpp method -&gt; RVA mapping, all through one build match, with one consolidated report.
-/// </summary>
+/// <summary>Carries work on an old native build to its new build through one function match, with one report.</summary>
 [McpServerToolType]
 public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, PdbService pdb,
-    Il2CppService il2cpp, Il2CppNavigator navigator, Il2CppNativeNames il2cppNames, Il2CppRawLoader? il2cppRaw = null, NotesService? noteStore = null,
+    AotMetadataService aot, AotNavigator navigator, AotNativeNames aotNames, AotBuildLoader? aotBuild = null, NotesService? noteStore = null,
     AssemblyComparer? comparer = null)
 {
-    public const string Names = "names", Pdb = "pdb", Il2CppNames = "il2cpp_names", Patches = "patches", Patterns = "patterns",
-        Il2CppMapping = "il2cpp_mapping", NoteCategory = "notes", DotNet = "dotnet";
-    private static readonly string[] CategoryOrder = [Names, Pdb, Il2CppNames, Patches, Patterns, Il2CppMapping, NoteCategory, DotNet];
+    public const string Names = "names", Pdb = "pdb", MetadataNames = "metadata_names", Patches = "patches", Patterns = "patterns",
+        MethodMapping = "method_mapping", NoteCategory = "notes", DotNet = "dotnet";
+    private static readonly string[] CategoryOrder = [Names, Pdb, MetadataNames, Patches, Patterns, MethodMapping, NoteCategory, DotNet];
     private static readonly string[] Outcomes = ["carried", "would_carry", "already_present", "refused", "not_applicable", "ambiguous"];
-    private const int MaxIl2CppItems = 200_000;
+    private const int MaxAotItems = 200_000;
 
     public sealed record ReasonCount(string Reason, int Count);
 
     public sealed record UpdateCategory(
-        [property: Description("names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes or dotnet.")] string Category,
-        [property: Description("applied, previewed (dryRun), reported (patterns and the Il2Cpp mapping change nothing), not_applicable, not_included or out_of_scope.")] string Status,
+        [property: Description("names, pdb, metadata_names, patches, patterns, method_mapping, notes or dotnet.")] string Category,
+        [property: Description("applied, previewed (dryRun), reported (changes nothing), not_applicable, not_included or out_of_scope.")] string Status,
         int Considered,
         [property: Description("Carried to the new build (or would be, in a dry run).")] int Carried,
         [property: Description("Already on the new build (a re-run).")] int AlreadyPresent,
@@ -55,12 +51,12 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("The name, comment, patch description, new pattern or method identity.")] string Value,
         [property: Description("carried, would_carry, already_present, refused, not_applicable or ambiguous.")] string Outcome,
         [property: Description("Reason code: how it was carried or why not. Patterns: still_unique, now_ambiguous, not_found, points_elsewhere, not_unique_in_old. " +
-                               "Il2Cpp mapping: agree, disagree, metadata_only, removed.")] string Reason,
+                               "Method mapping: agree, disagree, metadata_only, removed.")] string Reason,
         [property: Description("0-1.")] double Confidence,
         [property: Description("Function-match tier (1 best .. 5 fuzzy), or null.")] int? Tier,
         string Detail);
 
-    public sealed record Il2CppMappingSummary(
+    public sealed record MethodMappingSummary(
         [property: Description("Where the old build's metadata came from.")] string OldSource,
         [property: Description("Where the new build's metadata came from.")] string NewSource,
         int OldMethods, int NewMethods,
@@ -73,22 +69,21 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         int Ambiguous);
 
     public sealed record UpdateReport(
-        [property: Description("One paragraph: what carried over, what did not, and the next step.")] string Summary,
+        [property: Description("What carried over, what did not, and the next step.")] string Summary,
         string OldImage, string NewImage, bool DryRun,
         [property: Description("The journaled edits (undo_native_edit): names and comments, user types, patches.")] IReadOnlyList<EditId> EditIds,
         [property: Description("Categories included in this run.")] IReadOnlyList<string> Included,
         int OldFunctions, int NewFunctions, int FunctionsMatched,
         IReadOnlyList<UpdateCategory> Categories,
-        [property: Description("The Il2Cpp method mapping (null when not applicable).")] Il2CppMappingSummary? Il2CppMapping,
+        [property: Description("The method mapping; null when not applicable.")] MethodMappingSummary? MethodMapping,
         IReadOnlyList<UpdateItem> Items, int Offset, int Total,
         [property: Description("What was not covered (functions that did not decode, capped work, scope).")] IReadOnlyList<string> Notes);
 
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true, OutputSchemaType = typeof(UpdateReport))]
-    [Description("Carry work from an old native build to the new one via one function match: names, comments, engine types, PDB and Il2Cpp " +
-                 "layers, patches, code-pattern drift, Il2Cpp method mapping, notes. Per-category counts with reason codes; re-runs report " +
-                 "already_present. .NET: notes via find_counterpart.")]
+    [Description("Carry names, comments, types, name layers, patches, code patterns and notes from an old native build to a new one " +
+                 "through one function match. Re-runs report already_present; .NET pairs carry notes only.")]
     public Task<string> UpdateToNewBuild(
         [Description("Old build: image id or path.")] string oldImage,
         [Description("New build: image id or path.")] string newImage,
@@ -96,8 +91,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Categories to carry (default all).")] string[]? include = null,
         [Description("Patch set (export_native_patches json): text or path.")] string? patchSet = null,
         [Description("Placement of re-created patch stubs.")] string? stubPlacement = null,
-        [Description("Il2Cpp dummy assemblies, old build.")] string[]? oldIl2Cpp = null,
-        [Description("Il2Cpp dummy assemblies, new build.")] string[]? newIl2Cpp = null,
+        [Description("Dummy assemblies, old build.")] string[]? oldMetadata = null,
+        [Description("Dummy assemblies, new build.")] string[]? newMetadata = null,
         [Description(NativeDiffTools.CodeOnlyDescription)] bool codeOnly = false,
         [Description("Most code patterns made (0-1000).")] int maxPatterns = 100,
         [Description("Only items of this category.")] string? category = null,
@@ -108,7 +103,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var r = await Update(oldImage, newImage, dryRun, include, patchSet, stubPlacement, oldIl2Cpp, newIl2Cpp, codeOnly, maxPatterns, category, outcome,
+        var r = await Update(oldImage, newImage, dryRun, include, patchSet, stubPlacement, oldMetadata, newMetadata, codeOnly, maxPatterns, category, outcome,
             0, int.MaxValue, progress, cancellationToken);
         var head = new StringBuilder(r.Summary).Append('\n');
         if (r.EditIds.Count > 0) head.Append($"Recorded as {string.Join(", ", r.EditIds)} (undo_native_edit editId={r.EditIds[0]}).\n");
@@ -122,13 +117,13 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     /// <summary>update_to_new_build as a record: the items after the filters, from offset.</summary>
     internal Task<UpdateReport> Update(string oldImage, string newImage, bool dryRun = true, string[]? include = null, string? patchSet = null,
-        string? stubPlacement = null, string[]? oldIl2Cpp = null, string[]? newIl2Cpp = null, bool codeOnly = false, int maxPatterns = 100, string? category = null,
+        string? stubPlacement = null, string[]? oldMetadata = null, string[]? newMetadata = null, bool codeOnly = false, int maxPatterns = 100, string? category = null,
         string? outcome = null, int offset = 0, int limit = 100, IProgress<ProgressNotificationValue>? progress = null, CancellationToken cancellationToken = default) =>
-        UpdateCore(oldImage, newImage, dryRun, include, patchSet, stubPlacement, oldIl2Cpp, newIl2Cpp, codeOnly, maxPatterns, category, outcome, offset, limit,
+        UpdateCore(oldImage, newImage, dryRun, include, patchSet, stubPlacement, oldMetadata, newMetadata, codeOnly, maxPatterns, category, outcome, offset, limit,
             progress ?? new Progress<ProgressNotificationValue>(), cancellationToken);
 
     private async Task<UpdateReport> UpdateCore(string oldImage, string newImage, bool dryRun, string[]? include, string? patchSet, string? stubPlacement,
-        string[]? oldIl2Cpp, string[]? newIl2Cpp, bool codeOnly, int maxPatterns, string? category, string? outcome, int offset, int limit,
+        string[]? oldMetadata, string[]? newMetadata, bool codeOnly, int maxPatterns, string? category, string? outcome, int offset, int limit,
         IProgress<ProgressNotificationValue> progress, CancellationToken cancellationToken)
     {
         var ct = cancellationToken;
@@ -192,16 +187,16 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         Phase(3, "imported names");
         if (included.Contains(Pdb)) await PdbLayer(oldNative, newNative, dryRun, items, categories, ct);
 
-        // ---- Il2Cpp: method mapping (read-only) and the names layer ----
-        Il2CppMappingSummary? mappingSummary = null;
-        if (included.Contains(Il2CppNames))
+        // ---- metadata: method mapping (read-only) and the names layer ----
+        MethodMappingSummary? mappingSummary = null;
+        if (included.Contains(MetadataNames))
         {
-            var oldScope = await Task.Run(() => Il2CppScope(oldNative, oldIl2Cpp, notes, ct), ct);
-            var newScope = await Task.Run(() => Il2CppScope(newNative, newIl2Cpp, notes, ct), ct);
+            var oldScope = await Task.Run(() => AotScope(oldNative, oldMetadata, notes, ct), ct);
+            var newScope = await Task.Run(() => AotScope(newNative, newMetadata, notes, ct), ct);
             bool sameMetadata = oldScope.Scope != null && newScope.Scope != null && oldScope.Scope.ToHashSet().SetEquals(newScope.Scope);
-            if (sameMetadata) notes.Add("both builds resolve to the same Il2Cpp dummy assemblies: pass oldIl2Cpp / newIl2Cpp to tell them apart");
-            mappingSummary = await Task.Run(() => Il2CppMap(oldScope, newScope, sameMetadata, mapper, items, categories, ct), ct);
-            await Task.Run(() => Il2CppLayer(oldNative, newNative, sameMetadata ? (null, "") : newScope, newIndex, mapper, dryRun, items, categories, ct), ct);
+            if (sameMetadata) notes.Add("both builds resolve to the same dummy assemblies: pass oldMetadata / newMetadata to tell them apart");
+            mappingSummary = await Task.Run(() => AotMap(oldScope, newScope, sameMetadata, mapper, items, categories, ct), ct);
+            await Task.Run(() => AotLayer(oldNative, newNative, sameMetadata ? (null, "") : newScope, newIndex, mapper, dryRun, items, categories, ct), ct);
         }
 
         Phase(4, "patches");
@@ -242,24 +237,21 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             switch (part.ToLowerInvariant())
             {
-                case "all": set.UnionWith([Names, Pdb, Il2CppNames, Il2CppMapping, Patches, Patterns, NoteCategory]); break;
+                case "all": set.UnionWith([Names, Pdb, MetadataNames, MethodMapping, Patches, Patterns, NoteCategory]); break;
                 case "notes": set.Add(NoteCategory); break;
                 case "names": set.Add(Names); break;
                 case "pdb": set.Add(Pdb); break;
-                case "il2cpp" or "il2cpp_names" or "il2cpp_mapping": set.Add(Il2CppNames); set.Add(Il2CppMapping); break;
+                case "metadata" or "metadata_names" or "method_mapping": set.Add(MetadataNames); set.Add(MethodMapping); break;
                 case "patches": set.Add(Patches); break;
                 case "patterns": set.Add(Patterns); break;
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown category '{part}' in include.", "use names, pdb, il2cpp, patches, patterns, notes or all");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown category '{part}' in include.", "use names, pdb, metadata, patches, patterns, notes or all");
             }
         }
         return set;
     }
 
-    /// <summary>
-    /// Notes on the old build's addresses (and on the whole file) recorded again on the new build at the mapped address, with
-    /// the old address as evidence; a note already there with the same text is already_present.
-    /// </summary>
+    /// <summary>Records the old build's notes again at the mapped addresses; a note with the same text there is already_present.</summary>
     private void NoteStep(LoadedNative oldNative, LoadedNative newNative, AddressMapper mapper, bool dryRun, List<Item> items,
         Dictionary<string, (string Status, string Detail, int? Carried)> categories, CancellationToken ct)
     {
@@ -340,7 +332,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         var cmp = workspace.Read(() => comparer!.Compare(oldAsm, newAsm, ct), ct);
         var items = new List<Item>();
         var categories = new Dictionary<string, (string Status, string Detail, int? Carried)>();
-        foreach (var c in new[] { Names, Pdb, Il2CppNames, Il2CppMapping, Patches, Patterns })
+        foreach (var c in new[] { Names, Pdb, MetadataNames, MethodMapping, Patches, Patterns })
             if (included.Contains(c)) categories[c] = ("not_applicable", ".NET builds: export_edits, then apply_edits targetBuild=other", null);
         if (included.Contains(NoteCategory)) workspace.Read(() => DotNetNoteStep(oldAsm, newAsm, cmp, dryRun, items, categories, ct), ct);
         categories[DotNet] = ("reported", $"{cmp.TypeMap.Count} type(s) and {cmp.MemberMap.Count} member(s) matched; compare_assemblies lists the changes", null);
@@ -360,10 +352,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             page, offset, filtered.Count, ["a .NET pair: notes are mapped by find_counterpart; addresses are metadata tokens"]);
     }
 
-    /// <summary>
-    /// Notes on the old build's members (and on the whole file) recorded again on the counterpart in the new build, with the
-    /// old token as evidence; ambiguous and unmatched members are reported, not guessed.
-    /// </summary>
+    /// <summary>Records the old build's member notes on their counterparts; ambiguous and unmatched members are reported, not guessed.</summary>
     private int DotNetNoteStep(LoadedAssembly oldAsm, LoadedAssembly newAsm, AssemblyComparer.Comparison cmp, bool dryRun, List<Item> items,
         Dictionary<string, (string Status, string Detail, int? Carried)> categories, CancellationToken ct)
     {
@@ -452,7 +441,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             { NotCarriedBy = Count(mine.Where(i => i.Outcome is "refused" or "not_applicable" or "ambiguous")) };
     }
 
-    private static string Summary(string oldId, string newId, bool dryRun, MatchResult match, List<UpdateCategory> categories, Il2CppMappingSummary? map)
+    private static string Summary(string oldId, string newId, bool dryRun, MatchResult match, List<UpdateCategory> categories, MethodMappingSummary? map)
     {
         var sb = new StringBuilder();
         sb.Append(dryRun ? "Dry run (nothing changed): " : "Applied: ");
@@ -462,13 +451,13 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         return sb.ToString();
     }
 
-    private static void AppendCategories(StringBuilder sb, List<UpdateCategory> categories, bool dryRun, Il2CppMappingSummary? map)
+    private static void AppendCategories(StringBuilder sb, List<UpdateCategory> categories, bool dryRun, MethodMappingSummary? map)
     {
         foreach (var c in categories.Where(c => c.Status is not ("not_included" or "out_of_scope")))
         {
-            if (c.Category == Il2CppMapping && map != null)
+            if (c.Category == MethodMapping && map != null)
             {
-                sb.Append($"il2cpp mapping: {map.Agree} agree, {map.Disagree} disagree, {map.MetadataOnly} metadata only, {map.Removed} removed, {map.Added} added. ");
+                sb.Append($"method mapping: {map.Agree} agree, {map.Disagree} disagree, {map.MetadataOnly} metadata only, {map.Removed} removed, {map.Added} added. ");
                 continue;
             }
             if (c.Status == "not_applicable" && c.Considered == 0) { sb.Append($"{c.Category}: not applicable ({c.Detail}). "); continue; }
@@ -529,130 +518,123 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     private static string Status(bool dryRun) => dryRun ? "previewed" : "applied";
 
-    /// <summary>
-    /// The Il2Cpp dummy assemblies of <paramref name="native"/>: the given ones, else the loaded dump made from this binary,
-    /// else the Il2Cpp metadata beside it (built-in reader), else what apply_il2cpp_names used for it; null when none.
-    /// </summary>
-    private (List<LoadedAssembly>? Scope, string Source) Il2CppScope(LoadedNative native, string[]? explicitScope, List<string> notes, CancellationToken ct)
+    /// <summary>The dummy assemblies of <paramref name="native"/>: given, loaded, read from metadata beside it, or last applied; null when none.</summary>
+    private (List<LoadedAssembly>? Scope, string Source) AotScope(LoadedNative native, string[]? explicitScope, List<string> notes, CancellationToken ct)
     {
         if (explicitScope?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList() is { Count: > 0 } ids)
         {
-            var given = workspace.Read(() => ids.Select(workspace.Get).Distinct().Where(a => il2cpp.GetIndex(a).Count > 0).ToList());
+            var given = workspace.Read(() => ids.Select(workspace.Get).Distinct().Where(a => aot.GetIndex(a).Count > 0).ToList());
             if (given.Count == 0)
-                throw new ToolError(ErrorCode.InvalidArgument, $"'{string.Join(", ", ids)}' names no Il2Cpp dummy assembly (methods with [Address] attributes).",
+                throw new ToolError(ErrorCode.InvalidArgument, $"'{string.Join(", ", ids)}' names no dummy assembly (methods with [Address] attributes).",
                     "pass the ids of the build's dummy assemblies (list_assemblies), or omit it to find them");
             return (given, "assemblies " + string.Join(", ", given.Select(a => a.Id)));
         }
         if (FromDumps(native) is { } found) return found;
-        Il2CppBuildFiles? build = null;
-        try { build = Il2CppBuildFiles.Find(native.FilePath, native.SliceName); }
+        AotBuildFiles? build = null;
+        try { build = AotBuildFiles.Find(native.FilePath, native.SliceName); }
         catch (ToolError ex) { notes.Add($"{native.Id}: {ex.Message}"); }
         if (build != null && string.Equals(Path.GetFullPath(build.Binary), native.FilePath, StringComparison.OrdinalIgnoreCase))
         {
             try
             {
-                (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(build, loadBinary: false, null, ct);
+                (aotBuild ?? new AotBuildLoader(workspace)).Load(build, loadBinary: false, null, ct);
                 if (FromDumps(native) is { } read) return read;
             }
-            catch (ToolError ex) { notes.Add($"{native.Id}: Il2Cpp metadata {build.Metadata} not read: {ex.Message}"); }
+            catch (ToolError ex) { notes.Add($"{native.Id}: metadata {build.Metadata} not read: {ex.Message}"); }
         }
-        if (Il2CppNativeNames.Of(native) is { } applied) return (applied.Image.Assemblies.ToList(), $"the dummy assemblies apply_il2cpp_names used ({applied.Assemblies})");
+        if (AotNativeNames.Of(native) is { } applied) return (applied.Image.Assemblies.ToList(), $"the dummy assemblies apply_metadata_names used ({applied.Assemblies})");
         return (null, "");
     }
 
     private (List<LoadedAssembly>, string)? FromDumps(LoadedNative native) => workspace.Read(() =>
     {
-        var all = workspace.Assemblies.Where(a => il2cpp.GetIndex(a).Count > 0).ToList();
+        var all = workspace.Assemblies.Where(a => aot.GetIndex(a).Count > 0).ToList();
         if (all.Count == 0) return ((List<LoadedAssembly>, string)?)null;
         var image = navigator.ImagesFor(all).FirstOrDefault(i => i.Dump?.Files.Describes(native) == true);
-        return image == null ? null : (image.Assemblies.ToList(), $"the Il2Cpp metadata in {image.Dump!.Files.Directory}");
+        return image == null ? null : (image.Assemblies.ToList(), $"the metadata in {image.Dump!.Files.Directory}");
     });
 
-    private List<Il2CppBuildMap.Method> Methods(List<LoadedAssembly> scope) => workspace.Read(() =>
-        scope.SelectMany(a => il2cpp.GetIndex(a)).Where(m => m.Rva is > 0 and <= uint.MaxValue)
-            .Select(m => new Il2CppBuildMap.Method(m.Assembly.AssemblyName + "|" + m.Method.FullName, (uint)m.Rva!.Value)).ToList());
+    private List<AotBuildMap.Method> Methods(List<LoadedAssembly> scope) => workspace.Read(() =>
+        scope.SelectMany(a => aot.GetIndex(a)).Where(m => m.Rva is > 0 and <= uint.MaxValue)
+            .Select(m => new AotBuildMap.Method(m.Assembly.AssemblyName + "|" + m.Method.FullName, (uint)m.Rva!.Value)).ToList());
 
-    private Il2CppMappingSummary? Il2CppMap((List<LoadedAssembly>? Scope, string Source) oldScope, (List<LoadedAssembly>? Scope, string Source) newScope, bool same,
+    private MethodMappingSummary? AotMap((List<LoadedAssembly>? Scope, string Source) oldScope, (List<LoadedAssembly>? Scope, string Source) newScope, bool same,
         AddressMapper mapper, List<Item> items, Dictionary<string, (string Status, string Detail, int? Carried)> categories, CancellationToken ct)
     {
         if (oldScope.Scope == null || newScope.Scope == null || same)
         {
-            categories[Il2CppMapping] = ("not_applicable", same ? "both builds resolve to the same Il2Cpp metadata"
-                : oldScope.Scope == null && newScope.Scope == null ? "no Il2Cpp metadata for either build"
-                : oldScope.Scope == null ? "no Il2Cpp metadata for the old build" : "no Il2Cpp metadata for the new build", null);
+            categories[MethodMapping] = ("not_applicable", same ? "both builds resolve to the same metadata"
+                : oldScope.Scope == null && newScope.Scope == null ? "no metadata for either build"
+                : oldScope.Scope == null ? "no metadata for the old build" : "no metadata for the new build", null);
             return null;
         }
         var oldMethods = Methods(oldScope.Scope);
         var newMethods = Methods(newScope.Scope);
-        var result = Il2CppBuildMap.Map(oldMethods, newMethods, rva =>
+        var result = AotBuildMap.Map(oldMethods, newMethods, rva =>
         {
             var m = mapper.Map(rva, ct);
-            return new Il2CppBuildMap.NativeAnswer(m.NewRva, m.Pair?.Tier, m.Pair?.Basis, m.Confidence, m.Reason);
+            return new AotBuildMap.NativeAnswer(m.NewRva, m.Pair?.Tier, m.Pair?.Basis, m.Confidence, m.Reason);
         }, ct);
-        foreach (var e in result.Entries.Take(MaxIl2CppItems))
+        foreach (var e in result.Entries.Take(MaxAotItems))
         {
             string outcome = e.Status switch { "agree" or "disagree" or "metadata_only" => "carried", "removed" => "refused", _ => "ambiguous" };
-            items.Add(new Item(Il2CppMapping, "method", e.OldRva, e.NewRva, e.Key, outcome, e.Status, e.Confidence, e.Tier, e.Detail));
+            items.Add(new Item(MethodMapping, "method", e.OldRva, e.NewRva, e.Key, outcome, e.Status, e.Confidence, e.Tier, e.Detail));
         }
-        categories[Il2CppMapping] = ("reported", $"old: {oldScope.Source}; new: {newScope.Source}" +
-            (result.Entries.Count > MaxIl2CppItems ? $"; items listed for the first {MaxIl2CppItems}" : ""), null);
-        return new Il2CppMappingSummary(oldScope.Source, newScope.Source, result.OldMethods, result.NewMethods, result.Count("agree"),
+        categories[MethodMapping] = ("reported", $"old: {oldScope.Source}; new: {newScope.Source}" +
+            (result.Entries.Count > MaxAotItems ? $"; items listed for the first {MaxAotItems}" : ""), null);
+        return new MethodMappingSummary(oldScope.Source, newScope.Source, result.OldMethods, result.NewMethods, result.Count("agree"),
             result.Entries.Count(e => e.Status == "agree" && e.Basis != "name"), result.Count("disagree"), result.Count("metadata_only"),
             result.Count("removed"), result.Added, result.Count("ambiguous"));
     }
 
-    /// <summary>
-    /// The new build's Il2Cpp names: re-applied from its own metadata when it has some, else the old build's layer mapped
-    /// through the function match and saved as a layer whose origin says it was carried by match.
-    /// </summary>
-    private void Il2CppLayer(LoadedNative oldNative, LoadedNative newNative, (List<LoadedAssembly>? Scope, string Source) newScope, NativeCodeIndex newIndex,
+    /// <summary>Names the new build from its own metadata, else carries the old build's metadata names through the match.</summary>
+    private void AotLayer(LoadedNative oldNative, LoadedNative newNative, (List<LoadedAssembly>? Scope, string Source) newScope, NativeCodeIndex newIndex,
         AddressMapper mapper, bool dryRun, List<Item> items, Dictionary<string, (string Status, string Detail, int? Carried)> categories, CancellationToken ct)
     {
         var layers = NativeNameLayers.Of(newNative);
         if (newScope.Scope is { } scope)
         {
-            // a re-run: the layer applied from the same dummy assemblies is in place
-            if (layers.Get(NativeNameSource.Il2Cpp) is { } applied && applied.Origin == $"Il2Cpp metadata ({string.Join(", ", scope.Select(a => a.Id))})")
+            // A re-run: the layer applied from the same dummy assemblies is in place.
+            if (layers.Get(NativeNameSource.Metadata) is { } applied && applied.Origin == $"AOT metadata ({string.Join(", ", scope.Select(a => a.Id))})")
             {
-                items.Add(new Item(Il2CppNames, "layer", null, null, newScope.Source, "already_present", "applied_from_metadata", 1, null,
-                    $"the new build already has {applied.Names.Count} Il2Cpp names from {applied.Origin}"));
-                categories[Il2CppNames] = (Status(dryRun), $"the new build has its own metadata ({newScope.Source})", 0);
+                items.Add(new Item(MetadataNames, "layer", null, null, newScope.Source, "already_present", "applied_from_metadata", 1, null,
+                    $"the new build already has {applied.Names.Count} metadata names from {applied.Origin}"));
+                categories[MetadataNames] = (Status(dryRun), $"the new build has its own metadata ({newScope.Source})", 0);
                 return;
             }
             if (dryRun)
             {
                 int functions = Methods(scope).Select(m => m.Rva).Distinct().Count();
-                items.Add(new Item(Il2CppNames, "layer", null, null, newScope.Source, "would_carry", "reapply_from_metadata", 1, null,
-                    $"apply_il2cpp_names from {newScope.Source}: about {functions} function(s) with dummy methods, plus script.json instantiations and slots when present"));
-                categories[Il2CppNames] = ("previewed", $"the new build has its own metadata ({newScope.Source})", functions);
+                items.Add(new Item(MetadataNames, "layer", null, null, newScope.Source, "would_carry", "reapply_from_metadata", 1, null,
+                    $"apply_metadata_names from {newScope.Source}: about {functions} function(s) with dummy methods, plus script.json instantiations and slots when present"));
+                categories[MetadataNames] = ("previewed", $"the new build has its own metadata ({newScope.Source})", functions);
                 return;
             }
             var index = code.Ready(newNative) ?? newIndex;
-            var r = workspace.Read(() => il2cppNames.Apply(newNative, index, scope, ct));
-            items.Add(new Item(Il2CppNames, "layer", null, null, newScope.Source, "carried", "reapplied_from_metadata", 1, null,
+            var r = workspace.Read(() => aotNames.Apply(newNative, index, scope, ct));
+            items.Add(new Item(MetadataNames, "layer", null, null, newScope.Source, "carried", "reapplied_from_metadata", 1, null,
                 $"{r.Functions} functions, {r.Strings} strings, {r.MetadataSlots} metadata and {r.MethodInfoSlots} MethodInfo slots named; {r.UserNamesKept} user names kept"));
-            categories[Il2CppNames] = ("applied", $"re-applied from the new build's own metadata ({newScope.Source})", r.Functions);
+            categories[MetadataNames] = ("applied", $"re-applied from the new build's own metadata ({newScope.Source})", r.Functions);
             return;
         }
-        var oldLayer = NativeNameLayers.OfOrNull(oldNative)?.Get(NativeNameSource.Il2Cpp);
+        var oldLayer = NativeNameLayers.OfOrNull(oldNative)?.Get(NativeNameSource.Metadata);
         if (oldLayer == null)
         {
-            categories[Il2CppNames] = ("not_applicable", "no Il2Cpp names on the old build and no metadata for the new build", null);
+            categories[MetadataNames] = ("not_applicable", "no metadata names on the old build and no metadata for the new build", null);
             return;
         }
-        if (layers.Get(NativeNameSource.Il2Cpp) is { } own && !own.Origin.StartsWith(CarriedOrigin, StringComparison.Ordinal))
+        if (layers.Get(NativeNameSource.Metadata) is { } own && !own.Origin.StartsWith(CarriedOrigin, StringComparison.Ordinal))
         {
-            items.Add(new Item(Il2CppNames, "layer", null, null, own.Origin, "not_applicable", "new_has_own_il2cpp_names", 0, null,
-                $"the new build already has Il2Cpp names ({own.Names.Count}, {own.Origin}); they are kept"));
-            categories[Il2CppNames] = (Status(dryRun), "the new build has its own Il2Cpp names", null);
+            items.Add(new Item(MetadataNames, "layer", null, null, own.Origin, "not_applicable", "new_has_own_metadata_names", 0, null,
+                $"the new build already has metadata names ({own.Names.Count}, {own.Origin}); they are kept"));
+            categories[MetadataNames] = (Status(dryRun), "the new build has its own metadata names", null);
             return;
         }
 
-        // carry by match
         var names = new Dictionary<uint, string>();
         var comments = new Dictionary<uint, string>();
         var firstAt = new Dictionary<uint, uint>();
-        var current = layers.Get(NativeNameSource.Il2Cpp);
+        var current = layers.Get(NativeNameSource.Metadata);
         int n = 0;
         foreach (var (oldRva, name) in oldLayer.Names.OrderBy(kv => kv.Key))
         {
@@ -660,30 +642,30 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             var m = mapper.Map(oldRva, ct);
             if (m.NewRva is not { } at)
             {
-                items.Add(new Item(Il2CppNames, "name", oldRva, null, name, m.Reason == "ambiguous" ? "ambiguous" : "refused", m.Reason, m.Confidence, m.Pair?.Tier, m.Detail));
+                items.Add(new Item(MetadataNames, "name", oldRva, null, name, m.Reason == "ambiguous" ? "ambiguous" : "refused", m.Reason, m.Confidence, m.Pair?.Tier, m.Detail));
                 continue;
             }
             if (firstAt.TryGetValue(at, out var earlier))
             {
-                items.Add(new Item(Il2CppNames, "name", oldRva, at, name, "refused", "duplicate_target", m.Confidence, m.Pair?.Tier, $"the name from rva 0x{earlier:X} already lands there"));
+                items.Add(new Item(MetadataNames, "name", oldRva, at, name, "refused", "duplicate_target", m.Confidence, m.Pair?.Tier, $"the name from rva 0x{earlier:X} already lands there"));
                 continue;
             }
             firstAt[at] = oldRva;
             names[at] = name;
-            var note = $"[il2cpp name carried by match from {oldNative.Id}, confidence {m.Confidence:0.##}]";
+            var note = $"[metadata name carried by match from {oldNative.Id}, confidence {m.Confidence:0.##}]";
             comments[at] = oldLayer.Comments.TryGetValue(oldRva, out var c) ? $"{c} {note}" : note;
             bool present = current?.Names.TryGetValue(at, out var had) == true && had == name;
-            items.Add(new Item(Il2CppNames, "name", oldRva, at, name, present ? "already_present" : Carry(dryRun), m.Reason, m.Confidence, m.Pair?.Tier, "carried by match: " + m.Detail));
+            items.Add(new Item(MetadataNames, "name", oldRva, at, name, present ? "already_present" : Carry(dryRun), m.Reason, m.Confidence, m.Pair?.Tier, "carried by match: " + m.Detail));
         }
         if (!dryRun && names.Count > 0)
         {
             var info = new ImportInfo(oldLayer.Info?.SourcePath, $"carried-by-match {oldNative.OriginalSha256}", DateTime.UtcNow);
             var index = code.Ready(newNative) ?? newIndex;
-            layers.Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, names, comments, $"{CarriedOrigin} {oldNative.Id} ({oldLayer.Origin})", info), index);
-            if (code.SaveImported(newNative, NativeNameSource.Il2Cpp) is { } problem)
-                items.Add(new Item(Il2CppNames, "layer", null, null, "save", "refused", "not_saved", 0, null, $"names not saved for the next load: {problem}"));
+            layers.Set(new NativeNameLayers.Layer(NativeNameSource.Metadata, names, comments, $"{CarriedOrigin} {oldNative.Id} ({oldLayer.Origin})", info), index);
+            if (code.SaveImported(newNative, NativeNameSource.Metadata) is { } problem)
+                items.Add(new Item(MetadataNames, "layer", null, null, "save", "refused", "not_saved", 0, null, $"names not saved for the next load: {problem}"));
         }
-        categories[Il2CppNames] = (Status(dryRun), $"no metadata for the new build: the old build's {oldLayer.Names.Count} Il2Cpp names mapped through the function match", null);
+        categories[MetadataNames] = (Status(dryRun), $"no metadata for the new build: the old build's {oldLayer.Names.Count} metadata names mapped through the function match", null);
         string Carry(bool dry) => dry ? "would_carry" : "carried";
     }
 
@@ -695,7 +677,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         List<MigratablePatch> patches;
         string source;
-        // a json patch set is written for PE images; in-memory patches carry between builds of one format
+        // A JSON patch set is written for PE images; in-memory patches carry between builds of one format.
         if (string.IsNullOrWhiteSpace(patchSet) ? oldNative.Image.Format != newNative.Image.Format : newNative.Pe == null)
         {
             categories[Patches] = ("not_applicable", string.IsNullOrWhiteSpace(patchSet)
@@ -763,7 +745,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
         if (dryRun)
         {
-            // what applying would refuse for an existing patch of the new build
+            // Mark what applying would refuse for an existing patch of the new build.
             steps = steps.Select(s => s.Apply && s.NewRva is { } r && workspace.Read(() => newNative.Patches.Overlapping(r, s.NewReplacement!.Length)) is { } clash
                 ? s with { Apply = false, Status = "refused", Reason = "conflicts_with_existing_patch", Detail = $"an existing patch of the new build covers {NativeAddress.Va(newIndex.Image, clash.Rva)}" }
                 : s).ToList();

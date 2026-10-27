@@ -3,10 +3,7 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// A boxed value type: the value as its type stores it, immutable (unbox gives a read-only address). Comparisons are by
-/// identity, as for any object.
-/// </summary>
+/// <summary>An immutable boxed value type, compared by identity.</summary>
 internal sealed class BoxedValue(TypeSig type, object? value) : HeapObject
 {
     public TypeSig Type { get; } = type;
@@ -63,10 +60,7 @@ internal sealed partial class IlEvaluator
         return new BoxedValue(type, stored is StructValue s ? s.Clone() : stored) { Shared = _cctorDepth > 0 };
     }
 
-    /// <summary>
-    /// The value in a box of <paramref name="type"/>, as unbox reads it: the box's own type, or an enum and its underlying
-    /// integer type either way.
-    /// </summary>
+    /// <summary>The value unbox reads as <paramref name="type"/>: the box's own type, or an enum and its underlying integer either way.</summary>
     private static object? Unbox(object? box, TypeSig type)
     {
         if (box == null) throw Bail(FallbackReason.RuntimeError, "null reference (unbox)");
@@ -75,7 +69,7 @@ internal sealed partial class IlEvaluator
         if (Underlying(b.Type) is { } x && Underlying(type) is { } y)
         {
             if (x == y) return b.Value;
-            // Integers of the same size and other signedness: what the runtime allows here is not modelled.
+            // Same size, other signedness: the runtime's rule here is not modelled.
             if (Width(x) == Width(y))
                 throw Bail(FallbackReason.UnsupportedValue, $"unbox of a boxed {b.Type.FullName} as {type.FullName}");
         }

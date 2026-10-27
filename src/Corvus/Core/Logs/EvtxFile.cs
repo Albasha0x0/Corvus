@@ -5,13 +5,8 @@ using System.Text;
 
 namespace Corvus.Core.Logs;
 
-/// <summary>
-/// A Windows event log file (.evtx, format 3.1 and 3.2) read without the event log service: the file header, each
-/// 64 KB chunk with its checksums, and every record rendered from its binary XML with the chunk's templates, as
-/// wevtutil renders it. Records found in a chunk's free space after its last record are reported as recovered. Damaged
-/// chunks and records are notes; <see cref="Read"/> throws <see cref="InvalidDataException"/> only when the file is not
-/// an event log.
-/// </summary>
+/// <summary>A Windows event log file (.evtx 3.1, 3.2) rendered as wevtutil does; free-space records are recovered.</summary>
+/// <remarks><see cref="Read"/> throws <see cref="InvalidDataException"/> only when the file is not an event log.</remarks>
 public sealed class EvtxFile
 {
     public const int ChunkSize = 0x10000, HeaderSize = 0x1000;
@@ -21,11 +16,7 @@ public sealed class EvtxFile
     public sealed record FileHeader(ulong FirstChunk, ulong LastChunk, ulong NextRecordId, int Major, int Minor, int ChunkCount, bool Dirty, bool Full,
         bool ChecksumMatches);
 
-    /// <summary>
-    /// One event: its record header's number, write time, chunk and file offset, the rendered XML, the System fields
-    /// (EventRecordID is the event's own number, which an exported log keeps) and the event data (Data name to value, or
-    /// UserData's elements). Recovered is true for a record found in free space.
-    /// </summary>
+    /// <summary>One event record with its XML, System fields and event data; Recovered marks a record found in free space.</summary>
     public sealed record Event(ulong RecordId, DateTime Written, int Chunk, long Offset, bool Recovered, string Xml, string? Provider, int? EventId,
         int? Level, DateTime? Created, string? Channel, string? Computer, int? ProcessId, int? ThreadId, string? UserId,
         IReadOnlyList<KeyValuePair<string, string>> Data)
@@ -91,8 +82,7 @@ public sealed class EvtxFile
         else if (Notes.Count == MaxNotes) Notes.Add("further notes not kept");
     }
 
-    // Binary XML: element and attribute names are offsets into the chunk, written in place the first time; templates
-    // are fragments with numbered substitutions, also defined in place the first time and referenced by offset later.
+    // Binary XML: names and templates are defined in place the first time and referenced by chunk offset later.
     private abstract record Node;
     private sealed record Element(string Name, List<(string Name, List<Node> Value)> Attributes, List<Node> Children) : Node;
     private sealed record Text(string Value, bool Raw = false) : Node;
@@ -269,7 +259,8 @@ public sealed class EvtxFile
         {
             if (_templates.TryGetValue(offset, out var known)) return known;
             if (offset < 0x200 || offset + 24 > ChunkSize) throw new InvalidDataException($"template offset 0x{offset:x} outside the chunk");
-            _templates[offset] = null; // a template that refers to itself reads as empty
+            // A template that refers to itself reads as empty.
+            _templates[offset] = null;
             int length = BinaryPrimitives.ReadInt32LittleEndian(c.AsSpan(offset + 20));
             int pos = offset + 24, end = offset + 24 + length;
             if (length < 0 || end > ChunkSize) throw new InvalidDataException($"template at 0x{offset:x}: length {length}");
@@ -491,8 +482,7 @@ public sealed class EvtxFile
                             if (value is [Substitution { Optional: true } s] && Value(values, s.Index) == null) continue;
                             element.Attributes.Add((name, Resolve(value, values, depth + 1)));
                         }
-                        // An element whose content is only empty optional values is dropped, attributes and all; one that only lost
-                        // attributes stays.
+                        // An element of only empty optional values is dropped; one that only lost attributes stays.
                         if (e.Children.Count > 0 && element.Children.Count == 0 && e.Children.All(c => c is Substitution { Optional: true })) break;
                         output.Add(element);
                         break;

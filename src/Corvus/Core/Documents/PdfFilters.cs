@@ -2,10 +2,7 @@ using System.IO.Compression;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// PDF stream filters: FlateDecode (with PNG and TIFF predictors), LZWDecode (early change), ASCIIHexDecode, ASCII85Decode
-/// and RunLengthDecode, applied in order; an image or crypt filter stops the chain, its data returned as stored.
-/// </summary>
+/// <summary>PDF stream filters applied in order; an image or crypt filter stops the chain and returns the data as stored.</summary>
 internal static class PdfFilters
 {
     /// <summary>The decoded bytes and the filters left undone (empty when fully decoded), or an error for damaged data.</summary>
@@ -60,7 +57,8 @@ internal static class PdfFilters
                 output.Write(buffer, 0, n);
             }
         }
-        catch (InvalidDataException) when (output.Length > 0) { } // truncated or damaged tail: keep what decoded
+        // A truncated or damaged tail keeps what decoded.
+        catch (InvalidDataException) when (output.Length > 0) { }
         return output.ToArray();
     }
 
@@ -122,7 +120,8 @@ internal static class PdfFilters
         {
             table.Clear();
             for (int i = 0; i < 256; i++) table.Add([(byte)i]);
-            table.Add([]); table.Add([]); // 256 clear, 257 end
+            // Codes 256 (clear) and 257 (end).
+            table.Add([]); table.Add([]);
         }
         Reset();
         int width = 9, bitPos = 0;

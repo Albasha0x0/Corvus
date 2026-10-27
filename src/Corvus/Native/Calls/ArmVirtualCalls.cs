@@ -4,11 +4,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// Virtual call shapes in ARM64 and ARM32 code: an indirect call or tail jump (blr / br, blx / bx) whose target the
-/// backward resolver reads as [[object + o] + slot], the object being this (x0 / r0 at entry) or a value the function
-/// does not know. The class model (<see cref="VirtualCallResolver.ResolveShapes"/>) picks the implementations.
-/// </summary>
+/// <summary>ARM64 and ARM32 indirect calls whose target reads as [[object + o] + slot]; <see cref="VirtualCallResolver.ResolveShapes"/> picks implementations.</summary>
 internal static class ArmVirtualCalls
 {
     private const int ResolverBudget = 600;
@@ -55,7 +51,7 @@ internal static class ArmVirtualCalls
                 return dec;
             }, _ => { });
         }
-        // a site in code two functions share is kept for the lower one, whatever thread found it first
+        // A site in code two functions share is kept for the lower one, whatever thread found it first.
         return [.. shapes.OrderBy(s => s.Rva).ThenBy(s => s.Function)];
     }
 
@@ -69,10 +65,7 @@ internal static class ArmVirtualCalls
         shapes.Add(new VirtualShape(rva, f.Start, (int)o, (int)(s / ptr), self, flow == FlowKind.IndirectJump));
     }
 
-    /// <summary>
-    /// An indirect call or jump that is no switch in the function's blocks, decoded as <see cref="A32Function"/> decodes them
-    /// (each block from a cleared state) without keeping the instructions: most functions have none.
-    /// </summary>
+    /// <summary>Whether the function has an indirect call or non-switch jump, decoded as <see cref="A32Function"/> does without keeping instructions.</summary>
     private static bool HasArm32Site(FunctionGraph graph, Arm32Decoder dec, uint start)
     {
         dec.BeginFunction(start);
@@ -101,7 +94,7 @@ internal static class ArmVirtualCalls
                 for (int i = 0; i + 4 <= n; i += 4)
                 {
                     uint w = BinaryPrimitives.ReadUInt32LittleEndian(buffer[i..]);
-                    // BR / BLR Xn (0xD61F0000 / 0xD63F0000) and the authenticating BRA* / BLRA* forms
+                    // BR / BLR Xn (0xD61F0000 / 0xD63F0000) and the authenticating BRA* / BLRA* forms.
                     if ((w & 0xFFDFFC1F) == 0xD61F0000 || (w & 0xFEDFF000) == 0xD61F0800) return true;
                 }
             }

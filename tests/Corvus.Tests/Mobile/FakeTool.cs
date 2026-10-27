@@ -3,10 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The TestFixture.FakeTools program standing in for adb, java and the JADX server, and its JSON script
-/// (ADB_FAKE_SCRIPT; ADB_ variables pass the external tools' minimal environment).
-/// </summary>
+/// <summary>The TestFixture.FakeTools program standing in for adb, java and the JADX server, scripted by ADB_FAKE_SCRIPT.</summary>
 internal sealed class FakeTool : IDisposable
 {
     public const string ScriptVariable = "ADB_FAKE_SCRIPT";
@@ -107,10 +104,7 @@ public sealed class ExternalToolEnvironmentCollection
     public const string Name = "external tool environment";
 }
 
-/// <summary>
-/// Sets environment variables for one test's flow and restores them. Its tool lookups and the tools it starts see its
-/// values; every other flow, and every worker another test starts, sees the values the run started with.
-/// </summary>
+/// <summary>Sets environment variables for one test's flow and restores them; other flows see the run's values.</summary>
 internal sealed class EnvironmentScope : IDisposable
 {
     private static readonly StringComparer Names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;

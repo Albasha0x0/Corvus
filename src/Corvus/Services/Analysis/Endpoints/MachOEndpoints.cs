@@ -7,9 +7,8 @@ using Corvus.Native.Code;
 namespace Corvus.Services.Analysis.Endpoints;
 
 /// <summary>
-/// URL strings of a Mach-O executable (an iOS or macOS app's NSURL / URLSession targets): C strings in __cstring that are
-/// absolute http(s) or ws(s) URLs, printf / NSString formats folded to {}, each with the functions that load it (directly,
-/// through its __cfstring constant, or as a Swift large string, whose object address is the literal's minus 32).
+/// Absolute URLs in a Mach-O image's __cstring, each with the functions that load it.
+/// A Swift large string's object address is the literal's minus 32.
 /// </summary>
 internal static class MachOEndpoints
 {

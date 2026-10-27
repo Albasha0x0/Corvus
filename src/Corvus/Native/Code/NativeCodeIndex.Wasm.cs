@@ -7,12 +7,7 @@ public sealed partial class NativeCodeIndex
 {
     private const int MaxIndirectTargets = 256, MaxIndirectEdges = 4_000_000;
 
-    /// <summary>
-    /// The index of a WebAssembly module from its own code: one function per body, calls and tail calls (to functions and
-    /// imports), call_indirect edges to the table's functions of the same type (kept with the virtual edges), global reads and
-    /// writes, function references, element-segment pointers, and constant addresses inside data segments (strings among
-    /// them). Bodies are decoded in parallel.
-    /// </summary>
+    /// <summary>The index of a WebAssembly module: one function per body, calls, call_indirect edges, globals, references and strings.</summary>
     private static NativeCodeIndex FromWasm(WasmImage image, ProgressGate report, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -21,7 +16,7 @@ public sealed partial class NativeCodeIndex
         int imported = m.ImportedFunctions;
         uint FunctionAddress(uint f) => m.BodyOf(f) is { } b ? (uint)b.Start : f < imported ? (uint)(m.ImportAt(WasmExternal.Func, f)?.Offset ?? 0) : 0;
 
-        // call_indirect candidates: the functions each funcref table's element segments place, grouped by structural type
+        // Call_indirect candidates: functions each funcref table's element segments place, by structural type.
         var byType = new Dictionary<(uint Table, string Type), List<uint>>();
         foreach (var e in m.Elements)
         {
@@ -29,7 +24,8 @@ public sealed partial class NativeCodeIndex
             foreach (var f in e.Functions ?? [])
                 if (m.FunctionType(f) is { } ft)
                 {
-                    var key = (e.Mode == WasmSegmentMode.Active ? e.Table : 0, Signature(ft)); // a passive segment is usually table.init into table 0
+                    // A passive segment is usually table.init into table 0.
+                    var key = (e.Mode == WasmSegmentMode.Active ? e.Table : 0, Signature(ft));
                     if (!byType.TryGetValue(key, out var list)) byType[key] = list = [];
                     list.Add(f);
                 }
@@ -105,7 +101,7 @@ public sealed partial class NativeCodeIndex
             if ((d & 0x3FF) == 0) report.Report("decoding functions", d, bodies.Count);
         });
 
-        // element segment entries point at their functions, from the segment's entry
+        // Element segment entries point at their functions.
         var pointers = new List<CodeXref>();
         foreach (var e in m.Elements)
             foreach (var f in e.Functions ?? [])
@@ -158,11 +154,7 @@ public sealed partial class NativeCodeIndex
         return built;
     }
 
-    /// <summary>
-    /// A WebAssembly function's basic blocks from its structured control flow: a block starts at the function start, after
-    /// every branch, if, else and end, and at every branch target (a loop's first instruction, the instruction after a block's
-    /// end); edges follow br, br_if, br_table, if and else, fall-through otherwise.
-    /// </summary>
+    /// <summary>A WebAssembly function's basic blocks and edges from its structured control flow.</summary>
     private FunctionGraph WasmGraph(NativeFunction f, CancellationToken ct)
     {
         var w = (WasmImage)Image;
@@ -173,7 +165,7 @@ public sealed partial class NativeCodeIndex
         while (code.Next(out var ins)) { list.Add(ins); if ((list.Count & 0xFFFF) == 0) ct.ThrowIfCancellationRequested(); }
         int n = list.Count;
         uint After(int i) => i + 1 < n ? (uint)list[i + 1].Offset : (uint)body.End;
-        // matching structure: for each block / loop / if / try its end and else; for each instruction its enclosing constructs
+        // The end and else of each block, loop, if and try.
         var endOf = new int[n];
         var elseOf = new int[n];
         Array.Fill(endOf, -1);
@@ -186,7 +178,7 @@ public sealed partial class NativeCodeIndex
             else if (ins.Op == 0x05 && open.Count > 0) elseOf[open[^1]] = i;
             else if (ins.Op == 0x0B && open.Count > 0) { endOf[open[^1]] = i; open.RemoveAt(open.Count - 1); }
         }
-        // branch targets: a loop's first instruction, a block's instruction after its end; null leaves the function
+        // Branch targets: a loop's first instruction or the one after a block's end; null leaves the function.
         open.Clear();
         var targets = new Dictionary<int, uint?[]>();
         for (int i = 0; i < n; i++)
@@ -274,16 +266,13 @@ public sealed partial class NativeCodeIndex
         return new FunctionGraph { Function = f, Blocks = blocks, Switches = [], UnresolvedJumps = [], TailCalls = tails };
     }
 
-    /// <summary>
-    /// Why there is no machine-code walker: bytecode images answer through their own views (WebAssembly: disassemble gives WAT,
-    /// decompile_native a lifted view); other images without one were refused before reaching here.
-    /// </summary>
+    /// <summary>The error for a request that needs a machine-code walker this index lacks.</summary>
     private Exception NoWalker() => Support == CodeSupport.Bytecode
         ? new Core.ToolError(Core.ErrorCode.Unsupported, $"{Path.GetFileName(Image.Path)} is WebAssembly: there are no machine-code basic blocks or instruction facts.",
             "disassemble gives its WAT, decompile_native a lifted view; find_xrefs, native_call_tree and list_functions read its calls and references")
         : new NotSupportedException(SupportNote);
 
-    /// <summary>A function type as text, so equal types of different indexes match (call_indirect checks structurally).</summary>
+    /// <summary>A function type as text, so structurally equal types match as call_indirect requires.</summary>
     private static string Signature(WasmFuncType t) =>
         string.Concat(t.Params.Select(p => (char)p)) + ":" + string.Concat(t.Results.Select(r => (char)r));
 }

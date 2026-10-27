@@ -8,10 +8,7 @@ using Corvus.Native.Linking;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Mixed-mode (C++/CLI) assemblies: methods with native bodies, VTableFixups slots native code calls managed methods
-/// through, and the reverse lookup from native code to the managed methods bound to it.
-/// </summary>
+/// <summary>Mixed-mode (C++/CLI) assemblies: native method bodies, VTableFixups slots, and native-to-managed lookup.</summary>
 public sealed partial class NativeLinkService
 {
     private readonly ConditionalWeakTable<LoadedAssembly, Tuple<int, MixedModeMap>> _mixed = new();
@@ -114,11 +111,7 @@ public sealed partial class NativeLinkService
         return result;
     }
 
-    /// <summary>
-    /// Lines for a callers tree of a managed method that native code calls (through its VTableFixups slots): each
-    /// native function using a slot at <paramref name="indent"/>, then its native callers for the remaining levels.
-    /// <paramref name="rows"/>, when given, receives the same lines as <see cref="NativeTreeNode"/> rows under <paramref name="parent"/>.
-    /// </summary>
+    /// <summary>Caller-tree lines for a managed method called through VTableFixups slots: each native user, then its callers; empty when none.</summary>
     public string NativeCallers(MethodDef method, int levels, int indent, int maxNodes, CancellationToken ct, List<NativeTreeNode>? rows = null, int? parent = null)
     {
         if (levels < 1) return "";
@@ -126,7 +119,7 @@ public sealed partial class NativeLinkService
         if (users.Count == 0)
         {
             if (workspace.FindByModule(method.Module) is { } asm && Mixed(asm).SlotsOf(method).Count > 0 && workspace.NativeViewOf(asm) is { } v && code.Ready(v) == null)
-                return $"{new string(' ', indent * 2)}native: (the code index of {v.Id} is still being built: repeat for native callers)\n";
+                return $"{new string(' ', indent * 2)}native: (code index of {v.Id} still building: repeat for native callers)\n";
             return "";
         }
         var sb = new StringBuilder();

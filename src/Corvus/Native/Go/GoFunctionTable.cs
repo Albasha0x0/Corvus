@@ -7,17 +7,10 @@ namespace Corvus.Native.Go;
 /// <summary>Layout generation of a Go function table, by its header magic.</summary>
 public enum GoTableVersion { Go12, Go116, Go118, Go120 }
 
-/// <summary>
-/// One function of a Go function table: entry RVA, size, and its Go name. The size is where the function's own pc-value
-/// tables end (<see cref="OwnSize"/>), else the gap to the next entry, alignment padding included.
-/// </summary>
+/// <summary>One Go function: entry RVA, size (from its pc-value tables when <see cref="OwnSize"/>, else the gap to the next entry) and name.</summary>
 public readonly record struct GoFunction(uint Rva, uint Size, string? Name, bool OwnSize = false);
 
-/// <summary>
-/// The Go runtime's function table (pclntab) of any Go 1.2 to 1.24 build, ELF, PE or Mach-O, stripped or not: found by
-/// section name (.gopclntab, __gopclntab) or else by its header magic in the image's sections, then validated (entries
-/// ascending and in code, names printable).
-/// </summary>
+/// <summary>The Go function table (pclntab) of a Go 1.2 to 1.24 ELF, PE or Mach-O build, found by section name or header magic and validated.</summary>
 public sealed class GoFunctionTable
 {
     private const int MaxFunctions = 1 << 21;
@@ -61,7 +54,7 @@ public sealed class GoFunctionTable
             foreach (var s in named)
                 if (Read(image, s.Rva, (uint)image.FileBytesLength(s)) is { } t) return t;
             if (named.Count > 0) return null;
-            // stripped of section names (PE keeps runtime.pclntab in .rdata): look for the header in data, then in code
+            // Without section names (PE keeps runtime.pclntab in .rdata), search data, then code, for the header.
             byte[]? buffer = null;
             foreach (var s in image.Sections.OrderBy(s => s.IsExecutable))
                 if (s.MappedSize >= 64 && Scan(image, s, buffer ??= new byte[ScanChunk + 16]) is { } t) return t;
@@ -75,7 +68,7 @@ public sealed class GoFunctionTable
     private static GoFunctionTable? Scan(INativeImage image, NativeSection s, byte[] bytes)
     {
         const int Chunk = ScanChunk;
-        // the header magic has 0xFF bytes, so the zero fill past the file-backed bytes (can be gigabytes) holds none
+        // The header magic has 0xFF bytes, so the zero fill past the file bytes (can be gigabytes) holds none.
         long backed = image.FileBytesLength(s);
         for (uint offset = 0; offset < backed; offset += Chunk)
         {
@@ -125,7 +118,7 @@ public sealed class GoFunctionTable
         ulong nfunc = Ptr(8);
         if (nfunc == 0 || nfunc > MaxFunctions) return null;
         int count = (int)nfunc;
-        // where entries, func records, names and pc-value tables are, per layout
+        // Where entries, func records, names and pc-value tables are, per layout.
         long functab, nameBase, pctab = 0;
         ulong textStart = 0;
         switch (version)
@@ -144,7 +137,7 @@ public sealed class GoFunctionTable
                 nameBase = (long)Ptr(8 + 3 * ptr);
                 pctab = (long)Ptr(8 + 6 * ptr);
                 functab = (long)Ptr(8 + 7 * ptr);
-                // the field is relocated at load; an image whose rebases are not applied leaves it 0
+                // The field is relocated at load; an image without applied rebases leaves it 0.
                 if (textStart == 0 && image.Sections.FirstOrDefault(s => s.IsExecutable) is { } text) textStart = image.ImageBase + text.Rva;
                 break;
         }
@@ -176,15 +169,12 @@ public sealed class GoFunctionTable
             uint own = pctab < 0 ? 0 : OwnSize(t, record + (wide ? ptr + 12 : 16), pctab, quantum, gap);
             functions.Add(own > 0 ? new GoFunction(at, own, name, OwnSize: true) : new GoFunction(at, gap, name));
         }
-        // a table is valid when nearly every entry is in code and most have names
+        // A table is valid when nearly every entry is in code and most have names.
         if (functions.Count == 0 || bad > count / 16 || functions.Count(f => f.Name != null) < functions.Count * 3 / 4) return null;
         return new GoFunctionTable(version, rva, (uint)t.Length, functions);
     }
 
-    /// <summary>
-    /// Code size of a function from its pc-value tables (pcsp, else pcfile, else pcln at <paramref name="fields"/>): the
-    /// linker encodes each up to the function's last byte. 0 when none decodes to a size within the gap to the next entry.
-    /// </summary>
+    /// <summary>Code size from the function's pcsp, pcfile or pcln table; 0 when none fits within <paramref name="gap"/>.</summary>
     private static uint OwnSize(ReadOnlySpan<byte> t, long fields, long pctab, int quantum, uint gap)
     {
         for (int k = 0; k < 3; k++)

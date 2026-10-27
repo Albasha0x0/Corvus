@@ -125,10 +125,10 @@ public sealed class JavaDotNetMapTests : IDisposable
     [Theory]
     [InlineData("hello", "ad3d04bd697eb3c5")]
     [InlineData("System.Xml.XmlDocument, System.Xml", "348bbd9fecf1b865")]
-    public void Crc64_MatchesJavaInterop(string input, string expected) => Assert.Equal(expected, JavaDotNetMap.Crc64(input));
+    public void CRC64_matches_Java_interop(string input, string expected) => Assert.Equal(expected, JavaDotNetMap.Crc64(input));
 
     [Fact]
-    public void JavaToDotNet_WrappersBindingsAndOverrides_FromThePackage()
+    public void Java_to_dotnet_wrappers_bindings_and_overrides_from_the_package()
     {
         var map = new JavaDotNetMap(_workspace);
         var apk = Apk();
@@ -140,29 +140,29 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Equal(("Android.App.Activity::OnCreate(Bundle)", "register_attribute"), (bound.DotNet, bound.Basis));
         Assert.Equal(("MyApp.MainActivity", "component_name"), map.Map("com/example/app/Main", apk, default).Items.Select(i => (i.DotNet, i.Basis)).Single());
         Assert.Equal("MyApp.Outer+Inner", map.Map($"L{AndroidSamples.LinkPackage}/Outer_Inner;", apk, default).Items.Single().DotNet);
-        // the dotted form the manifest prints
+        // The dotted form the manifest prints.
         Assert.Equal(("MyApp.MainActivity", "Lcom/example/app/Main;"), map.Map("com.example.app.Main", apk, default).Items.Select(i => (i.DotNet, i.Java)).Single());
         Assert.Equal("MyApp.LinkActivity", map.Map(AndroidSamples.LinkPackage + ".LinkActivity", apk, default).Items.Single().DotNet);
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => map.Map("Lcom/example/app/Helper;", apk, default)).Code);
-        // a generic peer, in the dotted form too
+        // A generic peer, in the dotted form too.
         Assert.Equal("MyApp.Loader`1", map.Map($"{AndroidSamples.LinkPackage}.Loader_1", apk, default).Items.Single().DotNet);
         Assert.Equal($"L{AndroidSamples.LinkPackage}/Loader_1;", map.Map("MyApp.Loader`1", apk, default).Items.Single().Java);
-        // a pattern lists the pairs on either side
+        // A pattern lists the pairs on either side.
         var listed = map.Map(AndroidSamples.LinkPackage + ".*", apk, default);
         Assert.Equal(("pattern", listed.Items.Count), (listed.Direction, listed.Total));
         Assert.Contains(listed.Items, i => i.DotNet == "MyApp.LinkActivity");
         Assert.Equal(["Lcom/example/app/Main;"], map.Map("MyApp.Main*", apk, default).Items.Select(i => i.Java));
     }
 
-    /// <summary>Unity Il2Cpp compiles its C# to native code: the answer says so and names the Il2Cpp route.</summary>
+    /// <summary>An AOT build compiles its C# to native code: the answer says so and names the metadata route.</summary>
     [Fact]
-    public void Il2CppPackage_IsUnsupportedWithTheIl2CppRoute()
+    public void An_AOT_package_is_refused_with_the_load_assembly_route()
     {
-        var apk = AndroidSamples.Save(_dir, "il2cpp.apk", AndroidSamples.Apk(30, ("lib/arm64-v8a/libil2cpp.so", [0x7f, (byte)'E', (byte)'L', (byte)'F']),
+        var apk = AndroidSamples.Save(_dir, "aot.apk", AndroidSamples.Apk(30, ("lib/arm64-v8a/libil2cpp.so", [0x7f, (byte)'E', (byte)'L', (byte)'F']),
             ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA])));
         var e = Assert.Throws<ToolError>(() => new JavaDotNetMap(_workspace).Map("Lcom/unity3d/player/UnityPlayer;", apk, default));
         Assert.Equal(ErrorCode.Unsupported, e.Code);
-        Assert.Contains("Unity Il2Cpp build", e.Message);
+        Assert.Contains("is an AOT build", e.Message);
         Assert.Contains($"load_assembly path={apk}", e.Remediation);
         var java = Assert.Throws<ToolError>(() => new JavaDotNetMap(_workspace).Map("Lcom/example/A;", AndroidSamples.Save(_dir, "java.apk", AndroidSamples.Apk()), default));
         Assert.Equal(ErrorCode.NotFound, java.Code);
@@ -171,7 +171,7 @@ public sealed class JavaDotNetMapTests : IDisposable
 
     /// <summary>Release builds strip [Register] from Mono.Android's methods: the Java callable wrapper's registration in the DEX names the overrides.</summary>
     [Fact]
-    public void TrimmedBindings_OverridesComeFromTheWrapperRegistration()
+    public void Trimmed_bindings_overrides_come_from_the_wrapper_registration()
     {
         var (mono, app) = XamarinSample.Build(trimmed: true);
         var home = $"L{AndroidSamples.LinkPackage}/HomeActivity;";
@@ -192,7 +192,7 @@ public sealed class JavaDotNetMapTests : IDisposable
     }
 
     [Fact]
-    public void DotNetToJava_PrefersLoadedAssemblies()
+    public void Dotnet_to_Java_prefers_loaded_assemblies()
     {
         var (mono, app) = XamarinSample.Build();
         File.WriteAllBytes(_dir.File("Mono.Android.dll"), mono);
@@ -203,7 +203,8 @@ public sealed class JavaDotNetMapTests : IDisposable
         var type = map.Map("MyApp.LinkActivity", null, default).Items.Single();
         Assert.Equal((AndroidSamples.Link, "MyApp", true), (type.Java, type.Assembly, type.Loaded));
         Assert.Equal("Lcom/example/app/Main;->onResume()V", map.Map("MyApp.MainActivity::OnResume", null, default).Items.Single().Java);
-        Assert.Equal("MyApp", map.Map("MyApp.LinkActivity", Apk(), default).Items.Single().Assembly); // the loaded copy wins over the package's
+        // The loaded copy wins over the package's.
+        Assert.Equal("MyApp", map.Map("MyApp.LinkActivity", Apk(), default).Items.Single().Assembly);
         Assert.Contains("not a Java peer", Assert.Throws<ToolError>(() => map.Map("MyApp.PlainClass", null, default)).Message);
         Assert.Contains("not registered", Assert.Throws<ToolError>(() => map.Map("MyApp.LinkActivity::Helper", null, default)).Message);
         var home = map.Map("MyApp.HomeActivity::OnCreate", null, default).Items.Single();
@@ -215,7 +216,7 @@ public sealed class JavaDotNetMapTests : IDisposable
     /// <summary>The real Mono.Android of a .NET for Android runtime pack: thousands of bound types and registered methods.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void RealMonoAndroid()
+    public void Real_Mono_Android_maps_bound_types_and_methods()
     {
         _workspace.Load(RealPackages.File("Microsoft.Android.Runtime.35.android-arm64", "35.0.105", "runtimes", "android-arm64", "lib", "net9.0", "Mono.Android.dll"));
         var map = new JavaDotNetMap(_workspace);
@@ -224,7 +225,7 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Contains(map.Map("Android.App.Activity::OnCreate", null, default).Items, i => i.Java == "Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V");
     }
 
-    private const string UnitySource = """
+    private const string MonoSource = """
         namespace UnityEngine
         {
             public class AndroidJavaObject : System.IDisposable
@@ -253,9 +254,9 @@ public sealed class JavaDotNetMapTests : IDisposable
                 private AndroidJavaObject _plugin;
                 public void Init()
                 {
-                    using (var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                    using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                     {
-                        var activity = unity.GetStatic<AndroidJavaObject>("currentActivity");
+                        var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
                         _plugin = new AndroidJavaObject("com.example.plugin.Bridge", activity);
                     }
                 }
@@ -277,8 +278,8 @@ public sealed class JavaDotNetMapTests : IDisposable
         }
         """;
 
-    /// <summary>A Unity Mono player's package: Assembly-CSharp under assets/bin/Data/Managed and the plugin's Java side in DEX.</summary>
-    private string UnityApk()
+    /// <summary>A Mono player's package: Assembly-CSharp under assets/bin/Data/Managed and the plugin's Java side in DEX.</summary>
+    private string BridgeApk()
     {
         var b = new DexBuilder();
         b.Class("Lcom/unity3d/player/UnityPlayer;").Field("currentActivity", "Landroid/app/Activity;", 9);
@@ -290,61 +291,62 @@ public sealed class JavaDotNetMapTests : IDisposable
         haptics.Method("vibrate", "V", ["J", "I"], 9, Asm.ReturnVoid()).Registers = 3;
         haptics.Method("vibrate", "V", ["J"], 9, Asm.ReturnVoid()).Registers = 2;
         b.Class("Lcom/example/plugin/Bridge$Callback;", 0x601).Method("onResult", "V", ["Ljava/lang/String;"], 0x401);
-        var scripts = Roslyn.Release("Assembly-CSharp", UnitySource);
-        return AndroidSamples.Save(_dir, "unity.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build()), ("assets/bin/Data/Managed/Assembly-CSharp.dll", scripts)));
+        var scripts = Roslyn.Release("Assembly-CSharp", MonoSource);
+        return AndroidSamples.Save(_dir, "mono.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build()), ("assets/bin/Data/Managed/Assembly-CSharp.dll", scripts)));
     }
 
     [Fact]
-    public void Unity_JavaToCSharp_CallSitesProxiesAndJni()
+    public void Java_methods_map_to_their_CSharp_call_sites_proxies_and_JNI_calls()
     {
         var map = new JavaDotNetMap(_workspace, new DexService());
-        var apk = UnityApk();
+        var apk = BridgeApk();
         string Pairs(string symbol) => string.Join(" | ", map.Map(symbol, apk, default).Items.Select(i => $"{i.DotNet} {i.Basis} {i.Confidence}"));
-        Assert.Equal("App.Bridge::Send(string) unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->send(Ljava/lang/String;)V"));
-        Assert.Equal("App.Bridge::Count() unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->count()I"));
-        Assert.Equal("App.Bridge::Vibrate() unity_call name_and_arity | App.Bridge::Raw() unity_jni descriptor", Pairs("Lcom/example/plugin/Haptics;->vibrate(JI)V"));
+        Assert.Equal("App.Bridge::Send(string) java_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->send(Ljava/lang/String;)V"));
+        Assert.Equal("App.Bridge::Count() java_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->count()I"));
+        Assert.Equal("App.Bridge::Vibrate() java_call name_and_arity | App.Bridge::Raw() java_jni descriptor", Pairs("Lcom/example/plugin/Haptics;->vibrate(JI)V"));
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => map.Map("Lcom/example/plugin/Haptics;->vibrate(J)V", apk, default)).Code);
-        Assert.Equal("App.Listener::onResult(string) unity_proxy name_and_arity", Pairs("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V"));
-        Assert.Equal("App.Listener unity_proxy name_match", Pairs("Lcom/example/plugin/Bridge$Callback;"));
-        Assert.Contains("App.Bridge::Init() unity_new", Pairs("Lcom/example/plugin/Bridge;"));
-        Assert.Equal(Pairs("Lcom/unity3d/player/UnityPlayer;"), Pairs("com.unity3d.player.UnityPlayer")); // the dotted form
+        Assert.Equal("App.Listener::onResult(string) java_proxy name_and_arity", Pairs("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V"));
+        Assert.Equal("App.Listener java_proxy name_match", Pairs("Lcom/example/plugin/Bridge$Callback;"));
+        Assert.Contains("App.Bridge::Init() java_new", Pairs("Lcom/example/plugin/Bridge;"));
+        // The dotted form.
+        Assert.Equal(Pairs("Lcom/unity3d/player/UnityPlayer;"), Pairs("com.unity3d.player.UnityPlayer"));
         Assert.Equal("assets/bin/Data/Managed/Assembly-CSharp.dll", map.Map("Lcom/example/plugin/Bridge;", apk, default).Items[0].Assembly);
     }
 
     [Fact]
-    public void Unity_CSharpToJava_ExactDexIdsWhenThePackageHasThem()
+    public void CSharp_methods_map_to_exact_DEX_ids_when_the_package_has_them()
     {
         var map = new JavaDotNetMap(_workspace, new DexService());
-        var apk = UnityApk();
+        var apk = BridgeApk();
         string Pairs(string symbol, string? path) => string.Join(" | ", map.Map(symbol, path, default).Items.Select(i => $"{i.Java} {i.Basis} {i.Confidence}"));
-        Assert.Equal("Lcom/example/plugin/Haptics; unity_new name_match | Lcom/example/plugin/Haptics;->vibrate(JI)V unity_call name_and_arity",
+        Assert.Equal("Lcom/example/plugin/Haptics; java_new name_match | Lcom/example/plugin/Haptics;->vibrate(JI)V java_call name_and_arity",
             Pairs("App.Bridge::Vibrate", apk));
         var init = Pairs("App.Bridge::Init", apk);
-        Assert.Contains("Lcom/unity3d/player/UnityPlayer; unity_new name_match", init);
-        Assert.Contains("Lcom/unity3d/player/UnityPlayer;->currentActivity:Landroid/app/Activity; unity_call name_and_arity", init);
-        Assert.Contains("Lcom/example/plugin/Bridge; unity_new name_match", init);
-        Assert.Equal("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V unity_proxy name_and_arity", Pairs("App.Listener::onResult", apk));
-        Assert.Contains("Lcom/example/plugin/Haptics;->vibrate(JI)V unity_jni descriptor", Pairs("App.Bridge", apk));
+        Assert.Contains("Lcom/unity3d/player/UnityPlayer; java_new name_match", init);
+        Assert.Contains("Lcom/unity3d/player/UnityPlayer;->currentActivity:Landroid/app/Activity; java_call name_and_arity", init);
+        Assert.Contains("Lcom/example/plugin/Bridge; java_new name_match", init);
+        Assert.Equal("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V java_proxy name_and_arity", Pairs("App.Listener::onResult", apk));
+        Assert.Contains("Lcom/example/plugin/Haptics;->vibrate(JI)V java_jni descriptor", Pairs("App.Bridge", apk));
 
-        // loaded without the package: names, not DEX ids
-        File.WriteAllBytes(_dir.File("Assembly-CSharp.dll"), Roslyn.Release("Assembly-CSharp", UnitySource));
+        // Loaded without the package: names, not DEX ids.
+        File.WriteAllBytes(_dir.File("Assembly-CSharp.dll"), Roslyn.Release("Assembly-CSharp", MonoSource));
         _workspace.Load(_dir.File("Assembly-CSharp.dll"));
-        Assert.Equal("Lcom/example/plugin/Bridge;->send unity_call name_match", Pairs("App.Bridge::Send", null));
+        Assert.Equal("Lcom/example/plugin/Bridge;->send java_call name_match", Pairs("App.Bridge::Send", null));
         Assert.True(map.Map("App.Bridge::Send", null, default).Items.Single().Loaded);
     }
 
-    /// <summary>Not-found results speak of the app's bridge: AndroidJavaClass and friends for Unity, [Register] for .NET for Android; hints carry the package.</summary>
+    /// <summary>Not-found results speak of the app's bridge: AndroidJavaClass for the player runtime, [Register] for .NET for Android; hints carry the package.</summary>
     [Fact]
-    public void NotFound_WordingFollowsTheAppKindAndHintsCarryThePackage()
+    public void Not_found_wording_follows_the_app_kind_and_hints_carry_the_package()
     {
         var map = new JavaDotNetMap(_workspace, new DexService());
-        var unity = UnityApk();
-        var plain = Assert.Throws<ToolError>(() => map.Map("App.Score", unity, default));
+        var bridgeApk = BridgeApk();
+        var plain = Assert.Throws<ToolError>(() => map.Map("App.Score", bridgeApk, default));
         Assert.Contains("reaches no Java class or member: no AndroidJavaClass", plain.Message);
         Assert.DoesNotContain("[Register]", plain.Message);
-        var java = Assert.Throws<ToolError>(() => map.Map("Lcom/example/Unused;", unity, default));
+        var java = Assert.Throws<ToolError>(() => map.Map("Lcom/example/Unused;", bridgeApk, default));
         Assert.Contains("no C# in", java.Message);
-        Assert.Contains($"get_dex_class path={unity} class=Lcom/example/Unused;", java.Remediation);
+        Assert.Contains($"get_dex_class path={bridgeApk} class=Lcom/example/Unused;", java.Remediation);
 
         var apk = Apk();
         Assert.Contains("not a Java peer (no [Register] binding", Assert.Throws<ToolError>(() => map.Map("MyApp.PlainClass", apk, default)).Message);
@@ -354,7 +356,7 @@ public sealed class JavaDotNetMapTests : IDisposable
     }
 
     [Fact]
-    public void Manifest_NamesTheDotNetTypeOfEachComponent()
+    public void Manifest_names_the_dotnet_type_of_each_component()
     {
         var service = new AndroidPackageService(new JavaDotNetMap(_workspace));
         var m = service.Manifest(Apk());
@@ -362,6 +364,7 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Equal("MyApp.MainActivity (assemblies/MyApp.dll, component_name)", m.Components.Single(c => c.Name == "com.example.app.Main").DotNetType);
         Assert.Null(m.Components.Single(c => c.Name == "com.example.app.Sync").DotNetType);
         Assert.Null(new AndroidPackageService(new JavaDotNetMap(_workspace))
-            .Manifest(AndroidSamples.Save(_dir, "java.apk", AndroidSamples.Apk())).Components[0].DotNetType); // not a .NET app
+            // Not a .NET app.
+            .Manifest(AndroidSamples.Save(_dir, "java.apk", AndroidSamples.Apk())).Components[0].DotNetType);
     }
 }

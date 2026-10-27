@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "format dotnet, 1 frame, 1 unrecognized lines\n1 row (showing 1-1):\n  #0 Fixture.Model.Account::Charge(int) [metadata] 0x06000018 in TestFixture (build unknown: matched by name: the text carries no MVID to check the build)\n    line 2: at Fixture.Model.Account.Charge(Int32 amount)\n    next: get_il2cpp_info assembly=TestFixture symbol=0x06000018\n[End: 1 row]\n"
+    "format dotnet, 1 frame, 1 unrecognized lines\n1 row (showing 1-1):\n  #0 Fixture.Model.Account::Charge(int) [metadata] 0x06000011 in TestFixture (build unknown: matched by name: the text carries no MVID to check the build)\n    line 2: at Fixture.Model.Account.Charge(Int32 amount)\n    next: get_method_addresses assembly=TestFixture symbol=0x06000011\n[End: 1 row]\n"
   ],
   "structuredContent": {
     "format": "dotnet",
@@ -15,15 +15,15 @@
         "index": 0,
         "line": 2,
         "raw": "at Fixture.Model.Account.Charge(Int32 amount)",
-        "kind": "il2cpp",
+        "kind": "aot",
         "resolved": "Fixture.Model.Account::Charge(int)",
         "source": "metadata",
         "assembly": "TestFixture",
-        "token": "0x06000018",
+        "token": "0x06000011",
         "exception": 0,
         "buildCheck": "unknown",
         "buildDetail": "matched by name: the text carries no MVID to check the build",
-        "nextStep": "get_il2cpp_info assembly=TestFixture symbol=0x06000018"
+        "nextStep": "get_method_addresses assembly=TestFixture symbol=0x06000011"
       }
     ],
     "offset": 0,

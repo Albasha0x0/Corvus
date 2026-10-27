@@ -20,7 +20,7 @@ public class NativeAotHeaderTests
     }
 
     [Fact]
-    public void Locator_FindsHeader_WithRowsAndVersion()
+    public void Locator_finds_header_with_rows_and_version()
     {
         var b = Sample();
         var image = b.Image();
@@ -38,7 +38,7 @@ public class NativeAotHeaderTests
     }
 
     [Fact]
-    public void Locator_RejectsHeader_WhenRowStartsAreNotRelocated()
+    public void Locator_rejects_header_when_row_starts_are_not_relocated()
     {
         var b = Sample();
         b.RelocateRows = false;
@@ -47,7 +47,7 @@ public class NativeAotHeaderTests
     }
 
     [Fact]
-    public void Locator_RejectsWrongShape()
+    public void The_locator_rejects_a_header_of_the_wrong_shape()
     {
         var image = Sample().Image();
         var header = Assert.Single(NativeAotLocator.Find(image));
@@ -69,14 +69,14 @@ public class NativeAotHeaderTests
     [InlineData(20, ".NET 10", false, MethodTableLayout.Net9)]
     [InlineData(31, ".NET 11 (development)", true, MethodTableLayout.Net9)]
     [InlineData(5, ".NET 7", false, MethodTableLayout.Net7)]
-    public void Formats_ByHeaderMajor(int major, string runtime, bool exact, MethodTableLayout layout)
+    public void The_header_major_version_selects_the_runtime_format(int major, string runtime, bool exact, MethodTableLayout layout)
     {
         var f = NativeAotFormats.For((ushort)major);
         Assert.Equal((runtime, exact, layout), (f.Runtime, f.Exact, f.Layout));
     }
 
     [Fact]
-    public void Locator_AndCrawlers_SurviveSectionSizesBeyondTheFile()
+    public void Locator_and_crawlers_survive_section_sizes_beyond_the_file()
     {
         var bytes = Sample().Build();
         int pe = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(0x3C));
@@ -94,14 +94,14 @@ public class NativeAotHeaderTests
     }
 
     [Fact]
-    public void Formats_TokenEncodingChangesIn10()
+    public void The_token_encoding_changes_at_major_version_10()
     {
         Assert.Equal((24, 8), (NativeAotFormats.For(10).TokenShift, NativeAotFormats.For(10).RecordHandleTypeBits));
         Assert.Equal((25, 7), (NativeAotFormats.For(16).TokenShift, NativeAotFormats.For(16).RecordHandleTypeBits));
     }
 
     [Fact]
-    public void Detection_HeaderOnly_IsNativeAot()
+    public void An_image_with_only_the_header_is_detected_as_NativeAOT()
     {
         var bytes = Sample(10).Build(); // no .managed section, no debug header export: .NET 9+ shape
         Assert.Equal("NativeAOT executable", Blob.Identify(bytes));
@@ -113,7 +113,7 @@ public class NativeAotHeaderTests
     }
 
     [Fact]
-    public void Detection_PlainNativePe_IsNotNativeAot()
+    public void A_plain_native_PE_is_not_detected_as_NativeAOT()
     {
         var b = new NativeAotBuilder { WithHydratedSection = false };
         b.Data.U64(0x00525452); // "RTR\0" without a header shape
@@ -121,7 +121,7 @@ public class NativeAotHeaderTests
     }
 
     [Fact]
-    public void SummarizeFile_ReportsNativeAotBlock()
+    public void Summarize_file_reports_NativeAOT_block()
     {
         using var dir = new TempDir();
         var path = dir.File("app.exe");

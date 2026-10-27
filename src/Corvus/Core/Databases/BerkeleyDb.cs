@@ -2,12 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core.Databases;
 
-/// <summary>
-/// A Berkeley DB file read without libdb: the meta page, the databases a file holds (one, or the named databases of
-/// its master tree), and the records of btree, recno, hash and queue databases in either byte order, with overflow
-/// items and on-page and off-page duplicates. Recover lists what deleted items, consumed queue records, the free space
-/// of leaf pages and pages no tree reaches still hold. Reads are bounded; damaged pages are skipped and noted.
-/// </summary>
+/// <summary>A Berkeley DB file (btree, recno, hash, queue; either byte order) read without libdb; damaged pages are noted.</summary>
 public sealed class BerkeleyDb : IDisposable
 {
     private const uint BtreeMagic = 0x053162, HashMagic = 0x061561, QueueMagic = 0x042253, HeapMagic = 0x074582;
@@ -172,8 +167,7 @@ public sealed class BerkeleyDb : IDisposable
             if (!deleted) yield return new Record(db.Name, key, value, number);
     }
 
-    // Every item of the database's leaves, deleted ones flagged: btree and hash pairs (each duplicate its own pair),
-    // recno items numbered by position, deleted placeholders included.
+    // Every leaf item, deleted ones flagged: btree and hash pairs (one per duplicate), recno items by position.
     private IEnumerable<(byte[]? Key, byte[] Value, long? Number, bool Deleted)> Leaves(Database db, HashSet<uint>? reached, CancellationToken ct)
     {
         switch (db.Kind)
@@ -241,8 +235,7 @@ public sealed class BerkeleyDb : IDisposable
         return i;
     }
 
-    // Leaves left to right: descends the leftmost branch, then follows next-page links. A duplicate tree (leafType
-    // PLDup) has duplicate leaves when sorted and recno leaves when not.
+    // Leaves left to right; a duplicate tree (PLDup) has duplicate leaves when sorted, recno leaves when not.
     private IEnumerable<(byte[] Page, uint Number)> LeafChain(uint root, byte leafType, HashSet<uint>? reached, CancellationToken ct)
     {
         uint pgno = root;
@@ -382,11 +375,7 @@ public sealed class BerkeleyDb : IDisposable
     /// <summary>A record's identity for matching recovered ones against live ones.</summary>
     public static string Id(Record r) => $"{r.Database}\0{(r.Key == null ? "#" + r.Number : Convert.ToHexString(r.Key))}\0{Convert.ToHexString(r.Value)}";
 
-    /// <summary>
-    /// What deleted items, consumed queue records, the free space of tree pages and pages no tree reaches still hold, at
-    /// most <paramref name="max"/>. Live records (<paramref name="live"/>) and copies of live bytes are left out; a carved
-    /// value whose key is not known has a null key.
-    /// </summary>
+    /// <summary>Records deleted items, free space and unreached pages still hold, live ones left out; an unknown key is null.</summary>
     public List<Recovered> Recover(HashSet<string> live, HashSet<uint> reached, int max, CancellationToken ct)
     {
         var result = new List<Recovered>();
@@ -466,10 +455,8 @@ public sealed class BerkeleyDb : IDisposable
         return pages;
     }
 
-    // Btree items in [from, to): a 2-byte length, type 1 (0x81 when deleted) and the bytes, 4-byte aligned. A leaf writes
-    // a pair data first, so in a run of adjacent items keys and values alternate; an item equal to a live key fixes
-    // which. Copies of live bytes are left out. Without such a key, only a run of three or more items not live is taken, as values
-    // without keys: a lone item may be the header of one item over the bytes of others.
+    // Btree items: 2-byte length, type 1 (0x81 deleted), bytes, 4-byte aligned; keys and values alternate, a live key fixes which.
+    // Without one, only runs of three or more are taken as values: a lone item may be a header over other items' bytes.
     private IEnumerable<(byte[]? Key, byte[] Value)> Carve(byte[] p, int from, int to, bool pairs, HashSet<string> liveKeys, HashSet<string> liveBytes)
     {
         var runs = new List<List<(int At, int End, byte[] Data)>>();

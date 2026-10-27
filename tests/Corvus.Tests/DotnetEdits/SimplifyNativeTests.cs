@@ -9,20 +9,14 @@ using static Corvus.Tests.IlLab;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Native routines (<see cref="NativeRoutine"/>): x86 integer code in native method bodies runs on concrete values, and
-/// anything outside the subset declines with native-code.
-/// </summary>
+/// <summary>x86 integer code in native method bodies (<see cref="NativeRoutine"/>) runs on concrete values; anything else declines with native-code.</summary>
 public sealed class SimplifyNativeTests : IDisposable
 {
     private readonly TempDir _dir = new();
 
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>
-    /// The shape a post-build tool emits: save ebx / edi / esi, tell 32- from 64-bit by how far three pushes move esp,
-    /// push the argument, pop it into a register, compute, restore and return.
-    /// </summary>
+    /// <summary>The routine shape a post-build tool emits: save registers, tell 32- from 64-bit by three pushes, compute, restore and return.</summary>
     private static byte[] ToolShaped(params byte[] body) =>
     [
         0x89, 0xE0, 0x53, 0x57, 0x56, 0x29, 0xE0, 0x83, 0xF8, 0x18, 0x74, 0x07, 0x8B, 0x44, 0x24, 0x10, 0x50, 0xEB, 0x01, 0x51,
@@ -43,10 +37,10 @@ public sealed class SimplifyNativeTests : IDisposable
     [InlineData(41)]
     [InlineData(-1)]
     [InlineData(int.MaxValue)]
-    public void ToolShapedRoutineComputesItsKey(int x) => Assert.Equal(Key(x), Run(ToolShaped(KeyBody), x));
+    public void A_generated_key_routine_computes_its_key(int x) => Assert.Equal(Key(x), Run(ToolShaped(KeyBody), x));
 
     [Fact]
-    public void FramePointerRoutineWithTwoArgumentsAndABranch()
+    public void A_frame_pointer_routine_with_two_arguments_and_a_branch_runs()
     {
         // push ebp; mov ebp, esp; mov eax, [ebp+8]; sub eax, [ebp+12]; jge +2; neg eax; shl eax, 3; sar eax, 1; lea eax, [eax+eax*2+1]; pop ebp; ret 8
         byte[] code =
@@ -59,7 +53,7 @@ public sealed class SimplifyNativeTests : IDisposable
     }
 
     [Fact]
-    public void LoopsRunWithinTheBudget()
+    public void Loops_run_within_the_budget()
     {
         // mov eax, [esp+4]; xor ecx, ecx; L: add ecx, eax; dec eax; jnz L; mov eax, ecx; ret  (sum 1..n)
         byte[] code = [0x8B, 0x44, 0x24, 0x04, 0x31, 0xC9, 0x01, 0xC1, 0x48, 0x75, 0xFB, 0x89, 0xC8, 0xC3];
@@ -80,20 +74,17 @@ public sealed class SimplifyNativeTests : IDisposable
     [InlineData(new byte[] { 0x50, 0x31, 0xC0, 0xC3 }, "esp not at the return address")] // push eax; xor eax, eax; ret
     [InlineData(new byte[] { 0x66, 0x31, 0xC0, 0xC3 }, "66")] // operand-size prefix
     [InlineData(new byte[] { 0x31, 0xC0 }, "runs past the code")]
-    public void CodeOutsideTheSubsetDeclines(byte[] code, string expected)
+    public void Code_outside_the_subset_is_declined(byte[] code, string expected)
     {
         var declined = Assert.Throws<NativeRoutine.Declined>(() => Run(code, 5));
         Assert.Contains(expected, declined.Message);
     }
 
     [Fact]
-    public void XorOfARegisterWithItselfIsZeroWhateverItHeld() => Assert.Equal(0, Run([0x31, 0xDB, 0x89, 0xD8, 0xC3], 5));
+    public void XOR_of_a_register_with_itself_is_zero_whatever_it_held() => Assert.Equal(0, Run([0x31, 0xDB, 0x89, 0xD8, 0xC3], 5));
 
 
-    /// <summary>
-    /// A module whose Lab.P::Key is a native method with <paramref name="code"/>; Lab.P::Folds branches on Key(41) and
-    /// returns 1 when it gives the key the managed code expects, 2 otherwise.
-    /// </summary>
+    /// <summary>A module whose native Lab.P::Key runs <paramref name="code"/>; Lab.P::Folds returns 1 when Key(41) gives the expected key, else 2.</summary>
     private string NativeModule(byte[] code, bool x86 = true)
     {
         var lab = new IlLab(x86 ? "Native32" : "NativeAny");
@@ -130,7 +121,7 @@ public sealed class SimplifyNativeTests : IDisposable
     }
 
     [Fact]
-    public void BranchOnANativeRoutineFolds()
+    public void Branch_on_a_native_routine_folds()
     {
         using var module = ModuleDefMD.Load(NativeModule(ToolShaped(KeyBody)));
         var change = new MethodSimplifier(module, new SimplifyOptions()).Simplify(module.Find("Lab.P", false)!.FindMethod("Folds"))!;
@@ -150,7 +141,7 @@ public sealed class SimplifyNativeTests : IDisposable
     }
 
     [Fact]
-    public void NativeCodeOfAnImageThatMayRunAs64BitIsNotRun()
+    public void Native_code_of_an_image_that_may_run_as_64_bit_is_not_run()
     {
         var bail = Declines(NativeModule(ToolShaped(KeyBody), x86: false));
         Assert.Equal(FallbackReason.NativeCode, bail.Reason);
@@ -158,7 +149,7 @@ public sealed class SimplifyNativeTests : IDisposable
     }
 
     [Fact]
-    public void NativeCodeOutsideTheSubsetIsReportedWithItsOffset()
+    public void Native_code_outside_the_subset_is_reported_with_its_offset()
     {
         var bail = Declines(NativeModule(ToolShaped(0x59, 0xF7, 0xF1, 0x89, 0xC8))); // pop ecx; div ecx
         Assert.Equal(FallbackReason.NativeCode, bail.Reason);

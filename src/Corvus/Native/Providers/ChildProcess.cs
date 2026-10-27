@@ -14,20 +14,13 @@ public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Ar
     public IReadOnlyDictionary<string, string?> Environment { get; init; } = new Dictionary<string, string?>();
     /// <summary>Most committed memory of the whole tree in bytes (Windows: the job's limit; allocations past it fail); null: none.</summary>
     public long? MemoryLimitBytes { get; init; }
-    /// <summary>
-    /// Also applies <see cref="MemoryLimitBytes"/> outside Windows: RLIMIT_DATA on Linux (allocations past it fail), a
-    /// watchdog on the physical footprint on macOS (the tree is ended). Off: no limit there, as for engine workers.
-    /// </summary>
+    /// <summary>Applies <see cref="MemoryLimitBytes"/> off Windows too: RLIMIT_DATA on Linux, a footprint watchdog on macOS; when off, no limit applies there, as for engine workers.</summary>
     public bool MemoryLimitOnPosix { get; init; }
 }
 
-/// <summary>
-/// A child process with redirected stdio whose whole process tree is stopped by <see cref="Kill"/> and by
-/// <see cref="Dispose"/>. On Windows the process is created suspended inside a Job Object with
-/// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so it cannot start a child outside the job, and the tree also dies when this
-/// process exits for any reason (the job handle is closed by the OS). Elsewhere a shell parent runs the child and kills
-/// it (and its process group) within a second of this process ending, killed outright included.
-/// </summary>
+/// <summary>A child process with redirected stdio whose tree ends on <see cref="Kill"/>, <see cref="Dispose"/> or this process's exit (Windows job object; elsewhere a watching shell).</summary>
+/// <remarks>On Windows the process starts suspended in a KILL_ON_JOB_CLOSE job, so it cannot start a child outside the
+/// job. Elsewhere the shell kills the child's group within a second of this process ending, even when killed outright.</remarks>
 public abstract class ChildProcess : IDisposable
 {
     public abstract int Id { get; }
@@ -46,10 +39,7 @@ public abstract class ChildProcess : IDisposable
     /// <summary>The memory limit in bytes when the tree's peak usage reached it (allocations failed), else null.</summary>
     public virtual long? MemoryLimitReached() => null;
 
-    /// <summary>
-    /// CPU time the tree has used so far (user plus kernel), or null when it cannot be read. The base sums the running
-    /// processes of <see cref="TreeProcessIds"/>, so it can fall when one exits; null when none could be read.
-    /// </summary>
+    /// <summary>User plus kernel CPU time of the running tree processes (can fall when one exits); null when none could be read.</summary>
     public virtual TimeSpan? TreeCpuTime()
     {
         TimeSpan total = TimeSpan.Zero;
@@ -73,7 +63,7 @@ public abstract class ChildProcess : IDisposable
 
     /// <summary>Writes the stderr warning for a tree still running <paramref name="waited"/> after it was killed.</summary>
     private protected static void ReportTreeRunning(int id, TimeSpan waited) =>
-        Console.Error.WriteLine($"The process tree of {id} was still running {waited.TotalSeconds:0.0} s after it was killed; files it holds may stay open.");
+        Console.Error.WriteLine($"Process tree {id} still running {waited.TotalSeconds:0.0} s after kill; its files may stay open.");
 
     public static ChildProcess Start(ChildProcessStart start)
     {
@@ -97,10 +87,7 @@ public abstract class ChildProcess : IDisposable
         return thread;
     }
 
-    /// <summary>
-    /// Waits for the readers to reach the end of the output, which comes once the whole tree has closed it; true when they did
-    /// before <paramref name="timeout"/> measured from <paramref name="started"/>.
-    /// </summary>
+    /// <summary>True when the readers reach end of output (the whole tree closed it) within <paramref name="timeout"/> of <paramref name="started"/>.</summary>
     public static bool JoinReaders(IEnumerable<Thread> readers, Stopwatch started, TimeSpan timeout) =>
         readers.All(t => t.Join(timeout == Timeout.InfiniteTimeSpan ? Timeout.InfiniteTimeSpan
             : timeout - started.Elapsed is var left && left > TimeSpan.Zero ? left : TimeSpan.Zero));
@@ -141,8 +128,8 @@ internal sealed class PosixGroupProcess : ChildProcess
         _exited = process.WaitForExitAsync();
         _workerId = ReadWorkerId(process.StandardOutput.BaseStream) ?? process.Id;
         _footprintLimit = footprintLimit;
-        // macOS does not enforce RLIMIT_DATA or RLIMIT_AS, so the footprint is
-        // read on a thread of its own: a starved pool would read it late.
+        // macOS enforces neither RLIMIT_DATA nor RLIMIT_AS, so a thread of its own reads the footprint; a starved
+        // pool would read it late.
         if (footprintLimit is { } limit)
             new Thread(() => WatchFootprint(limit)) { IsBackground = true, Name = "child footprint " + _workerId }.Start();
     }
@@ -170,14 +157,9 @@ internal sealed class PosixGroupProcess : ChildProcess
 
     public override long? MemoryLimitReached() => _limitHit ? _footprintLimit : null;
 
-    /// <summary>
-    /// Runs "$@" with this shell as its parent, so its id is not reused while the watcher looks at it. setsid makes the child
-    /// lead a process group of its own (as a background child it leads none, so setsid does not fork); set -m is the fallback
-    /// only, as dash turns job control off without a controlling terminal. Its first output line is its id, written before it execs. Background
-    /// jobs of a non-interactive shell read /dev/null, hence stdin through fd 3; the shell's own stderr (job notices) is
-    /// dropped, the child's goes through fd 4. The watcher kills the child's group and the child once process $1 is gone.
-    /// A non-empty CORVUS_CHILD_DATA_KB becomes the child's RLIMIT_DATA, and is not passed on.
-    /// </summary>
+    /// <summary>Runs "$@" as a process group leader with this shell as parent, so its id is not reused while watched; prints its id first and kills the group once process $1 is gone.</summary>
+    // Stdin goes through fd 3, as a non-interactive shell's background jobs read /dev/null; the child's stderr goes
+    // through fd 4; a non-empty CORVUS_CHILD_DATA_KB sets RLIMIT_DATA and is not passed on.
     internal const string WatchScript = """
         w=$1; shift
         exec 3<&0 4>&2
@@ -269,7 +251,7 @@ internal sealed class PosixGroupProcess : ChildProcess
     {
         try
         {
-            // a group keeps its id while members remain, so the group kill is safe after the worker itself ended
+            // A group keeps its id while members remain, so the group kill is safe after the worker ended.
             _ = SysKill(-_workerId, 9);
             if (!HasExited) _ = SysKill(_workerId, 9);
         }
@@ -277,10 +259,7 @@ internal sealed class PosixGroupProcess : ChildProcess
         try { _process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { }
     }
 
-    /// <summary>
-    /// True while a process of the worker's group is running; false when none is or it cannot be checked. Linux skips
-    /// zombies, which a container without an init process never reaps; elsewhere they count until reaped.
-    /// </summary>
+    /// <summary>True while a process of the worker's group runs; false when none or unknown. Linux skips zombies, which a container without init never reaps.</summary>
     private bool GroupRunning()
     {
         if (OperatingSystem.IsLinux())
@@ -311,10 +290,10 @@ internal sealed class PosixGroupProcess : ChildProcess
         lock (_gate)
         {
             if (_disposed) return;
-            // Process throws once disposed; the exit is kept, as WindowsJobProcess keeps it, for callers that still ask.
+            // Process throws once disposed, so the exit is kept for callers that still ask.
             var clock = Stopwatch.StartNew();
             _disposedExited = _process.WaitForExit(TreeExitWait);
-            // The group's other members die with the same signal but exit on their own time; kill -0 sees the group while one remains.
+            // Other group members exit on their own time after the same signal.
             while (GroupRunning() && clock.Elapsed < TreeExitWait) Thread.Sleep(20);
             if (!_disposedExited || GroupRunning()) ReportTreeRunning(_workerId, clock.Elapsed);
             _disposedExitCode = _disposedExited ? _process.ExitCode : null;
@@ -363,8 +342,7 @@ internal sealed class WindowsJobProcess : ChildProcess
         if (port != null) new Thread(() => WatchMemoryLimit(port)) { IsBackground = true, Name = "child memory " + id }.Start();
     }
 
-    // A worker whose allocations fail can hang instead of exiting, so the job is ended at the limit, as the footprint
-    // watchdog ends it on macOS (CI on 48563dd9: a 60 s timeout instead of limit_exceeded).
+    // A worker whose allocations fail can hang, so the job ends at the limit (CI on 48563dd9: 60 s timeout, not limit_exceeded).
     private void WatchMemoryLimit(SafeFileHandle port)
     {
         try
@@ -392,8 +370,7 @@ internal sealed class WindowsJobProcess : ChildProcess
     public override TimeSpan? TreeCpuTime()
     {
         if (_job.IsClosed) return null;
-        // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, 48 bytes (the call wants the exact size), starts with TotalUserTime and
-        // TotalKernelTime in 100 ns units.
+        // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION: exactly 48 bytes; TotalUserTime and TotalKernelTime first, in 100 ns.
         const int size = 48;
         var buffer = Marshal.AllocHGlobal(size);
         try
@@ -431,8 +408,7 @@ internal sealed class WindowsJobProcess : ChildProcess
     public override long? MemoryLimitReached()
     {
         if (_memoryLimit is not { } limit || _port is not { IsClosed: false } port) return null;
-        // The job posts JOB_OBJECT_MSG_JOB_MEMORY_LIMIT when an allocation would pass the limit (and fails); read here too,
-        // so a death seen before the watcher wakes still names the limit.
+        // Drains JOB_OBJECT_MSG_JOB_MEMORY_LIMIT here too, so a death seen before the watcher wakes names the limit.
         lock (port)
             while (!_limitHit && GetQueuedCompletionStatus(port, out var message, out _, out _, 0))
                 _limitHit = message == JobMessageJobMemoryLimit;
@@ -443,14 +419,14 @@ internal sealed class WindowsJobProcess : ChildProcess
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         Kill();
-        // Termination is asynchronous: wait for the whole job before Dispose returns, so the files its processes held
-        // are closed when the caller deletes or reuses them.
+        // Termination is asynchronous: wait for the job so its files are closed before the caller reuses them.
         var clock = Stopwatch.StartNew();
         var exited = _waitHandle.WaitOne(TreeExitWait);
         if (exited) _exited.TrySetResult();
         while (exited && ActiveProcesses() > 0 && clock.Elapsed < TreeExitWait) Thread.Sleep(20);
         if (!exited || ActiveProcesses() > 0) ReportTreeRunning(_id, clock.Elapsed);
-        _job.Dispose(); // KILL_ON_JOB_CLOSE: anything left in the job dies here
+        // KILL_ON_JOB_CLOSE: anything left in the job dies here.
+        _job.Dispose();
         if (_port != null) lock (_port) _port.Dispose();
         foreach (var s in new Stream[] { _stdin, _stdout, _stderr })
         {
@@ -476,12 +452,7 @@ internal sealed class WindowsJobProcess : ChildProcess
         _processHandle.Dispose();
     }
 
-    /// <summary>
-    /// Process.Start lets its child inherit every inheritable handle of this process, and the child ends of our pipes are
-    /// inheritable from CreatePipe until they are closed after CreateProcess; a server started meanwhile would hold our
-    /// child's output open, so its reader never saw the end. Both take Process.Start's own lock (a private field; a lock
-    /// of our own should a runtime rename it).
-    /// </summary>
+    /// <summary>Process.Start's private create lock (own lock if renamed), so its child never inherits our inheritable pipe ends.</summary>
     internal static readonly object CreateLock =
         typeof(Process).GetField("s_createProcessLock", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?.GetValue(null) ?? new object();
 
@@ -493,8 +464,7 @@ internal sealed class WindowsJobProcess : ChildProcess
 
     public static WindowsJobProcess Launch(ChildProcessStart start)
     {
-        // The lock covers only the window in which the child ends are inheritable; starting the exit thread waits for
-        // the thread to run, which on a loaded machine took up to 0.6 s and queued every other launch behind it.
+        // Lock only while child ends are inheritable: starting the exit thread took up to 0.6 s on a loaded machine.
         Started started;
         lock (CreateLock) started = LaunchLocked(start);
         return new WindowsJobProcess(started.Job, started.Process, GetProcessId(started.Process), started.Stdin, started.Stdout, started.Stderr,
@@ -538,8 +508,7 @@ internal sealed class WindowsJobProcess : ChildProcess
             CreateInheritablePipe(out errRead, out errWrite, childEndIsRead: false);
             PipesCreated?.Invoke(start);
 
-            // Only the three child pipe ends are inherited, not every inheritable handle of this process
-            // (such as the stdio pipes of an MCP stdio transport).
+            // Inherit only the three child pipe ends, not the MCP stdio transport's pipes.
             IntPtr listSize = IntPtr.Zero;
             InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref listSize);
             attributes = Marshal.AllocHGlobal(listSize);

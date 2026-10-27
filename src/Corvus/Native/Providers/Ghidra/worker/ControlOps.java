@@ -37,10 +37,7 @@ final class ControlOps {
     private ControlOps() {
     }
 
-    /**
-     * Runs of consecutive instructions in no function, in address order, scanning at most max_scan instructions: rows
-     * [start, end (exclusive), instructions, call refs, jump refs, data refs] to the run's start; scanned, truncated.
-     */
+    /** Runs of instructions in no function, over at most max_scan: rows [start, end, instructions, call, jump, data refs]; scanned, truncated. */
     static JsonElement functionCandidates(Worker w, Worker.Request r) throws Exception {
         int max = r.args.has("max_scan") ? Math.max(1, r.args.get("max_scan").getAsInt()) : 2_000_000;
         FunctionManager fm = w.program.getFunctionManager();
@@ -105,10 +102,7 @@ final class ControlOps {
         rows.add(row);
     }
 
-    /**
-     * Replaces the bookmarks of the server's category with items [[rva, text]] (Note bookmarks) and records the stamp
-     * (stamp_key, stamp). Result: set, removed, failed, failures.
-     */
+    /** Replaces the server's Note bookmarks with items [[rva, text]] and records the stamp. Result: set, removed, failed, failures. */
     static JsonElement setMarks(Worker w, Worker.Request r) throws Exception {
         BookmarkManager bm = w.program.getBookmarkManager();
         List<Bookmark> old = new ArrayList<>();
@@ -140,9 +134,8 @@ final class ControlOps {
     }
 
     /**
-     * ranges: [[start, end (exclusive)]] of 32-bit ARM code in Thumb state. Sets the TMode context register there, so code
-     * disassembled later (functions made on request without auto-analysis) decodes as Thumb; ranges already holding
-     * instructions keep their state. {set, skipped}; set 0 when the language has no TMode register.
+     * Sets TMode on ranges [[start, end)] of Thumb code so later disassembly decodes as Thumb; decoded ranges keep their state.
+     * {set, skipped}; set 0 without a TMode register.
      */
     static JsonObject setThumb(Worker w, Worker.Request r) {
         ProgramContext context = w.program.getProgramContext();
@@ -170,9 +163,8 @@ final class ControlOps {
     private static final int MEMORY_MAX = 16 << 20;
 
     /**
-     * The loaded, initialized bytes of [rva, rva + size) in address order: runs [rva, base64]; other bytes are gaps. With
-     * page, pages [rva, length, digest] cut at multiples of page instead, the digest being the first 8 bytes of the
-     * SHA-256 in hex.
+     * Initialized bytes of [rva, rva + size) as runs [rva, base64]; other bytes are gaps.
+     * With page: pages [rva, length, digest], digest = first 8 bytes of the SHA-256 in hex.
      */
     static JsonObject memory(Worker w, Worker.Request r) throws Exception {
         long size = r.args.has("size") ? r.args.get("size").getAsLong() : 0;
@@ -213,10 +205,7 @@ final class ControlOps {
         return o;
     }
 
-    /**
-     * The relocations the loader recorded, at most max, in address order: rows [rva, length, type, symbol or null]. The
-     * type names the relocation number and its status ("type 7, applied"). Ghidra keeps no patch record: patched is null.
-     */
+    /** Loader relocations, at most max: rows [rva, length, "type 7, applied", symbol or null]; patched is null (no record). */
     static JsonObject fixups(Worker w, Worker.Request r) {
         int max = r.args.has("max") ? r.args.get("max").getAsInt() : 1_000_000;
         JsonArray rows = new JsonArray();

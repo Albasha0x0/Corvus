@@ -3,11 +3,7 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=plist: a property list (binary or XML) as JSON; an NSKeyedArchiver archive is decoded into its object graph
-/// ($objects resolved, classes named), which is how it is read in practice. A file over the stream threshold is read in
-/// windows (binary) or as a stream (XML), long values kept to their start.
-/// </summary>
+/// <summary>view=plist: a binary or XML property list as JSON, NSKeyedArchiver archives decoded to their object graph.</summary>
 internal sealed class PlistFileView : IFileSummaryView
 {
     private const int MaxJsonChars = 24_000;

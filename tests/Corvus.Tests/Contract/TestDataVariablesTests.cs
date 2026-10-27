@@ -2,10 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The test data variables of docs/testing.md match the CORVUS_* variables the tests and test scripts read, with the
-/// classes and scripts that read each. Run the tests with CORVUS_UPDATE_DOCS=1 to rewrite the "Read by" cells.
-/// </summary>
+/// <summary>The variables of docs/testing.md match the CORVUS_* variables tests read; CORVUS_UPDATE_DOCS=1 rewrites the "Read by" cells.</summary>
 public partial class TestDataVariablesTests
 {
     private const string TableHeading = "### Test data variables";

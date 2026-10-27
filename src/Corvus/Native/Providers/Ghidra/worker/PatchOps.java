@@ -37,9 +37,8 @@ final class PatchOps {
     }
 
     /**
-     * Makes the bytes patched by earlier syncs exactly items [[rva, hex bytes]]: bytes no longer wanted get the file's
-     * original value back. Touched code is cleared and disassembled again and the functions that held it get their
-     * bodies recomputed, so no new auto-analysis runs. Bytes outside initialized file-backed memory are missing.
+     * Makes the synced patches exactly items [[rva, hex bytes]], restoring unwanted bytes; touched code is redecoded and its functions' bodies recomputed
+     * without auto-analysis. Bytes outside initialized file-backed memory are missing.
      */
     static JsonObject sync(Worker w, Worker.Request r) throws Exception {
         long start = System.nanoTime();
@@ -53,7 +52,7 @@ final class PatchOps {
         }
         Set<Long> previously = ranges(w.program.getOptions(Worker.STAMPS).getString(PATCHED, ""));
 
-        // the plan: byte values to write, by rva
+        // The plan: byte values to write, by rva.
         TreeMap<Long, Byte> plan = new TreeMap<>();
         List<Long> missing = new ArrayList<>();
         int patched = 0, reverted = 0;
@@ -79,7 +78,7 @@ final class PatchOps {
             else patched++;
         }
 
-        // contiguous ranges of the plan, widened to the code units they touch
+        // Contiguous ranges of the plan, widened to the code units they touch.
         Listing listing = w.program.getListing();
         FunctionManager fm = w.program.getFunctionManager();
         Set<Long> functions = new TreeSet<>(ranges(w.program.getOptions(Worker.STAMPS).getString(PATCH_FUNCTIONS, "")));
@@ -102,7 +101,7 @@ final class PatchOps {
             }
             MemoryBlock block = mem.getBlock(lo);
             listing.clearCodeUnits(from, to, false);
-            // the range's start only: flow decodes the rest, and every address of a start set would become an instruction
+            // The range's start only: flow decodes the rest; a start set would make every address an instruction.
             if (block != null && block.isExecute()) code.add(from);
         }
         for (Map.Entry<Long, Byte> p : plan.entrySet())
@@ -120,7 +119,7 @@ final class PatchOps {
             Address a = w.space().getAddress(w.base + d.getKey());
             if (original(mem, a) != null && mem.getByte(a) != d.getValue()) mismatches.add(d.getKey());
         }
-        // remember what differs from the file now
+        // Record what differs from the file now.
         TreeSet<Long> now = new TreeSet<>();
         TreeSet<Long> candidates = new TreeSet<>(previously);
         candidates.addAll(desired.keySet());

@@ -1,12 +1,9 @@
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// An index known to be below <see cref="Count"/> (unsigned) on some path: register <see cref="Reg"/>, or with
-/// <see cref="SlotBase"/> set the frame slot [SlotBase + SlotDisp]. Registers are the decoder's own ids; 0 is none.
-/// <see cref="Default"/> is where the bounding branch goes for an index out of range; the switched value is index + <see cref="Bias"/>.
-/// <see cref="FlagsReg"/>: the flags on entry come from comparing that register with <see cref="FlagsImm"/> (ARM64, where a
-/// bounding branch can follow the compare in another block).
-/// </summary>
+/// <summary>An index known to be unsigned-below <see cref="Count"/> on some path; register ids are the decoder's own, 0 is none.</summary>
+/// <param name="SlotBase">When set, the index is in frame slot [SlotBase + SlotDisp] instead of a register.</param>
+/// <param name="Default">The bounding branch's out-of-range target; the switched value is index + Bias.</param>
+/// <param name="FlagsReg">ARM64: the entry flags come from comparing this register with FlagsImm.</param>
 internal readonly record struct IndexBound(int Reg, uint Count, int SlotBase = 0, ulong SlotDisp = 0, uint? Default = null, long Bias = 0,
     int FlagsReg = 0, ulong FlagsImm = 0)
 {
@@ -34,14 +31,11 @@ internal struct Insn
     public uint Next => Rva + (uint)Length;
 }
 
-/// <summary>
-/// A switch dispatch matched at an indirect jump. <see cref="BaseAssumed"/>: a register used as the image base is set
-/// outside the run (hoisted by the compiler); the caller must confirm the table by requiring every target inside the
-/// function's own unwind ranges. <see cref="Default"/>: the bounding branch's out-of-range target (null when an and-mask
-/// bounds the index, <see cref="BoundByMask"/>); the switched value is table index + <see cref="Bias"/>.
-/// </summary>
+/// <summary>A switch dispatch matched at an indirect jump; the switched value is table index + <see cref="Bias"/>.</summary>
+/// <param name="BaseAssumed">The image base register is set outside the run; every target must lie in the function's unwind ranges.</param>
 internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, bool RelativeToTable, uint Count, uint? IndexTableRva, uint IndexTableCount, bool BaseAssumed)
 {
+    /// <summary>The bounding branch's out-of-range target; null when an and-mask bounds the index.</summary>
     public uint? Default { get; init; }
     public long Bias { get; init; }
     public bool BoundByMask { get; init; }
@@ -51,19 +45,16 @@ internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, 
     public uint? Base { get; init; }
     public int Shift { get; init; }
     public bool Signed { get; init; }
-    /// <summary>ARM32: no table is read; the index selects a branch in a run of them (target = <see cref="Base"/> + (index &lt;&lt; <see cref="Shift"/>)).</summary>
+    /// <summary>ARM32: the index selects a branch in a run, target = <see cref="Base"/> + (index &lt;&lt; <see cref="Shift"/>).</summary>
     public bool Direct { get; init; }
-    /// <summary>When set, every target lies within this many bytes of the dispatch (a table found through tracked register values).</summary>
+    /// <summary>When set, every target lies within this many bytes of the dispatch.</summary>
     public uint Window { get; init; }
 
     /// <summary>The reason when the instructions before an indirect jump are no table dispatch at all.</summary>
     public const string NoDispatch = "no recognized table dispatch";
 }
 
-/// <summary>
-/// Decoding of one instruction set over the code of an image, keeping what the current linear run needs to match
-/// switch dispatches and bounds. One instance per thread.
-/// </summary>
+/// <summary>Decodes one instruction set over an image's code, keeping run state for switch matching; one per thread.</summary>
 internal interface ICodeDecoder
 {
     /// <summary>The image has 64-bit pointers.</summary>
@@ -102,7 +93,7 @@ internal interface ICodeDecoder
     /// <summary>The code at <paramref name="rva"/> is alignment padding (never followed as code after a noreturn call).</summary>
     bool IsPadding(ImageCode.Region region, uint rva);
 
-    /// <summary>The import slot when the code at <paramref name="rva"/> is a stub that only jumps through it (x86 jmp [slot]; ARM64 PLT and Mach-O stubs).</summary>
+    /// <summary>The import slot when the code at <paramref name="rva"/> is a stub that only jumps through it.</summary>
     uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot);
 }
 

@@ -4,10 +4,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// An ARM64 value location: an X register (W views included), a v register from <see cref="A64Function.VBase"/> on (its
-/// b / h / s / d / q views), or a stack slot as an offset from the stack pointer at function entry.
-/// </summary>
+/// <summary>An ARM64 value location: an X register, a v register from <see cref="A64Function.VBase"/>, or an entry-relative stack slot.</summary>
 internal readonly record struct A64Loc(bool IsSlot, int Value)
 {
     public static A64Loc Reg(int index) => new(false, index);
@@ -20,11 +17,7 @@ internal sealed record A64Step(uint Rva, Arm64Instruction I, Insn Facts, int? Sp
     public string Text => I.ToString();
 }
 
-/// <summary>
-/// An ARM64 function decoded block by block for value analysis: instructions with their facts (ADRP pairs, import
-/// slots), predecessors, and the stack pointer tracked from entry (sub / add sp, pre / post-index writeback,
-/// mov x29, sp) so stack slots read the same through sp and x29 at any point.
-/// </summary>
+/// <summary>An ARM64 function decoded per block for value analysis, with sp and x29 tracked from entry.</summary>
 internal sealed class A64Function
 {
     public NativeFunction Function { get; }
@@ -110,7 +103,6 @@ internal sealed class A64Function
 
     private static void Advance(in Arm64Instruction i, ref int? sp, ref int? fp)
     {
-        // writeback through sp
         for (int k = 0; k < i.OperandCount; k++)
         {
             if (i.GetOperand(k) is not { Kind: Arm64OperandKind.Memory } m) continue;

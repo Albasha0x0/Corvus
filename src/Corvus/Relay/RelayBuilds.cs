@@ -62,14 +62,12 @@ public static class RelayBuilds
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(marker)))[..12];
     }
 
-    /// <summary>
-    /// Copies <paramref name="target"/> to a new folder under <paramref name="state"/>, so the server never runs from files
-    /// a republish replaces. Throws IOException when the marker changed during the copy (a publish started).
-    /// </summary>
+    /// <summary>Copies <paramref name="target"/> to a new folder under <paramref name="state"/>, so the server never runs files a republish replaces; IOException when a publish changed it meanwhile.</summary>
     public static string Stage(string target, string state, string? marker)
     {
         var dir = Path.Combine(state, "builds", $"{Environment.ProcessId}-{Interlocked.Increment(ref _sequence)}");
-        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); // left by an earlier process with the same id
+        // Left by an earlier process with the same id.
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         try
         {
             CopyTree(target, dir, skip: name => name == MarkerName || name.Contains(AsideInfix, StringComparison.Ordinal));
@@ -105,10 +103,7 @@ public static class RelayBuilds
         return ChildProcess.Start(new ChildProcessStart(DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs]));
     }
 
-    /// <summary>
-    /// Copies the folder of <paramref name="program"/> (this server's apphost or dll) to a versioned, content-addressed folder
-    /// under <paramref name="state"/>, so a registered relay never runs from files a publish replaces; returns the copy's program.
-    /// </summary>
+    /// <summary>Copies <paramref name="program"/>'s folder to a versioned, content-addressed folder under <paramref name="state"/>; returns the copy's program.</summary>
     public static string StageHost(string program, string state, bool dryRun)
     {
         var source = Path.GetDirectoryName(Path.GetFullPath(program))!;
@@ -122,15 +117,12 @@ public static class RelayBuilds
         TryDelete(temp);
         CopyTree(source, temp, skip: name => name == MarkerName || name.Contains(AsideInfix, StringComparison.Ordinal));
         try { Directory.Move(temp, dir); }
-        catch (IOException) when (File.Exists(staged)) { TryDelete(temp); } // another install staged it first
+        // Another install staged it first.
+        catch (IOException) when (File.Exists(staged)) { TryDelete(temp); }
         return staged;
     }
 
-    /// <summary>
-    /// Deletes staged host copies under <paramref name="state"/> whose folder name (version-hash) appears in none of
-    /// <paramref name="configurations"/> (the clients' configuration files as text, so project-level entries count too),
-    /// and copies left half-made; a copy still running stays (its files are in use).
-    /// </summary>
+    /// <summary>Deletes half-made host copies and those whose version-hash name no client configuration text names; running copies stay.</summary>
     public static List<string> RemoveUnusedHosts(string state, IReadOnlyCollection<string> configurations)
     {
         var hosts = Path.Combine(state, "host");

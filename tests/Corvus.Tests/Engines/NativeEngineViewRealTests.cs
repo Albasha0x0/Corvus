@@ -125,7 +125,7 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
         Assert.True(r.Scanned >= 1);
         Assert.Contains(r.Accesses, a => a.FunctionRva == rva && a.Kind == "read");
         Assert.Equal("e_lfanew", (await s.GetFieldXrefsAsync(["SampleDos"], null, 0x3D, [], 60)).Member);
-        // every function from the typed one on: more candidates, the typed function's access among the uses
+        // Every function from the typed one on: more candidates, the typed function's access among the uses.
         var all = await s.GetFieldXrefsAsync(["SampleDos"], "pad", null, [], 30, allFrom: rva);
         Assert.True(all.Candidates > r.Candidates, $"{all.Candidates} candidates");
         Assert.Contains(all.Accesses, a => a.FunctionRva == rva && a.Kind == "read");
@@ -161,7 +161,7 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
         Assert.Equal(table.Functions, listed.Count);
         Assert.Contains(listed, f => f.References > 0);
         Assert.Equal(listed.Select(f => f.StartRva), (await s.ListFunctionsAsync()).Select(f => f.StartRva));
-        // a change (a label) makes the table stale: the live listing serves
+        // A change (a label) makes the table stale: the live listing serves.
         var rva = NativeIdaProviderTests.ExportRva(shared.Sample, Export);
         await s.RunJavaAsync($"createLabel(toAddr(0x{s.ImageBase + rva + 1:X}L), \"sample_pass_label\", false, ghidra.program.model.symbol.SourceType.USER_DEFINED);", 60);
         Assert.False((await s.FunctionTableAsync()).Ready);

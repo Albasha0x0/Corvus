@@ -12,7 +12,7 @@ public class ToolDetailTests : IDisposable
     public void Dispose() => _env.Dispose();
 
     [Fact]
-    public void Constants_AreFoundInArrayInitializerData()
+    public void Constants_are_found_in_array_initializer_data()
     {
         using var dir = new TempDir();
         var path = dir.File("Sha.dll");
@@ -49,7 +49,7 @@ public class ToolDetailTests : IDisposable
     }
 
     [Fact]
-    public void Constants_SmallValues_AreFoundInArraysOfTheirOwnType()
+    public void Small_constants_are_found_in_arrays_of_their_own_type()
     {
         using var dir = new TempDir();
         var path = dir.File("Tables.dll");
@@ -111,7 +111,7 @@ public class ToolDetailTests : IDisposable
     }
 
     [Fact]
-    public void IlResource_GivesEveryOverload()
+    public void The_IL_resource_gives_every_overload()
     {
         var resources = new DecompilerResources(_env.Workspace, _env.Decompiler, _env.Report);
         var il = resources.IL(_env.Fixture.Id, "Fixture.Model.Account::Charge", default);
@@ -120,7 +120,7 @@ public class ToolDetailTests : IDisposable
     }
 
     [Fact]
-    public void StubDryRun_NumbersTheInstructions()
+    public void Stub_dry_run_numbers_the_instructions()
     {
         var preview = _env.Edits.StubMethod(_env.One("Account::CheckPreview"), "true", dryRun: true);
         Assert.Contains("IL_0000: ldc.i4 1", preview);

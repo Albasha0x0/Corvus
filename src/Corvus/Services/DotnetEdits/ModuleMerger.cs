@@ -5,15 +5,8 @@ using static Corvus.Core.MetadataUtil;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Copies code compiled by Roslyn into a target module. Compiled types and members are either mapped onto existing
-/// definitions in the target (by name and signature), or declared as new ones (new types, compiler-generated lambda
-/// closures, async/iterator state machines, local functions, &lt;PrivateImplementationDetails&gt;, user-added members).
-///
-/// Usage: declare new types/members (AddTypeTree / AddMethod / AddField), call <see cref="Fill"/>, then copy bodies with
-/// <see cref="CopyBody"/> / <see cref="CopyNewBodies"/>. Anything that can be neither mapped nor declared ends up in
-/// <see cref="Unmapped"/> and the caller must abort.
-/// </summary>
+/// <summary>Copies Roslyn output into a target module, mapping definitions by name and signature or declaring them new.
+/// Declare, <see cref="Fill"/>, then copy bodies; the caller aborts when <see cref="Unmapped"/> is not empty.</summary>
 internal sealed class ModuleMerger
 {
     private static readonly SigComparer Comparer = new(SigComparerOptions.DontCompareTypeScope);
@@ -76,10 +69,8 @@ internal sealed class ModuleMerger
         return MapType(compiled.DeclaringType)?.Fields.FirstOrDefault(x => x.Name == compiled.Name);
     }
 
-    /// <summary>
-    /// Declares a copy of a compiled type (with its nested types and members) under <paramref name="parent"/> or at top level;
-    /// <paramref name="rename"/> maps the names of its nested types, fields and methods.
-    /// </summary>
+    /// <summary>Declares a copy of a compiled type tree under <paramref name="parent"/> or at top level, names mapped by
+    /// <paramref name="rename"/>.</summary>
     public TypeDef AddTypeTree(TypeDef compiled, TypeDef? parent, string name, Func<string, string>? rename = null)
     {
         rename ??= n => n;
@@ -246,10 +237,8 @@ internal sealed class ModuleMerger
         MarkNullableOblivious(declared);
     }
 
-    /// <summary>
-    /// Patches compile without nullable annotations; a member added to a type with a nullable context would read as
-    /// annotated by it (T as notnull, string as non-null), so it is marked oblivious with the target's own attributes.
-    /// </summary>
+    /// <summary>Marks added members nullable-oblivious inside an annotated type, since patches compile without
+    /// annotations.</summary>
     private void MarkNullableOblivious(List<(IHasCustomAttribute Member, TypeDef Type)> propertiesAndEvents)
     {
         var newTypes = _newTypes.Select(x => x.Target).ToHashSet();
@@ -421,8 +410,7 @@ internal sealed class ModuleMerger
         {
             TypeDef td when td.Module == merger._compiled => merger.MapType(td) ?? merger.NoteUnmapped<TypeDef>(td.FullName),
             TypeRef tr when merger.IsTargetScope(tr) => merger.FindType(tr.FullName),
-            // Keep the module's own reference scopes (System.Runtime / mscorlib) instead of the implementation
-            // assembly Roslyn bound to (System.Private.CoreLib).
+            // Keep the module's own reference scopes, not the System.Private.CoreLib Roslyn bound to.
             TypeRef tr => merger.ExistingTypeRefs.GetValueOrDefault(tr.FullName),
             _ => null,
         };

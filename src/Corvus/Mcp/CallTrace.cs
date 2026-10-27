@@ -4,11 +4,8 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Opt-in call trace (CORVUS_TRACE / --trace): one JSON line per tools/call with the time, run id, tool, argument names
-/// (values, secrets masked by <see cref="Redaction"/>, only with --trace-args), milliseconds, error code, text characters and
-/// estimated tokens per part, appended to a plain file of its own. A failed write is reported once and never fails a call.
-/// </summary>
+/// <summary>Opt-in call trace (CORVUS_TRACE / --trace): one JSON line per tools/call; argument values only with --trace-args, secrets masked.</summary>
+// A failed write is reported once and never fails a call.
 public sealed class CallTrace
 {
     private static readonly Dictionary<string, CallTrace> Open = new(StringComparer.OrdinalIgnoreCase);

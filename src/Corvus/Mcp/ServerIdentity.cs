@@ -44,10 +44,7 @@ public static class ServerIdentity
         }
     }
 
-    /// <summary>
-    /// How this copy was installed, from its path: script (&lt;root&gt;/versions or &lt;root&gt;/current of the install scripts),
-    /// dotnet-tool, dnx (the NuGet package cache), winget, scoop, homebrew, else source (a build or publish folder).
-    /// </summary>
+    /// <summary>How this copy was installed, from its path: script, dotnet-tool, dnx, winget, scoop, homebrew, else source.</summary>
     public static string ClassifyInstall(string executable)
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(executable)) ?? "";

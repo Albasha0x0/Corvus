@@ -7,11 +7,8 @@ namespace Corvus.Services.Web;
 /// <summary>One mapping segment: generated position (0-based line, UTF-16 column) to an original source position and name.</summary>
 public readonly record struct MapSegment(int Line, int Column, int Source, int OriginalLine, int OriginalColumn, int Name);
 
-/// <summary>
-/// A v3 source map (ECMA-426). <c>mappings</c> is decoded lazily: base64 VLQ fields are relative to the previous segment,
-/// so a checkpoint (position and the running values) is kept every <see cref="CheckpointEvery"/> segments; a lookup
-/// decodes at most that many. Indexed maps (<c>sections</c>) are read section by section.
-/// </summary>
+/// <summary>A v3 source map (ECMA-426), decoded lazily from checkpoints; indexed maps are read section by section.</summary>
+/// <remarks>VLQ fields are relative, so a checkpoint is kept every <see cref="CheckpointEvery"/> segments and a lookup decodes at most that many.</remarks>
 public sealed class SourceMap
 {
     public const int CheckpointEvery = 1024;
@@ -34,7 +31,7 @@ public sealed class SourceMap
     public static SourceMap Parse(ReadOnlySpan<byte> json)
     {
         if (json.Length > MaxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"the source map is {json.Length:N0} bytes; maps up to {MaxBytes:N0} bytes are decoded.");
-        // the XSSI guard some servers prepend, and a BOM
+        // Strips the XSSI guard some servers prepend, and a BOM.
         if (json.StartsWith(")]}'"u8)) json = json[(json.IndexOf((byte)'\n') + 1)..];
         if (json.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF])) json = json[3..];
         try
@@ -43,7 +40,7 @@ public sealed class SourceMap
             return new SourceMap(doc.RootElement);
         }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"the source map is not valid JSON: {ex.Message}"); }
-        // a string value that is not valid UTF-8
+        // A string value that is not valid UTF-8.
         catch (InvalidOperationException ex) { throw new ToolError(ErrorCode.MalformedInput, $"the source map holds invalid text: {ex.Message}"); }
     }
 
@@ -95,7 +92,7 @@ public sealed class SourceMap
         if (scheme > 0)
         {
             s = s[(scheme + 3)..];
-            // webpack://<namespace>/./src: drop the namespace
+            // Drops the namespace of webpack://<namespace>/./src.
             if (s.StartsWith('/')) s = s.TrimStart('/');
             else if (s.IndexOf('/') is var slash and > 0 && source.StartsWith("webpack://", StringComparison.Ordinal)) s = s[(slash + 1)..];
         }
@@ -194,7 +191,7 @@ public sealed class SourceMap
             int l = line - section.Line, c = l == 0 ? column - section.Column : column;
             return section.Map.Find(l, c) is { } hit ? Shift(hit, section.Line, section.Column, section.Sources, section.Names) : null;
         }
-        // the last checkpoint before the target, then a forward decode
+        // The last checkpoint before the target, then a forward decode.
         int lo = 0, hi = _checkpoints.Count - 1, from = -1;
         while (lo <= hi)
         {
@@ -213,11 +210,8 @@ public sealed class SourceMap
         return best;
     }
 
-    /// <summary>
-    /// The generated positions of source index <paramref name="source"/> at the first original line at or after
-    /// <paramref name="line"/> (0-based) that has any, as a debugger moves a breakpoint to the next line with code; null
-    /// when no such line is mapped. The whole mapping is decoded.
-    /// </summary>
+    /// <summary>Generated positions of <paramref name="source"/> at the first mapped original line at or after <paramref name="line"/>
+    /// (0-based); null when none.</summary>
     public (int Line, IReadOnlyList<MapSegment> Segments)? Generated(int source, int line)
     {
         var best = new List<MapSegment>();
@@ -267,7 +261,7 @@ public sealed class SourceMap
             return (Parse(json), "inline");
         }
         var dir = Path.GetDirectoryName(file) ?? "";
-        // without a comment: a sibling x.js.map, or x.map (jquery.min.js -> jquery.min.map)
+        // Without a comment: a sibling x.js.map, or x.map (jquery.min.js -> jquery.min.map).
         var candidate = url != null && !url.Contains("://") ? Path.Combine(dir, Uri.UnescapeDataString(url.Split('?', '#')[0]))
             : File.Exists(file + ".map") ? file + ".map" : Path.ChangeExtension(file, ".map");
         if (!File.Exists(candidate)) return null;

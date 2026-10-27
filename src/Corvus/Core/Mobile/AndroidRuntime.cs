@@ -8,14 +8,14 @@ public sealed record AndroidRuntimeFamily(string Family, IReadOnlyList<string> E
 /// <summary>Runtime families decided from package content (native libraries, stores, metadata magic), not from file names alone.</summary>
 public static class AndroidRuntime
 {
-    private const uint Il2CppMetadataMagic = 0xFAB11BAF;
+    private const uint AotMetadataMagic = 0xFAB11BAF;
     private const string Metadata = "assets/bin/Data/Managed/Metadata/global-metadata.dat";
 
-    /// <summary>libil2cpp.so or the Il2Cpp metadata: the entries that make a package a Unity Il2Cpp build.</summary>
-    public static bool IsIl2CppEntry(string entry) =>
+    /// <summary>libil2cpp.so or global-metadata.dat: the entries that make a package an AOT build.</summary>
+    public static bool IsAotEntry(string entry) =>
         entry == Metadata || (entry.StartsWith("lib/", StringComparison.Ordinal) && entry.EndsWith("/libil2cpp.so", StringComparison.Ordinal));
 
-    public static bool IsUnityMonoEntry(string entry) =>
+    public static bool IsMonoEntry(string entry) =>
         entry.StartsWith("assets/bin/Data/Managed/", StringComparison.Ordinal) && entry.EndsWith(".dll", StringComparison.Ordinal);
 
     public static IReadOnlyList<AndroidRuntimeFamily> Detect(AndroidPackage package)
@@ -30,22 +30,22 @@ public static class AndroidRuntime
         dotnet.AddRange(entries.Where(e => e.StartsWith("assemblies/", StringComparison.Ordinal)).Take(3));
         if (dotnet.Count > 0) result.Add(new("dotnet-android", dotnet, "Xamarin / .NET MAUI: unpack_container extracts the assemblies by name; map_java_dotnet links Java wrappers to .NET types"));
 
-        var il2cpp = Libs("libil2cpp.so");
-        if (il2cpp.Count > 0 || package.Contains(Metadata))
+        var aot = Libs("libil2cpp.so");
+        if (aot.Count > 0 || package.Contains(Metadata))
         {
             string? note = null;
             if (package.Contains(Metadata))
             {
-                il2cpp.Add(Metadata);
+                aot.Add(Metadata);
                 var head = Head(package, Metadata, 4);
-                note = head.Length == 4 && BinaryPrimitives.ReadUInt32LittleEndian(head) == Il2CppMetadataMagic
-                    ? "Unity Il2Cpp: metadata header readable"
-                    : "Unity Il2Cpp: the metadata does not start with 0xFAB11BAF (encrypted or tampered)";
+                note = head.Length == 4 && BinaryPrimitives.ReadUInt32LittleEndian(head) == AotMetadataMagic
+                    ? "AOT: metadata header readable"
+                    : "AOT: the metadata does not start with 0xFAB11BAF (encrypted or tampered)";
             }
-            result.Add(new("unity-il2cpp", il2cpp, note ?? "Unity Il2Cpp: no global-metadata.dat in this APK (an asset pack or split may hold it)"));
+            result.Add(new("aot", aot, note ?? "AOT: no global-metadata.dat in this APK (an asset pack or split may hold it)"));
         }
-        var mono = entries.Where(IsUnityMonoEntry).Take(4).ToList();
-        if (mono.Count > 0) result.Add(new("unity-mono", mono, "Unity Mono: the Managed assemblies load directly"));
+        var mono = entries.Where(IsMonoEntry).Take(4).ToList();
+        if (mono.Count > 0) result.Add(new("mono", mono, "Mono: the Managed assemblies load directly"));
 
         var flutter = Libs("libflutter.so", "libapp.so");
         if (flutter.Any(l => l.EndsWith("libflutter.so", StringComparison.Ordinal))) result.Add(new("flutter", flutter, "Flutter: Dart AOT code in libapp.so"));

@@ -2,10 +2,7 @@ using System.Xml.Linq;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Coverage floor (E11): line coverage of the server per source area, from the coverlet report of a full run
-/// (`./test.ps1 -Full -Coverage` sets CORVUS_COVERAGE_REPORT), against Ratchets/coverage.txt, whose floors only rise.
-/// </summary>
+/// <summary>Line coverage per source area from a full run's report (CORVUS_COVERAGE_REPORT, set by ./test.ps1 -Full -Coverage) stays above Ratchets/coverage.txt.</summary>
 public class CoverageFloorTests
 {
     public const string ReportVariable = "CORVUS_COVERAGE_REPORT";
@@ -15,7 +12,7 @@ public class CoverageFloorTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void CoverageStaysAboveItsFloor()
+    public void Coverage_stays_above_its_floor()
     {
         if (Environment.GetEnvironmentVariable(ReportVariable) is not { Length: > 0 } report) return; // only after a coverage run
         var floors = Measure(Directory.Exists(report) ? Directory.EnumerateFiles(report, "coverage.cobertura.xml", SearchOption.AllDirectories) : [report])
@@ -24,7 +21,7 @@ public class CoverageFloorTests
     }
 
     [Fact]
-    public void AreasAndTotalFromACoberturaReport()
+    public void Areas_and_total_are_read_from_a_Cobertura_report()
     {
         using var dir = new TempDir();
         var file = Path.Combine(dir.Path, "coverage.cobertura.xml");
@@ -53,7 +50,7 @@ public class CoverageFloorTests
         foreach (var report in reports)
         {
             var document = XDocument.Load(report);
-            // coverlet writes file names relative to the <source> folder of their project.
+            // Coverlet writes file names relative to the <source> folder of their project.
             var source = ((string?)document.Descendants("source").FirstOrDefault() ?? "").Replace('\\', '/');
             foreach (var cls in document.Descendants("class"))
             {

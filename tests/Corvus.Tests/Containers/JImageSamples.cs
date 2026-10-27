@@ -4,10 +4,7 @@ using System.Text;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Writes Java runtime images as jlink lays them out (ImageHeader, PerfectHashBuilder, ImageLocation and
-/// CompressedResourceHeader in OpenJDK): header, redirect and offset tables, locations, strings, then the resources.
-/// </summary>
+/// <summary>Writes Java runtime images in the jlink layout.</summary>
 internal sealed class JImageSamples
 {
     public const uint Magic = 0xCAFEDADA;
@@ -81,7 +78,8 @@ internal sealed class JImageSamples
         var t = new List<byte>(head);
         void Both(params byte[] b) { o.AddRange(b); t.AddRange(b); }
         void Utf8(List<byte> to, string s) { var e = ModifiedUtf8(s); to.Add(1); to.Add((byte)(e.Length >> 8)); to.Add((byte)e.Length); to.AddRange(e); }
-        Both(0, 7); // count: 6 entries, the Long taking two slots
+        // Count: 6 entries, the Long taking two slots.
+        Both(0, 7);
         Utf8(o, "Sample");
         Utf8(t, "Sample");
         Both(5, 1, 2, 3, 4, 5, 6, 7, 8);
@@ -116,7 +114,8 @@ internal sealed class JImageSamples
         int n = entries.Count;
         var names = entries.Select(FullName).ToList();
         var data = new List<byte>();
-        var locations = new List<byte> { 0 }; // offset 0 marks an empty table slot
+        // Offset 0 marks an empty table slot.
+        var locations = new List<byte> { 0 };
         var at = new int[n];
         for (int i = 0; i < n; i++)
         {

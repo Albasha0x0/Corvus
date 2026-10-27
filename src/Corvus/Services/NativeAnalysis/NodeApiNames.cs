@@ -4,11 +4,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The <see cref="NativeNameSource.NodeApi"/> layer of a .node add-on: native callbacks named after the JavaScript names
-/// they are registered under, set when the code index is built (no tool call needed). Not saved: it is rebuilt from the
-/// image each time.
-/// </summary>
+/// <summary>The Node-API name layer of a .node add-on: callbacks named by their JavaScript registration, rebuilt at each index build.</summary>
 public static class NodeApiNames
 {
     /// <summary>Sets the layer on <paramref name="index"/> for an add-on; returns the number of names, or null for other images.</summary>

@@ -8,14 +8,10 @@ namespace Corvus.Tests;
 
 public sealed class NativeLinkSweepTests(ITestOutputHelper output)
 {
-    /// <summary>
-    /// Imports of a System32 sample bound with only the sample loaded, then again after loading every provider one
-    /// level deep: counts by status and unresolved reasons. Static imports of a system DLL must resolve except for
-    /// API set contracts without a host on this system.
-    /// </summary>
+    /// <summary>Imports of a System32 sample resolve once providers are loaded, except API set contracts without a host here.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public void System32ImportsBind()
+    public void System32_imports_bind()
     {
         var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
         var sample = Directory.EnumerateFiles(system, "*.dll").Order(StringComparer.OrdinalIgnoreCase).Where((_, i) => i % 25 == 0).Take(80)

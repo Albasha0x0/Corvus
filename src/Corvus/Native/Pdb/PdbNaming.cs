@@ -5,12 +5,7 @@ namespace Corvus.Native.Pdb;
 /// <summary>One address the PDB names: the display name, the decorated public name when any, and what is there.</summary>
 public sealed record PdbName(uint Rva, string Name, string? Decorated, bool IsFunction, uint Size, PdbSymbolKind Kind);
 
-/// <summary>
-/// Chooses one name per address from a PDB's symbols. Procedure names (already undecorated and qualified, such as
-/// "Ns::Class::Method") win over public names, which are undecorated to their qualified name; global over local; code
-/// over data. Identical-code folding puts several functions at one address: the first by that order (then by name)
-/// is kept.
-/// </summary>
+/// <summary>One name per address from a PDB: procedures over publics, global over local, code over data, then by name.</summary>
 public static class PdbNaming
 {
     public static IReadOnlyList<PdbName> Choose(PdbFile pdb, uint sizeOfImage = 0, CancellationToken ct = default)
@@ -50,15 +45,11 @@ public static class PdbNaming
         _ => 6,
     };
 
-    // An x86 C decoration ("_f@8", "@f@8", "f@@8") is a decorated name too; an import cell ("__imp__f@8") keeps its
-    // name, so it is not taken for the function.
+    // An x86 C decoration ("_f@8", "@f@8", "f@@8") counts as decorated; an import cell ("__imp__f@8") keeps its name.
     private static bool IsDecorated(string name) => name.Length > 1 && (name[0] == '?'
         || name.Contains('@') && MsvcDemangler.Demangle(name) is { Kind: MsvcSymbolKind.CFunction, IsImport: false });
 
-    /// <summary>
-    /// The qualified name of a decorated public ("?f@A@@QEAAXXZ" -> "A::f", "_CreateFileW@28" -> "CreateFileW"), else
-    /// the name as is.
-    /// </summary>
+    /// <summary>The qualified name of a decorated public ("?f@A@@QEAAXXZ" -> "A::f"), else the name as is.</summary>
     public static string Display(string name) =>
         IsDecorated(name) && MsvcDemangler.Undecorate(name, MsvcNameStyle.NameOnly) is { Length: > 0 } plain ? plain : name;
 

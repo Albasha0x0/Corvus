@@ -10,11 +10,7 @@ namespace Corvus.Services.Analysis;
 /// <summary>An extracted value with up to 5 locations, up to 5 consuming APIs, and an optional detail (e.g. key size).</summary>
 public sealed record ExtractedValue(string Type, string Value, int Count, IReadOnlyList<string> Locations, IReadOnlyList<string> PassedTo, string? Detail = null);
 
-/// <summary>
-/// Extracts typed values (network indicators, paths, registry keys, mutexes, user agents, crypto keys) from strings,
-/// resource text and decoded embedded text. Mutexes, user agents and keys are recognized by the APIs that consume them;
-/// encoded values (whole base64 or hex) are reported for field texts only.
-/// </summary>
+/// <summary>Extracts typed values (network indicators, paths, registry keys, mutexes, keys) from strings, resources and decoded text.</summary>
 public static partial class Values
 {
     public static readonly IReadOnlyList<string> Types =
@@ -30,9 +26,7 @@ public static partial class Values
 
     private const int MaxLocations = 5, MaxPassedTo = 5;
 
-    // Texts run to 1 MB: NonBacktracking matches in linear time, so no match
-    // timeout. Patterns that need lookarounds are generated regexes whose tails
-    // fail only where no later match can start, or code.
+    // NonBacktracking matches 1 MB texts in linear time, so no match timeout; lookaround patterns are bounded generated regexes.
     private static Regex R(string pattern) => new(pattern, RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
     private static readonly Regex Url = R(@"\b(?:https?|ftps?|wss?|tcp|udp)://[^\s""'<>\\^`{|}]+");
@@ -101,11 +95,7 @@ public static partial class Values
     /// <summary>The typed values of the other overload, without the count of encoded values past the cap.</summary>
     public static List<ExtractedValue> Find(ModuleScan scan, IReadOnlyList<EmbeddedContent> embedded, CancellationToken ct) => Find(scan, embedded, out _, ct);
 
-    /// <summary>
-    /// Typed values of an assembly's strings, resources and decoded embedded text; a whole base64 or hex literal is also
-    /// an encoded row with its decoded length, the first <see cref="MaxEncoded"/> distinct ones (<paramref name="encodedDropped"/>
-    /// counts the rest). Empty for no values.
-    /// </summary>
+    /// <summary>Typed values of an assembly, with whole base64 or hex literals as encoded rows; <paramref name="encodedDropped"/> counts those past the cap.</summary>
     /// <param name="embedded">Decoded embedded content; its text items are scanned too.</param>
     public static List<ExtractedValue> Find(ModuleScan scan, IReadOnlyList<EmbeddedContent> embedded, out int encodedDropped, CancellationToken ct)
     {
@@ -134,12 +124,7 @@ public static partial class Values
         return Order(b.Items.Select(kv => new ExtractedValue(kv.Key.Type, kv.Key.Value, kv.Value.Count, kv.Value.Locations, [.. kv.Value.PassedTo], kv.Value.Detail)));
     }
 
-    /// <summary>
-    /// Typed values of field texts (Unity asset fields), located by each text's location: each text scanned as code
-    /// strings are, and a whole base64 or hex value reported as encoded with its decoded length (the first
-    /// <see cref="MaxEncoded"/> distinct ones; <paramref name="encodedDropped"/> counts the rest). Base64 or hex that
-    /// decodes to text is scanned too, located "(decoded: base64)". Nothing is decrypted. Empty for no values.
-    /// </summary>
+    /// <summary>Typed values of asset field texts, encoded values decoded and scanned once; nothing is decrypted; empty for no values.</summary>
     public static List<ExtractedValue> FromFields(IEnumerable<(string Text, string Location)> fields, out int encodedDropped, CancellationToken ct)
     {
         var b = new Builder();
@@ -159,11 +144,7 @@ public static partial class Values
         return Order(b.Items.Select(kv => new ExtractedValue(kv.Key.Type, kv.Key.Value, kv.Value.Count, kv.Value.Locations, [.. kv.Value.PassedTo], kv.Value.Detail)));
     }
 
-    /// <summary>
-    /// Adds <paramref name="text"/> as an encoded row when it is a whole hex or base64 value and fewer than
-    /// <see cref="MaxEncoded"/> distinct ones are in <paramref name="seen"/>; past the cap it counts it in
-    /// <paramref name="dropped"/>. Returns the decoding of a row added; null otherwise.
-    /// </summary>
+    /// <summary>Adds a whole hex or base64 value as an encoded row under the cap, else counts it; returns the decoding added, or null.</summary>
     private static (string Encoding, byte[] Bytes)? AddEncoded(Builder b, HashSet<string> seen, string text, Location where, IReadOnlyList<string>? passedTo,
         ref int dropped, AnalysisLimits limits)
     {
@@ -179,10 +160,7 @@ public static partial class Values
         return (e.Encoding, e.Bytes);
     }
 
-    /// <summary>
-    /// A whole value that is hex (32 digits or more) or standard base64 (24 characters or more, a multiple of 4, with
-    /// digits and both letter cases, or '=' padding): its encoding and bytes. Null for any other text.
-    /// </summary>
+    /// <summary>The encoding and bytes of a whole hex value of 32 digits or more, or base64 of 24 characters or more; null for any other text.</summary>
     private static (string Text, string Encoding, byte[] Bytes)? Encoded(string text, AnalysisLimits limits)
     {
         if (text.Length < MinEncodedChars) return null;
@@ -193,10 +171,7 @@ public static partial class Values
         return Embedded.TryBase64(text, limits) is { } bytes ? (text, "base64", bytes) : null;
     }
 
-    /// <summary>
-    /// The values of several assemblies as one list: one row per type and value with the counts added, each location
-    /// prefixed with its assembly's path ("App.dll: ..."), ordered as <see cref="Find"/> orders. Empty for no values.
-    /// </summary>
+    /// <summary>The values of several assemblies merged by type and value, locations prefixed with the assembly path; empty for no values.</summary>
     public static List<ExtractedValue> Join(IEnumerable<(string Assembly, IReadOnlyList<ExtractedValue> Values)> parts)
     {
         var rows = new Dictionary<(string Type, string Value), ExtractedValue>();
@@ -222,14 +197,10 @@ public static partial class Values
 
     private static IEnumerable<string> Matches(Regex regex, string text) => regex.Matches(text).Select(m => m.Value);
 
-    /// <summary>
-    /// IPv6 candidates: runs of hex digits, colons and dots outside a word, with two colons before any dot, ending
-    /// before a non-word character or at the run's last dot.
-    /// </summary>
+    /// <summary>IPv6 candidates: runs of hex digits, colons and dots outside a word with two colons before any dot.</summary>
     private static IEnumerable<string> Ipv6Candidates(string text)
     {
-        // A scan of whole runs: one regex of three overlapping classes
-        // backtracks cubically over a long run that ends inside a word.
+        // Scans whole runs: one regex of three overlapping classes backtracks cubically on a run ending inside a word.
         foreach (Match run in Ipv6Run.Matches(text))
         {
             int start = run.Index, end = run.Index + run.Length;
@@ -274,9 +245,10 @@ public static partial class Values
             var host = t.Contains(':') && !t.Contains("::") ? t[..t.IndexOf(':')] : t;
             if (IsDomain(host, requireKnownTld: true)) b.Add("domain", host, where, passedTo);
         }
+        // A number also used as Version= elsewhere in the text is a version.
         foreach (Match m in Ipv4().Matches(text))
             if (IsPlausibleIpv4(m.Value) && !IsVersionContext(text, m.Index)
-                && !text.Contains("Version=" + m.Value, StringComparison.OrdinalIgnoreCase)) // same number used as a version elsewhere
+                && !text.Contains("Version=" + m.Value, StringComparison.OrdinalIgnoreCase))
                 b.Add("ipv4", m.Value, where, passedTo);
         foreach (var candidate in Ipv6Candidates(text))
             if (candidate.Count(c => c == ':') >= 2 && IPAddress.TryParse(candidate, out var v6) && v6.AddressFamily == AddressFamily.InterNetworkV6
@@ -312,7 +284,8 @@ public static partial class Values
             return;
         }
         var limits = AnalysisLimits.Default;
-        var decoded = Embedded.TryHex(value, limits) is { } hex ? (Bytes: hex, Encoding: "hex") // hex first: hex is also valid base64
+        // Hex first: hex is also valid base64.
+        var decoded = Embedded.TryHex(value, limits) is { } hex ? (Bytes: hex, Encoding: "hex")
             : Embedded.TryBase64(value, limits) is { } b64 ? (Bytes: b64, Encoding: "base64")
             : s.Consumers.Any(a => a.EndsWith(".Encoding::GetBytes", StringComparison.Ordinal)) ? (Bytes: Encoding.UTF8.GetBytes(value), Encoding: "text")
             : (Bytes: (byte[]?)null, Encoding: "");

@@ -62,8 +62,8 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
     public sealed record EngineStatusReport(string Image, IReadOnlyList<EngineStatus> Engines);
 
     [McpServerTool(Name = "get_engine_status", Title = "Engine status of a native image", UseStructuredContent = true, OutputSchemaType = typeof(EngineStatusReport))]
-    [Description("IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open, with the engine view (language, " +
-                 "compiler, analysis state, warnings, counts, entry points, hashes, database, worker, unsaved edits). Starts no engine.")]
+    [Description("IDA and Ghidra sessions of a native image: state, and for an open one the engine view (language, analysis state, counts, " +
+                 "database). Starts no engine.")]
     public async Task<string> GetEngineStatus(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Default auto: both.")] string? engine = null,
@@ -81,7 +81,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         {
             bool saved = engines.HasSavedAnalysis(native, id);
             var identity = engines.Identity(id);
-            // Describe leaves only the completion pass's suffix in Profile
+            // Describe leaves only the completion pass's suffix in Profile.
             EngineStatus Known(EngineStatus s) => s with
             {
                 Profile = identity.Profile + s.Profile, Version = s.Version ?? identity.Version,
@@ -121,7 +121,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                 {
                     Stage = worker.BackgroundRunning ? $"background {job.What}: running {(DateTime.UtcNow - job.Started).TotalSeconds:0} of {job.Budget.TotalSeconds:0} s" : $"background {worker.BackgroundResult}",
                 };
-            // a running job holds the engine: no further questions to it
+            // A running job holds the engine; ask it nothing more.
             if (worker.BackgroundRunning) return status;
         }
         if (session is GhidraSession g)

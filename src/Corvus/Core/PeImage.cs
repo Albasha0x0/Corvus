@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Minimal, bounds-checked PE header parser. Never throws on malformed input. Accepts any in-file e_lfanew and any
-/// section count whose table fits the data, as the Windows loader does.
-/// </summary>
+/// <summary>A bounds-checked PE header parser that accepts what the Windows loader accepts; never throws on malformed input.</summary>
 public sealed class PeImage
 {
     public sealed record Section(string Name, uint VirtualAddress, uint VirtualSize, uint RawPointer, uint RawSize);
@@ -126,11 +123,7 @@ public sealed class PeImage
     /// <summary>Maps an RVA to a buffer offset; -1 when unmapped, virtual-only (zero-filled) or ambiguous.</summary>
     public long RvaToOffset(uint rva) => MapRva(rva) is (var at, RvaMapping.Mapped) ? at : -1;
 
-    /// <summary>
-    /// Maps an RVA through the section table. Each section spans its virtual size (raw size when 0) rounded up to the
-    /// section alignment, file-backed for its raw size. An RVA in two sections that back it with different file bytes is
-    /// <see cref="RvaMapping.Ambiguous"/>, never resolved by section order.
-    /// </summary>
+    /// <summary>Maps an RVA to a file offset; one backed differently by two sections is <see cref="RvaMapping.Ambiguous"/>.</summary>
     public (long Offset, RvaMapping Status) MapRva(uint rva)
     {
         long found = -1;
@@ -231,10 +224,7 @@ public sealed class PeImage
         return result;
     }
 
-    /// <summary>
-    /// NativeAOT: no CLI header, plus a ".managed" / "hydrated" section (.NET 7–8), a DotNetRuntimeDebugHeader export or a
-    /// NativeAOT module header in the section data (.NET 9+ merge their sections into .text / .data, DLLs may not export the debug header).
-    /// </summary>
+    /// <summary>True for a NativeAOT image: no CLI header, plus a NativeAOT section, debug header export or module header.</summary>
     public bool IsNativeAot(ReadOnlySpan<byte> data) =>
         !IsDotNet(data) && (Sections.Any(s => s.Name is ".managed" or "hydrated" or ".hydrated") || Exports(data).Contains("DotNetRuntimeDebugHeader")
                             || HasNativeAotHeader(data));

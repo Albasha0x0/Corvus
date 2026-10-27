@@ -140,11 +140,12 @@ public sealed class UnrealContainerTests(ITestOutputHelper output)
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
 
-    // Each pak under CORVUS_UNREAL_PAKS is listed by repak; where repak reads the contents (no encrypted files), each
-    // file's SHA-256 is compared. A pak with an encrypted index is skipped by repak without a key and named by Corvus.
+    // Each pak under CORVUS_UNREAL_PAKS is listed by the tool in CORVUS_PAK_TOOL; where it reads the contents (no
+    // encrypted files), each file's SHA-256 is compared. A pak with an encrypted index is skipped by the tool without a
+    // key and named by Corvus.
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_UNREAL_PAKS", "CORVUS_PAK_TOOL")]
-    public void Real_paks_hold_the_files_and_contents_repak_reads()
+    public void Real_paks_hold_the_files_and_contents_the_reference_tool_reads()
     {
         var tool = ExternalTools.Locate(ExternalTools.PakTool)!.Value.Path;
         var files = Directory.EnumerateFiles(RealData.Path("CORVUS_UNREAL_PAKS"), "*.pak", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList();

@@ -14,10 +14,7 @@ internal static class BootParts
         _ => null,
     };
 
-    /// <summary>
-    /// Adds one payload: decoded when <paramref name="codec"/> names one, else kept as stored; a headerless kernel gets the
-    /// load_assembly call that maps it at its address.
-    /// </summary>
+    /// <summary>Adds one payload, decoded by <paramref name="codec"/> when given; a headerless kernel gets its load_assembly call.</summary>
     public static void Add(List<ExtractedItem> items, List<ContainerEntry> entries, List<string> notes, string name, byte[] stored, string? codec,
         string? arch, ulong? load, ulong? entry, string detail, AnalysisLimits limits)
     {
@@ -34,10 +31,7 @@ internal static class BootParts
     }
 }
 
-/// <summary>
-/// U-Boot legacy images (uImage): the 64-byte header (CRC-checked), its payload, or each file of a multi-file image,
-/// decoded by the header's compression; the architecture and load address name the raw code.
-/// </summary>
+/// <summary>U-Boot legacy images (uImage): CRC-checked header and decoded payloads; architecture and load address map the code.</summary>
 internal sealed class UImageReader : IContainerReader
 {
     public string Kind => "uImage";
@@ -87,7 +81,7 @@ internal sealed class UImageReader : IContainerReader
         string detail = $"uImage payload, arch {arch ?? archCode.ToString()}, load 0x{load:X}, entry 0x{entry:X}";
         if (type == 4)
         {
-            // multi-file: a zero-terminated list of sizes, then each file 4-byte aligned
+            // Multi-file: a zero-terminated list of sizes, then each file 4-byte aligned.
             var sizes = new List<uint>();
             for (long p = 64; sizes.Count < 64; p += 4)
             {
@@ -110,10 +104,7 @@ internal sealed class UImageReader : IContainerReader
     });
 }
 
-/// <summary>
-/// U-Boot FIT images (a flattened device tree with an /images node): each image's data, inline or external
-/// (data-offset after the tree, data-position from its start), decoded by its compression property.
-/// </summary>
+/// <summary>U-Boot FIT images: each /images entry's inline or external data, decoded by its compression property.</summary>
 internal sealed class FitReader : IContainerReader
 {
     public string Kind => "FIT";
@@ -263,7 +254,8 @@ internal sealed class AndroidBootReader : IContainerReader
             notes.Add($"Android boot image v{version}, {page}-byte pages, kernel at 0x{U(12):X}, '{Encoding.ASCII.GetString(h, 48, 16).TrimEnd('\0')}'");
         }
         if (page is < 2048 or > 65536 || (page & (page - 1)) != 0) throw src.Malformed($"Android boot page size {page}");
-        long at = page; // the header takes the first page
+        // The header takes the first page.
+        long at = page;
         foreach (var (name, size) in parts)
         {
             if (size == 0) continue;

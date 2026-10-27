@@ -70,20 +70,20 @@ public sealed partial class NativeCodeTools
         if (engines == null || mode == EngineMode.Ours)
             throw new ToolError(ErrorCode.Unsupported, $"Struct members are known from the engine's types; engine=ours has none.",
                 "use engine=auto or engine=ida for Type::member");
-        // auto: IDA, else Ghidra when only it is installed; an explicit engine is taken as asked
+        // auto: IDA, else Ghidra when only it is installed; an explicit engine is taken as asked.
         var engine = EngineModes.ProviderId(mode) ?? (engines.UnavailabilityOf(Native.Providers.Ida.IdaProvider.ProviderId) == null
             ? Native.Providers.Ida.IdaProvider.ProviderId : engines.FirstAvailable() ?? Native.Providers.Ida.IdaProvider.ProviderId);
         if (engines.UnavailabilityOf(engine) is { } u)
             throw new ToolError(ErrorCode.ProviderUnavailable, $"Struct member references need {NativeEngineService.DisplayName(engine)}, which is not available: {u.Reason}", u.Remediation);
         var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"{NativeEngineService.DisplayName(engine)} {p.Stage}" })), ct);
-        // the recovered and the user's types must be in the database for their members to be found
+        // The recovered and the user's types must be in the database for their members to be found.
         if (names != null) await names.EnsureAsync(native, session, ct);
         if (types != null) await types.EnsureAsync(native, session, ct);
         if (userTypes != null) await userTypes.EnsureAsync(native, session, ct);
         // C++ names were pushed as identifiers (A::B as A__B)
         IReadOnlyList<string> candidates = field.Type.Contains("::", StringComparison.Ordinal) ? [field.Type, field.Type.Replace("::", "__", StringComparison.Ordinal)] : [field.Type];
-        // scope=all continues where the previous call on the same member stopped, in this session's database
+        // scope=all continues where the previous call on the same member stopped, in this session's database.
         var scanKey = $"{native.Id}|{session.ProviderId}|{EngineControl.Generation(session)}|{field.Type}|{field.Member}|{field.Offset}";
         FieldScan? before = null;
         if (all) lock (_fieldScans) _fieldScans.TryGetValue(scanKey, out before);
@@ -91,12 +91,12 @@ public sealed partial class NativeCodeTools
         try { r = await session.GetFieldXrefsAsync(candidates, field.Member, field.Offset, [], 60, all ? before?.Next ?? 0 : null, ct); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound)
         {
-            // the engine's generic next step (list the functions) does not apply to a type or member miss
+            // The engine's generic next step (list the functions) does not apply to a type or member miss.
             throw new ToolError(ErrorCode.NotFound, e.Message, FieldMissRemediation(field.Type, e.Message.Contains("has no member", StringComparison.Ordinal)));
         }
         if (all)
         {
-            // a finished scan restarts: the database may have changed since
+            // A finished scan restarts: the database may have changed since.
             var kept = before is { Next: not null } ? before : null;
             var merged = (kept?.Accesses ?? []).Concat(r.Accesses).DistinctBy(a => (a.Rva, a.Kind)).OrderBy(a => a.Rva).ThenBy(a => a.Kind, StringComparer.Ordinal).ToList();
             var progressed = new FieldScan(merged, r.Partial != null ? r.Next : null, (kept?.Scanned ?? 0) + r.Scanned, (kept?.Failed ?? 0) + r.Failed);

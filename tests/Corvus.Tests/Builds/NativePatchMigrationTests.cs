@@ -13,11 +13,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// migrate_native_patches: patches made on an old build are carried to a new build through the build matcher, reapplied
-/// only where the new build's original bytes match (exact for raw, address-masked for patch_asm), and refused with a
-/// reason otherwise. A synthetic pair of builds covers the paths; a Slow test migrates between real build pairs.
-/// </summary>
+/// <summary>migrate_native_patches reapplies patches where the new build's original bytes match and refuses with a reason otherwise.</summary>
 public class NativePatchMigrationTests(ITestOutputHelper output)
 {
     private sealed class Harness : IDisposable
@@ -141,7 +137,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         var (oldN, oldIdx) = await h.Load(old, "old.dll", [0x1000, 0x1040]);
         var (newN, _) = await h.Load(@new, "new.dll", [0x1000, 0x1040]);
 
-        // raw patch over f2's whole body (B8 01 00 00 00): the new build's original differs (B8 07 ...).
+        // Raw patch over f2's whole body (B8 01 00 00 00): the new build's original differs (B8 07 ...).
         h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PreparePatch(oldIdx, 0x1040, [0xB8, 0x02, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
         var dry = await h.Tools.CarryPatches(oldN.Id, newN.Id, dryRun: true);
         var entry = Assert.Single(dry.Items);
@@ -156,7 +152,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
     {
         using var h = new Harness();
         var old = X64Image(0x1000, 0x2000, 0x1040, 1);
-        // the new build has f1 only (f2 replaced by filler): f2's patch cannot map.
+        // The new build has f1 only (f2 replaced by filler): f2's patch cannot map.
         var newBuild = X64Image(0x1000, 0x2000, 0x1040, 1);
         for (int i = 0x40; i < 0x49; i++) newBuild[FileOffset(newBuild, 0x1000) + i] = 0x90;  // wipe f2 to nops
         var (oldN, oldIdx) = await h.Load(old, "old.dll", [0x1000, 0x1040]);
@@ -184,7 +180,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         Assert.Equal(1, export.Patches);
         Assert.StartsWith($"Wrote 1 patch of {oldN.Id} as json to {jsonPath} (1 record, ", exportText);
         Assert.True(exportText.TrimEnd('\n').Split('\n').Length <= 2, exportText);
-        // undo the in-memory patch so the only source is the JSON
+        // Undo the in-memory patch so the only source is the JSON.
         h.Edits.Undo(oldN, null);
         Assert.False(oldN.Patches.IsDirty);
 
@@ -207,11 +203,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
 
     // ---- real build pairs ----
 
-    /// <summary>
-    /// Migrates patches between real pairs of builds (the same pairs the native-diff tests discover: C:\symbols versions
-    /// and side-by-side .NET runtimes). On the old build a patch_asm ('xor eax, eax ; ret' at a function start) and a
-    /// patch_bytes ('int 3' at another) are applied, migrated to the new build, and the mapped bytes are verified.
-    /// </summary>
+    /// <summary>A patch_asm and a patch_bytes patch migrate between real build pairs and the mapped bytes verify.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
     public async Task Real_build_pairs_migrate_patches()
@@ -231,7 +223,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
             catch (Exception ex) { output.WriteLine($"{label}: skipped ({ex.GetType().Name})"); continue; }
             if (oldIdx.Support != CodeSupport.Full || newIdx.Support != CodeSupport.Full) continue;
 
-            // pick two function starts with a plain body to patch
+            // Pick two function starts with a plain body to patch.
             var sites = oldIdx.Functions.Where(f => f.End - f.Start >= 8).OrderBy(f => f.Start).Take(200).Select(f => f.Start).ToList();
             uint? asmSite = null, rawSite = null;
             byte[]? rawOriginal = null;
@@ -256,13 +248,13 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
             foreach (var e in report.Items.Where(e => e.Status == "applied"))
             {
                 Assert.NotNull(e.NewAddress);
-                // the applied bytes are present at the mapped address
+                // The applied bytes are present at the mapped address.
                 uint newRva = (uint)(Convert.ToUInt64(e.NewAddress!.Substring(2), 16) - newN.Image.ImageBase);
                 var got = new byte[e.ReplacementBytes!.Length / 2];
                 newN.Image.Read(newRva, got);
                 Assert.Equal(e.ReplacementBytes, Convert.ToHexString(got));
             }
-            // every entry is accounted for
+            // Every entry is accounted for.
             Assert.Equal(report.Patches, report.Items.Count(e => e.Status is "applied" or "refused"));
             if (appliedTotal > 0 && pairs >= 2) break;
             if (pairs >= 4) break;

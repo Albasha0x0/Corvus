@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// find_similar_functions on production code: the NativeAOT-compiled ilc of the ILCompiler packages names every method
-/// body, so instantiations of one generic method and one method in two releases are the ground truth.
-/// </summary>
+/// <summary>find_similar_functions on NativeAOT-compiled ilc, whose named method bodies give generic instantiations and cross-release pairs as ground truth.</summary>
 [Trait("Speed", "Slow")]
 public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
 {
@@ -56,10 +53,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
 
     private static bool Eligible(FunctionPrint p) => !p.Failed && p.Sketch != null && p.ThunkImport == null && p.Instructions >= MinInstructions;
 
-    /// <summary>
-    /// Instantiations of one generic method over different types (separate bodies): from a sample of them, how often
-    /// another instantiation of the same method is the best hit or among the first five.
-    /// </summary>
+    /// <summary>How often another instantiation of the same generic method is the best hit or in the first five.</summary>
     [Theory]
     [InlineData("win-x64")]
     [InlineData("win-arm64")]
@@ -74,7 +68,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
             .GroupBy(kv => Family(kv.Value)!).Where(g => g.Count() >= 2)
             .ToDictionary(g => g.Key, g => g.Select(kv => kv.Key).ToHashSet());
         var familyOf = families.SelectMany(kv => kv.Value.Select(i => (i, kv.Key))).ToDictionary(x => x.i, x => x.Key);
-        // every k-th member: a fixed sample across the image
+        // Every k-th member: a fixed sample across the image.
         var members = familyOf.Keys.Order().ToList();
         var sample = members.Where((_, k) => k % Math.Max(1, members.Count / 300) == 0).ToList();
         int top1 = 0, top5 = 0;
@@ -97,7 +91,7 @@ public partial class SimilarFunctionsRealTests(ITestOutputHelper output)
         var clusters = SimilarFunctions.Clusters(o.Prints, 0.8, MinInstructions, default, out int pairs);
         var clusterTime = csw.Elapsed;
         var clusterOf = clusters.SelectMany((c, k) => c.Members.Select(i => (i, k))).ToDictionary(x => x.i, x => x.k);
-        // members with an instantiation that a query scores 0.8 or more: how many share its cluster
+        // Members with an instantiation that a query scores 0.8 or more: how many share its cluster.
         int near = 0, together = 0;
         foreach (var q in sample)
         {

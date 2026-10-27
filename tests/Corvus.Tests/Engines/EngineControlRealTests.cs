@@ -83,8 +83,7 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
         var id = rig.Native.Id;
         var clock = Stopwatch.StartNew();
 
-        // search_decompiled: hits, then the cursor continues where the first call stopped. The engine opens first: the
-        // search's time budget would otherwise go to the analysis, all of it on a busy machine.
+        // The engine opens first, so the search's time budget does not go to analysis.
         await rig.Engines.Session(rig.Native, engine, null, default);
         output.WriteLine($"{engine} opened in {clock.Elapsed.TotalSeconds:0.0} s");
         clock.Restart();
@@ -118,7 +117,7 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
         output.WriteLine($"{engine} callersOf: {callers.Split('\n')[0]}");
         Assert.Matches(@"// \d+ inputs?: [1-9]\d* decompiled", callers);
 
-        // notes become engine marks (Ghidra bookmarks, IDA marked positions), replaced as the notes change
+        // Notes become engine marks (Ghidra bookmarks, IDA marked positions), replaced as the notes change.
         rig.Notes.Record("checks the certificate table", "finding", null, new NoteAnchor(NoteAnchor.Native, rig.Native.OriginalSha256.ToLowerInvariant(), Rva: callee), null, null, null);
         var marked = await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(id, $"rva:0x{callee:X}", engine: engine));
         Assert.Contains($"notes: 1 mark(s) in {engine}", marked);
@@ -203,9 +202,9 @@ public abstract class EngineControlRealTests(ITestOutputHelper output) : IDispos
         public Task Open_stages_Ida() => OpenStages("ida");
 
         [IdaFact]
-        public Task Ida() => Run("ida");
+        public Task Engine_controls_work_through_IDA() => Run("ida");
 
         [GhidraFact]
-        public Task Ghidra() => Run("ghidra");
+        public Task Engine_controls_work_through_Ghidra() => Run("ghidra");
     }
 }

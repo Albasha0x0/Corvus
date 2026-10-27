@@ -8,10 +8,7 @@ using Corvus.Services.Mobile;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// What the mobile rules read: an Android app's DEX code, manifest and network security config, or an Apple app's
-/// Info.plist beside the Mach-O image the survey indexes. Scans run once, on first use.
-/// </summary>
+/// <summary>What the mobile rules read: Android DEX, manifest and network config, or an Apple Info.plist; scans run once, on first use.</summary>
 public sealed class MobileSubject
 {
     /// <summary>"android" or "apple".</summary>
@@ -46,10 +43,7 @@ public sealed class MobileSubject
         lock (_lock) return _objc ??= AppleObjcMetadata.Read(macho, ct);
     }
 
-    /// <summary>
-    /// Packages of widely shipped libraries; code in them is reported apart from the app's. The app's own package always
-    /// counts as the app.
-    /// </summary>
+    /// <summary>Packages of widely shipped libraries, reported apart from app code; the app's own package always counts as the app.</summary>
     private static readonly string[] LibraryPackages =
     [
         "Landroidx/", "Landroid/support/", "Lcom/google/", "Lkotlin/", "Lkotlinx/", "Lokhttp3/", "Lokio/", "Lcom/squareup/", "Lretrofit2/",
@@ -77,14 +71,9 @@ public sealed class MobileSubject
     }
 }
 
-/// <summary>
-/// survey_features rules for Android and Apple apps, each with its MASVS control, severity and a review note: findings are
-/// places worth reviewing, never verdicts. Kinds: "dex:" (<see cref="DexRuleScan"/>), "apk:" (manifest and network security
-/// config: debuggable, cleartext, user-certificates, pins), "objc:sel:NAME" / "objc:class:NAME" (Objective-C selector and
-/// class references with the functions that use them), "objc:check:trust-unchecked" (a function that builds a credential
-/// from a server trust without calling SecTrustEvaluate*), "sym:REGEX" (imports and symbols, Swift names mangled) and
-/// "plist:ats-insecure" / "plist:pinned-domains" (Info.plist App Transport Security). Apple rules also use "str:".
-/// </summary>
+/// <summary>survey_features rules for Android and Apple apps with MASVS control, severity and review note; findings are places to review, not verdicts.</summary>
+// Kinds: dex: (DexRuleScan); apk:debuggable, cleartext, user-certificates, pins; objc:sel:NAME, objc:class:NAME,
+// objc:check:trust-unchecked; sym:REGEX (Swift names mangled); plist:ats-insecure, plist:pinned-domains; Apple rules also use str:.
 internal sealed partial class MobileRules : ISurveyRuleProvider
 {
     private const int MaxLocations = 5;
@@ -146,7 +135,7 @@ internal sealed partial class MobileRules : ISurveyRuleProvider
             "dex:call:Lcom/google/android/play/core/integrity/IntegrityManager;->requestIntegrityToken(",
             "dex:call:Lcom/google/android/play/core/integrity/StandardIntegrityManager;->prepareIntegrityToken(",
             "dex:call:Lcom/google/android/gms/safetynet/SafetyNetClient;->attest("),
-        // Emulator files and properties only: Build.MODEL names (goldfish, Genymotion) are also device quirk lists (CameraX)
+        // Emulator files and properties only: Build.MODEL names also appear in device quirk lists (CameraX).
         Android("android-emulator-detection", "MASVS-RESILIENCE-1", "info", "look for emulator files or properties",
             "Check what the app does on an emulator; these checks are routine in anti-fraud SDKs too.",
             @"dex:str:^(?:/dev/qemu_pipe|/dev/socket/qemud|/dev/goldfish_pipe|/system/lib(?:64)?/libc_malloc_debug_qemu\.so|/sys/qemu_trace|/system/bin/qemu-props|/system/bin/qemud|ro\.kernel\.qemu(?:\.gles)?|init\.goldfish\.rc|ueventd\.ranchu\.rc|/system/lib/libdroid4x\.so|/system/bin/nox-prop|/system/bin/ttVM-prop|fstab\.vbox86|ueventd\.vbox86\.rc|/dev/vboxguest|/dev/vboxuser)$"),

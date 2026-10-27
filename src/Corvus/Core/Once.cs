@@ -1,9 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// A value built once: the first caller builds it on its own thread (under its own workspace lock); later callers wait
-/// for it until their call is cancelled (a Lazy would hold them uncancellably). A build error reaches every caller.
-/// </summary>
+/// <summary>A value built once by the first caller; later callers wait cancellably, unlike Lazy, and see any build error.</summary>
 internal sealed class Once<T>
 {
     private readonly TaskCompletionSource<T> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -7,10 +7,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Ida;
 
-/// <summary>
-/// A database open in IDA that corvus_connect.py serves on 127.0.0.1, as its connection file in
-/// &lt;IDA user directory&gt;/corvus names it: port, token, IDA's process id and the SHA-256 of the input it was made from.
-/// </summary>
+/// <summary>A database corvus_connect.py serves on 127.0.0.1, read from its connection file in &lt;IDA user directory&gt;/corvus.</summary>
 internal sealed record IdaConnection(string File, int Port, string Token, int Pid, string? Sha256, string? Database, ulong ImageBase)
 {
     public const string Variable = "CORVUS_IDA_CONNECT";
@@ -19,10 +16,7 @@ internal sealed record IdaConnection(string File, int Port, string Token, int Pi
     /// <summary>Whether databases open in IDA are used: <paramref name="option"/>, else CORVUS_IDA_CONNECT=1. Off by default.</summary>
     public static bool Enabled(bool? option) => option ?? Environment.GetEnvironmentVariable(Variable) is "1" or "true";
 
-    /// <summary>
-    /// The connection files of running IDA processes in <paramref name="folder"/>, else in each IDA user directory's
-    /// corvus folder, in IDA's order; unreadable files and those of exited processes are left out.
-    /// </summary>
+    /// <summary>Connection files of running IDA processes in <paramref name="folder"/>, else in each IDA user directory; unreadable or stale files are skipped.</summary>
     public static IReadOnlyList<IdaConnection> List(string? folder = null)
     {
         var found = new List<IdaConnection>();

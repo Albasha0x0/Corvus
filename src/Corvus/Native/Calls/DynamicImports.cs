@@ -4,16 +4,12 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// A function resolved at run time: GetProcAddress with a constant name (or ordinal) and, when it can be traced, the
-/// module the handle comes from.
-/// </summary>
+/// <summary>A function resolved at run time by GetProcAddress with a constant name or ordinal, and the handle's module when traced.</summary>
 /// <param name="Module">The module ("kernel32.dll"), null when the handle could not be traced.</param>
 /// <param name="Name">The function name, or "#ordinal".</param>
 /// <param name="CallSite">The GetProcAddress call.</param>
 /// <param name="How">How the name and the module were found.</param>
-/// <param name="Confidence">high: name and module from constants in the calling function; medium: the module handle comes through a global written once or a local wrapper of LoadLibrary;
-/// low: the module is unknown.</param>
+/// <param name="Confidence">high: name and module are constants in the caller; medium: the handle comes through a global or a LoadLibrary wrapper; low: module unknown.</param>
 /// <param name="PointerGlobal">The global the result is stored to, when it is stored right after the call.</param>
 /// <param name="PointerCalls">Calls through that global (call [g], or mov reg, [g] then call reg); empty unless the global has this one store.</param>
 public sealed record DynamicImport(string? Module, string Name, uint CallSite, NativeFunction Function, string How, string Confidence,
@@ -102,10 +98,7 @@ public sealed partial class CallAnalysis
 
     private string? ApiName(string? name) => ApiName(Image.Format, name);
 
-    /// <summary>
-    /// The calls to each of <paramref name="apis"/>: through imports, and to local functions of that name (a statically
-    /// linked platform layer such as GetProcAddress over dlsym).
-    /// </summary>
+    /// <summary>The calls to each of <paramref name="apis"/>, through imports and to statically linked functions of that name.</summary>
     private IEnumerable<(string Api, IEnumerable<CallSiteInfo> Calls)> ApiCalls(string[] apis, CancellationToken ct)
     {
         foreach (var imp in Image.Imports)
@@ -156,7 +149,7 @@ public sealed partial class CallAnalysis
                 imports.Add(new DynamicImport(module, name, s.Rva, s.Caller, how + moduleText, confidence, StoreOfResult(code, s.Rva), []));
             }
 
-        // pointer globals with one store: the calls through them are calls to the import
+        // Calls through a pointer global with one store are calls to the import.
         var byGlobal = new Dictionary<uint, DynamicImport>();
         var bySite = new Dictionary<uint, DynamicImport>();
         var final = new List<DynamicImport>(imports.Count);
@@ -194,11 +187,7 @@ public sealed partial class CallAnalysis
         };
     }
 
-    /// <summary>
-    /// The module a handle value comes from: the string argument of the LoadLibrary* / GetModuleHandle* call that returned
-    /// it, a global written once with such a result, __ImageBase / GetModuleHandle(NULL) (this image), or one agreeing
-    /// alternative of a merge (the usual "cached handle or load it" pattern).
-    /// </summary>
+    /// <summary>The module a handle comes from: a LoadLibrary* / GetModuleHandle* argument, a global holding one, this image, or agreeing merge inputs.</summary>
     private (string? Module, string How, bool Medium) ModuleOf(FunctionCode code, Val v, CancellationToken ct, int depth)
     {
         if (depth > 3) return (null, "", false);
@@ -212,7 +201,7 @@ public sealed partial class CallAnalysis
                 var api = ApiName(c.Import?.Name ?? c.Dynamic?.Name ?? (c.Kind == CalleeKind.Function ? c.Name : null));
                 if (api == null || !ModuleApis.Contains(api))
                 {
-                    // a local wrapper such as LoadSystemLibrary(L"x.dll"): the module-like string it is passed
+                    // A local wrapper such as LoadSystemLibrary(L"x.dll"): take the module-like string it is passed.
                     if (c.Kind != CalleeKind.Function) break;
                     var wrapper = Site(code, b, i);
                     var arg = wrapper.Arguments.FirstOrDefault(a => a.Kind == ArgKind.String && ModuleLike(Unquote(a.Text)));
@@ -230,7 +219,7 @@ public sealed partial class CallAnalysis
             }
             case VKind.TakenLocal:
             {
-                // GetModuleHandleEx(flags, L"x.dll", &local)
+                // GetModuleHandleEx(flags, L"x.dll", &local).
                 foreach (var s in CallsIn(code.Function, ct))
                     if (s.Import?.Name is "GetModuleHandleExW" or "GetModuleHandleExA" && s.Arguments.Count == 3 && s.Arguments[1].Kind == ArgKind.String
                         && s.Arguments[2].Raw is { Kind: VKind.StackAddr } slot && slot.Num == v.Num && slot.Site == v.Site)
@@ -241,7 +230,7 @@ public sealed partial class CallAnalysis
                 return (Path.GetFileName(Image.Path), "__ImageBase: this image", false);
             case VKind.Load when !_slots.ContainsKey(v.Rva):
             {
-                // every store to the global (at most 4) must hold the same module
+                // Every store to the global (at most 4) must hold the same module.
                 var writes = Index.RefsTo(v.Rva).Where(x => x.Kind == XrefKind.Write).Select(x => x.From).Distinct().Take(5).ToList();
                 if (writes.Count is 0 or > 4) break;
                 string? module = null, how = null;
@@ -281,14 +270,11 @@ public sealed partial class CallAnalysis
         return (null, "", false);
     }
 
-    /// <summary>
-    /// A wrapper (resolve(name) { return GetProcAddress(h, name); }): the name is a parameter and the result is returned; each
-    /// call of the wrapper with a constant name, as (that call, its function, the name).
-    /// </summary>
+    /// <summary>For a wrapper that returns GetProcAddress(h, name) of its parameter: each call of it with a constant name.</summary>
     private List<(uint Site, NativeFunction Caller, string Name)> Wrapped(CallSiteInfo s, CancellationToken ct)
     {
         var result = new List<(uint, NativeFunction, string)>();
-        // without direct callers there is no constant to find: skip the slices (functions with hundreds of resolver calls)
+        // Without direct callers there is no constant to find, so skip the slices.
         if (!Index.Callers(s.Caller).Any(c => c.Kind == XrefKind.Call && c.Caller != null)) return result;
         var root = Slices.Backward(s.Caller, new SliceSeed(SliceSeedKind.Argument, s.Rva, Slices.LocationName(Slices.ParameterEntry(1))), ct);
         if (root.Nodes.Count <= root.Root || root.Nodes[root.Root] is not { Kind: SliceNodeKind.Parameter, Index: >= 0 and var k }) return result;
@@ -309,10 +295,7 @@ public sealed partial class CallAnalysis
         text.Length is > 4 and < 260 && System.Text.RegularExpressions.Regex.IsMatch(text, @"^[\w\\:.\- ]+\.(?:dll|exe|drv|ocx|cpl|sys|mui)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    /// <summary>
-    /// The writable global the result of the call at <paramref name="site"/> is stored to: rax (and registers it is
-    /// copied to) followed forward through the block and up to 3 successors until "mov [global], reg".
-    /// </summary>
+    /// <summary>The writable global the call's rax result is stored to, followed through the block and up to 3 successors; null when none.</summary>
     private uint? StoreOfResult(FunctionCode code, uint site)
     {
         var (b, i) = code.Position(site);
@@ -377,10 +360,7 @@ public sealed partial class CallAnalysis
         return result.Distinct().ToList();
     }
 
-    /// <summary>
-    /// The first call through a register in <paramref name="regs"/> (copies followed) from <paramref name="index"/> on, through the
-    /// block and up to 3 successors: call / jmp reg, or with rax the CFG dispatch (call [dispatch pointer] or a "jmp rax" thunk).
-    /// </summary>
+    /// <summary>The first call through one of <paramref name="regs"/> (or the CFG dispatch for rax) in the block and up to 3 successors.</summary>
     private uint? CallThrough(FunctionCode code, int block, int index, ulong regs, int depth, int budget)
     {
         ulong rax = 1UL << FunctionCode.Bit(Register.RAX);

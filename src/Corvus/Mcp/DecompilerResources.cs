@@ -7,10 +7,8 @@ using Corvus.Services;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// MCP resources exposing decompiled code, IL and assembly overviews by URI. Template values are URL-decoded
-/// (e.g. "App%232" for id "App#2"); nested types use '+' because '/' separates URI segments.
-/// </summary>
+/// <summary>MCP resources for decompiled code, IL and assembly overviews by URI.</summary>
+// Template values are URL-decoded ("App%232" is id "App#2"); nested types use '+' because '/' separates URI segments.
 [McpServerResourceType]
 public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerService decompiler, AssemblyReport report)
 {
@@ -53,7 +51,7 @@ public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerS
         });
 
     [McpServerResource(UriTemplate = Scheme + "://guide/{topic}", Name = "guide", Title = "Guide topic", MimeType = "text/plain")]
-    [Description("The full guidance on one area: dotnet, native, il2cpp, containers, edits, builds, idapython, dumps or errors.")]
+    [Description("The full guidance on one area: dotnet, native, aot, containers, edits, builds, idapython, dumps or errors.")]
     public static string GuideTopic([Description("Topic name.")] string topic) =>
         Guide.Topic(Decode(topic)) ?? throw WorkflowPrompts.UnknownTopic(Decode(topic));
 

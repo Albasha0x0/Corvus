@@ -21,10 +21,7 @@ public sealed class NativeAotSamplesTheoryAttribute : TheoryAttribute
     }
 }
 
-/// <summary>
-/// Builds NativeAotSample/Program.cs with the SDK for several target frameworks and compiler options and checks the
-/// recovered names against the build's own PDB (method symbols at the named addresses, `vftable` symbols at MethodTables).
-/// </summary>
+/// <summary>Recovered names of NativeAotSample builds match the build's own PDB.</summary>
 [Trait("Speed", "Slow")]
 public class NativeAotSampleTests(ITestOutputHelper log)
 {
@@ -46,12 +43,7 @@ public class NativeAotSampleTests(ITestOutputHelper log)
 
     private static readonly string Cache = Path.Combine(LeakGuard.SharedTemp, "corvus-test-data", "nativeaot-samples");
 
-    /// <summary>
-    /// The folder of <paramref name="variant"/>'s published build. A build is kept per sample source, project, variant
-    /// and SDK version and shared by later runs, as the test checks the reader, not the compiler; an exhaustive run
-    /// publishes afresh in <paramref name="scratch"/>, so a new linker is seen at release strength. Fails the test when
-    /// dotnet publish fails.
-    /// </summary>
+    /// <summary>The folder of <paramref name="variant"/>'s published build, cached per source, project, variant and SDK; an exhaustive run publishes afresh in <paramref name="scratch"/>; a failed publish fails the test.</summary>
     private static string Published(string variant, TempDir scratch)
     {
         var (tfm, _, rid, properties) = Variants[variant];
@@ -102,7 +94,7 @@ public class NativeAotSampleTests(ITestOutputHelper log)
 
     [NativeAotSamplesTheory]
     [MemberData(nameof(Names))]
-    public async Task Sample_NamesMatchThePdb(string variant)
+    public async Task Sample_names_match_the_PDB(string variant)
     {
         var (_, runtime, _, properties) = Variants[variant];
         using var dir = new TempDir();

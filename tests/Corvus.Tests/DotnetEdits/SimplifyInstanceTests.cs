@@ -8,11 +8,7 @@ using SymbolKind = Corvus.Core.SymbolKind;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods with class instances the evaluated code creates: singletons whose fields are set at startup and only
-/// read afterwards (as .NET Reactor's provably-constant conditions read a field of a &lt;Module&gt; object), instance and virtual
-/// calls, and instances that are modified later, which must stay. The fixture runs before and after.
-/// </summary>
+/// <summary>Instances the evaluated code creates: read-only singleton fields, instance and virtual calls fold; instances modified later stay.</summary>
 public sealed class SimplifyInstanceTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -158,7 +154,7 @@ public sealed class SimplifyInstanceTests : IDisposable
     [Theory]
     [InlineData("Mode", 1)]
     [InlineData("ConstantCondition", 2)]
-    public void ConditionsOnFieldsOfSingletonsFold(string method, int branches)
+    public void Conditions_on_fields_of_singletons_fold(string method, int branches)
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Inst.Use::" + method);
@@ -173,7 +169,7 @@ public sealed class SimplifyInstanceTests : IDisposable
     [Theory]
     [InlineData("Name", "cfg3")]
     [InlineData("Shapes", "shape:3,square")]
-    public void InstanceAndVirtualCallsFoldToLiterals(string method, string literal)
+    public void Instance_and_virtual_calls_fold_to_literals(string method, string literal)
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Inst.Use::" + method);
@@ -182,14 +178,11 @@ public sealed class SimplifyInstanceTests : IDisposable
         Assert.Equal(literal, Run(env.Fixture.GetImageBytes(), method));
     }
 
-    /// <summary>
-    /// A field nothing writes is its default on every object, even when the singleton's initializer cannot be evaluated;
-    /// the load stays, so a null singleton still throws as it did.
-    /// </summary>
+    /// <summary>A field nothing writes is its default; the load stays, so a null singleton still throws.</summary>
     [Theory]
     [InlineData("Reactor")]
     [InlineData("NullSingleton")]
-    public void FieldsNothingWritesFoldWithTheirLoadKept(string method)
+    public void Fields_nothing_writes_fold_with_their_load_kept(string method)
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Inst.Use::" + method);
@@ -217,7 +210,7 @@ public sealed class SimplifyInstanceTests : IDisposable
     }
 
     [Fact]
-    public void FieldsOfInstancesModifiedLaterStay()
+    public void Fields_of_instances_modified_later_stay()
     {
         using var env = new Env(Fixture());
         var before = string.Join("\n", Body(env, "Inst.Use::Mutated"));

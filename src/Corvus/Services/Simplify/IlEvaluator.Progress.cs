@@ -8,23 +8,25 @@ namespace Corvus.Services.Simplify;
 /// <summary>A type initializer run that went past the instruction budget into the extended tier.</summary>
 public sealed record ExtendedInitializer(string Type, long Instructions, bool Completed, string? Stop);
 
-/// <summary>
-/// The extended tier for type initializers: a run that exhausts the instruction budget while committing new state gets
-/// further budget windows. Rules and limits: SimplifyManifest's "initializer tier" entry (docs/simplify.md).
-/// </summary>
+/// <summary>Extended tier: a type initializer that exhausts the budget while committing new state gets more windows (docs/simplify.md).</summary>
 internal sealed partial class IlEvaluator
 {
     /// <summary>Instructions per changed location a window must commit to earn the next one.</summary>
     internal const int ProgressRatio = 1024;
 
-    private int _window; // numbers windows (across runs): a location counts once per window
-    private long _progress; // locations changed in the current window
-    private ulong _state; // fingerprint of the locations the current run wrote
+    // Window number across runs; a location counts once per window.
+    private int _window;
+    // Locations changed in the current window.
+    private long _progress;
+    // Fingerprint of the locations the current run wrote.
+    private ulong _state;
     private readonly HashSet<ulong> _windowStates = new();
-    private long _tierGranted; // instructions granted beyond the budget in the current run
-    private TimeSpan _runStart, _runWallStart; // thread CPU and wall time when the current initializer run began
-    private long _budgetAtRun; // the evaluation's budget when the current initializer run began
-    private string? _tierStop; // why the tier stopped granting windows
+    // Instructions granted beyond the budget in the current run.
+    private long _tierGranted;
+    // Thread CPU and wall time, and the budget, when the current initializer run began.
+    private TimeSpan _runStart, _runWallStart;
+    private long _budgetAtRun;
+    private string? _tierStop;
     private readonly Dictionary<FieldDef, int> _staticStamps = new();
     private readonly List<ExtendedInitializer> _extended = new();
 
@@ -33,14 +35,12 @@ internal sealed partial class IlEvaluator
 
     private bool InTier => _tierGranted > 0;
 
-    private bool _observed; // the current run went past the budget: its writes are tracked from then on
+    // The current run went past the budget; its writes are tracked from then on.
+    private bool _observed;
 
     private bool Tracking => _observed && _cctorDepth > 0;
 
-    /// <summary>
-    /// The current run is in its observed window: it went past the budget and has not yet shown progress. Whatever ends
-    /// the run now, it ends as it would have without the tier: its budget ran out.
-    /// </summary>
+    /// <summary>The run is past the budget without progress yet; ending now counts as running out of budget.</summary>
     private bool InProbation => _observed && _tierGranted <= limits.InstructionBudget;
 
     /// <summary>Called before the outermost static constructor run starts (<see cref="_cctorDepth"/> is 0).</summary>
@@ -58,12 +58,7 @@ internal sealed partial class IlEvaluator
         _budgetAtRun = _budget;
     }
 
-    /// <summary>
-    /// Called after the outermost static constructor run ends. Returns whether the run used the extended tier and failed:
-    /// past its observed window the run draws on the tier, not on what the evaluation had left, so it would fail the
-    /// same way again (the caller remembers the failure even when its reason is a resource limit). A run that failed in
-    /// its observed window failed for lack of budget, as without the tier: it is neither reported nor remembered.
-    /// </summary>
+    /// <summary>Returns whether the outermost run failed in the tier past probation, a failure that repeats and is remembered.</summary>
     private bool EndInitializerRun(TypeDef type, bool completed)
     {
         if (!InTier) return false;
@@ -78,7 +73,8 @@ internal sealed partial class IlEvaluator
             long executed = _budgetAtRun + _tierGranted - Math.Max(_budget, 0);
             _extended.Add(new ExtendedInitializer(type.FullName, executed, completed, completed ? null : _tierStop ?? "evaluation left the supported subset"));
             Meter?.Exclude(ThreadCpuTime.Now() - _runStart, Stopwatch.GetElapsedTime(0) - _runWallStart);
-            _budget = _budgetAtRun; // the run is the tier's: the evaluation that triggered it is not charged
+            // The tier pays for the run, not the evaluation that triggered it.
+            _budget = _budgetAtRun;
             return !completed;
         }
         finally
@@ -96,7 +92,7 @@ internal sealed partial class IlEvaluator
         long window = limits.InstructionBudget;
         if (!_observed)
         {
-            // The first window past the budget is observed: what it commits decides whether the run goes on.
+            // What the first window past the budget commits decides whether the run goes on.
             _observed = true;
             return Grant(window);
         }
@@ -127,10 +123,7 @@ internal sealed partial class IlEvaluator
         return true;
     }
 
-    /// <summary>
-    /// The outermost initializer run completed. In its observed window it must have made progress for what it ran
-    /// there: otherwise it completes only thanks to the tier, and fails as it would have without it.
-    /// </summary>
+    /// <summary>A completed run must have made progress in its observed window, or it fails as without the tier.</summary>
     private void PassObservation()
     {
         if (!InProbation) return;
@@ -138,7 +131,7 @@ internal sealed partial class IlEvaluator
         if (_progress < Math.Max(1, used / ProgressRatio)) throw BudgetExhausted();
     }
 
-    /// <summary>A failure of the outermost run: in its observed window, the budget running out is what stopped it.</summary>
+    /// <summary>The failure to report for the outermost run: budget exhaustion while in probation.</summary>
     private EvaluationBailout InitializerFailure(EvaluationBailout failure) => InTier && InProbation ? BudgetExhausted() : failure;
 
     private EvaluationBailout BudgetExhausted() => _methodBudgetBound
@@ -157,7 +150,7 @@ internal sealed partial class IlEvaluator
     }
 
     private EvaluationBailout TierExhausted() =>
-        Bail(FallbackReason.InstructionBudget, $"the type initializer ran past the instruction budget in the extended tier for initializers that make progress, and stopped: {_tierStop}");
+        Bail(FallbackReason.InstructionBudget, $"the type initializer's extended tier stopped: {_tierStop}");
 
     /// <summary>The elements of a range before a write to it, when the run is tracked.</summary>
     private object?[]? Before(ArrayObject array, int start, int count)

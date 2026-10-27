@@ -8,7 +8,7 @@ namespace Corvus.Tests.NativeFormats;
 public sealed class AppleSwiftRealTests(ITestOutputHelper output)
 {
     [Fact]
-    public void StripeUICore_TypesFieldsConformancesAndNames()
+    public void A_Swift_framework_reads_types_fields_conformances_and_names()
     {
         var image = MachOFile.Open(AppleObjcRealTests.StripeUICore);
         var swift = AppleSwiftMetadata.Read(image);
@@ -19,7 +19,7 @@ public sealed class AppleSwiftRealTests(ITestOutputHelper output)
         Assert.Equal(540, fields);
         Assert.Equal(17, swift.Protocols.Count);
         Assert.Equal(174, swift.Conformances.Count);
-        // every field type demangles, symbolic references included
+        // Every field type demangles, symbolic references included.
         Assert.DoesNotContain(swift.Types.SelectMany(t => t.Fields), f => f.Type != null && f.Type.Contains("<ref>", StringComparison.Ordinal));
 
         var button = swift.Types.Single(t => t.Name == "StripeUICore.Button");
@@ -29,7 +29,7 @@ public sealed class AppleSwiftRealTests(ITestOutputHelper output)
         Assert.Contains(representable.Fields, f => f.Name == "_text" && f.Type == "SwiftUI.Binding<Swift.String>");
         Assert.Contains(swift.Conformances, c => c.Type == "StripeUICore.ActivityIndicator.Size" && c.Protocol == "Swift.Hashable" && c.ProtocolExternal);
 
-        // the public API's mangled names (abi.json, word-substituted) demangle to types the metadata names
+        // The public API's mangled names (abi.json, word-substituted) demangle to types the metadata names.
         var abi = File.ReadAllText(Path.Combine(Path.GetDirectoryName(AppleObjcRealTests.StripeUICore)!, "Modules", "StripeUICore.swiftmodule", "arm64-apple-ios.abi.json"));
         var nominal = System.Text.RegularExpressions.Regex.Matches(abi, "\"mangledName\": \"(\\$s12StripeUICore[0-9A-Za-z_]+[CVO])\"")
             .Select(m => m.Groups[1].Value).Distinct().ToList();
@@ -48,7 +48,7 @@ public sealed class AppleSwiftRealTests(ITestOutputHelper output)
     /// <summary>The .NET runtime's Apple crypto shim binds CryptoKit through Swift: its records read without issues.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void DotnetAppleCryptoShim_ReadsCleanly()
+    public void The_NET_Apple_crypto_shim_reads_without_issues()
     {
         var path = RealPackages.File("Microsoft.NETCore.App.Runtime.osx-arm64", "10.0.11", "runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.dylib");
         var image = MachOFile.Open(path);

@@ -1,9 +1,6 @@
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// A hybrid PE's two instruction sets (ARM64X: ARM64 with x64 ranges; ARM64EC: x64 with ARM64 ranges) as one decoder:
-/// each address goes to the decoder of its code map range; the per-run state follows the last decoded instruction.
-/// </summary>
+/// <summary>Decodes a hybrid PE (ARM64X, ARM64EC) with the decoder of each address's code map range.</summary>
 internal sealed class HybridDecoder(ICodeDecoder primary, ICodeDecoder other, (uint Start, uint End)[] otherRanges) : ICodeDecoder
 {
     private ICodeDecoder? _current;

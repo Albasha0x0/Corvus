@@ -23,7 +23,7 @@ dotnet_diagnostic.IDE0051.severity = error
 dotnet_diagnostic.IDE0052.severity = error
 
 # Analyzer rules turned off on purpose (warnings are errors; see Directory.Build.props).
-# Naming: tool and test names follow the MCP surface and the domain (Il2Cpp, IL, PE), not framework naming guidelines.
+# Naming: tool and test names follow the MCP surface and the domain (AOT, IL, PE), not framework naming guidelines.
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1711.severity = none
 dotnet_diagnostic.CA1716.severity = none

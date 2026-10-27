@@ -13,11 +13,7 @@ public sealed record CapturedResponse(string Method, string Url, int Status, str
     public bool Request { get; init; }
 }
 
-/// <summary>
-/// Traffic captures as containers of responses: HAR (browser and proxy exports, JSON) and mitmproxy flow files (tnetstrings).
-/// Each response body becomes a file named after its URL (host/path, the query folded into a short hash), decoded by its
-/// Content-Encoding (gzip, deflate, br, zstd) within the size limits. Nothing is fetched or replayed.
-/// </summary>
+/// <summary>HAR and mitmproxy captures as containers of decoded response bodies named by URL; nothing is fetched or replayed.</summary>
 public static class Captures
 {
     public const string HarKind = "HAR capture (HTTP responses)";
@@ -65,11 +61,7 @@ public static class Captures
         return ReadHar(s, result.Add, AnalysisLimits.Default.MaxItemBytes, default) ? result : null;
     }
 
-    /// <summary>
-    /// Streams a HAR file: each element of log.entries is parsed on its own and handed to <paramref name="response"/>, so memory
-    /// holds one entry (at most <paramref name="maxEntryBytes"/> of JSON) rather than the document. False when there is no
-    /// log.entries array. Without <paramref name="bodies"/> the response bodies are not decoded (Body null).
-    /// </summary>
+    /// <summary>Streams a HAR file one entry at a time to <paramref name="response"/>; false when there is no log.entries array; without <paramref name="bodies"/> Body is null.</summary>
     public static bool ReadHar(Stream stream, Action<CapturedResponse> response, long maxEntryBytes, CancellationToken ct, bool bodies = true) =>
         ReadHarEntries(stream, e => response(Response(e, bodies)), maxEntryBytes, ct);
 
@@ -131,7 +123,8 @@ public static class Captures
                             break;
                         case JsonTokenType.StartArray or JsonTokenType.String or JsonTokenType.Number or JsonTokenType.True or JsonTokenType.False or JsonTokenType.Null
                             when depth == 0:
-                            return false; // the root is not an object
+                            // The root is not an object.
+                            return false;
                     }
                 }
                 refill:
@@ -174,7 +167,8 @@ public static class Captures
                 else
                 {
                     body = Encoding.UTF8.GetBytes(text);
-                    encoding = null; // HAR text is the decoded body
+                    // HAR text is the decoded body.
+                    encoding = null;
                 }
             }
         }
@@ -184,7 +178,8 @@ public static class Captures
         {
             if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.String) return null;
             try { return v.GetString(); }
-            catch (InvalidOperationException) { return null; } // invalid UTF-8 in the string
+            // Invalid UTF-8 in the string.
+            catch (InvalidOperationException) { return null; }
         }
 
         static string? HarHeader(JsonElement response, string name)
@@ -203,10 +198,7 @@ public static class Captures
         return result;
     }
 
-    /// <summary>
-    /// Streams a mitmproxy flow file: each top-level flow is read and parsed on its own, so memory holds one flow (at most
-    /// <paramref name="maxFlowBytes"/>) rather than the file. HTTP flows go to <paramref name="response"/>.
-    /// </summary>
+    /// <summary>Streams a mitmproxy flow file one flow at a time; HTTP flows go to <paramref name="response"/>.</summary>
     public static void ReadFlows(Stream stream, Action<CapturedResponse> response, List<string> notes, long maxFlowBytes, CancellationToken ct) =>
         ReadFlowObjects(stream, flow =>
         {
@@ -219,7 +211,7 @@ public static class Captures
     internal static void ReadFlowObjects(Stream stream, Func<object?, bool> flow, List<string> notes, long maxFlowBytes, CancellationToken ct)
     {
         long length = stream.Length;
-        // flows are read through a window, so small ones cost no seek each
+        // Flows are read through a window, so small ones cost no seek each.
         var window = new byte[(int)Math.Min(1 << 20, Math.Max(length, 1))];
         long start = 0;
         int filled = 0;
@@ -236,7 +228,7 @@ public static class Captures
         for (long at = 0; at < length;)
         {
             ct.ThrowIfCancellationRequested();
-            // a length past the file is left to the parser, which says so; one that fits but is too large stops the read
+            // A length past the file is left to the parser; one that fits but is too large stops the read.
             long size = FirstFlowEnd(At(at, 11)) is { } end && end < length - at ? end + 1 : length - at;
             if (size > maxFlowBytes)
             {
@@ -425,10 +417,7 @@ public static class Captures
         }
     }
 
-    /// <summary>
-    /// "host[_port]/path segments", each segment unescaped and made a safe file name; a trailing '/' becomes "index", a query
-    /// adds "_q&lt;hash&gt;" before the extension, and a missing extension comes from the MIME type.
-    /// </summary>
+    /// <summary>"host[_port]/path" as safe file names; a trailing '/' becomes "index", a query adds "_q&lt;hash&gt;".</summary>
     internal static string PathOf(CapturedResponse r)
     {
         if (!Uri.TryCreate(r.Url, UriKind.Absolute, out var uri) || uri.Scheme == "data")

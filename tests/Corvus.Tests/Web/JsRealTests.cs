@@ -19,7 +19,7 @@ public sealed class JsRealTests
         var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
         Assert.True(r.IsError != true && text.Contains("1 sources"), text);
 
-        // every named segment sampled points at that name in the unminified source
+        // Every named segment sampled points at that name in the unminified source.
         var map = JsAnalysis.Map(min);
         var original = File.ReadAllLines(Script("jquery-3.7.1.js"));
         var minified = File.ReadAllLines(min);
@@ -29,7 +29,7 @@ public sealed class JsRealTests
                 if (map.Find(line, column) is { Name: >= 0 } seg)
                 {
                     var name = map.Names[seg.Name];
-                    // a quoted property key ("* text": ...) maps to its opening quote
+                    // A quoted property key ("* text": ...) maps to its opening quote.
                     var at = original[seg.OriginalLine].AsSpan(seg.OriginalColumn);
                     if (at.Length > 0 && at[0] is '"' or '\'') at = at[1..];
                     Assert.True(at.StartsWith(name),

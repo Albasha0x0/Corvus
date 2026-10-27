@@ -8,11 +8,7 @@ namespace Corvus.Core.Installers;
 /// <summary>A file of a cabinet: its name, size, folder and offset in the folder's data, and DOS attributes.</summary>
 internal sealed record CabinetFile(string Name, long Size, int Folder, long Offset, int Attributes, DateTime? Modified);
 
-/// <summary>
-/// Microsoft cabinet files (MS-CAB, "MSCF"): folders stored, MSZIP (each 32 KiB block a deflate stream that may refer back
-/// to the previous block) or LZX; files sliced from their folder's data. Quantum folders and files continued from or into
-/// another cabinet are listed, not extracted.
-/// </summary>
+/// <summary>Cabinet files (MS-CAB): stored, MSZIP and LZX folders; Quantum folders and spanned files are listed, not extracted.</summary>
 internal sealed class Cabinet
 {
     public List<CabinetFile> Files { get; } = [];

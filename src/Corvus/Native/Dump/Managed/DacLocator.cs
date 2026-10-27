@@ -18,30 +18,21 @@ public sealed record DacRequest(string? Path = null, bool Download = false, stri
 /// <summary>A DAC file to try, and where it came from.</summary>
 public sealed record DacCandidate(string Path, string Source);
 
-/// <summary>
-/// Finds the DAC (mscordaccore.dll / mscordacwks.dll) that matches a dumped runtime, offline first: the caller's path,
-/// the runtime's own folder when it holds the same build, the runtimes installed on this machine, and local symbol
-/// stores. A Linux core's runtime is read with the Windows-hosted DAC built for Linux targets, stored under the
-/// build id of libcoreclr.so. A download from a symbol server happens only when asked for, never under CORVUS_OFFLINE=1. Every file must
-/// carry Microsoft's signature (embedded or through a system catalog) before it is loaded.
-/// </summary>
+/// <summary>Finds the DAC matching a runtime, local first, downloading only on request and never under CORVUS_OFFLINE=1; each file must carry Microsoft's signature, embedded or through a system catalog, before it loads.</summary>
 public static class DacLocator
 {
     public const string Publisher = "Microsoft Corporation";
     public static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(2);
     public const long MaxDownloadBytes = 64L << 20;
 
-    /// <summary>
-    /// Local candidates for a process of <paramref name="arch"/>, best first; none of them is checked for its signature yet.
-    /// <paramref name="runtimeFolder"/> is the folder of a core's runtime file already matched by build id.
-    /// </summary>
+    /// <summary>Local DAC candidates for <paramref name="arch"/>, best first, signatures not yet checked.</summary>
     public static IEnumerable<DacCandidate> Local(ClrInfo clr, DumpModule runtime, DacRequest request, Architecture arch, string? runtimeFolder = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var names = FileNames(clr.Flavor, clr.DebuggingLibraries);
         foreach (var c in Explicit(request.Path, names)) if (seen.Add(c.Path)) yield return c;
 
-        // the runtime's recorded folder, when its file there is the dumped build
+        // The runtime's recorded folder, when its file there is the dumped build.
         string? dir = runtimeFolder ?? (System.IO.Path.GetDirectoryName(runtime.Path) is { Length: > 0 } d && DumpImages.Check(runtime.Path, runtime).Matches ? d : null);
         if (dir != null)
             foreach (var n in names)
@@ -127,11 +118,7 @@ public static class DacLocator
     /// <summary>The symbol store key of a file archived under a Linux runtime's build id (the SSQP "elf-buildid-coreclr" key).</summary>
     internal static string ElfKey(IEnumerable<byte> buildId) => "elf-buildid-coreclr-" + Convert.ToHexStringLower([.. buildId]);
 
-    /// <summary>
-    /// Symbol store keys of the DAC that runs on <paramref name="arch"/>: its own timestamp and size (checked after a
-    /// download), then the runtime's (the long-name file, matched by its signature and version only), then a Linux
-    /// runtime's build id (the Windows-hosted DAC for Linux targets, matched by its signature and version).
-    /// </summary>
+    /// <summary>Symbol store keys of the DAC for <paramref name="arch"/>: its own (size and timestamp checked after download), the runtime's, then a Linux runtime's build id (both signature and version checked only).</summary>
     internal static IEnumerable<(string Name, string Key, Func<string, string?>? Check)> StoreKeys(IEnumerable<DebugLibraryInfo> libraries, Architecture arch)
     {
         foreach (var d in libraries.OrderBy(d => d.ArchivedUnder == SymbolProperties.Self ? 0 : 1))
@@ -158,7 +145,7 @@ public static class DacLocator
             if (Environment.GetEnvironmentVariable(x86 ? "DOTNET_ROOT(x86)" : "DOTNET_ROOT") is { Length: > 0 } root) roots.Add(root);
             foreach (var pf in x86 ? [Environment.SpecialFolder.ProgramFilesX86] : new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 })
                 if (Environment.GetFolderPath(pf) is { Length: > 0 } p) roots.Add(System.IO.Path.Combine(p, "dotnet"));
-            // this server's own runtime: <root>/shared/Microsoft.NETCore.App/<version>/
+            // This server's own runtime: <root>/shared/Microsoft.NETCore.App/<version>/.
             if (!x86 && System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location) is { Length: > 0 } own
                 && Directory.GetParent(own)?.Parent?.Parent is { } ownRoot) roots.Add(ownRoot.FullName);
             foreach (var r in roots.Distinct(StringComparer.OrdinalIgnoreCase))

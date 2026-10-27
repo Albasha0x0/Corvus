@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Flash;
 
-/// <summary>
-/// An ActionScript 3 bytecode block (ABC, as a DoABC tag holds it) as the ActionScript Virtual Machine 2 Overview lays
-/// it out: version, the constant pool (integers, unsigned integers, doubles, strings, namespaces, namespace sets,
-/// multinames), methods, metadata, instances with their classes, scripts and method bodies. Names are written as the
-/// namespace name, a colon and the local name ("mx.core:UIComponent"), a private namespace as "private".
-/// </summary>
+/// <summary>An ActionScript 3 bytecode block (ABC) per the AVM2 Overview; names read "namespace:local", a private namespace "private".</summary>
 internal sealed class AbcFile
 {
     /// <summary>A trait: its name, kind (slot, method, getter, setter, class, function, const) and, for a method, its method index.</summary>

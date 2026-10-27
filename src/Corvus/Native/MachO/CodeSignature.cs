@@ -5,11 +5,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// A CodeDirectory blob. Hashes of special slots (Info.plist 1, requirements 2, resources 3, entitlements 5, DER
-/// entitlements 7, ...) sit before <see cref="HashOffset"/>, code page hashes after it. <see cref="CdHash"/> is the hash
-/// of the whole blob with its own hash type, truncated to 20 bytes.
-/// </summary>
+/// <summary>A CodeDirectory blob: special slot hashes before <see cref="HashOffset"/>, page hashes after; <see cref="CdHash"/> is truncated to 20 bytes.</summary>
 public sealed record CodeDirectory(uint Slot, uint Version, uint Flags, string Identifier, string? TeamId, byte HashType, byte HashSize, byte PageSizeLog2,
     ulong CodeLimit, uint SpecialSlots, uint CodeSlots, byte Platform, ulong ExecSegmentBase, ulong ExecSegmentLimit, ulong ExecSegmentFlags,
     uint HashOffset, byte[] CdHash, byte[] Blob)
@@ -30,10 +26,7 @@ public sealed record CodeDirectory(uint Slot, uint Version, uint Flags, string I
         index >= 0 && index < CodeSlots && (long)HashOffset + (long)(index + 1) * HashSize <= Blob.Length ? Blob.AsSpan((int)(HashOffset + index * HashSize), HashSize) : [];
 }
 
-/// <summary>
-/// The embedded signature (LC_CODE_SIGNATURE SuperBlob): code directories, requirements, entitlements (XML and DER)
-/// and the CMS signature, whose signer is named but not verified.
-/// </summary>
+/// <summary>The embedded LC_CODE_SIGNATURE SuperBlob; the CMS signer is named, not verified.</summary>
 public sealed record CodeSignature(IReadOnlyList<(uint Slot, uint Offset, uint Magic, uint Length)> Blobs, IReadOnlyList<CodeDirectory> CodeDirectories,
     string? Entitlements, byte[]? DerEntitlements, IReadOnlyList<CodeRequirement>? Requirements, byte[]? Cms, string? SignerSubject)
 {

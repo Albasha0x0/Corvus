@@ -8,23 +8,17 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Crash dump inspection: opens Windows minidumps (by path; each gets a short id), walks thread stacks and names the
-/// frames. Module images come from disk when a file with the module's timestamp and size is found (its recorded path,
-/// the dump's folder, or folders the caller names), else from dump memory. Names, best first: a loaded native image's
-/// code index (user, PDB, Il2Cpp and discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, then a matching local
-/// PDB and the exports. .NET (CLR) frames are decoded through the runtime's DAC when a verified one is available. Dumps are re-read per call
-/// (positional reads); module images and names are cached. Linux and Android ELF cores go through the same tools
-/// (MinidumpService.Core.cs).
-/// </summary>
-public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, Il2CppNavigator? navigator = null,
+/// <summary>Opens minidumps and core files under short ids, walks stacks and names frames from loaded images, managed
+/// metadata, PDBs, exports and a verified DAC; module images come from matching files on disk, else dump memory. Dumps
+/// are read again per call; module images and names are cached.</summary>
+public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, AotNavigator? navigator = null,
     DecompilerService? decompiler = null, StackTextService? stacks = null) : IDisposable
 {
     private const int MaxCachedModules = 256;
     private static readonly TimeSpan IndexWait = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<string, string> _ids = new(StringComparer.OrdinalIgnoreCase);
-    // imageDirectories given for a dump file, reused by later calls on it that pass none
+    // imageDirectories given for a dump file, reused by later calls that pass none.
     private readonly ConcurrentDictionary<string, string> _imageDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _cacheGate = new();
     private readonly Dictionary<string, ModuleCode> _cache = new(StringComparer.OrdinalIgnoreCase);
@@ -101,7 +95,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         /// <summary>Files of the native images open in the workspace, matched to modules by timestamp and size under any name.</summary>
         public IReadOnlyList<string> LoadedImages { get; } = loaded ?? [];
 
-        // loading a module's image and names (a PDB) takes seconds: a call waiting behind another one's load can be cancelled
+        // Loading a module's image and PDB takes seconds, so a waiting call can be cancelled.
         public ModuleCode Code(DumpModule module)
         {
             using (AssemblyWorkspace.Lock(_modules))
@@ -120,10 +114,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             }
         }
 
-        /// <summary>
-        /// A stack walker over this session's memory, with function starts from the modules' PDB, symbol table and export
-        /// names, and x86 frame data from their PDB.
-        /// </summary>
+        /// <summary>A stack walker over this session's memory with function starts and x86 frame data from module names.</summary>
         public StackWalker Walker(IProcessMemory? view = null) => new(view ?? Memory, m => Code(m).Image,
             address => Memory.ModuleAt(address) is { } m && Code(m).Names?.Lookup((uint)(address - m.Base)).Start is { } start ? m.Base + start : null,
             address => Memory.ModuleAt(address) is { } m ? Code(m).Names?.FrameData?.Find((uint)(address - m.Base)) : null);
@@ -159,10 +150,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     /// <summary>Ids of the dumps opened so far (open_minidump, bucket_minidumps).</summary>
     public IReadOnlyCollection<string> OpenIds => [.. _ids.Keys];
 
-    /// <summary>
-    /// Opens a dump by id (from an earlier open_minidump) or path; a path is registered under its file name (#2, #3...
-    /// when another dump has the name).
-    /// </summary>
+    /// <summary>Opens a dump by id or path; a path is registered under its file name, suffixed #2, #3 on a clash.</summary>
     internal Session Open(string dump, string? imageDirectories)
     {
         var (id, path, directories) = Resolve(dump, imageDirectories);
@@ -170,10 +158,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         return new Session(this, id, file, Directories(directories, path), LoadedImagePaths());
     }
 
-    /// <summary>
-    /// The dump a call names, resolved as <see cref="Open"/> does: its id (registered), its file, and the image folders it is
-    /// read with (the call's, else those given for it before, which the call's replace). Reads nothing from the file.
-    /// </summary>
+    /// <summary>A dump's registered id, file and image folders (the call's, else the earlier ones), without reading it.</summary>
     internal (string Id, string Path, string? ImageDirectories) Resolve(string dump, string? imageDirectories)
     {
         if (string.IsNullOrWhiteSpace(dump))
@@ -200,10 +185,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         return (id, path, imageDirectories);
     }
 
-    /// <summary>
-    /// A worker's service: names <paramref name="path"/> with the server's <paramref name="id"/> and image folders, so its
-    /// reports carry the same id and find the same images.
-    /// </summary>
+    /// <summary>Gives a worker's service the server's id and image folders for <paramref name="path"/>.</summary>
     internal void Pin(string id, string path, string? imageDirectories)
     {
         _ids[id] = path;
@@ -326,7 +308,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
                 "coreclr.dll" => ".NET (CoreCLR)",
                 "clr.dll" => ".NET Framework 4 (CLR)",
                 "mscorwks.dll" => ".NET Framework 2.0-3.5 (CLR)",
-                // the runtime (mono.dll, mono-2.0-bdwgc.dll, monosgen-2.0.dll), not a managed library such as Mono.Cecil.dll
+                // The runtime DLL, not a managed library such as Mono.Cecil.dll.
                 "mono.dll" => "Mono",
                 _ when (n.StartsWith("mono-", StringComparison.Ordinal) || n.StartsWith("monosgen", StringComparison.Ordinal)) && n.EndsWith(".dll", StringComparison.Ordinal) => "Mono",
                 _ => null,
@@ -363,7 +345,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         uint shownRva = (uint)(address - module.Base);
         string moduleName = ModuleLabel(module);
 
-        // a loaded image's index: user, PDB, Il2Cpp and discovered names
+        // A loaded image's index: user, PDB, metadata and discovered names.
         var index = await s.Index(module, ct);
         (string Name, string Source, uint Start)? found = null;
         if (index?.FunctionAt(rva) is { } f)
@@ -373,12 +355,12 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             found = (index.NameAt(f.Start) ?? f.Name, source, f.Start);
         }
         var mc = s.Code(module);
-        // a known name that is no export came from the image's symbol table
+        // A known name that is no export came from the image's symbol table.
         if (found is { Source: "export" } known && mc.Names?.Lookup(known.Start) is { Source: "symbol", Start: var at } && at == known.Start)
             found = known with { Source = "symbol" };
-        // a method's range runs to the next method, over the runtime's own code between: the index's function bounds it
-        if (found is not { Source: "user" } && navigator?.FrameName(rva, module.FileName) is { } il2cpp && (found == null || found.Value.Start == il2cpp.Start))
-            found = il2cpp;
+        // A metadata method's range runs to the next method; the index's function bounds it.
+        if (found is not { Source: "user" } && navigator?.FrameName(rva, module.FileName) is { } aot && (found == null || found.Value.Start == aot.Start))
+            found = aot;
         if (found is null or { Source: "discovered" } && mc.Names?.Lookup(rva) is { Name: not null } light)
             found = (light.Name, light.Source, light.Start!.Value);
 

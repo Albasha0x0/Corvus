@@ -22,11 +22,7 @@ public enum InvalidShape
     UnreadableBody,
 }
 
-/// <summary>
-/// Test images for save fidelity: valid methods (with member references, string literals, locals and exception
-/// handlers, so tokens and heaps are exercised), an edit target, and one method per <see cref="InvalidShape"/>, each
-/// named after its shape. Also an independent comparison of two images, read with System.Reflection.Metadata only.
-/// </summary>
+/// <summary>Save fidelity images: valid methods, an edit target and one method per <see cref="InvalidShape"/>, plus an independent System.Reflection.Metadata comparison.</summary>
 internal static class SaveFidelity
 {
     public const string Type = "Lab.P";
@@ -95,7 +91,7 @@ internal static class SaveFidelity
                 case InvalidShape.TruncatedHandler:
                 case InvalidShape.OverlappingHandler:
                 {
-                    // nop; leave.s RET; endfinally; RET: ret   with try [0, 3) finally [3, 4)
+                    // Nop; leave.s RET; endfinally; RET: ret   with try [0, 3) finally [3, 4).
                     var ret = Ret();
                     var nop = Op(OpCodes.Nop);
                     var end = Op(OpCodes.Endfinally);

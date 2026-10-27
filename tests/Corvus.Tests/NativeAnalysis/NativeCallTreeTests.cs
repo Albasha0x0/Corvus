@@ -10,7 +10,7 @@ namespace Corvus.Tests;
 public class NativeCallTreeTests
 {
     [Fact]
-    public void TreeNodeSerializesCompactWithCamelCaseFields()
+    public void Tree_nodes_serialize_compact_with_camel_case_fields()
     {
         var root = new NativeTreeNode(0, null, 0, "main", "0x401000", null, null, null);
         var child = new NativeTreeNode(1, 0, 1, "kernel32.dll!CreateFileW", "0x402000", "lib.dll", "import", ["more"]) { Note = "KERNELBASE.dll!CreateFileW" };
@@ -29,13 +29,13 @@ public class NativeCallTreeTests
     }
 
     [WindowsFact]
-    public async Task TreeRowsPageInTreeOrderAndTheFrontierReexpands()
+    public async Task Tree_rows_page_in_tree_order_and_the_frontier_reexpands()
     {
         using var env = new Env();
         var code = new NativeCodeService(env.Workspace, env.Options);
         var tools = new NativeCodeTools(env.Workspace, code, env.Pager);
         var index = await code.Index(env.Workspace.LoadAny(Kernel32).Native!, null, default);
-        // a function with a few levels of callees
+        // A function with a few levels of callees.
         var root = index.Functions.Where(f => index.Callees(f).Count(c => c.Function != null) is >= 3 and <= 12).OrderBy(f => f.Start).First();
         string at = $"rva:0x{root.Start:X}";
 
@@ -46,18 +46,18 @@ public class NativeCallTreeTests
         Assert.All(full.Items.Skip(1), n => Assert.Equal(full.Items[n.Parent!.Value].Depth + 1, n.Depth));
         Assert.Contains($"{full.Total} nodes", text);
 
-        // a walk by pages of 3 gives the same rows
+        // A walk by pages of 3 gives the same rows.
         var walked = new List<NativeTreeNode>();
         for (int offset = 0; offset < full.Total; offset += 3)
         {
             var page = (await Tree(tools, at, offset: offset, limit: 3)).Record;
             walked.AddRange(page.Items);
-            // a page names its own unexpanded nodes only (a whole tree's frontier can be thousands)
+            // A page names its own unexpanded nodes only (a whole tree's frontier can be thousands).
             Assert.All(page.Frontier ?? [], f => Assert.Contains(page.Items, n => n.Address == f));
         }
         Assert.Equal(JsonSerializer.Serialize(full.Items, ToolOutput.Json), JsonSerializer.Serialize(walked, ToolOutput.Json));
 
-        // depth 1 leaves its children on the frontier; expanding each frontier node gives the depth-2 nodes of the full tree
+        // Depth 1 leaves its children on the frontier; expanding each frontier node gives the depth-2 nodes of the full tree.
         var shallow = (await Tree(tools, at, depth: 1)).Record;
         Assert.NotNull(shallow.Frontier);
         var below = new HashSet<string>();

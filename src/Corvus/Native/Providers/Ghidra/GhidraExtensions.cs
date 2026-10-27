@@ -8,12 +8,7 @@ namespace Corvus.Native.Providers.Ghidra;
 /// <summary>A Ghidra extension the user supplied: its module name, a hash of its content, and the zip or directory it came from.</summary>
 public sealed record GhidraExtension(string Name, string Hash, string Source);
 
-/// <summary>
-/// Ghidra extensions (such as a NativeAOT analyzer built for this Ghidra) taken from the directory in
-/// <see cref="GhidraOptions.ExtensionsVariable"/>: extension zips, or unpacked extension directories. They are
-/// installed into the workers' private settings directory, never the user's, and their hashes are part of the profile
-/// key, so adding or changing one analyzes images again. Nothing is downloaded.
-/// </summary>
+/// <summary>User-supplied Ghidra extensions from <see cref="GhidraOptions.ExtensionsVariable"/>, installed in the workers' settings, never the user's; nothing is downloaded. Their hashes key the profile, so a change analyzes again.</summary>
 public static class GhidraExtensions
 {
     private const string Marker = ".corvus-extension";
@@ -68,10 +63,7 @@ public static class GhidraExtensions
         return Convert.ToHexStringLower(hash.GetHashAndReset())[..16];
     }
 
-    /// <summary>
-    /// Ghidra's user extension directory under the private settings directory: [settings]/[user]-ghidra/ghidra_[version]_[release]/Extensions,
-    /// as Ghidra names it for a settings directory outside the user's home.
-    /// </summary>
+    /// <summary>Ghidra's extension directory in the private settings: [settings]/[user]-ghidra/ghidra_[version]_[release]/Extensions.</summary>
     public static string InstallDirectory(GhidraDirectories dirs, GhidraInstallation ghidra)
     {
         var properties = GhidraInstallation.ReadProperties(ghidra.PropertiesPath);
@@ -81,10 +73,7 @@ public static class GhidraExtensions
         return Path.Combine(dirs.Settings, user + "-ghidra", $"ghidra_{ghidra.Version}_{release}", "Extensions");
     }
 
-    /// <summary>
-    /// Makes <paramref name="target"/> hold exactly <paramref name="wanted"/> among the extensions this server installed
-    /// (each marked with its hash): new or changed ones are unpacked, ones no longer configured removed.
-    /// </summary>
+    /// <summary>Makes the server-installed extensions in <paramref name="target"/> exactly <paramref name="wanted"/>, by hash.</summary>
     public static void Install(IReadOnlyList<GhidraExtension> wanted, string target)
     {
         Directory.CreateDirectory(target);
@@ -99,8 +88,9 @@ public static class GhidraExtensions
             var staging = Path.Combine(target, ".staging-" + Guid.NewGuid().ToString("N")[..8]);
             try
             {
+                // ExtractToDirectory refuses entries outside the directory.
                 if (Directory.Exists(e.Source)) CopyDirectory(e.Source, Path.Combine(staging, e.Name));
-                else ZipFile.ExtractToDirectory(e.Source, staging); // refuses entries outside the directory
+                else ZipFile.ExtractToDirectory(e.Source, staging);
                 File.WriteAllText(Path.Combine(staging, e.Name, Marker), e.Hash);
                 if (Directory.Exists(dest)) SafeFile.WhenReleased(() => Directory.Delete(dest, recursive: true));
                 SafeFile.WhenReleased(() => Directory.Move(Path.Combine(staging, e.Name), dest));

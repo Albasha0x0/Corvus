@@ -8,14 +8,14 @@ namespace Corvus.Tests;
 public partial class UnpackTests
 {
     [Fact]
-    public void NothingExtracted_NamesTheNextCallOrFails()
+    public void Nothing_extracted_names_the_next_call_or_fails()
     {
-        // not a container at all, whatever its name says
+        // Not a container at all, whatever its name says.
         var data = Save("blob.tar.xz", [0x4E, 0x4F, 0x54, 0x41, 0x52, 0x43, .. new byte[200]]);
         var ex = Assert.Throws<ToolError>(() => Unpack(data));
         Assert.Equal(ErrorCode.Unsupported, ex.Code);
         Assert.StartsWith($"summarize_file path={data}", ex.Remediation);
-        // the hint names no format as unread: tar and gzip unpack
+        // The hint names no format as unread: tar and gzip unpack.
         Assert.DoesNotContain("not read", ex.Remediation);
         using (var tar = new MemoryStream())
         {
@@ -27,22 +27,22 @@ public partial class UnpackTests
             Assert.NotEmpty(Unpack(Save("app.tar.gz", gz.ToArray())).Files);
         }
 
-        // a plain assembly and a native image: nothing bundled, the next call is load_assembly
+        // A plain assembly and a native image: nothing bundled, the next call is load_assembly.
         var plain = Unpack(Env.FixturePath);
         Assert.Empty(plain.Files);
         Assert.Equal(("load_assembly", Env.FixturePath), (plain.Next!.Tool, plain.Next.Arguments["path"]));
         var native = McpProtocolTests.NativeSample(_dir);
         Assert.Equal(("load_assembly", native), (Unpack(native).Next!.Tool, Unpack(native).Next!.Arguments["path"]));
 
-        // a package without assemblies
+        // A package without assemblies.
         var empty = Save("empty.nupkg", ContainerFixtures.Zip(("x.nuspec", "<package/>"u8.ToArray()), ("build/x.targets", "<Project/>"u8.ToArray())));
         Assert.Equal("summarize_file", Unpack(empty).Next!.Tool);
-        // something extracted: no next
+        // Something extracted: no next.
         Assert.Null(Unpack(fx.Bundle).Next);
     }
 
     [Fact]
-    public async Task EveryFileIsWrittenAndListedInPages()
+    public async Task Every_file_is_written_and_listed_in_pages()
     {
         var entries = Enumerable.Range(0, 7).Select(i => ($"lib/a{i}.dll", File.ReadAllBytes(Env.FixturePath).Concat(new byte[] { (byte)i }).ToArray()))
             .Append(("readme.txt", "hello"u8.ToArray())).ToArray();
@@ -55,11 +55,12 @@ public partial class UnpackTests
         Assert.Equal((0, 3), (first.Offset, first.Items.Count));
         Assert.Contains("[More: offset=3]", text);
         Assert.Null(first.Next);
-        Assert.All(first.Items, f => Assert.True(File.Exists(Path.Combine(first.OutputDirectory, f.Path)), f.Path)); // relative to outputDirectory
+        // Relative to outputDirectory.
+        Assert.All(first.Items, f => Assert.True(File.Exists(Path.Combine(first.OutputDirectory, f.Path)), f.Path));
         int total = first.Total;
         Assert.Equal(Directory.GetFiles(output, "*", SearchOption.AllDirectories).Count(f => !f.EndsWith(".corvus-unpack", StringComparison.Ordinal)), total);
 
-        // the same unpack again pages on: the rows after the first page, the same total
+        // The same unpack again pages on: the rows after the first page, the same total.
         collector = Corvus.Mcp.ToolOutput.Collect();
         await tools.UnpackContainer(zip, output, extractOnly: true, offset: 3, limit: 100);
         var rest = Assert.IsType<UnpackPage>(collector.Value);
@@ -69,7 +70,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void ListPages_UnionToTheTotalWithoutDuplicates()
+    public void List_pages_union_to_the_total_without_duplicates()
     {
         // Satellites first in the zip: the listing order (app first, translations last) differs from the entry order.
         var fixture = File.ReadAllBytes(Env.FixturePath);
@@ -81,13 +82,14 @@ public partial class UnpackTests
         for (int offset = 0; offset < whole.Count; offset += 4)
             walked.AddRange(Unpacker.List(zip, AnalysisLimits.Default, default, offset: offset, limit: 4).Assemblies.Select(a => a.Path));
         Assert.Equal(15, whole.Count);
-        Assert.Equal(whole, walked); // the first (whole) page and later pages share one order
+        // The first (whole) page and later pages share one order.
+        Assert.Equal(whole, walked);
         Assert.StartsWith("lib/", whole[0]);
     }
 
-    /// <summary>unpack_container loads what it extracts unless extractOnly (the default of the former load=true).</summary>
+    /// <summary>unpack_container loads what it extracts unless extractOnly.</summary>
     [Fact]
-    public async Task LoadsByDefault_ExtractOnlyDoesNot()
+    public async Task Loads_by_default_extract_only_does_not()
     {
         var zip = Save("one.zip", ContainerFixtures.Zip(("lib/a.dll", File.ReadAllBytes(Env.FixturePath))));
         var tools = new UnpackTools(Unpacker);
@@ -100,7 +102,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void ProgressNamesThePhases()
+    public void Progress_names_the_phases()
     {
         var messages = new List<string>();
         Unpacker.Unpack(fx.Bundle, _dir.File("progress-out"), load: true, AnalysisLimits.Default, default, messages.Add);

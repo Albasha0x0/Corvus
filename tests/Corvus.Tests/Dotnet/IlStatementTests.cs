@@ -6,10 +6,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// IL offsets mapped to C# statements: decompiler sequence points of a method (an async method's MoveNext through the
-/// method that starts it), used by Mono frames of crash text and of the Mono runtime's report beside a Unity dump.
-/// </summary>
+/// <summary>IL offsets map to C# statements through the decompiler's sequence points, also for Mono crash text and Mono runtime reports.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class IlStatementTests : IDisposable
 {
@@ -68,7 +65,7 @@ public sealed class IlStatementTests : IDisposable
         (int)method.Body.Instructions.First(i => i.OpCode.FlowControl == FlowControl.Call && i.Operand is IMethod m && m.Name == callee).Offset;
 
     [Fact]
-    public void OffsetsMapToTheirStatement()
+    public void Offsets_map_to_their_statement()
     {
         var update = Method("App.Player", "Update");
         var damage = _decompiler.StatementAt(_scripts, update, CallTo(update, "Damage"), default)!;
@@ -80,7 +77,7 @@ public sealed class IlStatementTests : IDisposable
     }
 
     [Fact]
-    public void AsyncMoveNextMapsThroughItsMethod()
+    public void Async_MoveNext_maps_through_its_method()
     {
         var machine = _scripts.Module.Find("App.Player", true)!.NestedTypes.Single(t => t.Name.String.Contains("LoadAsync", StringComparison.Ordinal));
         var moveNext = machine.Methods.Single(m => m.Name == "MoveNext");
@@ -89,7 +86,7 @@ public sealed class IlStatementTests : IDisposable
     }
 
     [Fact]
-    public async Task MonoCrashTextGetsTheStatement()
+    public async Task Mono_crash_text_gets_the_statement()
     {
         var update = Method("App.Player", "Update");
         var service = new StackTextService(_ws, decompiler: _decompiler);
@@ -102,9 +99,9 @@ public sealed class IlStatementTests : IDisposable
         Assert.Null(r.Items[1].Statement); // another build: its IL offsets do not apply
     }
 
-    /// <summary>A Unity Mono crash folder: the dump, Player.log with the managed exception and error.log naming JIT code addresses.</summary>
+    /// <summary>A Mono crash folder: the dump, Player.log with the managed exception and error.log naming JIT code addresses.</summary>
     [Fact]
-    public async Task MonoDumpReadsTheRuntimesReportBesideIt()
+    public async Task Mono_dump_reads_the_runtimes_report_beside_it()
     {
         var update = Method("App.Player", "Update");
         var folder = Directory.CreateDirectory(_dir.File("Crash_2026-10-11")).FullName;

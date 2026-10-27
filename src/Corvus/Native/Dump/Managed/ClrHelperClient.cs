@@ -6,12 +6,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Native.Dump.Managed;
 
-/// <summary>
-/// The 32-bit decoder process (a .NET Framework x86 program beside the server) that loads a 32-bit DAC this 64-bit
-/// process cannot. It opens the dump file or the running process itself, checks the DAC file's SHA-256 before loading
-/// it, and answers one request line with one JSON line. A call that fails or times out ends the process; the decoder
-/// is then reopened.
-/// </summary>
+/// <summary>The 32-bit decoder process that loads a 32-bit DAC after a SHA-256 check; one request line, one JSON line; a failed or timed-out call ends it and the next call reopens it.</summary>
 internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
 {
     public const string Folder = "clr32", FileName = "Corvus.Clr32.exe";
@@ -55,7 +50,7 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
 
     private static ClrHelperClient Start(string helper, string[] arguments)
     {
-        // ClrMD creates its default symbol cache (%TEMP%\symbols) on every dump open: the decoder gets a temporary folder of its own
+        // ClrMD creates its default symbol cache (%TEMP%\symbols) on every dump open, so the decoder gets its own temporary folder.
         var temp = Native.Providers.PrivateFolder.Create(Path.Combine(Path.GetTempPath(), "corvus-clr32", $"{Environment.ProcessId}-{Guid.NewGuid():N}"));
         ChildProcess process;
         try
@@ -168,7 +163,8 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
         Ended = true;
         try { _input.WriteLine("exit"); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
-        _process.Dispose(); // waits for the exit, so the folder is free
+        // Waits for the exit, so the folder is free.
+        _process.Dispose();
         DeleteTemp(_temp);
     }
 
@@ -177,7 +173,8 @@ internal sealed class ClrHelperClient : IClrBackend, ILiveClrReads
         try
         {
             Directory.Delete(temp, true);
-            Directory.Delete(Path.GetDirectoryName(temp)!); // the shared parent, once no other decoder uses it
+            // The shared parent, once no other decoder uses it.
+            Directory.Delete(Path.GetDirectoryName(temp)!);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }

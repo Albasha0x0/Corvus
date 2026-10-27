@@ -84,7 +84,7 @@ public sealed record StartScore(int Truth, int Engine, int Hits, int FalseStarts
         for (int k = 0; k + unit <= bytes.Length; k += unit)
         {
             uint w = unit == 4 ? BitConverter.ToUInt32(bytes[k..]) : BitConverter.ToUInt16(bytes[k..]);
-            // ARM64 nop and the straight-line-speculation barrier (dsb sy; isb) after ret / br
+            // ARM64 nop, the straight-line-speculation barrier after ret / br (dsb sy; isb), and Thumb fill.
             bool fill = unit == 4 ? w is 0 or 0xD503201F or 0xD5033F9F or 0xD5033FDF : w is 0 or 0xBF00 or 0x46C0 or 0xDEFE;
             if (!fill) return false;
         }

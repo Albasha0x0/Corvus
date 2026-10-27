@@ -26,7 +26,7 @@ public class AnnotationStoreTests : IDisposable
     private static JsonElement Parse(string file) => JsonDocument.Parse(File.ReadAllText(file)).RootElement;
 
     [Fact]
-    public void CorruptSidecar_IsMovedAside_AndReported()
+    public void Corrupt_sidecar_is_moved_aside_and_reported()
     {
         WriteSidecar("{ \"names\": { \"1000\": \"Kept\" ");
         var ann = Open();
@@ -42,7 +42,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void LockedSidecar_IsLeftUntouched_AndWritesAreBlocked()
+    public void Locked_sidecar_is_left_untouched_and_writes_are_blocked()
     {
         WriteSidecar("{\"sha256\":\"ab12\",\"names\":{\"1000\":\"Original\"},\"comments\":{}}");
         var before = File.ReadAllBytes(Sidecar);
@@ -69,7 +69,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void SidecarWithoutFormatVersion_Loads_AndIsRewrittenWithIt()
+    public void Sidecar_without_format_version_loads_and_is_rewritten_with_it()
     {
         WriteSidecar("{\"path\":\"x\",\"sha256\":\"ab12\",\"imageBase\":0,\"names\":{\"1000\":\"Legacy\"},\"comments\":{\"1000\":\"note\"}}");
         var ann = Open();
@@ -83,7 +83,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void UserTypes_RoundTrip_AsVersion2_AndWithoutThemTheFileStaysVersion1()
+    public void User_types_round_trip_as_version_2_and_without_them_the_file_stays_version_1()
     {
         var ann = Open();
         ann.ChangeUserTypes(l => l.WithDeclarations("struct S { int a; };").WithType(0x1000, "int __fastcall f(S *s)")
@@ -94,7 +94,7 @@ public class AnnotationStoreTests : IDisposable
         var again = Open().UserTypes;
         Assert.Equal(["struct S { int a; };"], again.Declarations);
         Assert.Equal("int __fastcall f(S *s)", again.Types[0x1000]);
-        // the second edit names the variable by its new name: one edit, identity kept
+        // The second edit names the variable by its new name: one edit, identity kept.
         Assert.Equal(new Corvus.Native.Providers.NativeLocalEdit(0x1000, "v3", 0x28, "count", "unsigned int"), Assert.Single(again.Locals[0x1000]));
         Assert.Equal(new Corvus.Native.Providers.NativeStackVarEdit(0x1000, 0x20, "buffer", "char[16]"), Assert.Single(again.StackVars[0x1000]));
         Assert.Equal(ann.UserTypes.Stamp, again.Stamp);
@@ -106,7 +106,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void Header_Declares_Types_Prototypes_ByCurrentName_AndGlobals()
+    public void Header_declares_types_prototypes_by_current_name_and_globals()
     {
         var ann = Open();
         ann.SetName(0x1000, "Parse");
@@ -137,7 +137,7 @@ public class AnnotationStoreTests : IDisposable
         ann.ChangeUserTypes(l => l.WithLocal(new(0x1000, "v3", 0x28, "count", null)).WithLocal(new(0x1000, "v4", null, "size", "int"))
             .WithStackVar(new(0x1000, 0x20, "buffer", "char[16]")));
         var layer = ann.UserTypes;
-        // found by its first name, by the name it got and by stack offset
+        // Found by its first name, by the name it got and by stack offset.
         var count = layer.LocalEdit(0x1000, "count", null)!;
         Assert.Same(count, layer.LocalEdit(0x1000, "v3", null));
         Assert.Same(count, layer.LocalEdit(0x1000, "other", 0x28));
@@ -151,7 +151,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void Export_CarriesUserTypes_InTheIdaScriptAndJson()
+    public void Export_carries_user_types_in_the_IDA_script_and_JSON()
     {
         var ann = Open();
         ann.SetName(0x1000, "Parse");
@@ -181,12 +181,12 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void AnalysisEdits_KeepTheirOrder_AsVersion3_MergeAcrossWriters_AndExport()
+    public void Analysis_edits_keep_their_order_as_version_3_merge_across_writers_and_export()
     {
         var a = Open();
         a.ChangeUserTypes(l => l.WithType(0x5000, "int[4]").WithAnalysis(new(0x4000, "function", 0x4100, null)).WithAnalysis(new(0x5000, "data", null, "dword[8]"))
             .WithAnalysis(new(0x4000, "undefine", null, null)));
-        // the later edit at 0x4000 replaced the earlier one and moved to the end; data at 0x5000 dropped the global's user type
+        // The later edit at 0x4000 replaced the earlier one and moved to the end; data at 0x5000 dropped the global's user type.
         Assert.Equal([0x5000u, 0x4000u], a.UserTypes.Analysis.Select(x => x.Rva));
         Assert.Empty(a.UserTypes.Types);
         Assert.Equal(3, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
@@ -215,13 +215,13 @@ public class AnnotationStoreTests : IDisposable
         var json = JsonDocument.Parse(AnnotationExport.Render(a, AnnotationExport.Format.Json)).RootElement;
         Assert.Equal("undefine", json.GetProperty("analysis")[1].GetProperty("kind").GetString());
 
-        // without analysis edits the file is version 2 again, which older builds read
+        // Without analysis edits the file is version 2 again, which older builds read.
         a.ChangeUserTypes(_ => UserTypeLayer.Empty.WithType(0x1000, "int"));
         Assert.Equal(2, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
     }
 
     [Fact]
-    public void OperandFormats_RoundTrip_DefaultRemovesThem_AndExport()
+    public void Operand_formats_round_trip_default_removes_them_and_export()
     {
         var ann = Open();
         ann.ChangeUserTypes(l => l.WithOperand(new(0x1010, 1, "enum", "Magic")).WithOperand(new(0x1010, 0, "hex", null)).WithOperand(new(0x1020, 1, "struct", "Hdr+0x8")));
@@ -249,7 +249,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void EnumMembers_AndStackDeletes_RoundTrip_AndExport()
+    public void Enum_members_and_stack_deletes_round_trip_and_export()
     {
         var ann = Open();
         ann.ChangeUserTypes(l => l.WithEnumMember(new("Color", "Red", 1)).WithEnumMember(new("Color", "Gone", null)).WithEnumMember(new("Color", "Red", 0x10))
@@ -257,11 +257,11 @@ public class AnnotationStoreTests : IDisposable
         var again = Open().UserTypes;
         Assert.Equal(new Corvus.Native.Providers.NativeEnumMemberEdit("Color", "Red", 0x10), again.EnumMembers[("Color", "Red")]);
         Assert.Null(again.EnumMembers[("Color", "Gone")].Value);
-        // a deletion replaced the earlier edit at that offset
+        // A deletion replaced the earlier edit at that offset.
         Assert.Equal([true, false], again.StackVars[0x2000].Select(s => s.Delete));
         Assert.Equal(ann.UserTypes.Stamp, again.Stamp);
         Assert.Equal(3, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
-        // an edit after the deletion replaces it again
+        // An edit after the deletion replaces it again.
         Assert.False(again.WithStackVar(new(0x2000, 0x20, "back", "int")).StackVars[0x2000][0].Delete);
 
         var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
@@ -284,7 +284,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void NewerFormatVersion_IsLeftUntouched()
+    public void Newer_format_version_is_left_untouched()
     {
         var text = "{\"formatVersion\":99,\"sha256\":\"ab12\",\"names\":{\"1000\":\"Future\"},\"comments\":{}}";
         WriteSidecar(text);
@@ -295,13 +295,13 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task ConcurrentWriters_NeverTearTheFile_AndKeepEachOthersEntries()
+    public async Task Concurrent_writers_never_tear_the_file_and_keep_each_others_entries()
     {
         var a = Open(new AnnotationStore(Root));
         var b = Open(new AnnotationStore(Root));
         using var stop = new CancellationTokenSource();
         int reads = 0;
-        // its own thread: a pool task can wait longer than the whole test for a pool thread while other tests hold them
+        // Its own thread: a pool task can wait longer than the whole test for a pool thread while other tests hold them.
         var reader = Task.Factory.StartNew(() =>
         {
             while (!stop.IsCancellationRequested)
@@ -339,7 +339,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void InterleavedWriters_BothSurvive_AndRefreshBringsTheOtherSidesNames()
+    public void Interleaved_writers_both_survive_and_refresh_brings_the_other_sides_names()
     {
         var a = Open();
         var b = Open();
@@ -360,7 +360,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void SameAddress_DifferentNames_IsAConflict_AndTheOtherNameIsKeptAsAComment()
+    public void Same_address_different_names_is_a_conflict_and_the_other_name_is_kept_as_a_comment()
     {
         var a = Open();
         var b = Open();
@@ -375,7 +375,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void RemovalInOne_AdditionInTheOther_BothPersist_AndARemovalLosesToAConcurrentChange()
+    public void Removal_in_one_addition_in_the_other_both_persist_and_a_removal_loses_to_a_concurrent_change()
     {
         var a = Open();
         a.SetName(0x1000, "Shared");
@@ -394,7 +394,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void UserTypes_FromTwoWriters_AreMerged()
+    public void User_types_from_two_writers_are_merged()
     {
         var a = Open();
         var b = Open();
@@ -410,7 +410,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void WholeDocumentWriteByAnOlderBuild_IsMergedAsAChange()
+    public void Whole_document_write_by_an_older_build_is_merged_as_a_change()
     {
         var a = Open();
         a.SetName(0x1000, "Mine");
@@ -424,7 +424,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void HeldLock_TimesOut_KeepsTheChangeInMemory_AndTheNextSaveWritesIt()
+    public void Held_lock_times_out_keeps_the_change_in_memory_and_the_next_save_writes_it()
     {
         var a = Open(new AnnotationStore(Root) { LockTimeout = TimeSpan.FromMilliseconds(200) });
         a.SetName(0x1000, "Before");
@@ -443,7 +443,7 @@ public class AnnotationStoreTests : IDisposable
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task TwoProcesses_SavingNamesConcurrently_KeepAllOfThem()
+    public async Task Two_processes_saving_names_concurrently_keep_all_of_them()
     {
         const int PerSide = 500;
         var image = McpProtocolTests.NativeSample(_dir);

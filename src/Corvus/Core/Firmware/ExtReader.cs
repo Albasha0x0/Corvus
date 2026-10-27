@@ -3,17 +3,15 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// ext2, ext3 and ext4 images: the directory tree from the root inode, file data through block maps (direct and indirect)
-/// or extent trees, inline data and fast symbolic links; uninitialized extents read as zeros; read in ranges.
-/// </summary>
+/// <summary>ext2, ext3 and ext4 images read in ranges; uninitialized extents read as zeros.</summary>
 internal sealed class ExtReader : IContainerReader
 {
     public string Kind => "ext";
 
     public static bool Looks(ReadOnlySpan<byte> b) =>
         b.Length >= 2048 && BinaryPrimitives.ReadUInt16LittleEndian(b[(1024 + 56)..]) == 0xEF53
-        && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 24)..]) <= 6 // block size 1 KiB .. 64 KiB
+        // Block size 1 KiB to 64 KiB.
+        && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 24)..]) <= 6
         && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 40)..]) > 0 && BinaryPrimitives.ReadUInt32LittleEndian(b[(1024 + 32)..]) > 0;
 
     public bool Accepts(ReadOnlySpan<byte> data, string name) => Looks(data);
@@ -29,7 +27,8 @@ internal sealed class ExtReader : IContainerReader
         var sb = src.Read(1024, 1024);
         uint incompat = BinaryPrimitives.ReadUInt32LittleEndian(sb.AsSpan(96));
         uint compat = BinaryPrimitives.ReadUInt32LittleEndian(sb.AsSpan(92));
-        string kind = (incompat & 0x2C0) != 0 ? "ext4" : (compat & 4) != 0 ? "ext3" : "ext2"; // extents, 64bit or flex_bg; journal
+        // ext4: extents, 64bit or flex_bg; ext3: a journal.
+        string kind = (incompat & 0x2C0) != 0 ? "ext4" : (compat & 4) != 0 ? "ext3" : "ext2";
         return FsTree.Guard(src, () => new Image(src, sb, new FsTree(kind, allFiles, limits, ct)).Walk());
     }
 
@@ -65,7 +64,7 @@ internal sealed class ExtReader : IContainerReader
                 throw src.Malformed("ext superblock fields are out of range");
             long groups = (_blockCount - _firstDataBlock + blocksPerGroup - 1) / blocksPerGroup;
             if (groups <= 0 || groups > 1 << 22 || groups * _descSize > src.Length) throw src.Malformed($"ext superblock declares {groups:N0} block groups");
-            // the group descriptors follow the superblock's block
+            // The group descriptors follow the superblock's block.
             var table = src.Read((_firstDataBlock + 1) * (long)_blockSize, (int)(groups * _descSize));
             _inodeTables = new long[groups];
             for (int g = 0; g < groups; g++)
@@ -103,7 +102,7 @@ internal sealed class ExtReader : IContainerReader
             long size = Size(inode);
             if (size > 256L << 20) throw new InvalidDataException($"a directory of {size:N0} bytes");
             var listing = Data(inode, size);
-            // inline directories start with the parent's inode number
+            // Inline directories start with the parent's inode number.
             int p = (U32(inode, 32) & 0x10000000) != 0 ? 4 : 0;
             var children = new List<(string Name, uint Inode)>();
             while (p + 8 <= listing.Length)
@@ -132,7 +131,7 @@ internal sealed class ExtReader : IContainerReader
                         case 0x4000: Directory(full, child, depth + 1); break;
                         case 0x8000: _tree.File(full, length, n => Data(c, n), mode: BinaryPrimitives.ReadUInt16LittleEndian(c)); break;
                         case 0xA000:
-                            // a fast link keeps its target in the block pointers
+                            // A fast link keeps its target in the block pointers.
                             bool fast = length < 60 && (U32(c, 32) & 0x10080000) == 0;
                             var target = fast ? c.AsSpan(40, (int)length).ToArray() : Data(c, Math.Min(length, 4096));
                             _tree.Link(full, Encoding.UTF8.GetString(target), BinaryPrimitives.ReadUInt16LittleEndian(c));
@@ -151,7 +150,7 @@ internal sealed class ExtReader : IContainerReader
             uint flags = U32(inode, 32);
             if ((flags & 0x10000000) != 0)
             {
-                // inline data: the 60 bytes of the block pointers (a longer tail sits in an extended attribute, not read)
+                // Inline data: the 60 bytes of the block pointers; a longer tail in an extended attribute is not read.
                 inode.AsSpan(40, (int)Math.Min(size, 60)).CopyTo(bytes);
                 if (size > 60) throw new InvalidDataException("inline data past 60 bytes lives in an extended attribute, which is not read");
                 return bytes;
@@ -188,7 +187,8 @@ internal sealed class ExtReader : IContainerReader
                 {
                     int length = BinaryPrimitives.ReadUInt16LittleEndian(node.AsSpan(e + 4));
                     long start = (long)BinaryPrimitives.ReadUInt16LittleEndian(node.AsSpan(e + 6)) << 32 | U32(node, e + 8);
-                    if (length > 32768) continue; // uninitialized: reads as zeros
+                    // Uninitialized: reads as zeros.
+                    if (length > 32768) continue;
                     if (first < blocks) Copy(bytes, first, start, Math.Min(length, blocks - first));
                 }
                 else

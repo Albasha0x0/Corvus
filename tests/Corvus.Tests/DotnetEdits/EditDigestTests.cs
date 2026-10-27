@@ -40,7 +40,7 @@ public sealed class EditDigestTests : IDisposable
     }
 
     [Fact]
-    public async Task EveryEditToolReportsOneDigestFromDryRunToSave()
+    public async Task Every_edit_tool_reports_one_digest_from_dry_run_to_save()
     {
         var id = _env.Fixture.Id;
         var applied = new List<EditOutcome>
@@ -64,7 +64,7 @@ public sealed class EditDigestTests : IDisposable
     }
 
     [Fact]
-    public async Task OtherInputsGiveAnotherDigestAndAnUndoneEditLeavesTheSave()
+    public async Task Other_inputs_give_another_digest_and_an_undone_edit_leaves_the_save()
     {
         var id = _env.Fixture.Id;
         var (_, asTrue) = await Run<EditOutcome>(() => _tools.StubMethod("Secret::Validate", "true"));
@@ -79,7 +79,7 @@ public sealed class EditDigestTests : IDisposable
     }
 
     [Fact]
-    public async Task SimplifyReportsOneDigestAndNoneWhenNothingChanges()
+    public async Task Simplify_reports_one_digest_and_none_when_nothing_changes()
     {
         await _tools.PatchMethodIL("Account::CheckPreview", "ldc.i4.1\nbrtrue yes\nldc.i4.0\nret\nyes: ldc.i4.1\nret", dryRun: false);
         var applied = await PreviewThenApply(d => _tools.SimplifyMethods("Account::CheckPreview", passes: ["cfg"], dryRun: d));
@@ -90,7 +90,7 @@ public sealed class EditDigestTests : IDisposable
     }
 
     [Fact]
-    public async Task AnExportedScriptReplaysWithTheSameDigests()
+    public async Task An_exported_script_replays_with_the_same_digests()
     {
         var id = _env.Fixture.Id;
         await _tools.StubMethod("Secret::Validate", "true", dryRun: false);
@@ -108,7 +108,7 @@ public sealed class EditDigestTests : IDisposable
     }
 
     [Fact]
-    public async Task ASaveWithoutEditsListsNone()
+    public async Task A_save_without_edits_lists_none()
     {
         var (text, saved) = await Run<EditService.SavedFile>(() => _tools.SaveAssembly(_env.Fixture.Id, _dir.File("out.dll")));
         Assert.Empty(saved.EditList);

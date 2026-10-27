@@ -48,11 +48,12 @@ public sealed class DumpImageIdentityTests : IDisposable
     }
 
     [Fact]
-    public async Task RenamedCopyInAnImageFolder()
+    public async Task A_renamed_copy_in_an_image_folder_matches_the_module()
     {
         var dump = Dump();
         var folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
-        System.IO.File.WriteAllBytes(Path.Combine(folder, "other.dll"), new byte[600]); // not a PE file
+        // Not a PE file.
+        System.IO.File.WriteAllBytes(Path.Combine(folder, "other.dll"), new byte[600]);
         System.IO.File.WriteAllBytes(Path.Combine(folder, "synth_1.2.3.dll"), File());
         var (module, stack) = await Open(new MinidumpService(), dump, folder);
         Assert.Equal("matches", module.LocalImage);
@@ -61,13 +62,14 @@ public sealed class DumpImageIdentityTests : IDisposable
         Assert.Equal("synth!Crash+0x5", stack.Items[0].Symbol);
         Assert.Contains(stack.Notes, n => n.StartsWith("synth.dll: image disk", StringComparison.Ordinal));
 
-        var missing = new MinidumpService().Modules(Dump(), null, 0, 50).Rows; // no folder given: not found
+        // No folder given: not found.
+        var missing = new MinidumpService().Modules(Dump(), null, 0, 50).Rows;
         Assert.Equal("missing", missing[0].LocalImage);
     }
 
     /// <summary>dump_stack after open_minidump with imageDirectories: the dump's folders are kept, so the stack is named without passing them again.</summary>
     [Fact]
-    public async Task LaterCallsReuseTheImageFolders()
+    public async Task Later_calls_reuse_the_image_folders()
     {
         var dump = Dump();
         var folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
@@ -79,9 +81,9 @@ public sealed class DumpImageIdentityTests : IDisposable
         Assert.Equal("synth!Crash+0x5", (await service.Stack(dump, null, true, 64, 0, 64, null, default)).Items[0].Symbol);
     }
 
-    /// <summary>read_dump_memory fills what the dump lacks from the module image unless dumpOnly (the default of the former imageFallback=true).</summary>
+    /// <summary>read_dump_memory fills what the dump lacks from the module image unless dumpOnly.</summary>
     [Fact]
-    public async Task ReadDumpMemoryFillsFromTheImageUnlessDumpOnly()
+    public async Task Read_dump_memory_fills_from_the_image_unless_dump_only()
     {
         var dump = Dump();
         var folder = Directory.CreateDirectory(_dir.File("bin")).FullName;
@@ -94,7 +96,7 @@ public sealed class DumpImageIdentityTests : IDisposable
     }
 
     [Fact]
-    public async Task SymbolStoreByKeyAndUnderAnotherName()
+    public async Task A_symbol_store_copy_matches_by_key_and_under_another_name()
     {
         var dump = Dump();
         var store = Directory.CreateDirectory(_dir.File("store")).FullName;
@@ -118,7 +120,7 @@ public sealed class DumpImageIdentityTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadedImageUnderAnotherName()
+    public async Task A_loaded_image_under_another_name_matches_the_module()
     {
         var dump = Dump();
         var copy = _dir.File("app_copy.bin");

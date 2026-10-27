@@ -7,11 +7,7 @@ using SymbolKind = Corvus.Core.SymbolKind;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The two ways to build a dynamic method's code, ILGenerator.Emit and DynamicILInfo.SetCode with tokens from
-/// GetTokenFor, are modelled alike: the same delegates built either way resolve and fold the same, and code outside
-/// the modelled subset (locals, branches) is kept either way. The fixture runs before and after.
-/// </summary>
+/// <summary>Dynamic methods built with ILGenerator.Emit or DynamicILInfo.SetCode resolve and fold alike; code outside the subset is kept.</summary>
 public sealed class SimplifyDynamicCodeTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -218,7 +214,7 @@ public sealed class SimplifyDynamicCodeTests : IDisposable
     [Theory]
     [InlineData("UseAdd", "resolved Dyn.ViaGen::Add.Invoke -> Dyn.Targets::Add(int, int) at IL_")]
     [InlineData("UseStr", "folded Dyn.Targets::Decode(int) -> \"ccc\"")]
-    public void BothWaysResolveAndFoldAlike(string method, string expected)
+    public void Both_ways_resolve_and_fold_alike(string method, string expected)
     {
         using var env = new Env(Fixture());
         var gen = Simplify(env, "Dyn.ViaGen::" + method);
@@ -238,7 +234,7 @@ public sealed class SimplifyDynamicCodeTests : IDisposable
     [Theory]
     [InlineData("UseLocal", "Local", "ILGenerator::DeclareLocal", "declares locals of a dynamic method (locals of dynamic methods are not modelled)")]
     [InlineData("UseBranch", "Branch", "ILGenerator::DefineLabel", "emits br.s with an operand the interpreter does not model")]
-    public void CodeOutsideTheSubsetIsKeptEitherWay(string method, string field, string genWhy, string infoWhy)
+    public void Code_outside_the_subset_is_kept_either_way(string method, string field, string genWhy, string infoWhy)
     {
         using var env = new Env(Fixture());
         string gt = $"Dyn.ViaGen{field}", it = $"Dyn.ViaInfo{field}";

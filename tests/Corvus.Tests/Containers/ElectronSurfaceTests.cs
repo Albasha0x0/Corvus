@@ -47,7 +47,7 @@ public sealed class ElectronSurfaceTests : IDisposable
         Assert.Contains(rows, r => r.StartsWith("bridge-key at preload.js:1:") && r.EndsWith("= api"));
         Assert.Contains(rows, r => r.StartsWith("ipc-renderer at preload.js:1:") && r.EndsWith("= app:open"));
         Assert.DoesNotContain(rows, r => r.Contains("node_modules"));
-        // the query matches the channel or the row kind
+        // The query matches the channel or the row kind.
         Assert.Equal(2, new UnpackService(_ws).Search(app, "ipc-main", "electron", 100, AnalysisLimits.Default, default).Total);
     }
 
@@ -55,7 +55,7 @@ public sealed class ElectronSurfaceTests : IDisposable
     [Fact]
     public void Native_require_names_the_addon_registrations()
     {
-        // an Electron layout: the scripts in app.asar, native add-ons in app.asar.unpacked
+        // An Electron layout: the scripts in app.asar, native add-ons in app.asar.unpacked.
         var app = _dir.File("app.asar");
         File.WriteAllBytes(app, AsarWriter.Build([AsarWriter.Text("main.js", "const native = require(\"./build/Release/addon.node\");")]).Archive);
         Directory.CreateDirectory(Path.Combine(app + ".unpacked", "build", "Release"));

@@ -22,9 +22,11 @@ public static partial class ToolEffects
         ["diff_edits"] = Reads(),
         ["undo_edit"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["revert_edits"] = Changes(destructive: true, idempotent: true),
-        ["export_edits"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at path
+        // overwrite=true replaces the file at path.
+        ["export_edits"] = Changes(destructive: true, idempotent: true),
         ["apply_edits"] = Changes(destructive: true, idempotent: false, longRunning: true),
-        ["save_assembly"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces a file, replaceOriginal=true the original behind --allow-replace-original (its .bak is made once)
+        // overwrite=true replaces a file, replaceOriginal=true the original behind --allow-replace-original (its .bak is made once).
+        ["save_assembly"] = Changes(destructive: true, idempotent: true),
     };
 }
 
@@ -54,7 +56,7 @@ public sealed partial record ToolContract
         ["list_edits"] = Row(O.List, L.Instant, lean: true, core: true, sort: "edit order"),
         ["diff_edits"] = Row(O.Code, L.Interactive, core: true),
         ["undo_edit"] = Row(O.Edit, L.Long, lean: true, core: true, noDryRun: "is itself the revert of one recorded edit"),
-        ["revert_edits"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "N12: the discarded edits are kept as a result that apply_edits restores"),
+        ["revert_edits"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "the discarded edits are kept as a result that apply_edits restores"),
         ["export_edits"] = Row(O.Edit, L.Instant, core: true, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
         ["apply_edits"] = Row(O.Edit, L.Long, core: true, dryRun: true),
         ["save_assembly"] = Row(O.Edit, L.Interactive, lean: true, core: true, noDryRun: "writes only the edited copy; the original's .bak is made once"),

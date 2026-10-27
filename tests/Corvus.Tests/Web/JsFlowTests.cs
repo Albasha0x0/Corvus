@@ -142,7 +142,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
 
     /// <summary>#3431: node: prefixed fs writes and synchronous child_process calls are sinks; an environment variable is an explicit unknown.</summary>
     [Fact]
-    public void Node_prefixed_fs_and_sync_child_process_sinks()
+    public void Node_prefixed_fs_and_sync_child_process_calls_are_flow_sinks()
     {
         var r = Flow("""
             import { writeFileSync } from "node:fs";
@@ -261,10 +261,7 @@ public sealed class JsFlowTests(Xunit.Abstractions.ITestOutputHelper output) : I
     }
 }
 
-/// <summary>
-/// Data flow on pdf.js from the pdfjs-dist npm package: every effect sink traced back, timed and with the bytes the walk
-/// allocates. wasm/openjpeg_nowasm_fallback.js (5.3.x, 462,316 bytes) is a large input that another reader took 84 s and 1.24 GB to read.
-/// </summary>
+/// <summary>Data flow on pdfjs-dist: every sink traced back, with time and allocated bytes.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 public sealed class JsFlowRealTests(Xunit.Abstractions.ITestOutputHelper output)
@@ -287,7 +284,7 @@ public sealed class JsFlowRealTests(Xunit.Abstractions.ITestOutputHelper output)
             var indexed = sw.Elapsed.TotalSeconds;
             var r = flow.Run("sinks", 0, 0, true, 50, JsFlow.Budget.Default, default);
             var walked = sw.Elapsed.TotalSeconds;
-            // the wider walks: every string literal (the first 500) forward, and the Emscripten Module object forward
+            // The wider walks: every string literal (the first 500) forward, and the Emscripten Module object forward.
             var literals = flow.Run("\"\"", 0, 0, false, 500, JsFlow.Budget.Default, default);
             var module = program.Text.Contains("var Module=", StringComparison.Ordinal) ? flow.Run("Module", 0, 0, false, 50, JsFlow.Budget.Default, default) : null;
             var seconds = sw.Elapsed.TotalSeconds;

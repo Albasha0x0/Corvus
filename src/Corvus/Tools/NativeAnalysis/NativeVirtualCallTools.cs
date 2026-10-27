@@ -12,7 +12,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>Virtual call sites of native code resolved through MSVC RTTI, and their cross-check against IDA.</summary>
+/// <summary>Virtual call sites of native code resolved through RTTI, and their cross-check against an engine.</summary>
 [McpServerToolType]
 public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeTypePush? types = null)
 {
@@ -49,9 +49,8 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("Coverage notes.")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
-    [Description("Virtual call sites resolved through RTTI (MSVC, Itanium) or NativeAOT MethodTables: calls through a vftable slot, also via stack " +
-                 "spills, this adjustments, CFG dispatch. Receiver class from a stored vftable, the this of a virtual method or decorated names; " +
-                 "targets: the slot implementations (exact, possible, else unresolved).")]
+    [Description("Resolve virtual call sites through RTTI or NativeAOT MethodTables: receiver class, vftable slot and the implementations it " +
+                 "can reach (exact, possible or unresolved).")]
     public async Task<string> FindVirtualCalls(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only sites in this function: " + NativeTools.AddressDescription)] string? function = null,
@@ -147,7 +146,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
 
         var notes = new List<string>(set.Notes);
         if (start + page.Count < list.Count) notes.Add($"{list.Count - start - page.Count} more: offset={start + page.Count}");
-        // sites in functions whose data flow did not settle are not reported: the counts are lower bounds
+        // Sites in functions whose data flow did not settle are not reported: the counts are lower bounds.
         if (set.Stats.FunctionsNotConverged > 0)
             ToolOutput.Coverage("partial", $"{set.Stats.FunctionsNotConverged} functions were not analyzed to the end (visit budget); their sites are missing", "indirect-calls");
         notes.AddRange(index.Truncations);

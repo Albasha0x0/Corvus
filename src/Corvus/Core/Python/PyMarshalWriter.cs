@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Python;
 
-/// <summary>
-/// Writes objects read by <see cref="PyMarshal"/> back in the marshal format of one Python version, without back
-/// references: used to save one code object of a dump whose objects share references (py2exe's script list) as its own .pyc.
-/// </summary>
+/// <summary>Writes <see cref="PyMarshal"/> objects back without back references, to save one shared code object (py2exe's script list) as its own .pyc.</summary>
 public static class PyMarshalWriter
 {
     public static byte[] Write(object o, (int Major, int Minor) version)

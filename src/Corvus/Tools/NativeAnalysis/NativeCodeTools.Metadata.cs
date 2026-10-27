@@ -4,10 +4,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// find_xrefs kind=metadata: format tables that hold an address without being code or data the program uses (.pdata
-/// RUNTIME_FUNCTION fields, Control Flow Guard tables, the export address table), counted beside the code and data references.
-/// </summary>
+/// <summary>find_xrefs kind=metadata: format tables holding an address (.pdata, CFG tables, the export address table).</summary>
 public sealed partial class NativeCodeTools
 {
     /// <summary>Rows in find_xrefs form ("VA  Metadata  (no function)  what") for the PE tables that name <paramref name="rva"/>.</summary>

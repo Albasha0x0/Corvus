@@ -15,7 +15,7 @@ public class NativePagingLimitTests
         args.ToDictionary(a => a.Name, a => JsonSerializer.SerializeToElement(a.Value));
 
     [Fact]
-    public void EveryPagedNativeToolRejectsALimitBelowOne()
+    public void Every_paged_native_tool_rejects_a_limit_below_one()
     {
         var paged = Schemas.Where(s => ArgumentCheck.IsNativeTool(s.Key) && s.Value["properties"]?["limit"] != null).Select(s => s.Key).ToList();
         Assert.Contains("list_functions", paged);
@@ -31,14 +31,14 @@ public class NativePagingLimitTests
     }
 
     [Fact]
-    public void OtherToolsKeepTheirClamp()
+    public void Other_tools_keep_their_clamp()
     {
         var other = Schemas.First(s => !ArgumentCheck.IsNativeTool(s.Key) && s.Value["properties"]?["limit"] != null);
         ArgumentCheck.Apply(JsonSerializer.SerializeToElement(other.Value), Args(("limit", 0)), other.Key);
     }
 
     [Fact]
-    public void RowsCutByTheOutputLimitNameTheNextOffset()
+    public void Rows_cut_by_the_output_limit_name_the_next_offset()
     {
         var pager = new OutputPager(new ServerOptions { MaxOutputChars = 2_000 });
         var rows = Enumerable.Range(0, 300).Select(i => $"row {i:D4} " + new string('x', 80)).ToList();
@@ -51,12 +51,12 @@ public class NativePagingLimitTests
         Assert.Contains($"row {fit - 1:D4}", text);
         Assert.DoesNotContain($"row {fit:D4}", text);
         Assert.DoesNotContain("Output truncated", text);
-        // the next page starts where the note says
+        // The next page starts where the note says.
         Assert.StartsWith($"300 rows (showing {fit + 1}-", pager.PageRows(rows, fit, 200, "row"));
     }
 
     [Fact]
-    public void RowsThatFitKeepTheUsualFooter()
+    public void Rows_that_fit_keep_the_usual_footer()
     {
         var pager = new OutputPager(new ServerOptions());
         var text = pager.PageRows(Enumerable.Range(0, 10).Select(i => $"r{i}").ToList(), 0, 4, "row");

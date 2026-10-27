@@ -6,11 +6,7 @@ namespace Corvus.Mcp;
 
 public static partial class ToolOutput
 {
-    /// <summary>
-    /// Output schemas as <see cref="Finish"/> sends records: list schemas get the list envelope instead of truncated, every
-    /// schema the optional notices, warnings, coverage and resultId, code and bytes tools their page fields; nullable
-    /// properties are optional (nulls are omitted) and timing fields are gone (they move to _meta).
-    /// </summary>
+    /// <summary>Adjusts output schemas to the records <see cref="Finish"/> sends: list envelope, optional envelope fields, page fields, nullable as optional, no timing fields.</summary>
     public static void ApplyEnvelope(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
@@ -21,9 +17,7 @@ public static partial class ToolOutput
             }
     }
 
-    /// <summary>
-    /// List records whose rows are not yet named items (families rename them); the first non-empty array holds the page.
-    /// </summary>
+    /// <summary>List records whose rows are not named items; the first non-empty array holds the page.</summary>
     internal static readonly IReadOnlyDictionary<string, string[]> RowArrays = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["get_android_device_info"] = ["properties"],
@@ -33,10 +27,8 @@ public static partial class ToolOutput
         ["live_timeline"] = ["items", "names"],
     };
 
-    /// <summary>
-    /// Record fields left out when false, zero or empty, at every level (the record stays within 1.3x its text); the schema
-    /// makes them optional.
-    /// </summary>
+    /// <summary>Record fields left out when false, zero or empty, at every level; the schema makes them optional.</summary>
+    // Keeps the record within 1.3x its text.
     internal static readonly IReadOnlyDictionary<string, HashSet<string>> OmittedDefaults = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
     {
         ["get_native_type"] = ["packed", "forwardOnly", "flagsLike", "enumerators", "bases", "vftables", "globalsOfType", "globals", "candidates", "totalCandidates",

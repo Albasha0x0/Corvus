@@ -14,16 +14,7 @@ internal interface ICallSites
     IEnumerable<CallSiteInfo> CallsTo(NativeImport import, int max, CancellationToken ct = default);
 }
 
-/// <summary>
-/// ARM64 call sites under the AAPCS64: integer and pointer arguments in x0-x7 (then the stack), floating-point ones in
-/// v0-v7 (s / d registers, counted apart), recovered by walking back in the call's block to the instruction that sets each
-/// register (mov / movz / movk / movn constants, adr / adrp + add addresses and the strings there, loads from known
-/// addresses, register copies, earlier call results, stack buffers; fmov, literal loads and conversions for floating
-/// point), then through the predecessor blocks (<see cref="Arm64Resolver"/>). Known APIs (<see cref="ApiSignatures"/>)
-/// give names, counts and constant decoding; other callees get the registers set before the call. A register call whose
-/// target is the result of GetProcAddress / dlsym with a constant name (directly or through a global written once) is a
-/// call to that late-bound import. One instance per code index, thread-safe.
-/// </summary>
+/// <summary>AAPCS64 call-site arguments (x0-x7, v0-v7, then the stack) and late-bound import targets, recovered backward; thread-safe.</summary>
 internal sealed partial class Arm64CallSites : ICallSites
 {
     private static readonly ConditionalWeakTable<NativeCodeIndex, Arm64CallSites> Table = new();
@@ -68,8 +59,7 @@ internal sealed partial class Arm64CallSites : ICallSites
     {
         EnsureDynamic(ct);
         if (_dynamic != null) return _sites.GetOrAdd(f.Start, _ => Analyze(f, ct));
-        // while the late-bound imports are being found, sites are computed without them and kept only for that search
-        // (one function can hold hundreds of resolver calls, each asking for its call site)
+        // During the late-bound import search, sites are computed without them and kept only for that search.
         if (_building != null && Monitor.IsEntered(_dynamicGate))
         {
             if (_building.TryGetValue(f.Start, out var known))
@@ -82,14 +72,14 @@ internal sealed partial class Arm64CallSites : ICallSites
             var sites = Analyze(f, ct);
             bool asked = t_askedDynamic;
             _building[f.Start] = (sites, !asked);
-            // a caller analyzing its own sites from these depends on what they asked
+            // A caller analyzing its own sites from these depends on what they asked.
             t_askedDynamic = outer | asked;
             return sites;
         }
         return Analyze(f, ct);
     }
 
-    // set when a site's value could name a late-bound import (a global, a call result as a target): the site waits for them
+    // Set when a site's value could name a late-bound import; such a site waits for the search.
     [ThreadStatic] private static bool t_askedDynamic;
 
     private List<CallSiteInfo> Analyze(NativeFunction f, CancellationToken ct)
@@ -165,7 +155,7 @@ internal sealed partial class Arm64CallSites : ICallSites
                 var p = signature.Params[i];
                 if (p.IsPair)
                 {
-                    // two doubles: a homogeneous aggregate in two d registers; two integers: two x registers
+                    // Two doubles take two d registers; two integers take two x registers.
                     bool fp = p.Type == ApiParamType.FloatPair;
                     int at = fp ? floats : ints;
                     if (fp) floats += 2; else ints += 2;
@@ -284,11 +274,7 @@ internal sealed partial class Arm64CallSites : ICallSites
         }
     }
 
-    /// <summary>
-    /// A call through [[receiver] + slot] where the receiver is a JNIEnv (a native method's first parameter, or the
-    /// environment JavaVM::GetEnv / AttachCurrentThread stored in a local) or a JavaVM (JNI_OnLoad's first parameter):
-    /// the function of that table, "JNIEnv::FindClass".
-    /// </summary>
+    /// <summary>The JNIEnv or JavaVM function a call through [[receiver] + slot] reaches ("JNIEnv::FindClass"), or null.</summary>
     private string? JniCall(NativeFunction caller, A64Val target, A64Function code, bool viaLocal = true)
     {
         if (target is not { Kind: A64Kind.Field, Inputs: [{ Kind: A64Kind.Field, Num: 0, Inputs: [var receiver] } table] } || target.Num % 8 != 0) return null;
@@ -297,10 +283,7 @@ internal sealed partial class Arm64CallSites : ICallSites
         return kind is { } k ? JniInterface.Name(k, (int)(target.Num / 8)) : null;
     }
 
-    /// <summary>
-    /// The value is the first parameter on every path the resolver finished (reloads and loops included; a path cut at
-    /// the step budget neither confirms nor denies it).
-    /// </summary>
+    /// <summary>Whether the value is the first parameter on every finished path; paths cut at the budget do not count.</summary>
     private static bool FirstParameter(A64Val v) => v.Kind switch
     {
         A64Kind.Incoming => v.Loc is { IsSlot: false, Value: 0 },
@@ -310,10 +293,7 @@ internal sealed partial class Arm64CallSites : ICallSites
 
     private static bool Open(A64Val v) => v.Kind == A64Kind.Cycle || v is { Kind: A64Kind.Unknown, Truncated: true } || v is { Kind: A64Kind.Merge, Inputs: { } inputs } && inputs.All(Open);
 
-    /// <summary>
-    /// The receiver of the table load at <paramref name="tableLoad"/> was read from a stack slot whose address an earlier
-    /// JavaVM::GetEnv / AttachCurrentThread call took as its environment out parameter.
-    /// </summary>
+    /// <summary>Whether the table load's receiver comes from a slot an earlier GetEnv / AttachCurrentThread call filled.</summary>
     private bool EnvLocal(NativeFunction caller, A64Function code, uint tableLoad)
     {
         var (b, k) = code.Position(tableLoad);
@@ -376,7 +356,7 @@ internal sealed partial class Arm64CallSites : ICallSites
         {
             var s = steps[j];
             var i = s.Instruction;
-            // formatted only for the step that sets the register
+            // Formatted only for the step that sets the register.
             string? atText = null;
             string At() => atText ??= $"{Text(i)} @{Va(s.Rva)}";
             if (s.Facts.Flow is FlowKind.Call or FlowKind.IndirectCall)

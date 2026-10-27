@@ -185,7 +185,7 @@ public sealed class YaraSearchTests : IDisposable
         ], found.Items.Select(i => $"{i.Path} {i.Name} {i.Detail}").Order(StringComparer.Ordinal));
         Assert.Equal("dump", found.Container);
         Assert.Equal(3, found.Searched);
-        Assert.Contains(found.Notes, n => n.StartsWith("Process memory: 3 regions", StringComparison.Ordinal) && n.Contains("cross a region boundary are not matched"));
+        Assert.Contains(found.Notes, n => n.StartsWith("Process memory: 3 regions", StringComparison.Ordinal) && n.Contains("patterns across a region boundary do not match"));
     }
 
     [YaraFact]
@@ -203,7 +203,7 @@ public sealed class YaraSearchTests : IDisposable
         // A mistyped path is neither a file nor rule text: the error says it was compiled as source.
         var e = Assert.Throws<ToolError>(() => search.Search(target, _dir.File("missing.yar"), "yara", 10, AnalysisLimits.Default, default));
         Assert.Equal(ErrorCode.InvalidArgument, e.Code);
-        Assert.StartsWith("query names no rule file or folder, so it was compiled as rule source, which gave no rules: query:1:", e.Message, StringComparison.Ordinal);
+        Assert.StartsWith("query names no rule file or folder, and as rule source it compiled to no rules: query:1:", e.Message, StringComparison.Ordinal);
     }
 
     [YaraFact]

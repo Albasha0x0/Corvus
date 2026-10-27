@@ -11,18 +11,12 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// The server's catalog (tools, resources, prompts) as registered, and its digest: one value that changes when a tool's
-/// name, title, description, input or output schema, annotations or _meta change, or a prompt's name, title, description
-/// or arguments. Computed from the protocol JSON, so a client's tools/list and prompts/list give the same digest.
-/// Format: "t{tools}-{12 hex}.p{prompts}-{8 hex}", so a mismatch tells whether tools or prompts differ and by how many.
-/// </summary>
+/// <summary>The registered catalog and its digest, "t{tools}-{12 hex}.p{prompts}-{8 hex}", which changes with any tool or prompt field a client sees.</summary>
+// Computed from the protocol JSON, so a client's tools/list and prompts/list give the same digest.
 public static partial class Catalog
 {
-    /// <summary>
-    /// Serializes tool results (record text and structured content). Nulls are left out: <see cref="OutputSchemas"/> makes
-    /// every nullable property optional. Relaxed escaping keeps generic names (List`1, &lt;Module&gt;) readable.
-    /// </summary>
+    /// <summary>Serializes tool results; nulls are left out and generic names (List`1, &lt;Module&gt;) stay unescaped.</summary>
+    // OutputSchemas makes every nullable property optional, so leaving nulls out is valid.
     public static readonly JsonSerializerOptions ToolSerializerOptions = new(McpJsonUtilities.DefaultOptions)
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
@@ -32,10 +26,7 @@ public static partial class Catalog
     private static readonly string[] ToolFields = ["name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta"];
     private static readonly string[] PromptFields = ["name", "title", "description", "arguments"];
 
-    /// <summary>
-    /// Registers this build's tools of the enabled <see cref="Toolsets"/> (from the registered <see cref="ServerOptions"/>, else the
-    /// default set), resources and prompts, with annotations from <see cref="ToolEffects"/> and value sets from <see cref="ParameterDomains"/>.
-    /// </summary>
+    /// <summary>Registers the enabled toolsets' tools, resources and prompts, with annotations and value sets.</summary>
     public static IMcpServerBuilder WithCatalog(this IMcpServerBuilder builder)
     {
         var assembly = typeof(Catalog).Assembly;
@@ -71,10 +62,8 @@ public static partial class Catalog
         public McpServerTool[] Tools { get; } = tools;
     }
 
-    /// <summary>
-    /// WithToolsFromAssembly with the tools made on all cores: building each tool's schemas from its method took about 0.7 s
-    /// one by one, before the server could answer initialize. Same tools, same order.
-    /// </summary>
+    /// <summary>WithToolsFromAssembly, with tools built on all cores in the same order.</summary>
+    // Building schemas one by one took about 0.7 s before the server could answer initialize.
     private static readonly Lock BuildGate = new();
 
     internal static IMcpServerBuilder WithToolsInParallel(this IMcpServerBuilder builder, System.Reflection.Assembly assembly, JsonSerializerOptions serializerOptions)
@@ -149,11 +138,8 @@ public static partial class Catalog
         }
     }
 
-    /// <summary>
-    /// Removes "null" from input parameter types and enums (C# nullables): an optional parameter is left out, not sent as
-    /// null, and the union cost about 6 KB of the model-facing catalog. A null sent anyway still binds as omitted. Open
-    /// array items get a type.
-    /// </summary>
+    /// <summary>Removes "null" from input parameter types and enums, and gives open array items a type.</summary>
+    // An optional parameter is left out, not sent as null; the union cost about 6 KB of catalog. A null sent anyway binds as omitted.
     private static void DropNullableInputs(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
@@ -188,7 +174,7 @@ public static partial class Catalog
         }
     }
 
-    /// <summary>Removes the defaults the conventions imply: a boolean without one is false (S7.2), an offset 0 (S2.1).</summary>
+    /// <summary>Removes the defaults the conventions imply: a boolean without one is false, an offset 0.</summary>
     private static void DropImpliedDefaults(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
@@ -205,10 +191,8 @@ public static partial class Catalog
         }
     }
 
-    /// <summary>
-    /// Removes the paging parameters' generic descriptions (offset, limit, maxTokens): the server instructions explain them
-    /// once (about 6.6 KB of the model-facing catalog). A parameter whose text says more, such as its maximum, keeps it.
-    /// </summary>
+    /// <summary>Removes the generic descriptions of offset, limit and maxTokens; a parameter whose text says more keeps it.</summary>
+    // The server instructions explain them once, saving about 6.6 KB of catalog.
     private static void DropPagingDescriptions(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)

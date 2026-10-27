@@ -11,11 +11,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// The user's types in the decompiler engine (declarations, prototypes and global types, locals, stack variables) and a
-/// view of the engine's types and frames. Every edit is kept in the image's annotation sidecar (re-applied to a new
-/// database, exported, carried to new builds).
-/// </summary>
+/// <summary>The user's types, locals and frames in the decompiler engine; every edit is kept in the image's annotation sidecar.</summary>
 [McpServerToolType]
 public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeUserTypePush userTypes, NativeCodeService? code = null,
     NativeNamePush? names = null, NativeTypePush? types = null, NativeEditJournal? journal = null)
@@ -28,7 +24,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private async Task<(LoadedNative Native, uint Rva, INativeDecompilerSession Session)> Open(string image, string address, string? engine,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        EngineChoice.Mode(engine, engines); // an unknown engine fails before the image is opened
+        // Fail an unknown engine before the image is opened.
+        EngineChoice.Mode(engine, engines);
         var (native, rva) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, code, image, address), ct);
         var choice = EngineChoice.EngineOnly(engine, engines, native);
         var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
@@ -76,9 +73,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         IReadOnlyList<FrameRow> Items, int Offset, int Total, int? Frames = null);
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals", UseStructuredContent = true, OutputSchemaType = typeof(FrameReport))]
-    [Description("Stack frame of a native function as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as locals); " +
-                 "locals=true adds decompiler locals (name, type, register or stack offset, user edits). Offsets from the lowest address; brackets " +
-                 "from the return address.")]
+    [Description("Stack frame of a native function as the engine has it: members with offset, name, type and size; locals=true adds " +
+                 "decompiler locals. Offsets count from the lowest address, bracketed ones from the return address.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Comma-separated for several.")] string function,
@@ -94,7 +90,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         string? setup = null;
         if (locals && engines.OutputCache != null)
         {
-            // another process read this frame in the database state saved on disk, after the same pushes: no engine needed
+            // A frame stored by another process after the same pushes needs no engine.
             EngineChoice.Mode(engine, engines);
             var (saved, at) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, code, image, function), cancellationToken);
             var answer = EngineChoice.EngineOnly(engine, engines, saved);
@@ -110,7 +106,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         NativeFrame f;
         using (EngineReport.Heartbeat(progress, $"{session.ProviderId} reading the frame at {Va(native, rva)}"))
             f = await session.GetFrameAsync(rva, locals, cancellationToken);
-        // the digest after the open: a PDB the engine fetched during it is part of the state this answer was made in
+        // Take the digest after the open: a PDB the engine fetched during it is part of this answer's state.
         if (setup != null) engines.Remember(native, session, EngineReport.SetupDigest(native, code, "frame", names != null, types != null), OutputCacheKinds.Frame, rva, f);
         return FrameResult(native, f, session.ProviderId, locals, offset, limit);
     });
@@ -191,12 +187,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static string Plural(int n, string noun) => ToolSupport.Plural(n, noun);
 
     [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rename and/or retype a stack frame member by its get_native_frame name (var_28) or frame offset (0x20, from the lowest address); a " +
-                 "type at an empty offset creates one. Return address and saved registers are refused." + KeptNote)]
+    [Description("Rename, retype or delete a stack frame member; a type at an empty offset creates one. Return address and saved " +
+                 "registers are refused." + KeptNote)]
     public Task<string> SetNativeStackVar(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
-        [Description("The member: name or frame offset (hex).")] string? variable = null,
+        [Description("The member: get_native_frame name (var_28) or frame offset (hex, from the lowest address).")] string? variable = null,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type.")] string? type = null,
         [Description("Delete the member.")] bool delete = false,
@@ -262,13 +258,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static string Va(LoadedNative native, uint rva) => NativeAddress.Va(native.Image, rva);
 
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Set a native function prototype (int __fastcall Parse(Packet *p, int len)) or global type (Handler *[8]) in the engine. Named types " +
-                 "must exist there (PDB, RTTI, Il2Cpp or declare_native_types). User types win; empty clears; __noreturn ends caller flow at the " +
-                 "call." + KeptNote)]
+    [Description("Set a native function prototype or a global's C type in the engine; named types must exist there. __noreturn ends " +
+                 "caller flow at the call." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
-        [Description("C prototype for a function, C type for a global; empty clears the user type.")] string? type = null,
+        [Description("C prototype (int __fastcall Parse(Packet *p, int len)) or global type (Handler *[8]); empty clears.")] string? type = null,
         [Description("Instead of address and type: lines address = type.")] string? items = null,
         [Description("Name the function as its prototype does.")] bool rename = false,
         [Description("Report the engine guess at address, not applied.")] bool guess = false,
@@ -322,10 +317,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return m.Success && !NotNames.Contains(m.Groups[1].Value) ? m.Groups[1].Value : null;
     }
 
-    /// <summary>
-    /// Records the prototype's function name in the user's name layer (so every engine gets it with the names) when it
-    /// differs from the name in effect at a function start; returns it, or null when nothing changed.
-    /// </summary>
+    /// <summary>Records the prototype's function name in the user's name layer; returns it, or null when nothing changed.</summary>
     private async Task<string?> RenameFromPrototype(LoadedNative native, INativeDecompilerSession session, uint rva, string decl, CancellationToken ct)
     {
         if (code == null || PrototypeName(decl) is not { } wanted) return null;
@@ -378,8 +370,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rename and/or retype a native pseudocode local or argument, named as decompile_native shows it (v3, a1) or stack:0x28. Later " +
-                 "edits may use the new name; the first name, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
+    [Description("Rename or retype a native pseudocode local or argument, named as decompile_native shows it (v3, a1) or stack:0x28. " +
+                 "The first name or clear drops the edit; a type that does not fit is refused." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
@@ -430,10 +422,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         }, cancellationToken);
     });
 
-    /// <summary>
-    /// A struct inferred from a pointer local's field accesses in Ghidra, then declared and the local typed as a pointer to it,
-    /// both as kept edits, so other engines and new builds get them too.
-    /// </summary>
+    /// <summary>Declares a struct Ghidra infers from a pointer local's accesses and types the local as a pointer to it, as kept edits.</summary>
     private async Task<string> InferStruct(string image, string function, string local, string name, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         if (!Identifier(name)) throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a type name.", "e.g. inferStruct=Packet");
@@ -457,10 +446,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             new EditChange("declaration", name, null, name), new EditChange("local", $"{Va(native, rva)}:{local}", local, name + " *"));
     }
 
-    /// <summary>
-    /// An argument moved to a register, or back to its calling convention's place; undone to the storage it had, read from the
-    /// frame before the edit.
-    /// </summary>
+    /// <summary>Moves an argument to a register or back to its convention's place; undo restores the storage read before the edit.</summary>
     private async Task<string> SetStorage(string image, string function, string local, string? newName, string? type, string storage, string? engine,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -545,10 +531,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return new(target, stack, name, decl, clear);
     }
 
-    /// <summary>
-    /// The engine edits for the changes, clears first (the engine applies them first). A variable given back the name it had
-    /// before the user's first edit is cleared, keeping a user type.
-    /// </summary>
+    /// <summary>The engine edits for the changes, clears first; a variable given back its first name is cleared, keeping a user type.</summary>
     private List<NativeLocalEdit> LocalEdits(LoadedNative native, uint rva, IEnumerable<LocalChange> changes)
     {
         var layer = code?.Annotations(native).UserTypes ?? UserTypeLayer.Empty;
@@ -570,10 +553,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return [.. clears, .. sets];
     }
 
-    /// <summary>
-    /// Records the applied ones of <paramref name="edits"/> (outcomes in the same order): a clear removes the variable's edit,
-    /// and an edit left with its first name and no type is dropped.
-    /// </summary>
+    /// <summary>Records the applied <paramref name="edits"/>; a clear, or an edit back to its first name with no type, drops the entry.</summary>
     private static UserTypeLayer RecordLocals(UserTypeResult result, UserTypeLayer layer, IReadOnlyList<NativeLocalEdit> edits)
     {
         var firstNames = new Dictionary<(uint, int?), string>();
@@ -599,9 +579,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine, replacing same-named ones and winning over " +
-                 "recovered types. Engine errors save nothing. typeName edits one type: members (enum), fields (struct, union), resize, nameGaps; " +
-                 "delete or rename edits any named type." + KeptNote)]
+    [Description("Declare C types in the engine, replacing same-named ones; engine errors save nothing. typeName edits one enum, " +
+                 "struct or union; delete and rename take any named type." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("C declarations; named types must exist or be declared too.")] string? declarations = null,
@@ -644,11 +623,11 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             throw new ToolError(ErrorCode.InvalidArgument, "Nothing to declare.", "pass C declarations such as 'struct S { int a; };', or typeName with members or fields");
         var (native, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
         var edits = userTypes.Layer(native).TypeEdits;
-        // a resize is undone by the size the struct has now
+        // A resize is undone by the size the struct has now.
         NativeUserTypeBatch? resizeInverse = newSize != null
             ? NativeUserTypeBatch.Empty with { Fields = [fieldEdits[0] with { Offset = (int)(await session.GetTypeAsync(fieldEdits[0].Type, cancellationToken)).Size }] }
             : null;
-        // the engine replaces a type of the same name: the undo puts back the earlier declarations and deletes the new types
+        // The engine replaces a same-named type, so undo restores the earlier declarations and deletes the new types.
         NativeUserTypeBatch? inverse = null;
         if (text.Length > 0 && enumMembers.Count == 0 && fieldEdits.Count == 0)
         {
@@ -668,7 +647,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         if (result.DeclarationErrors > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"{result.DeclarationErrors} error(s) in the declarations" +
                 (result.DeclarationMessages.Count > 0 ? ": " + string.Join("; ", result.DeclarationMessages) : "."), "fix the declarations and declare them again");
-        // a declared name drops the kept rename or deletion of it, in the engine too
+        // A declared name drops the kept rename or deletion of it, in the engine too.
         if (userTypes.Layer(native).TypeEdits is var kept && kept.Count != edits.Count)
             await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { TypeEdits = kept }, (_, _) => null, cancellationToken);
         var sb = new System.Text.StringBuilder();
@@ -692,7 +671,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, @"\btypedef\b([^;{]*(?:\{[^}]*\}[^;]*)?);"))
         {
             var body = m.Groups[1].Value;
-            // a function pointer names itself after "(*"; else the last identifier, past array bounds
+            // A function pointer names itself after "(*"; else the last identifier, past array bounds.
             var pointer = System.Text.RegularExpressions.Regex.Match(body, @"\(\s*\*\s*([A-Za-z_]\w*)\s*\)");
             var last = System.Text.RegularExpressions.Regex.Match(System.Text.RegularExpressions.Regex.Replace(body, @"\[[^\]]*\]", ""), @"([A-Za-z_]\w*)\s*$");
             if ((pointer.Success ? pointer : last) is { Success: true } n) names.Add(n.Groups[1].Value);
@@ -717,10 +696,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return Identifier(type) ? type : throw new ToolError(ErrorCode.InvalidArgument, $"{parameter} needs typeName, the struct to change.", $"e.g. typeName=Packet {parameter}=...");
     }
 
-    /// <summary>
-    /// "len: int; data@0x8: char[16]; @0x20: int; old:" for a struct or union: members to set, an empty type removing one;
-    /// "+name@0x10: type" inserts, moving the later members down ("+name:" cuts it and moves them back).
-    /// </summary>
+    /// <summary>Field edits from "len: int; data@0x8: char[16]; old:"; "+name@0x10: type" inserts and "+name:" cuts.</summary>
     internal static List<NativeFieldEdit> FieldEdits(string? typeName, string? fields)
     {
         var type = (typeName ?? "").Trim();
@@ -771,7 +747,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var (native, _, session) = await Open(image, "rva:0", engine, progress, ct);
         var old = await session.GetTypeAsync(edit.Name, ct);
         var kept = userTypes.Layer(native).TypeEdits;
-        // a deleted type comes back from its declaration; a rename is undone by the generic inverse
+        // A deleted type comes back from its declaration; a rename is undone by the generic inverse.
         var inverse = edit.NewName == null ? new NativeUserTypeBatch([old.Declaration], [], [], []) { TypeEdits = kept } : null;
         if (edit.NewName is { } to)
         {
@@ -822,13 +798,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Redefine an address in the engine by kind: code (to end, else along the flow), function (make one to end, or move a function end), " +
-                 "undefine (to end, else the item or function), data (of type), flow (Ghidra: type branch, call, call_return or return; else clears). " +
-                 "data and undefine drop a global's user type." + KeptNote)]
+    [Description("Redefine an address in the engine as code, a function, data or undefined, up to end or along the flow. data and " +
+                 "undefine drop a global's user type." + KeptNote)]
     public Task<string> DefineNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("What to make.")] string kind,
+        [Description("function with end moves a function end; flow (Ghidra): type branch, call, call_return or return, else clears.")] string kind,
         [Description("Exclusive end address (same forms as address).")] string? end = null,
         [Description("kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16), a C type; dword[8] arrays.")] string? type = null,
         [Description(EngineDescription)] string? engine = null,
@@ -865,14 +840,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Set how an instruction operand displays in engine disassembly and, where the decompiler follows, pseudocode: offset (as an " +
-                 "address), stack (a stack variable), enum (type: the enum), struct (type: Packet or Packet+0x10; IDA only) or default. Ghidra shows " +
-                 "numbers and enum members as equates." + KeptNote)]
+    [Description("Set how an instruction operand displays in engine disassembly and pseudocode." + KeptNote)]
     public Task<string> SetNativeOperand(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Operand index, 0 for the first.")] int operand = 0,
-        [Description("How to display it.")] string? display = null,
+        [Description("offset: an address; struct: IDA only.")] string? display = null,
         [Description("display=enum or struct: the type name (struct: optionally +delta).")] string? type = null,
         [Description(EngineDescription)] string? engine = null,
         [Description("Instead: lines address operand display [type], or JSON [{address, operand, display, type?}].")] string? items = null,
@@ -908,10 +881,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return (d, t);
     }
 
-    /// <summary>
-    /// Batch rows: a JSON array of objects, or one row per line; each row parsed by <paramref name="json"/> or
-    /// <paramref name="line"/>, a row that does not parse reported in <paramref name="problems"/>.
-    /// </summary>
+    /// <summary>Batch rows from a JSON array or one per line; a row that does not parse goes to <paramref name="problems"/>.</summary>
     private static List<T> BatchRows<T>(string items, Func<Func<string, string?>, Func<string, bool>, Func<string, int?>, T> json, Func<string, T> line, List<string> problems)
     {
         var rows = new List<T>();
@@ -1061,8 +1031,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types", UseStructuredContent = true, OutputSchemaType = typeof(TypeListReport))]
-    [Description("Named types of the engine database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member count; name= " +
-                 "shows one as a C declaration with member offsets.")]
+    [Description("Named types of the engine database with size and member count; name= shows one as a C declaration with member " +
+                 "offsets.")]
     public Task<string> ListNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NameFilter.Description + ".")] string? filter = null,
@@ -1111,7 +1081,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             foreach (var t in rows)
             {
                 var texts = (t.Members ?? []).Where(_ => t.Kind != "enum").Select(m => m.Type).ToList();
-                // aliases, pointers and function types name what they refer to only in their declaration
+                // Aliases, pointers and function types name what they refer to only in their declaration.
                 if (t.MemberCount == 0 && t.Kind is not "enum" && declarations++ < RelatedDeclarations)
                     texts.Add((await session.GetTypeAsync(t.Name, cancellationToken)).Declaration);
                 relatedNames[t.Name] = RelatedTypes(texts, t.Name);
@@ -1170,7 +1140,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var result = new List<string>();
         foreach (var text in texts)
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text ?? "", @"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*"))
-                // a1, a2: parameter names of a function type's declaration
+                // a1, a2: parameter names of a function type's declaration.
                 if (!Primitive.Contains(m.Value) && m.Value != self && !System.Text.RegularExpressions.Regex.IsMatch(m.Value, @"^a\d+$")
                     && !result.Contains(m.Value) && result.Count < 64) result.Add(m.Value);
         return result;
@@ -1194,10 +1164,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static bool Identifier(string s) =>
         s.Length is > 0 and <= 255 && (char.IsAsciiLetter(s[0]) || s[0] == '_') && s.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
 
-    /// <summary>
-    /// Why an engine refused an edit (EL-7), from the worker's message: no_frame, reserved_slot, name_in_use, no_local,
-    /// no_storage, no_effect, parse_error, no_function; null for a reason without its own guidance.
-    /// </summary>
+    /// <summary>The refusal code for an engine's error message; null for a reason without its own guidance.</summary>
     internal static string? RefusalCode(string? error) => error switch
     {
         null => null,
@@ -1233,7 +1200,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var item = result.Items.Count == 1 ? result.Items[0] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
         if (item.Applied) return item;
         var code = RefusalCode(item.Error);
-        // the engine took the request but its state did not change: not a spelling problem
+        // The engine took the request but its state did not change; not a spelling problem.
         throw new ToolError(code is "no_effect" or "no_storage" ? ErrorCode.Failed : ErrorCode.InvalidArgument, item.Error ?? "The engine did not apply the edit.",
             Refusal(item.Error, engine, frame)) { Details = code != null ? new { reason = code } : null };
     }

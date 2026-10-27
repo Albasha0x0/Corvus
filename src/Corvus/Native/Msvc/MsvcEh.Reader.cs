@@ -93,10 +93,7 @@ internal sealed class EhReader(INativeImage image)
     }
 }
 
-/// <summary>
-/// Reads the FH4 compressed encoding: unsigned values of 1-5 bytes whose length is given by the low bits of the first
-/// byte, and plain little-endian 32-bit values. Any read past the window sets <see cref="Failed"/>.
-/// </summary>
+/// <summary>Reads FH4 compressed values (1-5 bytes) and 32-bit words; a read past the window sets <see cref="Failed"/>.</summary>
 internal struct Fh4Cursor(byte[] buffer, int position = 0)
 {
     private static ReadOnlySpan<byte> Lengths => [1, 2, 1, 3, 1, 2, 1, 4, 1, 2, 1, 3, 1, 2, 1, 5];

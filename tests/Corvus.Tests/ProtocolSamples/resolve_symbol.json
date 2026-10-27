@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "2 matches (showing 1-2):\n  method   Fixture.Model.Account::Charge(int)  [TestFixture] 0x06000018\n    public void Charge(int amount)\n  method   Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019\n    public void Charge(int amount, string source)\n[End: 2 matches]\n"
+    "2 matches (showing 1-2):\n  method   Fixture.Model.Account::Charge(int)  [TestFixture] 0x06000011\n    public void Charge(int amount)\n  method   Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000012\n    public void Charge(int amount, string source)\n[End: 2 matches]\n"
   ],
   "structuredContent": {
     "items": [
@@ -13,14 +13,14 @@
         "kind": "method",
         "label": "Fixture.Model.Account::Charge(int)",
         "assembly": "TestFixture",
-        "token": "0x06000018",
+        "token": "0x06000011",
         "signature": "public void Charge(int amount)"
       },
       {
         "kind": "method",
         "label": "Fixture.Model.Account::Charge(int, string)",
         "assembly": "TestFixture",
-        "token": "0x06000019",
+        "token": "0x06000012",
         "signature": "public void Charge(int amount, string source)"
       }
     ],

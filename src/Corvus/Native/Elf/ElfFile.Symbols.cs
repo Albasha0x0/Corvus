@@ -15,10 +15,7 @@ public sealed partial class ElfFile
 
     /// <summary>.symtab entries (index 0 included); empty for stripped files.</summary>
     public IReadOnlyList<ElfSymbol> StaticSymbols => symbols.Value.Static;
-    /// <summary>
-    /// Defined function and object symbols of .dynsym, .symtab and the MiniDebugInfo .symtab (.gnu_debugdata), sorted by
-    /// RVA; ARM mapping symbols are left out.
-    /// </summary>
+    /// <summary>Defined function and object symbols of .dynsym, .symtab and .gnu_debugdata, sorted by RVA, without ARM mapping symbols.</summary>
     public IReadOnlyList<ImageSymbol> Symbols => symbols.Value.Image;
     /// <summary>Defined global and weak dynamic symbols, in .dynsym order (ordinal 0).</summary>
     public IReadOnlyList<NativeExport> Exports => symbols.Value.Exports;
@@ -46,7 +43,7 @@ public sealed partial class ElfFile
         var seen = new HashSet<(string, uint)>();
         foreach (var s in dyn.Concat(result.Static).Concat(mini))
         {
-            // absolute symbols (version definitions such as V1.0 = 0) are values, not addresses in the image
+            // Absolute symbols (version definitions such as V1.0 = 0) are values, not image addresses.
             if (!s.IsDefined || s.Name.Length == 0 || s.SectionIndex == ElfSymbol.Absolute || s.Type is ElfSymbol.TypeSection or ElfSymbol.TypeFile or ElfSymbol.TypeTls) continue;
             var va = s.IsFunction ? CodeAddress(s.Value) : s.Value;
             if (!TryVaToRva(va, out uint rva)) continue;
@@ -87,10 +84,7 @@ public sealed partial class ElfFile
     private const long MaxDebugData = 64L << 20;
     private const string MiniDebugPath = ".gnu_debugdata";
 
-    /// <summary>
-    /// The .symtab of the xz-compressed ELF in .gnu_debugdata (MiniDebugInfo, which Android and Fedora libraries keep after
-    /// stripping), at the outer file's addresses; empty when there is none or it does not decode, which the log names.
-    /// </summary>
+    /// <summary>The .symtab of the xz-compressed ELF in .gnu_debugdata at the outer file's addresses; empty when absent or undecodable.</summary>
     private HashSet<ElfSymbol> MiniDebugSymbols(IssueLog log)
     {
         // One level only: an embedded file's own .gnu_debugdata is not read, which bounds the work.

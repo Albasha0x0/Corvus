@@ -3,11 +3,8 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <summary>
-/// GuardDog's rule matches over an npm or PyPI package, as review findings of category "rule match": threat-* rules
-/// noteworthy, the others worth reviewing. Optional: nothing runs and nothing is noted when GuardDog is not found and
-/// CORVUS_GUARDDOG is unset; a configured GuardDog that cannot run is named in the note.
-/// </summary>
+/// <summary>GuardDog rule matches over an npm or PyPI package as "rule match" findings (threat-* rules noteworthy);
+/// silent when GuardDog is absent and CORVUS_GUARDDOG unset, and a configured GuardDog that cannot run is named.</summary>
 internal static class GuardDogRules
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(3);

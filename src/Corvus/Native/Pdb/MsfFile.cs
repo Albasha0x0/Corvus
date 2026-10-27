@@ -64,11 +64,7 @@ internal sealed class FileMsfSource(SafeFileHandle handle, long length) : IMsfSo
     public void Dispose() => handle.Dispose();
 }
 
-/// <summary>
-/// A Multi-Stream File (MSF 7.0, the PDB container): superblock, stream directory and the page lists of its streams.
-/// Only the directory is held in memory; stream bytes are read page by page. Throws only for a missing or unreadable
-/// superblock; everything after it is checked and recorded as <see cref="Issues"/>.
-/// </summary>
+/// <summary>An MSF 7.0 (PDB container) file read page by page; throws only for a bad superblock, other problems go to <see cref="Issues"/>.</summary>
 internal sealed class MsfFile : IDisposable
 {
     internal static ReadOnlySpan<byte> Magic => "Microsoft C/C++ MSF 7.00\r\n\u001aDS\0\0\0"u8;
@@ -158,7 +154,7 @@ internal sealed class MsfFile : IDisposable
             log.Add($"stream directory size {dirBytes} is out of range (1..{PdbLimits.MaxDirectoryBytes})");
             return empty;
         }
-        // the directory's page list starts at the block map block and may continue into the following blocks
+        // The directory's page list starts at the block map block and may continue into the following blocks.
         int dirPageCount = (int)((dirBytes + blockSize - 1) / blockSize);
         var dirPageBytes = new byte[dirPageCount * 4];
         if (mapBlock >= blockCount || source.Read((long)mapBlock * blockSize, dirPageBytes) < dirPageBytes.Length)
@@ -207,7 +203,7 @@ internal sealed class MsfFile : IDisposable
                 uint block = BinaryPrimitives.ReadUInt32LittleEndian(dir.AsSpan(at));
                 if (block >= blockCount)
                 {
-                    // the stream stays readable up to the bad page
+                    // The stream stays readable up to the bad page.
                     log.Add($"stream {i}: page {p} names block {block}, past the {blockCount} blocks of the file; the stream ends there");
                     at += (int)(need - p) * 4;
                     list = list[..p];

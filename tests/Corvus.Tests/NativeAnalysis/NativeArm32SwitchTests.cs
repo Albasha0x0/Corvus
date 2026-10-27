@@ -93,7 +93,7 @@ public class NativeArm32SwitchTests
         Assert.Equal((Text + 4, table, SwitchTableKind.Absolute, 3), (s.JumpRva, s.TableRva, s.Kind, s.EntryCount));
         Assert.Equal(cases, s.Cases.Select(c => c.Target));
         Assert.Equal(Text + 8, s.Default);
-        // the conditional dispatch falls through to the branch to the default
+        // The conditional dispatch falls through to the branch to the default.
         Assert.Contains(g.Blocks, b => b.Start == Text + 8 && b.EndKind == BlockEnd.Jump);
         Assert.Contains(g.Blocks, b => b.Start == dflt);
     }

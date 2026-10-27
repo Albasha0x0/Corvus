@@ -3,12 +3,12 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Build-once caches (ReadyToRun, dumps, Il2Cpp, NativeAOT): a caller waiting for another's build stops when its call is cancelled.</summary>
+/// <summary>Build-once caches (ReadyToRun, dumps, AOT metadata, NativeAOT): a caller waiting for another's build stops when its call is cancelled.</summary>
 public class ReadyToRunCacheTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task AWaiterStopsWhenCancelledAndTheBuildStillCompletes()
+    public async Task A_waiter_stops_when_cancelled_and_the_build_still_completes()
     {
         var once = new Once<int>();
         using var started = new ManualResetEventSlim();
@@ -27,16 +27,16 @@ public class ReadyToRunCacheTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void ABuildErrorReachesEveryCaller()
+    public void A_build_error_reaches_every_caller()
     {
         var once = new Once<int>();
         Assert.Throws<InvalidOperationException>(() => once.Get(() => throw new InvalidOperationException("bad image"), default));
         Assert.Equal("bad image", Assert.Throws<InvalidOperationException>(() => once.Get(() => 1, default)).Message);
     }
 
-    /// <summary>Deferred (the minidump name tables, Il2Cpp string indexes, NativeAOT stages) builds once for concurrent readers.</summary>
+    /// <summary>Deferred (the minidump name tables, AOT string indexes, NativeAOT stages) builds once for concurrent readers.</summary>
     [Fact]
-    public async Task DeferredBuildsOnceForConcurrentReaders()
+    public async Task Deferred_builds_once_for_concurrent_readers()
     {
         int builds = 0;
         var deferred = new Deferred<int>(() => { Interlocked.Increment(ref builds); Thread.Sleep(50); return 7; });

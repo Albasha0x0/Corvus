@@ -7,11 +7,7 @@ using SharpCompress.Compressors.LZMA;
 
 namespace Corvus.Core.Installers;
 
-/// <summary>
-/// Nullsoft (NSIS) installers: a native stub, then at a 512-byte boundary the first header and the data, either one solid
-/// stream or one block per file (LZMA, deflate, bzip2 or stored). The header's script is walked for File and
-/// WriteUninstaller instructions, so files are listed under their install paths ($INSTDIR dropped), as 7-Zip lists them.
-/// </summary>
+/// <summary>NSIS installers, solid or per-file; files are listed under their install paths as 7-Zip lists them.</summary>
 internal sealed class NsisInstallerReader : IContainerReader
 {
     private const uint Signature = 0xDEADBEEF;
@@ -184,7 +180,7 @@ internal sealed class NsisInstallerReader : IContainerReader
             size = BinaryPrimitives.ReadUInt32LittleEndian(length);
             _position = at + 4 + size;
             if (!_headerRead) { _headerRead = true; _origin = _position; }
-            // read in pieces: a damaged length does not allocate before the data is there
+            // Read in pieces, so a damaged length does not allocate before the data is there.
             var output = size > max ? null : new MemoryStream();
             for (long left = size; left > 0;)
             {
@@ -267,12 +263,12 @@ internal sealed class NsisInstallerReader : IContainerReader
             if (entries > h.Length || count > (h.Length - entries) / EntryBytes || strings >= h.Length) return null;
             var table = h.AsSpan((int)strings, (int)(Math.Min(offsets[StringsBlock + 1], (uint)h.Length) is var end && end > strings ? end - strings : h.Length - strings));
             bool unicode = IsUnicode(table);
-            // NSIS 3 codes strings with 1-4 in both builds; NSIS 2 (ANSI only) with 252-255
+            // NSIS 3 codes strings with 1-4 in both builds; NSIS 2 (ANSI only) with 252-255.
             var reader = new Strings(h, (int)strings, unicode, unicode || table.IndexOfAnyInRange((byte)1, (byte)4) >= 0);
 
             var files = new List<ScriptFile>();
             var seen = new HashSet<(string, uint)>();
-            // File /r saves the output folder in $_OUTDIR (StrCpy $_OUTDIR $OUTDIR) and sets subfolders from it
+            // File /r saves the output folder in $_OUTDIR (StrCpy $_OUTDIR $OUTDIR) and sets subfolders from it.
             string outDir = "$INSTDIR", savedOutDir = "$INSTDIR";
             string Expand(string path) => path.StartsWith("$_OUTDIR", StringComparison.Ordinal) ? savedOutDir + path[8..] : path;
             for (int k = 0; k < count; k++)
@@ -298,10 +294,7 @@ internal sealed class NsisInstallerReader : IContainerReader
             return new Script(files, unicode);
         }
 
-        /// <summary>
-        /// The block offsets and counts with <paramref name="size"/>-byte block headers; null unless the pages, sections,
-        /// entries, strings and language tables blocks lie in order inside the header.
-        /// </summary>
+        /// <summary>The block offsets and counts for <paramref name="size"/>-byte block headers; null unless the blocks lie in order.</summary>
         private static (uint[] Offsets, uint[] Counts)? Layout(byte[] h, int size)
         {
             if (h.Length < 4 + Blocks * size) return null;

@@ -3,12 +3,8 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A GameMaker data file (data.win, game.unx, game.ios, game.droid): a FORM of chunks. Reads the chunk inventory, the
-/// GEN8 header (bytecode version, names, declared version), code entries with their argument and local counts, the
-/// string table, and the embedded textures and audio, which are extracted. Code compiled to native code (YYC) leaves
-/// the CODE chunk empty; that is reported.
-/// </summary>
+/// <summary>A GameMaker data file (data.win, game.unx, game.ios, game.droid): chunks, GEN8 header, code, strings and media.</summary>
+/// <remarks>Native-compiled (YYC) code leaves the CODE chunk empty; that is reported.</remarks>
 public static class GameMakerData
 {
     public const string Kind = "GameMaker data file";
@@ -67,8 +63,7 @@ public static class GameMakerData
         listed.Add(new ContainerEntry("strings.txt", strings.Sum(s => Encoding.UTF8.GetByteCount(s) + 1), $"{strings.Length:N0} strings"));
         bool going = Add("strings.txt", Encoding.UTF8.GetBytes(string.Join('\n', strings)), "GameMaker string table");
 
-        // Code: from bytecode 15 on, an entry names its locals and arguments and points at its bytecode; child entries
-        // (functions of a script, GameMaker 2.3 on) point into their parent's bytecode.
+        // From bytecode 15, an entry points at its bytecode; child entries (GameMaker 2.3 on) point into their parent's.
         int codeCount = 0, yyc = 0;
         if (Chunk("CODE") is { } code)
         {
@@ -104,8 +99,7 @@ public static class GameMakerData
             var entries = List(b, txtr);
             for (int i = 0; i < entries.Length && going; i++)
             {
-                // The entry's fields grow with the version (mips, block size, dimensions); the data pointer is the field
-                // that points at an image.
+                // The entry's fields grow with the version; the data pointer is the field that points at an image.
                 int blob = -1;
                 for (int f = 4; f <= 24 && entries[i] + f + 4 <= b.Length; f += 4)
                     if (U32(b, entries[i] + f) is var t and > 0 && t < b.Length - 8 && ImageFormat(b.AsSpan((int)t)) != null) { blob = (int)t; break; }

@@ -5,11 +5,7 @@ namespace Corvus.Core;
 /// <summary>A WebAssembly import or export: module (imports), name and kind (func, table, memory, global, tag).</summary>
 public sealed record WasmSymbol(string? Module, string Name, string Kind);
 
-/// <summary>
-/// A WebAssembly module's structure, read without running it: sections, imports, exports, memories, function counts,
-/// custom sections (the name section's function names and the producers section's toolchain). Malformed input gives
-/// issues and what was read before them, never an exception.
-/// </summary>
+/// <summary>A WebAssembly module's sections, imports, exports and names; malformed input gives issues and what was read before them, never an exception.</summary>
 public sealed class WasmModule
 {
     public int Version { get; private set; }

@@ -9,11 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// MSVC exception handling metadata: the FH4 encoding, invariants on system DLLs, corrupted metadata, the attachment
-/// of funclets and handlers to their functions, an exact check against a compiled sample (Slow, needs the Visual C++
-/// build tools), and a sweep over System32 / SysWOW64 (Slow).
-/// </summary>
+/// <summary>MSVC exception handling metadata: FH4, system DLL invariants, corrupted input, funclet attachment, a compiled sample and a system sweep (Slow).</summary>
 public class MsvcEhTests(ITestOutputHelper output)
 {
     private static string? SystemFile(string name, bool wow64 = false)
@@ -27,7 +23,7 @@ public class MsvcEhTests(ITestOutputHelper output)
     [Fact]
     public void Fh4_compressed_unsigned_values_of_every_length()
     {
-        // length in the low bits of the first byte: x0 = 1 byte, 01 = 2, 011 = 3, 0111 = 4, 1111 = 5 (value in the next 4 bytes)
+        // Length in the low bits of the first byte: x0 = 1 byte, 01 = 2, 011 = 3, 0111 = 4, 1111 = 5 (value in the next 4 bytes).
         byte[] data = [
             0x7F << 1,
             (0x1234 << 2 | 1) & 0xFF, 0x1234 << 2 >> 8,
@@ -89,7 +85,7 @@ public class MsvcEhTests(ITestOutputHelper output)
         Assert.True(r.Stats.CSpecific > 0 && r.Stats.GsOnly > 0 && r.Stats.Fragments > 0, r.Stats.ToString());
         var catches = r.Frames.SelectMany(f => f.TryBlocks).SelectMany(t => t.Catches).ToList();
         Assert.NotEmpty(catches);
-        // every catch with a type descriptor has a demangled name
+        // Every catch with a type descriptor has a demangled name.
         Assert.All(catches.Where(c => c.TypeDescriptorRva != null), c => Assert.NotNull(c.TypeName));
         Assert.Contains(catches, c => c.TypeDescriptorRva == null); // catch (...)
     }
@@ -217,7 +213,7 @@ public class MsvcEhTests(ITestOutputHelper output)
         var cpu = ThreadCpuClock.Now();
         for (int seed = 0; seed < 24; seed++)
         {
-            // flip about one byte in 32 of the data sections (handler data, FuncInfo, scope tables, unwind info)
+            // Flip about one byte in 32 of the data sections (handler data, FuncInfo, scope tables, unwind info).
             int s = seed;
             var image = new PatchedImage(pe, (rva, b) =>
             {
@@ -255,7 +251,7 @@ public class MsvcEhTests(ITestOutputHelper output)
         var pe = PeFile.Open(path);
         var clean = MsvcEh.Analyze(pe);
         var frame = clean.Frames.First(f => f.Scheme == MsvcEhScheme.Cxx3 && f.MaxState > 0);
-        // max state (FuncInfo + 4) set to 0x7FFFFFFF
+        // Max state (FuncInfo + 4) set to 0x7FFFFFFF.
         uint at = frame.DataRva + 4;
         var image = new PatchedImage(pe, (rva, b) => rva >= at && rva < at + 4 ? (rva == at + 3 ? (byte)0x7F : (byte)0xFF) : b);
         var r = MsvcEh.Analyze(image);
@@ -457,7 +453,7 @@ public class MsvcEhTests(ITestOutputHelper output)
         else
         {
             Assert.Equal(MsvcEhScheme.Seh4, eh.FrameOf(map[Sym("SehExcept")])!.Scheme);
-            // the __finally is inside the __except: level 1 encloses level 0
+            // The __finally is inside the __except: level 1 encloses level 0.
             Assert.Equal(-2, nested[0].EnclosingLevel);
             Assert.Equal(0, nested[1].EnclosingLevel);
             Assert.True(nested[1].IsFinally);

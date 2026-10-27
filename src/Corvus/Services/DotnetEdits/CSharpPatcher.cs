@@ -8,25 +8,15 @@ using static Corvus.Core.MetadataUtil;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// C# editing of compiled assemblies: replace a method body, add members to a type, or add new types.
-///
-/// Method bodies compile as static helper methods against the original assembly with accessibility checks off
-/// (see CSharpPatcher.Helper.cs). New member declarations, constructors and generic contexts compile inside a "shadow"
-/// of the type: the decompiled type with every other body replaced by "throw null", so decompiler output that does not
-/// round-trip cannot break the build. <see cref="ModuleMerger"/> maps shadow types back onto the originals and copies in
-/// new members and compiler-generated helpers (closures, state machines, local functions, &lt;PrivateImplementationDetails&gt;).
-///
-/// Every operation takes the target module, so callers can run it on a scratch copy first.
-/// </summary>
+/// <summary>Replaces method bodies and adds members or types in C#, compiled as helpers or in a stubbed "shadow" of the
+/// decompiled type and merged by <see cref="ModuleMerger"/>; each operation takes the target module.</summary>
 public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, DecompilerService decompiler)
 {
     private static readonly SyntaxAnnotation UserCode = new("user-code");
     private static readonly string[] StateMachineAttributes =
         ["AsyncStateMachineAttribute", "IteratorStateMachineAttribute", "AsyncIteratorStateMachineAttribute", "DebuggerStepThroughAttribute"];
 
-    /// <summary>What a merge produced. Listing is the new IL of the patched method (empty for additions);
-    /// Relaxed lists accessibility changes made so the new code passes the runtime's access checks.</summary>
+    /// <summary>A merge result: added names, the patched method's IL (empty for additions), and access changes.</summary>
     public sealed record Outcome(IReadOnlyList<string> Added, string Listing, IReadOnlyList<string> Relaxed);
 
     /// <summary>Namespaces available to user code without a using directive (only those present in the references).</summary>
@@ -103,8 +93,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         var asm = typeSymbol.Assembly;
         var members = ParseMembers(code, Format.StripArity(type.Name));
         var names = DeclaredNames(members);
-        // Two phases: declare members with stubbed helper bodies, then compile the real bodies as helpers.
-        // Without helpers (generic context) bodies compile directly in the shadow.
+        // Declare members with stub bodies, then compile real bodies as helpers; generic contexts compile in the shadow.
         bool helpers = !HasGenericContext(type);
         var declarations = members.Select(m => helpers ? StubHelperBodies(m) : m).ToList();
 
@@ -170,7 +159,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         var root = UsingsInsideNamespaces(tree.GetCompilationUnitRoot(ct)).WithAdditionalAnnotations(UserCode);
         tree = CSharpSyntaxTree.Create(root, new CSharpParseOptions(LanguageVersion.Preview));
         if (!root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>().Any())
-            throw new ToolError(ErrorCode.InvalidArgument, "The source declares no types. Pass whole type declarations (optionally inside a namespace).");
+            throw new ToolError(ErrorCode.InvalidArgument, "The source declares no types; pass whole type declarations, optionally in a namespace.");
 
         using var compiled = Compile(asm, tree, null, ct);
         var merger = new ModuleMerger(target, compiled, asm.AssemblyName);
@@ -189,13 +178,8 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         return new Outcome(merger.Added, "", relaxed);
     }
 
-    /// <summary>
-    /// Declares the compiler-generated helpers of the compiled code as new definitions: nested '&lt;...&gt;' types (closures,
-    /// state machines) and '&lt;...&gt;' methods/fields on existing types (lambda bodies, local functions, caches), plus
-    /// &lt;PrivateImplementationDetails&gt;. They are always copied under fresh names: an existing helper with the same
-    /// name belongs to the original code and has different contents. Auto-property backing fields that exist are reused.
-    /// <paramref name="rename"/> maps a generated name to the one it gets (helper method names back to the method's own).
-    /// </summary>
+    /// <summary>Declares compiler-generated '&lt;...&gt;' types, methods and fields as new definitions under fresh names
+    /// (same-named ones are the original's); existing backing fields are reused, <paramref name="rename"/> maps names.</summary>
     private static void DeclareGenerated(ModuleMerger merger, ModuleDef compiled, Func<string, string>? rename = null)
     {
         var target = merger.Target;
@@ -231,9 +215,9 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
     private static void ThrowIfUnmapped(ModuleMerger merger)
     {
         if (merger.Unmapped.Count > 0)
-            throw new ToolError(ErrorCode.Unsupported, "The compiled code references definitions that could not be mapped into the target assembly: " +
+            throw new ToolError(ErrorCode.Unsupported, "The compiled code references definitions missing from the target: " +
                                 string.Join(", ", merger.Unmapped.Distinct().Take(10)) +
-                                ". This usually means the decompiled declaration of the surrounding type does not match the original; use patch_method_il.");
+                                "; the decompiled surrounding type likely differs from the original; use patch_method_il.");
     }
 
     /// <summary>Normalizes branches and validates the evaluation stack of every body produced.</summary>

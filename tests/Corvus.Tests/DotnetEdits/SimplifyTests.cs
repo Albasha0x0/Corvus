@@ -9,11 +9,7 @@ using SymbolKind = Corvus.Core.SymbolKind;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods: string folding by IL evaluation, control-flow cleanup and forwarder inlining. Fixtures are compiled
-/// in memory (C#) or built with dnlib; simplified images are executed next to the originals to check they still load,
-/// JIT-compile and compute the same results.
-/// </summary>
+/// <summary>String folding, control-flow cleanup and forwarder inlining; simplified images run next to the originals and compute the same results.</summary>
 public sealed class SimplifyTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -252,7 +248,7 @@ public sealed class SimplifyTests : IDisposable
     // ---- 1. evaluation engine
 
     [Fact]
-    public void StringBuildingHelperFoldsToKnownConstant()
+    public void A_string_building_helper_folds_to_its_constant()
     {
         using var env = new Env(ObfFixture());
         var report = Simplify(env, "Obf.Strings::UseAll");
@@ -268,7 +264,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void IntegerAndFloatSemanticsMatchTheRuntime()
+    public void Integer_and_float_semantics_match_the_runtime()
     {
         using var env = new Env(ObfFixture());
         Simplify(env, "Obf.Strings::CalcUse");
@@ -278,7 +274,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void CallSitesInOtherTypesFoldAndTheHelperStays()
+    public void Call_sites_in_other_types_fold_and_the_helper_stays()
     {
         using var env = new Env(ObfFixture());
         Simplify(env, "Obf.App");
@@ -287,7 +283,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void NestedCallsFoldUpToTheDepthCapAndBailBeyondIt()
+    public void Nested_calls_fold_up_to_the_depth_cap_and_bail_beyond_it()
     {
         // Top() -> D1() -> ... -> D6(): evaluating the call in Top needs 6 frames.
         using (var env = new Env(ObfFixture()))
@@ -307,7 +303,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void IoCallsBailOutAndLeaveTheMethodUnchanged()
+    public void IO_calls_bail_out_and_leave_the_method_unchanged()
     {
         using var env = new Env(ObfFixture());
         var config = Il(env, "Obf.App::Config");
@@ -324,7 +320,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void BudgetExhaustionAndStaticSideEffectsBailOut()
+    public void Budget_exhaustion_and_static_side_effects_bail_out()
     {
         using var env = new Env(ObfFixture());
         Assert.Contains("instruction budget of 5,000 exhausted", Simplify(env, "Obf.Spin::Use", Options(budget: 5_000)));
@@ -336,7 +332,7 @@ public sealed class SimplifyTests : IDisposable
     // ---- 2. control flow (dnlib-built fixture: the C# compiler would already fold these)
 
     [Fact]
-    public void ConstantBranchesCollapse()
+    public void Constant_branches_collapse()
     {
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::ConstIf");
@@ -350,7 +346,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void UnreachableBlocksVanish()
+    public void Unreachable_blocks_vanish()
     {
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::Dead");
@@ -361,7 +357,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void BranchChainsCollapse()
+    public void Branch_chains_collapse()
     {
         using var env = new Env(FlowFixture());
         Assert.Contains("collapsed 2 branch chain(s)", Simplify(env, "Paths.Flow::Chain")); // brtrue L1 and L1: br L2 both reach L3 directly
@@ -372,7 +368,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void EmptyTryRegionsAreRemoved()
+    public void Empty_try_regions_are_removed()
     {
         using var env = new Env(FlowFixture());
         Assert.Contains("removed 1 exception handler(s)", Simplify(env, "Paths.Flow::Guarded"));
@@ -392,7 +388,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void FlattenedSwitchLoopBecomesSequentialCode()
+    public void Flattened_switch_loop_becomes_sequential_code()
     {
         using var env = new Env(FlatFixture());
         Assert.Contains("switch", env.Decompile("Flat.Steps::Run"));
@@ -418,7 +414,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void ComputedStateKeepsTheDispatcher()
+    public void Computed_state_keeps_the_dispatcher()
     {
         // Nothing else in Dynamic simplifies, so keeping the dispatcher leaves the method as it was.
         using var env = new Env(FlatFixture());
@@ -436,7 +432,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void KeyedDispatcherEnteredByFallThroughIsNormalized()
+    public void Keyed_dispatcher_entered_by_fall_through_is_normalized()
     {
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::Keyed");
@@ -450,7 +446,7 @@ public sealed class SimplifyTests : IDisposable
     [Theory]
     [InlineData("AddressTaken", @"the address of the state local V_0 is taken at IL_\w{4}")]
     [InlineData("Mixed", @"the state on the way into the dispatcher at IL_\w{4} is not known")]
-    public void DispatcherOutsideTheCleanFormIsKept(string method, string why)
+    public void Dispatcher_outside_the_clean_form_is_kept(string method, string why)
     {
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::" + method);
@@ -460,10 +456,9 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void PathDependentReadNoDispatcherStoreReachesIsKept()
+    public void Path_dependent_read_no_dispatcher_store_reaches_is_kept()
     {
-        // Varies: the case shared by states 1 and 2 reads the state, 1 the first time and 2 the second. The dispatcher
-        // stores nothing, so going straight to the cases leaves every store, and that read, as it was.
+        // The case shared by states 1 and 2 reads the state, so every store and that read stay.
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::Varies");
         Assert.Contains("normalized 1 switch dispatcher(s)", report);
@@ -474,10 +469,9 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void DispatcherOutsideTheCleanFormKeepsTheOtherSimplifications()
+    public void Dispatcher_outside_the_clean_form_keeps_the_other_simplifications()
     {
-        // Mixed: the state is read in a case, so its dispatcher stays; the string fold, the forwarder call and the
-        // constant branch around it are simplified as in any other method.
+        // The state is read in a case, so the dispatcher stays; the other simplifications still apply.
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::Mixed");
         Assert.Contains("1 of 1 method(s) changed", report);
@@ -499,7 +493,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void SwitchOnALocalWithoutALoopIsNotFlattenedCode()
+    public void Switch_on_a_local_without_a_loop_is_not_flattened_code()
     {
         using var env = new Env(FlowFixture());
         Assert.Contains("Nothing to simplify", Simplify(env, "Paths.Flow::LocalSwitch"));
@@ -508,7 +502,7 @@ public sealed class SimplifyTests : IDisposable
     [Theory]
     [InlineData("CondEntry", 3)]
     [InlineData("ReadElsewhere", 1)] // case 0 only transitions: the state is run through it
-    public void DispatcherOutsideTheCleanFormIsNormalizedPerState(string method, int transitions)
+    public void Dispatcher_outside_the_clean_form_is_normalized_per_state(string method, int transitions)
     {
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::" + method);
@@ -610,7 +604,7 @@ public sealed class SimplifyTests : IDisposable
     [InlineData("Chain")]
     [InlineData("Branchy")]
     [InlineData("Loop")]
-    public void TransitionsComputedFromThePreviousStateAreNormalized(string method)
+    public void Transitions_computed_from_the_previous_state_are_normalized(string method)
     {
         using var env = new Env(ConfusedFixture());
         Assert.Contains("switch", env.Decompile("Confused.C::" + method));
@@ -632,7 +626,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void ComputedTransitionsThatDependOnThePathKeepTheDispatcher()
+    public void Computed_transitions_that_depend_on_the_path_keep_the_dispatcher()
     {
         using var env = new Env(ConfusedFixture());
         var before = Il(env, "Confused.C::Varies");
@@ -643,7 +637,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void ReportOfManyMethodsStartsWithTotals()
+    public void A_report_of_many_methods_starts_with_totals()
     {
         using var env = new Env(FlatFixture());
         var report = Simplify(env, "Flat.Steps", Options("cfg"), dryRun: true);
@@ -760,7 +754,7 @@ public sealed class SimplifyTests : IDisposable
     [InlineData("Loop", 1, "acc -= x")]
     [InlineData("Selector", 1, "switch")]
     [InlineData("Wide", 2, "return x;")]
-    public void ConditionsConstantThroughLocalsFold(string method, int branches, string gone)
+    public void Conditions_constant_through_locals_fold(string method, int branches, string gone)
     {
         using var env = new Env(PredsFixture());
         var report = Simplify(env, "Preds.P::" + method, Options("cfg"));
@@ -776,7 +770,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void LocalsFoldedAwayLoseTheirStores()
+    public void Locals_folded_away_lose_their_stores()
     {
         using var env = new Env(PredsFixture());
         var report = Simplify(env, "Preds.P::Local", Options("cfg"));
@@ -801,7 +795,7 @@ public sealed class SimplifyTests : IDisposable
     [InlineData("MutableRead")]
     [InlineData("Differs")]
     [InlineData("AddressTaken")]
-    public void ConditionsThatVaryStay(string method)
+    public void Conditions_that_vary_stay(string method)
     {
         using var env = new Env(PredsFixture());
         var before = Il(env, "Preds.P::" + method);
@@ -813,7 +807,7 @@ public sealed class SimplifyTests : IDisposable
     // ---- 3. forwarders
 
     [Fact]
-    public void ForwarderCallSitesAreRetargeted()
+    public void Forwarder_call_sites_are_retargeted()
     {
         using var env = new Env(ObfFixture());
         var report = Simplify(env, "Obf.Callers::Use", Options("inline"));
@@ -836,7 +830,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void ForwardersWhoseCallRunsAStaticConstructorAreKept()
+    public void Forwarders_whose_call_runs_a_static_constructor_are_kept()
     {
         using var env = new Env(ObfFixture());
         Simplify(env, "Obf.Callers::UseNoisy", Options("inline"));
@@ -844,7 +838,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void StaticConstructorsFoldWithTheStateAtTheCallNotTheirFinalState()
+    public void Static_constructors_fold_with_the_state_at_the_call_not_their_final_state()
     {
         // While the static constructor runs, Prefix is still null: Join() returns "none-x", not "p-x".
         using var env = new Env(ObfFixture());
@@ -858,7 +852,7 @@ public sealed class SimplifyTests : IDisposable
     // ---- 4. dry run, view, round trip, undo
 
     [Fact]
-    public void DryRunReportsWithoutModifyingTheModule()
+    public void Dry_run_reports_without_modifying_the_module()
     {
         using var env = new Env(ObfFixture());
         var asm = env.Fixture;
@@ -891,7 +885,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void DecompiledViewShowsTheSimplifiedFormWithoutEditing()
+    public void Decompiled_view_shows_the_simplified_form_without_editing()
     {
         using var env = new Env(ObfFixture());
         var title = env.One("Obf.App::Title");
@@ -1042,7 +1036,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void SimplifiedAssembliesSaveAndReloadCleanly()
+    public void Simplified_assemblies_save_and_reload_cleanly()
     {
         foreach (var (fixture, type, methods) in new[]
                  {
@@ -1085,7 +1079,7 @@ public sealed class SimplifyTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void RealLibrarySimplifiesSavesAndReverifies()
+    public void A_real_library_simplifies_saves_and_reverifies()
     {
         using var env = new Env(RealPackages.Lib("NLog", "6.1.4", "netstandard2.1", "NLog.dll"));
         var report = env.Edit(() => env.Edits.SimplifyMethods(env.Fixture, null, Options(), false, default));
@@ -1107,7 +1101,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void SimplifyIsAnEditThatUndoAndReplayRespect()
+    public void Simplify_is_an_edit_that_undo_and_replay_respect()
     {
         using var env = new Env(ObfFixture());
         Simplify(env, "Obf.App::Title");
@@ -1121,7 +1115,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void UnknownPassIsRejected()
+    public void Unknown_pass_is_rejected()
     {
         var error = Assert.Throws<ToolError>(() => SimplifyOptions.Parse("fold,unroll", null, null));
         Assert.Contains("unroll", error.Message);
@@ -1201,7 +1195,7 @@ public sealed class SimplifyTests : IDisposable
                 zero, Ret(),
                 loop, OpCodes.Pop.ToInstruction(), OpCodes.Br.ToInstruction(loop));
         }
-        // Chain: brtrue L1; L1: br L2; L2: br L3; L3: return 3
+        // Chain: brtrue L1; L1: br L2; L2: br L3; L3: return 3.
         {
             var m = Method("Chain", i4);
             var b = m.Body;

@@ -2,10 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Lua;
 
-/// <summary>
-/// The container view of a Lua or LuaJIT chunk: one entry per function with its luac header counts, a listing.txt with
-/// every function's header, instructions and constants, and a strings.txt of the string constants.
-/// </summary>
+/// <summary>A Lua or LuaJIT chunk as a container: one entry per function, listing.txt and strings.txt.</summary>
 public static class LuaContents
 {
     public static ContainerContents Open(byte[] data, string name)

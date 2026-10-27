@@ -40,7 +40,7 @@ public class FrameworkSymbolTests : IDisposable
     }
 
     [Fact]
-    public async Task FrameworkTypesAndMembers_CanBeTargets()
+    public async Task Framework_types_and_members_can_be_targets()
     {
         using var env = Load();
         var refs = new ReferenceTools(env.Workspace, env.References);
@@ -65,7 +65,7 @@ public class FrameworkSymbolTests : IDisposable
     }
 
     [Fact]
-    public async Task NetFrameworkAndModernCopies_AreOneApi()
+    public async Task NET_Framework_and_modern_copies_are_one_API()
     {
         using var env = Load(); // System.Private.CoreLib
         env.Workspace.Load(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "net45", "Newtonsoft.Json.dll")); // mscorlib

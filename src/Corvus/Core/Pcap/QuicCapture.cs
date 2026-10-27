@@ -4,13 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// QUIC connections in a capture (RFC 9000, 9001; version 2 per RFC 9369) and the HTTP/3 they carry (RFC 9114, QPACK per
-/// RFC 9204). Initial packets decrypt with keys the client's first destination connection id derives and give the
-/// ClientHello (server name, ALPN, client random) and the ServerHello (cipher suite); 0-RTT and 1-RTT packets decrypt with
-/// the key log's traffic secrets, following key updates. STREAM frames are joined per stream in any order; HTTP/3 request
-/// streams become responses (and uploaded request bodies) as HTTP/1.x and HTTP/2 ones do.
-/// </summary>
+/// <summary>QUIC connections (versions 1 and 2) and their HTTP/3 responses; 0-RTT and 1-RTT packets decrypt with the key log.</summary>
 internal sealed class QuicCapture(TlsKeyLog keys, Action<CapturedResponse> emit, long maxBody)
 {
     private const int MaxConnections = 10_000, MaxCrypto = 64 * 1024, MaxStreams = 10_000, MaxFrame = 1 << 20;
@@ -512,7 +506,7 @@ internal sealed class QuicCapture(TlsKeyLog keys, Action<CapturedResponse> emit,
 
         private sealed class Reader
         {
-            public long UniType = -1;
+            public long UniStreamType = -1;
             public readonly MemoryStream Buffer = new();
             public long DataLeft;
             public bool Broken;
@@ -532,8 +526,8 @@ internal sealed class QuicCapture(TlsKeyLog keys, Action<CapturedResponse> emit,
             if (!_readers.TryGetValue((id, fromClient), out var r)) _readers[(id, fromClient)] = r = new Reader();
             if (r.Broken) return;
             bool uni = (id & 2) != 0;
-            if (uni && r.UniType == 2) { Encoder(q, c, fromClient, data); return; }
-            if (uni && r.UniType is not (-1 or 0)) return;
+            if (uni && r.UniStreamType == 2) { Encoder(q, c, fromClient, data); return; }
+            if (uni && r.UniStreamType is not (-1 or 0)) return;
             if (r.Buffer.Length + data.Length > MaxFrame + 64 && r.DataLeft == 0) { r.Broken = true; return; }
             r.Buffer.Write(data);
             Frames(q, c, id, fromClient, r);
@@ -560,12 +554,12 @@ internal sealed class QuicCapture(TlsKeyLog keys, Action<CapturedResponse> emit,
         {
             var all = r.Buffer.GetBuffer().AsSpan(0, (int)r.Buffer.Length);
             int at = 0;
-            if ((id & 2) != 0 && r.UniType == -1)
+            if ((id & 2) != 0 && r.UniStreamType == -1)
             {
                 if (!Varint(all, ref at, out var type)) return;
-                r.UniType = (long)Math.Min(type, long.MaxValue);
-                if (r.UniType == 2) { Encoder(q, c, fromClient, all[at..]); r.Buffer.SetLength(0); return; }
-                if (r.UniType != 0) { r.Buffer.SetLength(0); return; }
+                r.UniStreamType = (long)Math.Min(type, long.MaxValue);
+                if (r.UniStreamType == 2) { Encoder(q, c, fromClient, all[at..]); r.Buffer.SetLength(0); return; }
+                if (r.UniStreamType != 0) { r.Buffer.SetLength(0); return; }
             }
             while (at < all.Length)
             {
@@ -599,7 +593,7 @@ internal sealed class QuicCapture(TlsKeyLog keys, Action<CapturedResponse> emit,
                     }
                     else Headers(q, c, id, fromClient, section);
                 }
-                else if (type == 4 && r.UniType == 0) Settings(fromClient, payload);
+                else if (type == 4 && r.UniStreamType == 0) Settings(fromClient, payload);
             }
             var rest = all[at..].ToArray();
             r.Buffer.SetLength(0);

@@ -1,5 +1,5 @@
 name: Documentation
-description: A wrong, missing or unclear statement in the README, docs, tool descriptions or the guide.
+description: A wrong, missing or unclear statement in the docs, tool descriptions or the guide.
 labels: [documentation]
 body:
   - type: input

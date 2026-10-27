@@ -1,10 +1,6 @@
 namespace Corvus.Native.Dump;
 
-/// <summary>
-/// The register file of one core architecture by slot: the DWARF register number (the numbering .eh_frame rules use) for
-/// general registers, PowerPC's link and count registers through <see cref="Slot"/>; <see cref="Pc"/> is a DWARF column
-/// on x86 and x64, an extra slot past the DWARF registers elsewhere.
-/// </summary>
+/// <summary>A core architecture's register file; slots are DWARF register numbers, <see cref="Pc"/> an extra slot except on x86 and x64.</summary>
 public sealed class CoreArch
 {
     private CoreArch(NativeArch arch, string name, bool is64, bool bigEndian, string[] names, int pc, int sp, int fp, int returnColumn, int? link, bool unwinds)

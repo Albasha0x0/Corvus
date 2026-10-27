@@ -11,7 +11,7 @@ public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.AndroidPackage)]
-    public void ManifestAndResources()
+    public void A_real_package_reads_its_manifest_and_resources()
     {
         var service = new AndroidPackageService();
         var m = service.Manifest(Package);
@@ -30,7 +30,7 @@ public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.AndroidPackage)]
-    public void DexIndexAndQueries()
+    public void A_real_package_indexes_its_DEX_and_decodes_every_method()
     {
         var dex = new DexService();
         var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -47,7 +47,7 @@ public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal(0, truncated);
 
         var manifest = new AndroidPackageService().Manifest(Package);
-        // an activity-alias launcher (switchable app icons) opens its target activity, the class the DEX code defines
+        // An activity-alias launcher (switchable app icons) opens its target activity, the class the DEX code defines.
         var launcher = manifest.Components.First(c => c.Launcher);
         var detail = dex.GetClass(Package, launcher.TargetActivity ?? launcher.Name, default);
         output.WriteLine($"{detail.Descriptor}: {detail.Methods.Count} methods, super {detail.Super}; kotlin {detail.Kotlin}");

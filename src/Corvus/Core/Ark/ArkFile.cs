@@ -6,10 +6,7 @@ namespace Corvus.Core.Ark;
 /// <summary>A field of an Ark bytecode class: name, access flags and its integer value, null when it has none.</summary>
 internal sealed record ArkField(string Name, uint AccessFlags, long? Value);
 
-/// <summary>
-/// A method of an Ark bytecode class: its offset, class name, name, access flags, code offset (null for none), debug
-/// information offset (null for none) and source language (null when the class's applies).
-/// </summary>
+/// <summary>A method of an Ark bytecode class; Code and DebugInfo are null when absent, Language when the class's applies.</summary>
 internal sealed record ArkMethod(int Offset, string Class, string Name, uint AccessFlags, int? Code, int? DebugInfo, byte? Language)
 {
     public string FullName => ArkFile.Qualified(Class, Name);
@@ -27,11 +24,7 @@ internal sealed record ArkCode(int Registers, int Arguments, byte[] Instructions
 /// <summary>One literal of a literal array: its tag (as the dynamic literal tags name it) and value.</summary>
 internal readonly record struct ArkLiteral(byte Tag, object? Value);
 
-/// <summary>
-/// Ark bytecode files (Panda binary format, <c>.abc</c>): header, classes with their fields and methods, method
-/// bodies, the region indexes that resolve 16-bit ids, strings and literal arrays. Structure that runs past the file
-/// or points into the header throws <see cref="InvalidDataException"/>.
-/// </summary>
+/// <summary>Ark bytecode files (Panda binary format, .abc); structure past the file or into the header throws <see cref="InvalidDataException"/>.</summary>
 internal sealed class ArkFile
 {
     private const int HeaderSize = 60;
@@ -139,8 +132,7 @@ internal sealed class ArkFile
         return new ArkCode(registers, arguments, instructions, blocks);
     }
 
-    // Dynamic literal tags (libpandafile LiteralTag): name and value size in bytes; strings, methods and arrays are
-    // 32-bit offsets.
+    // libpandafile LiteralTag: name and value size in bytes; strings, methods and arrays are 32-bit offsets.
     private static readonly Dictionary<byte, (string Name, int Size)> LiteralTags = new()
     {
         [0x00] = ("tagvalue", 1), [0x01] = ("u1", 1), [0x02] = ("i32", 4), [0x03] = ("f32", 4), [0x04] = ("f64", 8),
@@ -155,10 +147,7 @@ internal sealed class ArkFile
     /// <summary>The name ark_disasm gives a literal tag; null for a tag not in the table.</summary>
     public static string? LiteralTagName(byte tag) => LiteralTags.TryGetValue(tag, out var t) ? t.Name : null;
 
-    /// <summary>
-    /// The literals of the tag and value array at <paramref name="offset"/> (the header counts tags and values both):
-    /// strings resolved to text, methods to their names, numbers as read, other offsets as numbers.
-    /// </summary>
+    /// <summary>The literals at <paramref name="offset"/>, strings and methods resolved to text, other values as numbers.</summary>
     public List<ArkLiteral> Literals(int offset)
     {
         Check(offset, 4);

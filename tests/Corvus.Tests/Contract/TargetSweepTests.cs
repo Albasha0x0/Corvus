@@ -5,10 +5,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Every tool with a target parameter, through a real server: an unloaded real file there loads (never not_loaded), and a
-/// missing file in any input path parameter is the one not_found text with its Next (CORVUS_ALL_TESTS=1).
-/// </summary>
+/// <summary>Every target parameter loads an unloaded real file, and a missing file is the one not_found text (CORVUS_ALL_TESTS=1).</summary>
 public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly string[] AssemblyParameters = ["assembly", "oldAssembly", "newAssembly"];
@@ -24,10 +21,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
     private static Dictionary<string, Dictionary<string, object?>> Plausible(IList<McpClientTool> tools, TempDir dir) =>
         ContractSweep.Build(tools, dir, ContractSweep.Depth.Core).Where(c => c.Label == "plausible").ToDictionary(c => c.Tool, c => c.Args);
 
-    /// <summary>
-    /// The plausible call with <paramref name="parameter"/> as the only target or input path: other optional ones and
-    /// their alternatives dropped, engine left at auto (no engine is installed for the sweep), enum values made valid.
-    /// </summary>
+    /// <summary>The plausible call with <paramref name="parameter"/> as the only target or input path, engine at auto and enum values made valid.</summary>
     private static Dictionary<string, object?> Base(McpClientTool tool, Dictionary<string, object?> plausible, string parameter)
     {
         var schema = tool.ProtocolTool.InputSchema;
@@ -57,7 +51,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task AnUnloadedRealPathIsNeverNotLoaded()
+    public async Task An_unloaded_real_path_is_never_not_loaded()
     {
         using var dir = new TempDir();
         await using var client = await ContractSweep.StartAsync(dir);
@@ -102,7 +96,7 @@ public sealed class TargetSweepTests(Xunit.Abstractions.ITestOutputHelper output
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task AMissingFileIsOneNotFoundEverywhere()
+    public async Task A_missing_file_is_one_not_found_everywhere()
     {
         using var dir = new TempDir();
         await using var client = await ContractSweep.StartAsync(dir);

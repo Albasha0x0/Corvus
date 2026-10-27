@@ -79,11 +79,7 @@ internal abstract class DebugBytes : IDisposable
 /// <summary>A debug section: where its bytes are in the file, and how they are compressed (0 none, 1 zlib, 2 zstd).</summary>
 internal sealed record DebugSectionInfo(string Name, long Offset, long Size, int Compression = 0, long UncompressedSize = 0, int HeaderSize = 0);
 
-/// <summary>
-/// The DWARF sections of an ELF or Mach-O file (a thin slice of a universal one) read through its headers only: section
-/// names, offsets and compression, the byte order and address size, and the identity a debug file is matched by (GNU
-/// build-id, Mach-O LC_UUID, .gnu_debuglink). Nothing past the headers is read until a section is asked for.
-/// </summary>
+/// <summary>The DWARF sections and build identity of an ELF or Mach-O file, read from its headers; section bytes are read on demand.</summary>
 internal sealed class DebugContainer : IDisposable
 {
     /// <summary>Largest section kept whole in memory when read from a file; larger ones are read a unit or a page at a time.</summary>
@@ -392,7 +388,7 @@ internal sealed class DebugContainer : IDisposable
             if (info.Compression != 0) section = Inflate(info);
             else if (info.Size <= WholeSectionBytes || _relocations?.Has(name) == true) section = new DwarfSection(name, _bytes.Slice(_base + info.Offset, (int)Math.Min(info.Size, int.MaxValue)));
             else section = new DwarfSection(name, _bytes, _base + info.Offset, info.Size);
-            // a relocatable object's DWARF holds zeros where the linker writes offsets and addresses
+            // A relocatable object's DWARF holds zeros where the linker writes offsets and addresses.
             if (section != null && _relocations?.Has(name) == true) section = new DwarfSection(name, _relocations.Apply(name, section.Slice(0, section.Length).ToArray()));
             if (section != null) _opened[name] = section;
             return section;
@@ -446,11 +442,7 @@ internal sealed class DebugContainer : IDisposable
     }
 }
 
-/// <summary>
-/// One DWARF section's bytes: whole in memory, or read from the file on demand (<see cref="Slice"/> per unit,
-/// <see cref="CString"/> through a page cache of <see cref="CachedPages"/> pages of <see cref="PageSize"/> bytes).
-/// Reads past the end return fewer bytes, never throw. Thread-safe.
-/// </summary>
+/// <summary>One DWARF section's bytes, in memory or read on demand; reads past the end return fewer bytes. Thread-safe.</summary>
 internal sealed class DwarfSection
 {
     public const int PageSize = 1 << 20;
@@ -512,7 +504,6 @@ internal sealed class DwarfSection
             int at = (int)(offset - page * PageSize);
             int z = bytes.AsSpan(at).IndexOf((byte)0);
             if (z >= 0) return Encoding.UTF8.GetString(bytes, at, Math.Min(z, MaxString));
-            // crosses into the next pages
             var sb = new List<byte>(bytes.AsSpan(at).ToArray());
             while (sb.Count < MaxString && (page + 1) * PageSize < Length)
             {

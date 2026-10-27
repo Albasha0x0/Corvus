@@ -49,10 +49,7 @@ public class XamlEventsTests(Xunit.Abstractions.ITestOutputHelper output)
 
     public const string WpfApps = "CORVUS_WPF_APPS";
 
-    /// <summary>
-    /// Every BAML entry of the WPF programs under CORVUS_WPF_APPS (.exe, three levels deep) decompiles to XAML that parses,
-    /// and every handler their generated Connect methods hook up (ldftn) is named in the XAML and resolved.
-    /// </summary>
+    /// <summary>Every BAML entry under CORVUS_WPF_APPS decompiles to XAML that parses and names every handler Connect hooks up.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(WpfApps)]
     public async Task Wpf_apps_xaml_parses_and_every_connected_handler_resolves()

@@ -236,10 +236,7 @@ public static class Format
         _ => m.FullName,
     };
 
-    /// <summary>
-    /// "&lt;T, U&gt;" for a generic method, so it differs from a non-generic overload with the same parameters. The method's own
-    /// names when they are plain identifiers (the resolver counts commas), else T or T1..Tn.
-    /// </summary>
+    /// <summary>"&lt;T, U&gt;" for a generic method, from its own names when plain identifiers, else T or T1..Tn.</summary>
     public static string GenericParameters(IMethod m)
     {
         int n = (int)(m.MethodSig?.GenParamCount ?? 0);
@@ -284,11 +281,7 @@ public static class Format
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Characters that print as nothing or reorder the text around them: format characters (zero-width and bidi
-    /// controls such as U+202E), line and paragraph separators, the Hangul fillers, and control characters other than tab,
-    /// CR and LF (ANSI escape sequences start with U+001B). Code transformers build names from them.
-    /// </summary>
+    /// <summary>Whether a character prints as nothing or reorders text: format, separator, Hangul filler or control other than tab, CR, LF.</summary>
     public static bool IsInvisible(char ch) =>
         char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.Format or System.Globalization.UnicodeCategory.LineSeparator
             or System.Globalization.UnicodeCategory.ParagraphSeparator
@@ -321,16 +314,13 @@ public static class Format
         });
     }
 
-    /// <summary>The line starts this server writes as markers; echoed content must not forge them (STANDARDS S10.4).</summary>
+    /// <summary>The line starts this server writes as markers; echoed content must not forge them.</summary>
     public static readonly string[] Markers = ["Error (", "error (json):", "Next:", "[More:", "[End:", "[workspace]"];
 
     /// <summary>Put before a forged marker: the escaped form of U+2063 (invisible separator), visible as text.</summary>
     public const string MarkerEscape = "\\u2063";
 
-    /// <summary>
-    /// <see cref="EscapeInvisible"/>, then every line (after its indentation) that starts with one of <see cref="Markers"/>
-    /// gets <see cref="MarkerEscape"/> in front, so file-derived text cannot pass for an error, a Next step or a footer.
-    /// </summary>
+    /// <summary><see cref="EscapeInvisible"/>, then <see cref="MarkerEscape"/> before each line starting with a <see cref="Markers"/> entry, so file text cannot pass for an error or footer.</summary>
     public static string EscapeMarkers(string s)
     {
         s = EscapeInvisible(s);
@@ -371,10 +361,7 @@ public static class Format
         return $"[{name}({string.Join(", ", args)})]";
     }
 
-    /// <summary>
-    /// Formats an attribute argument as C#: arrays as new[] { ... }, boxed objects by value, types as typeof(...),
-    /// enums by member name when resolvable, otherwise "(Enum)n".
-    /// </summary>
+    /// <summary>An attribute argument as C#; an enum value without a resolvable member reads "(Enum)n".</summary>
     public static string AttributeArgument(CAArgument arg) => arg.Value switch
     {
         IList<CAArgument> items => $"new {(arg.Type is SZArraySig array ? Type(array.Next) : "")}[] {{ {string.Join(", ", items.Select(AttributeArgument))} }}",
@@ -392,16 +379,13 @@ public static class Format
         return FlagNames(e, value) is { } flags ? string.Join(" | ", flags.Select(f => $"{e.Name}.{f}")) : $"({e.Name}){Literal(value)}";
     }
 
-    /// <summary>
-    /// A [Flags] enum value as the single-bit members that make it up, or null when it is not a flags enum or some bit
-    /// has no member.
-    /// </summary>
+    /// <summary>A [Flags] enum value as its single-bit members; null when not a flags enum or a bit has no member.</summary>
     private static List<string>? FlagNames(TypeDef e, object? value)
     {
         if (!e.CustomAttributes.IsDefined("System.FlagsAttribute")) return null;
         if (Bits(value) is not { } rest) return null;
         var names = new List<string>();
-        // by bit, not declaration order: reference assemblies of one enum declare members in different orders
+        // By bit, not declaration order: reference assemblies of one enum declare members in different orders.
         foreach (var f in e.Fields.Where(f => f.IsLiteral).OrderBy(f => Bits(f.Constant?.Value) ?? 0))
         {
             if (Bits(f.Constant?.Value) is not { } bit || bit == 0 || (bit & (bit - 1)) != 0 || (rest & bit) == 0) continue;

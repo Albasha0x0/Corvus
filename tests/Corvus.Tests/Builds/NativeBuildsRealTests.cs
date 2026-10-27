@@ -5,10 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The builds-native tools by name on two real builds of one library (e_sqlite3 2.1.2 -> 2.1.11): default pages within the
-/// list and code budgets, row paging, batches with a bad item, previews by default.
-/// </summary>
+/// <summary>The native build tools on two real builds of e_sqlite3 (2.1.2 -> 2.1.11): pages within budget, row paging, batches with a bad item, previews by default.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposable
@@ -61,7 +58,7 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
             Assert.Equal(page.Record.GetProperty("items").GetArrayLength(), page.Record.GetProperty("nextOffset").GetInt32());
         }
 
-        // the largest changed function, found by walking the changed view
+        // The largest changed function, found by walking the changed view.
         var (largest, size) = ("", 0L);
         for (int offset = 0; ;)
         {
@@ -78,13 +75,13 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
         var second = await Call(server, "diff_function", new() { ["oldImage"] = o, ["newImage"] = n, ["address"] = largest, ["offset"] = rows });
         Assert.Equal(rows, second.Record.GetProperty("offset").GetInt32());
 
-        // a batch with one bad address succeeds and counts it
+        // A batch with one bad address succeeds and counts it.
         var mapped = await Call(server, "map_address_between_builds", new() { ["oldImage"] = o, ["newImage"] = n, ["addresses"] = new[] { "sqlite3_open", "no_such_function", largest } });
         Assert.False(mapped.IsError, mapped.Text);
         Assert.Equal(1, mapped.Record.GetProperty("failed").GetInt32());
         Assert.Equal("function_start", mapped.Record.GetProperty("results")[0].GetProperty("reason").GetString());
 
-        // a pattern of the old build found again in the new one
+        // A pattern of the old build found again in the new one.
         var made = await Call(server, "make_code_pattern", new() { ["image"] = o, ["addresses"] = new[] { "sqlite3_open", "sqlite3_free" } });
         Assert.Equal(0, made.Record.GetProperty("failed").GetInt32());
         var pattern = made.Record.GetProperty("results")[0].GetProperty("pattern").GetString()!;
@@ -93,7 +90,7 @@ public sealed class NativeBuildsRealTests(ITestOutputHelper output) : IDisposabl
         var common = await Call(server, "search_code_pattern", new() { ["pattern"] = "48 89 5C 24 ??", ["images"] = new[] { o, n } });
         Assert.True(common.TextTokens <= 6_300 && common.RecordTokens <= 6_300, $"search_code_pattern: {common.TextTokens} / {common.RecordTokens}");
 
-        // migrations preview by default (D7), then apply as undoable edits
+        // Migrations preview by default (D7), then apply as undoable edits.
         var name = "corvus_sqlite3_libversion";
         await Call(server, "rename_native", new() { ["image"] = o, ["address"] = "sqlite3_libversion", ["name"] = name, ["dryRun"] = false });
         var preview = await Call(server, "migrate_native_names", new() { ["oldImage"] = o, ["newImage"] = n });

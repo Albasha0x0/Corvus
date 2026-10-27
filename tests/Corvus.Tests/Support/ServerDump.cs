@@ -46,8 +46,7 @@ internal static class ServerDump
     private const int DumpAttempts = 3;
     private static readonly TimeSpan DumpRetryDelay = TimeSpan.FromMilliseconds(500);
 
-    // The runtime's createdump no longer takes another process's id, so dbghelp writes it: private memory, data segments,
-    // handles, memory info and thread info, as a heap dump holds for reading .NET stacks.
+    // createdump no longer takes another process's id, so dbghelp writes a heap dump fit for reading .NET stacks.
     private const int HeapDump = 0x200 | 0x1 | 0x4 | 0x800 | 0x1000;
 
     // Returns 0, or the Win32 error of the open or the dump.

@@ -7,10 +7,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Live.Inspector;
 
-/// <summary>
-/// A Chrome DevTools Protocol connection over one WebSocket: commands answered by id, events raised by method name on the
-/// receive thread. Messages over <see cref="MaxMessage"/> end the connection.
-/// </summary>
+/// <summary>A Chrome DevTools Protocol connection over one WebSocket; a message over <see cref="MaxMessage"/> ends it.</summary>
 internal sealed class CdpConnection : IAsyncDisposable
 {
     private const int MaxMessage = 64 << 20;

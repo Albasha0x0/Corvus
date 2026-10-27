@@ -17,7 +17,6 @@ internal static class ProtocolCaptures
     private static byte[] Ascii(string s) => Encoding.ASCII.GetBytes(s);
     private static byte[] Utf16(string s) => Encoding.Unicode.GetBytes(s);
 
-    // ---- HTTP/2 ----
 
     private static byte[] H2(byte type, byte flags, uint stream, byte[] payload) =>
         [(byte)(payload.Length >> 16), (byte)(payload.Length >> 8), (byte)payload.Length, type, flags, (byte)(stream >> 24), (byte)(stream >> 16), (byte)(stream >> 8), (byte)stream, .. payload];
@@ -47,7 +46,6 @@ internal static class ProtocolCaptures
         ]);
     }
 
-    // ---- QUIC ----
 
     /// <summary>Frame 1 a client Initial for quic.example.com; frames 2–4 one for split.example.com over three packets.</summary>
     public static byte[] Quic()
@@ -57,7 +55,6 @@ internal static class ProtocolCaptures
         return Pcap([.. datagrams.Select((d, i) => Ethernet(Udp(Client, (ushort)(51000 + (i == 0 ? 0 : 1)), Web, 443, d)))]);
     }
 
-    // ---- SMB2 ----
 
     private static byte[] Smb2(ushort command, bool response, ulong message, uint tree, byte[] body)
     {
@@ -119,7 +116,6 @@ internal static class ProtocolCaptures
         return Pcap(frames);
     }
 
-    // ---- Kerberos ----
 
     private static byte[] Der(int tag, params byte[][] parts)
     {
@@ -193,7 +189,7 @@ public sealed class PacketProtocolTests
     [InlineData("kerberos.SNameString == krbtgt", new long[] { 1, 2 })]
     [InlineData("kerberos.SNameString == \"fs01.example.com\" && kerberos.msg_type == 12", new long[] { 2 })]
     [InlineData("kerberos.realm == \"EXAMPLE.COM\"", new long[] { 1, 2 })]
-    public void Kerberos_principals_and_realms(string filter, long[] frames) =>
+    public void Filters_on_Kerberos_principals_and_realms_select_their_frames(string filter, long[] frames) =>
         Assert.Equal(frames, Frames(ProtocolCaptures.Kerberos(), filter));
 
     [Fact]
@@ -213,7 +209,8 @@ public sealed class PacketProtocolTests
     {
         Assert.Equal("www.example.com", Hpack.Huffman(Convert.FromHexString("F1E3C2E5F23A6BA0AB90F4FF")));
         Assert.Equal("no-cache", Hpack.Huffman(Convert.FromHexString("A8EB10649CBF")));
-        Assert.Null(Hpack.Huffman([0xFF, 0xFF, 0xFF, 0xFF])); // the EOS symbol
+        // The EOS symbol.
+        Assert.Null(Hpack.Huffman([0xFF, 0xFF, 0xFF, 0xFF]));
     }
 }
 

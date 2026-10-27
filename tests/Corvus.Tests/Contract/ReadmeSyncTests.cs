@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 public partial class ReadmeSyncTests
 {
     [Fact]
-    public void ToolTablesAndCounts_MatchRegisteredTools()
+    public void Tool_tables_and_counts_match_registered_tools()
     {
         var registered = Corvus.Mcp.Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         var lines = File.ReadAllLines(Path.Combine(RepoRoot(), "docs", "features.md"));
@@ -38,7 +38,7 @@ public partial class ReadmeSyncTests
     }
 
     [Fact]
-    public void PromptListAndCount_MatchRegisteredPrompts()
+    public void Prompt_list_and_count_match_registered_prompts()
     {
         var registered = Corvus.Mcp.Catalog.OfThisBuild().Prompts.Select(p => (string)p["name"]!).Order(StringComparer.Ordinal).ToList();
         var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md")) + File.ReadAllText(Path.Combine(RepoRoot(), "docs", "features.md"));

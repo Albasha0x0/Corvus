@@ -3,11 +3,7 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Project layering, checked on the built assembly's metadata. Layers are the namespaces under Corvus
-/// (Core, Native, Services, Tools, Mcp, Setup; the root holds Program and ServerInstructions). Core and Native are the
-/// bottom and may use each other; Services builds on them; Tools and Mcp on Services; Setup only on Mcp; Relay only on Native.
-/// </summary>
+/// <summary>Namespaces under Corvus layer as Core and Native, then Services, then Tools and Mcp, then Setup; Relay uses only Native.</summary>
 public class LayeringTests
 {
     /// <summary>What each layer may not reference; "" is the root. Nested namespaces belong to their top-level layer.</summary>
@@ -23,7 +19,7 @@ public class LayeringTests
     };
 
     [Fact]
-    public void LowerLayers_DoNotReferenceUpperLayers()
+    public void Lower_layers_do_not_reference_upper_layers()
     {
         var edges = Dependencies();
         Assert.Contains(edges, e => Layer(e.From) == "Tools" && Layer(e.To) == "Services"); // the scan sees references at all

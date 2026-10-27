@@ -14,8 +14,8 @@ namespace Corvus.Tools;
 public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceService resources, DecompilerService decompiler, OutputPager pager)
 {
     [McpServerTool(Name = "list_resources", Title = "List manifest resources", UseStructuredContent = true, OutputSchemaType = typeof(ResourceList))]
-    [Description("Manifest resources (embedded, .resources with entry counts, linked) with SHA-256 and file offsets; for a native image its Win32 " +
-                 "resources as TYPE/NAME/LANGUAGE with file ranges (icon groups paired with icons, image headers decoded).")]
+    [Description("Manifest resources (embedded, .resources, linked) with SHA-256 and file offsets; a native image lists its Win32 " +
+                 "resources as TYPE/NAME/LANGUAGE with file ranges.")]
     public Task<string> ListResources(
         [Description(AssemblyDescription)] string assembly,
         [Description(RowOffsetDescription)] int offset = 0,
@@ -61,10 +61,7 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
     /// <summary>Win32 resource types; RT_GROUP_ICON's directory names the RT_ICON resources it groups.</summary>
     private const uint RtCursor = 1, RtBitmap = 2, RtIcon = 3, RtGroupIcon = 14;
 
-    /// <summary>
-    /// The Win32 resource rows: file range and SHA-256 of each; icon groups with their entries paired to the RT_ICON
-    /// resources (same language first), icons with the groups naming them and their decoded image header.
-    /// </summary>
+    /// <summary>The Win32 resource rows with file range and SHA-256; icon groups paired with their RT_ICON resources, same language first.</summary>
     internal static List<ResourceEntry> Win32(PeFile pe)
     {
         var icons = pe.Resources.Where(r => !r.Type.IsName && r.Type.Id == RtIcon && r.Name is { IsName: false }).ToList();
@@ -94,7 +91,7 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
                 Size = r.Size,
                 Rva = $"0x{r.Rva:X}",
                 FileOffset = at is { } start ? $"0x{start:X}" : null,
-                // a range that runs past the file (a truncated image) has no end
+                // A range past the file (a truncated image) has no end.
                 FileEnd = at is { } s && s + r.Size <= pe.FileSize ? $"0x{s + r.Size:X}" : null,
                 CodePage = r.CodePage != 0 ? (int)r.CodePage : null,
                 Sha256 = bytes != null ? Convert.ToHexStringLower(SHA256.HashData(bytes)) : null,
@@ -146,8 +143,8 @@ public sealed partial class ResourceTools(AssemblyWorkspace workspace, ResourceS
     }
 
     [McpServerTool(Name = "get_resource", Title = "Read / extract resource", UseStructuredContent = true, OutputSchemaType = typeof(ResourcePage))]
-    [Description("Read a resource: text as text, binary as hex preview, .resources as an entry list (entry reads one; .baml as XAML); outputPath " +
-                 "extracts the raw bytes. Native images: TYPE/NAME[/LANGUAGE], version info and string tables decoded.")]
+    [Description("Read a resource: text, a hex preview, or a .resources entry list (entry reads one; .baml as XAML); outputPath " +
+                 "extracts the raw bytes. Native images take TYPE/NAME[/LANGUAGE].")]
     public Task<string> GetResource(
         [Description(AssemblyDescription)] string assembly,
         [Description("Name from list_resources.")] string name,

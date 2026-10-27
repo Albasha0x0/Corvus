@@ -186,7 +186,7 @@ public sealed class EngineViewTests : IDisposable
         Assert.Contains("Ghidra's record of First:\n  prototype: int __fastcall First(int a)\n  convention __fastcall, signature from user, callee pops 0 bytes", engine);
         Assert.Contains("  param int a in ECX:4\n  returns int in EAX:4", engine);
         Assert.DoesNotContain("record of", await rig.Tools.ListFunctions(rig.Image, filter: "Firs", engine: "ghidra"));
-        // the session is open now: the built-in listing and the dossier show it too
+        // The session is open now: the built-in listing and the dossier show it too.
         Assert.Contains("Ghidra's record of First", await rig.Tools.ListFunctions(rig.Image, filter: "First", engine: "ours"));
         Assert.Contains("ghidra: prototype: int __fastcall First(int a)", await dossiers.AnalyzeNativeFunction(rig.Image, "First"));
     }
@@ -286,7 +286,7 @@ public sealed class EngineViewTests : IDisposable
         public Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
             Task.FromResult(new EngineDataList(5, [new EngineDataItem(0x3000, 8, "pointer", "g_engine_table", "180001000h", false),
                 new EngineDataItem(0x3010, 6, "string", null, "\"hello\"", true),
-                // padding in the code section: no globals
+                // Padding in the code section: no globals.
                 new EngineDataItem(0x1001, 5, "byte[5]", null, "db 5 dup(0CCh)", false), new EngineDataItem(0x1006, 10, "align", null, "align 10h", false)]));
 
         public Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
@@ -309,7 +309,7 @@ public sealed class EngineViewTests : IDisposable
             Task.FromResult(new PatchSyncResult(wanted.Count, 0, 0, 0, 0, 0, [], TimeSpan.Zero));
         public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        // with two functions: the second calls the first at +4, the first calls the second at +4
+        // With two functions: the second calls the first at +4, the first calls the second at +4.
         public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NativeXref>>(provider.Functions.Count > 1 && rva == provider.Functions[0].StartRva
                 ? [new NativeXref(provider.Functions[1].StartRva + 4, rva, NativeXrefKind.Call, provider.Functions[1].StartRva)] : []);

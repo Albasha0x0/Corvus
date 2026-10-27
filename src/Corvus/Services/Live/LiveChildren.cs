@@ -25,13 +25,10 @@ public sealed class LiveChild(int processId, int parentId, string path, IReadOnl
     public string CommandLine => string.Join(" ", Arguments.Select(a => a.Length == 0 || a.Any(char.IsWhiteSpace) ? "\"" + a + "\"" : a));
 }
 
-/// <summary>
-/// Child processes, as Frida's child gating holds them: a child the program starts waits at its start until it is attached
-/// as a session of its own or let go; closing the session lets every child it still holds run.
-/// </summary>
+/// <summary>Child processes held by Frida's child gating until attached or released; closing the session releases them.</summary>
 public sealed partial class LiveSessionService
 {
-    // bound here, not in Native.Live: the process inspector there binds no API that changes a process
+    // Bound here, not in Native.Live: the process inspector there binds no API that changes a process.
     [DllImport("ntdll.dll")]
     private static extern int NtResumeProcess(Native.Live.SafeKernelHandle process);
 
@@ -49,10 +46,8 @@ public sealed partial class LiveSessionService
             : " (resumed: not in childNames)"));
     }
 
-    /// <summary>
-    /// Processes that name the program as their parent but that another process started for it (the WebView2 runtime's
-    /// browser process), so no hold saw them; Windows only. A process older than the program has a reused parent id.
-    /// </summary>
+    // A process older than the program has a reused parent id.
+    /// <summary>Processes another process started for the program (WebView2 browser process), unseen by the gate; empty off Windows.</summary>
     public static List<(int ProcessId, string Name)> StartedForProgram(LiveSession session)
     {
         var found = new List<(int, string)>();
@@ -91,11 +86,9 @@ public sealed partial class LiveSessionService
                 : throw new ToolError(ErrorCode.NotFound, $"Session {parent.Id} holds no child process {pid}.", $"live_session action=children session={parent.Id}");
     }
 
-    /// <summary>
-    /// Opens a session on a held child; it stays held until that session's first continue, and follows its own children as
-    /// the parent does. On Linux only the gate's own tracer could attach at the child's start, so the gate lets it run
-    /// with its first thread held at the program's code instead.
-    /// </summary>
+    // On Linux only the gate's tracer can attach at the child's start, so the child runs with its first thread held at
+    // the program's code instead.
+    /// <summary>Opens a session on a held child, held until its first continue and following its own children.</summary>
     public async Task<LiveSession> AttachChildAsync(LiveSession parent, int pid, CancellationToken ct)
     {
         var child = HeldChild(parent, pid);
@@ -135,10 +128,7 @@ public sealed partial class LiveSessionService
         return r.GetProperty("resumed").GetBoolean();
     }
 
-    /// <summary>
-    /// After a child session's worker detached: the gate drops its session in the child, and a gate whose own session
-    /// closed first ends once it keeps none.
-    /// </summary>
+    /// <summary>After a child session detaches, drops the gate's session in the child; ends a closed gate that keeps none.</summary>
     private static async Task DropHandedAsync(LiveSession session)
     {
         if (session.HeldBy is not { } parent) return;
@@ -164,11 +154,7 @@ public sealed partial class LiveSessionService
             return session.Children.Any(c => c.Handed && c.Session != null && _sessions.TryGetValue(c.Session, out var s) && !s.Closed);
     }
 
-    /// <summary>
-    /// At a session's close: every child it still holds runs on (through the worker, or directly when the worker is gone), an
-    /// attached child whose session has not continued too, and a child session that never continued goes back to its
-    /// parent's hold.
-    /// </summary>
+    /// <summary>At close, resumes every child still held; a child session that never continued returns to its parent's hold.</summary>
     private async Task CloseChildrenAsync(LiveSession session)
     {
         if (session.HeldBy is { } parent && session.Suspended)

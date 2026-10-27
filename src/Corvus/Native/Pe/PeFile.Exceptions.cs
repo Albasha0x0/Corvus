@@ -4,12 +4,7 @@ namespace Corvus.Native.Pe;
 
 public sealed partial class PeFile
 {
-    /// <summary>
-    /// The exception directory as function ranges. x64: RUNTIME_FUNCTION (begin, end, unwind info). ARM64 and ARM:
-    /// (begin, unwind data) where the low two bits of the unwind data select packed unwind data (function length in
-    /// bits 2-12) or an .xdata record (function length in bits 0-17 of its first word); lengths count 4-byte units on
-    /// ARM64 and 2-byte units on ARM. Packed entries have an unwind info RVA of 0.
-    /// </summary>
+    /// <summary>The exception directory as function ranges (x64, ARM64, ARM); packed entries have an unwind info RVA of 0.</summary>
     private IReadOnlyList<RuntimeFunction> ParseRuntimeFunctions(IssueLog log)
     {
         var dir = Directory(PeDirectory.Exception);
@@ -109,7 +104,7 @@ public sealed partial class PeFile
             epilogs = extended & 0xFFFF;
             at += 4;
         }
-        // E set: one epilogue packed in the header; else a word per epilogue scope
+        // E set: one epilogue packed in the header; else a word per epilogue scope.
         if ((header & (1u << 21)) == 0) at += 4 * epilogs;
         Span<byte> code = stackalloc byte[1];
         return Read(at, code) == 1 ? code[0] : -1;

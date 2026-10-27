@@ -4,11 +4,7 @@ using System.Text.Json;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// A qlog file (QUIC and HTTP/3 event logs): the JSON form (one document with traces) and the JSON-SEQ form (RFC 7464
-/// records, one header then one event each). Events are objects with name, time and data, or arrays named by the trace's
-/// event_fields (qlog drafts 01 and 02). Malformed input throws <see cref="InvalidDataException"/>.
-/// </summary>
+/// <summary>A qlog file in JSON or JSON-SEQ form; malformed input throws <see cref="InvalidDataException"/>.</summary>
 internal sealed class Qlog
 {
     private const int MaxSummary = 240;

@@ -29,7 +29,7 @@ public sealed class DumpBucketTests : IDisposable
         _service.Bucket(Folder, false, null, topFrames, skip, splitByVersion, true, 1000, null, 0, 50, null, default);
 
     [Fact]
-    public async Task CrashesGroupBySignatureAcrossRebasesAndOffsets()
+    public async Task Crashes_group_by_signature_across_rebases_and_offsets()
     {
         Write("a.dmp", SyntheticCrash.Builder());
         Write("b.dmp", SyntheticCrash.Builder(moduleBase: 0x7FF6_3000_0000)); // rebased: same bucket
@@ -59,13 +59,13 @@ public sealed class DumpBucketTests : IDisposable
         var hang = Assert.Single(r.Items, b => b.Kind == "no_exception");
         Assert.StartsWith("hang | synth!Crash", hang.Signature);
 
-        // the representatives open by id
+        // The representatives open by id.
         var opened = await _service.Summarize(av.Representative, null, default);
         Assert.Equal(av.Representative, opened.Id);
     }
 
     [Fact]
-    public async Task VersionsSplitOnRequestAndFramesCanBeSkipped()
+    public async Task Versions_split_on_request_and_frames_can_be_skipped()
     {
         Write("v1.dmp", SyntheticCrash.Builder());
         Write("v2.dmp", SyntheticCrash.Builder(versionLs: 0x00030005));
@@ -80,7 +80,7 @@ public sealed class DumpBucketTests : IDisposable
     }
 
     [Fact]
-    public async Task ASecondRunParsesOnlyNewOrChangedDumps()
+    public async Task A_second_run_parses_only_new_or_changed_dumps()
     {
         Write("a.dmp", SyntheticCrash.Builder());
         Write("b.dmp", SyntheticCrash.Builder(code: 0xC0000094));
@@ -97,13 +97,13 @@ public sealed class DumpBucketTests : IDisposable
         Assert.Equal((2, 1), (third.Dumps.Parsed, third.Dumps.Cached));
         Assert.Equal(3, third.Items.Sum(b => b.Count));
 
-        // other options are another cache key
+        // Other options are another cache key.
         var split = await Run(splitByVersion: false, topFrames: 1);
         Assert.Equal(3, split.Dumps.Parsed);
     }
 
     [Fact]
-    public async Task LimitsAndArgumentsAreReported()
+    public async Task Limits_and_arguments_are_reported()
     {
         for (int i = 0; i < 3; i++) Write($"{i}.dmp", SyntheticCrash.Builder());
         var limited = await _service.Bucket(Folder, false, null, 3, null, false, true, 2, null, 0, 50, null, default);
@@ -119,10 +119,10 @@ public sealed class DumpBucketTests : IDisposable
         Assert.Equal(ErrorCode.NotFound, missing.Code);
     }
 
-    /// <summary>K4: dump_heap and dump_object rows of arrays and generic instances (no TypeDef, or the nil row 0x02000000) carry no token.</summary>
+    /// <summary>dump_heap and dump_object rows of arrays and generic instances (no TypeDef, or the nil row 0x02000000) carry no token.</summary>
     [Theory]
     [InlineData(0L, null)]
     [InlineData(0x02000000L, null)]
     [InlineData(0x02000012L, "0x02000012")]
-    public void HeapRowsLeaveOutANilTypeDefToken(long token, string? expected) => Assert.Equal(expected, MinidumpService.TypeDefToken(token));
+    public void Heap_rows_leave_out_a_nil_type_def_token(long token, string? expected) => Assert.Equal(expected, MinidumpService.TypeDefToken(token));
 }

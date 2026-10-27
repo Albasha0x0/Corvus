@@ -41,7 +41,7 @@ public sealed class SetupTests : IDisposable
         JsonNode.Parse(File.ReadAllText(path), documentOptions: new System.Text.Json.JsonDocumentOptions { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true })!;
 
     [Fact]
-    public void Install_RegistersWithDetectedClients_AndKeepsTheirOtherSettings()
+    public void Install_registers_with_detected_clients_and_keeps_their_other_settings()
     {
         Directory.CreateDirectory(Home(".cursor"));
         File.WriteAllText(Home(".cursor", "mcp.json"), """{ "mcpServers": { "other": { "command": "x" } }, "theme": "dark" }""");
@@ -82,7 +82,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Install_IsIdempotent_AndUninstallRemovesOnlyItsEntry()
+    public void Install_is_idempotent_and_uninstall_removes_only_its_entry()
     {
         Directory.CreateDirectory(Home(".cursor"));
         File.WriteAllText(Home(".cursor", "mcp.json"), """{ "mcpServers": { "other": { "command": "x" } } }""");
@@ -109,7 +109,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Install_NeverOverwritesAFileItCannotParse()
+    public void Install_never_overwrites_a_file_it_cannot_parse()
     {
         Directory.CreateDirectory(Home(".cursor"));
         File.WriteAllText(Home(".cursor", "mcp.json"), "{ this is not json");
@@ -120,7 +120,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void NamedClients_AreRegisteredEvenWhenNotDetected_AndUnknownNamesAreRejected()
+    public void Named_clients_are_registered_even_when_not_detected_and_unknown_names_are_rejected()
     {
         var (code, output) = Run("install", "--no-check", "kiro", "VS Code");
         Assert.True(code == 0, output);
@@ -134,7 +134,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void ClientFormats_FollowEachClientsSchema()
+    public void Client_formats_follow_each_clients_schema()
     {
         Run("install", "--no-check", "opencode", "copilot", "roo-code", "crush");
         var opencode = ReadJson(Home(".config", "opencode", "opencode.json"))["mcp"]!["corvus"]!;
@@ -149,7 +149,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Codex_PathsWithQuotesAndBackslashesRoundTrip()
+    public void Codex_paths_with_quotes_and_backslashes_round_trip()
     {
         var launch = new ServerLaunch(@"C:\Users\O""Brien\corvus\corvus.exe", ["--load", @"D:\App\Managed"]);
         var target = new CodexTomlTarget(Home("config.toml"));
@@ -159,8 +159,7 @@ public sealed class SetupTests : IDisposable
         Assert.False(target.Install("corvus", launch).Changed);
     }
 
-    // Regression: 1d77b83a's push run lost a server's exit message when stdout ended first.
-    // The program closes stdout, then writes its error 300 ms later (sh: Git's on Windows).
+    // Regression (1d77b83a): a server's exit message was lost when stdout ended first; the program writes its error 300 ms after closing stdout.
     [Fact]
     public void A_server_whose_stdout_ends_before_its_error_is_reported_with_that_error()
     {
@@ -168,14 +167,15 @@ public sealed class SetupTests : IDisposable
             ? BundleTests.FindOnPath("git.exe") is { } git ? new[] { "..", "../.." }.Select(up => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(git)!, up, "usr", "bin", "sh.exe"))).FirstOrDefault(File.Exists) : null
             : "/bin/sh";
         if (sh == null || !File.Exists(sh)) return;
-        var r = SelfTest.Run(new ServerLaunch(sh, ["-c", "exec 1>&-; sleep 0.3; echo bad setting >&2"]), TimeSpan.FromSeconds(30));
+        // The shell's own PATH: a test runner's PATH may lack the folder of Git's sleep.exe.
+        var r = SelfTest.Run(new ServerLaunch(sh, ["-c", "PATH=/usr/bin:/bin:$PATH; exec 1>&-; sleep 0.3; echo bad setting >&2"]), TimeSpan.FromSeconds(30));
         Assert.False(r.Ok);
         Assert.Contains("server output: bad setting", r.Detail);
     }
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void Status_StartsEachRegistrationWithItsOwnArgsAndEnv_AndTheRealServer()
+    public void Status_starts_each_registration_with_its_own_args_and_env_and_the_real_server()
     {
         using var home = new SetupHome();
         var dll = typeof(Corvus.Core.AssemblyWorkspace).Assembly.Location;
@@ -202,7 +202,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void ClaudeCode_FallsBackToTheFile_WhenItsCliFails()
+    public void Claude_Code_falls_back_to_the_file_when_its_CLI_fails()
     {
         var env = new SetupEnvironment
         {
@@ -229,7 +229,7 @@ public sealed class SetupTests : IDisposable
     private static readonly ServerLaunch DotnetLaunch = new("dotnet", [Path.Combine(Path.GetTempPath(), "build", "corvus.dll")]);
 
     [Fact]
-    public void Install_DevReload_RegistersTheRelayFromAStagedCopy_AndBack()
+    public void Install_dev_reload_registers_the_relay_from_a_staged_copy_and_back()
     {
         var program = Home("src", "bin", "corvus.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(program)!);
@@ -277,7 +277,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Install_KeepsTheUsersArgumentsEnvAndKeys_OnJsonEntries()
+    public void Install_keeps_the_users_arguments_env_and_keys_on_JSON_entries()
     {
         Directory.CreateDirectory(Home(".cursor"));
         File.WriteAllText(Home(".cursor", "mcp.json"), """
@@ -317,7 +317,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Install_KeepsTheUsersArguments_InCommandArrays()
+    public void Install_keeps_the_users_arguments_in_command_arrays()
     {
         Directory.CreateDirectory(Home(".config", "opencode"));
         File.WriteAllText(Home(".config", "opencode", "opencode.json"), """
@@ -333,7 +333,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Install_KeepsTheUsersArgumentsEnvAndKeys_InTheCodexTable()
+    public void Install_keeps_the_users_arguments_env_and_keys_in_the_Codex_table()
     {
         Directory.CreateDirectory(Home(".codex"));
         var before = """
@@ -398,7 +398,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Uninstall_RemovesProgramFiles_AndKeepsDataInASharedRoot()
+    public void Uninstall_removes_program_files_and_keeps_data_in_a_shared_root()
     {
         var root = FakeInstall(Home("Local", "Corvus"), Home("Local", "Corvus"));
         var plan = Installation.PlanRemoval(root, root, purgeData: false);
@@ -418,7 +418,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Uninstall_RemovesAnEmptiedInstallRoot_AndPurgeRemovesASeparateDataRoot()
+    public void Uninstall_removes_an_emptied_install_root_and_purge_removes_a_separate_data_root()
     {
         var root = FakeInstall(Home("opt", "corvus"), Home("share", "Corvus"));
         var dataRoot = Home("share", "Corvus");
@@ -435,7 +435,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Uninstall_DeferredWindowsCommand_RemovesTheJunctionWithoutFollowingIt()
+    public void The_deferred_Windows_uninstall_removes_the_junction_without_following_it()
     {
         if (!OperatingSystem.IsWindows()) return;
         var root = @"C:\Users\u\AppData\Local\Corvus";
@@ -446,7 +446,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void Uninstall_PurgeData_DeletesTheDataRoot_AndRejectsKeepFiles()
+    public void Uninstall_purge_data_deletes_the_data_root_and_rejects_keep_files()
     {
         var dataRoot = Path.Combine(_env.LocalAppData, "Corvus");
         Directory.CreateDirectory(Path.Combine(dataRoot, "analysis"));
@@ -462,7 +462,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void ReleaseChecksum_MatchesMismatchesAndMissingEntries()
+    public void Release_checksums_report_matches_mismatches_and_missing_entries()
     {
         var data = "release archive"u8.ToArray();
         var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data));
@@ -476,7 +476,7 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
-    public void ServerArguments_AreNotTreatedAsCommands()
+    public void Server_arguments_are_not_treated_as_commands()
     {
         Assert.Null(SetupCli.TryRun(["--load", "x.dll"], new StringWriter(), _env, Launch));
         Assert.Null(SetupCli.TryRun([], new StringWriter(), _env, Launch));

@@ -15,10 +15,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Round-trip properties of the format readers: a generated input written by a test writer reads back as written.
-/// A failure prints the input and the seed that replays it.
-/// </summary>
+/// <summary>Generated inputs written by test writers read back as written; a failure prints the input and its seed.</summary>
 public sealed class ReaderPropertyTests
 {
     // Inputs per property in the quick set; 3,000 each ran clean once.
@@ -379,7 +376,7 @@ public sealed class ReaderPropertyTests
         }
     }
 
-    // ar archives with GNU and BSD member names.
+    // Ar archives with GNU and BSD member names.
 
     [Fact]
     public void An_ar_archive_reads_back_with_every_member_name_and_its_bytes()

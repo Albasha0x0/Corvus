@@ -18,13 +18,10 @@ public sealed record WorkerPoolOptions
     public TimeSpan StartTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
-/// <summary>
-/// Runs ops in <c>corvus worker</c> processes (<see cref="WorkerHost"/>), one per kind, started on first use and again
-/// after a crash; a crash fails only the request in flight. Each worker's memory is capped (Windows: a Job Object; Linux:
-/// RLIMIT_DATA; macOS: a footprint watchdog). A worker that crashes is reported as provider_unavailable with its exit
-/// code and last stderr lines, one that reaches the cap as limit_exceeded naming <see cref="MemoryVariable"/>; neither
-/// returns partial data. On unless <see cref="EnableVariable"/> is 0.
-/// </summary>
+/// <summary>Runs ops in memory-capped <c>corvus worker</c> processes, one per kind, restarted after a crash; on unless <see cref="EnableVariable"/> is 0.</summary>
+/// <remarks>Memory cap: a Job Object on Windows, RLIMIT_DATA on Linux, a footprint watchdog on macOS. A crash fails only
+/// the request in flight, as provider_unavailable with the exit code and last stderr lines; the cap is limit_exceeded
+/// naming <see cref="MemoryVariable"/>. Neither returns partial data.</remarks>
 public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
 {
     /// <summary>0 turns every worker off: the file tools then read in the server.</summary>
@@ -92,11 +89,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         return available > 0 ? Math.Max(available / 2, MinimumMemoryBytes) : null;
     }
 
-    /// <summary>
-    /// Runs <paramref name="op"/> in the worker of <paramref name="kind"/> and returns its result. <paramref name="file"/>
-    /// names the input in a limit or crash error. Throws <see cref="ToolError"/>: provider_unavailable when the host is off
-    /// or the worker crashed, limit_exceeded when it reached its memory limit, timeout past <paramref name="timeout"/>.
-    /// </summary>
+    /// <summary>Runs <paramref name="op"/> in the worker of <paramref name="kind"/>; throws provider_unavailable (host off or worker crashed), limit_exceeded (memory limit) or timeout; <paramref name="file"/> names the input in the error.</summary>
     public async Task<JsonElement> RunAsync(string kind, string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, string? file = null)
     {
         if (!Enabled)
@@ -107,8 +100,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
         catch (ToolError e) when (e.Code == ErrorCode.ProviderUnavailable && connection.KillReason is { } reason && reason != "disposed")
         {
-            // The worker was stopped for another request that missed its time (that request gets the timeout or
-            // cancellation), so this one never failed on its own: it runs once more on a fresh worker.
+            // Stopped for another request's timeout: run this one once more on a fresh worker.
             await RetireAsync(slot, connection).ConfigureAwait(false);
             connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
             return await RequestOnce(kind, op, args, timeout, slot, connection, file, cancellationToken).ConfigureAwait(false);
@@ -133,7 +125,6 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     private async Task<ToolError> Failed(string kind, string op, Slot slot, WorkerConnection connection, ToolError e, string? file)
     {
         var outOfMemory = connection.MemoryLimitReached != null || slot.OutOfMemory;
-        // A worker that crashed or ran out of memory is not reused: the next call starts a fresh one.
         if (e.Code == ErrorCode.ProviderUnavailable || outOfMemory) await RetireAsync(slot, connection).ConfigureAwait(false);
         if (!outOfMemory) return e;
         var what = (connection.MemoryLimitReached ?? MemoryLimitBytes) is { } bytes
@@ -146,10 +137,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     /// <summary>How long a cancelled request has to stop before its worker, and every request on it, is ended.</summary>
     public static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(2);
 
-    /// <summary>
-    /// Starts the worker of <paramref name="kind"/> unless it runs, so a caller can tell a worker that cannot start from one
-    /// that crashed on a request. Throws <see cref="ToolError"/> as <see cref="RunAsync"/> does, or the start's own exception.
-    /// </summary>
+    /// <summary>Starts the worker of <paramref name="kind"/> unless running, separating start failures from request crashes.</summary>
     public async Task StartAsync(string kind, CancellationToken cancellationToken)
     {
         if (!Enabled)
@@ -180,7 +168,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             if (OperatingSystem.IsMacOS() && start.MemoryLimitBytes is { } bytes)
                 // The watchdog ends the worker; the GC's own limit fails a managed allocation first, which the worker reports.
                 start = start with { Environment = new Dictionary<string, string?>(start.Environment) { ["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X", CultureInfo.InvariantCulture) } };
-            // Requests run side by side, as the worker answers in any order; a cancelled one is asked to stop before the worker is ended.
+            // Concurrent requests, as the worker answers in any order; a cancelled one is asked to stop before the worker is ended.
             var connection = WorkerConnection.Start($"{kind} worker", start,
                 options: new WorkerConnectionOptions { MemoryLimitVariable = MemoryVariable, Concurrent = true, CancelGrace = CancelGrace });
             connection.EventReceived += e => { if (e.Name == WorkerHost.OutOfMemoryEvent) slot.OutOfMemory = true; };

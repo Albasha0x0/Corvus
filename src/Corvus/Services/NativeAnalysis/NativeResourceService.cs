@@ -9,10 +9,7 @@ public static class NativeResourceService
 {
     public static string Key(PeResource r) => $"{r.TypeName}/{r.Name?.ToString() ?? "?"}/{r.Language}";
 
-    /// <summary>
-    /// Reads one resource: version info and string tables decoded, manifests and other text as text, binary as a hex
-    /// preview; <paramref name="savePath"/> writes the raw bytes. The language may be omitted when only one matches.
-    /// </summary>
+    /// <summary>Reads one resource decoded, as text, or as a hex preview; <paramref name="savePath"/> writes the raw bytes instead.</summary>
     public static string Get(LoadedNative native, string name, string? savePath, int previewBytes = 4096, bool overwrite = false)
     {
         var pe = native.RequirePe("get_resource");

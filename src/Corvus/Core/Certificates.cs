@@ -6,10 +6,7 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Authenticode signature details. DigestMatches is false when the file changed after signing; Problem is set when the
-/// signature could not be read.
-/// </summary>
+/// <summary>Authenticode signature details; DigestMatches is false after a change, Problem is set when unreadable.</summary>
 public sealed record CertificateInfo(
     bool Present,
     string? Signer = null,
@@ -24,9 +21,7 @@ public sealed record CertificateInfo(
     string? Problem = null,
     DateTime? Timestamp = null);
 
-/// <summary>
-/// Reads and verifies the Authenticode signature in a PE's security directory. Malformed input is reported in Problem.
-/// </summary>
+/// <summary>Reads and verifies a PE's Authenticode signature; malformed input is reported in Problem.</summary>
 public static class Certificates
 {
     private const int SecurityDirectory = 4;
@@ -38,10 +33,7 @@ public static class Certificates
     private static CertificateInfo Read(byte[] file, out SignedCms? signed) =>
         Read(file, file.Length, (at, n) => file.AsSpan((int)at, n).ToArray(), (hash, at, n) => hash.AppendData(file, (int)at, (int)n), out signed);
 
-    /// <summary>
-    /// The Authenticode signature of a PE in a seekable stream: its headers from <paramref name="headers"/>, then the
-    /// certificate table and the image digest read in ranges, so a large file is never held whole.
-    /// </summary>
+    /// <summary>The Authenticode signature of a PE in a seekable stream, read in ranges.</summary>
     public static CertificateInfo Read(Stream file, ReadOnlySpan<byte> headers)
     {
         var buffer = new byte[1 << 20];
@@ -73,7 +65,8 @@ public static class Certificates
         signed = null;
         var pe = PeImage.TryParse(headers);
         if (pe == null) return new CertificateInfo(false, Problem: "not a PE file");
-        var (offset, size) = pe.Directory(headers, SecurityDirectory); // file offset, not an RVA
+        // A file offset, not an RVA.
+        var (offset, size) = pe.Directory(headers, SecurityDirectory);
         if (offset == 0 || size == 0) return new CertificateInfo(false);
         if (offset < 8 || (long)offset + size > fileLength || size < 8)
             return new CertificateInfo(true, Problem: "the certificate table lies outside the file (truncated or corrupt)");
@@ -108,8 +101,9 @@ public static class Certificates
         var cert = signer.Certificate;
         var (algorithm, expected) = SignedDigest(cms.ContentInfo.Content);
         bool? matches = null;
+        // A table inside the headers cannot be excluded from the hash.
         if (algorithm != null && expected != null && HashName(algorithm) is { } hash
-            && offset >= pe.DirectoryEntryOffset(SecurityDirectory) + 8) // a table inside the headers cannot be excluded from the hash
+            && offset >= pe.DirectoryEntryOffset(SecurityDirectory) + 8)
             matches = ImageDigest(fileLength, append, pe, offset, size, hash).AsSpan().SequenceEqual(expected);
 
         bool? valid;
@@ -122,9 +116,7 @@ public static class Certificates
             Timestamp: timestamp);
     }
 
-    /// <summary>
-    /// Timestamp from an RFC 3161 token (OID 1.3.6.1.4.1.311.3.3.1) or a legacy countersignature; null when absent.
-    /// </summary>
+    /// <summary>Timestamp from an RFC 3161 token or a legacy countersignature; null when absent.</summary>
     private static DateTime? SigningTime(SignerInfo signer)
     {
         try
@@ -174,9 +166,7 @@ public static class Certificates
         _ => null,
     };
 
-    /// <summary>
-    /// Authenticode image digest: the whole file except CheckSum, the security directory entry and the certificate table.
-    /// </summary>
+    /// <summary>Authenticode image digest: the file except CheckSum, the security directory entry and the certificate table.</summary>
     private static byte[] ImageDigest(long fileLength, Action<IncrementalHash, long, long> append, PeImage pe, uint certOffset, uint certSize, HashAlgorithmName algorithm)
     {
         using var hash = IncrementalHash.CreateHash(algorithm);
@@ -190,10 +180,7 @@ public static class Certificates
         return hash.GetHashAndReset();
     }
 
-    /// <summary>
-    /// Null when the PE's embedded signature is intact and valid, its signer and the chain's root belong to
-    /// <paramref name="organization"/>, and the chain is trusted on this machine for code signing; else why not.
-    /// </summary>
+    /// <summary>Null when the embedded signature is intact, chains to a root of <paramref name="organization"/> and is trusted here for code signing; else why not.</summary>
     public static string? VerifyPublisher(byte[] file, string organization) => VerifyPublisher(file, organization, out _);
 
     /// <summary>As <see cref="VerifyPublisher(byte[], string)"/>; <paramref name="note"/> names a check that could not be made (revocation).</summary>
@@ -208,12 +195,8 @@ public static class Certificates
         return CheckSigner(cms!, organization, out note);
     }
 
-    /// <summary>
-    /// Null when a PKCS #7 signature (Authenticode or a security catalog) verifies, its signer may sign code, is not
-    /// revoked, and chains to a trusted root of <paramref name="organization"/>; else why not. Revocation is checked
-    /// online unless CORVUS_OFFLINE is set (then from cached data); when it cannot be determined the signature is
-    /// accepted and <paramref name="note"/> says so.
-    /// </summary>
+    /// <summary>Null when a PKCS #7 signer may sign code, is not revoked and chains to a root of <paramref name="organization"/>; else why not.</summary>
+    /// <remarks>Revocation is checked online, or from cached data when CORVUS_OFFLINE is set; an unknown status is accepted and named in <paramref name="note"/>.</remarks>
     public static string? CheckSigner(SignedCms cms, string organization, out string? note)
     {
         note = null;
@@ -271,10 +254,7 @@ public static class Certificates
         return chain;
     }
 
-    /// <summary>
-    /// Builds the signer's chain without revocation checks. Timestamped signatures are verified at signing time, as
-    /// Windows does.
-    /// </summary>
+    /// <summary>The signer's chain without revocation checks; a timestamped signature is verified at signing time, as Windows does.</summary>
     private static string DescribeChain(X509Certificate2 cert, X509Certificate2Collection extra, DateTime? timestamp)
     {
         try

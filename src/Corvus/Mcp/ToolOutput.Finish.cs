@@ -13,11 +13,7 @@ public static partial class ToolOutput
     /// <summary>Top-level record fields that hold timings: moved to _meta (results stay deterministic).</summary>
     private static readonly string[] TimingFields = ["elapsed", "elapsedSeconds", "elapsedMs", "durationMs", "seconds"];
 
-    /// <summary>
-    /// Fits a successful result to the call's budget, each part on its own: a list record and its text keep the same rows
-    /// with the list envelope; text pages carry their position; anything else past the budget keeps its head and names
-    /// the whole result by resultId. The text block is readable text, never a copy of the record.
-    /// </summary>
+    /// <summary>Fits each part of a successful result to the call's budget; over-budget parts keep their head and name the whole result by resultId.</summary>
     /// <param name="canRetry">The tool is read-only with a limit parameter: it can be called again for a smaller page.</param>
     internal static Finished Finish(OutputCall call, CallToolResult result, bool readOnly, bool canRetry, ResultStore? store, JsonObject meta,
         KeptOrigin? origin = null)
@@ -73,10 +69,7 @@ public static partial class ToolOutput
         }, null);
     }
 
-    /// <summary>
-    /// A character page's position in its record and, for code and bytes, the page itself (D3); where the escaped body makes
-    /// the record larger than the text, both parts end at an earlier line.
-    /// </summary>
+    /// <summary>Writes a character page's position, and for code and bytes the page, into the record; both parts end earlier when escaping makes the record larger.</summary>
     private static void PageRecord(OutputCall call, JsonObject record, TextPageState page, ref string text, bool body)
     {
         int end = page.End;
@@ -112,10 +105,7 @@ public static partial class ToolOutput
         text = text.Replace(page.Rendered, rendered);
     }
 
-    /// <summary>
-    /// The rows array of a list record: "items" (or the tool's row arrays in <see cref="RowArrays"/>, the first non-empty one)
-    /// beside a total; else null.
-    /// </summary>
+    /// <summary>The key of a list record's rows array beside a total: "items" or the first non-empty one in <see cref="RowArrays"/>; else null.</summary>
     internal static string? RowsKey(JsonObject record, string? tool)
     {
         if (record["total"] is not JsonValue t || !t.TryGetValue<long>(out _)) return null;
@@ -124,10 +114,8 @@ public static partial class ToolOutput
         return present.FirstOrDefault(k => record[k]!.AsArray().Count > 0) ?? present.FirstOrDefault();
     }
 
-    /// <summary>
-    /// Fits a list's rows to both parts; null when done, else the smaller limit to call again with. A list without a row
-    /// offset (its tool pages the text by characters, or not at all) continues through a kept result instead of nextOffset.
-    /// </summary>
+    /// <summary>Fits a list's rows to both parts; null when done, else the smaller limit to call again with.</summary>
+    // A list without a row offset continues through a kept result instead of nextOffset.
     private static int? FitList(OutputCall call, JsonObject record, string key, ref string text, bool bare, bool canRetry, ResultStore? store,
         KeptOrigin? origin)
     {
@@ -268,10 +256,7 @@ public static partial class ToolOutput
     internal static JsonObject Facets(IEnumerable<KeyValuePair<string, string?>> facets) =>
         new(facets.Select(f => KeyValuePair.Create(f.Key, (JsonNode?)JsonValue.Create(f.Value == null ? "available" : "unavailable: " + f.Value))));
 
-    /// <summary>
-    /// The last guard: a part still over the budget keeps its head (text) or its first rows (record) and both name the whole
-    /// result, kept for read_result. Read-only or not, it stays a success (D2, S1.6).
-    /// </summary>
+    /// <summary>The last guard: a part still over budget keeps its head or first rows and names the whole kept result; it stays a success.</summary>
     private static void Bound(OutputCall call, string tool, JsonObject? record, ref string text, ResultStore? store, bool readOnly, KeptOrigin? origin)
     {
         bool textOver = !call.Fits(text);
@@ -304,10 +289,8 @@ public static partial class ToolOutput
         }
     }
 
-    /// <summary>
-    /// Characters to take off <paramref name="json"/> in one step: half the estimated excess (at least 1), so the cut nears the
-    /// budget in a few passes over the record instead of one pass per removed row (N9: 87 s for a 20,000-node frontier).
-    /// </summary>
+    /// <summary>Characters to take off <paramref name="json"/> in one step: half the estimated excess, at least 1.</summary>
+    // Halving reaches the budget in a few passes instead of one per row (87 s for a 20,000-node frontier before).
     private static int Excess(OutputCall call, string json)
     {
         double over = call.Tokens > 0 ? json.Length * (1 - call.Tokens / (double)Math.Max(1, TokenEstimate.Of(json))) : 0;
@@ -315,18 +298,14 @@ public static partial class ToolOutput
         return (int)Math.Clamp(over / 2, 1, int.MaxValue);
     }
 
-    /// <summary>
-    /// Takes about <paramref name="chars"/> characters off the record: the outermost arrays over a common level lose trailing
-    /// elements down to it (the largest at least one; each counted in <paramref name="cut"/> by path), or, when a string
-    /// over 200 characters is the largest part, that string is halved. False when nothing is left to trim.
-    /// </summary>
+    /// <summary>Takes about <paramref name="chars"/> characters off the record by trimming the largest arrays or halving the largest string; false when nothing is left.</summary>
     private static bool TrimLargest(JsonObject record, Dictionary<string, (int Kept, int Total)> cut, int chars)
     {
         var (best, arrays) = Parts(record, record["warnings"]);
         if (best is JsonValue v)
         {
             var str = v.GetValue<string>();
-            // named as an array is, in characters
+            // Named like an array, in characters.
             var key = v.GetPath().TrimStart('$', '.') + " characters";
             int whole = cut.TryGetValue(key, out var was) ? was.Total : str.Length;
             v.ReplaceWith(str[..(str.Length / 2)] + "…");
@@ -334,7 +313,7 @@ public static partial class ToolOutput
             return true;
         }
         if (arrays.Count == 0) return false;
-        // the level that leaves the arrays above it `chars` smaller in all
+        // The level that leaves the arrays above it `chars` smaller in all.
         arrays.Sort((a, b) => b.Size.CompareTo(a.Size));
         long sum = 0, level = 0;
         for (int k = 0; k < arrays.Count; k++)
@@ -350,7 +329,7 @@ public static partial class ToolOutput
             var path = a.GetPath().TrimStart('$', '.');
             int total = cut.TryGetValue(path, out var c) ? c.Total : a.Count;
             int removed = 0, count = a.Count;
-            // an array's size is its elements plus a comma each
+            // An array's size is its elements plus a comma each.
             while (count > 0 && (first && removed == 0 || size - removed > level))
             {
                 removed += (a[count - 1]?.ToJsonString(Json).Length ?? 4) + 1;
@@ -364,16 +343,13 @@ public static partial class ToolOutput
         }
         return true;
 
-        // the element index of a path below `prefix` ("prefix[3].x" -> 3), else -1
+        // The element index of a path below `prefix` ("prefix[3].x" -> 3), else -1.
         static int Index(string key, string prefix) =>
             key.Length > prefix.Length + 1 && key.StartsWith(prefix, StringComparison.Ordinal) && key[prefix.Length] == '['
             && key.IndexOf(']', prefix.Length) is var end and > 0 && int.TryParse(key.AsSpan(prefix.Length + 1, end - prefix.Length - 1), out var i) ? i : -1;
     }
 
-    /// <summary>
-    /// In one bottom-up pass over serialized sizes: the largest part (a non-empty array or a string over 200 characters) and
-    /// the non-empty arrays not inside another array, leaving out <paramref name="own"/>.
-    /// </summary>
+    /// <summary>The largest part and the outermost non-empty arrays, from one bottom-up pass, leaving out <paramref name="own"/>.</summary>
     private static (JsonNode? Best, List<(JsonArray Array, long Size)> Arrays) Parts(JsonObject record, JsonNode? own)
     {
         JsonNode? best = null;
@@ -411,7 +387,7 @@ public static partial class ToolOutput
         }
     }
 
-    /// <summary>Drops null members everywhere: an optional field is omitted, never null (S4.4).</summary>
+    /// <summary>Drops null members everywhere: an optional field is omitted, never null.</summary>
     internal static void StripNulls(JsonNode? node)
     {
         switch (node)

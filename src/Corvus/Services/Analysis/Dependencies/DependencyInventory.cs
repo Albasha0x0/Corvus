@@ -9,9 +9,8 @@ namespace Corvus.Services.Analysis.Dependencies;
 public sealed record ComponentHash(string Algorithm, string Value);
 
 /// <summary>
-/// A component of a file's dependency inventory. Purl is set only with package-level evidence (a package manifest, an
-/// assembly's informational version, a build's module list); Confidence (0-1) and Technique say how the identity was
-/// read, Source names what it was read from, Locations where in the file the component's code is.
+/// A component of a file's dependency inventory; Purl is set only with package-level evidence, Confidence (0-1) and
+/// Technique say how the identity was read.
 /// </summary>
 public sealed record DependencyComponent(string Ref, string Name, string? Version, string Ecosystem, string Type, string? Purl, double Confidence,
     string Technique, string Source)
@@ -33,11 +32,7 @@ public sealed record DependencyComponent(string Ref, string Name, string? Versio
 /// <summary>A component and the components it depends on, by Ref.</summary>
 public sealed record DependencyEdge(string From, IReadOnlyList<string> To);
 
-/// <summary>
-/// view=dependencies: the components a file ships (NuGet packages from deps.json or assembly metadata, the .NET runtime,
-/// Go modules, Rust crates, Python packages and the interpreter, Android Java and native libraries, Il2Cpp assemblies)
-/// with their package URLs and evidence, the edges between them, and what was read.
-/// </summary>
+/// <summary>view=dependencies: the components a file ships, with package URLs, evidence, edges and sources read.</summary>
 public sealed record DependencyFacts(DependencyComponent? Subject, int ComponentTotal, int WithPurl, IReadOnlyList<DependencyComponent> Components,
     int EdgeTotal, IReadOnlyList<string> Sources, IReadOnlyList<string> Notes)
 {
@@ -92,11 +87,11 @@ internal static partial class DependencyInventory
         FromAssemblies(b, input.Path, assemblies.Where(a => !claimed.Contains(a)).ToList(), ct);
         if (views.ContainsKey("go") || views.ContainsKey("rust")) FromNative(b, input, views);
         if (views.GetValueOrDefault("python")?.Detail is PythonFileView.Facts { App: { } python }) FromPython(b, python, input.Path, ct);
-        bool il2cppSplit = FromAndroid(b, input, views, ct);
-        // Reading Il2Cpp metadata takes seconds on a large build, so it waits until the view is asked for.
+        bool aotSplit = FromAndroid(b, input, views, ct);
+        // Reading global-metadata.dat takes seconds on a large build, so only the dependencies view reads it.
         if (input.Options.Wants("dependencies"))
-            FromIl2Cpp(b, input.Path, Il2CppPackages.IsPackage(input.Path) && input.Kind == "zip"
-                && (il2cppSplit || input.HasZipEntry(n => n.EndsWith("/global-metadata.dat", StringComparison.Ordinal))), ct);
+            FromAotBuild(b, input.Path, AotPackages.IsPackage(input.Path) && input.Kind == "zip"
+                && (aotSplit || input.HasZipEntry(n => n.EndsWith("/global-metadata.dat", StringComparison.Ordinal))), ct);
         if (b.Components.Count == 0) return null;
         var edges = b.Edges.Select(e => new DependencyEdge(e.Key, e.Value)).ToList();
         if (b.Components.Count > MaxListed) b.Notes.Add($"components: the first {MaxListed} of {b.Components.Count:N0} listed; sbomPath writes all");
@@ -181,8 +176,7 @@ internal static partial class DependencyInventory
             read.Add((a, id));
         }
         b.Sources.Add($"assembly metadata ({read.Count} assemblies without a manifest entry)");
-        // The runtime's assemblies share System.Private.CoreLib's source commit (the informational version's
-        // "+commit"); CoreLib alone may carry a servicing label, so the others give the version.
+        // Runtime assemblies share CoreLib's "+commit"; CoreLib alone may carry a servicing label, so the others give the version.
         var coreLib = read.FirstOrDefault(r => r.Id.Name == "System.Private.CoreLib");
         var commit = coreLib.Id?.Informational is { } cv ? Commit(cv) : null;
         var framework = commit == null ? [] : read.Where(r => r.Id.Token != null && InspectionService.FrameworkTokens.Contains(r.Id.Token)
@@ -203,8 +197,7 @@ internal static partial class DependencyInventory
             bool self = a.Origin is UnpackService.HostOrigin or UnpackService.ApphostAppOrigin or "the file itself"
                         || b.Subject == null && id.Name.Equals(Path.GetFileNameWithoutExtension(source), StringComparison.OrdinalIgnoreCase);
             var informational = id.Informational is { } iv && Strip(iv) is { } s && char.IsAsciiDigit(s[0]) ? s : null;
-            // An assembly version does not name a package version: a library without an informational version has an
-            // unknown version; the file's own assembly keeps it as the application's version.
+            // An assembly version is not a package version; only the file's own assembly keeps it.
             var version = informational ?? (self ? id.Version : null);
             var purl = informational != null && !self ? Purl.NuGet(id.Name, informational) : null;
             var c = new DependencyComponent(b.NewRef(purl ?? $"nuget:{id.Name}@{version ?? id.Version}"), id.Name, version, "nuget", self ? "application" : "library", purl,
@@ -219,7 +212,7 @@ internal static partial class DependencyInventory
         if (unreadable > 0) b.Notes.Add($"{unreadable} assemblies have unreadable metadata: their identity is unknown");
         if (satellites > 0) b.Notes.Add($"{satellites} satellite resource assemblies are part of the assembly they translate");
         int versionOnly = b.Components.Count(c => c.Ecosystem == "nuget" && c.Purl == null && c.Confidence == AssemblyVersionOnly);
-        if (versionOnly > 0) b.Notes.Add($"{versionOnly} assemblies carry no informational version: their package version is unknown and they have no package URL");
+        if (versionOnly > 0) b.Notes.Add($"{versionOnly} assemblies carry no informational version: package version unknown, no package URL");
     }
 
     /// <summary>Adds a location to an equal component already listed (the same assembly twice); false when there is none.</summary>
@@ -290,62 +283,59 @@ internal static partial class DependencyInventory
 
     private static string FileName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
 
-    /// <summary>An Il2Cpp build's metadata: the file itself or the one its binary names.</summary>
-    private static void FromIl2Cpp(Builder b, string path, bool package, CancellationToken ct)
+    /// <summary>Adds the assemblies of a build's global-metadata.dat: the file itself or the one its binary names.</summary>
+    private static void FromAotBuild(Builder b, string path, bool package, CancellationToken ct)
     {
-        Il2CppBuildFiles? files;
+        AotBuildFiles? files;
         try
         {
-            // A package's build is read from the files the Il2Cpp tools extract from it (metadata and Unity version files).
-            var at = package ? Il2CppPackages.Extract(path, null, ct: ct) : path;
-            files = at != null ? Il2CppBuildFiles.Find(at, metadataOnly: true) : null;
+            // A package is read from its extracted metadata and version files.
+            var at = package ? AotPackages.Extract(path, null, ct: ct) : path;
+            files = at != null ? AotBuildFiles.Find(at, metadataOnly: true) : null;
         }
         catch (Core.ToolError) { return; }
-        if (files?.Metadata is not { Length: > 0 } || Il2CppMetadataOnly.Assemblies(files, ct) is not { } read) return;
-        FromIl2CppAssemblies(b, read.Assemblies, read.UnityVersion, $"Il2Cpp metadata {files.Metadata} ({read.Source})", Product(files.DataDirectory));
+        if (files?.Metadata is not { Length: > 0 } || AotMetadataOnly.Assemblies(files, ct) is not { } read) return;
+        FromAotAssemblies(b, read.Assemblies, read.EngineVersion, $"AOT metadata {files.Metadata} ({read.Source})", Product(files.DataDirectory));
     }
 
-    /// <summary>The inventory of an Il2Cpp build's assemblies; <paramref name="unityVersion"/> null means unknown.</summary>
-    internal static DependencyFacts? OfIl2Cpp(IReadOnlyList<Il2CppMetadataOnly.AssemblyIdentity> assemblies, string? unityVersion, string source, string? product)
+    /// <summary>The inventory of a metadata file's assemblies; null when none; <paramref name="engineVersion"/> null means unknown.</summary>
+    internal static DependencyFacts? OfAotMetadata(IReadOnlyList<AotMetadataOnly.AssemblyIdentity> assemblies, string? engineVersion, string source, string? product)
     {
         var b = new Builder();
-        FromIl2CppAssemblies(b, assemblies, unityVersion, source, product);
+        FromAotAssemblies(b, assemblies, engineVersion, source, product);
         return b.Components.Count == 0 ? null : new DependencyFacts(b.Subject, b.Components.Count, b.Components.Count(c => c.Purl != null), [.. b.Components.Take(MaxListed)],
             0, b.Sources, b.Notes) { All = b.Components };
     }
 
-    /// <summary>
-    /// The Unity engine with its class libraries as one component, the application's own assemblies as the subject, and the
-    /// rest by name: Il2Cpp metadata keeps assembly versions only, so their package versions are unknown.
-    /// </summary>
-    private static void FromIl2CppAssemblies(Builder b, IReadOnlyList<Il2CppMetadataOnly.AssemblyIdentity> assemblies, string? unityVersion, string source, string? product)
+    /// <summary>Adds the engine as one framework, the application's assemblies as subject, the rest by name.</summary>
+    private static void FromAotAssemblies(Builder b, IReadOnlyList<AotMetadataOnly.AssemblyIdentity> assemblies, string? engineVersion, string source, string? product)
     {
         b.Sources.Add(source);
-        var engine = assemblies.Where(a => IsUnityEngine(a.Name)).ToList();
+        var engine = assemblies.Where(a => IsEngineAssembly(a.Name)).ToList();
         var own = assemblies.Where(a => a.Name.StartsWith("Assembly-CSharp", StringComparison.Ordinal) || a.Name.StartsWith("Assembly-UnityScript", StringComparison.Ordinal)).ToList();
         if (b.Subject == null && own.Count > 0)
-            b.Subject = new DependencyComponent(b.NewRef("unity-app"), product ?? own[0].Name, null, "unity", "application", null, Manifest,
-                "manifest-analysis", "Il2Cpp metadata (the application's assemblies)") { Locations = [.. own.Select(a => a.Name + ".dll")] };
-        var purl = unityVersion != null ? $"pkg:generic/unity@{Purl.Encode(unityVersion)}" : null;
-        b.Components.Add(new DependencyComponent(b.NewRef(purl ?? "unity"), "Unity", unityVersion, "unity", "framework", purl, unityVersion != null ? Manifest : AssemblyVersionOnly,
-            "manifest-analysis", $"{(unityVersion != null ? "Unity version from the build files" : "Unity version unknown")}; engine and class library assemblies: {engine.Count}")
+            b.Subject = new DependencyComponent(b.NewRef("aot-app"), product ?? own[0].Name, null, "unity", "application", null, Manifest,
+                "manifest-analysis", "AOT metadata (the application's assemblies)") { Locations = [.. own.Select(a => a.Name + ".dll")] };
+        var purl = engineVersion != null ? $"pkg:generic/unity@{Purl.Encode(engineVersion)}" : null;
+        b.Components.Add(new DependencyComponent(b.NewRef(purl ?? "unity"), "Unity", engineVersion, "unity", "framework", purl, engineVersion != null ? Manifest : AssemblyVersionOnly,
+            "manifest-analysis", $"{(engineVersion != null ? "engine version from the build files" : "engine version unknown")}; engine and class library assemblies: {engine.Count}")
         {
             Locations = [.. engine.Select(a => a.Name + ".dll")],
         });
-        if (unityVersion == null) b.Notes.Add("the Unity version is unknown: only the metadata version suggests a range");
+        if (engineVersion == null) b.Notes.Add("the engine version is unknown: only the metadata version suggests a range");
         foreach (var a in assemblies.Except(engine).Except(own))
         {
             var assemblyVersion = a.Version == new Version(0, 0, 0, 0) ? null : a.Version.ToString();
             var c = new DependencyComponent(b.NewRef($"nuget:{a.Name}@{assemblyVersion}"), a.Name, null, "nuget", "library", null, AssemblyVersionOnly, "binary-analysis",
-                "Il2Cpp metadata assembly definition; the package version is unknown") { Locations = [a.Name + ".dll"], AssemblyVersion = assemblyVersion };
+                "AOT metadata assembly definition; the package version is unknown") { Locations = [a.Name + ".dll"], AssemblyVersion = assemblyVersion };
             if (!Merge(b, c, a.Name + ".dll")) b.Components.Add(c);
         }
         if (assemblies.Count > engine.Count + own.Count)
-            b.Notes.Add("Il2Cpp metadata keeps assembly names and versions, not informational versions: the package versions of its assemblies are unknown and they have no package URL");
+            b.Notes.Add("AOT metadata keeps assembly versions only: package versions unknown, no package URL");
     }
 
-    /// <summary>Unity's engine modules and the class libraries the editor ships with Il2Cpp.</summary>
-    private static bool IsUnityEngine(string name) =>
+    /// <summary>Whether the assembly is an engine module or a class library shipped with it.</summary>
+    private static bool IsEngineAssembly(string name) =>
         name is "UnityEngine" or "mscorlib" or "netstandard" or "System" || name.StartsWith("UnityEngine.", StringComparison.Ordinal)
         || name.StartsWith("System.", StringComparison.Ordinal) || name.StartsWith("Mono.", StringComparison.Ordinal);
 

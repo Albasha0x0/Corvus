@@ -13,22 +13,15 @@ public static class InputFiles
 
     public static bool SamePath(string? a, string? b) => string.Equals(a, b, PathComparison);
 
-    /// <summary>
-    /// Longest name NTFS, ext4 and APFS all take: 255 UTF-16 units on NTFS, 255 UTF-8 bytes on ext4 and APFS. Checked in
-    /// characters, so a longer non-ASCII name is left to the file system.
-    /// </summary>
+    /// <summary>Longest name NTFS, ext4 and APFS all take, checked in characters.</summary>
     public const int MaxNameLength = 255;
 
-    /// <summary>
-    /// Why the host would reject <paramref name="path"/> as a file name, checked without touching the file system: a
-    /// control character, on Windows a character it reserves or a colon past the drive (so NTFS alternate data streams are
-    /// refused too), or a name longer than <see cref="MaxNameLength"/>; null when none applies. Empty and whitespace are
-    /// left to the caller.
-    /// </summary>
     /// <summary>What to pass instead of a path <see cref="PathProblem"/> rejects: a shorter one, or one without invalid characters.</summary>
     public static string PathHint(string path) =>
         path.Split('\\', '/').Any(n => n.Length > MaxNameLength) ? "Pass a shorter path." : "Pass an absolute path without invalid characters.";
 
+    /// <summary>Why the host would reject <paramref name="path"/> as a file name, without touching the file system; null when none applies.</summary>
+    /// <remarks>A colon past the drive is refused, so NTFS alternate data streams are too; empty input is the caller's to check.</remarks>
     public static string? PathProblem(string path)
     {
         if (path.Any(char.IsControl)) return "it contains a control character";
@@ -47,10 +40,7 @@ public static class InputFiles
         return null;
     }
 
-    /// <summary>
-    /// The full path of an existing regular file, symlinks followed. Directories, FIFOs, sockets and devices are refused
-    /// with a typed error: reading a FIFO or a terminal blocks until a writer appears.
-    /// </summary>
+    /// <summary>The full path of a regular file, symlinks followed; directories, FIFOs, sockets and devices are refused, since reading a FIFO blocks until a writer appears.</summary>
     public static string RequireRegularFile(string path, string what = "file")
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': the {what} path is empty.");
@@ -65,7 +55,8 @@ public static class InputFiles
         if (Directory.Exists(full)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is a directory; pass a {what}.");
         if (OperatingSystem.IsWindows() && full.StartsWith(@"\\.\", StringComparison.Ordinal))
             throw NotRegular(full, "a device", what);
-        if (!File.Exists(full)) return full; // callers report a missing file in their own words
+        // Callers report a missing file in their own words.
+        if (!File.Exists(full)) return full;
         if (!OperatingSystem.IsWindows() && UnixFileType(full) is { } kind) throw NotRegular(full, kind, what);
         return full;
     }

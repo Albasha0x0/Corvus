@@ -7,12 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Sessions over time on a native program per target: a watched program observed for minutes (status latency, cursor
-/// continuity of the event pages, a stop point each minute, the test process's memory growth), the session deadline
-/// closing a session by itself, and two sessions at once. The first two run in a process of their own: one measures the
-/// process's heap and working set, the other sets a variable of the process.
-/// </summary>
+/// <summary>Sessions over minutes per target: latency, event cursor continuity, periodic stops, memory growth, the session deadline, and two sessions at once.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -86,10 +81,10 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
                 if (!next.Groups[1].Value.StartsWith("more", StringComparison.Ordinal)) break;
             }
 
-            // the baseline once the session is set up: images loaded, the watch placed, the first events read
+            // The baseline once the session is set up: images loaded, the watch placed, the first events read.
             if (statuses == 1) (heap0, workingSet0) = Memory(self);
 
-            // once a minute: a stop point set, hit, read, cleared, and the thread continued
+            // Once a minute: a stop point set, hit, read, cleared, and the thread continued.
             if (clock.Elapsed >= nextStop)
             {
                 nextStop += TimeSpan.FromMinutes(1);
@@ -146,7 +141,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         if (ChildTest.Rerun(this, Output, method: test)) return;
         var exe = target.Build(_dir, "orders", LivePrograms.Orders);
         await using var server = await Server();
-        // read when the session opens; the process is this test's own, so the variable is set for this open only
+        // Read when the session opens; the process is this test's own, so the variable is set for this open only.
         var saved = Environment.GetEnvironmentVariable(LiveSessionService.MaxMinutesVariable);
         int pid;
         Environment.SetEnvironmentVariable(LiveSessionService.MaxMinutesVariable, "1");
@@ -166,7 +161,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         Assert.Contains($"pid {pid}, closed", status);
         Assert.InRange(clock.Elapsed.TotalSeconds, 55, 90);
         Ended(pid);
-        // the close's own event follows the state, once the session's worker has shut down
+        // The close's own event follows the state, once the session's worker has shut down.
         string exits = "";
         for (int i = 0; i < 100 && !exits.Contains("session closed (deadline)"); i++)
         {
@@ -208,7 +203,7 @@ public sealed class LiveLongSessionRealTests(ITestOutputHelper output) : LiveToo
         Assert.Contains($"pid {pid1}, closed", await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" }));
         Ended(pid1);
 
-        // the other session keeps working: another stop, then the program runs to its end
+        // The other session keeps working: another stop, then the program runs to its end.
         Assert.Matches($@"thread \d+ stopped at s1 \({name}!AddLine\)",
             await Ok(server, "live_break", new() { ["session"] = "live-2", ["action"] = "continue", ["wait"] = true, ["waitSeconds"] = 60 }));
         Assert.Matches(@"stop point s1 hit 2\b", await Events(server, "live-2", kind: "stop"));

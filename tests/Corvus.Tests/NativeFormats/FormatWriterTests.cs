@@ -68,7 +68,7 @@ public sealed class FormatWriterTests(ITestOutputHelper output)
     };
 
     [Fact]
-    public void ElfWriter_IsReadByLibObjectFile()
+    public void ELF_writer_output_is_read_by_LibObjectFile()
     {
         foreach (var (is64, machine) in new[] { (true, ElfWriter.EmAarch64), (true, ElfWriter.EmX64), (false, ElfWriter.EmArm) })
         {
@@ -89,7 +89,7 @@ public sealed class FormatWriterTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void MachOWriter_IsReadByLibObjectFile()
+    public void MachO_writer_output_is_read_by_LibObjectFile()
     {
         var thin = SampleMachO().Build();
         var file = MachOFile.Read(new MemoryStream(thin));
@@ -118,7 +118,7 @@ public sealed class FormatWriterTests(ITestOutputHelper output)
 
     /// <summary>LLVM decodes the writers' packed encodings (RELR, APS2, chained fixups, export trie) to the values the tests put in.</summary>
     [Fact]
-    public void Writers_AgreeWithLlvm()
+    public void Writers_agree_with_LLVM()
     {
         if (LlvmOracle.Bin == null) { output.WriteLine($"{LlvmOracle.Variable} is not set"); return; }
         using var dir = new TempDir();

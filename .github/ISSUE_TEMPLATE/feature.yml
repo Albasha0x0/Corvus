@@ -6,14 +6,14 @@ body:
     id: problem
     attributes:
       label: Problem
-      description: What you are trying to find out or change, and where the current tools stop.
+      description: What you need to find out or change, and where the current tools stop.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: Proposal
-      description: The result you would want, e.g. a tool call and its output.
+      description: The result you want, such as a tool call and its output.
     validations:
       required: true
   - type: textarea
@@ -30,5 +30,5 @@ body:
     attributes:
       label: Redaction
       options:
-        - label: I removed proprietary code, paths and user names I may not share from everything above.
+        - label: I removed proprietary code, paths and user names I may not share.
           required: true

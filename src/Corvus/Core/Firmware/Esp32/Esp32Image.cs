@@ -4,10 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware.Esp32;
 
-/// <summary>
-/// An ESP32-family application or bootloader image (magic 0xE9) as esptool image_info reads it: the header, the extended
-/// header, the segments with their memory regions, the checksum, the appended SHA-256 and the app or bootloader description.
-/// </summary>
+/// <summary>An ESP32-family application or bootloader image (magic 0xE9) as esptool image_info reads it.</summary>
 internal sealed class Esp32Image
 {
     public const byte Magic = 0xE9;

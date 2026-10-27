@@ -6,11 +6,7 @@ using Corvus.Native.Providers.Worker.Yara;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// YARA rules over captured memory (a dump file, or a running program's memory saved by its session): one block scan of every region at its virtual address, so a rule's
-/// patterns may sit in different regions, then a scan of each region as a file of its own for what block scans leave
-/// undefined (modules, <c>filesize</c>, <c>uint16(0)</c>). Hits are per region, offsets are virtual addresses.
-/// </summary>
+/// <summary>YARA rules over captured memory: a block scan at virtual addresses, then each region as a file for module and file conditions; hits are per region at virtual addresses.</summary>
 internal static class YaraMemoryScan
 {
     /// <summary>Largest region scanned in one piece; a larger one is scanned in parts of this size.</summary>
@@ -56,10 +52,7 @@ internal static class YaraMemoryScan
         return Scan(rules, ranges, memory.Modules, memory.ReadMemory, timeout, ct);
     }
 
-    /// <summary>
-    /// The hits of <paramref name="rules"/> in a running program's memory saved by its session: <paramref name="capture"/>
-    /// holds the bytes, <paramref name="index"/> each range's address, size and offset in it and the program's modules.
-    /// </summary>
+    /// <summary>The hits of <paramref name="rules"/> in a session's memory capture: bytes in <paramref name="capture"/>, ranges and modules in <paramref name="index"/>.</summary>
     public static (List<YaraHit> Hits, int Regions, List<string> Notes) ScanCapture(YaraRules rules, string capture, string index, TimeSpan timeout,
         CancellationToken ct)
     {
@@ -138,8 +131,8 @@ internal static class YaraMemoryScan
         var bytes = regions.Sum(r => (long)r.Size);
         var notes = new List<string>
         {
-            $"Process memory: {regions.Count:N0} regions, {bytes:N0} bytes from {ranges.Count:N0} captured ranges; offsets are virtual addresses. " +
-            "Patterns that cross a region boundary are not matched; modules, filesize and uint16(0) read each region as a file of its own.",
+            $"Process memory: {regions.Count:N0} regions, {bytes:N0} bytes from {ranges.Count:N0} captured ranges; offsets are virtual addresses; " +
+            "patterns across a region boundary do not match, and modules, filesize and uint16(0) see each region as a file.",
         };
         if (split > 0) notes.Add($"{split:N0} regions over {MaxRegionBytes >> 20} MB were scanned in {MaxRegionBytes >> 20} MB parts.");
         return (hits, regions.Count, notes);

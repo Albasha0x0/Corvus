@@ -274,7 +274,7 @@ public class SimilarFunctionsTests
         Assert.True(similar.Items.Count <= 2);
         Assert.Equal(similar.Total > 2, similar.Truncated);
         Assert.All(similar.Items, m => Assert.Equal("a.dll", Assert.IsType<Corvus.Tools.NativeSimilarityTools.SimilarMatch>(m).Image));
-        // pages of one query share one candidate pool: a walk sees every match once
+        // Pages of one query share one candidate pool: a walk sees every match once.
         var all = await Find("First", minScore: 0, minInstructions: 1, limit: 500);
         var walked = new List<string>();
         for (int at = 0; at < all.Total; at += 2)

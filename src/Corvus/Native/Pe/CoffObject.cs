@@ -26,11 +26,7 @@ public sealed record CoffSymbol(int Index, string Name, uint Value, int Section,
     public bool IsExternal => StorageClass == 2;
 }
 
-/// <summary>
-/// A COFF object file (.obj, or a member of a .lib archive) as the Microsoft PE and COFF specification lays it out, in
-/// the regular form or the /bigobj form (ANON_OBJECT_HEADER_BIGOBJ). Reads sections, relocations and the symbol table;
-/// nothing is linked or resolved.
-/// </summary>
+/// <summary>A COFF object file (regular or /bigobj): sections, relocations and symbols, unlinked.</summary>
 public sealed class CoffObject
 {
     private const int MaxSections = 1 << 16;
@@ -50,10 +46,7 @@ public sealed class CoffObject
         Symbols = symbols;
     }
 
-    /// <summary>
-    /// The object in <paramref name="data"/>; null with <paramref name="reason"/> for an import object, an object compiled
-    /// for link-time code generation (no machine code), or bytes that are not a COFF object.
-    /// </summary>
+    /// <summary>The object in <paramref name="data"/>; null with <paramref name="reason"/> for import, LTCG or non-COFF input.</summary>
     public static CoffObject? Read(ReadOnlySpan<byte> data, out string? reason)
     {
         reason = null;
@@ -126,10 +119,7 @@ public sealed class CoffObject
         return new CoffObject(machine, sections, symbols);
     }
 
-    /// <summary>
-    /// Bytes a relocation of <paramref name="type"/> rewrites at its offset on <paramref name="machine"/>; an ARM64 or ARM
-    /// relocation rewrites its whole instruction. 0 for IMAGE_REL_*_ABSOLUTE (no change) and types not listed.
-    /// </summary>
+    /// <summary>Bytes a relocation of <paramref name="type"/> rewrites on <paramref name="machine"/>; 0 for ABSOLUTE and unknown types.</summary>
     public static int Width(ushort machine, ushort type) => PeNames.Arch(machine) switch
     {
         NativeArch.X64 => type switch { 1 => 8, (>= 2 and <= 9) or 0xB or 0xD or 0xE or 0x10 => 4, 0xA => 2, 0xC => 1, _ => 0 },

@@ -5,11 +5,7 @@ using System.Text.Json;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Identical read-only calls share one run (D8 substitute for MCP tasks): a call whose <see cref="Key"/> matches running
-/// work awaits that work instead of starting a second copy. The work outlives a caller that left at its deadline, so the
-/// same call made again picks it up; it is cancelled only when every caller's client cancelled, or at its own limit.
-/// </summary>
+/// <summary>Identical read-only calls share one run, which outlives a caller's deadline and stops when all callers cancel.</summary>
 public sealed class CallJoin
 {
     private static readonly ConditionalWeakTable<ServerOptions, CallJoin> Servers = new();
@@ -35,10 +31,7 @@ public sealed class CallJoin
     /// <summary>Whether work for <paramref name="key"/> is running.</summary>
     public bool IsRunning(string key) { lock (_running) return _running.ContainsKey(key); }
 
-    /// <summary>
-    /// The join key: tool name plus SHA-256 of the arguments as canonical JSON (object keys sorted, no whitespace); null
-    /// unless <paramref name="readOnly"/> (the tool's contract flag), and for session tools (their answer is about the moment of the call).
-    /// </summary>
+    /// <summary>Tool name plus SHA-256 of the canonical arguments; null for tools not read-only and for session tools, whose answer depends on the moment.</summary>
     public static string? Key(string? tool, bool readOnly, IEnumerable<KeyValuePair<string, JsonElement>>? arguments)
     {
         if (tool == null || !readOnly || Toolsets.FamilyOf(tool) == Toolsets.Session) return null;
@@ -80,12 +73,7 @@ public sealed class CallJoin
         }
     }
 
-    /// <summary>
-    /// Runs <paramref name="work"/> under <paramref name="key"/>, or attaches to the run already under it. The work's token
-    /// is cancelled when every attached caller's <paramref name="clientToken"/> is cancelled, or after <paramref name="limit"/>
-    /// from its start, measured by <paramref name="time"/> (the system clock when null). <paramref name="copy"/> gives each
-    /// caller its own result to change.
-    /// </summary>
+    /// <summary>Runs or attaches to the work under <paramref name="key"/>; cancelled when all callers cancel or at <paramref name="limit"/>.</summary>
     public Joined<T> Run<T>(string key, Func<CancellationToken, Task<T>> work, CancellationToken clientToken, TimeSpan? limit, Func<T, T> copy,
         TimeProvider? time = null)
     {
@@ -136,6 +124,7 @@ public sealed class CallJoin
         lock (_running)
             if (--entry.Attached > 0) return;
         try { entry.Stop.Cancel(); }
-        catch (ObjectDisposedException) { } // finished meanwhile
+        // The work finished meanwhile.
+        catch (ObjectDisposedException) { }
     }
 }

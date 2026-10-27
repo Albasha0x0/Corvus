@@ -46,12 +46,12 @@ public sealed class InstructionSearchTests : IDisposable
         Assert.Matches(@"\n  0x140001005  \S+\+0x5  ret", ret);
         Assert.Contains("1 matching instruction ", await Search(mnemonic: "mov", value: "1"));
         Assert.Contains("0 matching instructions", await Search(mnemonic: "mov", value: "2"));
-        // a range outside any function, value in hex
+        // A range outside any function, value in hex.
         var range = await Search(operands: "eax", value: "0x2", start: "rva:0x1040", end: "rva:0x1046");
         Assert.Matches(@"0x140001040  -  mov\s+eax,\s*2", range);
         Assert.Contains("1 matching instruction ", await Search(text: @"^mov\s+eax", start: "rva:0x1000", end: "rva:0x1006"));
 
-        // paging and the scan budget
+        // Paging and the scan budget.
         var all = await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", limit: 1);
         Assert.Contains("≥2 matching instructions", all);
         Assert.Contains("More: offset=1", all);
@@ -60,7 +60,7 @@ public sealed class InstructionSearchTests : IDisposable
         Assert.Contains("Scan budget of 1 instruction reached at 0x140001045: the next page goes on from there", budget);
         Assert.Contains("[More: offset=1]", budget);
         Assert.Contains("ret", await Search(text: ".", start: "rva:0x1040", end: "rva:0x1046", offset: 1, maxInstructions: 1));
-        // no match within the budget: the page scans on to one
+        // No match within the budget: the page scans on to one.
         Assert.Contains("1 matching instruction ", await Search(mnemonic: "^ret$", start: "rva:0x1040", end: "rva:0x1046", maxInstructions: 1));
 
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Search())).Code);
@@ -117,7 +117,7 @@ public sealed class InstructionSearchTests : IDisposable
             offset = next;
         }
         Assert.True(pages > 2, $"{pages} pages: the budget should stop the scan");
-        // each page goes on where the last stopped: the walk scans each instruction about once (mov, ret; the range adds 10 int3 each)
+        // Each page goes on where the last stopped: the walk scans each instruction about once (mov, ret; the range adds 10 int3 each).
         Assert.InRange(scanned, 1, (from == null ? 2 : 12) * Functions + pages);
         Assert.Equal(Functions, seen.Count);
         Assert.Equal(Enumerable.Range(0, Functions).Select(i => $"0x{0x180001005L + 16 * i:X}"), seen);

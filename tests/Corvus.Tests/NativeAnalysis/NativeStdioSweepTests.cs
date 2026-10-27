@@ -10,12 +10,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The native tools through the real server over stdio on a sample of Windows images and one large browser DLL (when
-/// installed): every call answers within its limit with a result under the response budget or a typed error (never
-/// internal, unclassified, protocol errors or a dead server), and a long index build reports progress at least every
-/// <see cref="MaxSilence"/>. CORVUS_NATIVE_STDIO_SAMPLE sets the images per directory (default 25).
-/// </summary>
+/// <summary>Native tools over stdio on sample Windows images answer within limits and budget or with a typed error, with progress every <see cref="MaxSilence"/> (CORVUS_NATIVE_STDIO_SAMPLE, default 25).</summary>
 [Trait("Speed", "Slow")]
 public class NativeStdioSweepTests(ITestOutputHelper output)
 {
@@ -24,7 +19,7 @@ public class NativeStdioSweepTests(ITestOutputHelper output)
     private static Dictionary<string, object?> Args(params (string Key, object? Value)[] pairs) => pairs.ToDictionary(p => p.Key, p => p.Value);
 
     [WindowsFact]
-    public async Task NativeToolsOverStdio()
+    public async Task Native_tools_answer_over_stdio_on_system_images()
     {
         int sample = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_STDIO_SAMPLE"), out var s) ? s : 25;
         var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);

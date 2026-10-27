@@ -6,15 +6,11 @@ namespace Corvus.Native.Pdb;
 /// <summary>A source position that has code: the file as the PDB names it, its line and the code address.</summary>
 public sealed record PdbLineAddress(string File, int Line, uint Rva);
 
-/// <summary>
-/// Source lines of a native PDB: each module's C13 line subsections (DEBUG_S_LINES) with its file checksums
-/// (DEBUG_S_FILECHKSMS) and the /names string table. Read from the file on the first lookup, since most uses of a PDB
-/// never ask for lines.
-/// </summary>
+/// <summary>Source lines of a native PDB from C13 line subsections, read on the first lookup since most uses never ask for lines.</summary>
 public sealed class PdbLines : IDebugSourceLookup
 {
     private const uint DebugSLines = 0xF2, DebugSFileChecksums = 0xF4;
-    // line numbers the compiler uses to mark hidden code (no source line)
+    // Line numbers the compiler uses to mark hidden code (no source line).
     private const int HiddenLine = 0xFEEFEE, HiddenLine2 = 0xF00F00;
 
     /// <summary>Most line entries kept (16 bytes each).</summary>
@@ -60,11 +56,7 @@ public sealed class PdbLines : IDebugSourceLookup
         return result;
     }
 
-    /// <summary>
-    /// The code addresses of <paramref name="line"/> in the files whose path ends with <paramref name="file"/> (whole path
-    /// components, any case or separator); a line with no code moves to the next line that has some, as debuggers place a
-    /// stop point. Empty when no file matches.
-    /// </summary>
+    /// <summary>Code addresses of <paramref name="line"/> in files ending with <paramref name="file"/> by whole components in any case or separator; a line without code moves to the next; empty when no file matches.</summary>
     public IReadOnlyList<PdbLineAddress> Addresses(string file, int line, CancellationToken ct = default)
     {
         var t = _table.Value;
@@ -131,13 +123,13 @@ public sealed class PdbLines : IDebugSourceLookup
         foreach (var m in _pdb.Modules)
         {
             if (m.C13Bytes == 0 || m.SymbolStream == 0xFFFF || !msf.HasStream(m.SymbolStream)) continue;
-            // a damaged module record can claim more than its stream holds
+            // A damaged module record can claim more than its stream holds.
             long c13At = (long)m.SymbolBytes + m.C11Bytes, available = msf.StreamSize(m.SymbolStream) - c13At;
             if (available <= 0) continue;
             var bytes = new byte[Math.Min(m.C13Bytes, Math.Min(available, 1L << 28))];
             int got = msf.Read(m.SymbolStream, c13At, bytes);
             var c13 = bytes.AsSpan(0, got);
-            // the checksum subsection first: the line blocks name files by their offset in it
+            // The checksum subsection first: the line blocks name files by their offset in it.
             var checksums = ReadOnlySpan<byte>.Empty;
             var subsections = Subsections(c13, notes, m);
             foreach (var (kind, start, length) in subsections)
@@ -199,7 +191,7 @@ public sealed class PdbLines : IDebugSourceLookup
                 notes.Add($"module {m.Index} ({m.Name}): C13 subsection 0x{kind:X} does not fit the module stream; the rest is skipped");
                 break;
             }
-            // kinds with the high bit set are ignorable; their data is skipped like any other
+            // Kinds with the high bit set are ignorable; their data is skipped like any other.
             list.Add((kind & 0x7FFFFFFF, at + 8, length));
             at += 8 + (length + 3) / 4 * 4;
         }

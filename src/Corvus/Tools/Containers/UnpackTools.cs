@@ -12,10 +12,8 @@ namespace Corvus.Tools;
 public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options = null, Native.Providers.Worker.WorkerPool? workers = null)
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
-    [Description("Extract the .NET assemblies inside a container and load them: single-file bundles, Costura.Fody, .nupkg, Xamarin / MAUI .apk / .aab " +
-                 "(per ABI), zips, embedded .NET images, nested containers; Electron .asar, Unity WebGL .data, HAR / mitmproxy captures: every file; " +
-                 "pcap: HTTP objects and TCP streams; JS: modules and the original tree of the source map. Nothing runs; runnable extensions get " +
-                 ".bin.")]
+    [Description("Extract a container and load the .NET assemblies inside: single-file bundles, Costura, .nupkg, .apk / .aab, zips, " +
+                 ".asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable extensions get .bin.")]
     public Task<string> UnpackContainer(
         [Description("Container file, Blazor or ClickOnce folder.")] string path,
         [Description("New or empty directory, or an earlier extract of this file; default under temp.")] string? outputDirectory = null,
@@ -37,12 +35,11 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
         });
 
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
-    [Description("Find types and members by name in every managed assembly inside a container (bundle, .nupkg, .apk, .aab, Costura, zip, nested) or " +
-                 "an assembly, without extracting: substring or * / ? wildcards. kind=file: inner file paths; packet: a pcap display filter; " +
-                 "endpoint: endpoints in code or a capture; request: capture requests; feature: JS text to native code; yara: query is a rule file or folder, else rule text.")]
+    [Description("Find types and members by name in the managed assemblies inside a container or an assembly, without extracting. " +
+                 "Other kinds search file paths, pcap packets, endpoints, capture requests, JS features or YARA rules.")]
     public async Task<string> SearchContainer(
         [Description("Container or assembly file (absolute).")] string path,
-        [Description("Name or part of a name.")] string query,
+        [Description("Name, substring or * ? wildcards; packet: display filter; feature: JS text; yara: rule file, folder or text.")] string query,
         [Description("Restrict to this kind; omit for all members (events included).")] string? kind = null,
         [Description(LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,

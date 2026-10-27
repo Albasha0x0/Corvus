@@ -3,13 +3,7 @@ using Corvus.Services.Web.Packages;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=package: an npm tarball, a PyPI wheel or sdist, a VS Code extension (.vsix) or a browser extension (.crx, .xpi,
-/// or a zip or folder with its manifest.json) reviewed before installing, nothing run: install-time scripts and what
-/// their code reaches, entry points, permissions, native binaries, transformed code and names close to popular packages,
-/// each finding marked noteworthy or worth reviewing. A repository archive, or one of its agent configuration files,
-/// is reviewed for its agent configuration: hidden text in instruction files, hooks, MCP servers and folder-open tasks.
-/// </summary>
+/// <summary>view=package: reviews an npm, PyPI, VS Code or browser extension package, or a repository's agent configuration, without running it.</summary>
 internal sealed class PackageFileView : IFileSummaryView
 {
     private static readonly HashSet<string> RepositoryKinds = new(StringComparer.Ordinal) { "git hook", "git config", "dev container", "direnv", "build step" };

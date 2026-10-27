@@ -46,7 +46,7 @@ public sealed class TransformerTests : IDisposable
     }
 
     [Fact]
-    public void ConfuserEx_FromItsConstantsDecoder()
+    public void ConfuserEx_is_identified_by_its_constants_decoder()
     {
         var f = Assert.Single(Identify(Confuser));
         Assert.Equal(("ConfuserEx", "strong"), (f.Name, f.Confidence));
@@ -67,7 +67,7 @@ public sealed class TransformerTests : IDisposable
     }
 
     [Fact]
-    public void Reactor_FromItsHolderType_AndNecroBitStubs()
+    public void Reactor_is_identified_by_its_holder_type_and_bodyless_stubs()
     {
         var f = Assert.Single(Identify(m =>
         {
@@ -79,7 +79,7 @@ public sealed class TransformerTests : IDisposable
     }
 
     [Fact]
-    public void Eazfuscator_FromItsResourceStringDecoder()
+    public void Eazfuscator_is_identified_by_its_resource_string_decoder()
     {
         var f = Assert.Single(Identify(m =>
         {
@@ -133,7 +133,7 @@ public sealed class TransformerTests : IDisposable
         File.WriteAllBytes(path, ContainerFixtures.Module("App", m => { Confuser(m); ResourceProtection(m); }));
         var asm = _workspace.Load(path);
         Corvus.Services.AssemblyReport.Summary summary = null!;
-        _workspace.Read(() => new Corvus.Services.AssemblyReport(_workspace, new Corvus.Services.Il2CppService(_workspace)).Build(asm, "transforms", out summary));
+        _workspace.Read(() => new Corvus.Services.AssemblyReport(_workspace, new Corvus.Services.AotMetadataService(_workspace)).Build(asm, "transforms", out summary));
         var loads = Assert.Single(summary.Transformers!, t => t.Name == "layer: loaded assemblies");
         Assert.Contains(loads.Evidence, e => e.StartsWith("identified: ConfuserEx (strong): resource protection", StringComparison.Ordinal));
         Assert.DoesNotContain(summary.Transformers!, t => t.Name.StartsWith("layer: ", StringComparison.Ordinal) && t.Name != "layer: loaded assemblies"
@@ -141,14 +141,14 @@ public sealed class TransformerTests : IDisposable
     }
 
     [Fact]
-    public void SummarizeFile_AndAssemblyInfo_NameIt()
+    public void Summarize_file_and_assembly_info_name_it()
     {
         var path = _dir.File("app.dll");
         File.WriteAllBytes(path, ContainerFixtures.Module("App", Confuser));
         var summary = new InspectionService(_workspace).Summarize(null, path, default);
         Assert.Contains(summary.Highlights, h => h.StartsWith("Transformed with ConfuserEx (strong: constants decoder", StringComparison.Ordinal));
         var asm = _workspace.Load(path);
-        var text = new Corvus.Services.AssemblyReport(_workspace, new Corvus.Services.Il2CppService(_workspace)).Build(asm, "summary", out var record);
+        var text = new Corvus.Services.AssemblyReport(_workspace, new Corvus.Services.AotMetadataService(_workspace)).Build(asm, "summary", out var record);
         Assert.Contains("Transformer: ConfuserEx (strong): constants decoder", text);
         Assert.Equal("ConfuserEx", Assert.Single(record.Transformers!).Name);
     }

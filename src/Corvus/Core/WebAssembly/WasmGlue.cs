@@ -5,19 +5,11 @@ namespace Corvus.Core.WebAssembly;
 /// <summary>One module import and the JS that provides it: the binding's text and its line:column, or null when the glue does not name it.</summary>
 public sealed record WasmGlueBinding(string Module, string Name, string? Value, string? At, string How);
 
-/// <summary>
-/// A module joined to its JS glue: the toolchain the glue is, the import object (module keys and what they point at), the
-/// instantiate calls, each import's provider, and the exports the glue reads.
-/// </summary>
+/// <summary>A module joined to its JS glue: toolchain, import object, instantiate calls, import providers and exports read.</summary>
 public sealed record WasmGlueLink(string File, string Toolchain, IReadOnlyList<string> ImportObject, IReadOnlyList<string> Instantiate,
     int Matched, int Total, IReadOnlyList<WasmGlueBinding> Imports, int ExportsUsed, IReadOnlyList<string> ExportsUnused);
 
-/// <summary>
-/// Joins a module's imports to JS glue by name: Emscripten (an import object such as info = { env: wasmImports } with
-/// wasmImports = { name: impl }), wasm-bindgen (imports.wbg.name = function, or the exported functions of an ES module
-/// the wasm imports from), Go (importObject = { gojs: { "runtime.wasmExit": … } }) and any object literal or assignment of
-/// the same shape. Strings and comments are skipped; nothing is executed.
-/// </summary>
+/// <summary>Joins a module's imports to Emscripten, wasm-bindgen, Go or same-shaped JS glue by name; nothing is executed.</summary>
 public static partial class WasmGlue
 {
     private const int MaxSource = 32 << 20;
@@ -35,7 +27,7 @@ public static partial class WasmGlue
             return $"{line + 1}:{at - lines[line] + 1}";
         }
         var entries = ObjectEntries(js);
-        // module keys: "env": wasmImports, gojs: { … }, imports.wbg = {}
+        // Module keys: "env": wasmImports, gojs: { … }, imports.wbg = {}
         var moduleTargets = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var importObject = new List<string>();
         var modules = m.Imports.Select(i => i.Module).Distinct().ToList();
@@ -56,7 +48,7 @@ public static partial class WasmGlue
             var owners = moduleTargets.GetValueOrDefault(i.Module);
             if (byKey.TryGetValue(i.Name, out var candidates))
             {
-                // an entry of the object the module key points at (by name, or the literal nested under the key), else any entry of that name
+                // An entry of the object the module key points at (by name, or the literal nested under the key), else any entry of that name.
                 bool Owned(Entry c) => owners != null && (c.Owner != null && owners.Contains(c.Owner) || owners.Contains($"{{{c.OwnerAt}}}"));
                 var owned = candidates.FirstOrDefault(Owned);
                 var best = owned ?? candidates.FirstOrDefault(c => c.Value.Length > 0 && c.Value != "{");
@@ -69,7 +61,7 @@ public static partial class WasmGlue
             bindings.Add(found ?? new WasmGlueBinding(i.Module, i.Name, null, null, "not found"));
         }
         var instantiate = Instantiate().Matches(js).Take(20).Select(x => $"{x.Value.TrimEnd('(')} at {Pos(x.Index)}").ToList();
-        // exports the glue reads: as .name or as a quoted "name"
+        // Exports the glue reads: as .name or as a quoted "name".
         var referenced = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match x in MemberOrString().Matches(js)) referenced.Add(x.Groups["n"].Value);
         int used = 0;
@@ -92,7 +84,7 @@ public static partial class WasmGlue
         try
         {
             files = Directory.EnumerateFiles(dir).Where(f => Path.GetExtension(f).ToLowerInvariant() is ".js" or ".mjs" or ".cjs")
-                // the glue named after the module first ("x.wasm" with "x.js" or "x_bg.js"), then the rest
+                // The glue named after the module first ("x.wasm" with "x.js" or "x_bg.js"), then the rest.
                 .OrderBy(f => Path.GetFileNameWithoutExtension(f).StartsWith(stem.Replace("_bg", ""), StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenBy(f => f, StringComparer.Ordinal).Take(50).ToList();
         }
@@ -129,10 +121,7 @@ public static partial class WasmGlue
         return [.. starts];
     }
 
-    /// <summary>
-    /// Every "key: value" of every object literal: the key (identifier, string or number), the value's first token (an
-    /// identifier path, "function", "{" for a nested literal…), where it is, and the literal's owner (the name it is assigned to) and start.
-    /// </summary>
+    /// <summary>Every "key: value" of every object literal with the value's first token, position, owner and literal start.</summary>
     private static List<Entry> ObjectEntries(string js)
     {
         var entries = new List<Entry>();
@@ -143,7 +132,7 @@ public static partial class WasmGlue
             if (Skip(js, ref i)) continue;
             if (c == '{')
             {
-                // an object literal follows "=", ":", "(", ",", "[" or "return"; a block follows ")" or a keyword
+                // An object literal follows "=", ":", "(", ",", "[" or "return"; a block follows ")" or a keyword.
                 int p = Back(js, i - 1);
                 bool literal = p < 0 || js[p] is '=' or ':' or '(' or ',' or '[' or '?' or '|' or '&' || EndsWithWord(js, p, "return");
                 string? owner = literal && p >= 0 && js[p] is '=' or ':' ? NameBefore(js, p) : null;
@@ -201,7 +190,8 @@ public static partial class WasmGlue
                 }
                 else if (colon < js.Length && js[colon] is ',' or '}')
                 {
-                    entries.Add(new Entry(key, key, start, owner, open)); // shorthand { name }
+                    // Shorthand { name }.
+                    entries.Add(new Entry(key, key, start, owner, open));
                     i = colon - 1;
                     expectKey = false;
                 }
@@ -245,7 +235,7 @@ public static partial class WasmGlue
         return result;
     }
 
-    // ---- scanning ----
+    // Scanning.
 
     /// <summary>Steps over a string, template literal or comment starting at <paramref name="i"/>; true when it did.</summary>
     private static bool Skip(string js, ref int i)

@@ -24,7 +24,7 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void OnlyChangedFamiliesRerunAndOnlyCleanFamiliesAreRecorded()
+    public void Only_changed_families_rerun_and_only_clean_families_are_recorded()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
         var trx = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}.trx");
@@ -72,7 +72,7 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void PassesAreRecordedWithoutReplacingAnExhaustivePassOnTheSameKey()
+    public void Passes_are_recorded_without_replacing_an_exhaustive_pass_on_the_same_key()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
         var stamps = Path.Combine(Path.GetTempPath(), $"corvus-stamps-{Guid.NewGuid():N}.json");
@@ -128,7 +128,7 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void DocumentationOnlyChangesAndFailedTestsAreNamed()
+    public void Documentation_only_changes_and_failed_tests_are_named()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
         var trx = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}.trx");
@@ -158,7 +158,7 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void ACoverageMapKeysSharedCodeOnlyForTheFamiliesThatRanIt()
+    public void A_coverage_map_keys_shared_code_only_for_the_families_that_ran_it()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
         var dir = Path.Combine(Path.GetTempPath(), $"corvus-reuse-{Guid.NewGuid():N}");
@@ -589,9 +589,7 @@ public class TestReuseTests
     [Trait("Speed", "Slow")]
     public void The_nightly_run_waits_for_its_own_run_only_and_logs_the_commit_that_run_tested()
     {
-        // Regression: the 02:00 nightly of 2026-10-23 waited for every push run queued behind its own until 13:01, then
-        // logged a push run's result and ran the perf run in the checkout. Here a run going when the night asks starts
-        // the night's run on a newer commit, which records a failure and starts a 2 min push run queued behind it.
+        // Regression: the 2026-10-23 nightly waited for queued push runs until 13:01; now a newer run records a failure and queues a 2 min push run.
         var repo = Path.Combine(Path.GetTempPath(), $"corvus-nightly-{Guid.NewGuid():N}");
         Directory.CreateDirectory(repo);
         File.Copy(Path.Combine(DocsTests.RepoRoot(), "nightly.ps1"), Path.Combine(repo, "nightly.ps1"));
@@ -673,8 +671,7 @@ public class TestReuseTests
         }
     }
 
-    // The push run on 133c09a9 saw the environment change between two reads: the child inherits the settings other
-    // tests set in this process, and those tests delete the folders they name meanwhile.
+    // Regression (133c09a9): the child inherits settings other tests set, and those tests delete the folders they name.
     private const string NoInheritedSettings = "Get-ChildItem env:CORVUS_* | Remove-Item";
 
     internal static string[] Run(string script)

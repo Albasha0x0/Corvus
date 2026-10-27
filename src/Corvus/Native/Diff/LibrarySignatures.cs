@@ -6,10 +6,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Diff;
 
-/// <summary>
-/// A library function as its object file holds it: its bytes up to the next function or the section end, with the
-/// bytes its relocations rewrite masked out (the linker fills them per image).
-/// </summary>
+/// <summary>A library function's object-file bytes, with the bytes its relocations rewrite masked out.</summary>
 public sealed record LibraryFunction(string Name, string Member, byte[] Bytes, bool[] Fixed)
 {
     /// <summary>Bytes no relocation rewrites: the ones a match compares.</summary>
@@ -22,10 +19,7 @@ public sealed record LibraryFunction(string Name, string Member, byte[] Bytes, b
     public IReadOnlyList<string> Aliases { get; init; } = [];
 }
 
-/// <summary>
-/// A relative call or jump to a named function: the 32-bit field's offset in the function, the bytes between the
-/// field's end and the address it is relative to, and the called name.
-/// </summary>
+/// <summary>A rel32 call or jump: field offset, bytes from field end to its base, and the called name.</summary>
 public readonly record struct LibraryCall(int Offset, int Extra, string Symbol);
 
 /// <summary>The functions of a static library or object file, and what could not be read, with the reason.</summary>
@@ -34,17 +28,10 @@ public sealed record LibrarySignatureSet(string Path, NativeArch Arch, IReadOnly
 /// <summary>A library function placed at a function start of an image.</summary>
 public sealed record LibraryMatch(uint Rva, string Name, string Member, int Length, int FixedBytes);
 
-/// <summary>
-/// A start no name is given to: more than one library function matches it or a library function matches several
-/// starts (code ambiguous), or a call in the function reaches a function of another name (call_target_differs).
-/// </summary>
+/// <summary>A start left unnamed: several matches (ambiguous) or a call reaching another name (call_target_differs).</summary>
 public sealed record LibraryAmbiguity(uint Rva, IReadOnlyList<string> Names, string Reason, string Code = "ambiguous");
 
-/// <summary>
-/// Names statically linked library functions in an image from the library files themselves: a Microsoft librarian
-/// archive (.lib), an ar archive (.a) of COFF or ELF relocatable objects, or one object. A function matches a start
-/// when every byte its relocations leave alone is equal and its length fits.
-/// </summary>
+/// <summary>Names statically linked library functions from .lib, .a or object files by their unrelocated bytes.</summary>
 public static class LibrarySignatures
 {
     /// <summary>Fewest fixed bytes a function needs before a match names it: shorter ones match too many places.</summary>
@@ -53,10 +40,7 @@ public static class LibrarySignatures
     private const int MaxFunctions = 1 << 20;
     private const int KeyLength = 8;
 
-    /// <summary>
-    /// Every function of the file at <paramref name="path"/>; members that are not objects of one machine are counted
-    /// in the notes with their reason. Throws <see cref="ToolError"/> when the file is neither an archive nor an object.
-    /// </summary>
+    /// <summary>Every function of the file; skipped members are counted in the notes; throws when it is neither archive nor object.</summary>
     public static LibrarySignatureSet Read(string path, CancellationToken ct)
     {
         var info = new FileInfo(path);
@@ -152,11 +136,7 @@ public static class LibrarySignatures
         }
     }
 
-    /// <summary>
-    /// The functions of one relocatable ELF object (x86, x64 and AArch64, little-endian): each function symbol's bytes for
-    /// its size, the bytes its relocations and their linker relaxations rewrite unfixed. Null with <paramref name="reason"/>
-    /// for other objects.
-    /// </summary>
+    /// <summary>The functions of a little-endian x86, x64 or AArch64 relocatable ELF object; null with <paramref name="reason"/> otherwise.</summary>
     internal static List<LibraryFunction>? Functions(ElfFile elf, string member, out string? reason)
     {
         reason = elf.Type != 1 ? $"an ELF {elf.TypeName}, not a relocatable object"
@@ -279,13 +259,7 @@ public static class LibrarySignatures
         _ => type switch { 257 or 260 => (0, 8), 259 or 262 => (0, 2), _ => (0, 4) },
     };
 
-    /// <summary>
-    /// The library functions found at <paramref name="starts"/> of <paramref name="image"/>. A start more than one name
-    /// matches, and a function matching more than one start, are ambiguities and name nothing. Functions with fewer
-    /// than <see cref="MinFixedBytes"/> fixed bytes are not used, nor ones that run past the next of <paramref name="starts"/>.
-    /// A match is refused when a relative call in it reaches
-    /// an address that this match set or <paramref name="nameAt"/> (the image's names; null: none) names otherwise.
-    /// </summary>
+    /// <summary>Library functions at <paramref name="starts"/>; functions under <see cref="MinFixedBytes"/> or past the next start are unused; ambiguous matches and calls reaching another name are refused.</summary>
     public static (List<LibraryMatch> Matches, List<LibraryAmbiguity> Ambiguous) Match(LibrarySignatureSet set, INativeImage image, IEnumerable<uint> starts,
         Func<uint, string?>? nameAt, CancellationToken ct)
     {
@@ -329,9 +303,8 @@ public static class LibrarySignatures
             matches.Add(new LibraryMatch(rva, best.Name, best.Member, best.Bytes.Length, best.FixedCount));
             chosen[rva] = fs;
         }
-        // Masked call targets make functions that differ only in what they call look alike: each call must reach a
-        // function of its own name wherever the name is known. The image's names are checked first, to a fixed point,
-        // so a wrong placement in this set is refused before it can refuse its callers; then this set's own placements.
+        // Masked call targets make functions that differ only in their callees look alike, so each call must reach a
+        // function of its own name; image names are checked first, to a fixed point, then this set's placements.
         var canonical = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var f in set.Functions)
             foreach (var n in f.Aliases.Prepend(f.Name)) canonical.TryAdd(Spaceless(n), Spaceless(f.Name));

@@ -15,18 +15,14 @@ public sealed class ContainerImageTests(Xunit.Abstractions.ITestOutputHelper out
         var lines = File.ReadAllLines(Dockerfile).Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith('#')).ToList();
         var bases = lines.Where(l => l.StartsWith("FROM ", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(bases);
-        // scratch is the empty image, with nothing to pin.
+        // Scratch is the empty image, with nothing to pin.
         Assert.All(bases, b => Assert.Matches(@"^FROM (scratch|\S+:\S+@sha256:[0-9a-f]{64})( AS \w+)?$", b));
         var user = lines.Last(l => l.StartsWith("USER ", StringComparison.Ordinal))["USER ".Length..].Trim();
         Assert.DoesNotMatch("^(0|root)(:|$)", user);
         Assert.True(lines.IndexOf("USER " + user) > lines.FindLastIndex(l => l.StartsWith("COPY ", StringComparison.Ordinal)), "USER comes after the last COPY");
     }
 
-    /// <summary>
-    /// CORVUS_CONTAINER_ENGINE builds the image from a linux-x64 publish and runs the server in it with a read-only root,
-    /// /tmp on tmpfs and an input folder mounted read-only: a tool call on the mounted file answers, and a result one
-    /// container keeps in the data volume is read back by the next.
-    /// </summary>
+    /// <summary>CORVUS_CONTAINER_ENGINE builds the image and runs the server read-only: a tool call on a mounted file answers, and a kept result survives into the next container.</summary>
     [RequiresRealDataFact("CORVUS_CONTAINER_ENGINE")]
     [Trait("Speed", "Slow")]
     public async Task The_server_answers_tool_calls_in_a_read_only_container()
@@ -65,8 +61,7 @@ public sealed class ContainerImageTests(Xunit.Abstractions.ITestOutputHelper out
         }
     }
 
-    // One server in a container with a read-only root, /tmp on tmpfs, the input folder at /work (read-only), the data
-    // volume at /data and no network: initialize, then one tool call; its text, or the error the call returned.
+    // Read-only root, /tmp on tmpfs, input at /work read-only, data at /data, no network: initialize, then one tool call.
     private async Task<string> CallAsync(string engine, string image, string input, string tool, string arguments)
     {
         var run = new ProcessStartInfo(engine,

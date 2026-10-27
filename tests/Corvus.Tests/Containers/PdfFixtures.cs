@@ -45,7 +45,7 @@ internal sealed class PdfFixtures
     /// <summary>Encrypts strings in parentheses and streams with RC4 128-bit, revision 3, the empty user password; object <paramref name="number"/> holds the /Encrypt dictionary.</summary>
     public PdfFixtures EncryptRc4(int number, string ownerPassword = "owner")
     {
-        // algorithm 3: O from the owner password; algorithm 2: the file key; algorithm 5: U
+        // Algorithm 3: O from the owner password; algorithm 2: the file key; algorithm 5: U.
         var ownerKey = MD5.HashData(Padded(ownerPassword));
         for (int i = 0; i < 50; i++) ownerKey = MD5.HashData(ownerKey);
         var o = Rc4(ownerKey, Pad);

@@ -4,16 +4,10 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// A YAML file edited as text: only the server's own lines change, so the user's comments, anchors and other keys
-/// stay. Reads block-style mappings and one-line flow lists; a file it cannot place the entry in is left unchanged.
-/// </summary>
+/// <summary>A YAML file edited as text, changing only the server's lines; a file it cannot place the entry in is left unchanged.</summary>
 internal abstract partial class YamlTarget(string path) : ConfigTarget(path)
 {
-    /// <summary>
-    /// The lines [Start, End) that uninstall removes, and the mapping that holds command, args and env: its lines
-    /// [MapStart, MapEnd) at MapIndent; MapStart is -1 when the entry has no such mapping.
-    /// </summary>
+    /// <summary>The lines uninstall removes [Start, End) and the command/args/env mapping [MapStart, MapEnd); MapStart -1 when absent.</summary>
     protected readonly record struct Block(int Start, int End, int MapStart, int MapEnd, int MapIndent);
 
     /// <summary>The server's entry, or null when the file has none.</summary>
@@ -354,10 +348,7 @@ internal sealed partial class HermesYamlTarget(string path) : YamlTarget(path)
     }
 }
 
-/// <summary>
-/// DeepSeek Harness's home-level cordis.patch.yml: a "- insert:" patch with one dsh-mcp-client row (id mcp-NAME) whose
-/// config holds the stdio launch; off when the row says disabled: true.
-/// </summary>
+/// <summary>DeepSeek Harness's cordis.patch.yml: an insert patch with one dsh-mcp-client row (id mcp-NAME); disabled: true turns it off.</summary>
 internal sealed partial class HarnessPatchTarget(string path) : YamlTarget(path)
 {
     public const string Plugin = "@deepseek-ai/dsh-mcp-client";

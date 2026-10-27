@@ -4,11 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=feature: on an Electron app (executable, .asar or zip of scripts) or a script, each literal
-/// containing the query followed to where it leads (<see cref="ElectronGraph.Trace"/>); one row per chain, its steps in
-/// Detail, and a native call ending at the add-on function its N-API registration names.
-/// </summary>
+/// <summary>search_container kind=feature: on an Electron executable, .asar, zip of scripts or a script, one row per chain from a literal containing the query, its steps in Detail (<see cref="ElectronGraph.Trace"/>).</summary>
 internal sealed class FeatureSearchKind : IContainerSearchKind
 {
     public IReadOnlyList<string> Kinds => ["feature"];

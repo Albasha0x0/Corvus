@@ -10,16 +10,10 @@ namespace Corvus.Native.Providers;
 /// <summary>An analysis setting of an engine: its name, value type, current value and description.</summary>
 public sealed record NativeAnalyzerOption(string Name, string Type, string Value, string? Description);
 
-/// <summary>
-/// What a reanalysis did: whether the engine's analysis queue ran empty within the budget (false: the rest runs on the next
-/// reanalysis or open), the function counts before and after, and the engine's warnings (options it did not take).
-/// </summary>
+/// <summary>A reanalysis result: whether the queue emptied within budget (else the rest runs on the next reanalysis or open), function counts before and after, and rejected options.</summary>
 public sealed record NativeReanalysis(bool Complete, int FunctionsBefore, int FunctionsAfter, TimeSpan Elapsed, IReadOnlyList<string> Warnings);
 
-/// <summary>
-/// Code that is in no function: instructions [<see cref="Start"/>, <see cref="End"/>) in a run, with the call, jump and
-/// data references to its start.
-/// </summary>
+/// <summary>A run of code in no function, [<see cref="Start"/>, <see cref="End"/>), with the references to its start.</summary>
 public sealed record NativeFunctionCandidate(uint Start, uint End, int Instructions, int Calls, int Jumps, int DataRefs);
 
 /// <summary>Function candidates in address order; <see cref="Truncated"/> when the scan budget ended first.</summary>
@@ -34,26 +28,17 @@ public sealed record NativeMarkResult(int Set, int Removed, int Failed, IReadOnl
 /// <summary>Bytes the engine has loaded at <see cref="Rva"/> (relocations and loader fixups applied).</summary>
 public sealed record NativeMemoryRun(uint Rva, byte[] Bytes);
 
-/// <summary>
-/// A page of engine memory by digest: [<see cref="Rva"/>, + <see cref="Length"/>) is initialized in the engine and
-/// <see cref="Hash"/> is the first 8 bytes of the SHA-256 of those bytes, as 16 lowercase hex digits.
-/// </summary>
+/// <summary>An initialized page of engine memory; <see cref="Hash"/> is the first 8 bytes of its SHA-256 as lowercase hex.</summary>
 public sealed record NativeMemoryPage(uint Rva, int Length, string Hash)
 {
     /// <summary>The digest of <paramref name="bytes"/> in the form <see cref="Hash"/> has.</summary>
     public static string Digest(ReadOnlySpan<byte> bytes) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes).AsSpan(0, 8));
 }
 
-/// <summary>
-/// A location the engine's loader wrote: <see cref="Size"/> bytes at <see cref="Rva"/>, the relocation or fixup type as
-/// the engine names it, and the symbol it resolves to (null when the engine names none).
-/// </summary>
+/// <summary>Bytes the engine's loader wrote, with the engine's fixup type and target symbol (null when none).</summary>
 public sealed record EngineFixup(uint Rva, int Size, string Type, string? Target);
 
-/// <summary>
-/// The engine's fixups in address order and the bytes its database records as patched, with their original values
-/// (null when the engine keeps no patch record); <see cref="Truncated"/> when the list stopped at the requested maximum.
-/// </summary>
+/// <summary>Fixups in address order and patched bytes with originals (null when the engine keeps none); <see cref="Truncated"/> at the maximum.</summary>
 public sealed record EngineFixupList(IReadOnlyList<EngineFixup> Fixups, IReadOnlyList<NativeByteRange>? Patched, bool Truncated);
 
 /// <summary>Engine requests beyond <see cref="INativeDecompilerSession"/>: analysis control, function candidates, marks, memory.</summary>
@@ -64,10 +49,7 @@ public interface INativeEngineControl
 
     Task<IReadOnlyList<NativeAnalyzerOption>> AnalyzersAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Runs auto-analysis again over the image, or over [start, end), within <paramref name="seconds"/>; <paramref name="options"/>
-    /// apply to this run only. The database is saved afterwards.
-    /// </summary>
+    /// <summary>Reruns auto-analysis over the image or [start, end) within <paramref name="seconds"/>, with one-run <paramref name="options"/>, then saves.</summary>
     Task<NativeReanalysis> ReanalyzeAsync(IReadOnlyList<KeyValuePair<string, string>> options, uint? start, uint? end, double seconds,
         CancellationToken cancellationToken = default);
 
@@ -81,10 +63,7 @@ public interface INativeEngineControl
     Task<IReadOnlyList<NativeMemoryRun>> MemoryAsync(uint rva, uint length, CancellationToken cancellationToken = default) =>
         throw new ToolError(ErrorCode.Unsupported, "This engine does not read its memory.", "use memory=file");
 
-    /// <summary>
-    /// The initialized bytes of [rva, rva + length) as digests of pages aligned to <paramref name="page"/> bytes, in address
-    /// order; gaps are not loaded. The default reads the bytes and digests them here.
-    /// </summary>
+    /// <summary>Digests of the initialized <paramref name="page"/>-aligned pages of [rva, rva + length), in address order.</summary>
     async Task<IReadOnlyList<NativeMemoryPage>> MemoryPagesAsync(uint rva, uint length, int page, CancellationToken cancellationToken = default) =>
         EngineControl.Digest(await MemoryAsync(rva, length, cancellationToken).ConfigureAwait(false), page);
 

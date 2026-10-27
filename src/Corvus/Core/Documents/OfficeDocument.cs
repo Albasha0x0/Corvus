@@ -11,11 +11,7 @@ internal sealed record EmbeddedObject(string Path, string Name, string? SourcePa
 /// <summary>A relationship of an OOXML part to an outside target (template, OLE link, frame, hyperlink).</summary>
 internal sealed record ExternalLink(string Part, string Type, string Target);
 
-/// <summary>
-/// The active content of an Office document, OLE (.doc, .xls, .ppt, vbaProject.bin) or OOXML (.docm, .xlsm, .pptm): VBA
-/// projects with module sources, Excel 4.0 macro sheets, OLE Package objects, external relationships (remote templates,
-/// linked objects) and keyword findings over the macro text. Nothing is run.
-/// </summary>
+/// <summary>The active content of an OLE or OOXML Office document: macros, OLE objects, external relationships; nothing is run.</summary>
 internal sealed class OfficeDocument
 {
     public required string Format { get; set; }
@@ -98,7 +94,7 @@ internal sealed class OfficeDocument
             }
             catch (ToolError ex) when (ex.Code is ErrorCode.MalformedInput or ErrorCode.LimitExceeded) { Notes.Add($"{prefix}{root}VBA: {ex.Message}"); }
         }
-        // the File Information Block's fEncrypted bit; a PowerPoint file keeps an EncryptedSummary stream
+        // The File Information Block's fEncrypted bit; a PowerPoint file keeps an EncryptedSummary stream.
         if (cf.Find("WordDocument") is { } word && cf.Read(word, MaxPart) is { Length: >= 12 } fib && (BinaryPrimitives.ReadUInt16LittleEndian(fib.AsSpan(10)) & 0x0100) != 0)
         {
             Encrypted = true;
@@ -140,10 +136,7 @@ internal sealed class OfficeDocument
         catch (InvalidDataException ex) { Notes.Add($"{prefix}EncryptedPackage: the decrypted package is not readable: {ex.Message}"); }
     }
 
-    /// <summary>
-    /// The OLE storages a PowerPoint 97-2003 stream embeds (ExOleObjStg records, zlib-compressed when the record instance is
-    /// 1), among them the VBA project; record containers are walked in place.
-    /// </summary>
+    /// <summary>The OLE storages a PowerPoint 97-2003 stream embeds (ExOleObjStg, zlib when instance 1), the VBA project among them.</summary>
     private void ReadPresentation(byte[] s, string where, CancellationToken ct, int depth)
     {
         int pos = 0, records = 0;
@@ -153,7 +146,8 @@ internal sealed class OfficeDocument
             int verInstance = BinaryPrimitives.ReadUInt16LittleEndian(s.AsSpan(pos));
             int type = BinaryPrimitives.ReadUInt16LittleEndian(s.AsSpan(pos + 2));
             long len = BinaryPrimitives.ReadUInt32LittleEndian(s.AsSpan(pos + 4));
-            if ((verInstance & 0xF) == 0xF) { pos += 8; continue; } // a container: its records follow
+            // A container: its records follow.
+            if ((verInstance & 0xF) == 0xF) { pos += 8; continue; }
             if (pos + 8 + len > s.Length) break;
             if (type == 0x1011)
             {

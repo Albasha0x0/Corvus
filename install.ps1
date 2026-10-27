@@ -1,19 +1,24 @@
-# Installs Corvus for the current user and registers it with the MCP clients it finds: existing
-# registrations are refreshed, new clients are listed and registered after one confirmation (Enter = yes).
+# Installs Corvus for the current user and registers it with the MCP clients found.
+# Existing registrations are refreshed; new clients are registered after one confirmation (Enter = yes).
 #   irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
-# With options (-Version 1.2.0 -DryRun -Yes -Client cursor,codex):
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Yes
-# Uninstall (keeps your data; add -PurgeData to delete it too):
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Uninstall
-# -Version installs that release (pinning or rolling back), -DryRun shows what would be installed and registered and
-# changes nothing, -Yes registers new clients without asking, -Client registers only the named clients, -WithLive installs
-# the tested Frida into a private Python environment for the session tools and turns that on.
-# Environment: CORVUS_VERSION (as -Version), CORVUS_YES=1 (as -Yes), CORVUS_REPO (owner/name), CORVUS_ARCHIVE (local release
-# archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local archive is trusted as is),
-# GITHUB_TOKEN (optional: a higher GitHub API rate limit), CORVUS_REQUIRE_ATTESTATION (1: refuse a build whose provenance
-# was not checked; 0: skip the check, for a self-built archive).
-# Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install. With gh
-# on PATH and signed in, the archive's build provenance must name this repository's release workflow.
+# Options:
+#   -Version X.Y.Z   install that release (pin or roll back)
+#   -DryRun          show what would be installed and registered; change nothing
+#   -Yes             register new clients without asking
+#   -Client a,b      register only the named clients
+#   -WithLive        install the tested Frida into a private Python environment and turn on --live-install-frida
+#   -Uninstall       remove the program and registrations; data is kept unless -PurgeData is given
+# Environment:
+#   CORVUS_VERSION, CORVUS_YES=1   as -Version, -Yes
+#   CORVUS_REPO                    owner/name
+#   CORVUS_ARCHIVE                 local release archive
+#   CORVUS_SHA256SUMS              manifest to verify CORVUS_ARCHIVE; without it a local archive is trusted
+#   GITHUB_TOKEN                   optional; higher GitHub API rate limit
+#   CORVUS_REQUIRE_ATTESTATION     1: refuse a build whose provenance was not checked; 0: skip the check (self-built)
+# Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
+# With gh signed in, the build provenance must name this repository's release workflow.
 param([switch]$Uninstall, [switch]$PurgeData, [string]$Version, [switch]$DryRun, [switch]$Yes, [string[]]$Client, [switch]$WithLive)
 
 $ErrorActionPreference = 'Stop'

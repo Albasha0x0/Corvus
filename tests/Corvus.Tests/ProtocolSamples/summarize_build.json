@@ -1,0 +1,12 @@
+{
+  "tool": "summarize_build",
+  "arguments": {
+    "path": "samples/MonoGame"
+  },
+  "isError": true,
+  "content": [
+    "Error (not_found) in summarize_build: File not found: '<fixtures>/samples/MonoGame'\nNext: check the path; list_assemblies shows loaded ids",
+    "\n\nerror (json): {\"code\":\"not_found\",\"retryable\":false,\"message\":\"File not found: '<fixtures>/samples/MonoGame'\",\"next\":\"check the path; list_assemblies shows loaded ids\",\"partial\":null,\"details\":null}"
+  ],
+  "structuredContent": null
+}

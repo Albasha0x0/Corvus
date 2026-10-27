@@ -4,12 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>
-/// The WebAssembly text format of a module or one function, as wasm2wat (WABT) writes it by default: flat instructions,
-/// index comments, name-section names as $names, "label = @n" comments, hexadecimal floats with their decimal value.
-/// The spacing follows WABT's pending-separator scheme so the output is byte-equal to it. GC types (rec groups, sub
-/// types, struct and array) and instructions are written in the specification's text format.
-/// </summary>
+/// <summary>The WebAssembly text format byte-equal to wasm2wat (WABT) defaults; GC types use the specification's text format.</summary>
 public sealed class WatWriter
 {
     private enum Next { None, Space, Newline, ForceNewline }
@@ -100,7 +95,7 @@ public sealed class WatWriter
         return unique;
     }
 
-    // ---- the pending-separator writer ----
+    // The pending-separator writer.
 
     private void WriteNextChar()
     {
@@ -228,7 +223,7 @@ public sealed class WatWriter
         if (types.Count != 0) CloseSpace();
     }
 
-    // ---- module fields ----
+    // Module fields.
 
     private void WriteModule(CancellationToken ct)
     {
@@ -239,7 +234,7 @@ public sealed class WatWriter
         {
             var def = i < _m.TypeDefs.Count ? _m.TypeDefs[i] : null;
             if (def == null || def.GroupSize <= 1) { WriteType((uint)i++); continue; }
-            // a recursion group of several types (one of one reads the same as a lone type)
+            // A recursion group of several types (one of one reads the same as a lone type).
             OpenSpace("rec");
             Newline(false);
             int end = Math.Min(_m.Types.Count, def.Group + def.GroupSize);
@@ -289,7 +284,7 @@ public sealed class WatWriter
         }
         for (int i = 0; i < _m.Elements.Count; i++) WriteElement(_m.Elements[i], (uint)i);
         for (int i = 0; i < _m.Data.Count; i++) WriteData(_m.Data[i], (uint)i);
-        // every custom section, the name section too, as an annotation after the fields
+        // Every custom section, the name section too, as an annotation after the fields.
         foreach (var (name, from, to) in _m.Customs)
         {
             OpenSpace("@custom");
@@ -478,7 +473,7 @@ public sealed class WatWriter
     {
         OpenSpace("elem");
         NameOrIndex(_elemNames.ElementAtOrDefault((int)index), index, Next.Space);
-        // WABT recomputes the flags: an explicit table only when it is not 0, expressions only when not all ref.func
+        // WABT recomputes the flags: an explicit table only when it is not 0, expressions only when not all ref.func.
         var funcs = e.Functions ?? (e.Type == WasmType.FuncRef ? RefFuncs(e.Exprs!) : null);
         if (e.Mode == WasmSegmentMode.Active && e.Table != 0)
         {
@@ -532,7 +527,7 @@ public sealed class WatWriter
         CloseNewline();
     }
 
-    // ---- functions ----
+    // Functions.
 
     private Dictionary<uint, string>? _localNames;
     private string?[] _locals = [];
@@ -589,7 +584,8 @@ public sealed class WatWriter
                     _labels--;
                     PutsNewline("end");
                     continue;
-                case 0x05: // else: dropped when its branch is empty
+                // else: dropped when its branch is empty.
+                case 0x05:
                     {
                         var peek = code;
                         if (peek.Next(out var following) && following.Op == 0x0B) continue;
@@ -609,7 +605,8 @@ public sealed class WatWriter
                     else { PutsSpace("catch"); Var(_tagNames, ins.A, Next.Newline); }
                     _indent += 2;
                     continue;
-                case 0x18: // delegate ends the try
+                // delegate ends the try.
+                case 0x18:
                     depth--;
                     _indent -= 2;
                     _labels--;
@@ -647,7 +644,8 @@ public sealed class WatWriter
             CloseSpace();
             return;
         }
-        if (blockType >= 0) // written inline, without its (type n)
+        // Written inline, without its (type n).
+        if (blockType >= 0)
         {
             if (blockType < _m.Types.Count)
             {
@@ -732,7 +730,7 @@ public sealed class WatWriter
                 return;
             case WasmImm.HeapType:
                 PutsSpace(info.Name);
-                // ref.test / ref.cast name a reference type, ref.null a heap type
+                // ref.test / ref.cast name a reference type, ref.null a heap type.
                 if (ins.Op >> 16 == 0xFB) Puts(TypeText(WasmRef.Make((ins.Op & 1) != 0, ins.Value)), Next.Newline);
                 else Puts(WasmBinary.HeapText(ins.Value, TypeRef), Next.Newline);
                 return;
@@ -842,13 +840,13 @@ public static class WasmFloat
         bool zero = biased == 0 && sig == 0;
         int exp = biased - bias;
         sb.Append("0x").Append(zero ? '0' : '1');
-        // the significand left-aligned in 64 bits, as nybbles from the top
+        // The significand left-aligned in 64 bits, as nybbles from the top.
         ulong top = sig << (64 - sigBits);
         if (top != 0)
         {
             if (biased == 0)
             {
-                // subnormal: the leading one becomes the implicit one ("0x1.p-149" when nothing follows it)
+                // Subnormal: the leading one becomes the implicit one ("0x1.p-149" when nothing follows it).
                 int zeros = System.Numerics.BitOperations.LeadingZeroCount(top);
                 top = zeros < 63 ? top << (zeros + 1) : 0;
                 exp = -bias - zeros;
@@ -868,7 +866,8 @@ public static class WasmFloat
         if (double.IsNaN(v)) return BitConverter.DoubleToInt64Bits(v) < 0 ? "-nan" : "nan";
         if (double.IsInfinity(v)) return v < 0 ? "-inf" : "inf";
         if (v == 0) return BitConverter.DoubleToInt64Bits(v) < 0 ? "-0" : "0";
-        var e = v.ToString("e5", CultureInfo.InvariantCulture); // d.ddddde±xxx, correctly rounded
+        // d.ddddde±xxx, correctly rounded.
+        var e = v.ToString("e5", CultureInfo.InvariantCulture);
         int at = e.IndexOf('e');
         int exp = int.Parse(e.AsSpan(at + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
         if (exp < -4 || exp >= 6)

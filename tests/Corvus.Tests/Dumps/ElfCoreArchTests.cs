@@ -5,11 +5,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A synthetic core for any 64-bit machine: libarch.so (ELF header, PT_GNU_EH_FRAME without a search table, .eh_frame
-/// with one CIE and the given FDEs) where M calls A, A calls B and B calls C; A and M have no FDE. One thread whose
-/// pr_reg words and stack words the test gives.
-/// </summary>
+/// <summary>A synthetic 64-bit core for any machine: libarch.so with .eh_frame FDEs and one thread the test fills.</summary>
 internal static class ArchCore
 {
     public const ulong Base = 0x4000_0000, Stack = 0x7FF0_0000, S0 = Stack + 0x1000;
@@ -51,7 +47,7 @@ internal static class ArchCore
             w.Bytes(f.ToArray());
         }
         w.U32(0);
-        // .eh_frame_hdr: pcrel sdata4 eh_frame pointer, no search table (the FDEs are walked)
+        // .eh_frame_hdr: pcrel sdata4 eh_frame pointer, no search table (the FDEs are walked).
         w.BytesAt(HdrRva, [1, 0x1B, 0xFF, 0xFF]);
         w.U32At(HdrRva + 4, EhRva - (HdrRva + 4));
         w.PadTo(0x2000);

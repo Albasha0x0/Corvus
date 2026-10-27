@@ -53,7 +53,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
 
     /// <summary>diff_edits pages by characters: one totalChars on every page, the text it walks, and nothing past it.</summary>
     [Fact]
-    public async Task DiffEditsPagesKeepOneTotal()
+    public async Task Diff_edits_pages_keep_one_total()
     {
         // Unloading at the end drops the unsaved-edit journal, which would otherwise reach later servers of this process.
         try
@@ -85,7 +85,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task TypeInfoSectionsPageOneKind()
+    public async Task Type_info_sections_page_one_kind()
     {
         var (text, summary) = await Call("get_type_info", new() { ["type"] = "Fixture.Model.Account" });
         Assert.Equal("summary", summary.GetProperty("section").GetString());
@@ -100,7 +100,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AttributesAreRowsOrAssemblyCSharp()
+    public async Task Attributes_are_rows_or_assembly_CSharp()
     {
         var (_, rows) = await Call("get_attributes", new() { ["symbol"] = "NativeThing::First" });
         var first = rows.GetProperty("items")[0];
@@ -116,7 +116,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
 
     /// <summary>maxTokens sizes a list page: a small budget holds fewer rows and continues where it stopped.</summary>
     [Fact]
-    public async Task MaxTokensSizesAListPage()
+    public async Task Max_tokens_sizes_a_list_page()
     {
         var (_, full) = await Call("list_types", new() { ["assembly"] = "TestFixture" });
         var (text, small) = await Call("list_types", new() { ["assembly"] = "TestFixture", ["maxTokens"] = 500 });
@@ -127,7 +127,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ResolveSymbolPagesItsMatches()
+    public async Task Resolve_symbol_pages_its_matches()
     {
         var (text, record) = await Call("resolve_symbol", new() { ["symbol"] = "Account::Charge", ["limit"] = 1 });
         Assert.Equal(2, record.GetProperty("total").GetInt32());
@@ -137,7 +137,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ReferencesThroughABaseMethodAreDerivedAndOverridesAreAKind()
+    public async Task References_through_a_base_method_are_derived_and_overrides_are_a_kind()
     {
         var (_, record) = await Call("find_references", new() { ["symbol"] = "Fixture.Model.Account::Score" });
         var viaBase = Assert.Single(record.GetProperty("items").EnumerateArray(), i => i.TryGetProperty("where", out var w) && w.GetString()!.StartsWith("Consumer.Branch::Total"));
@@ -152,12 +152,11 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CallTreeRowsNameTheirParents()
+    public async Task Call_tree_rows_name_their_parents()
     {
         var walked = await Walk("get_call_tree", new() { ["method"] = "Fixture.Model.Account::Charge(int)", ["direction"] = "callers", ["depth"] = 3 }, 1);
         Assert.NotEmpty(walked);
-        // Tree order: the first row is at the top level, a row goes at most one level deeper than the row above it, and a
-        // row without depth is at the row above's; every page states its first row's depth.
+        // A row is at most one level deeper than the row above; a row without depth is at the row above's depth.
         Assert.Equal(1, walked[0].GetProperty("depth").GetInt32());
         int last = 1;
         for (int i = 1; i < walked.Count; i++)
@@ -169,7 +168,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CallPathsPageByLimit()
+    public async Task Call_paths_page_by_limit()
     {
         var (_, all) = await Call("find_call_paths", new() { ["to"] = "Fixture.Model.Account::Charge(int)", ["limit"] = 50 });
         int total = all.GetProperty("total").GetInt32();
@@ -184,7 +183,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ResourcesCarryTheirHashAndExtractToOutputPath()
+    public async Task Resources_carry_their_hash_and_extract_to_output_path()
     {
         var (_, list) = await Call("list_resources", new() { ["assembly"] = "TestFixture" });
         var hello = Assert.Single(list.GetProperty("items").EnumerateArray(), i => i.GetProperty("name").GetString() == "Fixture.hello.txt");
@@ -203,7 +202,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public void IconGroupsNameTheirIcons()
+    public void Icon_groups_name_their_icons()
     {
         // GRPICONDIR: reserved, type 1, two entries of 14 bytes ending in the RT_ICON id.
         var group = new byte[6 + 2 * 14];
@@ -215,14 +214,14 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SearchIlShowsContextInstructions()
+    public async Task Search_IL_shows_context_instructions()
     {
         var (_, record) = await Call("search_il", new() { ["pattern"] = "ldstr *PREVIEW*", ["context"] = 1 });
         Assert.All(record.GetProperty("items").EnumerateArray(), i => Assert.Single(i.GetProperty("instructions").EnumerateArray()));
     }
 
     [Fact]
-    public async Task AssemblyInfoViews()
+    public async Task Assembly_info_views_return_their_own_sections()
     {
         var (text, summary) = await Call("get_assembly_info", new() { ["assembly"] = "TestFixture" });
         Assert.False(summary.TryGetProperty("references", out _));
@@ -237,7 +236,7 @@ public sealed class DotnetToolTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CodeRecordsCarryThePageAndItsSymbols()
+    public async Task Code_records_carry_the_page_and_its_symbols()
     {
         var (text, record) = await Call("decompile_member", new() { ["member"] = "Fixture.Model.Account" });
         Assert.Equal("csharp", record.GetProperty("language").GetString());

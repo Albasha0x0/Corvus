@@ -3,8 +3,8 @@ namespace Corvus.Core.Python;
 // Generated from the opcode module of each CPython release (2.7, 3.0 to 3.14): numbers, argument kinds and inline cache sizes.
 internal sealed partial class PyOpcodes
 {
-    /// <summary>Each release's table is the one before it with these changes: NAME=opcode then kinds (c constant, n name, r relative jump,
-    /// a absolute jump, l local, m compare, f free variable, g has an argument, b backward jump) and /inline cache entries; -NAME removes.</summary>
+    /// <summary>Each release's changes to the table before it: NAME=opcode, kind letters and /cache entries; -NAME removes.</summary>
+    /// <remarks>Kinds: c constant, n name, r relative jump, a absolute jump, l local, m compare, f free, g argument, b backward jump.</remarks>
     private static readonly Release[] History =
     [
         new("2.7", "STOP_CODE=0 POP_TOP=1 ROT_TWO=2 ROT_THREE=3 DUP_TOP=4 ROT_FOUR=5 NOP=9 UNARY_POSITIVE=10 UNARY_NEGATIVE=11 UNARY_NOT=12 UNARY_CONVERT=13 " +

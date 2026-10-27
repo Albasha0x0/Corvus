@@ -36,10 +36,7 @@ public enum ApiParamType : byte
     FloatPair,
 }
 
-/// <summary>
-/// A parameter. <see cref="OsEnum"/> names a flag set whose values differ between operating systems: the parameter is a raw
-/// number until <see cref="ApiSignatures.ForOs"/> picks the image's set.
-/// </summary>
+/// <summary>A parameter; an <see cref="OsEnum"/> parameter stays a raw number until <see cref="ApiSignatures.ForOs"/> picks the image's flag set.</summary>
 public sealed record ApiParam(string Name, ApiParamType Type, ApiEnum? Enum = null, string? OsEnum = null)
 {
     public bool IsString => Type is ApiParamType.AnsiString or ApiParamType.WideString or ApiParamType.AnsiFormat or ApiParamType.WideFormat;
@@ -113,7 +110,7 @@ public sealed class ApiEnum(string name, bool flags, IReadOnlyList<(string Name,
         {
             if (v == 0)
             {
-                // a zero entry names an empty field (mask) or an all-zero value (no mask)
+                // A zero entry names an empty field (mask) or an all-zero value (no mask).
                 if (mask == 0 ? value == 0 && parts.Count == 0 : (value & mask) == 0 && (covered & mask) == 0)
                 {
                     parts.Add(name);
@@ -132,11 +129,7 @@ public sealed class ApiEnum(string name, bool flags, IReadOnlyList<(string Name,
     }
 }
 
-/// <summary>
-/// Signatures of common Win32 / CRT APIs, parsed from a compact table: parameter names, types and the enumerations and
-/// flags that decode constant arguments. Lookup by name ignores the module ("kernel32!CreateFileW", "__imp_CreateFileW"
-/// and "j_CreateFileW" all find CreateFileW).
-/// </summary>
+/// <summary>Signatures of common Win32 / CRT APIs with the enumerations that decode constant arguments; lookup ignores module and thunk prefixes.</summary>
 public static class ApiSignatures
 {
     // Table format:
@@ -544,15 +537,12 @@ public static class ApiSignatures
     /// <summary>The enumerations and flag sets by name.</summary>
     public static IReadOnlyDictionary<string, ApiEnum> Enums => Parsed.Value.Enums;
 
-    /// <summary>
-    /// The signature for a callee name: "CreateFileW", "kernel32!CreateFileW", "__imp_CreateFileW", "j_CreateFileW",
-    /// "_CreateFileW@28" (x86 stdcall decoration); null when not in the table.
-    /// </summary>
+    /// <summary>The signature for a callee name ("kernel32!CreateFileW", "__imp_CreateFileW", "_CreateFileW@28"); null when not in the table.</summary>
     public static ApiSignature? Find(string? name)
     {
         if (string.IsNullOrEmpty(name)) return null;
         var n = BareName(name);
-        // x86 cdecl decoration: "_memcpy"
+        // x86 cdecl decoration: "_memcpy".
         return All.GetValueOrDefault(n) ?? (n.Length > 1 && n[0] == '_' ? All.GetValueOrDefault(n[1..]) : null);
     }
 
@@ -561,10 +551,7 @@ public static class ApiSignatures
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string, ApiOs), ApiSignature> ByOs = new();
 
-    /// <summary>
-    /// <paramref name="signature"/> with its OS-dependent parameters decoded by the flag sets of <paramref name="os"/>; they stay
-    /// raw numbers for an OS without a set (or an unknown one).
-    /// </summary>
+    /// <summary><paramref name="signature"/> with OS-dependent parameters bound to <paramref name="os"/>'s flag sets; raw numbers when it has none.</summary>
     public static ApiSignature? ForOs(ApiSignature? signature, ApiOs os)
     {
         if (signature == null || os == ApiOs.Unknown || signature.Params.All(p => p.OsEnum == null)) return signature;
@@ -577,10 +564,7 @@ public static class ApiSignatures
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<INativeImage, System.Runtime.CompilerServices.StrongBox<ApiOs>> Oses = new();
 
-    /// <summary>
-    /// The image's operating system: PE Windows, Mach-O Darwin; ELF Linux for the GNU OS/ABI, an Android or GNU ABI note,
-    /// a Linux, musl or Android dynamic linker, or a dependency on glibc or bionic / musl libc; otherwise unknown.
-    /// </summary>
+    /// <summary>The image's operating system: PE Windows, Mach-O Darwin, ELF Linux when its ABI, notes, interpreter or libc say so; else unknown.</summary>
     public static ApiOs OsOf(INativeImage image) => Oses.GetValue(image, i => new(Detect(i))).Value;
 
     private static ApiOs Detect(INativeImage image)
@@ -590,7 +574,7 @@ public static class ApiSignatures
         if (image is not Elf.ElfFile elf) return ApiOs.Unknown;
         if (elf.OsAbi == 3) return ApiOs.Linux; // ELFOSABI_GNU
         if (elf.OsAbi != 0) return ApiOs.Unknown;
-        // NT_GNU_ABI_TAG: OS 0 is Linux
+        // NT_GNU_ABI_TAG: OS 0 is Linux.
         if (elf.AndroidIdent != null || elf.Notes.Any(n => n.Name == "GNU" && n.Type == 1 && n.Description.Length >= 4 && BitConverter.ToUInt32(n.Description, 0) == 0))
             return ApiOs.Linux;
         if (elf.Interpreter is { } interp && (interp.Contains("/ld-linux", StringComparison.Ordinal) || interp.Contains("/ld-musl", StringComparison.Ordinal)
@@ -696,10 +680,7 @@ public static class ApiSignatures
             ? ulong.Parse(text.AsSpan(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture)
             : ulong.Parse(text, CultureInfo.InvariantCulture);
 
-    /// <summary>
-    /// Types of the variadic arguments a printf / scanf format asks for (null for "%%" and unknown conversions are
-    /// treated as integers); <paramref name="wide"/> picks the default string width of %s.
-    /// </summary>
+    /// <summary>Types of the variadic arguments a printf / scanf format asks for; unknown conversions count as integers.</summary>
     public static List<ApiParamType> FormatArguments(string format, bool wide, int max = 32)
     {
         var result = new List<ApiParamType>();
@@ -708,14 +689,13 @@ public static class ApiSignatures
             if (format[i] != '%') continue;
             if (++i >= format.Length) break;
             if (format[i] == '%') continue;
-            // flags, width, precision ('*' takes an argument)
+            // Flags, width and precision; '*' takes an argument.
             while (i < format.Length && "-+ #0'".Contains(format[i])) i++;
             while (i < format.Length && (char.IsAsciiDigit(format[i]) || format[i] is '*' or '.'))
             {
                 if (format[i] == '*') result.Add(ApiParamType.Int);
                 i++;
             }
-            // length modifiers
             var size = new StringBuilder();
             while (i < format.Length && "hlLwIzjt3264".Contains(format[i])) size.Append(format[i++]);
             if (i >= format.Length) break;

@@ -16,13 +16,7 @@ internal sealed class EvaluationBailout(FallbackReason reason, string message) :
     public string Describe() => $"{Message} [{SimplifyManifest.CodeOf(Reason)}]";
 }
 
-/// <summary>
-/// Limits of the evaluator: call depth (frames, the evaluated call itself included), instructions per evaluation (nested
-/// calls and the static constructors they trigger included), instructions across all evaluations of one method,
-/// simulated allocations per evaluation, and the CPU time one method may take across all passes. A type initializer that
-/// keeps committing new state may run past the budget up to the initializer ceiling and time limit, accounted apart
-/// (the extended tier, see IlEvaluator.Progress.cs).
-/// </summary>
+/// <summary>Evaluator limits: call depth, instructions per evaluation and per method, memory in bytes, CPU time, and the initializer tier's ceiling.</summary>
 public sealed record EvaluationLimits(
     int MaxDepth = 8,
     int InstructionBudget = 100_000,
@@ -36,15 +30,10 @@ public sealed record EvaluationLimits(
     public TimeSpan InitializerTimeLimit => TimeSpan.FromMilliseconds(InitializerTimeLimitMs);
 }
 
-/// <summary>
-/// Resources of simplifying one method, shared by its passes and every evaluation they run. Its time is the thread's
-/// CPU time, so the same method gets the same result on a busy machine; a wall-clock bound of
-/// <see cref="WallFactor"/> times the limit still ends a method whose thread stops using the CPU. Both stops report
-/// <see cref="FallbackReason.TimeLimit"/>. <paramref name="cpu"/> and <paramref name="wall"/> replace the two clocks
-/// (null: the calling thread's CPU time and the monotonic clock).
-/// </summary>
+/// <summary>Budget of one method across passes, on thread CPU time so results are stable under load; null clocks use the thread and monotonic clocks.</summary>
 internal sealed class MethodMeter(EvaluationLimits limits, Func<TimeSpan>? cpu = null, Func<TimeSpan>? wall = null)
 {
+    // A wall-clock bound of this many times the limit ends a method whose thread stops using the CPU.
     public const int WallFactor = 3;
 
     private readonly Func<TimeSpan> _cpu = cpu ?? ThreadCpuTime.Now;
@@ -88,13 +77,10 @@ internal sealed class MethodMeter(EvaluationLimits limits, Func<TimeSpan>? cpu =
     }
 }
 
-/// <summary>The method's time limit passed: the method is left unchanged. Not an <see cref="EvaluationBailout"/>, so no pass absorbs it.</summary>
+/// <summary>The method's time limit passed and it is left unchanged; not an <see cref="EvaluationBailout"/>, so no pass absorbs it.</summary>
 internal sealed class MethodTimeout(string message) : Exception(message);
 
-/// <summary>
-/// Heap objects of the evaluator. Objects created by a static constructor are static state: later evaluations may read
-/// them but not change them, because the real program sees the same objects.
-/// </summary>
+/// <summary>An evaluator heap object; <see cref="Shared"/> objects come from a static constructor and stay read-only.</summary>
 internal abstract class HeapObject
 {
     public bool Shared { get; init; }
@@ -103,7 +89,7 @@ internal abstract class HeapObject
 internal sealed class ArrayObject(Array data) : HeapObject
 {
     public Array Data { get; } = data;
-    /// <summary>Per element, the extended tier's window that last counted a change to it (see IlEvaluator.Progress.cs), or null.</summary>
+    /// <summary>Per element, the extended tier's window that last counted a change to it, or null.</summary>
     public int[]? Stamps { get; set; }
 }
 
@@ -133,10 +119,7 @@ internal sealed class Pointer(Func<object?> get, Action<object?> set)
     public void Set(object? value) => set(value);
 }
 
-/// <summary>
-/// Memory from <c>localloc</c> (stackalloc) and an offset into it: an unmanaged pointer. Pointer arithmetic moves the offset;
-/// ldind / stind read and write the bytes, little-endian.
-/// </summary>
+/// <summary>An unmanaged pointer into <c>localloc</c> memory; ldind and stind access it little-endian.</summary>
 internal sealed class BufferPointer(byte[] memory, int offset)
 {
     public byte[] Memory { get; } = memory;
@@ -158,13 +141,8 @@ internal sealed class Opaque
     public static readonly Opaque Instance = new();
 }
 
-/// <summary>
-/// Interprets the IL subset listed in <see cref="SimplifyManifest"/> to compute values at analysis time. Anything else
-/// throws <see cref="EvaluationBailout"/> with a <see cref="FallbackReason"/>.
-/// Stack values: int (int32), long (int64), nint (native int, int32 range), float / double (F), null, string, the heap
-/// types above, structs, pointers and Encoding instances. Static state computed by static constructors is cached for
-/// the evaluator's lifetime; failures caused by resource limits are not, so a later evaluation with budget left retries.
-/// </summary>
+// Static state is cached for the evaluator's lifetime; resource-limit failures are not, so a later evaluation retries.
+/// <summary>Interprets the IL subset of <see cref="SimplifyManifest"/>; anything else throws <see cref="EvaluationBailout"/>.</summary>
 internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits limits)
 {
     private const int MaxArrayLength = 1 << 20;
@@ -173,10 +151,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     private readonly ModuleFacts _facts = new(module);
 
-    /// <summary>
-    /// Lets the read-only proofs of static objects follow calls through static delegate fields into the methods their
-    /// delegates pass the arguments on to (ModuleFacts.DelegateTarget), resolved on an evaluator of its own.
-    /// </summary>
+    /// <summary>Lets read-only proofs of static objects follow calls through static delegate fields to their targets.</summary>
     public bool FollowsDelegateFields
     {
         init => _facts.DelegateTarget = value ? ForwardTarget : null;
@@ -184,11 +159,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     private IlEvaluator? _forwards;
 
-    /// <summary>
-    /// The method the delegate a static delegate field holds after its type's initialization passes its arguments on to,
-    /// with nothing else done (one call, callvirt or newobj), or null. Runs on a separate evaluator, with its own limits,
-    /// so that it never runs inside the evaluation that asks.
-    /// </summary>
+    /// <summary>The single call a static delegate field's delegate forwards to, or null; runs on a separate evaluator.</summary>
     private (IMethod Target, Code Call)? ForwardTarget(FieldDef field, int arguments)
     {
         var evaluator = _forwards ??= new IlEvaluator(module, limits) { DeterministicEnvironment = DeterministicEnvironment };
@@ -209,17 +180,21 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             evaluator.Meter = null;
         }
     }
+
     private readonly Dictionary<FieldDef, object?> _statics = new();
-    private readonly Dictionary<TypeDef, EvaluationBailout?> _initialized = new(); // null: initialized; otherwise why it failed
+    // Null: initialized; otherwise why it failed.
+    private readonly Dictionary<TypeDef, EvaluationBailout?> _initialized = new();
     private readonly List<TypeDef> _initializing = new();
     private readonly Dictionary<MethodDef, Dictionary<Instruction, int>> _indexes = new();
     private readonly Dictionary<TypeDef, StructLayout?> _layouts = new();
     private long _budget;
-    private bool _methodBudgetBound; // the budget of this evaluation is what is left of the method's
+    // This evaluation's budget is what is left of the method's.
+    private bool _methodBudgetBound;
     private int _depth;
     private int _cctorDepth;
     private long _allocated;
-    private long _retained; // allocations of static constructors that completed: live static state
+    // Allocations of completed static constructors: live static state.
+    private long _retained;
     private int _sinceTimeCheck;
 
     private static readonly object Void = new();
@@ -232,12 +207,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     /// <summary>The resources of the method being simplified; evaluations draw on its instruction budget and time.</summary>
     public MethodMeter? Meter { get; set; }
 
-    /// <summary>
-    /// Runs a straight-line instruction sequence (no branches, arguments or locals) on an empty stack and returns the
-    /// resulting stack, bottom first. <paramref name="at"/>: the instruction of the original body of
-    /// <see cref="CurrentMethod"/> the slice starts at, when it maps to one; inside a static constructor, the slice may
-    /// then read its own type's state as it stands there (<see cref="RunToSite"/>).
-    /// </summary>
+    /// <summary>Runs a straight-line slice on an empty stack and returns the stack bottom first; <paramref name="at"/> lets a cctor slice read its own state there.</summary>
     public List<object?> EvaluateSlice(IList<Instruction> slice, Instruction? at = null)
     {
         long left = Meter?.InstructionsLeft ?? long.MaxValue;
@@ -283,8 +253,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         Interpret(frame, sliceMode: true);
         if (_scratch.Count > 0)
         {
-            // A static collection was used as a cache: the same call made again, on the state this one left, must
-            // give the same result.
+            // A static cache was used: a second call on the state this one left must give the same result.
             var again = new Frame(null, slice, [], [], [], []);
             _depth = 0;
             Interpret(again, sliceMode: true);
@@ -294,17 +263,14 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         return frame.Stack;
     }
 
-    // ---- a static constructor's own state at one of its instructions
-
-    private Instruction? _site; // see EvaluateSlice
-    private TypeDef? _ownType; // set while a slice runs on the state RunToSite computed
+    private Instruction? _site;
+    // Set while a slice runs on the state RunToSite computed.
+    private TypeDef? _ownType;
     private Instruction? _stopAt;
     private MethodDef? _stopIn;
-    private HashSet<Instruction>? _passed; // instructions of _stopIn the run to the site executed
-    /// <summary>
-    /// Per static constructor: a run toward a site that failed (not for lack of budget), and the instructions it executed
-    /// first. The run is deterministic: one toward any site it did not pass fails the same way.
-    /// </summary>
+    // Instructions of _stopIn the run to the site executed.
+    private HashSet<Instruction>? _passed;
+    /// <summary>Per static constructor, a failed run toward a site and what it executed; any site it did not pass fails the same way.</summary>
     private readonly Dictionary<MethodDef, (HashSet<Instruction> Passed, EvaluationBailout Failure)> _failedRuns = new();
 
     /// <summary>A slice inside a static constructor reads the state of the constructor's own type.</summary>
@@ -312,15 +278,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     private sealed class SiteReached : Exception;
 
-    /// <summary>
-    /// Runs <paramref name="evaluate"/> on the static state as it stands when the static constructor being simplified
-    /// reaches <paramref name="site"/>. A static constructor runs once and the evaluator follows its one path, so that
-    /// state is exact when the site is reached at most once: it is on no cycle of the constructor's flow graph (exception
-    /// edges included) and in no handler. The constructor runs on what is known of the types that cannot depend on its
-    /// state (<see cref="Independent"/>); the others start over, and may see its partial state, as at run time. That
-    /// state is dropped afterwards. The slice may not write the type's statics or modify its objects: the rewrite drops
-    /// the call, and with it any such effect.
-    /// </summary>
+    // Types that cannot depend on this state keep theirs; the others start over. The state is dropped afterwards.
+    /// <summary>Runs <paramref name="evaluate"/> on the static state when the cctor reaches <paramref name="site"/>, which must be reached at most once.</summary>
     private List<object?> RunToSite(Instruction site, Func<List<object?>> evaluate)
     {
         var cctor = CurrentMethod!;
@@ -334,7 +293,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         var statics = new Dictionary<FieldDef, object?>(_statics);
         var initialized = new Dictionary<TypeDef, EvaluationBailout?>(_initialized);
         long retained = _retained;
-        // What is known of types whose initialization cannot have seen this type's state stands; the others start over.
         HashSet<TypeDef> independent;
         using (Meter?.Exclude())
         {
@@ -400,16 +358,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
     }
 
-    /// <summary>
-    /// Whether the initialization of <paramref name="other"/> cannot depend on the state of <paramref name="type"/>: it
-    /// cannot run its static constructor, and every type whose statics it read or wrote as it ran (reflection included)
-    /// is independent too.
-    /// </summary>
+    /// <summary>Whether <paramref name="other"/>'s initialization cannot depend on <paramref name="type"/>'s state, transitively over the statics it touched.</summary>
     private bool Independent(TypeDef other, TypeDef type, MethodDef cctor, Dictionary<TypeDef, bool> memo)
     {
         if (other == type) return false;
         if (memo.TryGetValue(other, out bool known)) return known;
-        memo[other] = false; // a cycle back here: not independent
+        // A cycle back here is not independent.
+        memo[other] = false;
         bool independent = !_facts.RunsDuringInitialization(other, cctor) &&
                            (!_touched.TryGetValue(other, out var touched) || touched.All(t => Independent(t, type, cctor, memo)));
         memo[other] = independent;
@@ -429,10 +384,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
     }
 
-    /// <summary>
-    /// Whether <paramref name="site"/> is outside every handler and on no cycle of the method's flow graph, with an edge
-    /// from every instruction of a protected region to its handler and from endfinally to every leave target.
-    /// </summary>
+    /// <summary>Whether <paramref name="site"/> is outside every handler and on no cycle of the flow graph, exception edges included.</summary>
     private static bool ReachedAtMostOnce(MethodDef method, Instruction site)
     {
         var code = method.Body.Instructions;
@@ -563,11 +515,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
     }
 
-    /// <summary>
-    /// Runs a frame until ret (returns the value, or <see cref="Void"/>) or, in slice mode, the end of the code. In
-    /// finally mode it runs a finally handler from <paramref name="start"/> to its endfinally. An exception is never
-    /// caught: the code throwing stops evaluation, so catch and fault handlers never run.
-    /// </summary>
+    /// <summary>Runs a frame to ret, the slice end, or (finally mode) endfinally; returns the value or <see cref="Void"/>; a throw ends evaluation.</summary>
     private object? Interpret(Frame f, bool sliceMode, int start = 0, bool finallyMode = false)
     {
         var code = f.Code;
@@ -595,8 +543,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             var op = ins.OpCode.Code;
             switch (op)
             {
+                // After constrained, the callvirt gets a managed pointer to the value as its receiver.
                 case Code.Nop: case Code.Tailcall: case Code.Volatile: case Code.Unaligned: case Code.Readonly:
-                case Code.Constrained: // the callvirt that follows gets a managed pointer to the value as its receiver
+                case Code.Constrained:
                     break;
 
                 case Code.Ldarg: case Code.Ldarg_S: case Code.Ldarg_0: case Code.Ldarg_1: case Code.Ldarg_2: case Code.Ldarg_3:
@@ -997,7 +946,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         _ => throw Bail(FallbackReason.UnsupportedValue, $"{op.ToOpCode().Name} on a pointer"),
     };
 
-    // Each arm is boxed as its own type (a switch expression would otherwise convert them all to double).
+    // Each arm is boxed, or the switch expression would convert them all to double.
     private static object ReadBuffer(BufferPointer p, Code op) => op switch
     {
         Code.Ldind_I1 => (object)(int)(sbyte)p.Bytes(1)[0],
@@ -1091,14 +1040,12 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (_initializing.Count > 0) Touch(type);
         if (!initializing && !fd.IsInitOnly && !WrittenOnlyByInitialization(fd))
         {
-            // Fields that only uncallable code writes hold their default; a lazily created ResourceManager is always an
-            // equivalent manager.
+            // Fields only uncallable code writes hold their default; a lazy ResourceManager is always equivalent.
             if (AlwaysDefault(fd)) return Default(SlotOf(fd.FieldType));
             if (LazyManager(fd) is { } manager) return manager;
             if (CrossInitializer(fd) is not { } writer)
                 throw Bail(FallbackReason.MutableStatic, $"reads mutable static field {type.FullName}::{fd.Name}");
-            // Written by another type's initialization: inside it the state is read as it stands (and its objects may still
-            // change); after it, only from that type's own methods, which run once it completed.
+            // Another type's initializer writes it: read it inside that run, or afterwards only from that type's methods.
             if (_initializing.Contains(writer)) initializing = true;
             else
             {
@@ -1118,16 +1065,10 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         return Load(SlotOf(fd.FieldType), value);
     }
 
-    /// <summary>
-    /// An instance with no fields (the singleton of a compiler-generated lambda class, <c>&lt;&gt;c.&lt;&gt;9</c>, or a
-    /// <c>new object()</c> used as a lock): nothing in it can be modified, so any code may read it.
-    /// </summary>
+    /// <summary>Whether the value is a fieldless instance, such as <c>&lt;&gt;c.&lt;&gt;9</c> or a lock object, which nothing can modify.</summary>
     private static bool Fieldless(object? value) => value is InstanceObject { Fields.Count: 0 };
 
-    /// <summary>
-    /// A static field of the module whose initialization left <paramref name="value"/> in it, and that only that
-    /// initialization writes (readonly, or as <see cref="ModuleFacts"/> proves); null when there is none.
-    /// </summary>
+    /// <summary>A static field only its initializer writes that holds <paramref name="value"/>, or null.</summary>
     public FieldDef? StaticHolding(object value)
     {
         foreach (var (field, held) in _statics)
@@ -1148,11 +1089,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         return _facts.NeverWritten(field);
     }
 
-    /// <summary>
-    /// Whether the static field's value cannot change while <paramref name="method"/> runs: only its type's
-    /// initialization writes it (readonly, or as <see cref="ModuleFacts"/> proves), and that initialization cannot be
-    /// running then.
-    /// </summary>
+    /// <summary>Whether only the field's initializer writes it and that initializer cannot run during <paramref name="method"/>.</summary>
     public bool StableStatic(FieldDef field, MethodDef method)
     {
         using var analysis = Meter?.Exclude();
@@ -1185,7 +1122,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             throw Bail(FallbackReason.OtherModule, $"writes static field {field.FullName} of another module");
         if (!_initializing.Contains(fd.DeclaringType))
         {
-            // Another type's static constructor may write it when every read is ordered against the write (ModuleFacts).
+            // Another type's static constructor may write it when every read is ordered against the write.
             if (CrossInitializer(fd) is not { } writer || !_initializing.Contains(writer))
                 throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} outside its static constructor");
             if (writer == _ownType)
@@ -1201,11 +1138,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         Committed(fd, old);
     }
 
-    /// <summary>
-    /// The state of <paramref name="type"/> is partial while its static constructor runs. Reading it is sound only when the
-    /// code being evaluated cannot run then: neither the method being simplified nor a static constructor evaluated on its
-    /// behalf may be reachable from that constructor (unless the evaluator is running that constructor itself).
-    /// </summary>
+    /// <summary>Bails when the evaluated code could run during <paramref name="type"/>'s static constructor and see partial state.</summary>
     private void RequireSettledState(TypeDef type)
     {
         if (_initializing.Contains(type)) return;
@@ -1225,14 +1158,11 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     /// <summary>Calling a static method of a type without beforefieldinit (or any member of such a struct) runs its static constructor.</summary>
     private void TriggerTypeInitializer(MethodDef method)
     {
-        // Reads of the type's state check RequireSettledState; the constructor's own run in the sandbox has no visible effect.
+        // Reads check RequireSettledState; the sandboxed constructor run has no visible effect.
         if (!method.DeclaringType.IsBeforeFieldInit) EnsureInitialized(method.DeclaringType);
     }
 
-    /// <summary>
-    /// Runs a type's static constructor once, on the current evaluation's budget. If it cannot be evaluated, statics it
-    /// wrote are rolled back and later accesses bail out with the same reason (unless a resource limit stopped it).
-    /// </summary>
+    /// <summary>Runs a static constructor once; on failure rolls back its statics and remembers the reason unless it is transient.</summary>
     private void EnsureInitialized(TypeDef type)
     {
         if (_initialized.TryGetValue(type, out var known))
@@ -1240,7 +1170,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             if (known != null) throw known;
             return;
         }
-        if (_initializing.Contains(type)) return; // recursive initialization sees the partially initialized type, as at run time
+        // Recursive initialization sees the partial type, as at run time.
+        if (_initializing.Contains(type)) return;
         var cctor = type.FindStaticConstructor();
         if (cctor == null)
         {
@@ -1279,8 +1210,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         {
             if (!completed)
             {
-                // Types whose initialization ran within this one lose their state with it: they are initialized again
-                // when next needed (only this type's own failure is remembered).
+                // Types initialized within this run lose their state and initialize again when next needed.
                 _statics.Clear();
                 foreach (var (k, v) in snapshot) _statics[k] = v;
                 foreach (var t in _initialized.Keys.Where(t => t != type && !initializedBefore.Contains(t)).ToList()) _initialized.Remove(t);
@@ -1318,8 +1248,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         Allocate(22 + 2L * s.Length);
         return s;
     }
-
-    // ---- slots: how values are stored in typed locations
 
     private enum Kind { I1, U1, I2, U2, Bool, I4, I8, Native, R4, R8, Ref, Struct, Opaque, UnmanagedPointer }
 
@@ -1375,7 +1303,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (type == null || type.Module != module || !type.IsValueType || type.IsEnum || type.HasGenericParameters || type.IsExplicitLayout) return null;
         if (_layouts.TryGetValue(type, out var cached)) return cached;
         if (nesting > 8) return null;
-        _layouts[type] = null; // a struct containing itself (malformed) stays unsupported
+        // A malformed struct containing itself stays unsupported.
+        _layouts[type] = null;
         var fields = type.Fields.Where(f => !f.IsStatic).ToList();
         var layout = new StructLayout(type, fields, fields.Select(f => SlotOf(f.FieldType, nesting + 1)).ToArray());
         _layouts[type] = layout;
@@ -1486,7 +1415,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         {
             ElementType.I1 => typeof(sbyte),
             ElementType.U1 => typeof(byte),
-            ElementType.Boolean => typeof(byte), // a bool element holds the stored byte
+            // A bool element holds the stored byte.
+            ElementType.Boolean => typeof(byte),
             ElementType.I2 => typeof(short),
             ElementType.U2 => typeof(ushort),
             ElementType.Char => typeof(char),
@@ -1595,7 +1525,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             return Void;
         if (method is MethodSpec spec)
         {
-            // An instantiation of a static generic method of the module, with closed type arguments.
             if (spec.Method is not MethodDef { IsStatic: true } generic || generic.Module != module || op == Code.Newobj)
                 throw Bail(FallbackReason.Generic, $"calls generic method {Describe(method)}");
             TriggerTypeInitializer(generic);
@@ -1632,7 +1561,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 return cell[0];
             }
             if (args[0] is not Pointer) throw Bail(FallbackReason.InvalidCode, "struct method called without a managed pointer");
-            // callvirt on a struct method comes after constrained. (the receiver is a managed pointer, checked above).
+            // A callvirt on a struct method follows constrained., so the receiver is a managed pointer.
             var value = Execute(md, args);
             return HasReturnValue(md) ? value : Void;
         }

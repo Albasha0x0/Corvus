@@ -22,7 +22,8 @@ internal sealed class PsLiteral(int start, int end, object? value, bool raw) : P
 /// <summary>A double-quoted string: text parts and the variables and subexpressions it expands.</summary>
 internal sealed class PsExpandable(int start, int end, List<object> parts) : PsExpr(start, end)
 {
-    public List<object> Parts { get; } = parts; // string or PsExpr
+    // A string or a PsExpr.
+    public List<object> Parts { get; } = parts;
 }
 
 internal sealed class PsVariable(int start, int end, string name, bool braced) : PsExpr(start, end)
@@ -65,7 +66,8 @@ internal sealed class PsArrayList(int start, int end, List<PsExpr> items) : PsEx
 /// <summary>( pipeline ), $( statements ) or @( statements ).</summary>
 internal sealed class PsGroup(int start, int end, char kind, List<PsStatement> body) : PsExpr(start, end)
 {
-    public char Kind { get; } = kind; // '(' '$' '@'
+    // '(', '$' or '@'.
+    public char Kind { get; } = kind;
     public List<PsStatement> Body { get; } = body;
 }
 
@@ -118,7 +120,8 @@ internal sealed record PsArgument(string? Parameter, PsExpr? Value, int Start, i
 internal sealed class PsCommand(int start, int end, PsExpr name, char invocation, List<PsArgument> args) : PsNode(start, end)
 {
     public PsExpr Name { get; } = name;
-    public char Invocation { get; } = invocation; // '\0', '&' or '.'
+    // '\0', '&' or '.'.
+    public char Invocation { get; } = invocation;
     public List<PsArgument> Args { get; } = args;
 }
 
@@ -138,9 +141,11 @@ internal sealed class PsIf(int start, int end, List<(PsStatement Condition, List
 internal sealed class PsLoop(int start, int end, string kind, PsStatement? init, PsStatement? condition, PsStatement? iterator, List<PsStatement> body, string? variable = null)
     : PsStatement(start, end)
 {
-    public string Kind { get; } = kind; // foreach, for, while, do-while, do-until
+    // foreach, for, while, do-while or do-until.
+    public string Kind { get; } = kind;
     public PsStatement? Init { get; } = init;
-    public PsStatement? Condition { get; } = condition; // foreach: the collection
+    // For foreach, the collection.
+    public PsStatement? Condition { get; } = condition;
     public PsStatement? Iterator { get; } = iterator;
     public List<PsStatement> Body { get; } = body;
     public string? Variable { get; } = variable;
@@ -155,7 +160,8 @@ internal sealed class PsFunction(int start, int end, string name, List<PsParam> 
 
 internal sealed class PsFlow(int start, int end, string keyword, PsStatement? value) : PsStatement(start, end)
 {
-    public string Keyword { get; } = keyword; // return, break, continue, throw, exit
+    // return, break, continue, throw or exit.
+    public string Keyword { get; } = keyword;
     public PsStatement? Value { get; } = value;
 }
 
@@ -165,16 +171,14 @@ internal sealed class PsBlock(int start, int end, List<PsStatement> body) : PsSt
     public List<PsStatement> Body { get; } = body;
 }
 
-/// <summary>
-/// A recursive-descent PowerShell parser over the text, scanning in expression or command mode as the language does.
-/// It never throws on bad input: an unreadable statement is skipped to its end.
-/// </summary>
+/// <summary>Recursive-descent PowerShell parser in expression or command mode; skips an unreadable statement, never throws.</summary>
 internal sealed class PsParser
 {
     private const int MaxDepth = 150;
     private readonly string _s;
     private int _p, _depth;
-    private bool _noComma; // method arguments: a comma separates arguments
+    // In method arguments a comma separates arguments.
+    private bool _noComma;
     private readonly ScriptBudget _budget;
 
     private PsParser(string text, ScriptBudget budget)
@@ -237,7 +241,8 @@ internal sealed class PsParser
             Skip(true);
             while (C == ';') { _p++; Skip(true); }
             if (End || close != '\0' && C == close) break;
-            if (close == '\0' && C is ')' or '}') { _p++; continue; } // stray closer at the top
+            // Skips a stray closer at the top level.
+            if (close == '\0' && C is ')' or '}') { _p++; continue; }
             int start = _p;
             try
             {
@@ -498,7 +503,7 @@ internal sealed class PsParser
     private List<PsParam> Params()
     {
         var list = new List<PsParam>();
-        _p++; // (
+        _p++;
         while (true)
         {
             Skip(true);
@@ -539,7 +544,7 @@ internal sealed class PsParser
     private PsStatement PipelineCore()
     {
         int start = _p;
-        // assignment: an lvalue expression followed by = or op=
+        // An assignment: an lvalue followed by = or op=.
         if (C == '$' || C == '[')
         {
             int save = _p;
@@ -565,7 +570,7 @@ internal sealed class PsParser
             Skip(false);
             elements.Add(Element());
             Skip(false);
-            // redirections are dropped
+            // Redirections are dropped.
             while (C == '>' || C is '2' or '*' && At(1) == '>')
             {
                 while (C is '>' or '2' or '*' or '&' or '1') _p++;
@@ -891,7 +896,8 @@ internal sealed class PsParser
         int start = _p;
         Skip(false);
         if (_noComma) return UnaryJoin();
-        if (C == ',') // unary comma: a one-element array
+        // A unary comma makes a one-element array.
+        if (C == ',')
         {
             _p++;
             Skip(true);
@@ -955,7 +961,7 @@ internal sealed class PsParser
             var type = TypeName();
             int after = _p;
             Skip(false);
-            // [type] followed by an operand is a cast; followed by :: or nothing it is the type itself
+            // [type] before an operand is a cast; before :: or nothing it is the type itself.
             if (C == ':' && At(1) == ':' || End || C is ')' or ';' or ',' or '}' or '\r' or '\n' or '|' or ']' or '=' || C == '.' && At(1) != '.' || IsDash(C) && char.IsLetter(At(1)) || C is '+' or '*' or '/')
             {
                 _p = after;
@@ -980,7 +986,7 @@ internal sealed class PsParser
     {
         int nest = 0;
         var sb = new StringBuilder();
-        _p++; // [
+        _p++;
         while (!End)
         {
             char c = C;
@@ -1078,7 +1084,8 @@ internal sealed class PsParser
     private PsExpr PrimaryCore()
     {
         bool saved = _noComma;
-        _noComma = false; // brackets of any kind start a full expression again
+        // Brackets of any kind start a full expression again.
+        _noComma = false;
         try { return PrimaryInner(); }
         finally { _noComma = saved; }
     }
@@ -1136,7 +1143,7 @@ internal sealed class PsParser
         else if (c == '[') { var t = TypeName(); result = new PsTypeLiteral(start, _p, t); }
         else if (char.IsLetter(c) || c == '_')
         {
-            // a bareword in expression position: a member name or a command-less literal (true/false via $ only)
+            // A bareword in expression position is a member name or a literal; true and false need $.
             result = Bareword();
         }
         else throw new ParseError();
@@ -1146,7 +1153,7 @@ internal sealed class PsParser
     private PsExpr Variable()
     {
         int start = _p;
-        _p++; // $
+        _p++;
         if (C == '{')
         {
             _p++;
@@ -1213,7 +1220,8 @@ internal sealed class PsParser
             var hex = _s[q.._p];
             if (hex.Length == 0) throw new ParseError();
             value = hex.Length <= 16 ? (long)Convert.ToUInt64(hex, 16) : 0L;
-            if (hex.Length <= 8 && (long)value > int.MaxValue) value = (long)(int)(uint)(long)value; // 0xFFFFFFFF is -1 as Int32
+            // 0xFFFFFFFF is -1 as Int32.
+            if (hex.Length <= 8 && (long)value > int.MaxValue) value = (long)(int)(uint)(long)value;
         }
         else if (C == '0' && At(1) is 'b' or 'B' && At(2) is '0' or '1')
         {
@@ -1234,7 +1242,7 @@ internal sealed class PsParser
             else if (long.TryParse(text, out var l)) value = l;
             else value = double.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
         }
-        // suffixes: l, d, u, kb, mb, gb, tb, pb
+        // Suffixes: l, d, u, kb, mb, gb, tb, pb.
         long scale = 1;
         int sq = _p;
         while (!End && char.IsLetter(C)) _p++;
@@ -1377,7 +1385,7 @@ internal sealed class PsParser
         if (C == '\r') _p++;
         if (C == '\n') _p++;
         int bodyStart = _p;
-        // the closing quote then @ at the start of a line
+        // The closing quote, then @, at the start of a line.
         int closeAt = -1;
         for (int i = bodyStart; i < _s.Length - 1; i++)
         {

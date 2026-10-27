@@ -15,21 +15,21 @@ public sealed class ContainerFuzzTests
         catch (ToolError) { }
     }
 
-    /// <summary>zip, Costura, XALZ, Webcil and compressed Unity web data, each through the container dispatch.</summary>
+    /// <summary>zip, Costura, XALZ, Webcil and compressed WebGL player data, each through the container dispatch.</summary>
     [Fact]
     [FuzzEntry(typeof(Containers))]
     public void Fuzzed_containers_never_throw_past_a_tool_error()
     {
-        var unity = new MemoryStream();
-        using (var gzip = new GZipStream(unity, CompressionLevel.Fastest, leaveOpen: true))
-            gzip.Write(UnityWebDataTests.Build(("Il2CppData/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0]), ("data.unity3d", new byte[32])));
+        var webData = new MemoryStream();
+        using (var gzip = new GZipStream(webData, CompressionLevel.Fastest, leaveOpen: true))
+            gzip.Write(WebPlayerDataTests.Build(("Il2CppData/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0]), ("data.unity3d", new byte[32])));
         var seeds = new (string Name, byte[] Bytes)[]
         {
             ("app.zip", ContainerFixtures.Zip(("lib/app.dll", Fixture), ("readme.txt", "hello"u8.ToArray()))),
             ("host.dll", ContainerFixtures.Module("Host", ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(Fixture)))),
             ("app.dll", ContainerFixtures.Xalz(Fixture)),
             ("app.wasm", Webcil.FromPe(Fixture)),
-            ("app.data.gz", unity.ToArray()),
+            ("app.data.gz", webData.ToArray()),
         };
         var failures = new List<string>();
         foreach (var (name, bytes) in seeds)
@@ -38,13 +38,13 @@ public sealed class ContainerFuzzTests
     }
 
     [Fact]
-    [FuzzEntry(typeof(UnityWebData))]
-    public void Fuzzed_unity_web_data_never_throws_past_a_tool_error()
+    [FuzzEntry(typeof(WebPlayerData))]
+    public void Fuzzed_WebGL_data_files_never_throw_past_a_tool_error()
     {
-        var seed = UnityWebDataTests.Build(("data.unity3d", "UnityFS\0\0\0\0"u8.ToArray()), ("Il2CppData/Metadata/global-metadata.dat", new byte[16]), ("../evil.txt", "x"u8.ToArray()));
+        var seed = WebPlayerDataTests.Build(("data.unity3d", "UnityFS\0\0\0\0"u8.ToArray()), ("Il2CppData/Metadata/global-metadata.dat", new byte[16]), ("../evil.txt", "x"u8.ToArray()));
         var failures = FormatFuzz.Run(seed, b =>
         {
-            try { UnityWebData.Open(b, "app.data", null, allFiles: true, AnalysisLimits.Default, default); }
+            try { WebPlayerData.Open(b, "app.data", null, allFiles: true, AnalysisLimits.Default, default); }
             catch (ToolError) { }
         }, 1000);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));

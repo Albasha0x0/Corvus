@@ -7,12 +7,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods on a static constructor whose own calls need the state it is building: a call folds (or a call
-/// through a delegate field resolves) on the state as it stands at the call when the constructor reaches it at most
-/// once; a call in a loop, or one that writes the type's own statics, is kept and reported. The fields the constructor
-/// sets are compared before and after.
-/// </summary>
+/// <summary>Calls inside a static constructor fold on the state at the call when reached at most once; calls in loops or writing the type's statics are kept.</summary>
 public sealed class SimplifyInitializerTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -112,7 +107,7 @@ public sealed class SimplifyInitializerTests : IDisposable
         env.Edit(() => env.Edits.SimplifyMethods(env.One("Ini.Init::.cctor").Assembly, env.One("Ini.Init::.cctor"), SimplifyOptions.Parse(null, null, null), dryRun, default));
 
     [Fact]
-    public void CallsInsideTheInitializerUseTheStateAtTheCall()
+    public void Calls_inside_the_initializer_use_the_state_at_the_call()
     {
         using var env = new Env(Fixture());
         var before = Fields(env.Fixture.OriginalBytes);
@@ -138,10 +133,9 @@ public sealed class SimplifyInitializerTests : IDisposable
     }
 
     [Fact]
-    public void TypesInitializedWithinItStartOverWhenTheyTouchedItsState()
+    public void Types_initialized_within_it_start_over_when_they_touched_its_state()
     {
-        // T's own initializer runs again to its call of Helper: U's initializer, known from the run for A.Use, wrote
-        // T.S by reflection, so it runs again too (rather than leaving S unset there).
+        // U's initializer wrote T.S by reflection, so T's initializer runs again to its call of Helper.
         using var env = new Env(Fixture());
         var assembly = env.One("Ini.T::.cctor").Assembly;
         var report = env.Edit(() => env.Edits.SimplifyMethods(assembly, null, SimplifyOptions.Parse(null, null, null), true, default));
@@ -151,7 +145,7 @@ public sealed class SimplifyInitializerTests : IDisposable
     }
 
     [Fact]
-    public void OutsideTheInitializerTheStateIsTheFinishedOne()
+    public void Outside_the_initializer_the_state_is_the_finished_one()
     {
         // The same helpers called from elsewhere still see the constructor's whole run (or are kept as before).
         using var env = new Env(Fixture());

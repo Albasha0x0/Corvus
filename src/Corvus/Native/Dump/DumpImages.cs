@@ -16,13 +16,7 @@ public static class DumpImages
     /// <summary>Most files whose headers are read in one folder, and names looked at in one symbol store, when searching by timestamp and size.</summary>
     public const int MaxFilesPerFolder = 4096, MaxStoreNames = 50_000;
 
-    /// <summary>
-    /// Looks for the module's file: its recorded path, then each of <paramref name="directories"/> with its file name. A
-    /// file matches when its header's TimeDateStamp and SizeOfImage are the module's. Only the first 4 KB are read. When
-    /// no file of that name matches, the module is looked for by timestamp and size alone: in <paramref name="loaded"/>
-    /// (images the caller has open), under its store key in the local symbol stores, among the images of the folders,
-    /// and in the stores under any name (a renamed copy).
-    /// </summary>
+    /// <summary>The module's file matched by TimeDateStamp and SizeOfImage, by name first, then by identity alone; else the first mismatch or a not-found check.</summary>
     public static LocalImageCheck Find(DumpModule module, IReadOnlyList<string> directories, NativeArch arch = NativeArch.Unknown, IEnumerable<string>? loaded = null)
     {
         LocalImageCheck? firstMismatch = null;
@@ -131,7 +125,7 @@ public static class DumpImages
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string recorded = module.Path;
-        // a 32-bit process sees SysWOW64 as System32: its recorded system paths name the 32-bit files
+        // A 32-bit process sees SysWOW64 as System32, so its recorded system paths name the 32-bit files.
         if (arch == NativeArch.X86 && Environment.Is64BitOperatingSystem && Wow64Path(recorded) is { } wow && seen.Add(wow)) yield return wow;
         if (IsUsablePath(recorded) && seen.Add(recorded)) yield return recorded;
         string name = module.FileName;
@@ -223,18 +217,14 @@ public static class DumpImages
         }
     }
 
-    /// <summary>
-    /// The module's image rebuilt from process memory (full-memory dumps, dumps with module headers and code, a live process):
-    /// the mapped layout with each section header pointing at its own virtual address, so it reads as a file. Missing
-    /// pages read as zero. Null when the headers are not captured. <paramref name="captured"/> counts the bytes present.
-    /// </summary>
+    /// <summary>The module image rebuilt from process memory, missing pages zero; null when the headers are not captured.</summary>
     public static PeFile? FromMemory(IProcessMemory dump, DumpModule module, out ulong captured)
     {
         captured = 0;
         var head = new byte[0x1000];
         if (dump.ReadMemory(module.Base, head) < 0x200) return null;
         if (!TryHeader(head, out _, out uint size, out _)) return null;
-        // the module list's size is what was mapped; only the captured part is allocated
+        // The module list's size is what was mapped; only the captured part is allocated.
         size = Math.Min(module.Size != 0 ? module.Size : size, MaxMemoryImage);
         ulong extent = dump.ReadableExtent(module.Base, size);
         size = (uint)Math.Min(size, (extent + 0xFFF) & ~0xFFFUL);

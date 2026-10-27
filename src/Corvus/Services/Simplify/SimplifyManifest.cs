@@ -3,10 +3,10 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>Why an evaluation stopped, a rewrite was skipped, or a method was left unchanged. Every fallback carries one.</summary>
+/// <summary>Why an evaluation stopped, a rewrite was skipped, or a method was left unchanged.</summary>
 public enum FallbackReason
 {
-    // The interpreter: the code is outside the supported subset.
+    // The code is outside the interpreter's subset.
     UnsupportedInstruction,
     UnsupportedCall,
     NoBody,
@@ -27,13 +27,13 @@ public enum FallbackReason
     PlatformDependent,
     InvalidCode,
 
-    // Resource limits. These are not cached: the same code may evaluate when reached with more budget left.
+    // Resource limits are not cached, since more budget may let the same code evaluate.
     CallDepth,
     InstructionBudget,
     MemoryLimit,
     TimeLimit,
 
-    // One rewrite skipped; the rest of the method is still simplified.
+    // One rewrite skipped; the rest of the method is simplified.
     FlattenedShape,
     DelegateTarget,
 
@@ -44,11 +44,7 @@ public enum FallbackReason
     Unexpected,
 }
 
-/// <summary>
-/// The contract of the simplification engine: the IL instructions and framework calls the interpreter evaluates, and the
-/// closed set of reasons for which evaluation stops or a rewrite is refused. Anything not listed stops evaluation and
-/// leaves the code as it was. docs/simplify.md is generated from this class (see <see cref="Markdown"/>).
-/// </summary>
+/// <summary>The simplification engine's contract: evaluated instructions and intrinsics, limits and fallback reasons; generates docs/simplify.md.</summary>
 public static class SimplifyManifest
 {
     public sealed record ReasonInfo(FallbackReason Reason, string Code, string Description, bool Transient = false);
@@ -58,30 +54,30 @@ public static class SimplifyManifest
         new(FallbackReason.UnsupportedInstruction, "unsupported-instruction", "an IL instruction that is not in the instruction table below"),
         new(FallbackReason.UnsupportedCall, "unsupported-call", "a call to a framework or other method that is neither an intrinsic nor IL of the same module (I/O, reflection, threading, ...)"),
         new(FallbackReason.NoBody, "no-body", "the callee has no IL body: P/Invoke, internal call, runtime-implemented or abstract"),
-        new(FallbackReason.NativeCode, "native-code", "the callee is a native method of the module that the evaluator does not run: not static, not 32-bit integers in and out, an image that does not run as a 32-bit x86 process, or code outside the native subset (see Native routines); the message names the instruction and its offset"),
+        new(FallbackReason.NativeCode, "native-code", "a native method of the module that the evaluator does not run: not static, not 32-bit integers in and out, not a 32-bit x86 image, or code outside the native subset (see Native routines); the message names the instruction and its offset"),
         new(FallbackReason.OtherModule, "other-module", "the callee or a static field belongs to another module, whose code may differ at run time"),
         new(FallbackReason.Generic, "generic", "a generic method of another module or an instance generic method, a member of a generic type, or a type argument that is not a closed type"),
         new(FallbackReason.ExceptionHandling, "exception-handling", "the callee has exception handlers, or the code throws"),
         new(FallbackReason.InstanceObject, "instance-object", "uses an object the evaluation did not create (an instance passed in from outside, or a delegate bound to an object) or calls an instance method on such an object"),
-        new(FallbackReason.UnsupportedValue, "unsupported-value", "a value the interpreter does not model: Nullable<T> boxes, unboxing as another type, unmanaged pointers, typed references, structs of other modules or with explicit layout, arrays of structs, type tokens"),
-        new(FallbackReason.MutableStatic, "mutable-static", "reads a static field that is not readonly, writes a static field outside a static constructor (another type's static constructor too, unless every read is ordered against the write: see Static state), or modifies an object held in a static field"),
-        new(FallbackReason.UnmodeledInstance, "unmodeled-instance", "creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels"),
-        new(FallbackReason.VirtualDispatch, "virtual-dispatch", "a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module"),
-        new(FallbackReason.CacheDependent, "cache-dependent", "a static Dictionary or List the code reads is not a cache whose contents cannot change the result: called again on the state the first call left, the call gives another result; or the collection is used other than through its own methods (passed on, stored, returned, its address taken), is visible to other assemblies, is written outside its type's initialization, or compares keys with a custom comparer"),
+        new(FallbackReason.UnsupportedValue, "unsupported-value", "a value the interpreter does not model: a Nullable<T> box, an unbox as another type, an unmanaged pointer, a typed reference, a struct of another module or with explicit layout, an array of structs, a type token"),
+        new(FallbackReason.MutableStatic, "mutable-static", "reads a static field that is not readonly, writes one outside its type's static constructor (see Static state for the exception), or modifies an object a static field holds"),
+        new(FallbackReason.UnmodeledInstance, "unmodeled-instance", "creates an instance of a class outside the modelled subset: with a finalizer or events, generic, derived from another assembly's class, an interop class (COM import, explicit layout), or more than 8 levels deep"),
+        new(FallbackReason.VirtualDispatch, "virtual-dispatch", "a call on a modelled instance that does not resolve to one method of the module: a framework method or override (ToString, Equals, ...), an abstract method, or an interface method the module does not implement"),
+        new(FallbackReason.CacheDependent, "cache-dependent", "a static Dictionary or List the code reads can change the result: a repeated call on the state the first left gives another result; or the collection is used other than through its own methods (passed on, stored, returned, its address taken), is visible to other assemblies, is written outside its type's initialization, or has a custom key comparer"),
         new(FallbackReason.WritableStream, "writable-stream", "writes to a stream (Write, WriteByte, SetLength, Flush, CopyTo) or creates an empty MemoryStream to write into; the evaluator only reads streams"),
-        new(FallbackReason.ExternalIo, "external-io", "reads what differs between runs or machines: files (File, FileStream, Directory, StreamReader over a path), the network (System.Net), another assembly's resources, the entry assembly, the module's own path, the base and current directories, special folders, environment variables, the machine and user names (the deterministicEnvironment option pins these; see below), or a key or IV an algorithm object generated"),
-        new(FallbackReason.StaticInitializer, "static-initializer", "the static constructor of a type the code needs cannot be evaluated, or the code can run while it runs. Inside that static constructor itself, a call uses the state as it stands at the call when the constructor reaches the call at most once (on no loop, in no handler) and runs up to it; otherwise it is kept"),
+        new(FallbackReason.ExternalIo, "external-io", "reads what differs between runs or machines: files, the network, another assembly's resources, the entry assembly, the module's own path, the base and current directories, special folders, environment variables, the machine and user names (deterministicEnvironment pins these; see below), or a generated key or IV"),
+        new(FallbackReason.StaticInitializer, "static-initializer", "the static constructor of a type the code needs cannot be evaluated, or the code can run during it. Inside that constructor, a call it reaches at most once (on no loop, in no handler) uses the state at the call; otherwise it is kept"),
         new(FallbackReason.RuntimeError, "runtime-error", "the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument"),
-        new(FallbackReason.PlatformDependent, "platform-dependent", "the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting, path syntax (System.IO.Path; Windows semantics under deterministicEnvironment)"),
+        new(FallbackReason.PlatformDependent, "platform-dependent", "the result would differ between platforms or cultures: native int values outside the 32-bit range, an out-of-range float to integer conversion, culture-sensitive formatting, path syntax (Windows semantics under deterministicEnvironment)"),
         new(FallbackReason.InvalidCode, "invalid-code", "the evaluated code is not valid IL: stack underflow, mismatched operand types, a branch outside the method, execution past its end"),
         new(FallbackReason.CallDepth, "call-depth", "nested calls exceed the depth limit (maxDepth)", Transient: true),
-        new(FallbackReason.InstructionBudget, "instruction-budget", "the evaluation, including nested calls and static constructors, executed more instructions than the budget allows, or the method's total budget ran out; for a type initializer, the extended tier stopped it (no new state committed in a window, its ceiling or its time limit)", Transient: true),
+        new(FallbackReason.InstructionBudget, "instruction-budget", "the evaluation, nested calls and static constructors included, ran past its budget, or the method's total budget ran out; a type initializer was stopped by the initializer tier (see Limits)", Transient: true),
         new(FallbackReason.MemoryLimit, "memory-limit", "the evaluation allocated more simulated memory (arrays, strings, builders) than the limit", Transient: true),
         new(FallbackReason.TimeLimit, "time-limit", "simplifying the method took longer than its time limit; the method is left unchanged", Transient: true),
-        new(FallbackReason.FlattenedShape, "flattened-shape", "flattened control flow (a loop over a switch on a state) whose dispatcher cannot be removed: run through per state, some way into it does not select the same case on every run (the state depends on arguments or other unknown values, or on the path taken), code outside it reads a value of the state that depends on the path taken and that a store inside the dispatcher can reach (reads no such store reaches stay as they are), the state's address is taken, the dispatcher or a case is in another protected region, or the analysis exceeds its limits (1,024 states); the dispatcher is kept as it is and the other passes still apply to the method"),
-        new(FallbackReason.DelegateTarget, "delegate-target", "a call through a static delegate field whose target is not known to be the same on every run: the field is written outside its type's initialization or is accessible to other assemblies, the initialization cannot be evaluated (the message says why), the delegate is bound to an object other than a field-less instance that a static field accessible at the call holds, or calls an instance method directly, its dynamic method does more than pass its arguments on, or the delegate is not loaded right before its arguments; the call is kept"),
+        new(FallbackReason.FlattenedShape, "flattened-shape", "flattened control flow (a loop over a switch on a state) whose dispatcher cannot be removed: a path into it selects different cases on different runs (the state depends on unknown values or the path taken), code outside it reads a path-dependent state value a store inside it can reach, the state's address is taken, the dispatcher or a case is in another protected region, or the analysis passes 1,024 states; the dispatcher is kept and the other passes still apply"),
+        new(FallbackReason.DelegateTarget, "delegate-target", "a call through a static delegate field whose target can differ between runs: the field is written outside its type's initialization or other assemblies can access it, the initialization cannot be evaluated (the message says why), the delegate is bound to an object other than a field-less instance a reachable static field holds, or calls an instance method directly, its dynamic method does more than pass its arguments on, or it is not loaded right before its arguments; the call is kept"),
         new(FallbackReason.OriginalUnverifiable, "original-unverifiable", "the original body does not pass the stack verifier, so it is not rewritten"),
-        new(FallbackReason.UnreadableBodies, "unreadable-bodies", "a quarter or more of the module's method bodies cannot be read as IL: they are stored in another form on disk and restored at run time (an integrity check). Bodies that happen to decode are not the code that runs, and a rewritten image would not run, so no method of the module is rewritten"),
+        new(FallbackReason.UnreadableBodies, "unreadable-bodies", "a quarter or more of the module's method bodies cannot be read as IL: they are stored in another form and restored at run time. Bodies that decode are not the code that runs, and a rewritten image would not run, so no method is rewritten"),
         new(FallbackReason.ResultUnverifiable, "result-unverifiable", "the rewritten body did not pass the stack verifier; the method is left unchanged"),
         new(FallbackReason.Unexpected, "unexpected", "an unexpected error while reading or rewriting the body (malformed metadata or a defect); the method is left unchanged"),
     ];
@@ -94,7 +90,7 @@ public static class SimplifyManifest
 
     public sealed record InstructionGroup(string Name, string Notes, IReadOnlyList<Code> Codes);
 
-    /// <summary>The instructions the interpreter evaluates. Every other instruction stops evaluation (unsupported-instruction).</summary>
+    /// <summary>The instructions the interpreter evaluates; any other stops evaluation with unsupported-instruction.</summary>
     public static readonly IReadOnlyList<InstructionGroup> Instructions =
     [
         new("Constants and stack", "", [
@@ -160,7 +156,7 @@ public static class SimplifyManifest
     /// <summary>Framework methods evaluated by the interpreter, as dnlib full names.</summary>
     public static IReadOnlyList<string> Intrinsics => IlEvaluator.IntrinsicNames.Order(StringComparer.Ordinal).ToList();
 
-    /// <summary>The native methods the interpreter runs (<see cref="NativeRoutine"/>).</summary>
+    /// <summary>The native methods <see cref="NativeRoutine"/> runs.</summary>
     public const string NativeRoutines =
         "A call to a native method of the module (native code in the image itself, not a P/Invoke import) is run as x86 machine code " +
         "when the method is static, takes and returns 32-bit integers, and the image runs as a 32-bit x86 process (x86 machine, 32-bit " +
@@ -178,17 +174,14 @@ public static class SimplifyManifest
         ("memory", $"{new EvaluationLimits().MemoryLimit / (1024 * 1024)} MB of simulated allocations per evaluation, static state included"),
         ("time", $"{new EvaluationLimits().MethodTimeLimit.TotalSeconds:0} s of CPU time per method, all passes included, and at most {MethodMeter.WallFactor} times that of wall time"),
         ("arrays and strings", "1M elements / characters"),
-        ("initializer tier", "a static constructor run (with everything it calls) whose budget runs out gets one more window of the budget's size, " +
-                             "observed (its writes are tracked from then on; a run that ends or stops there without progress for what it ran fails as " +
-                             "without the tier: budget exhausted, not reported, not remembered), and each further window while " +
-                             $"the window just finished committed new state: per {IlEvaluator.ProgressRatio:N0} instructions, at least one location got a value " +
-                             "it did not hold (an array element, a static field, a field of an object; a collection or builder that grew), each location " +
-                             "counted once per window, so loops that only change locals or the same few locations earn nothing; and a fingerprint of every " +
-                             "location the run wrote differs from its value at the end of each earlier window (a run whose state comes back is a cycle). " +
-                             $"Up to {new EvaluationLimits().InitializerInstructionCeiling:N0} instructions and " +
-                             $"{new EvaluationLimits().InitializerTimeLimit.TotalSeconds:0} s of CPU time and {MethodMeter.WallFactor} times that of wall time per run, accounted apart: the evaluation that triggered it " +
-                             "gets its budget back and the method's total budget and time are not charged. Reports list the runs that used it; a failed " +
-                             "run is remembered. Other evaluations keep the defaults above"),
+        ("initializer tier", "a static constructor run whose budget runs out gets one more budget-sized window, with its writes tracked; a run " +
+                             "that makes no progress there fails as without the tier (budget exhausted, not reported, not remembered). Each further window " +
+                             $"needs new state from the last: per {IlEvaluator.ProgressRatio:N0} instructions, one location (array element, static or object " +
+                             "field, a grown collection or builder) took a new value, each location counted once per window, and the written state differs " +
+                             "from every earlier window's end (a repeat is a cycle). " +
+                             $"Up to {new EvaluationLimits().InitializerInstructionCeiling:N0} instructions, " +
+                             $"{new EvaluationLimits().InitializerTimeLimit.TotalSeconds:0} s of CPU time and {MethodMeter.WallFactor} times that of wall time per run, " +
+                             "charged to neither the triggering evaluation nor the method. Reports list the runs that used it; a failed run is remembered"),
     ];
 
     /// <summary>Renders docs/simplify.md.</summary>

@@ -6,20 +6,11 @@ using IcedCode = Iced.Intel.Code;
 
 namespace Corvus.Native.Patching;
 
-/// <summary>
-/// MASM/Intel-syntax x86 / x64 assembler on Iced's encoder, accepting the general-purpose / SSE / AVX forms the
-/// <c>disassemble</c> tool prints, so a listed line can be edited and patched back. Each operand (register, immediate,
-/// memory) is parsed and Iced's <see cref="IcedCode"/> table searched for a form whose operand kinds match, shortest
-/// encoding first. <see cref="BlockEncoder"/> lays the block out at the patch address (near-branch sizes, relative and
-/// RIP-relative displacements). Branch targets: labels, numbers, caller-resolved symbols; <c>db</c> emits raw bytes.
-/// </summary>
+/// <summary>Intel-syntax x86/x64 assembler accepting the forms <c>disassemble</c> prints; branch targets are labels, numbers or caller-resolved symbols, <c>db</c> emits raw bytes; throws on unencodable input.</summary>
 public static class X86Assembler
 {
     /// <param name="Bytes">The encoded block.</param>
-    /// <param name="Constants">
-    /// Displacements and immediates of the encoded instructions (not branch displacements or RIP-relative operands),
-    /// flagged when the operand was written as a symbol or with 'offset': the base-relocation planning input.
-    /// </param>
+    /// <param name="Constants">Absolute displacements and immediates, the input of relocation planning.</param>
     public sealed record Result(byte[] Bytes, IReadOnlyList<OperandConstant> Constants);
 
     private sealed class ByteWriter : CodeWriter
@@ -28,8 +19,7 @@ public static class X86Assembler
         public override void WriteByte(byte value) => Bytes.Add(value);
     }
 
-    // Each assembled line becomes one Iced Instruction (db becomes a DeclareByte pseudo-instruction). A branch whose
-    // target is a label/number/symbol keeps the token so it can be resolved once every item has an identifier IP.
+    // A branch keeps its target token until every item has an identifier IP.
     private sealed record Item(int Line, Instruction Instruction, string? BranchToken, bool ImmSymbol = false, bool DispSymbol = false);
 
     /// <param name="resolveSymbol">Resolves a name that is neither a label nor a number to a VA (e.g. an export).</param>
@@ -63,8 +53,7 @@ public static class X86Assembler
         }
         if (items.Count == 0) throw new ToolError(ErrorCode.InvalidArgument, "No instructions to assemble.");
 
-        // Give each item a unique identifier IP well outside any real VA, so BlockEncoder relocates in-block branch
-        // targets (labels) while leaving external absolute targets alone. The real layout is recomputed by BlockEncoder.
+        // Identifier IPs outside any real VA let BlockEncoder relocate labels but not external targets.
         const ulong labelBase = 0xF000_0000_0000_0000UL;
         var list = new List<Instruction>(items.Count);
         for (int i = 0; i < items.Count; i++)
@@ -132,7 +121,8 @@ public static class X86Assembler
             text = text[(sp0 + 1)..].TrimStart();
         }
 
-        _ = notrack; // 3E notrack is accepted and ignored (no encoder slot)
+        // 3E notrack is accepted and ignored.
+        _ = notrack;
         int sp = text.IndexOfAny([' ', '\t']);
         var mnemText = (sp < 0 ? text : text[..sp]).ToLowerInvariant();
         var rest = sp < 0 ? "" : text[(sp + 1)..].Trim();
@@ -140,9 +130,7 @@ public static class X86Assembler
 
         if (mnemText == "db") return new Item(line, Instruction.CreateDeclareByte(ParseDb(line, rest)), null);
 
-        // String instructions (movs/stos/lods/scas/cmps with a size suffix) use implicit [rsi]/[rdi] operands and are
-        // built with Iced's dedicated factories so the operand kinds and rep prefix are set. Only when no explicit
-        // operands were written, so "movsd xmm0, xmm1" still reaches the SSE form below.
+        // Operand-less string instructions use Iced's factories, so "movsd xmm0, xmm1" still reaches the SSE form.
         if (opTexts.Length == 0 && StringOp(bitness, mnemText, rep || repe, repne) is { } sins)
             return new Item(line, sins, null);
 
@@ -188,12 +176,11 @@ public static class X86Assembler
 
     private sealed record Operand(OpClass Class,
         Register Reg = Register.None,
-        // memory
         Register Base = Register.None, Register Index = Register.None, int Scale = 1,
         long Disp = 0, bool Rip = false, Register Segment = Register.None, int? SizeBytes = null, bool Absolute = false, bool AutoRip = false,
-        // immediate (Applied holds the value with any sign already folded in)
+        // Applied holds the immediate with its sign folded in.
         ulong Applied = 0,
-        // written as a symbol (or with 'offset'): an address the image's relocations must cover
+        // Written as a symbol or with 'offset': an address the relocations must cover.
         bool Symbol = false);
 
     private static Operand ParseOperand(int bitness, int line, string text, Func<string, ulong?>? resolve)
@@ -222,8 +209,7 @@ public static class X86Assembler
             var segText = t[..(bracket - 1)].Trim();
             if (TryRegister(segText, out var seg) && seg.IsSegmentRegister())
             {
-                // DS is the default data segment; the disassembler writes "ds:[abs]" for absolute addressing but no
-                // override prefix is emitted for it, so treat it as none to round-trip byte-for-byte.
+                // The disassembler prints "ds:[abs]" without a prefix, so DS is none to round-trip.
                 if (seg != Register.DS) segment = seg;
                 t = t[bracket..];
             }
@@ -312,8 +298,7 @@ public static class X86Assembler
 
     private static Instruction Select(int bitness, ulong startVa, int line, string mnemText, Mnemonic mnemonic, Operand[] operands)
     {
-        // Forms the disassembler prints like another instruction: 'int 3' is the one-byte breakpoint CC (CD 03 differs for
-        // debuggers and in length), 'xchg ax, ax' is the two-byte 66 90.
+        // 'int 3' is the one-byte CC, not CD 03; 'xchg ax, ax' is 66 90.
         if (mnemonic == Mnemonic.Int && operands is [{ Class: OpClass.Imm, Applied: 3 }])
             return Instruction.Create(IcedCode.Int3);
         if (mnemonic == Mnemonic.Xchg && operands is [{ Class: OpClass.Reg, Reg: Register.AX }, { Class: OpClass.Reg, Reg: Register.AX }])
@@ -334,7 +319,6 @@ public static class X86Assembler
 
             if (!TryBuild(bitness, startVa, code, oc, operands, out var instr)) continue;
 
-            // Validate / collect the memory-operand size.
             int memSize = -1;
             if (operands.Any(o => o.Class == OpClass.Mem))
             {
@@ -347,19 +331,16 @@ public static class X86Assembler
 
             int len = EncodedLength(bitness, startVa, instr, out var encoded);
             if (len < 0) continue;
-            // Reject obsolete / undocumented aliases (e.g. the 0F A7 cmpxchg486) whose bytes do not decode back to
-            // this instruction; a legitimate form always round-trips through the decoder.
+            // Reject aliases whose bytes do not decode back to this instruction (0F A7 cmpxchg486).
             if (!DecodesBackTo(bitness, encoded, startVa, code)) continue;
-            // Prefer putting a register in the modrm.reg slot and the r/m slot in a later operand (the "load" form,
-            // e.g. 8B/33 over 89/31) — this is what MSVC emits, so it maximizes byte-identity with Windows binaries.
+            // Prefer the load form (8B over 89), as MSVC emits, to match Windows binaries byte for byte.
             int rmRank = 0;
             for (int i = 0; i < operands.Length; i++)
                 if (Classify(oc.GetOpKind(i)).Role is Role.Rm or Role.Mem) rmRank += operands.Length - i;
             candidates.Add((instr, len, rmRank, code));
         }
 
-        // Instructions with only implicit operands (monitorx, mwaitx, ...) print those registers as operands: accept
-        // the operand-less form when it formats exactly as written.
+        // Implicit-operand instructions (monitorx) print their registers: accept the form that formats as written.
         if (candidates.Count == 0 && operands.All(o => o.Class == OpClass.Reg))
             foreach (var code in CodesFor(mnemonic))
             {
@@ -385,8 +366,7 @@ public static class X86Assembler
         if (memOperand is { SizeBytes: null } && memSizes.Count > 1)
             throw Error(line, "operand size is ambiguous: add a size specifier such as 'byte ptr', 'word ptr', 'dword ptr' or 'qword ptr'.");
 
-        // A 16-bit operand-size form (66 prefix) is shorter for immediates, but pushes, pops or truncates a different
-        // width: use it only when an operand asks for 16 bits (a 16-bit register or 'word ptr').
+        // A 66-prefixed form changes the operand width, so use it only when an operand asks for 16 bits.
         bool wantsWord = operands.Any(o => o.Class == OpClass.Reg && o.Reg.IsGPR16() || o.Class == OpClass.Mem && o.SizeBytes == 2);
         if (!wantsWord && candidates.Any(c => c.Code.ToOpCode().OperandSize != 16))
             candidates.RemoveAll(c => c.Code.ToOpCode().OperandSize == 16);
@@ -480,7 +460,8 @@ public static class X86Assembler
         else
         {
             instr.MemoryDisplacement64 = (ulong)op.Disp;
-            instr.MemoryDisplSize = op.Disp == 0 ? 0 : 1; // Iced grows disp8 -> disp32 and forces rbp/r13 as needed
+            // Iced grows disp8 to disp32 and forces rbp/r13 as needed.
+            instr.MemoryDisplSize = op.Disp == 0 ? 0 : 1;
         }
         return true;
     }
@@ -610,7 +591,8 @@ public static class X86Assembler
         ulong v = applied & dstMask;
         bool neg = (v & (1UL << (dst - 1))) != 0;
         long val = neg ? (long)(v | ~dstMask) : (long)v;
-        if (src == dst) return (applied & ~dstMask) == 0 || (applied | dstMask) == ~0UL; // fits unsigned or sign-filled
+        // Fits unsigned or sign-filled.
+        if (src == dst) return (applied & ~dstMask) == 0 || (applied | dstMask) == ~0UL;
         long lim = 1L << (src - 1);
         return val >= -lim && val < lim;
     }
@@ -694,8 +676,7 @@ public static class X86Assembler
 
     private static IcedCode? BranchCode(int bitness, Mnemonic m)
     {
-        // Pick the relative form whose address size matches the mode (jrcxz/jecxz have both a 16- and a 64-bit
-        // address form in 64-bit mode); among those, the largest displacement, which BlockEncoder shrinks as it fits.
+        // Pick the relative form matching the mode's address size, largest displacement first; BlockEncoder shrinks it.
         var want = bitness == 64 ? OpKind.NearBranch64 : OpKind.NearBranch32;
         IcedCode? best = null, fallback = null;
         int bestRel = -1, fbRel = -1;
@@ -721,7 +702,8 @@ public static class X86Assembler
     private static Instruction? StringOp(int bitness, string m, bool rep, bool repne)
     {
         var rk = rep ? RepPrefixKind.Repe : repne ? RepPrefixKind.Repne : RepPrefixKind.None;
-        int asz = bitness; // address size follows the mode (no explicit a16/a32 override support)
+        // No a16/a32 override: the address size follows the mode.
+        int asz = bitness;
         const Register seg = Register.None;
         return m switch
         {
@@ -768,11 +750,12 @@ public static class X86Assembler
     {
         reg = Register.None;
         var t = text.Trim();
-        if (t.Length == 0 || !char.IsLetter(t[0])) return false; // reject numbers: Enum.TryParse would read them as enum values
-        // st(0) -> st0, st -> st0
+        // Enum.TryParse would read numbers as enum values.
+        if (t.Length == 0 || !char.IsLetter(t[0])) return false;
+        // st(0) -> st0, st -> st0.
         if (t.Equals("st", StringComparison.OrdinalIgnoreCase)) t = "st0";
         else if (t.StartsWith("st(", StringComparison.OrdinalIgnoreCase) && t.EndsWith(')')) t = "st" + t[3..^1].Trim();
-        // r8b..r15b -> r8l..r15l (Iced names the low byte 'l')
+        // Iced names the low byte 'l': r8b -> r8l.
         if (t.Length is 3 or 4 && (t[0] is 'r' or 'R') && (t[^1] is 'b' or 'B') && char.IsDigit(t[1]))
             t = t[..^1] + "l";
         if (!Enum.TryParse<Register>(t, ignoreCase: true, out var r) || r == Register.None) return false;

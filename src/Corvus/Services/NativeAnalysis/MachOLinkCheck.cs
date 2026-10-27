@@ -4,12 +4,8 @@ using Check = Corvus.Services.NativeImportVerifier.Check;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// verify_native_imports on a Mach-O image: each load command resolved as dyld does (@rpath through the image's and the main
-/// executable's LC_RPATHs, @loader_path, @executable_path; /usr/lib and /System are in the shared cache and not checked),
-/// the dependency's slice matched to the image (arm64e falls back to arm64, x86_64h to x86_64), its compatibility version
-/// checked, and every non-weak symbol bound to it looked up in its exports and those of the libraries it re-exports.
-/// </summary>
+// /usr/lib and /System are in the shared cache and not checked; arm64e falls back to arm64, x86_64h to x86_64.
+/// <summary>verify_native_imports for Mach-O: resolves each load command as dyld does, matches the slice and version, and checks bound symbols.</summary>
 internal static class MachOLinkCheck
 {
     private const int MaxMissingListed = 20;
@@ -79,7 +75,8 @@ internal static class MachOLinkCheck
         {
             if (path.StartsWith("@loader_path", StringComparison.Ordinal)) return loaderDir + path["@loader_path".Length..];
             if (path.StartsWith("@executable_path", StringComparison.Ordinal)) return executableDir != null ? executableDir + path["@executable_path".Length..] : null;
-            return path.StartsWith('/') ? null : path; // an absolute path outside the system names the build machine
+            // An absolute path outside the system names the build machine.
+            return path.StartsWith('/') ? null : path;
         }
         IEnumerable<string?> candidates = name.StartsWith("@rpath/", StringComparison.Ordinal)
             ? rpaths.Distinct().Select(r => Expand(r) is { } dir ? dir.TrimEnd('/') + name["@rpath".Length..] : null)
@@ -97,7 +94,8 @@ internal static class MachOLinkCheck
     private static string? MainExecutable(MachOFile image, string imagePath)
     {
         var full = Path.GetFullPath(imagePath);
-        if (image.FileType == 2) return full; // MH_EXECUTE
+        // MH_EXECUTE.
+        if (image.FileType == 2) return full;
         for (var dir = Path.GetDirectoryName(full); dir != null; dir = Path.GetDirectoryName(dir))
             if (dir.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
             {

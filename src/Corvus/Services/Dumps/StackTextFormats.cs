@@ -43,15 +43,11 @@ internal sealed class ParsedStackText
     public Dictionary<string, int> Formats { get; } = [];
 }
 
-/// <summary>
-/// The crash-text parser table: one entry per recognized line shape, tried in order on each line; a line no entry
-/// takes is counted as unrecognized. Families: unity (Player.log / error.log native backtraces, module lists, Mono and
-/// Il2Cpp managed lines), dotnet (exception text, NativeAOT), wer (Report.wer), eventlog (Application Error 1000 and
-/// .NET Runtime 1026 text), windbg (k output, module!function+0x.., module+0x..), android (tombstone and logcat backtraces).
-/// </summary>
+/// <summary>The crash-text parser table, one entry per line shape tried in order; other lines count as unrecognized.
+/// Families: mono (Player.log, error.log), dotnet, wer, eventlog, windbg, android.</summary>
 internal static class StackTextFormats
 {
-    public static readonly string[] Families = ["unity", "dotnet", "wer", "eventlog", "windbg", "android"];
+    public static readonly string[] Families = ["mono", "dotnet", "wer", "eventlog", "windbg", "android"];
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture;
 
     private delegate bool Rule(Match m, int line, string raw, ParsedStackText into, State state);
@@ -65,8 +61,7 @@ internal static class StackTextFormats
 
     private sealed record Entry(string Family, Regex Pattern, Rule Apply);
 
-    // Lines come from pasted text of any length: NonBacktracking matches in
-    // linear time, so the patterns take no match timeout.
+    // NonBacktracking matches in linear time, so patterns over pasted text need no timeout.
     private static Regex R(string pattern) => new(pattern, Options | RegexOptions.NonBacktracking);
 
     private static ulong Hex(Group g) => ulong.Parse(g.Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
@@ -75,19 +70,19 @@ internal static class StackTextFormats
 
     private static readonly Entry[] Table =
     [
-        // Mono: at Ns.Type.Method (args) [0x0001a] in <0123...>:0 (Unity Mono Player.log)
-        new("unity", R(@"^\s*at (?<sym>[^\s(][^(]*?) ?\((?<args>[^)]*)\) \[0x(?<il>[0-9a-fA-F]+)\] in (?:<(?<mvid>[0-9a-fA-F]{32})(?:#[0-9a-fA-F]+)?>|(?<file>[^<>]+?)):(?<line>\d+)\s*$"),
-            (m, line, raw, into, s) => Add(into, Managed(line, raw, "unity", m.Groups["sym"].Value, m.Groups["args"].Value, s) with
+        // Mono: at Ns.Type.Method (args) [0x0001a] in <0123...>:0 (Player.log)
+        new("mono", R(@"^\s*at (?<sym>[^\s(][^(]*?) ?\((?<args>[^)]*)\) \[0x(?<il>[0-9a-fA-F]+)\] in (?:<(?<mvid>[0-9a-fA-F]{32})(?:#[0-9a-fA-F]+)?>|(?<file>[^<>]+?)):(?<line>\d+)\s*$"),
+            (m, line, raw, into, s) => Add(into, Managed(line, raw, "mono", m.Groups["sym"].Value, m.Groups["args"].Value, s) with
             {
-                // Il2Cpp prints an all-zero MVID: no build identity
+                // An all-zero MVID carries no build identity.
                 Mvid = m.Groups["mvid"].Success && Guid.ParseExact(m.Groups["mvid"].Value, "N") is var mvid && mvid != Guid.Empty ? mvid : null,
                 IlOffset = (int)Hex(m.Groups["il"]),
                 File = m.Groups["file"].Success ? m.Groups["file"].Value : null,
                 SourceLine = m.Groups["file"].Success ? IntOrNull(m.Groups["line"]) : null,
             })),
         // Mono wrapper frames: at (wrapper managed-to-native) Ns.Type:Method (args)
-        new("unity", R(@"^\s*at \((?<wrapper>wrapper [^)]+)\) (?<rest>.+)$"),
-            (m, line, raw, into, _) => Add(into, new TextFrame(line, raw, "unity", "managed") { Symbol = $"({m.Groups["wrapper"].Value}) {m.Groups["rest"].Value.Trim()}" })),
+        new("mono", R(@"^\s*at \((?<wrapper>wrapper [^)]+)\) (?<rest>.+)$"),
+            (m, line, raw, into, _) => Add(into, new TextFrame(line, raw, "mono", "managed") { Symbol = $"({m.Groups["wrapper"].Value}) {m.Groups["rest"].Value.Trim()}" })),
         // NativeAOT without metadata: at App!<BaseAddress>+0x5a1b2c
         new("dotnet", R(@"^\s*at (?<module>[\w.-]+)!<BaseAddress>\+0x(?<off>[0-9a-fA-F]+)\s*$"),
             (m, line, raw, into, s) => Add(into, new TextFrame(line, raw, "dotnet", "native") { Module = m.Groups["module"].Value, Offset = Hex(m.Groups["off"]), Segment = s.Depth })),
@@ -126,16 +121,16 @@ internal static class StackTextFormats
                     BuildId = m.Groups["id"].Success ? m.Groups["id"].Value.ToLowerInvariant() : null,
                 });
             }),
-        // Unity native backtrace: 0x00007FFB12345678 (GameAssembly) [file:line] Symbol | (function-name not available)
-        new("unity", R(@"^\s*(?:#\d+\s+)?\(?0x(?<addr>[0-9a-fA-F]{8,16})\)? \((?<module>[^)]+)\) (?<rest>.*)$"),
-            (m, line, raw, into, _) => UnityNative(m, line, raw, into)),
-        // Unity module list (error.log): C:\App\GameAssembly.dll:GameAssembly.dll (00007FFB0C3F0000), size: 81616896 (...), fileVersion: 1.2.3.4
-        new("unity", R(@"^(?<path>.*?):(?<name>[^:()\\/]+?) \((?<base>[0-9a-fA-F]{8,16})\), size: (?<size>\d+)(?:.*?fileVersion: (?<ver>[\d.]+))?"),
+        // Player.log native backtrace: 0x00007FFB12345678 (GameAssembly) [file:line] Symbol | (function-name not available)
+        new("mono", R(@"^\s*(?:#\d+\s+)?\(?0x(?<addr>[0-9a-fA-F]{8,16})\)? \((?<module>[^)]+)\) (?<rest>.*)$"),
+            (m, line, raw, into, _) => MonoNative(m, line, raw, into)),
+        // Module list (error.log): C:\App\GameAssembly.dll:GameAssembly.dll (00007FFB0C3F0000), size: 81616896 (...), fileVersion: 1.2.3.4
+        new("mono", R(@"^(?<path>.*?):(?<name>[^:()\\/]+?) \((?<base>[0-9a-fA-F]{8,16})\), size: (?<size>\d+)(?:.*?fileVersion: (?<ver>[\d.]+))?"),
             (m, _, _, into, _) => Module(into, new TextModule(m.Groups["name"].Value.Trim(), Hex(m.Groups["base"]), ulong.Parse(m.Groups["size"].Value, CultureInfo.InvariantCulture),
                 m.Groups["ver"].Success ? m.Groups["ver"].Value : null, null))),
-        // Unity / Il2Cpp managed log line: Ns.Type:Method (args) (at Assets/File.cs:12)
-        new("unity", R(@"^\s*(?<type>[A-Za-z_<][\w.<>`+/]*):(?<method>[A-Za-z_.<][\w.<>`|$]*) ?\((?<args>[^)]*)\)(?: \(at (?<file>.+?):(?<line>\d+)\))?\s*$"),
-            (m, line, raw, into, s) => Add(into, new TextFrame(line, raw, "unity", "managed")
+        // Managed log line: Ns.Type:Method (args) (at Assets/File.cs:12)
+        new("mono", R(@"^\s*(?<type>[A-Za-z_<][\w.<>`+/]*):(?<method>[A-Za-z_.<][\w.<>`|$]*) ?\((?<args>[^)]*)\)(?: \(at (?<file>.+?):(?<line>\d+)\))?\s*$"),
+            (m, line, raw, into, s) => Add(into, new TextFrame(line, raw, "mono", "managed")
             {
                 Symbol = $"{m.Groups["type"].Value}.{m.Groups["method"].Value}", Type = m.Groups["type"].Value.Replace('/', '+'), Method = m.Groups["method"].Value,
                 Args = m.Groups["args"].Value, File = m.Groups["file"].Success ? m.Groups["file"].Value : null, SourceLine = IntOrNull(m.Groups["line"]),
@@ -163,7 +158,7 @@ internal static class StackTextFormats
         new("eventlog", R(@"^\s*(?<k>Exception code|Fault offset|Faulting process id|Faulting module path|Faulting application path): (?<v>.+)$"),
             (m, _, _, _, s) => { s.Fields["ev:" + m.Groups["k"].Value] = m.Groups["v"].Value.Trim(); return true; }),
         // Debugger text: 00 000000a1`2b4ff6c8 00007ff6`1234abcd app!Crash+0x5 [c:\src\x.cpp @ 12]
-        // The symbol starts like a name (decorated ?f@@, @f@8, <lambda_..>), so Unity's "Crash!!!" banner is no frame.
+        // The symbol starts like a name (decorated ?f@@, @f@8, <lambda_..>), so a "Crash!!!" banner is no frame.
         new("windbg", R(@"^(?:\s*[0-9a-fA-F]{2,}\s+)?(?:[0-9a-fA-F`]{8,17}\s+){0,2}(?<module>[A-Za-z_][\w.-]*)!(?<sym>[A-Za-z_?@$<~][^\s+\[]*)(?:\+0x(?<off>[0-9a-fA-F]+))?(?:\s+\[(?<src>[^\]]+)\])?\s*$"),
             (m, line, raw, into, _) => Add(into, new TextFrame(line, raw, "windbg", "native")
             {
@@ -224,7 +219,7 @@ internal static class StackTextFormats
     private static TextFrame Managed(int line, string raw, string format, string symbol, string args, State s)
     {
         symbol = symbol.Trim();
-        // Ns.Type.Method, Ns.Type..ctor, Ns.Outer+Inner.Method[T], Ns.Type:Method (Unity)
+        // Ns.Type.Method, Ns.Type..ctor, Ns.Outer+Inner.Method[T], Ns.Type:Method
         int split = symbol.LastIndexOf("..", StringComparison.Ordinal) is var dd and > 0 ? dd : symbol.LastIndexOf('.');
         var method = split > 0 ? symbol[(split + 1)..] : symbol;
         var type = split > 0 ? symbol[..split] : null;
@@ -265,17 +260,17 @@ internal static class StackTextFormats
         return true;
     }
 
-    private static readonly Regex UnitySource = R(@"^\[(?<file>[^\]]+?):(?<line>\d+)\]\s*(?<rest>.*)$");
-    private static readonly Regex UnityManaged = R(@"^\(?(?:wrapper [^)]+\) )?(?<type>[\w.<>`+/]+):(?<method>[\w.<>`|$]+) ?\((?<args>[^)]*)\)");
+    private static readonly Regex MonoSource = R(@"^\[(?<file>[^\]]+?):(?<line>\d+)\]\s*(?<rest>.*)$");
+    private static readonly Regex MonoManaged = R(@"^\(?(?:wrapper [^)]+\) )?(?<type>[\w.<>`+/]+):(?<method>[\w.<>`|$]+) ?\((?<args>[^)]*)\)");
 
-    private static bool UnityNative(Match m, int line, string raw, ParsedStackText into)
+    private static bool MonoNative(Match m, int line, string raw, ParsedStackText into)
     {
         var module = m.Groups["module"].Value.Trim();
         var rest = m.Groups["rest"].Value.Trim();
         ulong address = Hex(m.Groups["addr"]);
         string? file = null;
         int? sourceLine = null;
-        var src = UnitySource.Match(rest);
+        var src = MonoSource.Match(rest);
         if (src.Success)
         {
             file = src.Groups["file"].Value;
@@ -284,8 +279,8 @@ internal static class StackTextFormats
         }
         if (module.Equals("Mono JIT Code", StringComparison.OrdinalIgnoreCase))
         {
-            var managed = UnityManaged.Match(rest);
-            return Add(into, new TextFrame(line, raw, "unity", "managed")
+            var managed = MonoManaged.Match(rest);
+            return Add(into, new TextFrame(line, raw, "mono", "managed")
             {
                 Address = address, Symbol = managed.Success ? $"{managed.Groups["type"].Value}.{managed.Groups["method"].Value}" : rest,
                 Type = managed.Success ? managed.Groups["type"].Value.Replace('/', '+') : null, Method = managed.Success ? managed.Groups["method"].Value : null,
@@ -293,7 +288,7 @@ internal static class StackTextFormats
             });
         }
         string? symbol = rest.Length == 0 || rest.Contains("function-name not available", StringComparison.OrdinalIgnoreCase) ? null : rest;
-        return Add(into, new TextFrame(line, raw, "unity", "native") { Module = module, Address = address, Symbol = symbol, File = file, SourceLine = sourceLine });
+        return Add(into, new TextFrame(line, raw, "mono", "native") { Module = module, Address = address, Symbol = symbol, File = file, SourceLine = sourceLine });
     }
 
     /// <summary>WER and Event Log fields become the faulting frame, its module and the exception code.</summary>

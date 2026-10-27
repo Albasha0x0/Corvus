@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Engine edits beyond types through the tools on a real system DLL, with IDA and with Ghidra: applied, journaled over a
-/// worker restart, and pushed into a new database from the sidecar.
-/// </summary>
+/// <summary>Engine edits on a real system DLL with IDA and Ghidra: applied, journaled across a worker restart, pushed into a new database.</summary>
 [Trait("Speed", "Slow")]
 public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposable
 {
@@ -212,7 +209,7 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
             Output.WriteLine(mode.Declaration);
             Assert.Contains("SampleFast", mode.Declaration);
 
-            // a user-made member, so the deletion is not undone by analysis
+            // A user-made member, so the deletion is not undone by analysis.
             Assert.Contains("sample_temp", await rig.Types.SetNativeStackVar(path, Function, "0x8", newName: "sample_temp", type: "int", engine: "ghidra"));
             Assert.Contains("deleted", await rig.Types.SetNativeStackVar(path, Function, "sample_temp", delete: true, engine: "ghidra"));
             Assert.DoesNotContain((await ghidra.GetFrameAsync(fn)).Members, m => m.Name == "sample_temp");
@@ -249,7 +246,7 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
             Output.WriteLine(await rig.Types.DefineNative(path, Rva(data), "data", type: "dword[4]"));
             await rig.Types.DeclareNativeTypes(path, "struct SampleRec { int a; short b; char c[10]; };");
             Assert.Contains("SampleRec", await rig.Types.DefineNative(path, Rva(data + 0x40), "data", type: "SampleRec"));
-            // an engine type read at an address from the image's bytes
+            // An engine type read at an address from the image's bytes.
             var read = await rig.Info.GetNativeType(path, name: "SampleRec", address: Rva(data + 0x40), source: "engine", read: true);
             Output.WriteLine(read);
             Assert.Matches(@"\+0x4  2  b  .*= -?\d+", read);
@@ -262,17 +259,17 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(data), "data"))).Code);
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(data + 8), "undefine", end: Rva(data)))).Code);
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(data), "data", type: "no_such_sample_t"))).Code);
-            // the function edit replaced the undefine at the same address
+            // The function edit replaced the undefine at the same address.
             var layer = rig.Code.Annotations(rig.Native).UserTypes;
             Assert.Equal([data, data + 0x40, data + 0x60, fn], layer.Analysis.Select(a => a.Rva));
 
-            // journaled: a worker killed before any save replays the edits
+            // Journaled: a worker killed before any save replays the edits.
             await WorkerKill.KillAsync(ida);
             Assert.Equal((16L, false), await IdaItem(ida, data));
             Assert.Equal((16L, false), await IdaItem(ida, data + 0x40));
             Assert.True((await IdaItem(ida, fn)).Function);
 
-            // a new database gets them from the sidecar
+            // A new database gets them from the sidecar.
             Restart();
             var fresh = Setup("ida-b");
             Output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, locals: true));
@@ -310,7 +307,7 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
             await fresh.Types.GetNativeFrame(path, Function, locals: true);
             var again = await fresh.Session("ida");
             Assert.Contains("SampleHdr.Magic", await TextAt(again, fn, load));
-            // default clears it, in the database and the sidecar
+            // Default clears it, in the database and the sidecar.
             await fresh.Types.SetNativeOperand(path, Rva(load), 1, "default");
             Assert.Contains("18h", await TextAt(again, fn, load));
             Assert.Single(fresh.Code.Annotations(fresh.Native).UserTypes.Operands);
@@ -330,7 +327,7 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
             Assert.Contains("SampleCreated::SampleOne = 0x1", await rig.Types.DeclareNativeTypes(path, typeName: "SampleCreated", members: "SampleOne=1"));
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, typeName: "SampleMode", members: "bad name=1"))).Code);
             var ida = await rig.Session("ida");
-            // a recovered type push declares the user's enums again; the upserts stay
+            // A recovered type push declares the user's enums again; the upserts stay.
             await ida.ApplyTypesAsync(new NativeTypeBatch("struct SampleUnrelated { int a; };", [], [], [], 8));
             var mode = await ida.GetTypeAsync("SampleMode");
             Output.WriteLine(mode.Declaration);
@@ -340,7 +337,7 @@ public abstract class NativeEngineEditTests(ITestOutputHelper output) : IDisposa
             var frame = await ida.GetFrameAsync(fn);
             var member = frame.Members.First(m => m.Kind == "arg");
             Assert.Contains("deleted", await rig.Types.SetNativeStackVar(path, Function, member.Name, delete: true));
-            // an instruction that addresses the slot gets a default member there again when IDA reanalyzes it
+            // An instruction that addresses the slot gets a default member there again when IDA reanalyzes it.
             Assert.DoesNotContain((await ida.GetFrameAsync(fn)).Members, m => m.Offset == member.Offset && m.Name == member.Name);
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeStackVar(path, Function, "__return_address", delete: true))).Code);
 

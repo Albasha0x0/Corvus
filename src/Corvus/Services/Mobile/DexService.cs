@@ -95,10 +95,7 @@ public sealed class DexService
     public const string OriginalDescription = "Original name (mapping or recovered).";
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<DexIndex, DexNames> _names = [];
 
-    /// <summary>
-    /// The name layer of a package: <paramref name="mapping"/> read and kept for later calls on the same package, else the one
-    /// kept, else the names recovered from Kotlin metadata and source files; null when there are none.
-    /// </summary>
+    /// <summary>The package's names: <paramref name="mapping"/> (kept for later calls), else the kept one, else recovered names; null when none.</summary>
     public DexNames? Names(DexIndex index, string? mapping, CancellationToken ct)
     {
         if (mapping is { Length: > 0 } m)
@@ -157,10 +154,7 @@ public sealed class DexService
         lock (_lock) return [.. _cache.Select(n => n.Index)];
     }
 
-    /// <summary>
-    /// A wildcard (* ?) or substring test, case-insensitive, without a regex (a NonBacktracking automaton refuses a long
-    /// query); null for no query.
-    /// </summary>
+    /// <summary>A case-insensitive wildcard or substring test, no regex since NonBacktracking refuses a long query; null for no query.</summary>
     private static Func<string, bool>? Pattern(string? query)
     {
         if (query is not { Length: > 0 }) return null;
@@ -367,7 +361,7 @@ public sealed class DexService
             }
         int other = folds.Sites.Count(s => s.Evaluated && s.Fold.Status != DexFoldStatus.Simplified);
         if (recovered > 0 || other > 0)
-            notes.Add($"{recovered} matching string(s) recovered from string decoder calls; {other} call(s) with constant arguments not simplified (disassemble_dex format=simplified says why).");
+            notes.Add($"{recovered} matching string(s) recovered from decoder calls; {other} constant-argument call(s) not simplified (disassemble_dex format=simplified says why).");
         if (folds.MethodsLeft > 0)
             notes.Add($"{folds.MethodsLeft} method(s) with decoder calls not evaluated within {DexStringFolding.PackageTimeLimit.TotalSeconds:0} s; search again to continue.");
     }
@@ -389,10 +383,7 @@ public sealed class DexService
         return values;
     }
 
-    /// <summary>
-    /// Smali of one method (exact id or a single overload) or of a whole class; <paramref name="simplified"/> adds the string each
-    /// decoder call returns, or why it is not known, after the call.
-    /// </summary>
+    /// <summary>Smali of one method or a class; <paramref name="simplified"/> notes each decoder call's string or why it is unknown.</summary>
     public string Disassemble(string path, string symbol, bool annotated, CancellationToken ct, string? mapping = null, bool simplified = false)
     {
         if (JvmClasses.IsClassInput(path)) return JvmClasses.Listing(path, symbol, ct);
@@ -477,7 +468,8 @@ public sealed class DexService
 
     private static (string Kind, HashSet<int> Keys, string Label) ResolveTarget(DexIndex index, string target, string kind, bool from)
     {
-        _ = index.Refs; // keys exist once the code index is built
+        // Keys exist once the code index is built.
+        _ = index.Refs;
         HashSet<int> Keys(IEnumerable<string> names) => [.. names.Select(index.FindKey).OfType<int>()];
         if (kind == "string" || (kind == "auto" && target.Length >= 2 && target.StartsWith('"') && target.EndsWith('"')))
         {
@@ -503,7 +495,8 @@ public sealed class DexService
         {
             var methods = index.FindMethods(target);
             if (methods.Count == 1) return ("method", Keys(methods), methods[0]);
-            if (methods.Count > 1) index.ResolveMethod(target); // ambiguous error with the overloads
+            // Throws the ambiguous error listing the overloads.
+            if (methods.Count > 1) index.ResolveMethod(target);
             if (kind == "auto" && index.FindFields(target).Count > 0) return Field(index, target);
             throw new ToolError(ErrorCode.NotFound, $"no class, method or field {target} in {index.Path}.",
                 "use a class name, an exact id from get_dex_class (Lpkg/C;->m(I)V, Lpkg/C;->f:I), Class::member, or a quoted string with kind=string");

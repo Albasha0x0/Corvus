@@ -52,7 +52,7 @@ public class CSharpAdvancedTests : IDisposable
     private string AddTypes(string code) => _env.Edit(() => _env.Edits.AddTypesCSharp(_env.Fixture, code, false, default));
 
     [Fact]
-    public void CompileErrorsNameTheTargetWithANext()
+    public void Compile_errors_name_the_target_with_a_next()
     {
         var ex = Assert.Throws<ToolError>(() => Patch("Account::Tick", "return 5;"));
         Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
@@ -65,12 +65,9 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Contains("returns Int32: use 'return <value>;'", score.Remediation);
     }
 
-    /// <summary>
-    /// The target's reference copy carries only metadata (writing every body and resource made the first patch of a large
-    /// assembly take seconds), grants the patch assembly its internals, drops stand-in tokens, and is written once.
-    /// </summary>
+    /// <summary>The target's reference copy carries only metadata, grants the patch assembly its internals, drops stand-in tokens and is written once.</summary>
     [Fact]
-    public void TheTargetsReferenceCopyIsMetadataOnlyAndCached()
+    public void The_targets_reference_copy_is_metadata_only_and_cached()
     {
         var image = _env.Fixture.GetImageBytes();
         var friend = Services.CSharpPatcher.FriendImage(image, "Fixture.__patch", ["System.Runtime"], default);
@@ -86,7 +83,7 @@ public class CSharpAdvancedTests : IDisposable
 
     /// <summary>A generic method is labeled Echo&lt;T&gt;(T); it is still listed as added, while closures stay hidden.</summary>
     [Fact]
-    public void AddedGenericMembersAreListed()
+    public void Added_generic_members_are_listed()
     {
         var result = AddMembers("Shop", "public T Echo<T>(T x) { System.Func<T> f = () => x; return f(); }");
         Assert.Contains("Echo<T>(T)", result);
@@ -95,7 +92,7 @@ public class CSharpAdvancedTests : IDisposable
 
     /// <summary>Added members all have the token (new): decompile_member and get_il cached one's text under it and showed it for the others.</summary>
     [Fact]
-    public async Task EachAddedMemberDecompilesToItself()
+    public async Task Each_added_member_decompiles_to_itself()
     {
         AddMembers("Shop", "public static int Aaa(int x) => x + 1; public static int Bbb(int x) => x + 2;");
         var tools = new Corvus.Tools.DecompileTools(_env.Workspace, _env.Decompiler, _env.Pager);
@@ -105,12 +102,9 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Contains("ldc.i4.1", await tools.GetIL("Fixture.Model.Shop::Aaa"));
     }
 
-    /// <summary>
-    /// Added members of a type with a nullable context are marked oblivious (an added T Same&lt;T&gt;(T) read as where T : notnull),
-    /// and attributes of added type parameters are kept.
-    /// </summary>
+    /// <summary>Added members of a nullable-context type are oblivious, and attributes of added type parameters are kept.</summary>
     [Fact]
-    public void AddedMembersAreNullableObliviousAndKeepTypeParameterAttributes()
+    public void Added_members_are_nullable_oblivious_and_keep_type_parameter_attributes()
     {
         AddMembers("Shop", "public static T Same<T>(T x) => x; public static U Choose<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods)] U>(U a) => a; public static string Note;");
         var shop = (dnlib.DotNet.TypeDef)_env.One("Fixture.Model.Shop", SymbolKind.Type).Member;
@@ -123,7 +117,7 @@ public class CSharpAdvancedTests : IDisposable
     }
 
     [Fact]
-    public void LambdasLinqAndCapturedThis()
+    public void Patches_with_lambdas_LINQ_and_captured_this_run()
     {
         Patch("Account::SumPositive", "return values.Where(v => v % 2 == 0).Select(v => v * _balance).Sum();");
         using var run = new Runner(_env);
@@ -132,7 +126,7 @@ public class CSharpAdvancedTests : IDisposable
     }
 
     [Fact]
-    public void ClosureOverLocalsAndParameters()
+    public void Patches_with_closures_over_locals_and_parameters_run()
     {
         Patch("Shop::PriceOf(string, int)", "int bonus = quantity + 1; Func<int, int> f = x => x * bonus; return f(PriceOf(item));");
         using var run = new Runner(_env);
@@ -141,7 +135,7 @@ public class CSharpAdvancedTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task AsyncStateMachine()
+    public async Task Async_patches_build_a_state_machine_that_runs()
     {
         Patch("Account::LoadAsync", "await Task.Delay(1); await Task.Yield(); return Balance + 1;");
         Assert.Contains("await", _env.Decompile("Account::LoadAsync"));
@@ -151,7 +145,7 @@ public class CSharpAdvancedTests : IDisposable
     }
 
     [Fact]
-    public void IteratorStateMachine()
+    public void Iterator_patches_build_a_state_machine_that_runs()
     {
         Patch("Account::Range", "for (int i = 0; i < 3; i++) yield return i * 10;");
         using var run = new Runner(_env);
@@ -160,7 +154,7 @@ public class CSharpAdvancedTests : IDisposable
     }
 
     [Fact]
-    public void LocalFunctionsStringSwitchAndArrayInitializers()
+    public void Patches_with_local_functions_string_switches_and_array_initializers_run()
     {
         Patch("Shop::Describe", "string Up(string s) => s.ToUpperInvariant() + \"!\"; return Up(\"ok\");");
         // Large enough to compile to a hash switch using <PrivateImplementationDetails>.ComputeStringHash.
@@ -183,7 +177,7 @@ public class CSharpAdvancedTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void RepeatedPatchesGetFreshHelperNames()
+    public void Repeated_patches_get_fresh_helper_names()
     {
         Patch("Account::SumPositive", "return values.Where(v => v > 1).Sum();");
         Patch("Account::SumPositive", "return values.Where(v => v > 2).Sum();");
@@ -195,7 +189,7 @@ public class CSharpAdvancedTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void AddMembersAndUseThemFromAPatch()
+    public void Added_members_can_be_used_from_a_patch()
     {
         var result = AddMembers("Shop", """
             public int Twice(int x) { return x * 2; }
@@ -215,7 +209,7 @@ public class CSharpAdvancedTests : IDisposable
 
     /// <summary>The stubbed async methods of the shadow type compiled to state machines, merged as unused copies (&lt;LoadAsync&gt;d__5$merged1).</summary>
     [Fact]
-    public void AddMembersToATypeWithAsyncMethodsAddsNoStateMachines()
+    public void Adding_members_to_a_type_with_async_methods_adds_no_state_machines()
     {
         var account = (dnlib.DotNet.TypeDef)_env.One("Fixture.Model.Account", SymbolKind.Type).Member;
         var nested = account.NestedTypes.Select(t => t.Name.String).ToList();
@@ -225,7 +219,7 @@ public class CSharpAdvancedTests : IDisposable
 
     /// <summary>Added iterators and lambdas were named after the helper method they were compiled in (&lt;Many__patch0&gt;d__0).</summary>
     [Fact]
-    public void AddedMembersNameTheirStateMachinesAndLambdasAfterThemselves()
+    public void Added_members_name_their_state_machines_and_lambdas_after_themselves()
     {
         var account = (dnlib.DotNet.TypeDef)_env.One("Fixture.Model.Account", SymbolKind.Type).Member;
         AddMembers("Fixture.Model.Account", "public System.Collections.Generic.IEnumerable<int> Many(int n) { for (int i = 0; i < n; i++) yield return i; } " +
@@ -238,17 +232,17 @@ public class CSharpAdvancedTests : IDisposable
     }
 
     [Fact]
-    public void AddMembersRejectsDuplicatesAndInitializers()
+    public void Adding_members_rejects_duplicates_and_initializers()
     {
         Assert.Contains("CS0111", Assert.Throws<ToolError>(() => AddMembers("Shop", "public bool Buy(string item) { return true; }")).Message);
-        Assert.Contains("Initializers", Assert.Throws<ToolError>(() => AddMembers("Shop", "private int _x = 5;")).Message);
+        Assert.Contains("cannot have initializers", Assert.Throws<ToolError>(() => AddMembers("Shop", "private int _x = 5;")).Message);
         Assert.Contains("do not parse", Assert.Throws<ToolError>(() => AddMembers("Shop", "this is not C#")).Message);
         Assert.False(_env.Fixture.IsDirty);
     }
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void AddTypesThatUseTheAssembly()
+    public void Added_types_can_use_the_assembly()
     {
         AddTypes("""
             namespace Extensions
@@ -268,7 +262,7 @@ public class CSharpAdvancedTests : IDisposable
     }
 
     [Fact]
-    public void PrivateMembersOfOtherTypesWorkAtRuntime()
+    public void Private_members_of_other_types_work_at_runtime()
     {
         // Compiled with access checks off; the runtime must still accept the private accesses.
         Patch("Shop::PriceOf(string)", "var p = new Account(item); Account.Log(\"x\"); return p._balance + Secret.Validate(\"PREVIEW-12345\").GetHashCode();");
@@ -277,7 +271,7 @@ public class CSharpAdvancedTests : IDisposable
     }
 
     [Fact]
-    public void DryRunsLeaveTheAssemblyUntouched()
+    public void Dry_runs_leave_the_assembly_untouched()
     {
         var preview = _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::SumPositive"), "return values.Select(v => v * 2).Sum();", true, default));
         Assert.StartsWith("Dry run", preview);

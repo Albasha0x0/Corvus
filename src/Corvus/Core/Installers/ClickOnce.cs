@@ -5,10 +5,7 @@ using System.Xml.Linq;
 
 namespace Corvus.Core.Installers;
 
-/// <summary>
-/// A ClickOnce manifest read on its own: the deployment manifest (.application) lists the application manifest, the
-/// application manifest lists every file with its size and digest. Nothing is extracted: the files sit beside the manifests.
-/// </summary>
+/// <summary>A ClickOnce deployment or application manifest, listing files with size and digest; nothing is extracted.</summary>
 internal sealed class ClickOnceManifestReader : IContainerReader
 {
     public string Kind => "clickonce";
@@ -41,7 +38,7 @@ internal static class ClickOnceDeployment
         {
             candidates = File.Exists(full) ? [full]
                 : Directory.Exists(full) ? Directory.EnumerateFiles(full, "*.application").Order(StringComparer.OrdinalIgnoreCase)
-                    // a versioned copy (App_1_0_0_0.application) is the manifest of one older publish
+                    // A versioned copy (App_1_0_0_0.application) is the manifest of one older publish.
                     .OrderBy(f => System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(f), @"_\d+_\d+_\d+_\d+\.application$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToList()
                 : [];
         }

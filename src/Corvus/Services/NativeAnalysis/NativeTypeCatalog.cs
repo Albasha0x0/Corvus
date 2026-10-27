@@ -16,10 +16,10 @@ public sealed record NativeTypeField(
     [property: Description("Name; nested rows (depth > 0) are dotted paths such as header.magic.")] string Name,
     [property: Description("C spelling of the field's type.")] string Type,
     [property: Description("Id of the field's type for get_native_type id=...; null for scalars.")] string? TypeId,
-    [property: Description("member, base, vbase, vfptr, static, padding or header (Il2Cpp object header).")] string Kind,
+    [property: Description("member, base, vbase, vfptr, static, padding or header (AOT object header).")] string Kind,
     [property: Description("First bit of a bit field in its storage unit.")] int? BitOffset,
     [property: Description("Width of a bit field in bits.")] int? BitSize,
-    [property: Description("Source-specific detail: the managed type and declaring class for Il2Cpp, computed offsets.")] string? Note)
+    [property: Description("Source-specific detail: the managed type and declaring class for AOT metadata, computed offsets.")] string? Note)
 {
     [Description("read=true: the field's value in the image's bytes.")]
     public string? Value { get; init; }
@@ -44,10 +44,10 @@ public sealed record NativeVftable(
 
 [Description("A native type with its layout.")]
 public sealed record NativeTypeView(
-    [property: Description("Stable id: pdb:0x1A2B (type record), pdb:Name (typedef), rtti:<type descriptor VA>, il2cpp:Ns.Type (#statics), ida:Name.")] string Id,
+    [property: Description("Stable id: pdb:0x1A2B (type record), pdb:Name (typedef), rtti:<type descriptor VA>, metadata:Ns.Type (#statics), ida:Name.")] string Id,
     string Name,
     [property: Description("struct, class, union, enum, typedef, pointer, array, function, bitfield, scalar, modifier, interface or statics.")] string Kind,
-    [property: Description("pdb, rtti, pdb+rtti, il2cpp or the engine's id.")] string Source,
+    [property: Description("pdb, rtti, pdb+rtti, metadata or the engine's id.")] string Source,
     [property: Description("Size in bytes; -1 when the source does not record it (RTTI).")] long Size,
     [property: Description("Alignment; for PDB types computed from the members (the PDB records none).")] long? Alignment,
     [property: Description("A member is not at its natural alignment (#pragma pack).")] bool Packed,
@@ -76,14 +76,10 @@ public sealed record NativeFieldPath(
     [property: Description("Type of the field reached.")] string Type,
     [property: Description("Bytes into that field (0 at its start).")] long Remainder);
 
-/// <summary>
-/// Native types from every source an image has: the PDB's type records, MSVC RTTI classes (bases, vftables), Il2Cpp
-/// class layouts (after apply_il2cpp_names) and the decompiler engine's database (IDA local types, incl. the user's
-/// declarations). Lookup by name, id or typed address; field paths at an offset; nested expansion of by-value members.
-/// </summary>
+/// <summary>Native types from every source of an image (PDB, RTTI, metadata layouts, engine), by name, id or typed address.</summary>
 public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeService? code = null)
 {
-    public const string Pdb = "pdb", Rtti = "rtti", Il2Cpp = "il2cpp", Engine = "engine", ObjC = "objc", Swift = "swift";
+    public const string Pdb = "pdb", Rtti = "rtti", Metadata = "metadata", Engine = "engine", ObjC = "objc", Swift = "swift";
     /// <summary>Most rows of a substring search; most nested fields an expansion adds.</summary>
     public const int MaxCandidates = 5000, MaxExpandedFields = 20_000;
     private const int MaxPathDepth = 16, MaxPaths = 64;
@@ -105,23 +101,21 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         public int SlotLimit { get; set; } = 200;
         internal readonly Dictionary<string, NativeTypeView> Views = new(StringComparer.Ordinal);
         internal MsvcRttiResult? RttiResult;
-        internal List<TypeDef>? Il2CppTypes;
-        internal Il2CppNativeNames.Applied? Il2CppApplied;
+        internal List<TypeDef>? AotMetadataTypes;
+        internal AotNativeNames.Applied? AotApplied;
         public bool Uses(string source) => Sources.Contains(source);
         public string Va(uint rva) => NativeAddress.Va(Native.Image, rva);
     }
 
-    /// <summary>
-    /// Opens the sources of <paramref name="native"/>: <paramref name="sources"/> among pdb, rtti, il2cpp and engine; the PDB
-    /// loaded for the image (or found beside it when the code index is built), the engine session when given.
-    /// </summary>
+    /// <summary>Opens the requested <paramref name="sources"/> (pdb, rtti, metadata, engine) of <paramref name="native"/>; a PDB
+    /// beside the image is found by the code index build.</summary>
     public async Task<Context> Open(LoadedNative native, IReadOnlySet<string> sources, INativeDecompilerSession? session, bool engineRequested, CancellationToken ct)
     {
         PdbFile? pdb = null;
         NativeCodeIndex? index = code?.Ready(native);
         if (sources.Contains(Pdb))
         {
-            // a matching PDB beside the image (DWARF for ELF and Mach-O) is read during the first index build
+            // A matching PDB beside the image (DWARF for ELF and Mach-O) is read during the first index build.
             if (PdbService.StateOf(native) == null && code != null && native.Image.Format is ImageFormat.Pe or ImageFormat.Elf or ImageFormat.MachO)
                 index = await code.Index(native, null, ct).ConfigureAwait(false);
             pdb = PdbService.StateOf(native)?.Pdb;
@@ -129,7 +123,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         var model = pdb != null ? await Task.Run(() => PdbTypeModel.Of(pdb, PointerSize(native), ct), ct).ConfigureAwait(false) : null;
         var context = new Context { Native = native, PdbFile = pdb, Model = model, Index = index ?? code?.Ready(native), Session = session, EngineRequested = engineRequested, Sources = sources };
         if (sources.Contains(Pdb) && pdb == null) context.Notes.Add("no PDB is loaded for the image (load_pdb)");
-        // the IPI stream only matters for prototypes
+        // The IPI stream only matters for prototypes.
         if (model != null) context.Notes.AddRange(model.Notes.Where(n => n.Contains("TPI", StringComparison.Ordinal)).Select(n => "pdb: " + n));
         return context;
     }
@@ -142,29 +136,23 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         return c.RttiResult ??= c.Native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, ct));
     }
 
-    private List<TypeDef> Il2CppTypesOf(Context c)
+    private List<TypeDef> AotTypesOf(Context c)
     {
-        if (!c.Uses(Il2Cpp)) return [];
-        if (c.Il2CppTypes != null) return c.Il2CppTypes;
-        c.Il2CppApplied = Il2CppNativeNames.Of(c.Native);
-        c.Il2CppTypes = c.Il2CppApplied == null ? [] : workspace.Read(() => c.Il2CppApplied.Image.Assemblies.SelectMany(a => a.Module.GetTypes()).ToList());
-        return c.Il2CppTypes;
+        if (!c.Uses(Metadata)) return [];
+        if (c.AotMetadataTypes != null) return c.AotMetadataTypes;
+        c.AotApplied = AotNativeNames.Of(c.Native);
+        c.AotMetadataTypes = c.AotApplied == null ? [] : workspace.Read(() => c.AotApplied.Image.Assemblies.SelectMany(a => a.Module.GetTypes()).ToList());
+        return c.AotMetadataTypes;
     }
-
-    // ---- lookup ----
 
     /// <summary>A candidate and how to build its view (null for an engine type listed by a search: read by id).</summary>
     private sealed record Hit(NativeTypeCandidate Candidate, Func<NativeTypeView>? View);
 
-    /// <summary>
-    /// The type named <paramref name="name"/>: an exact (then case-insensitive) match from the sources, merged when the PDB
-    /// and RTTI describe the same class; otherwise the candidates whose name contains it. Several definitions are an
-    /// Ambiguous error listing their ids.
-    /// </summary>
+    /// <summary>The type named <paramref name="name"/> (exact, then case-insensitive), else substring candidates; Ambiguous on several definitions.</summary>
     public async Task<(Func<NativeTypeView>? View, IReadOnlyList<NativeTypeCandidate> Candidates, int Total)> Find(Context c, string name, int offset, int limit,
         CancellationToken ct)
     {
-        // a glob (* and ?) lists every match, never one type
+        // A glob (* and ?) lists every match, never one type.
         if (Wildcard.IsPattern(name))
         {
             var literal = name.Split('*', '?').MaxBy(p => p.Length) ?? "";
@@ -201,7 +189,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         {
             IEnumerable<string> names = exact == StringComparison.Ordinal ? model.Named(text).Count > 0 ? [text] : [] : model.Names.Where(match);
             foreach (var n in names)
-                // compilands repeat anonymous-namespace types and lambdas under their own unique names: one per layout
+                // Compilands repeat anonymous-namespace types and lambdas under unique names: one per layout.
                 foreach (var same in Definitions(model, n))
                 {
                     if (hits.Count >= MaxCandidates) break;
@@ -218,7 +206,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
                     hits.Add(hit);
                     (pdbByName.TryGetValue(n, out var l) ? l : pdbByName[n] = []).Add(hit);
                 }
-            // S_UDT names that differ from their tag
+            // S_UDT names that differ from their tag.
             foreach (var t in c.PdbFile!.Typedefs)
             {
                 if (hits.Count >= MaxCandidates) break;
@@ -234,7 +222,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
             {
                 if (hits.Count >= MaxCandidates) break;
                 var k = cls;
-                // the PDB's single definition of the class takes RTTI's vftables
+                // The PDB's single definition of the class takes RTTI's vftables.
                 if (pdbByName.TryGetValue(cls.Name, out var same) && same.Count == 1 && same[0].Candidate.Id.StartsWith("pdb:0x", StringComparison.Ordinal))
                 {
                     var pdbHit = same[0];
@@ -244,14 +232,14 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
                 }
                 hits.Add(new Hit(new NativeTypeCandidate(RttiId(c, cls), cls.Name, cls.Kind, (long?)cls.Pascal?.InstanceSize ?? -1, Rtti), () => RttiView(c, k)));
             }
-        foreach (var t in Il2CppTypesOf(c))
+        foreach (var t in AotTypesOf(c))
         {
             if (hits.Count >= MaxCandidates) break;
-            var key = Il2CppNames.TypeKey(t);
+            var key = AotNames.TypeKey(t);
             if (!match(key) && !match(t.Name.String)) continue;
             var type = t;
-            hits.Add(new Hit(new NativeTypeCandidate(Il2Cpp + ":" + key, key, t.IsValueType ? "struct" : t.IsInterface ? "interface" : "class", -1, Il2Cpp),
-                () => Il2CppView(c, type, statics: false)));
+            hits.Add(new Hit(new NativeTypeCandidate(Metadata + ":" + key, key, t.IsValueType ? "struct" : t.IsInterface ? "interface" : "class", -1, Metadata),
+                () => AotView(c, type, statics: false)));
         }
         CollectApple(c, match, hits, ct);
         if (c.Session is { } session)
@@ -271,7 +259,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
                     engineHits.Add(new Hit(new NativeTypeCandidate(session.ProviderId + ":" + e.Name, e.Name, e.Kind, e.Size, session.ProviderId), null));
                 }
             }
-            // types the image's own sources describe were pushed into the engine from them: the same type
+            // Types the image's own sources describe were pushed into the engine from them: the same type.
             hits.AddRange(c.EngineRequested ? engineHits : engineHits.Where(h => !known.Contains(h.Candidate.Name)));
         }
         return hits;
@@ -316,7 +304,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
     {
         var view = await TryGet(c, id, ct).ConfigureAwait(false);
         return view ?? throw new ToolError(ErrorCode.NotFound, $"No type has id '{id}' in {c.Native.Id}.",
-            "ids look like pdb:0x1A2B, pdb:Name, rtti:0x140012000, il2cpp:Ns.Type or ida:Name; name= searches by name");
+            "ids look like pdb:0x1A2B, pdb:Name, rtti:0x140012000, metadata:Ns.Type or ida:Name; name= searches by name");
     }
 
     private async Task<NativeTypeView?> TryGet(Context c, string id, CancellationToken ct)
@@ -336,11 +324,11 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
                     ? (PdbClass(c, cls.Name) is { } pdb ? WithRtti(c, PdbView(c, pdb), cls) : RttiView(c, cls)) : null;
             case ObjC or Swift:
                 return AppleView(c, prefix, rest, ct);
-            case Il2Cpp:
+            case Metadata:
             {
                 bool statics = rest.EndsWith("#statics", StringComparison.Ordinal);
                 var key = statics ? rest[..^"#statics".Length] : rest;
-                return Il2CppTypesOf(c).FirstOrDefault(t => Il2CppNames.TypeKey(t) == key) is { } t ? Il2CppView(c, t, statics) : null;
+                return AotTypesOf(c).FirstOrDefault(t => AotNames.TypeKey(t) == key) is { } t ? AotView(c, t, statics) : null;
             }
             default:
                 if (c.Session is { } session && string.Equals(prefix, session.ProviderId, StringComparison.OrdinalIgnoreCase))
@@ -352,15 +340,10 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
     /// <summary>The PDB's single definition of a class RTTI names, or null.</summary>
     private static uint? PdbClass(Context c, string name) => c.Model?.Named(name) is [var only] ? only : null;
 
-    // ---- typed addresses ----
-
     /// <summary>What a typed address is: the type, where it starts, the field path into it.</summary>
     public sealed record TypedAddress(NativeTypeView Type, string Owner, uint Start, IReadOnlyList<NativeFieldPath> Paths, string Note);
 
-    /// <summary>
-    /// The type at <paramref name="rva"/>: a PDB data symbol covering it (with the field path at the offset), an RTTI
-    /// vftable, type descriptor or locator, or an Il2Cpp metadata slot; null when no source types it.
-    /// </summary>
+    /// <summary>The type at <paramref name="rva"/> (PDB global, RTTI structure or metadata slot); null when no source types it.</summary>
     public TypedAddress? AtAddress(Context c, uint rva, CancellationToken ct)
     {
         if (c.Model is { } model && GlobalAt(c.PdbFile!, model, rva) is { } g)
@@ -389,13 +372,13 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
                         rva == cls.TypeDescriptorRva ? $"RTTI type descriptor of {cls.Name}" : $"RTTI complete object locator of {cls.Name}");
             }
         }
-        if (Il2CppTypesOf(c).Count > 0 && c.Il2CppApplied?.Image.Script is { } script && script.MetadataAt(rva) is { } entry
-            && script.MetadataAddress(entry) == rva && Il2CppNames.MetadataSubject(script.MetadataName(entry)) is { } subject)
+        if (AotTypesOf(c).Count > 0 && c.AotApplied?.Image.Script is { } script && script.MetadataAt(rva) is { } entry
+            && script.MetadataAddress(entry) == rva && AotNames.MetadataSubject(script.MetadataName(entry)) is { } subject)
         {
             var metadata = script.MetadataName(entry);
-            var key = Il2CppNames.StripArgs(subject.EndsWith("[]", StringComparison.Ordinal) ? subject[..^2] : subject);
-            if (c.Il2CppTypes!.FirstOrDefault(t => Il2CppNames.TypeKey(t) == key) is { } type)
-                return new TypedAddress(Il2CppView(c, type, statics: false), metadata, rva, [], $"Il2Cpp metadata slot {metadata}: the class of {key}");
+            var key = AotNames.StripArgs(subject.EndsWith("[]", StringComparison.Ordinal) ? subject[..^2] : subject);
+            if (c.AotMetadataTypes!.FirstOrDefault(t => AotNames.TypeKey(t) == key) is { } type)
+                return new TypedAddress(AotView(c, type, statics: false), metadata, rva, [], $"AOT metadata slot {metadata}: the class of {key}");
         }
         return null;
     }
@@ -425,7 +408,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
     public static string? DescribeTypedData(LoadedNative native, uint rva)
     {
         if (PdbService.StateOf(native)?.Pdb is not { } pdb) return null;
-        // the type stream is read only when a data symbol starts before the address
+        // The type stream is read only when a data symbol starts before the address.
         if (!pdb.Symbols.Any(s => s.Kind is PdbSymbolKind.GlobalData or PdbSymbolKind.LocalData && s.TypeIndex != 0 && s.Rva <= rva)) return null;
         PdbTypeModel model;
         try { model = PdbTypeModel.Of(pdb, PointerSize(native)); }
@@ -444,12 +427,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
     public static string FormatPath(string owner, NativeFieldPath p) =>
         $"{owner}{(p.Path.StartsWith('[') ? "" : ".")}{p.Path} ({p.Type}{(p.Remainder > 0 ? $", +0x{p.Remainder:X} into it" : "")})";
 
-    // ---- field paths and expansion ----
-
-    /// <summary>
-    /// The fields at <paramref name="offset"/> in <paramref name="view"/>, descending through by-value structs, unions and
-    /// arrays (index = (offset - field offset) / element size); every overlapping member of a union is a path.
-    /// </summary>
+    /// <summary>The field paths at <paramref name="offset"/>, through by-value structs, unions and arrays; one per overlapping member.</summary>
     public static List<NativeFieldPath> Paths(Context c, NativeTypeView view, long offset, CancellationToken ct)
     {
         var paths = new List<NativeFieldPath>();
@@ -496,10 +474,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
     private static string ElementName(string array) =>
         array.EndsWith(']') && array.LastIndexOf('[') is > 0 and var at ? array[..at].TrimEnd() : array;
 
-    /// <summary>
-    /// Follows <paramref name="at"/>: offsets separated by '.', each after the first read through the pointer field the
-    /// previous one reached ([[p+48h]+10h] is 0x48.0x10).
-    /// </summary>
+    /// <summary>Follows dotted offsets in <paramref name="at"/>, each through the pointer field the previous reached ([[p+48h]+10h] is 0x48.0x10).</summary>
     public static List<NativeFieldPath> FollowPath(Context c, NativeTypeView view, string at, CancellationToken ct)
     {
         var parts = at.Split(['.', '>'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(p => p.TrimStart('+').TrimEnd('-')).ToList();
@@ -513,7 +488,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
             paths = Paths(c, current, (long)offset, ct);
             if (prefix.Length > 0) paths = paths.Select(p => p with { Path = $"{prefix}->{p.Path}" }).ToList();
             if (i == parts.Count - 1) break;
-            // the next offset applies to what the single field reached points to
+            // The next offset applies to what the single field reached points to.
             var target = paths.Count == 1 ? PointeeAt(c, current, (long)offset) : null;
             if (target == null)
                 throw new ToolError(ErrorCode.InvalidArgument, $"The field at 0x{offset:X} of {current.Name} ({(paths.Count == 1 ? paths[0].Type : $"{paths.Count} overlapping fields")}) is not a pointer to a known type, so '{parts[i + 1]}' cannot be followed.",
@@ -553,19 +528,16 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         NativeTypeView? view = null;
         if (id.StartsWith("pdb:0x", StringComparison.Ordinal) && c.Model != null && NativeAddress.Number(id[4..]) is { } index && index <= uint.MaxValue)
             view = c.Model.Node((uint)index) != null ? PdbView(c, (uint)index) : null;
-        else if (id.StartsWith("il2cpp:", StringComparison.Ordinal) && c.Il2CppTypes is { } types)
+        else if (id.StartsWith("metadata:", StringComparison.Ordinal) && c.AotMetadataTypes is { } types)
         {
-            var key = id["il2cpp:".Length..];
-            view = types.FirstOrDefault(t => Il2CppNames.TypeKey(t) == key) is { } t ? Il2CppView(c, t, statics: false) : null;
+            var key = id["metadata:".Length..];
+            view = types.FirstOrDefault(t => AotNames.TypeKey(t) == key) is { } t ? AotView(c, t, statics: false) : null;
         }
         if (view != null && c.Views.Count < 4096) c.Views[id] = view;
         return view;
     }
 
-    /// <summary>
-    /// The fields of <paramref name="view"/> with by-value struct, union and array members expanded <paramref name="depth"/>
-    /// levels (array members: element [0]); pointers are never followed.
-    /// </summary>
+    /// <summary>The fields with by-value members expanded <paramref name="depth"/> levels (arrays: element [0]); pointers are not followed.</summary>
     public static List<NativeTypeField> Expand(Context c, NativeTypeView view, int depth, List<string> notes)
     {
         var rows = new List<NativeTypeField>();
@@ -595,8 +567,6 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         if (capped) notes.Add($"expansion stopped at {MaxExpandedFields:N0} fields: lower depth");
         return rows;
     }
-
-    // ---- views ----
 
     private static string PdbId(uint index) => $"pdb:0x{index:X}";
 
@@ -741,10 +711,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
     private static string Hex(long value, long size) =>
         value >= 0 ? $"0x{value:X}" : size is > 0 and < 8 ? $"0x{value & ((1L << (int)(size * 8)) - 1):X}" : $"0x{value:X}";
 
-    /// <summary>
-    /// Two or more single-bit values, every other value a combination of them, and not a plain count (0..n or 1..n, which
-    /// such values also fit).
-    /// </summary>
+    /// <summary>True for two or more single-bit values with every other value a combination, excluding plain counts.</summary>
     public static bool FlagsLike(IReadOnlyList<long> values)
     {
         var bits = values.Where(v => v > 0 && (v & (v - 1)) == 0).ToList();
@@ -785,7 +752,7 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         var model = c.Model!;
         var target = Strip(model, t.TypeIndex);
         var spelled = model.Spell(t.TypeIndex);
-        // a typedef of a struct reads as the struct: its layout is what is asked for
+        // A typedef of a struct reads as the struct: its layout is what is asked for.
         if (model.Node(target) is { IsAggregate: true } or { Kind: PdbTypeKind.Enum })
         {
             var view = PdbView(c, target);
@@ -835,17 +802,17 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
             rtti?.Classes.FirstOrDefault(x => x.TypeDescriptorRva == b.TypeDescriptorRva) is { } k ? RttiId(c, k) : null, b.IsVirtual)).ToList();
     }
 
-    /// <summary>Slots are paged by <see cref="SlotPage"/> (set by the tool per call).</summary>
+    /// <summary>The class's vftables, slots paged by the context's slot offset and limit.</summary>
     private static List<NativeVftable> Vftables(Context c, MsvcRttiClass cls) =>
         cls.Vtables.Select(v => new NativeVftable(c.Va(v.VftableRva), v.Offset, v.SlotRvas.Count,
             v.SlotRvas.Select((target, i) => new NativeVftableSlot(i, (long)i * PointerSize(c.Native), c.Va(target), c.Index?.NameAt(target))).Skip(c.SlotOffset).Take(c.SlotLimit).ToList())).ToList();
 
-    private static NativeTypeView Il2CppView(Context c, TypeDef type, bool statics)
+    private static NativeTypeView AotView(Context c, TypeDef type, bool statics)
     {
-        var key = Il2CppNames.TypeKey(type);
-        var layout = new Il2CppLayout();
+        var key = AotNames.TypeKey(type);
+        var layout = new AotLayout();
         var s = statics ? layout.StaticsOf(type) : layout.Of(type);
-        var view = Empty(Il2Cpp + ":" + key + (statics ? "#statics" : ""), key, statics ? "statics" : type.IsValueType ? "struct" : type.IsInterface ? "interface" : "class", Il2Cpp,
+        var view = Empty(Metadata + ":" + key + (statics ? "#statics" : ""), key, statics ? "statics" : type.IsValueType ? "struct" : type.IsInterface ? "interface" : "class", Metadata,
             s == null ? -1 : (long)s.Size);
         var notes = new List<string>();
         if (s == null)
@@ -862,11 +829,11 @@ public sealed partial class NativeTypeCatalog(AssemblyWorkspace workspace, Nativ
         }
         foreach (var m in s.Members)
         {
-            var typeId = structs.TryGetValue(m.CType, out var title) && !title.Contains('<', StringComparison.Ordinal) ? Il2Cpp + ":" + title.Replace('/', '.') : null;
+            var typeId = structs.TryGetValue(m.CType, out var title) && !title.Contains('<', StringComparison.Ordinal) ? Metadata + ":" + title.Replace('/', '.') : null;
             var note = m.Managed + (m.Owner != type.Name.String ? $", declared in {m.Owner}" : "") + (m.Computed ? ", offset computed" : "");
             fields.Add(new NativeTypeField((long)m.Offset, (long)m.Size, m.Name, m.Count > 0 ? $"{m.CType}[{m.Count}]" : m.CType, typeId, "member", null, null, note));
         }
-        if (!statics && type.Fields.Any(f => f.IsStatic && !f.IsLiteral)) notes.Add($"static fields: id {Il2Cpp}:{key}#statics");
+        if (!statics && type.Fields.Any(f => f.IsStatic && !f.IsLiteral)) notes.Add($"static fields: id {Metadata}:{key}#statics");
         return view with { Fields = fields, TotalFields = fields.Count, Alignment = (long)s.Align, Notes = notes };
     }
 

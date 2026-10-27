@@ -24,7 +24,7 @@ public sealed class JsoncEditorTests : IDisposable
     private static JsonNode Lenient(string path) => JsonNode.Parse(File.ReadAllText(path), documentOptions: LenientOptions)!;
 
     [Fact]
-    public void ZedSettings_KeepCommentsOnInstallAndUninstall()
+    public void Zed_settings_keep_comments_on_install_and_uninstall()
     {
         var text = "// Zed settings\n{\n  \"ui_font_size\": 16, // trailing comment\n  /* block */\n  \"theme\": \"One Dark\"\n}\n";
         var target = Target(text, ["context_servers"], l => new JsonObject { ["command"] = l.Command, ["args"] = new JsonArray(), ["env"] = new JsonObject() });
@@ -44,7 +44,7 @@ public sealed class JsoncEditorTests : IDisposable
     }
 
     [Fact]
-    public void VsCodeFile_KeepsCrlfTabsBomTrailingCommasAndComments()
+    public void A_VS_Code_file_keeps_CRLF_tabs_BOM_trailing_commas_and_comments()
     {
         var text = "{\r\n\t// servers\r\n\t\"servers\": {\r\n\t\t\"other\": { \"command\": \"x\" }, /* keep */\r\n\t},\r\n}\r\n";
         var target = Target(text, ["servers"], l => new JsonObject { ["type"] = "stdio", ["command"] = l.Command, ["args"] = new JsonArray() }, bom: true);
@@ -60,7 +60,7 @@ public sealed class JsoncEditorTests : IDisposable
     }
 
     [Fact]
-    public void ExistingEntry_ChangesOnlyItsChangedKeys_AndKeepsCommentsInside()
+    public void Existing_entry_changes_only_its_changed_keys_and_keeps_comments_inside()
     {
         var text = """
             {
@@ -83,7 +83,7 @@ public sealed class JsoncEditorTests : IDisposable
     }
 
     [Fact]
-    public void StrictFiles_StayStrict_AndKeepTheirFormatting()
+    public void Strict_files_stay_strict_and_keep_their_formatting()
     {
         var text = "{\n    \"mcpServers\": {\n        \"other\": {\"command\": \"x\"}\n    },\n    \"z\": 1\n}";
         var target = Target(text);
@@ -106,7 +106,7 @@ public sealed class JsoncEditorTests : IDisposable
     [InlineData("{ \"mcpServers\": {} }")]
     [InlineData("{\"mcpServers\":{\"o\":{\"command\":\"x\"}}}")]
     [InlineData("{ \"a\": [1, {\"b\": 2}], \"c\": \"\\\"}\" }")]
-    public void SmallShapes_EditToTheExpectedModel(string text)
+    public void Small_shapes_edit_to_the_expected_model(string text)
     {
         var target = Target(text);
         var model = JsonNode.Parse(text, documentOptions: LenientOptions)!.AsObject();
@@ -120,7 +120,7 @@ public sealed class JsoncEditorTests : IDisposable
     }
 
     [Fact]
-    public void UnsupportedShapes_FallBackToTodaysRewrite()
+    public void Unsupported_shapes_fall_back_to_a_full_rewrite()
     {
         // The container is not an object: replaced by one, as before, and the lost comment is reported.
         var target = Target("{\n  // note\n  \"mcpServers\": []\n}\n");
@@ -134,7 +134,7 @@ public sealed class JsoncEditorTests : IDisposable
     // 480 random edits (11 s in the quick set); the other cases here stay quick
     [Trait("Speed", "Slow")]
     [Fact]
-    public void RandomEditSequences_KeepEveryComment_AndMatchTheModel()
+    public void Random_edit_sequences_keep_every_comment_and_match_the_model()
     {
         const string text = """
             // header

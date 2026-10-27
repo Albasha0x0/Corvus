@@ -42,7 +42,7 @@ public class LiveSessionGateTests
         Assert.Contains(ServerOptions.AllowLiveSpawnOption, e.Remediation);
         var console = await Assert.ThrowsAsync<ToolError>(() => Tools(live: true).LiveConsole("start", program: "app.exe"));
         Assert.Contains(ServerOptions.AllowLiveSpawnOption, console.Remediation);
-        // past the gates: the backend's own answer
+        // Past the gates: the backend's own answer.
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => Tools(live: true, attach: true).LiveSession("attach", program: "app.exe"))).Code);
     }
 

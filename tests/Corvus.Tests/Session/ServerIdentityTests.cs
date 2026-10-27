@@ -10,7 +10,7 @@ public class ServerIdentityTests
     private static readonly List<System.Text.Json.Nodes.JsonNode> AllTools = Catalog.OfThisBuild().Tools;
 
     [Fact]
-    public void InstallKindFollowsThePath()
+    public void The_install_kind_follows_the_path()
     {
         using var dir = new TempDir();
         var versioned = Path.Combine(dir.Path, "versions", "1.2.0");
@@ -28,7 +28,7 @@ public class ServerIdentityTests
     }
 
     [Fact]
-    public void IdentityOfThisProcess()
+    public void The_identity_of_this_process_is_reported()
     {
         Assert.StartsWith(typeof(ServerOptions).Assembly.GetName().Version!.ToString(3), ServerIdentity.InformationalVersion);
         if (ServerIdentity.Commit is { } commit) Assert.Matches("^[0-9a-f]{7,40}$", commit);
@@ -46,7 +46,7 @@ public class ServerIdentityTests
 #endif
 
     [Fact]
-    public void SamePathNormalizesAndFollowsLinks()
+    public void Same_path_normalizes_and_follows_links()
     {
         using var dir = new TempDir();
         var real = Directory.CreateDirectory(Path.Combine(dir.Path, "versions", "1.0")).FullName;
@@ -66,14 +66,14 @@ public class ServerIdentityTests
     }
 
     [Fact]
-    public void AvailabilityTableNamesOnlyTools()
+    public void The_availability_table_names_only_tools()
     {
         var names = AllTools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         Assert.All(ToolAvailability.NamedTools, t => Assert.Contains(t, names));
     }
 
     [Fact]
-    public void UnavailableToolsFollowTheEngines()
+    public void Unavailable_tools_follow_the_engines()
     {
         var all = AllTools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         var noIda = new ProviderAvailability("ida", false, "IDA not found", "set IDADIR", new Dictionary<string, string>());
@@ -93,7 +93,7 @@ public class ServerIdentityTests
         var withIda = ToolAvailability.Of(all, [ida, ghidra], idaScripting: false, isWindows: true);
         Assert.Equal(["ida_python", "ghidra_script", .. ToolAvailability.SessionTools], withIda.Where(r => !ToolAvailability.ExternalProgramTools.Contains(r.Tool)).Select(r => r.Tool));
         Assert.DoesNotContain(ToolAvailability.Of(all, [ida, ghidra], idaScripting: true, isWindows: true), r => r.Tool == "ida_python");
-        // Ghidra alone serves decompile_native and the engine=ghidra modes
+        // Ghidra alone serves decompile_native and the engine=ghidra modes.
         var ghidraOnly = ToolAvailability.Of(all, [noIda, ghidra], idaScripting: false, isWindows: true);
         Assert.DoesNotContain(ghidraOnly, r => r.Tool == "decompile_native" || r.Mode == "engine=ghidra");
         Assert.Contains(ghidraOnly, r => r is { Tool: "find_xrefs", Mode: "engine=ida" });
@@ -102,7 +102,7 @@ public class ServerIdentityTests
     }
 
     [Fact]
-    public void ClientMetaKeys()
+    public void Tools_carry_the_client_meta_keys()
     {
         Assert.True(ToolEffects.MaxResultSizeChars >= new ServerOptions().MaxOutputChars + ResponseBudget.Slack);
         foreach (var tool in AllTools)

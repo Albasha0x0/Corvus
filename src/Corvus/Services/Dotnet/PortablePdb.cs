@@ -11,9 +11,8 @@ using SequencePoint = ICSharpCode.Decompiler.DebugInfo.SequencePoint;
 namespace Corvus.Services;
 
 /// <summary>
-/// The Portable PDB of a loaded assembly: embedded, or the CodeView file name or &lt;name&gt;.pdb beside the file, used only
-/// when its id equals the CodeView id of the image (a PDB of another build would put wrong lines on the IL). Serves the
-/// disassembler sequence points and local names, and maps documents to their SourceLink URLs.
+/// The Portable PDB of a loaded assembly, embedded or beside the file and used only when its id matches the image;
+/// serves sequence points, local names and SourceLink URLs.
 /// </summary>
 public sealed partial class PortablePdb : IDebugInfoProvider, IDisposable
 {
@@ -38,10 +37,7 @@ public sealed partial class PortablePdb : IDebugInfoProvider, IDisposable
 
     public void Dispose() => _provider.Dispose();
 
-    /// <summary>
-    /// The PDB of <paramref name="asm"/> and a one-line status; null with the reason when there is none, it does not
-    /// match, or the assembly has edits (the PDB describes the file as built).
-    /// </summary>
+    /// <summary>The PDB and a one-line status; null with the reason when none matches or the assembly has edits.</summary>
     public static (PortablePdb? Pdb, string Status) For(LoadedAssembly asm)
     {
         if (asm.IsDirty) return (null, "no source lines: the assembly has unsaved edits, and its PDB describes the file as built");

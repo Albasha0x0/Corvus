@@ -22,11 +22,7 @@ public sealed record DexMethodEntry(DexFile File, DexClass Class, DexEncodedMeth
     public string Descriptor => Ref.Descriptor;
 }
 
-/// <summary>
-/// Every class of a package's DEX files (classes.dex, classes2.dex, ... in loading order: a class defined twice keeps the first),
-/// with a code index built on first use: calls, field reads and writes, strings, types and constants per instruction.
-/// Targets are exact descriptors, so overloads never merge.
-/// </summary>
+/// <summary>The classes of a package's DEX files in load order (first definition wins), with a code index of exact descriptors built on first use.</summary>
 public sealed class DexIndex
 {
     public string Path { get; }
@@ -123,7 +119,8 @@ public sealed class DexIndex
             }
             catch (ToolError e) when (e.Code == ErrorCode.Unsupported)
             {
-                zip = ZipFile.OpenRead(full); // closes the file when the archive is unreadable
+                // OpenRead closes the file when the archive is unreadable.
+                zip = ZipFile.OpenRead(full);
                 var entries = zip.Entries.Where(x => !x.FullName.Contains('/') && x.FullName.StartsWith("classes", StringComparison.Ordinal) && x.FullName.EndsWith(".dex", StringComparison.Ordinal))
                     .ToDictionary(x => x.FullName, StringComparer.Ordinal);
                 names = [.. entries.Keys.OrderBy(n => n.Length).ThenBy(n => n, StringComparer.Ordinal)];
@@ -209,10 +206,7 @@ public sealed class DexIndex
         { Details = new { similar } };
     }
 
-    /// <summary>
-    /// The method descriptors a spec names: an exact descriptor (Lpkg/C;->m(I)V), or Class::m / Class.m / Class->m, optionally with
-    /// Java or descriptor parameters ("(int, String)" or "(ILjava/lang/String;)"). Methods only referenced (framework calls) count too.
-    /// </summary>
+    /// <summary>Method descriptors a spec names (Lpkg/C;->m(I)V, or Class::m with optional Java or descriptor parameters), referenced-only methods included.</summary>
     public List<string> FindMethods(string spec, CancellationToken ct = default)
     {
         spec = spec.Trim();
@@ -230,7 +224,8 @@ public sealed class DexIndex
         var candidates = _methods.Keys.Where(d => owners.Any(o => d.StartsWith(o + "->" + name + "(", StringComparison.Ordinal))).ToList();
         if (candidates.Count == 0)
         {
-            EnsureCode(ct); // referenced-only methods are keys of the code index
+            // Referenced-only methods are keys of the code index.
+            EnsureCode(ct);
             foreach (var o in owners)
             {
                 var prefix = o + "->" + name + "(";

@@ -300,7 +300,7 @@ public sealed class DexStringFoldingTests : IDisposable
             ("recovered", "hello", Main + "->nested()Ljava/lang/String;", "invoke-static " + Dec + "->n(Ljava/lang/String;)Ljava/lang/String;"),
             ("recovered", "hello", Main + "->reverse()Ljava/lang/String;", "invoke-static " + Dec + "->r(Ljava/lang/String;)Ljava/lang/String;"),
         ], r.Items.Select(h => (h.Kind, h.Value, h.Method!, h.Opcode!)));
-        Assert.Equal("2 matching string(s) recovered from string decoder calls; 5 call(s) with constant arguments not simplified (disassemble_dex format=simplified says why).",
+        Assert.Equal("2 matching string(s) recovered from decoder calls; 5 constant-argument call(s) not simplified (disassemble_dex format=simplified says why).",
             Assert.Single(r.Notes, n => n.Contains("recovered", StringComparison.Ordinal)));
         var literal = Assert.Single(_dex.Search(_path, "string", "olleh", 0, 10, default).Items);
         Assert.Equal(("string", "const-string"), (literal.Kind, literal.Opcode));

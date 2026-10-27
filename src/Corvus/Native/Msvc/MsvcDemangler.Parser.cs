@@ -2,10 +2,7 @@ using System.Text;
 
 namespace Corvus.Native.Msvc;
 
-/// <summary>
-/// Recursive-descent parser for Microsoft C++ decorated names, producing the node tree in MsvcDemangler.Nodes.cs.
-/// Errors throw <see cref="MangledNameException"/>; recursion depth is capped.
-/// </summary>
+/// <summary>Parses Microsoft C++ decorated names into nodes; throws <see cref="MangledNameException"/> on bad input; depth is capped.</summary>
 internal sealed class MsvcParser(string text)
 {
     private const int MaxBackrefs = 10;
@@ -231,7 +228,7 @@ internal sealed class MsvcParser(string text)
 
     private SymbolNode ParseEncodedSymbol()
     {
-        // C++/CLI per-appdomain data
+        // C++/CLI per-appdomain data.
         Consume("$$Q");
         if (StartsWithDigit && Peek() != '9')
         {
@@ -364,11 +361,11 @@ internal sealed class MsvcParser(string text)
             fn.Quals |= ParseQualifiers().Quals;
         }
         fn.CallingConvention = ParseCallingConvention();
-        // '@': structors have no declared return type
+        // '@': structors have no declared return type.
         if (!Consume('@'))
         {
             fn.ReturnType = ParseType(QualMode.Result);
-            // top-level cv of a returned pointer is not part of the signature
+            // Top-level cv of a returned pointer is not part of the signature.
             if (fn.ReturnType is PointerType returned)
             {
                 fn.DroppedReturnQuals = returned.Quals & (Quals.Const | Quals.Volatile);
@@ -420,7 +417,7 @@ internal sealed class MsvcParser(string text)
             }
             int start = pos;
             var type = ParseType(QualMode.Drop);
-            // single-character types are not memorized
+            // Single-character types are not memorized.
             if (refs.Parameters.Count < MaxBackrefs && pos - start > 1)
                 refs.Parameters.Add(type);
             list.Add(type);
@@ -530,7 +527,7 @@ internal sealed class MsvcParser(string text)
     private Identifier ParseSimpleName(bool memorize)
     {
         var name = ParseSimpleString();
-        // the table gets its own node: the returned one may still receive template arguments
+        // The table gets its own node: the returned one may still receive template arguments.
         if (memorize) Memorize(new NamedIdentifier(name), name);
         return new NamedIdentifier(name);
     }
@@ -678,7 +675,7 @@ internal sealed class MsvcParser(string text)
         {
             if (AtEnd) Fail("unterminated template argument list");
             if (args.Count > 1000) Fail("too many template arguments");
-            // empty parameter packs and pack separators
+            // Empty parameter packs and pack separators.
             if (Consume("$S") || Consume("$$V") || Consume("$$$V") || Consume("$$Z"))
                 continue;
             args.Add(ParseTemplateArgument());
@@ -729,7 +726,7 @@ internal sealed class MsvcParser(string text)
             }
             if (Consume("$M"))
             {
-                // auto non-type parameter: the deduced type, then the value without its '$' ("0" number / "1" symbol)
+                // Auto non-type parameter: the deduced type, then the value without its '$' ("0" number, "1" symbol).
                 ParseType(QualMode.Drop);
                 if (Consume('0'))
                 {
@@ -929,7 +926,7 @@ internal sealed class MsvcParser(string text)
         (pointer.Quals, pointer.Affinity) = ParsePointerCvQualifiers();
         if (pointer.Affinity == Affinity.Pointer && Peek() == '$' && Peek(1) == '0' && char.IsAsciiDigit(Peek(2)))
         {
-            // C++/CLI: "$0" rank, ext qualifiers, element qualifiers, element type
+            // C++/CLI: "$0" rank, ext qualifiers, element qualifiers, element type.
             pos += 2;
             var array = new CliArrayType { Rank = Next() - '0', Quals = pointer.Quals };
             array.Ptr64 = (ParsePointerExtQualifiers() & Quals.Ptr64) != 0;

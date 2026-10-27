@@ -112,7 +112,7 @@ public class FileBatchTests
     }
 
     [Fact]
-    public async Task A_zip_without_a_unity_build_has_a_unity_section_that_does_not_apply()
+    public async Task A_ZIP_that_is_not_a_build_has_a_build_section_that_does_not_apply()
     {
         using var dir = new TempDir();
         var zip = Path.Combine(dir.Path, "notes.zip");
@@ -120,24 +120,24 @@ public class FileBatchTests
         using (var writer = new StreamWriter(archive.CreateEntry("notes.txt").Open())) writer.Write("text");
         var (code, document, _) = await Batch("--file", zip);
         Assert.Equal(0, code);
-        var unity = Section(document!, "unity");
-        Assert.Equal("not_applicable", (string?)unity["status"]);
-        Assert.Contains("not_a_unity_build", (string?)unity["reason"]);
+        var buildSection = Section(document!, "build");
+        Assert.Equal("not_applicable", (string?)buildSection["status"]);
+        Assert.Contains("not_a_build", (string?)buildSection["reason"]);
         Assert.True((bool)document!["complete"]!);
     }
 
     [Fact]
-    public async Task A_single_file_that_is_not_a_package_is_not_read_as_a_unity_build()
+    public async Task A_single_file_that_is_not_a_package_is_not_read_as_a_build()
     {
         using var dir = new TempDir();
         var file = Path.Combine(dir.Path, "plain.bin");
         File.WriteAllBytes(file, new byte[64]);
         var (_, document, _) = await Batch("--file", file);
-        Assert.Equal("not_applicable", (string?)Section(document!, "unity")["status"]);
+        Assert.Equal("not_applicable", (string?)Section(document!, "build")["status"]);
     }
 
     [Fact]
-    public async Task An_android_package_with_il2cpp_metadata_gets_the_unity_overview()
+    public async Task An_android_package_with_metadata_gets_the_build_summary()
     {
         using var dir = new TempDir();
         var apk = Path.Combine(dir.Path, "app.apk");
@@ -146,17 +146,17 @@ public class FileBatchTests
                      {
                          ("lib/arm64-v8a/libil2cpp.so", [0x7F, 0x45, 0x4C, 0x46, 2]),
                          ("lib/arm64-v8a/libunity.so", [0x7F, 0x45, 0x4C, 0x46, 2]),
-                         ("assets/bin/Data/Managed/Metadata/global-metadata.dat", UnityOverviewTests.Metadata(27, ["Player"])),
+                         ("assets/bin/Data/Managed/Metadata/global-metadata.dat", BuildSummaryTests.Metadata(27, ["Player"])),
                          ("assets/bin/Data/data.unity3d", [.. "UnityFS\0"u8, 0, 0, 0, 8, .. "5.x.x\0"u8, .. "2021.1.5f1\0"u8, 0, 0, 0, 0]),
                      })
                 using (var stream = archive.CreateEntry(name).Open()) stream.Write(bytes);
         var (code, document, _) = await Batch("--file", apk);
         Assert.Equal(0, code);
-        var unity = Section(document!, "unity");
-        Assert.Equal("complete", (string?)unity["status"]);
-        Assert.Equal("il2cpp", (string?)unity["result"]!["backend"]!["kind"]);
-        Assert.Equal("readable", (string?)unity["result"]!["backend"]!["metadataState"]);
-        Assert.Equal("2021.1.5f1", (string?)unity["result"]!["engine"]!["version"]);
+        var buildSection = Section(document!, "build");
+        Assert.Equal("complete", (string?)buildSection["status"]);
+        Assert.Equal("aot", (string?)buildSection["result"]!["backend"]!["kind"]);
+        Assert.Equal("readable", (string?)buildSection["result"]!["backend"]!["metadataState"]);
+        Assert.Equal("2021.1.5f1", (string?)buildSection["result"]!["engine"]!["version"]);
     }
 
     [Fact]
@@ -230,17 +230,17 @@ public class FileBatchTests
     }
 
     [Fact]
-    public async Task A_unity_asset_file_gets_its_field_strings_in_the_strings_section()
+    public async Task A_serialized_asset_file_gets_its_field_strings_in_the_strings_section()
     {
         using var dir = new TempDir();
         var file = Path.Combine(dir.Path, "sharedassets0.assets");
-        File.WriteAllBytes(file, UnityAssetStringsTests.ConfigFile());
+        File.WriteAllBytes(file, AssetFileStringsTests.ConfigFile());
         var (code, document, _) = await Batch("--file", file);
         Assert.Equal(0, code);
         var strings = Section(document!, "strings");
         Assert.Equal("complete", (string?)strings["status"]);
         var items = strings["result"]!["items"]!.AsArray();
-        var url = Assert.Single(items, i => (string?)i!["value"] == UnityAssetStringsTests.Url)!;
+        var url = Assert.Single(items, i => (string?)i!["value"] == AssetFileStringsTests.Url)!;
         Assert.Equal("sharedassets0.assets: Endpoints (Script: Net.Config).url", (string?)url["locations"]![0]);
         Assert.Contains(items, i => (string?)i!["type"] == "encoded" && (string?)i["detail"] == "base64, 32 bytes");
         Assert.Equal(1 << 30, (double)document!["limits"]!["assetBytes"]!);
@@ -251,17 +251,17 @@ public class FileBatchTests
     {
         using var dir = new TempDir();
         var data = Directory.CreateDirectory(Path.Combine(dir.Path, "App", "App_Data")).FullName;
-        File.WriteAllBytes(Path.Combine(data, "level0"), UnityAssetStringsTests.ConfigFile());
+        File.WriteAllBytes(Path.Combine(data, "level0"), AssetFileStringsTests.ConfigFile());
         var (_, document, _) = await Batch("--file", Path.Combine(dir.Path, "App"));
         var strings = Section(document!, "strings");
         Assert.Equal("complete", (string?)strings["status"]);
-        Assert.Contains(strings["result"]!["items"]!.AsArray(), i => (string?)i!["value"] == UnityAssetStringsTests.Url);
+        Assert.Contains(strings["result"]!["items"]!.AsArray(), i => (string?)i!["value"] == AssetFileStringsTests.Url);
         var plain = Directory.CreateDirectory(Path.Combine(dir.Path, "plain")).FullName;
         File.WriteAllText(Path.Combine(plain, "notes.txt"), "text");
         (_, document, _) = await Batch("--file", plain);
         strings = Section(document!, "strings");
         Assert.Equal("not_applicable", (string?)strings["status"]);
-        Assert.Contains("not_a_unity_build", (string?)strings["reason"]);
+        Assert.Contains("not_a_build", (string?)strings["reason"]);
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class FileBatchTests
     {
         using var dir = new TempDir();
         var file = Path.Combine(dir.Path, "level0");
-        File.WriteAllBytes(file, UnityAssetStringsTests.ConfigFile(typeTrees: false));
+        File.WriteAllBytes(file, AssetFileStringsTests.ConfigFile(typeTrees: false));
         var (_, document, _) = await Batch("--file", file);
         var strings = Section(document!, "strings");
         Assert.Equal("partial", (string?)strings["status"]);
@@ -282,13 +282,13 @@ public class FileBatchTests
     {
         using var dir = new TempDir();
         var data = Directory.CreateDirectory(Path.Combine(dir.Path, "App", "App_Data")).FullName;
-        var first = UnityAssetStringsTests.ConfigFile();
+        var first = AssetFileStringsTests.ConfigFile();
         File.WriteAllBytes(Path.Combine(data, "level0"), first);
-        File.WriteAllBytes(Path.Combine(data, "level1"), UnityAssetStringsTests.ConfigFile());
+        File.WriteAllBytes(Path.Combine(data, "level1"), AssetFileStringsTests.ConfigFile());
         var (_, document, _) = await Batch("--file", Path.Combine(dir.Path, "App"), "--limit", $"assetBytes={first.Length}");
         var strings = Section(document!, "strings");
         Assert.Equal("partial", (string?)strings["status"]);
         Assert.Contains("level1 and 0 later files are not", (string?)strings["reason"]);
-        Assert.Contains(strings["result"]!["items"]!.AsArray(), i => (string?)i!["value"] == UnityAssetStringsTests.Url);
+        Assert.Contains(strings["result"]!["items"]!.AsArray(), i => (string?)i!["value"] == AssetFileStringsTests.Url);
     }
 }

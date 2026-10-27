@@ -103,7 +103,7 @@ public sealed class AppleObjcTests
         cst.W.U64(1);
         b.Ptr(cst, "Pet");
 
-        // category Fancy on NSString (another image's class)
+        // Category Fancy on NSString (another image's class).
         b.Label(cst, "cat.Fancy");
         b.Ptr(cst, b.Str("Fancy"));
         b.Bind(cst, "_OBJC_CLASS_$_NSString");
@@ -111,7 +111,7 @@ public sealed class AppleObjcTests
         for (int i = 0; i < 4; i++) b.Ptr(cst, null);
         ClassicMethods("cat.Fancy.methods", ("fancyString", "@16@0:8", "imp:fancy"));
 
-        // protocol Pet: required -play, optional -rest
+        // Protocol Pet: required -play, optional -rest.
         b.Label(data, "Pet");
         b.Ptr(data, null);
         b.Ptr(data, b.Str("Pet"));
@@ -138,7 +138,7 @@ public sealed class AppleObjcTests
     [Theory]
     [InlineData((ushort)6)]
     [InlineData((ushort)12)]
-    public void ReadsClassesCategoriesProtocolsThroughFixups(ushort format)
+    public void Classes_categories_and_protocols_read_through_fixups(ushort format)
     {
         var (bytes, layout) = Sample(format);
         var image = MachOFile.FromBytes(bytes);
@@ -184,7 +184,7 @@ public sealed class AppleObjcTests
     }
 
     [Fact]
-    public void ImageWithoutObjcSections_IsEmpty()
+    public void An_image_without_ObjC_sections_reads_empty()
     {
         var objc = AppleObjcMetadata.Read(MachOFile.FromBytes(new MachOWriter().Build()));
         Assert.True(objc.IsEmpty);
@@ -201,11 +201,11 @@ public sealed class AppleObjcTests
     [InlineData("@?", "id /* block */")]
     [InlineData("{?=ii}", "struct anonymous")]
     [InlineData("^", "^")]
-    public void TypeEncodings(string encoding, string c) => Assert.Equal(c, ObjcTypeEncoding.ToC(encoding));
+    public void Type_encodings_convert_to_C(string encoding, string c) => Assert.Equal(c, ObjcTypeEncoding.ToC(encoding));
 
     /// <summary>The class-dump layout: protocols with @optional, ivars, class methods, a property at its accessor, categories.</summary>
     [Fact]
-    public void Header_HasClassDumpLayout()
+    public void The_header_follows_the_class_dump_layout()
     {
         var objc = AppleObjcMetadata.Read(MachOFile.FromBytes(Sample().Bytes));
         var header = ObjcHeader.Render(objc, null, "Sample");
@@ -248,14 +248,14 @@ public sealed class AppleObjcTests
     [InlineData("v24@0:8i16", "- (void)setAge:(int)arg1;", "setAge:")]
     [InlineData("@32@0:8@16q24", "- (id)objectAt:(id)arg1 index:(long long)arg2;", "objectAt:index:")]
     [InlineData("B16@0:8", "- (_Bool)isOn;", "isOn")]
-    public void Header_MethodsSpellArgumentsAsClassDump(string types, string line, string selector) =>
+    public void Header_methods_spell_arguments_as_class_dump_does(string types, string line, string selector) =>
         Assert.Equal(line, ObjcHeader.Method(new ObjcMethod(selector, types, 0, false)));
 
     [Theory]
     [InlineData("T@\"NSString\",C,N,V_title", "@property(copy, nonatomic) NSString *title; // @synthesize title=_title;")]
     [InlineData("Tq,N,D", "@property(nonatomic) long long title; // @dynamic title;")]
     [InlineData("T{CGPoint=dd},R", "@property(readonly) struct CGPoint title;")]
-    public void Header_PropertiesAsClassDump(string attributes, string line) => Assert.Equal(line, ObjcHeader.Property(new ObjcProperty("title", attributes)));
+    public void Header_properties_follow_class_dump(string attributes, string line) => Assert.Equal(line, ObjcHeader.Property(new ObjcProperty("title", attributes)));
 
     [Fact]
     [FuzzEntry(typeof(AppleObjcMetadata))]

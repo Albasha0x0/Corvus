@@ -32,7 +32,7 @@ public class NativeX86DiscoveryTests
         var (code, rva) = Assemble(bitness, a =>
         {
             thunk = a.CreateLabel(); capture = a.CreateLabel(); loop = a.CreateLabel(); after = a.CreateLabel(); callee = a.CreateLabel();
-            // caller: call thunk, then code that must still be reached
+            // Caller: call thunk, then code that must still be reached.
             a.call(thunk);
             a.Label(ref after);
             a.call(callee);
@@ -116,7 +116,7 @@ public class NativeX86DiscoveryTests
             leaf = a.CreateLabel(); cold = a.CreateLabel(); entry = a.CreateLabel(); after = a.CreateLabel();
             a.jmp(entry);
             a.int3();
-            // a leaf only ever tail-jumped to, before the function that jumps to it
+            // A leaf only ever tail-jumped to, before the function that jumps to it.
             a.Label(ref leaf);
             a.lea(eax, __[rdi + 1]);
             a.ret();
@@ -218,7 +218,7 @@ public class NativeX86DiscoveryTests
     [Fact]
     public void A_short_jump_over_nops_is_alignment_fill_not_a_function()
     {
-        // f: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g
+        // F: call g; ret; then GNU as fill "jmp +13; 13 x nop" up to g.
         byte[] code = [0xE8, 0x10, 0, 0, 0, 0xC3, 0xEB, 0x0D, .. Enumerable.Repeat((byte)0x90, 13), 0x31, 0xC0, 0xC3];
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, entry: Code, format: ImageFormat.Elf));
         Assert.Equal([Code, Code + 0x15], index.Functions.Select(f => f.Start));

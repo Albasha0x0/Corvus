@@ -3,14 +3,7 @@ using static Corvus.Native.Pdb.PdbTypeModel;
 
 namespace Corvus.Native.Pdb;
 
-/// <summary>
-/// C declarations of a PDB's types for an engine without a PDB loader of its own: structs, classes and unions (data
-/// members, base subobjects and the vftable pointer at the offsets the PDB records, bit fields, gaps padded), enums,
-/// the S_UDT type names that differ from their tag (typedefs), and a prototype per procedure with an address.
-/// Declared under <c>#pragma pack(push, 1)</c> with explicit padding, so every offset and size is the PDB's.
-/// <see cref="Records"/>: type records read from the TPI stream; <see cref="Skipped"/>: members and records left out,
-/// by reason (unsupported_leaf, overlapping_member, member_type_unwritable, ...).
-/// </summary>
+/// <summary>C declarations of a PDB's types and prototypes under <c>#pragma pack(push, 1)</c>, so every offset is the PDB's.</summary>
 public sealed record PdbTypeDeclarations(
     string Declarations,
     IReadOnlyList<(uint Rva, string Declaration)> Prototypes,
@@ -38,10 +31,7 @@ public sealed class PdbTypes
         _notes.AddRange(model.Notes);
     }
 
-    /// <summary>
-    /// The declarations for <paramref name="pdb"/> (read again from its file for the type streams); the image's
-    /// pointer size decides simple pointer types. Malformed records are skipped and counted, never thrown.
-    /// </summary>
+    /// <summary>The declarations for <paramref name="pdb"/>; malformed records are skipped and counted.</summary>
     public static PdbTypeDeclarations Build(PdbFile pdb, int pointerSize, CancellationToken ct = default) =>
         new PdbTypes(PdbTypeModel.Read(pdb, pointerSize, ct)).Write(pdb, ct);
 
@@ -94,12 +84,7 @@ public sealed class PdbTypes
 
     private static string Join(string type, string declarator) => declarator.Length == 0 ? type : type.EndsWith('*') ? type + declarator : $"{type} {declarator}";
 
-    /// <summary>
-    /// <paramref name="declarator"/> declared with type <paramref name="index"/> ("int *x", "struct S (*p)[4]"); null
-    /// when the type cannot be written (unsupported leaf, a struct without a definition used by value).
-    /// <paramref name="thisName"/> names a member function's this parameter, <paramref name="parameterNames"/> its other
-    /// parameters (prototypes only).
-    /// </summary>
+    /// <summary><paramref name="declarator"/> declared with type <paramref name="index"/> ("int *x"); null when the type cannot be written.</summary>
     private string? Declare(uint index, string declarator, int depth = 0, string? thisName = null, IReadOnlyList<string?>? parameterNames = null)
     {
         if (depth > MaxDepth) return null;
@@ -127,7 +112,7 @@ public sealed class PdbTypes
                 uint mode = (attr >> 5) & 7;
                 if (mode is 2 or 3)
                 {
-                    // pointer to member: an integer of its size
+                    // Pointer to member: an integer of its size.
                     long size = (attr >> 13) & 0x3F;
                     return size switch { 4 => Join("unsigned int", declarator), 8 => Join("unsigned __int64", declarator), _ => Join("unsigned char", $"{declarator}[{Math.Max(1, size)}]") };
                 }
@@ -149,7 +134,7 @@ public sealed class PdbTypes
                 if (a == null) return null;
                 if (_model.Definition(index) == null)
                 {
-                    // only a forward declaration: pointers to it work, values do not
+                    // Only a forward declaration: pointers to it work, values do not.
                     if (!declarator.StartsWith('*')) return null;
                     return Join("void", declarator);
                 }
@@ -185,7 +170,7 @@ public sealed class PdbTypes
                     }
                 }
                 if (args.Count == 0) args.Add("void");
-                // C has no "f(...)": an empty list leaves the arguments unspecified
+                // C has no "f(...)": an empty list leaves the arguments unspecified.
                 else if (args is ["..."]) args.Clear();
                 var inner = declarator.StartsWith('*') ? $"({CallingConvention(cc)} {declarator})" : $"{CallingConvention(cc)} {declarator}".TrimEnd();
                 return Declare(ret, $"{inner}({string.Join(", ", args)})", depth + 1) ?? Join("int", $"{inner}({string.Join(", ", args)})");
@@ -233,7 +218,7 @@ public sealed class PdbTypes
         }
         void Need(uint type)
         {
-            // the aggregate a member holds by value (through modifiers and arrays)
+            // The aggregate a member holds by value (through modifiers and arrays).
             for (int depth = 0; depth < MaxDepth && type >= 0x1000 && _model.TryGet(type, out var k, out var d); depth++)
             {
                 if (k == LF_MODIFIER) type = U32(d, 0);
@@ -275,7 +260,7 @@ public sealed class PdbTypes
 
         long end = 0;
         int pad = 0;
-        // padding names no member has (glibc's FILE has its own __pad1..__pad5)
+        // Padding names no member has (glibc's FILE has its own __pad1..__pad5).
         var memberNames = members.Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
         string Pad()
         {
@@ -291,7 +276,7 @@ public sealed class PdbTypes
             if (m.Offset > end) sb.Append($"  unsigned char {Pad()}[{m.Offset - end}];\n");
             if (m.BitLength >= 0)
             {
-                // the bit fields sharing this storage unit, in bit order, unused bits as unnamed fields
+                // The bit fields sharing this storage unit, in bit order, unused bits as unnamed fields.
                 long unitSize = _model.SizeOf(m.Type);
                 if (unitSize <= 0) { Skip("member_type_unwritable"); continue; }
                 var unitType = Declare(m.Type, "") ?? IntOfSize(unitSize);
@@ -311,7 +296,7 @@ public sealed class PdbTypes
             }
             long size = _model.SizeOf(m.Type);
             if (size < 0) { Skip("member_type_unwritable"); continue; }
-            // a zero-length array is only valid as the last member
+            // A zero-length array is only valid as the last member.
             if (size == 0 && m.Offset < a.Size) { Skip("zero_size_member"); continue; }
             sb.Append("  ").Append(Plain(m, Unique(m.Name))).Append(";\n");
             end = m.Offset + size;
@@ -327,7 +312,7 @@ public sealed class PdbTypes
         var id = IdentOf(a);
         foreach (var (name, value) in values)
         {
-            // enumerator names are global in C: a clash takes the enum's name as prefix
+            // Enumerator names are global in C: a clash takes the enum's name as prefix.
             var n = Identifier(name);
             if (!enumerators.Add(n)) { n = $"{id}__{n}"; if (!enumerators.Add(n)) continue; }
             sb.Append($"  {n} = {value},\n");
@@ -337,7 +322,7 @@ public sealed class PdbTypes
 
     private PdbTypeDeclarations Write(PdbFile pdb, CancellationToken ct)
     {
-        // prototypes of the procedures with addresses
+        // Prototypes of the procedures with addresses.
         var prototypes = new List<(uint, string)>();
         var done = new HashSet<uint>();
         foreach (var s in pdb.Symbols)
@@ -352,7 +337,7 @@ public sealed class PdbTypes
             prototypes.Add((rva, decl + ";"));
         }
 
-        // S_UDT names: tags are emitted as used, names differing from their tag become typedefs
+        // S_UDT names: tags are emitted as used, names differing from their tag become typedefs.
         var typedefs = new List<string>();
         foreach (var t in pdb.Typedefs)
         {
@@ -369,7 +354,7 @@ public sealed class PdbTypes
             typedefs.Add($"typedef {decl};");
         }
 
-        // bodies of every aggregate used (a body can use more)
+        // Bodies of every aggregate used (a body can use more).
         var bodies = new Dictionary<uint, (string Text, HashSet<uint> Needs)>();
         var enums = new List<string>();
         var enumerators = new HashSet<string>(StringComparer.Ordinal);
@@ -393,7 +378,7 @@ public sealed class PdbTypes
             else structs++;
         }
 
-        // forward declarations, enums, then bodies with what they hold by value first
+        // Forward declarations, enums, then bodies with what they hold by value first.
         var sb = new StringBuilder("#pragma pack(push, 1)\n");
         foreach (var index in _used)
             if (_model.ReadAggregate(index) is { IsEnum: false } a) sb.Append(a.IsUnion ? "union " : "struct ").Append(IdentOf(a)).Append(";\n");
@@ -403,7 +388,7 @@ public sealed class PdbTypes
         void Emit(uint index, int depth)
         {
             if (emitted.Contains(index) || !bodies.TryGetValue(index, out var b) || !visiting.Add(index)) return;
-            // nesting by value deeper than this is not real code: the rest of the chain follows in table order
+            // Nesting by value deeper than this is not real code: the rest of the chain follows in table order.
             if (depth < 256)
                 foreach (var n in b.Needs) Emit(n, depth + 1);
             visiting.Remove(index);

@@ -4,14 +4,8 @@ using dnlib.DotNet.Emit;
 namespace Corvus.Tests;
 
 /// <summary>
-/// Generates a module of random but valid IL methods from a seed, for fuzzing simplify_methods. Bodies come from a
-/// structured grammar, so they are type-correct for the JIT, not only stack-balanced: typed expressions (int32, int64,
-/// float64, string, a struct), nested statements (if / else, bounded loops, switches, flattened switch dispatchers in
-/// clean and unclean forms, try / catch / finally / fault / filter, throws, early returns through leave, dead blocks,
-/// constant and provably-constant conditions), many locals and value-type operations (ldloca, ldfld, stfld, ldflda, stind,
-/// initobj, ldobj, stobj, box). Every method terminates (loops are bounded, dispatchers only move forward, nothing
-/// recurses) and is <c>static int Mi(int, long, string)</c>, so the original and the simplified image can be run and
-/// compared. The same seed always gives the same module.
+/// Generates a module of random, type-correct IL methods from a seed for fuzzing simplify_methods. Every method terminates
+/// and is <c>static int Mi(int, long, string)</c>, so original and simplified images can be compared. A seed always gives the same module.
 /// </summary>
 internal sealed class IlBodyGenerator
 {
@@ -198,12 +192,7 @@ internal sealed class IlBodyGenerator
             typeof(InvalidOperationException) }.Select(t => (ITypeDefOrRef)module.Import(t)).ToArray();
     }
 
-    /// <summary>
-    /// Lab.Ordered (no beforefieldinit): its static constructor sets a table, a prefix (twice, now and then) and a delegate
-    /// field in a random order, interleaved with calls that read them: H(c) = Pre + Tbl[c &amp; 3] directly or through the
-    /// delegate, once, in a two-round loop (that may extend the prefix), or through Note(c), which also writes the type's
-    /// own W. Each result goes to a field R0.. that generated methods read. Calls through the delegate come after it is set.
-    /// </summary>
+    /// <summary>Lab.Ordered (no beforefieldinit): its static constructor sets a table, a prefix and a delegate in random order, interleaved with calls that read them into fields R0...</summary>
     private void Ordered(ModuleDef module, Type funcString)
     {
         static Instruction I(OpCode op, object? operand = null) => operand == null ? op.ToInstruction() : new Instruction(op, operand);
@@ -271,8 +260,7 @@ internal sealed class IlBodyGenerator
             }
         }
         code.Add(I(OpCodes.Ret));
-        // Reset() writes the results (it is never called): they are not constants, so the generated methods read what
-        // the rewritten constructor stored.
+        // Reset() writes the results but never runs, so generated methods read what the rewritten constructor stored.
         _lab.Method("Reset", _t.Void, [], [.. _ordered.SelectMany(f => new[] { I(OpCodes.Ldnull), I(OpCodes.Stsfld, f) }), I(OpCodes.Ret)], owner: type);
         var cctor = _lab.StaticConstructor(type, code.ToArray());
         cctor.Body.Variables.Add(counter);
@@ -662,12 +650,7 @@ internal sealed class IlBodyGenerator
         Mark(skip);
     }
 
-    /// <summary>if (FortyTwo() == 42): a call the evaluator can run.</summary>
-    /// <summary>
-    /// A condition that is the same on every run though computed through fresh locals: <c>k = c</c>, then statements
-    /// that leave k alone or an if / else whose arms both store c, then <c>m = k * a + b</c> (int32 or int64, or a xor),
-    /// and a comparison of m or a switch on <c>m &amp; 7</c>.
-    /// </summary>
+    /// <summary>A condition constant on every run though computed through fresh locals, compared or switched on.</summary>
     private void LocalConstantIf(int depth, bool inProtected, bool noExit)
     {
         var k = NewLocal(VT.I4, pooled: false);
@@ -792,15 +775,8 @@ internal sealed class IlBodyGenerator
     }
 
     /// <summary>
-    /// Flattened control flow as code transformers emit it, over cases 0..n-1 run in a forward order (the last one leaves):
-    /// <list type="bullet">
-    /// <item>computed (ConfuserEx): the dispatcher switches on <c>(d = state ^ K) % n</c> and each case computes the next
-    /// state from d, <c>state = d * A ^ B</c>, also through a ternary;</item>
-    /// <item>stack (.NET Reactor): cases push the next case number and branch to the switch itself; a conditional
-    /// transition pushes one number, branches to the switch on a condition, else pops it and pushes another;</item>
-    /// <item>laundered: the clean form with every constant passed through a temporary read by address
-    /// (<c>stloc t; ldloca t; ldind.i4</c>).</item>
-    /// </list>
+    /// Flattened control flow over cases 0..n-1 in forward order: computed (<c>state = (state ^ K) * A ^ B</c>), stack-pushed
+    /// case numbers, or the clean form with every constant laundered through a temporary read by address.
     /// </summary>
     private void TransformedFlattened(int depth, bool inProtected, bool noExit)
     {
@@ -907,11 +883,7 @@ internal sealed class IlBodyGenerator
         Mark(exit);
     }
 
-    /// <summary>
-    /// Flattened control flow over a fresh state local: states 0..n-1 run in a forward order, each case stores the next
-    /// state and goes back to the dispatcher. Mostly the clean form; sometimes keyed, a ternary next state, or an unclean
-    /// variant (a computed state, or the state read in a case) that the engine must leave alone.
-    /// </summary>
+    /// <summary>Flattened control flow over a fresh state local, mostly clean; sometimes keyed, ternary or unclean, which the engine must leave alone.</summary>
     private void Flattened(int depth, bool inProtected, bool noExit)
     {
         int n = _r.Next(2, 7);
@@ -960,7 +932,7 @@ internal sealed class IlBodyGenerator
             }
             else if (_r.Next(3) == 0)
             {
-                // next = cond ? s + 1 : s + 2 (both forward)
+                // Next = cond ? s + 1 : s + 2 (both forward).
                 Label other = new(), store = new();
                 Expr(VT.I4, 1);
                 Op(OpCodes.Brfalse, other);
@@ -1070,8 +1042,7 @@ internal sealed class IlBodyGenerator
                     OpCodes.Shr_Un, OpCodes.Div, OpCodes.Rem, OpCodes.Div_Un, OpCodes.Rem_Un, OpCodes.Add_Ovf, OpCodes.Sub_Ovf, OpCodes.Mul_Ovf });
                 if (op.Code is Code.Shl or Code.Shr or Code.Shr_Un)
                 {
-                    // A shift by 32 or more is unspecified in IL, and the JIT's constant folding and the processor disagree on
-                    // it: mask the count as C# does, so the program has one meaning to compare.
+                    // IL leaves shifts of 32 or more unspecified, so the count is masked as C# does.
                     Ldc(31);
                     Op(OpCodes.And);
                 }
@@ -1098,7 +1069,7 @@ internal sealed class IlBodyGenerator
                 break;
             case 11:
             {
-                // cond ? a : b
+                // Cond ? a : b.
                 Label other = new(), done = new();
                 Expr(VT.I4, depth - 1);
                 Op(OpCodes.Brfalse, other);

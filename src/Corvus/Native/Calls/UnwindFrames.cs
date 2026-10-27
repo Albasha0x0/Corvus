@@ -3,10 +3,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// A function's frame as its unwind data describes it: stack allocated, registers saved (with their offsets), the frame
-/// pointer, the prolog size, handler and chaining flags.
-/// </summary>
+/// <summary>A function's frame from its unwind data: allocation, saved registers, frame pointer, prolog size and flags.</summary>
 /// <param name="Format">x64 UNWIND_INFO, ARM64 packed or ARM64 xdata; DWARF CFI or compact unwind on ELF and Mach-O.</param>
 /// <param name="Allocation">Bytes the prolog allocates below the saved registers (x64), or the whole frame (ARM64).</param>
 public sealed record UnwindFrame(string Format, uint Begin, uint End, int PrologBytes, long Allocation, IReadOnlyList<string> Saved, string? FramePointer,
@@ -114,10 +111,7 @@ public static class UnwindFrames
         return null;
     }
 
-    /// <summary>
-    /// Packed unwind data: RegI integer registers from x19, RegF floating-point registers from d8, H homing x0-x7, CR the
-    /// link register save (1: with the integer registers; 3: fp / lr chained with x29 the frame pointer), FrameSize in 16-byte units.
-    /// </summary>
+    /// <summary>ARM64 packed unwind data (RegI, RegF, H, CR, FrameSize in 16-byte units) as a frame.</summary>
     private static UnwindFrame? Packed(INativeImage image, RuntimeFunction function)
     {
         if (PdataWord(image, function) is not { } w || (w & 3) == 0) return null;

@@ -130,7 +130,7 @@ public sealed class ResourceService
         if (text != null)
             return text;
         int n = Math.Min(data.Length, previewBytes);
-        var sb = new StringBuilder($"[binary; hex dump of first {n} bytes — pass outputPath to extract it]\n");
+        var sb = new StringBuilder($"[binary; hex dump of the first {n} bytes; outputPath extracts it]\n");
         for (int i = 0; i < n; i += 16)
         {
             sb.Append($"{i:X8}  ");

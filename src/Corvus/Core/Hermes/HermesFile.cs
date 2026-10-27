@@ -18,11 +18,7 @@ public sealed record HermesFunction(int Index, int Offset, int Size, int ParamCo
 /// <summary>An exception handler: the protected range [Start, End) and the catch target, as bytecode offsets in the function.</summary>
 public readonly record struct HermesHandler(int Start, int End, int Target);
 
-/// <summary>
-/// A Hermes bytecode (HBC) file read without running it: header, function headers, string table, literal buffers, regexp
-/// and CommonJS module tables, function sources and debug info, for bytecode versions 59–96. Strings decode on demand.
-/// Structural problems are recorded in <see cref="Issues"/> and keep what came before; nothing throws past <see cref="Read"/>.
-/// </summary>
+/// <summary>A Hermes bytecode file, versions 59 to 96; problems go to <see cref="Issues"/> and nothing throws past <see cref="Read"/>.</summary>
 public sealed class HermesFile
 {
     public const ulong Magic = 0x1F1903C103BC1FC6;
@@ -200,7 +196,7 @@ public sealed class HermesFile
         for (int i = 0; i < kindCount && s < count; i++)
         {
             uint e = U32(kinds + i * 4);
-            // StringKind::Entry: count in the low 31 bits and the kind in the top bit since version 71, 30 and 2 before
+            // StringKind::Entry: count in the low 31 bits and the kind in the top bit since version 71, 30 and 2 before.
             int n = (int)(Version >= 71 ? e & 0x7FFF_FFFF : e & 0x3FFF_FFFF);
             bool identifier = Version >= 71 ? e >> 31 == 1 : e >> 30 == 1;
             for (int k = 0; k < n && s < count; k++) _identifier[s++] = identifier;

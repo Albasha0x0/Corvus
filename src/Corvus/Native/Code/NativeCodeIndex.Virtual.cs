@@ -4,12 +4,11 @@ namespace Corvus.Native.Code;
 
 public sealed partial class NativeCodeIndex
 {
-    // virtual call edges (VirtualExact / VirtualPossible), sorted by (From, To), and an index sorted by (To, From); apart from
-    // the other cross-references so their consumers (diffs, patterns, strings) see only what the instructions encode
+    // Virtual call edges by (From, To) with a (To, From) index, kept apart so other consumers see only encoded references.
     private CodeXref[] _virtualEdges = [];
     private int[] _virtualByTo = [];
 
-    /// <summary>Virtual call sites resolved through MSVC RTTI (x86 / x64; empty when the image has no RTTI or the build skipped it).</summary>
+    /// <summary>Virtual call sites resolved through RTTI; empty without RTTI or when the build skipped it.</summary>
     public VirtualCallSet VirtualCalls { get; private set; } = VirtualCallSet.Empty;
 
     /// <summary>The virtual call edges, sorted by source then target.</summary>
@@ -58,10 +57,7 @@ public sealed partial class NativeCodeIndex
         VirtualCalls = set;
     }
 
-    /// <summary>
-    /// Adds sites resolved from metadata outside the build (NativeAOT MethodTables). They replace sites the build left
-    /// unresolved; a resolved site keeps its own targets, so adding the same sites again changes nothing.
-    /// </summary>
+    /// <summary>Adds sites resolved from NativeAOT metadata in place of unresolved ones; idempotent.</summary>
     public void AddVirtualCalls(IReadOnlyList<VirtualCallSite> sites, IReadOnlyList<CodeXref> edges, string note)
     {
         lock (_virtualGate)
@@ -77,7 +73,7 @@ public sealed partial class NativeCodeIndex
             var allEdges = _virtualEdges.Concat(edges.Where(e => addedRvas.Contains(e.From))).Distinct().OrderBy(e => e.From).ThenBy(e => e.To).ToArray();
             int exact = merged.Count(s => s.Status == VirtualCallStatus.Exact), possible = merged.Count(s => s.Status == VirtualCallStatus.Possible);
             var stats = VirtualCalls.Stats with { Sites = merged.Length, Exact = exact, Possible = possible, Unresolved = merged.Length - exact - possible, Edges = allEdges.Length };
-            // notes on why the build found no sites (no RTTI) no longer apply
+            // Notes on why the build found no sites no longer apply.
             IReadOnlyList<string> notes = VirtualCalls.Sites.Count == 0 ? [note] : [.. VirtualCalls.Notes, note];
             SetVirtualCalls(new VirtualCallSet(merged, stats, notes), allEdges);
         }
@@ -85,16 +81,16 @@ public sealed partial class NativeCodeIndex
 
     private readonly object _virtualGate = new();
 
-    /// <summary>Metadata outside the build (NativeAOT) was searched for virtual calls; saved with the index so a load does not search again.</summary>
+    /// <summary>NativeAOT metadata was searched for virtual calls; saved so a load does not search again.</summary>
     public bool MetadataVirtualCallsAdded { get; private set; }
 
     /// <summary>Records that the metadata search ran and found no sites.</summary>
     public void MarkMetadataVirtualCalls() { lock (_virtualGate) MetadataVirtualCallsAdded = true; }
 
-    /// <summary>x86 / x64 through the data flow, ARM64 and ARM32 through their call shapes.</summary>
+    /// <summary>True for architectures with virtual call resolution: x86 / x64 by data flow, ARM by call shape.</summary>
     internal static bool ResolvesVirtualCalls(INativeImage image) => image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
 
-    /// <summary>Resolves virtual calls over a built index with the RTTI analysis <paramref name="rttiTask"/> gives; failures become a note, not an exception.</summary>
+    /// <summary>Resolves virtual calls with the RTTI from <paramref name="rttiTask"/>; a failure becomes a note.</summary>
     private void ResolveVirtualCalls(CodeIndexOptions options, Task<MsvcRttiResult> rttiTask, CancellationToken ct)
     {
         if (_ctx == null || !options.ResolveVirtualCalls || !ResolvesVirtualCalls(Image)) return;

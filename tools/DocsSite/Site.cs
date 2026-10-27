@@ -16,10 +16,8 @@ public sealed record SitePage(string Source, string Output, string Title);
 public sealed record SiteReport(IReadOnlyList<SitePage> Pages, IReadOnlyList<string> Copied, IReadOnlyList<string> Broken);
 
 /// <summary>
-/// Writes README.md and the Markdown under docs/ as a static HTML site with the repository's layout. Links between
-/// pages point at their HTML, files under docs/ they link to are copied, and links to other repository files point at
-/// <c>source</c> (the tree at the built commit; kept as written when null). A link to a missing file or heading is
-/// reported, never dropped.
+/// Writes README.md and docs/ as a static HTML site; links to other repository files point at <c>source</c> (kept as
+/// written when null). A link to a missing file or heading is reported, never dropped.
 /// </summary>
 public static partial class Site
 {

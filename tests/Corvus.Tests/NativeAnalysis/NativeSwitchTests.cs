@@ -158,7 +158,7 @@ public class NativeSwitchTests
     [InlineData(2)] // jmp [table + rdx*8] (fixed address)
     public void X64_absolute_eight_byte_tables(int form)
     {
-        // a fixed-address ELF executable: no relocations, addresses fit a 32-bit displacement
+        // A fixed-address ELF executable: no relocations, addresses fit a 32-bit displacement.
         const ulong Base = 0x400000;
         Label dflt = default;
         var labels = new Label[3];
@@ -285,7 +285,7 @@ public class NativeSwitchTests
             BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(0x40 + i * 4), (uint)Base32 + rva(labels[i]));
             relocs.Add(Code + 0x40 + (uint)i * 4);
         }
-        // the next dword is no relocated pointer: the table ends before it
+        // The next dword is no relocated pointer: the table ends before it.
         BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(0x4C), (uint)Base32 + rva(labels[0]));
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, text, relocations: relocs, entry: Code));
         var sw = Assert.Single(index.GetGraph(index.FunctionByStart(Code)!).Switches);
@@ -298,7 +298,7 @@ public class NativeSwitchTests
     [Fact]
     public void X86_index_bounded_through_the_stack_slot_it_was_stored_to()
     {
-        // clang i386: movzx esi, cl; mov [esp+28h], cl; ...; cmp byte [esp+28h], 2; ja default; mov eax, [esi*4 + table]
+        // Clang i386: movzx esi, cl; mov [esp+28h], cl; ...; cmp byte [esp+28h], 2; ja default; mov eax, [esi*4 + table].
         Label dflt = default, other = default, check = default;
         var labels = new Label[3];
         uint tableRva = Data + 0x20;
@@ -386,7 +386,7 @@ public class NativeSwitchTests
     [Fact]
     public async Task GetCfg_lists_cases_and_find_xrefs_names_the_case_values()
     {
-        // the biased switch of Msvc() as a PE file: .text at 0x1000, the table in .rdata at 0x2000
+        // The biased switch of Msvc() as a PE file: .text at 0x1000, the table in .rdata at 0x2000.
         Label dflt = default, jump = default;
         var labels = new Label[3];
         const uint TableRva = 0x2000;

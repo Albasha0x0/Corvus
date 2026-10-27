@@ -72,7 +72,7 @@ public class FormatFuzzCoverageTests
     private static string Key(Type t) => t.FullName!.StartsWith("Corvus.", StringComparison.Ordinal) ? t.FullName["Corvus.".Length..] : t.FullName;
 
     [Fact]
-    public void EveryReaderHasAQuickFuzzEntry()
+    public void Every_reader_has_a_quick_fuzz_entry()
     {
         var (covered, slow) = Entries();
         Assert.True(slow.Count == 0, "[FuzzEntry] belongs on a quick test ([Fact] or [Theory], not Speed=Slow): " + string.Join(", ", slow));
@@ -88,7 +88,7 @@ public class FormatFuzzCoverageTests
     }
 
     [Fact]
-    public void TheScanFindsTheKnownReaders()
+    public void The_scan_finds_the_known_readers()
     {
         var readers = Readers();
         Assert.All(new[] { "Native.Pe.PeFile", "Native.Elf.ElfFile", "Native.MachO.MachOFile", "Native.Dump.MinidumpFile", "Native.Pdb.PdbFile",

@@ -29,7 +29,7 @@ public sealed class EditOutcomeTests : IDisposable
     }
 
     [Fact]
-    public async Task ACallWithoutDryRunPreviewsAndChangesNothing()
+    public async Task A_call_without_dry_run_previews_and_changes_nothing()
     {
         var (text, outcome) = await Run<EditOutcome>(() => _tools.StubMethod("Secret::Validate", "true"));
         Assert.Contains("pass dryRun=false to apply", text);
@@ -39,7 +39,7 @@ public sealed class EditOutcomeTests : IDisposable
     }
 
     [Fact]
-    public async Task EditIdsSurviveAnUndoOfAnEarlierEdit()
+    public async Task Edit_IDs_survive_an_undo_of_an_earlier_edit()
     {
         var (_, first) = await Run<EditOutcome>(() => _tools.StubMethod("Secret::Validate", "true", dryRun: false));
         var (_, second) = await Run<EditOutcome>(() => _tools.StubMethod("Account::Score", "7", dryRun: false));
@@ -72,7 +72,7 @@ public sealed class EditOutcomeTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyEditsStoppedOnAFailureIsAnErrorWithEachEditsOutcome()
+    public async Task Apply_edits_stopped_on_a_failure_is_an_error_with_each_edits_outcome()
     {
         var path = ScriptWithOneBadEdit();
         var error = await Assert.ThrowsAsync<ToolError>(() => _tools.ApplyEdits(path, dryRun: false));
@@ -86,7 +86,7 @@ public sealed class EditOutcomeTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyEditsWithContinueOnErrorSucceedsWithTheFailureCounted()
+    public async Task Apply_edits_with_continue_on_error_succeeds_with_the_failure_counted()
     {
         var path = ScriptWithOneBadEdit();
         var (text, outcome) = await Run<EditOutcome>(() => _tools.ApplyEdits(path, dryRun: false, continueOnError: true));
@@ -100,7 +100,7 @@ public sealed class EditOutcomeTests : IDisposable
     }
 
     [Fact]
-    public async Task RevertKeepsTheDiscardedEditsAsAScriptThatRestoresThem()
+    public async Task Revert_keeps_the_discarded_edits_as_a_script_that_restores_them()
     {
         await _tools.StubMethod("Secret::Validate", "true", dryRun: false);
         await _tools.RenameSymbol("Account::Tick", "Step", dryRun: false);

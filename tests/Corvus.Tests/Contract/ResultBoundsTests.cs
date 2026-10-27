@@ -52,7 +52,7 @@ public abstract class ResultBoundsTests : IAsyncLifetime
         /// <summary>Each part of a page stays within its class budget (or maxTokens up to the client ceiling) + 5%, in estimated tokens.</summary>
         [Trait("Speed", "Slow")]
         [Fact]
-        public async Task HugeResultsComeBackPaged()
+        public async Task Huge_results_come_back_paged()
         {
             var problems = new List<string>();
             // Untimed warm-up: the test claims bounded pages, not cold-start time, so the decompiler is JIT-compiled first.
@@ -81,11 +81,9 @@ public abstract class ResultBoundsTests : IAsyncLifetime
         protected override string? ProtocolVersion => "2025-11-25";
 
         [Fact]
-        public async Task CancelledCallStopsAndTheServerStaysResponsive()
+        public async Task Cancelled_call_stops_and_the_server_stays_responsive()
         {
-            // The SDK's client does not send notifications/cancelled when a call's token is cancelled, so the call and its
-            // cancellation are sent by hand, back to back: the server reads the cancellation right after starting the call,
-            // seconds before the export could end, however late this process gets to run.
+            // The SDK client sends no notifications/cancelled, so the call and its cancellation go by hand, back to back.
             var exportDir = _dir.File("export");
             var id = new RequestId("export-to-cancel");
             var arguments = new Dictionary<string, System.Text.Json.JsonElement>

@@ -5,11 +5,7 @@ namespace Corvus.Native.Pe;
 /// <summary>A code range of a hybrid image's CHPE code map: ARM64, ARM64EC or x64 code.</summary>
 public sealed record HybridCodeRange(uint Rva, uint Length, string Arch);
 
-/// <summary>
-/// An ARM64X or ARM64EC image. ARM64X: an ARM64 file (native view) whose ARM64X dynamic relocations turn its headers into an
-/// x64 view (<see cref="ViewMachine"/>, <see cref="ViewEntryRva"/>, the data directories it replaces). ARM64EC: an x64 file holding
-/// ARM64EC code. Both carry CHPE metadata: its version, the code map, the alternate entry point and the auxiliary IAT.
-/// </summary>
+/// <summary>An ARM64X or ARM64EC image with its CHPE metadata and, for ARM64X, the x64 view its dynamic relocations make.</summary>
 public sealed record PeHybrid(string Kind, uint MetadataVersion, IReadOnlyList<HybridCodeRange> CodeRanges, uint? AlternateEntryRva, uint? AuxiliaryIatRva,
     int Arm64XFixups, string? ViewMachine, uint? ViewEntryRva, IReadOnlyList<string> ViewDirectories)
 {
@@ -40,10 +36,7 @@ public sealed record PeHybrid(string Kind, uint MetadataVersion, IReadOnlyList<H
 
     private static uint U32(ReadOnlySpan<byte> b, int at) => BinaryPrimitives.ReadUInt32LittleEndian(b[at..]);
 
-    /// <summary>
-    /// The ARM64X dynamic relocations (IMAGE_DYNAMIC_RELOCATION_TABLE version 1, symbol 6): how many, and what they write into the
-    /// headers: the view's machine, entry point and the data directories it replaces.
-    /// </summary>
+    /// <summary>The ARM64X dynamic relocations: their count and the header fields they write.</summary>
     private static (int Fixups, ushort? Machine, uint? Entry, List<string> Directories) Arm64XView(PeFile pe)
     {
         var directories = new List<string>();

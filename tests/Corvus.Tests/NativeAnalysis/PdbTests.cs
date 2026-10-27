@@ -110,7 +110,7 @@ public class PdbTests
     }
 
     [Fact]
-    public void ReadsIdentityModulesSectionsAndSymbols()
+    public void Reads_identity_modules_sections_and_symbols()
     {
         var pdb = PdbFile.FromBytes(PdbBuilder.Sample().Build());
         Assert.Empty(pdb.Issues);
@@ -138,7 +138,7 @@ public class PdbTests
     }
 
     [Fact]
-    public void NamingPrefersProceduresAndKeepsTheDecoratedName()
+    public void Naming_prefers_procedures_and_keeps_the_decorated_name()
     {
         var names = PdbNaming.Choose(PdbFile.FromBytes(PdbBuilder.Sample().Build())).ToDictionary(n => n.Rva);
         Assert.Equal(3, names.Count);
@@ -147,7 +147,7 @@ public class PdbTests
         Assert.Equal(("g_value", false), (names[0x3008].Name, names[0x3008].IsFunction));
         Assert.Equal("public: int __cdecl Bar::Foo(int)", PdbNaming.Signature(names[0x1010].Decorated));
         Assert.Equal("Bar::Foo", PdbNaming.Display("?Foo@Bar@@QEAAHH@Z"));
-        // an image size cuts off names beyond the image
+        // An image size cuts off names beyond the image.
         Assert.Equal(2, PdbNaming.Choose(PdbFile.FromBytes(PdbBuilder.Sample().Build()), sizeOfImage: 0x2000).Count);
     }
 
@@ -185,7 +185,7 @@ public class PdbTests
     }
 
     [Fact]
-    public void AddressesMapThroughOmap()
+    public void Addresses_map_through_OMAP()
     {
         var p = new PdbBuilder
         {
@@ -209,7 +209,7 @@ public class PdbTests
     [Theory]
     [InlineData(512u)]
     [InlineData(4096u)]
-    public void ManyModulesAndAMultiPageDirectory(uint blockSize)
+    public void Many_modules_and_a_multi_page_directory_read_without_issues(uint blockSize)
     {
         var p = new PdbBuilder();
         for (int i = 0; i < 300; i++) p.Modules.Add(($"m{i}.obj", [PdbBuilder.Proc($"f{i}", 1, (uint)(i * 16), 16, true), PdbBuilder.End()]));
@@ -223,7 +223,7 @@ public class PdbTests
     // ---- malformed input ----
 
     [Fact]
-    public void HeaderProblemsAreTypedErrors()
+    public void Header_problems_are_typed_errors()
     {
         var good = PdbBuilder.Sample().Build();
         ErrorCode Code(byte[] bytes) => Assert.Throws<ToolError>(() => PdbFile.FromBytes(bytes)).Code;
@@ -259,7 +259,7 @@ public class PdbTests
         {
             int dir = (int)(l.DirectoryPages[0] * l.BlockSize);
             int count = BinaryPrimitives.ReadInt32LittleEndian(f.AsSpan(dir));
-            // first page of stream 3 (DBI): after the sizes and the pages of streams 0..2 (stream 0 and 2 are empty)
+            // First page of stream 3 (DBI): after the sizes and the pages of streams 0..2 (stream 0 and 2 are empty).
             int at = dir + 4 + count * 4 + 4 * l.StreamPages[1].Count;
             BinaryPrimitives.WriteUInt32LittleEndian(f.AsSpan(at), 0xFFFFF0);
         },
@@ -308,7 +308,7 @@ public class PdbTests
 
     [Theory]
     [MemberData(nameof(Tampers))]
-    public void MalformedFilesReadWithIssuesAndNoException(string tamper)
+    public void Malformed_files_read_with_issues_and_no_exception(string tamper)
     {
         var bytes = PdbBuilder.Sample().Msf().Build(TamperCases[tamper]);
         var pdb = PdbFile.FromBytes(bytes);
@@ -319,7 +319,7 @@ public class PdbTests
     }
 
     [Fact]
-    public void TruncatedFilesReadWithoutException()
+    public void Truncated_files_read_without_exception()
     {
         var good = PdbBuilder.Sample().Build();
         for (int len = 56; len < good.Length; len += 97)
@@ -331,7 +331,7 @@ public class PdbTests
 
     [Fact]
     [FuzzEntry(typeof(Native.Pdb.PdbFile), typeof(Native.Pdb.MsfFile))]
-    public void MutatedFilesNeverThrowAfterTheSuperblock()
+    public void Mutated_files_never_throw_after_the_superblock()
     {
         var good = PdbBuilder.Sample().Build();
         var rng = new Random(12345);
@@ -353,7 +353,7 @@ public class PdbTests
     // ---- location ----
 
     [Fact]
-    public void SymbolPathsSplitIntoStoresAndServers()
+    public void Symbol_paths_split_into_stores_and_servers()
     {
         var stores = new List<string>();
         var servers = new List<string>();
@@ -365,7 +365,7 @@ public class PdbTests
     }
 
     [Fact]
-    public void LocatesBesideTheImageInStoresAndRejectsOtherBuilds()
+    public void Locates_beside_the_image_in_stores_and_rejects_other_builds()
     {
         using var dir = new TempDir();
         var imagePath = dir.File("tiny.dll");
@@ -373,21 +373,21 @@ public class PdbTests
         var image = PeFile.Open(imagePath);
         Assert.Equal(SampleGuid, image.CodeView!.Guid);
 
-        // nothing anywhere
+        // Nothing anywhere.
         var none = PdbLocator.Locate(image, symbolPath: "srv*" + dir.File("store") + "*https://example.invalid/sym");
         Assert.Null(none.Path);
         Assert.Contains(none.Probes, p => p.Location == imagePath[..^3] + "pdb" && p.Outcome == "not found");
         Assert.Equal(["https://example.invalid/sym"], none.Servers);
 
-        // a symbol store from the symbol path
+        // A symbol store from the symbol path.
         var stored = Path.Combine(dir.File("store"), "tiny.pdb", "112233445566778899AABBCCDDEEFF003", "tiny.pdb");
         Directory.CreateDirectory(Path.GetDirectoryName(stored)!);
         File.WriteAllBytes(stored, PdbBuilder.Sample().Build());
         Assert.Equal(stored, PdbLocator.Locate(image, symbolPath: "srv*" + dir.File("store") + "*https://example.invalid/sym").Path);
-        // the same store as an explicit directory
+        // The same store as an explicit directory.
         Assert.Equal(stored, PdbLocator.Locate(image, dir.File("store"), symbolPath: "").Path);
 
-        // beside the image, but another age: reported, not used; the store copy is found after it
+        // Beside the image, but another age: reported, not used; the store copy is found after it.
         File.WriteAllBytes(dir.File("tiny.pdb"), PdbBuilder.Sample(age: 4).Build());
         var r = PdbLocator.Locate(image, symbolPath: "srv*" + dir.File("store") + "*https://example.invalid/sym");
         Assert.Equal(stored, r.Path);
@@ -395,7 +395,7 @@ public class PdbTests
         // not a PDB at all
         File.WriteAllText(dir.File("tiny.pdb"), "junk");
         Assert.Contains(PdbLocator.Locate(image, symbolPath: "").Probes, p => p.Location == dir.File("tiny.pdb") && p.Outcome.StartsWith("unreadable"));
-        // beside the image and matching
+        // Beside the image and matching.
         File.WriteAllBytes(dir.File("tiny.pdb"), PdbBuilder.Sample().Build());
         Assert.Equal(dir.File("tiny.pdb"), PdbLocator.Locate(image, symbolPath: "").Path);
     }
@@ -412,7 +412,7 @@ public class PdbTests
     }
 
     [Fact]
-    public async Task DownloadsIntoTheStoreLayoutAndVerifies()
+    public async Task Downloads_into_the_store_layout_and_verifies()
     {
         using var dir = new TempDir();
         var cv = new PeCodeView("RSDS", SampleGuid, 3, @"C:\build\tiny.pdb");
@@ -421,7 +421,7 @@ public class PdbTests
         var path = await PdbLocator.DownloadAsync(cv, "https://sym.example/store/", TimeSpan.FromSeconds(30), 1 << 20, server, dir.File("cache"));
         Assert.Equal(Path.Combine(dir.File("cache"), "tiny.pdb", "112233445566778899AABBCCDDEEFF003", "tiny.pdb"), path);
         Assert.Equal("https://sym.example/store/tiny.pdb/112233445566778899AABBCCDDEEFF003/tiny.pdb", server.Requests.Single().ToString());
-        // cached: no second request
+        // Cached: no second request.
         await PdbLocator.DownloadAsync(cv, "https://sym.example/store", TimeSpan.FromSeconds(30), 1 << 20, server, dir.File("cache"));
         Assert.Single(server.Requests);
 
@@ -434,7 +434,7 @@ public class PdbTests
         Assert.Equal(ErrorCode.ProviderUnavailable, await Fails(new FakeServer(_ => throw new HttpRequestException("refused"))));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() =>
             PdbLocator.DownloadAsync(cv, "file:///c:/x", TimeSpan.FromSeconds(1), 1, server, dir.File("cache")))).Code);
-        // nothing but the verified file is left behind
+        // Nothing but the verified file is left behind.
         Assert.Single(Directory.GetFiles(dir.File("cache"), "*", SearchOption.AllDirectories));
     }
 
@@ -462,7 +462,7 @@ public class PdbTests
     }
 
     [Fact]
-    public async Task AMatchingPdbBesideTheImageIsReadDuringTheFirstIndexBuild()
+    public async Task A_matching_PDB_beside_the_image_is_read_during_the_first_index_build()
     {
         using var h = new Harness();
         File.WriteAllBytes(h.Dir.File("tiny.pdb"), PdbBuilder.Sample().Build());
@@ -471,7 +471,7 @@ public class PdbTests
         var state = PdbService.StateOf(native);
         Assert.NotNull(state);
         Assert.True(state!.Automatic && state.Verified);
-        // the function nothing calls is a function start because the PDB names it
+        // The function nothing calls is a function start because the PDB names it.
         var helper = index.FunctionByStart(0x1040);
         Assert.NotNull(helper);
         Assert.True(helper!.Sources.HasFlag(FunctionSource.Symbol));
@@ -484,7 +484,7 @@ public class PdbTests
     private static string PdbTools_Status(LoadedNative native) => Corvus.Tools.PdbTools.Status(native) ?? "";
 
     [Fact]
-    public async Task LoadPdbReturnsAnEditOutcomeAndClearUndoesIt()
+    public async Task Load_PDB_returns_an_edit_outcome_and_clear_undoes_it()
     {
         using var h = new Harness();
         var native = h.Env.Workspace.LoadAny(h.ImagePath).Native!;
@@ -504,7 +504,7 @@ public class PdbTests
     }
 
     [Fact]
-    public async Task LoadPdbAppliesNamesKeepsUserNamesAndAddsMissedFunctions()
+    public async Task Load_PDB_applies_names_keeps_user_names_and_adds_missed_functions()
     {
         using var h = new Harness();
         var native = h.Env.Workspace.LoadAny(h.ImagePath).Native!;
@@ -516,7 +516,7 @@ public class PdbTests
         var elsewhere = h.Dir.File("syms");
         Directory.CreateDirectory(elsewhere);
         File.WriteAllBytes(Path.Combine(elsewhere, "tiny.pdb"), PdbBuilder.Sample().Build());
-        // a PDB of another build is refused
+        // A PDB of another build is refused.
         File.WriteAllBytes(h.Dir.File("other.pdb"), PdbBuilder.Sample(age: 7).Build());
         var refused = await h.Pdbs.Load(native, h.Dir.File("other.pdb"), false, null, false, TimeSpan.FromSeconds(5), 1 << 20, default);
         Assert.Null(refused.State);
@@ -529,7 +529,7 @@ public class PdbTests
         Assert.Equal("MyEntry", index.NameAt(0x1000));
         Assert.Equal("Bar::Foo", index.NameAt(0x1010));
 
-        // the rebuilt index replaces the old one and has the PDB's function, its names and the user's name
+        // The rebuilt index replaces the old one and has the PDB's function, its names and the user's name.
         var deadline = DateTime.UtcNow.AddSeconds(20);
         NativeCodeIndex? rebuilt;
         while ((rebuilt = h.Code.Ready(native)) == index && DateTime.UtcNow < deadline) await Task.Delay(20);
@@ -541,7 +541,7 @@ public class PdbTests
     }
 
     [Fact]
-    public async Task ForceUsesAMismatchingPdb()
+    public async Task Force_loads_a_mismatching_PDB()
     {
         using var h = new Harness();
         var native = h.Env.Workspace.LoadAny(h.ImagePath).Native!;

@@ -18,10 +18,7 @@ internal static class R2RFramework
 
     public static string Directory => Path.GetDirectoryName(typeof(object).Assembly.Location)!;
 
-    /// <summary>
-    /// The framework file when it exists and is ReadyToRun code get_r2r_code disassembles (x86 / x64; macOS and Linux
-    /// on ARM64 ship ARM64 code), else null.
-    /// </summary>
+    /// <summary>The framework file when it is ReadyToRun code get_r2r_code disassembles; null otherwise.</summary>
     public static string? Find(string file)
     {
         var path = Path.Combine(Directory, file);
@@ -96,7 +93,7 @@ public class ReadyToRunTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task IlOnlyAssemblyIsUnsupported()
+    public async Task IL_only_assembly_is_unsupported()
     {
         var (env, tools, _) = Setup();
         using var _ = env;
@@ -122,7 +119,7 @@ public class ReadyToRunTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void NativeFormatIntegers()
+    public void Native_format_integers_decode_in_every_form()
     {
         // Unsigned 1-byte and 2-byte forms, signed -1, then nibble-encoded integers (low nibble first).
         byte[] data = [0x7E, 0x05, 0x40, 0xFE, 0x93, 0x03, 0x00];
@@ -182,7 +179,7 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
     [InlineData("System.Text.Json.dll")]
     [InlineData("System.Net.Http.dll")]
     [InlineData("System.Text.RegularExpressions.dll")]
-    public void FrameworkAssembly(string file)
+    public void ReadyToRun_framework_assemblies_decode(string file)
     {
         var path = R2RFramework.Find(file);
         if (path == null) { output.WriteLine($"{file}: not ReadyToRun here, skipped"); return; }
@@ -228,14 +225,11 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
         Assert.Equal(0, invalid);
     }
 
-    /// <summary>
-    /// Mutated ReadyToRun data (header, entry point tables, runtime functions, import sections, signatures): parsing, the
-    /// code map, fixup lists, cell signatures and disassembly either succeed or throw <see cref="R2RFormatException"/>, in bounded time.
-    /// </summary>
+    /// <summary>Mutated ReadyToRun data either decodes or throws <see cref="R2RFormatException"/>, in bounded time.</summary>
     [Fact]
-    public void MutatedImagesFailCleanly() => Mutate(output, runs: 300, bodies: 200);
+    public void Mutated_images_fail_cleanly() => Mutate(output, runs: 300, bodies: 200);
 
-    /// <summary>The mutation loop of <see cref="MutatedImagesFailCleanly"/>; the quick set runs a few <paramref name="runs"/> over a few <paramref name="bodies"/>.</summary>
+    /// <summary>The mutation loop of <see cref="Mutated_images_fail_cleanly"/>; the quick set runs a few <paramref name="runs"/> over a few <paramref name="bodies"/>.</summary>
     internal static void Mutate(ITestOutputHelper output, int runs, int bodies)
     {
         var path = R2RFramework.Linq;
@@ -295,12 +289,9 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
         public string UserString(int module, uint offset) => "s";
     }
 
-    /// <summary>
-    /// A composite ReadyToRun app (CORVUS_R2R_COMPOSITE_DIR: the output of dotnet publish --self-contained -p:PublishReadyToRun=true
-    /// -p:PublishReadyToRunComposite=true): every component's code is found in the composite image and named.
-    /// </summary>
+    /// <summary>Every component of a composite ReadyToRun app (CORVUS_R2R_COMPOSITE_DIR) is found in the composite image and named.</summary>
     [RequiresRealDataFact("CORVUS_R2R_COMPOSITE_DIR")]
-    public void CompositeComponents()
+    public void Composite_images_decode_each_component()
     {
         var dir = RealData.Get("CORVUS_R2R_COMPOSITE_DIR")!;
         using var env = new Env();

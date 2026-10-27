@@ -36,7 +36,7 @@ public static partial class PackageReview
         int mv = m.TryGetProperty("manifest_version", out var v) && v.TryGetInt32(out var n) ? n : 0;
         var permissions = Strings(m, "permissions").Concat(Strings(m, "optional_permissions").Select(p => p + " (optional)")).ToList();
         var hosts = Strings(m, "host_permissions").Concat(Strings(m, "optional_host_permissions").Select(p => p + " (optional)")).ToList();
-        // manifest v2 lists host patterns among the permissions
+        // Manifest v2 lists host patterns among the permissions.
         hosts.AddRange(permissions.Where(p => p.Contains("://", StringComparison.Ordinal) || p.StartsWith("<all_urls>", StringComparison.Ordinal)));
         permissions.RemoveAll(p => p.Contains("://", StringComparison.Ordinal) || p.StartsWith("<all_urls>", StringComparison.Ordinal));
         var content = new List<ContentScript>();
@@ -59,7 +59,6 @@ public static partial class PackageReview
             foreach (var o in overrides.EnumerateObject()) entries.Add(new PackageEntryPoint("url override", o.Name, o.Value.ValueKind == JsonValueKind.String ? o.Value.GetString() : null));
         foreach (var c in content) foreach (var js in c.Files) entries.Add(new PackageEntryPoint("content script", string.Join(" ", c.Matches.Take(3)), js));
 
-        // permissions worth a look
         var sensitive = permissions.Select(p => p.Replace(" (optional)", "")).Where(SensitivePermissions.Contains).Distinct().ToList();
         bool broad = hosts.Any(h => IsBroadHost(h.Replace(" (optional)", ""))) || content.Any(c => c.Matches.Any(IsBroadHost));
         if (sensitive.Any(SystemPermissions.Contains))
@@ -67,7 +66,6 @@ public static partial class PackageReview
         if (broad && sensitive.Count > 0)
             findings.Add(new PackageFinding("review", "permission", $"every site, with {string.Join(", ", sensitive.Take(8))}", path));
         else if (broad) findings.Add(new PackageFinding("review", "permission", "runs on or reads every site", path));
-        // remote code: CSP that allows eval or remote scripts
         var csp = m.TryGetProperty("content_security_policy", out var c2) ? c2.ValueKind == JsonValueKind.String ? c2.GetString() : c2.ToString() : null;
         if (csp != null && Regex.IsMatch(csp, @"'unsafe-eval'|script-src[^;]*\bhttps?:"))
             findings.Add(new PackageFinding("noteworthy", "remote code", $"the content security policy allows eval or remote scripts: {Clip(csp, 160)}", path));
@@ -75,7 +73,6 @@ public static partial class PackageReview
             findings.Add(new PackageFinding("review", "update", $"updates from outside the browser's store: {update}", path));
         if (m.TryGetProperty("externally_connectable", out var ec) && Strings(ec, "matches").Any(IsBroadHost))
             findings.Add(new PackageFinding("review", "permission", "any site can message the extension (externally_connectable)", path));
-        // the extension's own scripts
         var scripts = entries.Where(e => e.Target != null && e.Target.EndsWith(".js", StringComparison.Ordinal)).Select(e => Resolve(root, e.Target!))
             .Concat(files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && p.EndsWith(".js", StringComparison.Ordinal)))
             .Distinct().Take(MaxScannedSources).ToList();
@@ -83,7 +80,6 @@ public static partial class PackageReview
         {
             if (files.Text(script) is not { } code) continue;
             findings.AddRange(Scan(script, code, install: false, ct).Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
-            // the fetched text handed to eval within a few hundred characters; cookies read next to a send to a fixed address
             if (FetchedEval.IsMatch(code)) findings.Add(new PackageFinding("noteworthy", "remote code", "evaluates code it fetches", script));
             if (CookieSend.IsMatch(code)) findings.Add(new PackageFinding("noteworthy", "credentials", "reads every cookie and sends data to a fixed address", script));
         }
@@ -161,7 +157,7 @@ public static partial class PackageReview
                 foreach (var script in s.EnumerateObject())
                     if (script.Value.ValueKind == JsonValueKind.String)
                     {
-                        // VS Code runs vscode:uninstall when the extension is removed; the others are build-time
+                        // VS Code runs vscode:uninstall on removal; the other scripts run at build time.
                         bool runs = script.Name == "vscode:uninstall";
                         scripts.Add(new PackageScript(script.Name, Clip(script.Value.GetString())!, runs));
                         if (runs) findings.Add(new PackageFinding("review", "install script", $"runs when uninstalled: {Clip(script.Value.GetString())}", pkgPath));
@@ -173,7 +169,7 @@ public static partial class PackageReview
             foreach (var key in new[] { "extensionDependencies", "extensionPack" })
                 foreach (var dep in Strings(p, key)) entries.Add(new PackageEntryPoint(key, dep, null));
         }
-        // zero-width characters let a listing read as a widely installed extension's name while differing from it
+        // Zero-width characters let a display name imitate another extension's.
         if (display != null && display.Any(Corvus.Core.Format.IsInvisible))
             findings.Add(new PackageFinding("noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
         var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))

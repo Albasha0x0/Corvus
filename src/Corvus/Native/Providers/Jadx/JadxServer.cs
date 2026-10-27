@@ -8,11 +8,7 @@ namespace Corvus.Native.Providers.Jadx;
 /// <summary>A tool result of the JADX server: its text, and whether the server marked it an error.</summary>
 public sealed record JadxResult(string Text, bool IsError);
 
-/// <summary>
-/// The JADX headless server (jadx-headless-mcp fat jar) as a child process speaking MCP over stdio: one package per process,
-/// loaded once. Requests are matched to responses by id, so a call that times out leaves the process (and its loaded package)
-/// in place; only a process exit ends the session. The child gets a minimal environment and a private temp directory.
-/// </summary>
+/// <summary>The JADX headless server as an MCP stdio child, one package per process; a timed-out call keeps it, only its exit ends the session. It gets a minimal environment and a private temp directory.</summary>
 public sealed class JadxServer : IDisposable
 {
     private readonly ChildProcess _process;
@@ -142,7 +138,8 @@ public sealed class JadxServer : IDisposable
             {
                 JsonNode? message;
                 try { message = JsonNode.Parse(line); }
-                catch (JsonException) { continue; } // not protocol: the server logs to stderr, but be lenient
+                // Skip non-protocol lines.
+                catch (JsonException) { continue; }
                 if (message?["id"] is not JsonValue idValue || !idValue.TryGetValue<long>(out var id) || !_pending.TryGetValue(id, out var tcs)) continue;
                 if (message["error"] is { } error) tcs.TrySetException(new InvalidOperationException((string?)error["message"] ?? error.ToJsonString()));
                 else tcs.TrySetResult(message["result"] ?? new JsonObject());
@@ -158,7 +155,8 @@ public sealed class JadxServer : IDisposable
         try
         {
             Directory.Delete(_temp, true);
-            Directory.Delete(Path.GetDirectoryName(_temp)!); // the shared parent, once no other server uses it
+            // The shared parent, once no other server uses it.
+            Directory.Delete(Path.GetDirectoryName(_temp)!);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }

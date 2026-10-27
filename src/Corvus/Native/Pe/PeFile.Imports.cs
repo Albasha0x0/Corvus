@@ -1,9 +1,6 @@
 namespace Corvus.Native.Pe;
 
-/// <summary>
-/// One module of the import or delay-import directory. Table addresses are RVAs (converted from VAs for version 1
-/// delay descriptors). <see cref="TimeDateStamp"/> is -1 (0xFFFFFFFF) for new-style bound imports.
-/// </summary>
+/// <summary>One import or delay-import module; addresses are RVAs; <see cref="TimeDateStamp"/> -1 means new-style bound.</summary>
 public sealed record PeImportModule(
     string Name,
     bool IsDelayLoad,
@@ -36,10 +33,7 @@ public sealed partial class PeFile
         public static readonly ImportTable Empty = new([], []);
     }
 
-    /// <summary>
-    /// Import descriptors up to the first one with a zero Name or FirstThunk (the loader's terminator). Names come from
-    /// the import name table (OriginalFirstThunk), or from the IAT when there is none.
-    /// </summary>
+    /// <summary>Import descriptors up to the loader's terminator; names from OriginalFirstThunk, else the IAT.</summary>
     private ImportTable ParseImports(IssueLog log)
     {
         var dir = Directory(PeDirectory.Import);
@@ -122,10 +116,7 @@ public sealed partial class PeFile
         return new ImportTable(modules, all);
     }
 
-    /// <summary>
-    /// Thunks at <paramref name="thunks"/> up to a zero entry. An entry with the ordinal flag imports by ordinal;
-    /// otherwise it points at IMAGE_IMPORT_BY_NAME (hint, name), as an RVA or, in version 1 delay tables, a VA.
-    /// </summary>
+    /// <summary>Thunks at <paramref name="thunks"/> up to a zero entry, by ordinal or by name.</summary>
     private List<NativeImport> ReadThunks(string module, long thunks, uint iat, bool rvaBased, bool isDelay, List<NativeImport> all,
         WorkBudget budget, IssueLog log)
     {

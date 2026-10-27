@@ -3,10 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Ghidra;
 
-/// <summary>
-/// Private directories of the Ghidra workers under the analysis cache. Ghidra writes its settings, logs, export
-/// symbol files and packed-database cache to the user's application data unless all four are redirected.
-/// </summary>
+/// <summary>Private Ghidra worker directories; all four are redirected or Ghidra writes to the user's application data.</summary>
 public sealed record GhidraDirectories(string Root)
 {
     public string Home => Path.Combine(Root, "home");
@@ -67,10 +64,7 @@ public static class GhidraLaunch
         $"-D{WorkerJarProperty}={workerJar}",
     ];
 
-    /// <summary>
-    /// Arguments after the Python executable when PyGhidra hosts the worker: the host script and a JSON file of the install,
-    /// the JDK, the server's VM arguments and the boot jar; PyGhidra adds Ghidra's own VM arguments from launch.properties.
-    /// </summary>
+    /// <summary>Arguments after the Python executable for a PyGhidra-hosted worker: the host script and its JSON config file.</summary>
     public static IReadOnlyList<string> PyGhidraArguments(GhidraInstallation ghidra, JavaRuntime java, string maxMemory, GhidraDirectories dirs,
         string bootJar, string workerJar)
     {

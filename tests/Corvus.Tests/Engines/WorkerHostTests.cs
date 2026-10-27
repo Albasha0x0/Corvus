@@ -85,8 +85,7 @@ public sealed class WorkerHostTests(ITestOutputHelper output)
         Assert.NotEqual(first, await Ping(pool));
     }
 
-    // Regression: on a CI runner a worker whose allocation failed answered nothing, and the call ran out its 60 s as a
-    // timeout (CI on 48563dd9). The fixture waits forever after the failure.
+    // Regression (48563dd9): a worker whose allocation failed answered nothing and timed out after 60 s. The fixture waits forever after the failure.
     [Fact]
     public async Task A_worker_that_hangs_at_its_memory_limit_is_ended_and_named()
     {

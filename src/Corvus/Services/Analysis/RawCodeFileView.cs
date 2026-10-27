@@ -3,11 +3,7 @@ using Corvus.Native;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=raw: the instruction sets headerless code reads as and the load bases its pointers imply (<see cref="RawCandidates"/>),
-/// for a file with no known format, or for each region no firmware signature claims. Applies when at least one region
-/// reads as an instruction set.
-/// </summary>
+/// <summary>view=raw: instruction sets and load bases of headerless code, per file or unclaimed firmware region; null when none reads as code.</summary>
 internal sealed class RawCodeFileView : IFileSummaryView
 {
     /// <summary>Most regions read; the rest are counted.</summary>
@@ -16,10 +12,7 @@ internal sealed class RawCodeFileView : IFileSummaryView
     public const int MaxRegionBytes = 64 << 20;
     private const int MinBytes = 1024, MaxIsas = 4;
 
-    /// <summary>
-    /// One region read as headerless code: its instruction sets, best first, and the load bases the best one's pointers imply.
-    /// <see cref="Load"/> is the load_assembly call for a region that is the whole file; null for a region inside it.
-    /// </summary>
+    /// <summary>A region read as headerless code, instruction sets best first; Load is the load_assembly call, null for a region inside the file.</summary>
     public sealed record Region(string Offset, long Size, IReadOnlyList<IsaCandidate> Isas, IReadOnlyList<BaseCandidate> Bases, bool BaseClear,
         string? Load, IReadOnlyList<string> Notes);
 
@@ -61,8 +54,7 @@ internal sealed class RawCodeFileView : IFileSummaryView
         }
         if (regions.Count == 0) return null;
         if (none > 0) notes.Add($"{none} region(s) read as no instruction set (score under {RawCandidates.MinScore})");
-        notes.Add("scores are signature hits above twice chance per 64 KiB (returns, prologues, epilogues); bases are where the most " +
-                  "distinct pointer values land on string starts");
+        notes.Add("scores: signature hits above twice chance per 64 KiB; bases: where the most distinct pointers land on string starts");
         var first = regions[0];
         var top = first.Isas[0];
         string highlight = $"Headerless code{(regions.Count > 1 || first.Load == null ? $" at {first.Offset}" : "")}: reads as {top.Arch} (score {top.Score:0}" +

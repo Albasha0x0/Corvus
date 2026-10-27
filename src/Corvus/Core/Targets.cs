@@ -8,12 +8,11 @@ public enum TargetKind { Assembly, Native, Any }
 /// <summary>A resolved target: the .NET assembly and/or native image, and the notice when this resolution loaded it.</summary>
 public sealed record Target(LoadedAssembly? Assembly, LoadedNative? Native, string? Notice);
 
-/// <summary>
-/// The one resolver for target parameters (assembly, image, oldImage, newImage, ...): a loaded id or name is that target;
-/// an existing file not loaded yet is loaded as load_assembly would (with a notice); a missing path is the same not_found
-/// everywhere; a target of the other kind is unsupported naming the family; a name with nothing loaded is not_loaded.
-/// Runs outside the workspace lock: loading takes the write lock.
-/// </summary>
+/// <summary>The resolver for target parameters; loads an unloaded existing file with a notice, else a typed error.</summary>
+/// <remarks>
+/// A missing path is not_found, a target of the other kind unsupported naming the family, a name with nothing loaded
+/// not_loaded. Runs outside the workspace lock: loading takes the write lock.
+/// </remarks>
 public static class Targets
 {
     public const string FileNotFoundNext = "check the path; list_assemblies shows loaded ids";
@@ -42,7 +41,7 @@ public static class Targets
         if (workspace.Read(() => Find(workspace, text, kind)) is { } found) return found;
         string? notice = Load(workspace, text);
         if (notice != null && workspace.Read(() => Find(workspace, text, kind)) is { } loaded) return loaded with { Notice = notice };
-        // nothing of the kind: the workspace's typed error (wrong kind, missing path, not loaded, no match)
+        // Nothing of the kind: the workspace's typed error (wrong kind, missing path, not loaded, no match).
         return workspace.Read(() => kind == TargetKind.Native
             ? new Target(null, workspace.GetNative(text), notice)
             : new Target(workspace.Get(text), null, notice));
@@ -64,7 +63,7 @@ public static class Targets
         if (workspace.Read(() => Find(workspace, text, TargetKind.Any)) != null) return;
         string? notice;
         try { notice = Load(workspace, text); }
-        // a file no image loader reads (an .apk for export_project, a container): the tool decides what it accepts
+        // A file no image loader reads (an .apk for export_project, a container): the tool decides what it accepts.
         catch (ToolError e) when (e.Code is ErrorCode.MalformedInput or ErrorCode.Unsupported) { return; }
         if (notice != null) workspace.Notify(notice);
     }
@@ -76,7 +75,8 @@ public static class Targets
         foreach (var name in Parameters)
         {
             if (!arguments.TryGetValue(name, out var value)) continue;
-            if (value.ValueKind == JsonValueKind.String && name == "images") // a ';'- or ','-separated list
+            // A ';'- or ','-separated list.
+            if (value.ValueKind == JsonValueKind.String && name == "images")
                 foreach (var item in value.GetString()!.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                     Prepare(workspace, item);
             else if (value.ValueKind == JsonValueKind.String) Prepare(workspace, value.GetString());
@@ -106,10 +106,7 @@ public static class Targets
         return null;
     }
 
-    /// <summary>
-    /// Loads an existing regular file that is not loaded under either kind; the notice text, or null when nothing was
-    /// loaded. A missing path is not_found.
-    /// </summary>
+    /// <summary>Loads an unloaded regular file and returns the notice, or null when nothing was loaded; a missing path is not_found.</summary>
     private static string? Load(AssemblyWorkspace workspace, string text)
     {
         var full = FullPath(text);
@@ -120,8 +117,9 @@ public static class Targets
             return null;
         }
         if (workspace.Read(() => workspace.FindByPath(full) != null || workspace.FindNative(full) != null)) return null;
+        // A load cannot take the write lock from inside a read.
         if (workspace.LockHeld)
-            throw NotLoaded($"'{text}' is not loaded.", text); // a load cannot take the write lock from inside a read
+            throw NotLoaded($"'{text}' is not loaded.", text);
         (LoadedAssembly? Assembly, LoadedNative? Native) loaded;
         try { loaded = workspace.LoadAny(full); }
         catch (ToolError e) when (e.Code == ErrorCode.Unsupported && e.Remediation == null)

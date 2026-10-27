@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 public class InputFileTests
 {
     [PosixFact]
-    public void ElectronLayoutSkipsAFifoBesideTheArchive()
+    public void Electron_layout_skips_a_fifo_beside_the_archive()
     {
         using var dir = new TempDir();
         var resources = Directory.CreateDirectory(Path.Combine(dir.Path, "resources")).FullName;
@@ -21,7 +21,7 @@ public class InputFileTests
     }
 
     [PosixFact]
-    public void FifoIsRefusedWithoutBlocking()
+    public void Fifo_is_refused_without_blocking()
     {
         using var dir = new TempDir();
         var fifo = dir.File("pipe.dll");
@@ -47,7 +47,7 @@ public class InputFileTests
     }
 
     [WindowsFact("Device paths are a Windows namespace.")]
-    public void WindowsDevicePathIsRefused()
+    public void Windows_device_path_is_refused()
     {
         using var ws = new AssemblyWorkspace();
         var error = Assert.Throws<ToolError>(() => ws.Load(@"\\.\NUL"));
@@ -56,7 +56,7 @@ public class InputFileTests
     }
 
     [Fact]
-    public void DirectoryIsRefusedWhereAFileIsExpected()
+    public void Directory_is_refused_where_a_file_is_expected()
     {
         using var dir = new TempDir();
         using var ws = new AssemblyWorkspace();
@@ -66,7 +66,7 @@ public class InputFileTests
     }
 
     [Fact]
-    public void LoadedPathsDedupeByTheFileSystemsCaseRule()
+    public void Loaded_paths_dedupe_by_the_file_systems_case_rule()
     {
         bool ignoresCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
         Assert.Equal(ignoresCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal, InputFiles.PathComparison);
@@ -81,7 +81,8 @@ public class InputFileTests
             Assert.Same(first, ws.Load(upper));
         else
         {
-            File.Copy(Env.FixturePath, upper); // a distinct file on a case-sensitive file system
+            // A distinct file on a case-sensitive file system.
+            File.Copy(Env.FixturePath, upper);
             Assert.NotSame(first, ws.Load(upper));
         }
     }

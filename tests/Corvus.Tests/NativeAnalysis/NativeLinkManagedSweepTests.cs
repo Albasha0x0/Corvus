@@ -17,13 +17,10 @@ public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
     private static void HasI(string text, string expected) =>
         Assert.True(text.Contains(expected, StringComparison.OrdinalIgnoreCase), $"'{expected}' not in:\n{text}");
 
-    /// <summary>
-    /// Every P/Invoke of the running runtime's libraries bound by the navigation service agrees with
-    /// verify_native_imports: resolved exactly where the verifier finds the export, with the same DLL.
-    /// </summary>
+    /// <summary>Every P/Invoke of the runtime's libraries binds exactly where verify_native_imports finds the export, to the same DLL.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public void RuntimePInvokesBindLikeTheVerifier()
+    public void Runtime_P_Invokes_bind_like_the_verifier()
     {
         using var dir = new TempDir();
         using var env = new Env();
@@ -78,14 +75,10 @@ public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
         }
         """;
 
-    /// <summary>
-    /// A .NET program calling kernel32, with kernel32, KERNELBASE and ntdll loaded: callee trees cross into the
-    /// native functions (the jump thunk in kernel32 followed to KERNELBASE, the HeapAlloc forwarder to ntdll) at the
-    /// export addresses, and the native exports list the managed callers back.
-    /// </summary>
+    /// <summary>Callee trees of a .NET program cross into kernel32, KERNELBASE and ntdll at the export addresses, and the exports list the managed callers.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public async Task ProgramCallingKernel32CrossesIntoNative()
+    public async Task A_program_calling_kernel32_crosses_into_native_code()
     {
         var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
         var kernel32 = Path.Combine(system, "kernel32.dll");

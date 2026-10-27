@@ -7,11 +7,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Ghidra;
 
-/// <summary>
-/// One image open in a Ghidra worker. Reads run concurrently on the worker's decompiler pool; changes are serialized
-/// and journaled (see <see cref="WorkerSessionBase"/>). The project lives in the cache entry under a directory named
-/// by the profile key, so a later open of the same bytes under the same configuration reopens it without analysis.
-/// </summary>
+/// <summary>One image open in a Ghidra worker: concurrent reads, serialized journaled changes, a project keyed by profile.</summary>
 internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation ghidra, JavaRuntime java, NativeOpenOptions options)
     : WorkerSessionBase(options), INativeDecompilerSession
 {
@@ -75,10 +71,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     internal int FunctionCount { get; private set; }
     internal IReadOnlyList<string> Warnings { get; private set; } = [];
 
-    /// <summary>
-    /// The image's cache entry; when another server process holds it, a read-only snapshot of the saved project this open
-    /// would use, else Conflict naming that process.
-    /// </summary>
+    /// <summary>The image's cache entry; when another server process holds it, a read-only snapshot of its saved project, else Conflict.</summary>
     protected override CacheEntry AcquireEntry(string imagePath, string? sha256) =>
         provider.Cache.Acquire(ProviderId, imagePath, sha256, (locked, sha) =>
         {
@@ -119,11 +112,10 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var analyzers = GhidraOptions.AnalyzerOptions(profile, symbols, provider.ExtraOptions,
             completion: provider.CompletionPass && analysis != EngineAnalysis.None && packed == null);
         var key = GhidraOptions.ProfileKey(ghidra, profile, loader, analyzers, provider.Extensions);
-        // turned off at import: in the project name through the overrides key
+        // Analyzers turned off at import enter the project name through the overrides key.
         if (overrides is { DisabledAnalyzers.Count: > 0 })
             analyzers = [.. analyzers.Where(a => !overrides.DisabledAnalyzers.Contains(a.Key)), .. overrides.DisabledAnalyzers.Select(a => KeyValuePair.Create(a, "false"))];
-        // a load-only project is its own profile, as in IDA
-        // a raw layout is its own project: the same bytes at another base or processor; so are import overrides
+        // Load-only, raw layout and import overrides each name their own project.
         return (Path.Combine(entryDirectory, "p-" + key + (analysis == EngineAnalysis.None ? "-noauto" : "") +
                 (raw != null ? "-raw-" + raw.Key.Replace('@', '-') : "") + (packed != null ? "-gzf-" + packed.Sha256[..16] : "") +
                 (overrides != null ? "-" + overrides.Key : "")), loader, analyzers);
@@ -138,10 +130,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
 
-    /// <summary>
-    /// Architecture and image base from a PE or ELF header (ELF: the lowest PT_LOAD address); the architecture of a thin
-    /// Mach-O. Other formats are left to Ghidra's loaders, whose base is then taken as loaded.
-    /// </summary>
+    /// <summary>Architecture and image base from a PE, ELF or thin Mach-O header; other formats take Ghidra's loaded base.</summary>
     internal static Header ReadHeader(string copy, string original)
     {
         try
@@ -251,7 +240,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         };
         await provider.WaitStartedAsync(worker, Options.OpenTimeout, cancellationToken).ConfigureAwait(false);
 
-        // an archive given for the image imports as an analyzed database
+        // An archive given for the image imports as an analyzed database.
         var reuse = DatabaseExists || Options.GhidraDatabase != null;
         ReusedDatabase = reuse;
         StartStage(reuse ? "load" : "analysis");
@@ -278,13 +267,13 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("decompile_timeout", (int)provider.DecompileTimeout.TotalSeconds),
                 ("decompile_payload_mb", provider.DecompilePayloadMb));
             if (Options.GhidraDatabase is { } packed) args["gzf"] = packed.Path;
-            // the analyzers the standard profile caps run again uncapped in the background, while the worker is idle
+            // Analyzers the standard profile caps run again uncapped while the worker is idle.
             else if (provider.Profile == GhidraAnalysisProfile.Standard && Options.Analysis != EngineAnalysis.None && provider.CompletionPass) args["completion"] = true;
             if (Options.Raw is { } layout)
             {
                 args["loader"] = layout.Isa.GhidraLoader ?? "BinaryLoader";
                 args["language"] = layout.Isa.GhidraLanguage;
-                // a format loader places the image and its entry itself
+                // A format loader places the image and its entry itself.
                 if (layout.Isa.GhidraLoader == null)
                 {
                     args["entry"] = layout.EntryOffset;
@@ -298,7 +287,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 if (ov.CompilerSpec != null) args["compiler"] = ov.CompilerSpec;
                 foreach (var s in ov.Seeds) seeds.Add(new JsonArray(s.Kind.ToString().ToLowerInvariant(), s.Rva, s.Name));
             }
-            // real mode: Ghidra resolves no call through a table of near pointers; our scan seeds the handlers
+            // Real mode: Ghidra resolves no call through a near-pointer table, so the scanned handlers are seeds.
             if (Options.Raw is { } real && Options.Analysis != EngineAnalysis.None
                 && Code.RealModeDispatch.Of(await File.ReadAllBytesAsync(Entry.InputCopy, cancellationToken).ConfigureAwait(false), real) is { } image)
                 foreach (var offset in Code.RealModeDispatch.Handlers(image))
@@ -326,7 +315,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         Language = info.GetProperty("language").GetString() ?? "";
         FunctionCount = info.GetProperty("functions").GetInt32();
         var warnings = info.GetProperty("warnings").EnumerateArray().Select(w => w.GetString() ?? "").ToList();
-        // an extension Ghidra did not load is a warning, not a failure: the analysis runs without it
+        // An extension Ghidra did not load is a warning, not a failure.
         var loaded = info.TryGetProperty("extensions", out var e) ? e.EnumerateArray().Select(x => x.GetString() ?? "").ToHashSet(StringComparer.OrdinalIgnoreCase) : [];
         foreach (var x in provider.Extensions.Where(x => !loaded.Contains(x.Name)))
             warnings.Add($"the extension {x.Name} ({x.Source}) was not loaded by Ghidra {ghidra.Version}");
@@ -372,7 +361,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
         ListFunctionsAsync(false, cancellationToken);
 
-    // the function table per worker instance and program change counter: one small stamp request instead of every row per call
+    // Function table per worker instance and change counter: one stamp request instead of every row per call.
     private readonly Dictionary<bool, (string Stamp, List<NativeFunctionInfo> Functions)> _functionTables = [];
 
     public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default)
@@ -386,10 +375,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return functions;
     }
 
-    /// <summary>
-    /// Ghidra gives a thunk the name of the function it jumps to; a thunk sharing its name with a function is called
-    /// thunk_name (Ghidra's own form for unnamed targets), so call sites in it do not read as sites in the target.
-    /// </summary>
+    /// <summary>Renames thunks that share their target's name to thunk_name, so their call sites do not read as the target's.</summary>
     internal static List<NativeFunctionInfo> NameThunks(List<NativeFunctionInfo> functions)
     {
         var bodies = functions.Where(f => (f.Flags & NativeFunctionFlags.Thunk) == 0).Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
@@ -412,10 +398,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) =>
         DecompileWithinAsync(rva, null, cancellationToken);
 
-    /// <summary>
-    /// The decompiler gets <paramref name="timeout"/> (null: the provider's limit); a timeout or a full response buffer is tried once
-    /// more with four times the time and twice the payload, inside the same request.
-    /// </summary>
+    /// <summary>Decompiles within <paramref name="timeout"/> (null: the provider's limit); one retry with 4x time and 2x payload.</summary>
     public Task<DecompiledFunction> DecompileWithinAsync(uint rva, TimeSpan? timeout, CancellationToken cancellationToken = default) =>
         DecompileCoreAsync(rva, timeout, failFirst: false, cancellationToken);
 
@@ -434,14 +417,11 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             if (r.TryGetProperty("retried", out var retried) && retried.GetBoolean()) Interlocked.Increment(ref _retries);
             return WorkerRows.Decompiled(r);
         }
-        // a pseudocode does not depend on the time it took; the retry hook always asks the worker
+        // Pseudocode does not depend on the time it took; the retry hook always asks the worker.
         return failFirst ? await Ask().ConfigureAwait(false) : await CachedAsync(OutputCacheKinds.Decompile, OutputCacheKinds.At(rva), Ask).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// A request about the function at <paramref name=rva/>: where the analysis has none but the server's index starts one there
-    /// (<see cref="NativeOpenOptions.KnownStart"/>), the worker makes it and the request runs again.
-    /// </summary>
+    /// <summary>A request about the function at <paramref name="rva"/>; a function the server's index knows is made first and the request rerun.</summary>
     private async Task<System.Text.Json.JsonElement> FunctionCallAsync(string op, JsonObject args, uint rva, CancellationToken cancellationToken, TimeSpan? timeout = null)
     {
         try
@@ -585,7 +565,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public async Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pdbPath);
-        // a large PDB takes minutes: the open's limit, not a single request's
+        // A large PDB takes minutes: the open's limit, not a single request's.
         return WorkerRows.PdbLoad(await CallAsync("load_pdb", WorkerRows.Args(("path", pdbPath), ("stamp_key", stampKey), ("stamp", stamp),
             ("trust_analysis", trustAnalysisLoad)), cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false));
     }
@@ -627,7 +607,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public async Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
         uint? allFrom = null, CancellationToken cancellationToken = default)
     {
-        // the budget stays under the request timeout so slow decompilation ends the scan instead of the request
+        // The budget stays under the request timeout so slow decompilation ends the scan, not the request.
         double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
         var args = WorkerRows.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
             ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget), ("all_from", allFrom));
@@ -638,10 +618,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default) =>
         RunJavaAsync(code, Options.RequestTimeout.TotalSeconds, cancellationToken);
 
-    /// <summary>
-    /// Runs a script in one transaction within <paramref name="seconds"/>, committed only when it returns normally, and saves
-    /// the program after it: the script is not journaled (a restart could not replay it), its committed changes are on disk.
-    /// </summary>
+    /// <summary>Runs a script in one transaction within <paramref name="seconds"/>, committed on normal return, then saves; not journaled, as a restart could not replay it, so its committed changes are on disk.</summary>
     internal async Task<NativeScriptResult> RunJavaAsync(string code, double seconds, CancellationToken cancellationToken = default,
         string? name = null, IReadOnlyList<string>? args = null, string? userDirectory = null, string? language = null)
     {

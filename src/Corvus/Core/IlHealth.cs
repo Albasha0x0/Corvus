@@ -6,19 +6,11 @@ using OperandType = dnlib.DotNet.Emit.OperandType;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Whether method bodies hold valid IL. A body is invalid when it contains an unknown opcode, an operand runs past the
-/// end of the code, or the code does not end in a return / throw / branch. Bodies of a runtime-decrypted assembly
-/// dumped from memory (or an encrypted one on disk) fail this, and decompiling them yields "Unknown opcode" noise.
-/// Exception clauses of valid bodies are checked as well (<see cref="ClauseIssues"/>).
-/// Reads the PE image directly; never throws.
-/// </summary>
+/// <summary>Whether method bodies and their exception clauses hold valid IL, read from the PE image; never throws.</summary>
+/// <remarks>Invalid: an unknown opcode, an operand past the code, or code not ending in a return, throw or branch.</remarks>
 public static class IlHealth
 {
-    /// <summary>
-    /// Bodies counted, the metadata tokens of the invalid ones, and per method token the problems of its invalid
-    /// exception clauses (one per clause).
-    /// </summary>
+    /// <summary>Bodies counted, invalid body tokens, and clause problems per method token.</summary>
     public sealed record Result(int Bodies, IReadOnlySet<int> InvalidTokens)
     {
         public static readonly Result None = new(0, new HashSet<int>());
@@ -63,14 +55,15 @@ public static class IlHealth
                 var def = md.GetMethodDefinition(handle);
                 int rva = def.RelativeVirtualAddress;
                 if (rva == 0) continue;
-                // native (C++/CLI) and runtime-implemented methods: the RVA points at machine code, not IL
+                // Native and runtime-implemented methods: the RVA points at machine code, not IL.
                 if ((def.ImplAttributes & System.Reflection.MethodImplAttributes.CodeTypeMask) != System.Reflection.MethodImplAttributes.IL) continue;
                 bodies++;
                 MethodBodyBlock body;
                 try { body = pe.GetMethodBody(rva); }
                 catch (Exception)
                 {
-                    invalid.Add(MetadataTokens.GetToken(handle)); // unreadable body header or exception sections
+                    // Unreadable body header or exception sections.
+                    invalid.Add(MetadataTokens.GetToken(handle));
                     continue;
                 }
                 var il = body.GetILContent().AsSpan();
@@ -98,18 +91,14 @@ public static class IlHealth
     public static bool IsValid(PEReader pe, int rva)
     {
         try { return IsValid(pe.GetMethodBody(rva).GetILContent().AsSpan()); }
-        catch (Exception) { return false; } // unreadable body header
+        // Unreadable body header.
+        catch (Exception) { return false; }
     }
 
     /// <summary>Whether the code bytes decode completely and end with a flow-ending instruction.</summary>
     public static bool IsValid(ReadOnlySpan<byte> il) => Decode(il, null);
 
-    /// <summary>
-    /// One problem per invalid clause of a valid IL body (ECMA-335 II.25.4.6, II.19): flags other than catch, filter,
-    /// finally or fault; a try or handler range outside the code; a range start or end that is not an instruction
-    /// boundary (a prefix and the instruction it modifies are one instruction); a filter that does not start on an
-    /// instruction before its handler; a catch clause without a type.
-    /// </summary>
+    /// <summary>One problem per invalid exception clause of a valid IL body (ECMA-335 II.25.4.6, II.19).</summary>
     public static List<string> ClauseIssues(ReadOnlySpan<byte> il, IReadOnlyList<Clause> clauses)
     {
         var boundaries = new HashSet<int>();

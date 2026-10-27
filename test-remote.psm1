@@ -1,25 +1,20 @@
-# Offloaded test classes (test.ps1 whole-suite runs): which classes run on another machine, the filter that leaves them
-# out here, and how their results join the local ones. The transports below start the remote half and bring its TRX
-# results back; a run with no usable target runs every class here.
+# Offloaded test classes for whole-suite runs: which classes run elsewhere, the local filter, and joining the results.
+# Without a usable target every class runs here.
 
 # The classes a run sends: engine-free heavy classes (sweeps, matrices, round trips, reference comparisons, the full
 # contract matrix, discovery at every thread count).
 $script:RemotePatterns = '*SweepTests', '*MatrixTests', 'PipelineRoundTripTests', '*OracleTests', '*ComparisonTests', '*CompareTests',
     'ContractSweepFullTests', 'ParallelDiscoveryTests'
-# Groups of offloaded classes: sweeps and comparisons, Ghidra classes and the live family each a CI job of its own; the
-# host group goes to a test host only and stays here when the run offloads to GitHub.
+# Offload groups: sweep, ghidra and live are CI jobs; the host group goes to a test host only.
 $script:Groups = 'sweep', 'ghidra', 'live', 'host'
 $script:HostGroup = 'host'
-# Classes with IDA facts: about half of them, by recorded time, go to a test host whose user variables name an IDA
-# install (this variable), so the engine-ida permit chain runs on both machines at once; GitHub has no IDA.
+# About half the IDA classes, by time, go to a test host whose user variables set this; GitHub has no IDA.
 $script:IdaGroup = 'ida'
 $script:IdaVariable = 'CORVUS_IDA_DIR'
-# Classes for a test host only: the Program Files sweep reads the machine it runs on (past 30 min on a runner), and the
-# timed and working-set classes need a machine no other run loads.
+# Test host only: the Program Files sweep (over 30 min on a runner) and classes that need an unloaded machine.
 $script:HostClasses = 'NativeToolSweepTests', 'DevRelayRealServerTests', 'DeadlineTests', 'StreamedSummaryMemoryTests'
-# The host tier: stable families (test folders) that leave push runs here but for their smoke tests (trait
-# Smoke=push) and run whole on the test host in whole runs.
-$script:TierFamilies = 'Accuracy', 'Builds', 'Containers', 'DotnetEdits', 'Dumps', 'Il2Cpp', 'Mobile', 'NativeAot', 'NativeEdits',
+# Host tier: stable families that push runs cover only by Smoke=push tests; they run whole on the test host.
+$script:TierFamilies = 'Accuracy', 'AotMetadata', 'Builds', 'Containers', 'DotnetEdits', 'Dumps', 'Mobile', 'NativeAot', 'NativeEdits',
     'NativeFormats', 'Support', 'Web'
 $script:SmokeTrait = 'Smoke=push'
 # The host tier's last nightly run on the test host, under the repository's .git: its record and its results.
@@ -30,26 +25,21 @@ $script:GhidraVariable = 'CORVUS_GHIDRA_DIR'
 $script:EngineFolders = 'Engines'
 # Attributes that keep a class's file here: the live real-data facts.
 $script:LocalAttributes = 'LiveRealDataFact'
-# The real-data fact: its file's classes go to a test host whose user variables name an existing path for every
-# variable the file's facts name (test-remote-setup.ps1 -Data copies them), and stay here otherwise. Real data never
-# goes to GitHub.
+# Real-data facts: their file's classes go to a test host that has every variable they name; never to GitHub.
 $script:DataAttribute = 'RequiresRealDataFact'
 # An IDA fact given real-data variables reads real data too.
 $script:IdaDataFact = '\[IdaFact\(\s*[^)\s]'
-# Real-data variables that name a program the tests run (reference decompilers, disassemblers, validators, a capture
-# reader, the pipeline tool) rather than inputs: -Data leaves them out, and a class that needs one goes only to a host
-# whose own install sets it.
+# Real-data variables that name a program, not an input: -Data skips them; a class needing one goes only to a host
+# that sets it.
 $script:ToolVariables = 'CORVUS_TSHARK', 'CORVUS_WASM_TO_TEXT', 'CORVUS_WASM_VALIDATOR', 'CORVUS_JAVA_DECOMPILER', 'CORVUS_JAVA_DECOMPILER2',
     'CORVUS_DEX_DISASSEMBLER', 'CORVUS_HBC_DISASSEMBLER', 'CORVUS_PY_DECOMPILER', 'CORVUS_PIPELINE_TOOL'
 # The file that names the real-data variables (RealData.Name constants).
 $script:RealDataSource = 'Support/TestEnv.cs'
-# Classes whose inputs are this machine's own: every System32 import binding holds on a client edition only (a server
-# image lacks some DLLs), the crash dump sweep reads this machine's dumps, the comparisons over local data folders
-# pass empty elsewhere, and the ISA sweep decompiles RISC-V, which the test host's IDA license lacks.
+# Classes whose inputs are this machine's own: client-edition System32, local dumps and data folders, and RISC-V
+# (not in the test host's IDA license).
 $script:LocalClasses = 'NativeLinkSweepTests', 'MinidumpSweepTests', 'FirmwareComparisonTests', 'InstallerComparisonTests',
     'DependencyListerComparisonTests', 'IsaEngineTests'
-# A class that took under this share of its last local time, when that was at least the given seconds, proved less
-# there (a test that returns early without its inputs) and runs here.
+# A class under this share of its last local time (when at least the given seconds) proved less there and reruns here.
 $script:ShortShare = 0.2
 $script:ShortFloorSeconds = 30
 # Where a run keeps each target's record and results, under the repository's .git.
@@ -65,12 +55,10 @@ $script:GhVariable = 'CORVUS_TEST_GH'
 # The workflow and the job name prefix of the CI offload job (.github/workflows/ci.yml); its TRX artifacts share it.
 $script:Workflow = 'ci.yml'
 $script:OffloadJob = 'offload'
-# Seconds to wait for the commit's CI run to appear (a push run starts before its push lands), and minutes for its
-# offload jobs to finish.
+# Seconds for the commit's CI run to appear (push runs start before the push lands), minutes for offload jobs.
 $script:RunAppearSeconds = 120
 $script:RunFinishMinutes = 120
-# Minutes a push run waits for the GitHub live jobs in place of rerunning the live classes a test host left; they end
-# 10 to 22 min after the push, well inside a push run.
+# Minutes a push run waits for GitHub live jobs instead of rerunning live classes; they end 10 to 22 min after a push.
 $script:LiveFallbackMinutes = 10
 $script:PollSeconds = 15
 # A test host prepared by test-remote-setup.ps1 ([user@]name); it takes the offloaded classes ahead of GitHub when it
@@ -79,22 +67,19 @@ $script:HostVariable = 'CORVUS_TEST_REMOTE'
 # The ssh and scp programs, a .ps1 script standing in for either in the tests; OpenSSH's own when unset.
 $script:SshVariable = 'CORVUS_TEST_SSH'
 $script:ScpVariable = 'CORVUS_TEST_SCP'
-# OpenSSH's option strings: key auth only, no prompt (a new host's key is recorded), a connect that fails fast, and a
-# dead connection noticed within 2 minutes.
+# OpenSSH options: key auth only, accept a new host key, fail fast on connect, detect a dead link within 2 min.
 $script:SshOptions = @('-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=4')
 # The host's folder under its user's home: the clone (repo), the run's worktree (run) and its results.
 $script:HostFolder = 'corvus-test-host'
-# Seconds a short ssh or scp call (the probe, a query, a cleanup) may take in all: the ssh options bound the connect
-# and a dead connection, not a session that hangs after login. A TRX copy gets four times as long.
+# Seconds a short ssh or scp call may take, bounding a session that hangs after login; a TRX copy gets 4x.
 $script:ShortCallSeconds = 30
 # Seconds a timed-out call's process tree may take to exit once it is ended.
 $script:KillWaitSeconds = 10
 # Seconds the host waits for the commit to reach origin; a push run starts before its push lands.
 $script:FetchWaitSeconds = 120
 
-# The variables the real-data facts in $text name, '?' for one it cannot resolve (a fact without arguments, or an
-# argument that is no string constant): RealData.Name through $constants, a "CORVUS_..." literal, or a constant of the
-# file. Sorted, unique; empty when the file has no real-data fact.
+# Variables the real-data facts in $text name, sorted and unique; '?' for one that cannot be resolved; empty when the
+# file has no real-data fact.
 function Get-DataVariables([string]$text, [hashtable]$constants) {
     $names = foreach ($fact in [regex]::Matches($text, '\[' + $script:DataAttribute + '\b(?:\(([^)]*)\))?')) {
         if (-not $fact.Groups[1].Success -or -not $fact.Groups[1].Value.Trim()) { '?'; continue }
@@ -117,9 +102,8 @@ function Get-RealDataConstants([string]$testsDir) {
     $constants
 }
 
-# The top-level *Tests classes of C# source $text as @{ Class; Ida; Ghidra }: whether the class holds an IDA fact, and
-# one a routine run includes (a Ghidra fact without the release tier on it or on its class). An offload never runs the
-# release tier, so a class whose Ghidra facts are all release-tier counts as IDA alone.
+# Top-level *Tests classes in $text as @{ Class; Ida; Ghidra }; Ghidra counts only facts a routine run includes, as
+# offloads never run the release tier.
 function Get-ClassEngines([string]$text) {
     $declarations = @([regex]::Matches($text, '(?m)^public (?:sealed |abstract |partial |static )*class (\w+Tests)\b'))
     $release = 'Trait\("Tier",\s*"Release"\)'
@@ -140,12 +124,8 @@ function Get-ClassEngines([string]$text) {
     }
 }
 
-# The offloaded classes of $testsDir as @{ Class; Group; Mixed; Variables }: host, the host classes and those in files
-# with real-data facts (Variables, the variables those facts name); live, the classes of the Live folder; ghidra, the
-# classes with a Ghidra fact a routine run includes (Mixed when the class has IDA facts too); ida, the classes with IDA
-# facts alone; sweep, names matching the table outside the engine folder. Files with real data and IDA facts, live real
-# data, and the local classes stay here; with -CrossPlatform, files with a Windows-only fact too. Only classes named *Tests count (fixtures and test bases
-# hold no test of their own; an abstract *Tests class holds nested ones).
+# Offloaded *Tests classes of $testsDir as @{ Class; Group; Mixed; Variables }, grouped host, live, ghidra, ida or
+# sweep. Real data with IDA facts, live real data and local classes stay here; with -CrossPlatform, Windows-only too.
 function Get-RemoteEntries([string]$testsDir, [switch]$CrossPlatform) {
     $local = '\[(' + ($script:LocalAttributes -join '|') + $(if ($CrossPlatform) { '|WindowsFact' }) + ')\b'
     $constants = Get-RealDataConstants $testsDir
@@ -182,8 +162,7 @@ function Get-TierFamilies([string[]]$returned = @()) {
     @($script:TierFamilies | Where-Object { $_ -notin $returned } | Sort-Object)
 }
 
-# The test classes (named *Tests) of the host tier's family folders under $testsDir, without the families in $returned.
-# Sorted; a family folder that does not exist adds none.
+# *Tests classes of the host tier's family folders, without $returned families. Sorted; missing folders add none.
 function Get-TierClasses([string]$testsDir, [string[]]$returned = @()) {
     @($(foreach ($family in Get-TierFamilies $returned) {
         $folder = Join-Path $testsDir $family
@@ -200,8 +179,8 @@ function Get-TierFamiliesOf([string]$testsDir, [string[]]$classes) {
     @(Get-TierFamilies | Where-Object { $family = $_; @(Get-TierClasses $testsDir @(Get-TierFamilies | Where-Object { $_ -ne $family }) | Where-Object { $_ -in $classes }) })
 }
 
-# The host tier's families its last run on the test host returned to push runs (<gitDir>/corvus-host-tier.json): those
-# with a class that failed there, until a later tier run passes them. Sorted; empty when the tier has not run.
+# Host tier families returned to push runs by a failure on the host, until a tier run passes them. Sorted; empty when
+# the tier has not run.
 function Get-TierReturned([string]$gitDir) {
     $file = Join-Path $gitDir $script:TierFile
     if (-not (Test-Path $file)) { return @() }
@@ -215,9 +194,7 @@ function Get-TierFilter([string]$filter, [string[]]$classes) {
     "($(Get-LocalFilter $filter $classes))|$script:SmokeTrait"
 }
 
-# Of the host tier's $classes, @{ Sent; Kept } for a test host whose user variables are $hostVariables: Kept names each
-# class that stays unsent as "Class (reason)", a local class, a file with live real data, or a file whose real-data or
-# engine facts need a variable not set there ('?' for one the facts do not name). Both sorted.
+# Host tier $classes as @{ Sent; Kept } for a host with $hostVariables; Kept entries read "Class (reason)". Sorted.
 function Get-TierHostClasses([string]$testsDir, [string[]]$classes, [string[]]$hostVariables = @()) {
     $constants = Get-RealDataConstants $testsDir
     $local = '\[(' + ($script:LocalAttributes -join '|') + ')\b'
@@ -242,10 +219,8 @@ function Get-TierHostClasses([string]$testsDir, [string[]]$classes, [string[]]$h
     @{ Sent = @($sent | Sort-Object -Unique); Kept = @($kept | Sort-Object -Unique) }
 }
 
-# What the host tier's run proved, from $got (Receive-Offload) for the $sent classes, as @{ Passed; Failed; Unproven }:
-# the families of $classMap whose classes were all sent and all passed there with a full result (none proving less
-# than in $localTrx, the last local whole run; Get-SkippedOnHost with $fastest), the families with a class that failed
-# there, and the sent classes without a full result. Sorted; nothing passes without results.
+# What a host tier run proved as @{ Passed; Failed; Unproven }: families whose classes all passed with a full result,
+# families with a failure, and sent classes without a full result. Sorted; nothing passes without results.
 function Get-TierPasses($got, [string[]]$sent, [hashtable]$classMap, [string]$localTrx, [hashtable]$fastest = @{}) {
     if (-not $got.Trx) { return @{ Passed = @(); Failed = @(); Unproven = @($sent | Sort-Object -Unique) } }
     $failedClasses = @($got.Failed | ForEach-Object Class)
@@ -266,9 +241,7 @@ function Save-TierRecord([string]$gitDir, [System.Collections.IDictionary]$recor
     Set-Content -Path (Join-Path $gitDir $script:TierFile) -Value ($record | ConvertTo-Json -Depth 3) -NoNewline
 }
 
-# The host tier's last run as one line: "<state> on <commit> at <time> on <target> (<n> classes, <s> s); ...", naming
-# the families it recorded, those that failed, those returned to push runs, the classes without a full result and those
-# kept unsent; $null when it has not run.
+# The host tier's last run as one status line; $null when it has not run.
 function Get-TierStatus([string]$gitDir) {
     $file = Join-Path $gitDir $script:TierFile
     if (-not (Test-Path $file)) { return $null }
@@ -285,9 +258,8 @@ function Get-TierStatus([string]$gitDir) {
     $parts -join '; '
 }
 
-# The classes of $testsDir a run sends, of one group or (empty) of every group but the host and IDA groups
-# (Get-RemoteEntries). -TestHost adds the host group's classes whose real-data variables are all in $hostVariables.
-# Sorted; throws for an unknown group.
+# Classes a run sends for one group, or (empty) all but host and ida; -TestHost adds host classes whose variables are
+# all in $hostVariables. Sorted; throws for an unknown group.
 function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$CrossPlatform, [switch]$TestHost, [string[]]$hostVariables = @()) {
     if ($Group -and $Group -notin $script:Groups) { throw "Unknown offload group '$Group' (one of $($script:Groups -join ', '))." }
     @(Get-RemoteEntries $testsDir -CrossPlatform:$CrossPlatform |
@@ -299,27 +271,22 @@ function Get-RemoteClasses([string]$testsDir, [string]$Group = '', [switch]$Cros
         ForEach-Object Class | Sort-Object -Unique)
 }
 
-# The IDA classes of $testsDir a test host whose $hostVariables name an IDA install takes: of the classes with IDA
-# facts it may run (alone or with Ghidra facts), those dealt to it when each, longest first by $seconds (class name to
-# recorded seconds; an unrecorded class counts 1 s), goes to the machine with less so far. They run whole there.
-# Sorted; empty when the host has no IDA. $hostPart is the host's fraction of the time, as Get-HostShare takes it.
+# IDA classes a host with IDA takes, dealt by Get-HostShare with $hostPart; they run whole there. Sorted; empty
+# without IDA on the host.
 function Get-IdaHostClasses([string]$testsDir, [hashtable]$seconds = @{}, [string[]]$hostVariables = @(), [double]$hostPart = 0.5) {
     if ($script:IdaVariable -notin $hostVariables) { return @() }
     Get-HostShare @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq $script:IdaGroup -or $_.Mixed } | ForEach-Object Class | Sort-Object -Unique) $seconds $hostPart
 }
 
-# The Ghidra classes of $testsDir that stay here when a test host takes the rest: of the classes with Ghidra facts
-# alone (a mixed class's Ghidra tests go there already), those not dealt to the host as Get-HostShare deals them, so
-# the Ghidra chain runs on both machines. Sorted.
+# Ghidra-only classes that stay here when a test host takes the rest, as Get-HostShare deals them. Sorted.
 function Get-GhidraLocalClasses([string]$testsDir, [hashtable]$seconds = @{}, [double]$hostPart = 0.5) {
     $classes = @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq 'ghidra' -and -not $_.Mixed } | ForEach-Object Class | Sort-Object -Unique)
     $there = @(Get-HostShare $classes $seconds $hostPart)
     @($classes | Where-Object { $_ -notin $there })
 }
 
-# The real-data classes of $testsDir that stay here when a test host whose $hostVariables name their data takes the
-# rest, dealt as Get-HostShare deals them but this machine first, so neither machine waits on the other's real-data
-# chain. The timed classes of the host group always go there. Sorted.
+# Real-data classes that stay here when a test host takes the rest, dealt this machine first; timed host classes
+# always go there. Sorted.
 function Get-RealDataLocalClasses([string]$testsDir, [hashtable]$seconds = @{}, [string[]]$hostVariables = @(), [double]$hostPart = 0.5) {
     $classes = @(Get-RemoteEntries $testsDir | Where-Object { $_.Group -eq $script:HostGroup -and $_.Variables.Count -gt 0 -and -not @($_.Variables | Where-Object { $_ -notin $hostVariables }) } |
         ForEach-Object Class | Sort-Object -Unique)
@@ -327,9 +294,8 @@ function Get-RealDataLocalClasses([string]$testsDir, [hashtable]$seconds = @{}, 
     @(Get-HostShare $classes $seconds (1 - $hostPart))
 }
 
-# The host's share of $classes: each, longest first by $seconds (class name to recorded seconds; an unrecorded class
-# counts 1 s), goes to the machine with less so far for its part, the host first; $hostPart (0 to 1) is the host's
-# part of the time. Sorted.
+# The host's share of $classes: longest first by $seconds (unrecorded: 1 s), each to the machine with less time for
+# its part; $hostPart (0 to 1) is the host's part. Sorted.
 function Get-HostShare([string[]]$classes, [hashtable]$seconds, [double]$hostPart = 0.5) {
     $weight = @{}; foreach ($class in $classes) { $weight[$class] = if ($seconds.ContainsKey($class) -and $seconds[$class] -gt 0) { [double]$seconds[$class] } else { 1.0 } }
     $here = 0.0; $there = 0.0
@@ -359,9 +325,8 @@ function Get-MixedClasses([string]$testsDir) {
     @(Get-RemoteEntries $testsDir | Where-Object Mixed | ForEach-Object Class | Sort-Object -Unique)
 }
 
-# Shard $index (0-based) of $count over $classes, in name order. With $seconds (class -> recorded seconds), each class,
-# longest first, goes to the shard with the least recorded time so far (ties: by name, to the lower shard), a class with
-# no record counting 1 s; without it, classes are dealt in name order. Every machine computes the same shards.
+# Shard $index (0-based) of $count over $classes. With $seconds, longest first to the least-loaded shard (ties: lower
+# shard; unrecorded: 1 s); without, dealt in name order. Deterministic on every machine.
 function Get-RemoteShard([string[]]$classes, [int]$index, [int]$count, [hashtable]$seconds) {
     if (-not $seconds) { return @(for ($i = $index; $i -lt $classes.Count; $i += $count) { $classes[$i] }) }
     $load = [double[]]::new($count)
@@ -383,8 +348,7 @@ function Read-OffloadRecord([string]$path) {
     try { Get-Content $path -Raw | ConvertFrom-Json -AsHashtable } catch { $null }
 }
 
-# The recorded seconds per offloaded class on $platform (class -> seconds) that Get-RemoteShard deals by: a class
-# recorded only on other platforms takes the longest of their times. $null when the file at $path is missing or
+# Recorded seconds per class on $platform, else the longest on other platforms; $null when $path is missing or
 # unreadable.
 function Read-OffloadSeconds([string]$path, [string]$platform = (Get-OffloadPlatform)) {
     if (-not (Test-Path $path)) { return $null }
@@ -398,9 +362,7 @@ function Read-OffloadSeconds([string]$path, [string]$platform = (Get-OffloadPlat
     $seconds
 }
 
-# Records in $path, under $platform, per class, the median of its summed test seconds over the TRX files $trxPaths
-# (offload job results from that platform), whole seconds, at least 1; classes recorded before and absent from these
-# files keep their entry, and other platforms' entries are kept as they were.
+# Records per class under $platform the median summed seconds over $trxPaths (whole, at least 1); other entries keep.
 function Save-OffloadSeconds([string[]]$trxPaths, [string]$path, [string]$platform = (Get-OffloadPlatform)) {
     $runs = @{}
     foreach ($trx in $trxPaths) { foreach ($c in Get-ClassOutcomes $trx) { $runs[$c.Class] = @($runs[$c.Class]) + $c.Seconds | Where-Object { $null -ne $_ } } }
@@ -497,10 +459,8 @@ function Get-FastestClassSeconds([string]$historyFile) {
     $fastest
 }
 
-# Classes whose results in $remoteTrx prove less than in $localTrx (the last local whole run): a test skipped there
-# that ran here, or far less time than here (a test that returns early without its inputs). The time compared is the
-# fewer of the last local run's and the fastest in $fastest: a loaded machine runs a class many times slower than an
-# idle one, so the last local time alone would make a class on an idle host look short.
+# Classes that prove less in $remoteTrx than in $localTrx: a test skipped there, or far less time. The local time is
+# the lower of the last run and $fastest, since a loaded machine would make an idle host look short.
 function Get-SkippedOnHost([string]$remoteTrx, [string]$localTrx, [hashtable]$fastest = @{}) {
     $before = @{}; if (Test-Path $localTrx) { foreach ($c in Get-ClassOutcomes $localTrx) { $before[$c.Class] = $c } }
     @(Get-ClassOutcomes $remoteTrx | Where-Object {
@@ -510,10 +470,8 @@ function Get-SkippedOnHost([string]$remoteTrx, [string]$localTrx, [hashtable]$fa
     } | ForEach-Object Class | Sort-Object -Unique)
 }
 
-# The sent classes that rerun here after the remote half: those with a failed test there on any platform, those that
-# proved less there (Get-SkippedOnHost; for $mixed classes, whose IDA tests skip there, Get-SkippedOnBoth against this
-# run's $hereTrx), and those with no results there that ran here in $localTrx (all of them when there is no
-# $localTrx). $fastest is Get-FastestClassSeconds. Sorted; empty when the remote half covered every class.
+# Sent classes that rerun here: failed there, proved less there, or have no results there. Sorted; empty when the
+# remote half covered every class.
 function Get-RerunClasses($got, [string[]]$sent, [string]$localTrx, [string[]]$mixed = @(), [string]$hereTrx = '', [hashtable]$fastest = @{}) {
     $there = @{}; if ($got.Trx) { foreach ($c in Get-ClassOutcomes $got.Trx) { $there[$c.Class] = $true } }
     $ranHere = if (Test-Path $localTrx) { @(Get-ClassOutcomes $localTrx | ForEach-Object Class) } else { $null }
@@ -533,10 +491,8 @@ function Get-FailedThereNote($failed, [string]$hereTrx, [string]$target) {
     }) -join '; '
 }
 
-# Writes to $target one TRX file holding the results of $sources (missing files are passed over), without the results
-# of $dropClasses from every source after the first. A test of $mergeClasses keeps one result per class and test name:
-# a failed one over a passed one over a skipped one. Outcome counters are recounted, the others summed; an aborted
-# source makes the run aborted.
+# Joins $sources into one TRX at $target, dropping $dropClasses after the first source. $mergeClasses keep one result
+# per test (failed over passed over skipped). An aborted source makes the run aborted.
 function Join-TrxFiles([string]$target, [string[]]$sources, [string[]]$dropClasses = @(), [string[]]$mergeClasses = @()) {
     $present = @($sources | Where-Object { $_ -and (Test-Path $_) })
     if (-not $present) { return }
@@ -603,9 +559,7 @@ function Get-TrxTests([xml]$trx, $ns) {
 # The file name a target's record and results take in the record folder.
 function Get-TargetFileName([string]$name) { $name -replace '[^\w.-]', '_' }
 
-# Of $classes, the ones in the host group $hostGroup that a push run leaves to the nightly whole run, which runs every
-# class: all but those in $failed, which run here so that a failure on the test host is checked on this machine too.
-# Sorted.
+# Host group $classes a push run leaves to the nightly run, except $failed, which rerun here. Sorted.
 function Get-DeferredClasses([string[]]$classes, [string[]]$hostGroup, [string[]]$failed = @()) {
     @($classes | Where-Object { $_ -in $hostGroup -and $_ -notin $failed } | Sort-Object -Unique)
 }
@@ -647,11 +601,8 @@ function Get-RemoteStatus([string]$gitDir) {
     }
 }
 
-# The target a whole-suite run offloads to, as @{ Name; Kind; ... }, or $null when none is usable: a routine run on a
-# commit on origin's main (or the background push run's commit) offloads to the test host CORVUS_TEST_REMOTE names when
-# it answers over ssh, else to GitHub when ci.yml has the offload job and the gh command line is present. A run at
-# release strength offloads to the test host only: GitHub runs its offload job at routine strength.
-# CORVUS_TEST_OFFLOAD=0 turns it off.
+# The offload target as @{ Name; Kind; ... }, or $null: the CORVUS_TEST_REMOTE host when it answers, else GitHub for a
+# routine run on origin's main. Release strength offloads to the host only. CORVUS_TEST_OFFLOAD=0 turns it off.
 function Get-OffloadTarget([string]$repo, [bool]$releaseTier) {
     if ([Environment]::GetEnvironmentVariable($script:OffloadVariable) -in '0', 'false', 'off') { return $null }
     if ([Environment]::GetEnvironmentVariable($script:PushRunVariable) -ne '1') {
@@ -674,10 +625,8 @@ function Get-GitHubTarget([string]$repo) {
     @{ Name = 'github'; Kind = 'github'; Repository = $Matches[1] }
 }
 
-# Of $classes, live classes a test host left without a full result, those the live jobs of $commit's GitHub offload proved on
-# Windows, as Get-RerunClasses judges against $localTrx and the $fastest class times. A failure on another platform does not count: a rerun here
-# proves Windows only. @{ Proved; Trx; Drop; Note }, Drop naming the other classes of Trx; Proved is empty when GitHub
-# is not usable or its live jobs did not finish within $finishMinutes.
+# Live $classes that $commit's GitHub live jobs proved on Windows, as @{ Proved; Trx; Drop; Note }. Proved is empty
+# when GitHub is unusable or its jobs did not finish within $finishMinutes.
 function Receive-GitHubLive([string]$repo, [string]$commit, [string[]]$classes, [string]$localTrx, [string]$folder,
     [hashtable]$fastest = @{}, [int]$finishMinutes = $script:LiveFallbackMinutes, [int]$pollSeconds = $script:PollSeconds) {
     $result = [pscustomobject]@{ Proved = @(); Trx = $null; Drop = @(); Note = $null }
@@ -735,10 +684,8 @@ function Receive-Offload($handle, [string]$folder) {
     $state
 }
 
-# Runs ssh or scp (or the script standing in for it) with $arguments; returns its output, sets $LASTEXITCODE.
-# Runs $program (or the .ps1 script $variable names) with $arguments and returns its output lines. With
-# $timeoutSeconds, a call still running then is ended with its child processes, its output dropped, and
-# $LASTEXITCODE set to -1.
+# Runs $program (or the .ps1 $variable names) and returns its output lines. Past $timeoutSeconds the call and its
+# children are ended, output dropped, $LASTEXITCODE -1.
 function Invoke-Transport([string]$variable, [string]$program, [string[]]$arguments, [int]$timeoutSeconds = 0) {
     $command = [Environment]::GetEnvironmentVariable($variable)
     if ($timeoutSeconds -le 0) {
@@ -791,12 +738,10 @@ function Get-HostProcessors([string]$remoteHost) {
     $n = 0; if ([int]::TryParse("$($count | Select-Object -Last 1)".Trim(), [ref]$n)) { $n } else { 0 }
 }
 
-# The script a test host runs: wait for $commit on origin (or take it from the bundle sent beside the script), check it
-# out in the host's worktree, build once and run $filter $repeat times there at below-normal priority, one script at a
-# time. Its output names a wait for another script ("corvus-remote: waiting for another run on the host", then
-# "corvus-remote-waited <seconds>"), the start ("corvus-remote: started"), each run ("corvus-remote-run <n> <exit code>") and the
-# end ("corvus-remote-exit <worst exit code>"); a script that never starts a run names why. Results go to
-# results/<id>/run-<n>.trx under the host folder. -Exhaustive runs every sweep input, as a release-strength run here.
+# The test host script: get $commit (origin or bundle), build once, run $filter $repeat times at below-normal
+# priority, one script at a time. Output lines: "corvus-remote-waited <s>", "corvus-remote: started",
+# "corvus-remote-run <n> <exit>", "corvus-remote-exit <worst exit>". Results: results/<id>/run-<n>.trx.
+# -Exhaustive runs every sweep input.
 function Get-RemoteRunScript([string]$commit, [string]$filter, [string]$id, [int]$repeat = 1, [switch]$Bundle, [switch]$Exhaustive) {
     $quoted = $filter.Replace("'", "''")
     @"
@@ -805,8 +750,7 @@ function Get-RemoteRunScript([string]$commit, [string]$filter, [string]$id, [int
 `$base = Join-Path `$HOME '$script:HostFolder'
 `$clone = Join-Path `$base 'repo'; `$tree = Join-Path `$base 'run'; `$out = Join-Path `$base 'results/$id'
 `$bundle = Join-Path `$base '$id.bundle'
-# One script at a time: push runs and lanes' loops share the worktree and the machine. A script that waits says so
-# at once and names its wait once it runs, so a filter run queued behind a long run is not silent.
+# One script at a time, as runs share the worktree; a waiting script says so at once.
 `$lock = [Threading.Mutex]::new(`$false, 'Global\corvus-test-host')
 `$queued = [Diagnostics.Stopwatch]::StartNew()
 try {
@@ -835,8 +779,7 @@ try {
     `$log = Join-Path `$out 'console.log'
     & dotnet build (Join-Path `$tree 'tests/Corvus.Tests') --nologo -c Release *> `$log
     if (`$LASTEXITCODE -ne 0) {
-        # Another program on the host can remove a tracked file after checkout; the line names such files, not only
-        # the failed build.
+        # Another program can remove a tracked file after checkout; name such files, not only the failed build.
         `$gone = @(git -C `$tree ls-files --deleted)
         if (`$gone) {
             `$names = (`$gone | Select-Object -First 3) -join ', '
@@ -883,9 +826,8 @@ function Invoke-RemoteRun([string]$remoteHost, [string]$script, [string]$id, [st
     @{ Kind = 'ssh'; Host = $remoteHost; Id = $id; Output = $output }
 }
 
-# A commit holding $repo's working tree as it is (tracked changes and untracked files outside .gitignore), made without
-# touching its index or branches: HEAD itself when the tree is clean. Returns @{ Commit; Bundle }, Bundle being a
-# bundle file of the commits origin/main lacks, or empty when origin has the commit already.
+# A commit of $repo's working tree without touching index or branches (HEAD when clean), as @{ Commit; Bundle };
+# Bundle holds what origin/main lacks, empty when origin has it.
 function New-RemoteSnapshot([string]$repo, [string]$id) {
     $index = Join-Path ([IO.Path]::GetTempPath()) "corvus-remote-$id.index"
     try {
@@ -913,9 +855,8 @@ function New-CommitBundle([string]$repo, [string]$commit, [string]$id) {
     $bundle
 }
 
-# Runs $filter $repeat times on the test host from $repo's working tree as it is (test.ps1 -Remote), printing a line per
-# run and copying the TRX files of failed runs into $folder. Returns 0 when every run passed, 1 when any failed, and 2
-# when no run started there.
+# Runs $filter $repeat times on the test host from the working tree; failed runs' TRX go to $folder. Returns 0 all
+# passed, 1 any failed, 2 none started.
 function Invoke-RemoteFilter([string]$repo, [string]$remoteHost, [string]$filter, [int]$repeat, [string]$folder) {
     $id = [guid]::NewGuid().ToString('N').Substring(0, 12)
     $snapshot = New-RemoteSnapshot $repo $id
@@ -942,9 +883,8 @@ function Invoke-RemoteFilter([string]$repo, [string]$remoteHost, [string]$filter
     if ($failed -or $missing -gt 0) { 1 } else { 0 }
 }
 
-# Brings a test host's results back into $folder: @{ Started; Trx; Failed; Note; Waited } as Receive-GitHubRun returns
-# it, Waited being the seconds the script waited for another run there (0 when it did not). Started false means no
-# test started there (ssh failed, or the commit never arrived), and Note says why.
+# Brings a test host's results into $folder as @{ Started; Trx; Failed; Note; Waited }; Started false means no test
+# started there and Note says why.
 function Receive-RemoteRun($state, [string]$folder) {
     $result = [pscustomobject]@{ Started = $false; Trx = $null; Failed = @(); Note = $null; Waited = 0 }
     $output = @($state.Output)
@@ -975,9 +915,8 @@ function Invoke-Gh([string[]]$arguments) {
     & gh @arguments
 }
 
-# Waits for the commit's CI run on push and its offload jobs (those of $group only, when given): @{ Kind; Repository;
-# Run; Jobs; Note }, with Run $null (and Note saying why) when the run never appeared or its jobs did not finish within
-# $finishMinutes; Note names the offload jobs that did not succeed.
+# Waits for the commit's CI offload jobs ($group only, when given) as @{ Kind; Repository; Run; Jobs; Note }; Run is
+# $null when they did not finish within $finishMinutes; Note names jobs that did not succeed.
 function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSeconds = $script:RunAppearSeconds, [int]$pollSeconds = $script:PollSeconds,
     [string]$group = '', [int]$finishMinutes = $script:RunFinishMinutes) {
     $state = @{ Kind = 'github'; Repository = $repository; Run = $null; Jobs = @(); Note = $null }
@@ -1010,10 +949,8 @@ function Wait-GitHubRun([string]$repository, [string]$commit, [int]$appearSecond
     }
 }
 
-# Downloads a finished run's TRX artifacts (offload-<group>-<os>-<shard>, of $group only when given) into $folder:
-# @{ Started; Trx; Failed; Note }.
-# Trx joins the Windows shards ($null when none came back); the other platforms' expected skips stay out. Failed lists
-# the classes with a failed test on any platform, as @{ Class; Platform }. Started false means no test ran there.
+# Downloads a run's offload TRX artifacts into $folder as @{ Started; Trx; Failed; Note }. Trx joins the Windows
+# shards ($null when none); Failed lists @{ Class; Platform } on any platform.
 function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result = [pscustomobject]@{ Started = $false; Trx = $null; Failed = @(); Note = $state.Note }
     if (-not $state.Run) { return $result }

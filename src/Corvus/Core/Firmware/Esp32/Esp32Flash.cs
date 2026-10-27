@@ -71,10 +71,7 @@ internal sealed class Esp32PartitionTable
     }
 }
 
-/// <summary>
-/// An ESP-IDF NVS partition read as nvs_tool.py reads it: 4 KiB pages, each a header, an entry-state bitmap and 126
-/// 32-byte entries; written entries resolve to namespace, key and value, and v2 blobs are joined from their chunks.
-/// </summary>
+/// <summary>An ESP-IDF NVS partition read as nvs_tool.py reads it; v2 blobs are joined from their chunks.</summary>
 internal sealed class Esp32Nvs
 {
     public const int PageSize = 4096;
@@ -228,10 +225,7 @@ internal sealed class Esp32Nvs
     }
 }
 
-/// <summary>
-/// The layout of an ESP32-family flash image: the bootloader image, the partition table and each partition's place in the
-/// file. <see cref="Base"/> is the flash address of file offset 0, from the bootloader's chip and its position in the file.
-/// </summary>
+/// <summary>An ESP32-family flash layout; <see cref="Base"/> is the flash address of file offset 0.</summary>
 internal sealed class Esp32Flash
 {
     private const int MaxTableSearch = 1 << 20;
@@ -278,10 +272,7 @@ internal sealed class Esp32Flash
     }
 }
 
-/// <summary>
-/// An ESP32-family flash image as a container: the bootloader, the partition table and each partition in the file, named
-/// by label; a partition that runs past the end of the file is cut there and noted, one wholly outside it is listed only.
-/// </summary>
+/// <summary>An ESP32-family flash image as a container; a partition past the end is cut and noted, one outside is only listed.</summary>
 internal sealed class Esp32FlashReader : IContainerReader
 {
     public string Kind => "esp32 flash";

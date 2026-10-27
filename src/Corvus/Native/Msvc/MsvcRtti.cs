@@ -47,10 +47,7 @@ public enum MsvcBaseAttributes : uint
     HasHierarchyDescriptor = 0x40,
 }
 
-/// <summary>
-/// One entry of a base class array. <see cref="Mdisp"/> is the member displacement; for a virtual base
-/// (<see cref="Pdisp"/> &gt;= 0) the base is found through the vbtable at <see cref="Pdisp"/>, entry <see cref="Vdisp"/>.
-/// </summary>
+/// <summary>A base class array entry; a virtual base (<see cref="Pdisp"/> &gt;= 0) is found through vbtable entry <see cref="Vdisp"/>.</summary>
 /// <param name="Depth">1 for a direct base, 2 for a base of a direct base, ...</param>
 /// <param name="Parent">Index in <see cref="MsvcRttiClass.Bases"/> of the base this one belongs to; null for direct bases.</param>
 public sealed record MsvcRttiBase(
@@ -116,20 +113,11 @@ public sealed record MsvcRttiOptions
     /// <summary>Sections larger than this are not scanned (reported in the notes).</summary>
     public long MaxSectionBytes { get; init; } = 512L << 20;
 
-    /// <summary>
-    /// Data addresses (RVAs) that code references, e.g. from a disassembly cross-reference index. A vftable ends before a
-    /// slot that code references, since that is the start of another table. When null, references are collected from the
-    /// image: on x86 from relocated absolute operands in code, on x64 from RIP-relative LEA/MOV operands.
-    /// </summary>
+    /// <summary>Data RVAs code references; a vftable ends before one; null collects them from the image.</summary>
     public IReadOnlyCollection<uint>? CodeReferences { get; init; }
 }
 
-/// <summary>
-/// Recovers MSVC RTTI from an image: type descriptors (".?AV" names after the type_info vftable pointer), complete
-/// object locators (x64/ARM64 signature 1 with image-relative fields and a self RVA; x86 signature 0 with VAs),
-/// class hierarchy descriptors and base class arrays, and the vftables that follow a pointer to a locator.
-/// Every structure is validated against the others; candidates that fail are reported with the reason.
-/// </summary>
+/// <summary>Recovers MSVC RTTI classes and vftables; candidates that fail validation are reported with the reason.</summary>
 public static class MsvcRtti
 {
     private const string TypeDescriptorKind = "type descriptor";
@@ -369,7 +357,7 @@ public static class MsvcRtti
                     uint rva;
                     if (rvaBased)
                     {
-                        // signature 1, then offset, cdOffset, descriptor RVAs, and the locator's own RVA at +20
+                        // Signature 1, then offset, cdOffset, descriptor RVAs, and the locator's own RVA at +20.
                         int k = words[i..].IndexOf(1u);
                         if (k < 0) break;
                         i += k;
@@ -380,7 +368,7 @@ public static class MsvcRtti
                     }
                     else
                     {
-                        // a type descriptor VA at +12 of a signature 0 locator with plausible offsets and a descriptor VA in the image
+                        // A type descriptor VA at +12 of a signature 0 locator with plausible offsets.
                         int k = words[i..].IndexOfAnyInRange(tdLow, tdHigh);
                         if (k < 0) break;
                         i += k;
@@ -461,7 +449,7 @@ public static class MsvcRtti
                 if (!TryReference(arrayRva + 4u * (uint)i, out var bcd)) { reason = $"base class array entry {i} is outside the image"; return null; }
                 var e = ReadBaseDescriptor(bcd, out var bcdReason);
                 if (e == null) { reason = $"base class descriptor {i} at 0x{bcd:X}: {bcdReason}"; return null; }
-                // only the class's own entry may point back to a hierarchy that is still being read: this one
+                // Only the class's own entry may point back to the hierarchy still being read.
                 if (e.Value.PendingHierarchy is uint pending && (i != 0 || pending != rva))
                 {
                     reason = $"base class descriptor {i} points to hierarchy descriptor 0x{pending:X}, which is still being read (a cycle)";
@@ -470,7 +458,7 @@ public static class MsvcRtti
                 entries.Add((bcd, e.Value.Td, e.Value.Contained, e.Value.Mdisp, e.Value.Pdisp, e.Value.Vdisp, e.Value.Attributes));
             }
 
-            // entry 0 is the class itself and contains all others; the rest is a preorder tree of nested ranges
+            // Entry 0 is the class itself; the rest is a preorder tree of nested ranges.
             var self = entries[0];
             if (self.Contained != count - 1) { reason = $"class entry contains {self.Contained} bases, array has {count - 1}"; return null; }
             if (self.Mdisp != 0 || self.Pdisp != -1 || self.Vdisp != 0) { reason = "class entry has a non-zero displacement"; return null; }
@@ -532,7 +520,8 @@ public static class MsvcRtti
             void Hit(uint rva, ulong value)
             {
                 if (!byVa.TryGetValue(value, out var col)) return;
-                if (UseRelocations && !relocations.Contains(rva)) return; // a constant that happens to equal the address
+                // Without a relocation the value is a constant that equals the address.
+                if (UseRelocations && !relocations.Contains(rva)) return;
                 metaSlots.Add(rva);
                 found.Add((rva, col));
             }
@@ -572,7 +561,8 @@ public static class MsvcRtti
                 uint vftable = slot + (uint)ptr;
                 var slots = new List<uint>();
                 string end = EnumerateSlots(vftable, metaSlots, slots);
-                if (slots.Count == 0) continue; // not a vftable: the next slot is not code
+                // Not a vftable: the next slot is not code.
+                if (slots.Count == 0) continue;
                 if (!vtablesByLocator.TryGetValue(col.Rva, out var list)) vtablesByLocator[col.Rva] = list = [];
                 list.Add(new MsvcRttiVtable(col.Rva, col.Offset, col.CdOffset, vftable, slots, end));
             }
@@ -584,11 +574,7 @@ public static class MsvcRtti
                 }
         }
 
-        /// <summary>
-        /// Data RVAs referenced from code: x86 absolute operands (relocated words in executable sections), x64 RIP-relative
-        /// "lea/mov r64, [rip+disp32]" operands. Targets in executable sections are kept too: images that merge read-only
-        /// data into code keep their vftables there, and a code address never coincides with a slot.
-        /// </summary>
+        /// <summary>Data RVAs referenced from code, including targets in executable sections where merged vftables live; a code address never coincides with a slot.</summary>
         private HashSet<uint> CollectCodeReferences()
         {
             if (options.CodeReferences != null) return [.. options.CodeReferences];
@@ -611,7 +597,7 @@ public static class MsvcRtti
                     if (!s.IsExecutable) continue;
                     ct.ThrowIfCancellationRequested();
                     var code = buffer.AsSpan();
-                    // opcode at p, REX.W prefix at p - 1, ModRM (mod 00, r/m 101) at p + 1, disp32 at p + 2
+                    // Opcode at p, REX.W at p - 1, ModRM (mod 00, r/m 101) at p + 1, disp32 at p + 2.
                     for (int p = 1; p + 6 <= code.Length; p++)
                     {
                         int k = code[p..].IndexOfAny((byte)0x8D, (byte)0x8B);
@@ -664,7 +650,7 @@ public static class MsvcRtti
             classes.Sort((x, y) => string.CompareOrdinal(x.Name, y.Name) is var c && c != 0 ? c : x.TypeDescriptorRva.CompareTo(y.TypeDescriptorRva));
             var tds = typeDescriptors.Values.Where(t => t != null).Select(t => (t!.Rva, t.Name)).OrderBy(t => t.Rva).ToList();
             if (!UseRelocations && image.Arch != NativeArch.Unknown)
-                notes.Add("no base relocations: vftable references and slots are not cross-checked against relocated locations");
+                notes.Add("no base relocations: vftable slots are not cross-checked against relocations");
             var stats = new MsvcRttiStats(tds.Count, locators.Count, classes.Count, classes.Sum(c => c.Vtables.Count), tdRejected, colRejected,
                 colWithoutVtable, bytesScanned, UseRelocations, codeReferences.Count, elapsed);
             return new MsvcRttiResult(classes, tds, skipped, notes, stats);

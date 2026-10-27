@@ -19,11 +19,7 @@ internal sealed record ServerLaunch(string Command, IReadOnlyList<string> Args)
 /// <summary>The outcome of changing one configuration file.</summary>
 internal sealed record ConfigChange(bool Changed, string Message);
 
-/// <summary>
-/// A registered server entry as the client reads it; <see cref="Disabled"/> when the client will not start it,
-/// <see cref="StartupTimeout"/> the seconds it waits for the server and <see cref="ToolTimeout"/> for one call, when the
-/// entry says (Codex, Grok Build).
-/// </summary>
+/// <summary>A registered entry as the client reads it, with its disabled state and timeouts in seconds when the entry sets them.</summary>
 internal sealed record RegisteredEntry(string Command, IReadOnlyList<string> Args, IReadOnlyDictionary<string, string> Env, bool Disabled,
     double? StartupTimeout = null, double? ToolTimeout = null);
 
@@ -33,10 +29,7 @@ internal static class SetupAction
     public const string Add = "add", Refresh = "refresh", Unchanged = "unchanged", Skip = "skip", Blocked = "blocked", Remove = "remove", Rename = "rename";
 }
 
-/// <summary>
-/// What installing would do to one file, computed without writing: <see cref="SetupAction"/> Add, Refresh, Unchanged or
-/// Blocked (with <see cref="Reason"/>), the entry before and after, whether comments survive and the backup path.
-/// </summary>
+/// <summary>What installing would do to one file, computed without writing: action, reason, entry before and after, backup path.</summary>
 internal sealed record TargetPreview(string Action, string? Reason, JsonNode? Before, JsonNode? After, bool PreservesComments, string? BackupPath);
 
 /// <summary>A configuration file that lists MCP servers.</summary>
@@ -52,11 +45,7 @@ internal abstract class ConfigTarget(string path)
     public abstract ConfigChange Install(string name, ServerLaunch launch);
     public abstract ConfigChange Uninstall(string name);
 
-    /// <summary>
-    /// Moves the entry under <paramref name="from"/> to <paramref name="to"/>, started by <paramref name="launch"/> with the
-    /// entry's own arguments, env (keys renamed by <see cref="ClientCatalog.MigratedEnvKey"/>) and other keys; when
-    /// <paramref name="to"/> is already registered the old entry is only removed.
-    /// </summary>
+    /// <summary>Moves the entry from <paramref name="from"/> to <paramref name="to"/>, keeping its arguments and env; an existing target only drops the old.</summary>
     public abstract ConfigChange Rename(string from, string to, ServerLaunch launch);
 
     /// <summary>Turns the entry on: its own switch and every disable list that names it (install --enable).</summary>
@@ -78,12 +67,8 @@ internal abstract class ConfigTarget(string path)
         ["disabled"] = entry.Disabled,
     };
 
-    /// <summary>
-    /// The user's arguments, with ours in front unless already there. Another launch's program argument (the
-    /// corvus.dll of a dotnet launch) is dropped so switching launchers does not carry it over, and so is a
-    /// development relay prefix (relay --target dir), so a registration switches between the relay and the server.
-    /// The user's --client and --client-timeout give way to ours; ours --toolsets gives way to the user's.
-    /// </summary>
+    /// <summary>The user's arguments with ours in front; another launcher's program and a relay prefix are dropped.</summary>
+    // The user's --client and --client-timeout give way to ours; our --toolsets gives way to the user's.
     public static List<string> MergeArgs(IEnumerable<string> user, ServerLaunch launch) => launch.WithSwitches(MergeArgs(user, launch.Args));
 
     public static List<string> MergeArgs(IEnumerable<string> user, IReadOnlyList<string> ours)
@@ -112,11 +97,7 @@ internal abstract class ConfigTarget(string path)
         if (File.Exists(Path) && !File.Exists(Path + BackupSuffix)) File.Copy(Path, Path + BackupSuffix);
     }
 
-    /// <summary>
-    /// Writes through a temporary file in the same folder so a crash never leaves a partial file, then reads the file
-    /// back; when it does not hold what was written (another program rewrote it, a sync tool interfered) the previous
-    /// content is restored and the reason is returned.
-    /// </summary>
+    /// <summary>Writes through a temporary file, so a crash never leaves a partial file, and reads it back; restores the previous content and returns why when it differs.</summary>
     protected string? WriteAtomically(string text, bool bom = false)
     {
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
@@ -137,10 +118,7 @@ internal abstract class ConfigTarget(string path)
         WriteAtomically(text, bom) is { } failed ? new ConfigChange(false, failed) : new ConfigChange(true, message);
 }
 
-/// <summary>
-/// A JSON file with servers in an object at <see cref="Container"/> (e.g. "mcpServers"). <paramref name="listed"/>
-/// reads root-level lists that override an entry's own switch: true off, false forced on, null no say.
-/// </summary>
+/// <summary>A JSON file with servers at <see cref="Container"/>; <paramref name="listed"/> reads root lists that override an entry's switch.</summary>
 internal sealed class JsonTarget(string path, string[] container, Func<ServerLaunch, JsonObject> entry, Func<JsonObject, string, bool?>? listed = null) : ConfigTarget(path)
 {
     public IReadOnlyList<string> Container { get; } = container;
@@ -177,10 +155,7 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         catch (JsonException) { return false; }
     }
 
-    /// <summary>
-    /// The new file text: edited in place when <see cref="JsoncEditor"/> can and the result parses to exactly
-    /// <paramref name="expected"/> (and stays strict JSON when it was), else <paramref name="expected"/> reserialized.
-    /// </summary>
+    /// <summary>The new file text: edited in place when the result parses to <paramref name="expected"/>, else reserialized.</summary>
     private (string Text, bool InPlace) Render(string text, bool hadComments, string name, JsonObject? entry, JsonObject expected)
     {
         if (text.Trim().Length > 0 && JsoncEditor.Edit(text, Container, name, entry) is { } edited)
@@ -273,10 +248,7 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         return new TargetPreview(action, null, before, next, preserved, BackupPath());
     }
 
-    /// <summary>
-    /// Our entry for a new registration; for an existing one, the user's entry with our command, user arguments kept
-    /// (see <see cref="ConfigTarget.MergeArgs"/>) and our other keys added only where absent.
-    /// </summary>
+    /// <summary>Our entry for a new registration; for an existing one, the user's entry with our command and missing keys added.</summary>
     public JsonObject Merge(JsonObject? existing, ServerLaunch launch)
     {
         var fresh = Entry(launch with { Args = launch.WithSwitches(launch.Args) });
@@ -711,19 +683,13 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
     }
 }
 
-/// <summary>
-/// Claude Code through its own CLI (`claude mcp add/add-json/remove --scope user`), which coordinates with a running Claude Code
-/// that rewrites ~/.claude.json; falls back to editing the file when the CLI fails.
-/// </summary>
+/// <summary>Claude Code through its own CLI, which coordinates with a running Claude Code; falls back to editing the file.</summary>
 internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarget(file.Path)
 {
     /// <summary>The user-level list in ~/.claude.json, read directly.</summary>
     public JsonTarget File => file;
 
-    /// <summary>
-    /// Writes one folder's local entry through the CLI run in that folder (`claude mcp add-json --scope local`), so a running
-    /// Claude Code does not write its older copy over it; the file is edited when the CLI fails or writes something else.
-    /// </summary>
+    /// <summary>Writes a folder's local entry through the CLI run there, so a running Claude Code does not write an older copy over it; edits the file when the CLI fails or writes something else.</summary>
     public ConfigChange PutLocal(string folder, string name, JsonObject entry, Func<JsonTarget> projectList)
     {
         if (projectList().Existing(name) is { } before && JsonNode.DeepEquals(before, entry)) return new ConfigChange(false, "already registered");

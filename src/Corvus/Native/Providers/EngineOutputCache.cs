@@ -5,15 +5,6 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// Engine output kept across server processes (EL-1): an engine's answer to a read request (pseudocode, a frame with
-/// its decompiler locals) stored under the engine's build, the input's SHA-256, the database state and the request.
-/// The database state is a chain of the requests that changed the database since it was created (see
-/// <see cref="WorkerSessionBase"/>), saved beside the database when it is saved; so any change makes new keys, and a
-/// stale answer cannot be served. A change confined to one function's output chains that function only: entries carry
-/// their function's chain, and other functions' answers stay valid. Entries are files under <c>root/engine-output</c>, written whole (temporary file,
-/// then rename) with a checksum: a damaged entry is a miss. The least recently used go beyond <see cref="MaxBytes"/>.
-/// </summary>
 /// <summary>What the output cache keeps: pseudocode and frames with decompiler locals, by the address asked.</summary>
 public static class OutputCacheKinds
 {
@@ -22,6 +13,9 @@ public static class OutputCacheKinds
     public static string At(uint rva) => rva.ToString("X", System.Globalization.CultureInfo.InvariantCulture);
 }
 
+/// <summary>Engine answers kept across processes, keyed by engine build, input SHA-256, database change chain and request; checksummed, LRU-bounded.</summary>
+/// <remarks>Any database change makes new keys, so a stale answer is never served; a change confined to one function
+/// chains that function only. Entries are written whole (temporary file, then rename); a damaged entry is a miss.</remarks>
 public sealed class EngineOutputCache
 {
     public const string MaxMegabytesVariable = "CORVUS_ENGINE_OUTPUT_MB";
@@ -77,7 +71,8 @@ public sealed class EngineOutputCache
             var text = File.ReadAllText(path, Encoding.UTF8);
             int nl = text.IndexOf('\n');
             if (nl != 64 || text[..64] != Hash(text[(nl + 1)..])) return null;
-            try { File.SetLastWriteTimeUtc(path, DateTime.UtcNow); } catch (IOException) { } // recently used
+            // The write time orders eviction.
+            try { File.SetLastWriteTimeUtc(path, DateTime.UtcNow); } catch (IOException) { }
             Interlocked.Increment(ref _hits);
             return text[(nl + 1)..];
         }
@@ -117,7 +112,8 @@ public sealed class EngineOutputCache
                     if (total <= MaxBytes) break;
                     try
                     {
-                        long length = f.Length; // a deleted FileInfo has none
+                        // A deleted FileInfo has no length.
+                        long length = f.Length;
                         f.Delete();
                         total -= length;
                     }
@@ -140,16 +136,11 @@ public sealed class EngineOutputCache
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (0, 0); }
     }
 
-    // ---- the saved state of a database ----
-
     /// <summary>The state file of a database file (IDA) or project directory (Ghidra).</summary>
     internal static string StateFile(string database) =>
         Directory.Exists(database) ? Path.Combine(database, StateFileName) : database + StateFileSuffix;
 
-    /// <summary>
-    /// What identifies the saved bytes of a database: a file's length and write time; a project directory's files (lock
-    /// files and the state file left out) by count, total length and latest write time. Null when it does not exist.
-    /// </summary>
+    /// <summary>Identity of a database's saved bytes from file count, length and write time (lock and state files excluded); null when absent.</summary>
     internal static string? Identity(string database)
     {
         try
@@ -209,10 +200,7 @@ public sealed class EngineOutputCache
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>
-    /// Records <paramref name="state"/> as the state of the database as saved now, with the global and per-function chains
-    /// it combines when there are function chains.
-    /// </summary>
+    /// <summary>Records <paramref name="state"/> for the database as saved now, with its global and per-function chains when any.</summary>
     internal static void WriteState(string database, string state, string? global = null, IReadOnlyDictionary<uint, string>? functions = null)
     {
         try

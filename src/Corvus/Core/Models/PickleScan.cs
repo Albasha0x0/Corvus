@@ -4,12 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Models;
 
-/// <summary>
-/// A Python pickle (protocols 0 to 5) walked opcode by opcode on a symbolic stack; nothing it names is imported or called.
-/// Reports the globals it imports, what each call opcode calls, the persistent ids, and how the result compares with
-/// torch.load(weights_only=True): the imports outside its default allowlist and the opcodes it does not accept.
-/// The symbolic result keeps the containers and calls, so a PyTorch checkpoint's tensors can be listed from it.
-/// </summary>
+/// <summary>A Python pickle walked on a symbolic stack, nothing imported or called; compared with torch.load(weights_only=True).</summary>
 public sealed class PickleScan
 {
     private const long MaxOps = 100_000_000;
@@ -118,10 +113,7 @@ public sealed class PickleScan
     /// <summary>The bytes start with a PROTO opcode of protocol 2 to 5.</summary>
     public static bool Looks(ReadOnlySpan<byte> head) => head.Length >= 3 && head[0] == 0x80 && head[1] is >= 2 and <= 5;
 
-    /// <summary>
-    /// Walks one pickle from the stream's position to STOP or <paramref name="end"/>. A malformed pickle ends the walk with
-    /// its offset named in <see cref="Issues"/>; what was read before it is kept.
-    /// </summary>
+    /// <summary>Walks one pickle to STOP or <paramref name="end"/>; a malformed one ends with its offset in <see cref="Issues"/>.</summary>
     public static PickleScan Read(Stream s, long end, CancellationToken ct = default)
     {
         var p = new PickleScan(s, end);
@@ -443,8 +435,7 @@ public sealed class PickleScan
         return path.Length == 0 ? k : $"{path}.{k}";
     }
 
-    // _rebuild_tensor_v2(storage, storage_offset, size, stride, ...); storage is a persistent id
-    // ('storage', storage_type, key, location, numel).
+    // _rebuild_tensor_v2(storage, offset, size, stride, ...), storage a persistent id ('storage', type, key, location, numel).
     private static TorchTensor? Tensor(Call c, string path)
     {
         if (c.Args is not PyTuple { Items.Count: >= 3 } a || a.Items[0] is not Persistent { Id: PyTuple { Items.Count: >= 5 } id }) return null;

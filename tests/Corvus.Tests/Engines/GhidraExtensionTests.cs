@@ -71,11 +71,11 @@ public class GhidraExtensionTests
         Assert.True(File.Exists(Path.Combine(target, "Other", "extension.properties")));
         var stamp = File.GetLastWriteTimeUtc(Path.Combine(target, "NativeAOT", "extension.properties"));
 
-        // unchanged: not unpacked again
+        // Unchanged: not unpacked again.
         GhidraExtensions.Install(GhidraExtensions.Configured(dir), target);
         Assert.Equal(stamp, File.GetLastWriteTimeUtc(Path.Combine(target, "NativeAOT", "extension.properties")));
 
-        // changed and removed
+        // Changed and removed.
         ExtensionZip(dir, "NativeAOT", "12.1.4", "rebuilt");
         File.Delete(Path.Combine(dir, "Other.zip"));
         GhidraExtensions.Install(GhidraExtensions.Configured(dir), target);

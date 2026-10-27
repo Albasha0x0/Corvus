@@ -2,11 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Models;
 
-/// <summary>
-/// An ONNX model (onnx.proto3 ModelProto) read field by field from a stream, tensor data skipped: the IR version,
-/// producer, opsets, metadata, the main graph's inputs, outputs, operator counts and initializers, subgraph and function
-/// counts, and the external data files initializers name. Values are those onnx.load(load_external_data=False) gives.
-/// </summary>
+/// <summary>An ONNX model read from a stream without tensor data, as onnx.load(load_external_data=False) gives it.</summary>
 public sealed class OnnxModel
 {
     private const int MaxDepth = 32, MaxText = 500;

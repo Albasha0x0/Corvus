@@ -36,17 +36,7 @@ public sealed record WalkFrame(ulong Ip, ulong Sp, string Method, bool Heuristic
 /// <summary>The frames of one walk and why it ended.</summary>
 public sealed record WalkResult(IReadOnlyList<WalkFrame> Frames, string Stop, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// Walks a thread's stack in a dump. x64: virtual unwind with the modules' exception data (.pdata RUNTIME_FUNCTION,
-/// UNWIND_INFO codes: push nonvol, alloc small / large, set frame register, save nonvol / xmm128 (near and far),
-/// machine frame, chained info; epilog emulation for the top frame; leaf functions), falling back to a stack scan
-/// (frames marked heuristic) where no unwind data is available (no image, JIT code) or it leads nowhere. x86: the
-/// module PDB's frame data (FRAMEDATA programs, FPO_DATA), a return address whose call instruction targets the current
-/// function (frames that omit the frame pointer), the EBP chain, then a scan; KiUserExceptionDispatcher continues at
-/// the exception's CONTEXT record. ARM64: the frame chain the Windows ABI keeps (x29 at the saved {x29, x30} pair), the
-/// link register for a top frame that has not written its record yet. Unwind data and code bytes come from the module images the caller supplies (a matching file
-/// from disk, or the image rebuilt from dump memory) and from captured memory. Every loop is bounded.
-/// </summary>
+/// <summary>Walks a dump thread's stack: x64 .pdata unwind, x86 PDB frame data and EBP chain, ARM64 frame chain, then a heuristic scan; every loop is bounded.</summary>
 public sealed class StackWalker
 {
     public const int MaxFramesLimit = 1024;
@@ -118,11 +108,10 @@ public sealed class StackWalker
                     break;
                 }
             }
-            // An ARM64 leaf returns through the link register with the stack
-            // pointer unchanged.
+            // An ARM64 leaf returns through the link register with the stack pointer unchanged.
             if (next.Sp <= ctx.Sp && !(method == FrameMethod.MachineFrame && next.Sp != ctx.Sp) && !(method == FrameMethod.Leaf && _dump.Arch == NativeArch.Arm64 && next.Sp == ctx.Sp))
             {
-                // no progress: try a scan once before giving up
+                // No progress: try a scan once before giving up.
                 var scanned = Scan(ctx.Sp + (ulong)_ptr, stackHigh, ctx);
                 if (scanned == null || scanned.Sp <= ctx.Sp) { stop = "stack_pointer_did_not_advance"; break; }
                 (next, method, heuristic) = (scanned, FrameMethod.Scan, true);
@@ -139,7 +128,8 @@ public sealed class StackWalker
             frames.Add(new WalkFrame(next.Ip, next.Sp, method, heuristic, method != FrameMethod.MachineFrame, note));
             guessedFp = method == FrameMethod.Scan || ThroughEbp(method) && guessedFp;
             ctx = next;
-            top = method == FrameMethod.MachineFrame; // after a machine frame the address is an interrupted instruction
+            // After a machine frame the address is an interrupted instruction.
+            top = method == FrameMethod.MachineFrame;
         }
         if (frames.Count >= maxFrames && stop == "max_frames") notes.Add($"stopped after {maxFrames} frames (maxFrames)");
         return new WalkResult(frames, stop, notes);
@@ -156,7 +146,7 @@ public sealed class StackWalker
             var rf = Lookup(image.RuntimeFunctions, rva);
             if (rf == null)
             {
-                // a leaf function: no stack allocation, the return address is at the stack pointer
+                // A leaf function: no stack allocation, the return address is at the stack pointer.
                 if (!_dump.TryReadU64(ctx.Sp, out ulong ra)) return (null, "", false, "stack_not_captured");
                 var leaf = ctx.Clone();
                 leaf.Ip = ra;
@@ -167,7 +157,7 @@ public sealed class StackWalker
                     : (null, "", false, "no_return_address");
             }
             var unwound = VirtualUnwind(image, module.Base, rf, (uint)(ctx.Ip - module.Base), ctx, top, out bool machine, out bool epilog, out string? failure);
-            // a frame a scan found can be stale, so its unwind reads a return address from the wrong slot
+            // A frame a scan found can be stale, so its unwind reads a return address from the wrong slot.
             if (unwound != null && !machine && unwound.Ip != 0 && !IsCode(unwound.Ip, ctx.Sp))
             {
                 var rescan = Scan(ctx.Sp, ulong.MaxValue, ctx);
@@ -179,7 +169,7 @@ public sealed class StackWalker
             return scan != null ? (scan, FrameMethod.Scan, true, $"unwind failed at {module.FileName}+0x{rva:X} ({failure}); scanned")
                 : (null, "", false, "unwind_failed");
         }
-        // a call to a bad address (the null page, or memory known not to be code) left its return address on top
+        // A call to a bad address (the null page, or memory known not to be code) left its return address on top.
         if (top && module == null && (ctx.Ip < 0x10000 || _dump.RegionAt(ctx.Ip) is { IsExecutable: false })
             && _dump.TryReadU64(ctx.Sp, out ulong returned) && IsPlausibleReturn(returned, strict: true))
         {
@@ -196,10 +186,7 @@ public sealed class StackWalker
 
     private const ulong PacMask = 0x0000_FFFF_FFFF_FFFF;
 
-    /// <summary>
-    /// ARM64: a top frame in a function without .pdata (a leaf) or at its first instruction returns to the link register;
-    /// every other frame follows the frame chain.
-    /// </summary>
+    /// <summary>ARM64: a top frame in a leaf or at its first instruction returns to the link register; others follow the frame chain.</summary>
     private (DumpContext? Next, string Method, bool Heuristic, string? Note) StepArm64(DumpContext ctx, bool top)
     {
         if (top && _dump.ModuleAt(ctx.Ip) is { } module && _image(module) is { Arch: NativeArch.Arm64 } image
@@ -301,7 +288,8 @@ public sealed class StackWalker
                 if (prologOffset != uint.MaxValue && offset > prologOffset)
                 {
                     i += slots;
-                    continue; // not executed yet
+                    // Not executed yet.
+                    continue;
                 }
                 switch (op)
                 {
@@ -347,7 +335,8 @@ public sealed class StackWalker
                         machine = true;
                         break;
                     }
-                    case 6: // UWOP_EPILOG (version 2): describes epilogs, nothing to undo
+                    // UWOP_EPILOG (version 2) describes epilogs: nothing to undo.
+                    case 6:
                     case 7:
                         break;
                     default:
@@ -376,10 +365,7 @@ public sealed class StackWalker
         return null;
     }
 
-    /// <summary>
-    /// Top frame inside an epilog (add rsp / lea rsp, pops, then ret or a jump out of the function): emulates the rest of
-    /// it, as RtlVirtualUnwind does, since the unwind codes describe the frame before the epilog started.
-    /// </summary>
+    /// <summary>Emulates the rest of an epilog for the top frame, as RtlVirtualUnwind does, since unwind codes describe the frame before it.</summary>
     private bool TryEpilog(DumpContext c, PeFile image, ulong imageBase, RuntimeFunction function)
     {
         var code = new byte[64];
@@ -388,21 +374,22 @@ public sealed class StackWalker
         int p = 0;
         ulong sp = c.Sp;
         var regs = (ulong[])c.Gpr.Clone();
-        // optional stack adjustment
+        // Optional stack adjustment.
         if (p + 4 <= n && code[p] == 0x48 && code[p + 1] == 0x83 && code[p + 2] == 0xC4) { sp += code[p + 3]; p += 4; }
         else if (p + 7 <= n && code[p] == 0x48 && code[p + 1] == 0x81 && code[p + 2] == 0xC4) { sp += BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(p + 3)); p += 7; }
         else if (p + 3 <= n && (code[p] & 0xFE) == 0x48 && code[p + 1] == 0x8D && ((code[p + 2] >> 3) & 7) == 4 && (code[p + 2] >> 6) is 1 or 2)
         {
-            // lea rsp, [frame + disp]
+            // lea rsp, [frame + disp].
             int mod = code[p + 2] >> 6, rm = (code[p + 2] & 7) | ((code[p] & 1) << 3);
-            if ((code[p + 2] & 7) == 4) return false; // SIB form is not a legal epilog
+            // The SIB form is not a legal epilog.
+            if ((code[p + 2] & 7) == 4) return false;
             int len = mod == 1 ? 4 : 7;
             if (p + len > n) return false;
             long disp = mod == 1 ? (sbyte)code[p + 3] : BinaryPrimitives.ReadInt32LittleEndian(code.AsSpan(p + 3));
             sp = (ulong)((long)regs[rm] + disp);
             p += len;
         }
-        // pops
+        // Pops.
         int pops = 0;
         while (p < n && pops < 16)
         {
@@ -420,7 +407,7 @@ public sealed class StackWalker
             || (code[p] == 0xFF && p + 1 < n && code[p + 1] == 0x25) || (code[p] == 0x48 && p + 2 < n && code[p + 1] == 0xFF && code[p + 2] == 0x25);
         if (!ends && code[p] == 0xE9 && p + 5 <= n)
         {
-            // a tail jump out of the function
+            // A tail jump out of the function.
             ulong target = (ulong)((long)c.Ip + p + 5 + BinaryPrimitives.ReadInt32LittleEndian(code.AsSpan(p + 1)));
             ends = target < imageBase + function.BeginRva || target >= imageBase + function.EndRva;
         }
@@ -440,14 +427,12 @@ public sealed class StackWalker
             return (faulted, FrameMethod.MachineFrame, false, "the exception's register context (KiUserExceptionDispatcher)");
         var record = _frameData?.Invoke(top ? ctx.Ip : ctx.Ip - 1);
         _calleeParams = record?.Params ?? 0;
-        // A thread stopped at a block's first instruction or in its prolog has not
-        // built the frame its data describes; the checks below find the caller.
+        // A thread in a block's prolog has not built the frame its data describes; the checks below find the caller.
         if (top && record != null && _dump.ModuleAt(ctx.Ip) is { } module && ctx.Ip - module.Base - record.Rva is var offset
             && offset < Math.Max(record.Prolog, 1u))
         {
             record = null;
-            // A zero return slot at a block's first instruction is a thread that has
-            // not started yet: its stack ends here.
+            // A zero return slot at a block's first instruction is a thread not started yet: its stack ends here.
             if (offset == 0 && _dump.TryReadU32(ctx.Sp, out uint slot) && slot == 0)
             {
                 var start = ctx.Clone();
@@ -458,7 +443,7 @@ public sealed class StackWalker
         }
         if (top)
         {
-            // at the first instruction(s) of a standard prolog the caller's frame pointer is still live
+            // At the first instructions of a standard prolog the caller's frame pointer is still live.
             var code = new byte[3];
             var m = _dump.ModuleAt(ctx.Ip);
             int n = ReadCode(ctx.Ip, code, m != null ? _image(m) : null, m?.Base ?? 0);
@@ -473,7 +458,7 @@ public sealed class StackWalker
                 if (at == 4 && _dump.TryReadU32(ctx.Sp, out uint savedEbp)) p.Fp = savedEbp;
                 return (p, FrameMethod.FramePointer, false, "in the prolog: return address read at the stack pointer");
             }
-            // a call to a bad address (the null page, or memory known not to be code) left its return address on top
+            // A call to a bad address (the null page, or memory known not to be code) left its return address on top.
             if ((ctx.Ip < 0x10000 || _dump.ModuleAt(ctx.Ip) == null && _dump.RegionAt(ctx.Ip) is { IsExecutable: false })
                 && _dump.TryReadU32(ctx.Sp, out uint ra1) && IsPlausibleReturn(ra1, strict: true))
             {
@@ -487,7 +472,7 @@ public sealed class StackWalker
         if (record != null && FrameDataStep(ctx, record, calleeParams) is { } unwound) return (unwound, FrameMethod.FrameData, false, null);
         ulong ebp = ctx.Fp;
         uint nextEbp = 0, ret = 0;
-        // a saved EBP off the thread's stack is not a frame (code that uses EBP freely, such as a hook's, left it)
+        // A saved EBP off the thread's stack is not a frame; code that uses EBP freely left it.
         bool chain = ebp >= ctx.Sp && ebp != 0 && (_stackHigh <= _stackLow || ebp < _stackHigh) && _dump.TryReadU32(ebp, out nextEbp) && _dump.TryReadU32(ebp + 4, out ret)
                      && (ret == 0 || IsPlausibleReturn(ret, strict: false));
         // A function without a frame pointer leaves EBP to an outer frame: its own return address lies below that frame.
@@ -513,11 +498,7 @@ public sealed class StackWalker
             : (null, "", false, "no_return_address");
     }
 
-    /// <summary>
-    /// The first x86 stack slot in [<paramref name="from"/>, <paramref name="limit"/>] holding a return address whose call
-    /// (call rel32, call [abs32], or through a jmp thunk) targets <paramref name="function"/>, or a function that tail-jumps
-    /// to it (<c>Via</c>); null when none.
-    /// </summary>
+    /// <summary>The first x86 stack slot in range holding a return address whose call targets <paramref name="function"/> or a tail-jumping caller (<c>Via</c>); null when none.</summary>
     private (ulong Slot, ulong? Via)? CallerOf(ulong function, ulong from, ulong limit)
     {
         var buffer = new byte[0x400];
@@ -553,15 +534,11 @@ public sealed class StackWalker
         return null;
     }
 
-    /// <summary>
-    /// Whether the import slot an indirect call or jmp names holds <paramref name="function"/>. <paramref name="file"/>: the
-    /// instruction was read from this module image, whose operands hold the slot at the preferred base.
-    /// </summary>
+    /// <summary>Whether the import slot an indirect call or jmp names holds <paramref name="function"/>; <paramref name="file"/> means operands are at the preferred base.</summary>
     private bool SlotHolds(uint slot, PeFile? file, DumpModule? module, ulong function)
     {
         if (file != null && module != null) slot = (uint)(slot - file.ImageBase + module.Base);
-        // A bound slot holds the target; a slot the dump does not hold, or holds
-        // unbound, is matched by the import's name.
+        // A bound slot holds the target; an uncaptured or unbound slot is matched by the import's name.
         return _dump.TryReadU32(slot, out uint bound) && bound == function || ImportName(slot) is { } imported && imported == ExportName(function);
     }
 
@@ -584,10 +561,7 @@ public sealed class StackWalker
 
     private readonly Dictionary<(ulong, ulong), bool> _tailJumps = [];
 
-    /// <summary>
-    /// Whether the code of the function at <paramref name="start"/> holds a jmp rel32 to <paramref name="target"/>, or a jmp
-    /// through an import slot holding it, within its first <see cref="TailWindow"/> bytes: a tail call, whose frame the callee replaced.
-    /// </summary>
+    /// <summary>Whether the function at <paramref name="start"/> tail-jumps to <paramref name="target"/> within its first <see cref="TailWindow"/> bytes.</summary>
     private bool TailJumps(ulong start, ulong target)
     {
         if (_tailJumps.TryGetValue((start, target), out var known)) return known;
@@ -605,15 +579,11 @@ public sealed class StackWalker
 
     private const int TailWindow = 512;
 
-    /// <summary>
-    /// In ntdll!KiUserExceptionDispatcher, which the kernel enters with no return address: the registers of the code that
-    /// raised the exception, from the CONTEXT record it received; null elsewhere.
-    /// </summary>
+    /// <summary>In ntdll!KiUserExceptionDispatcher, the raising code's registers from the CONTEXT record it received; null elsewhere.</summary>
     private DumpContext? ExceptionContext(DumpContext ctx)
     {
         if (_functionStart?.Invoke(ctx.Ip - 1) is not { } function || ExportName(function) != "KiUserExceptionDispatcher") return null;
-        // Its arguments, EXCEPTION_RECORD* and CONTEXT*, point at the two records the kernel copied just above them;
-        // the slots below them may still hold the copies it passed to RtlDispatchException.
+        // EXCEPTION_RECORD* and CONTEXT* point at the records just above; lower slots may hold RtlDispatchException's copies.
         for (ulong slot = ctx.Sp; slot <= ctx.Sp + 16; slot += 4)
         {
             if (!_dump.TryReadU32(slot, out uint record) || !_dump.TryReadU32(slot + 4, out uint context)
@@ -629,16 +599,11 @@ public sealed class StackWalker
     // The integer and control registers of an x86 CONTEXT end at 0xCC; the extended registers after them are not needed.
     private const int X86ContextSize = 0xCC;
 
-    /// <summary>
-    /// The caller's registers from the PDB frame data of the current code block, or null when its program fails or gives
-    /// no plausible caller. <paramref name="calleeParams"/>: argument bytes the called function popped, which lie above
-    /// this frame's stack pointer.
-    /// </summary>
+    /// <summary>The caller's registers from the block's PDB frame data; null when the program fails or gives no plausible caller.</summary>
     private DumpContext? FrameDataStep(DumpContext ctx, Pdb.PdbFrameRecord record, uint calleeParams)
     {
         _frameDataReadEbp = false;
-        // The return address lies past the callee's arguments, the locals and the saved registers; up to three more
-        // slots allow for a stack aligned after the prolog.
+        // The return address lies past arguments, locals and saved registers; three more slots allow for stack alignment.
         ulong start = ctx.Sp + calleeParams + record.Locals + record.SavedRegs, search = start;
         for (int i = 0; i < 4; i++)
             if (_dump.TryReadU32(start + (ulong)(4 * i), out uint v) && IsPlausibleReturn(v, strict: false))
@@ -646,8 +611,7 @@ public sealed class StackWalker
                 search = start + (ulong)(4 * i);
                 break;
             }
-        // Without a program (FPO_DATA, or an empty FRAMEDATA one) the return address is at the search start; EBP is
-        // the first saved register when the block saves it, and a standard frame chains through it.
+        // Without a program the return address is at the search start, and EBP is the first saved register when saved.
         string program = record.Program is { Length: > 0 } p ? p
             : record.StandardFrame ? "$T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + ="
             : record.SavesFramePointer ? "$eip .raSearch ^ = $ebp $esp .cbCalleeParams + .cbSavedRegs + 4 - ^ = $esp .raSearch 4 + ="
@@ -696,7 +660,7 @@ public sealed class StackWalker
                 var c = basis.Clone();
                 c.Ip = v;
                 c.Sp = at + (ulong)i + (ulong)_ptr;
-                // the frame pointer is unknown after a scan; x86 keeps looking for a chain from the slot below the return address
+                // The frame pointer is unknown after a scan; x86 looks for a chain from the slot below the return address.
                 if (_dump.Arch == NativeArch.X86) c.Fp = _dump.TryReadU32(at + (ulong)i - 4, out uint fp) && fp > c.Sp ? fp : 0;
                 return c;
             }
@@ -705,10 +669,7 @@ public sealed class StackWalker
         return null;
     }
 
-    /// <summary>
-    /// <paramref name="address"/> can be code: canonical, and executable where the dump says (an image section, or a region
-    /// when the dump has a memory list, which <paramref name="stackPointer"/>'s region shows).
-    /// </summary>
+    /// <summary>Whether <paramref name="address"/> can be code: canonical and executable where the dump says.</summary>
     private bool IsCode(ulong address, ulong stackPointer)
     {
         if (address < 0x10000 || (_dump.Is64Bit && (long)address >> 47 is not (0 or -1))) return false;
@@ -717,11 +678,7 @@ public sealed class StackWalker
         return _dump.RegionAt(address) is { } r ? r.IsExecutable : _dump.RegionAt(stackPointer) == null;
     }
 
-    /// <summary>
-    /// Whether <paramref name="address"/> can be a return address: inside executable code (a module's code section,
-    /// or an executable region of the dump) and, when the bytes are available, right after a call instruction.
-    /// Strict (scans) requires the call check whenever the code bytes are readable.
-    /// </summary>
+    /// <summary>Whether <paramref name="address"/> can be a return address: in executable code and, when readable, after a call; strict requires the call check.</summary>
     public bool IsPlausibleReturn(ulong address, bool strict)
     {
         var module = _dump.ModuleAt(address);

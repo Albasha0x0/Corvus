@@ -16,11 +16,7 @@ public sealed partial class MachOFile
 
     private ImageArea<UnwindInfo> unwindArea = null!;
 
-    /// <summary>
-    /// Function starts in code from LC_FUNCTION_STARTS, compact unwind (__unwind_info), __eh_frame, function symbols
-    /// and the initializer lists (__mod_init_func, __init_offsets), one per address (the first source in that order
-    /// wins), sorted. ARM Thumb bits are cleared.
-    /// </summary>
+    /// <summary>Sorted function starts from LC_FUNCTION_STARTS, compact unwind, __eh_frame, symbols and initializers; the first source wins, Thumb bits cleared.</summary>
     public IReadOnlyList<DeclaredFunction> DeclaredFunctions => unwindArea.Value.Functions;
     /// <summary>LC_FUNCTION_STARTS as RVAs, in table order.</summary>
     public IReadOnlyList<uint> FunctionStarts => unwindArea.Value.FunctionStarts;
@@ -84,10 +80,7 @@ public sealed partial class MachOFile
         return info;
     }
 
-    /// <summary>
-    /// __TEXT,__unwind_info: the first-level index and its regular or compressed second-level pages. Entries with
-    /// encoding 0 (no unwind information) are not function starts. Sizes run to the next entry.
-    /// </summary>
+    /// <summary>__TEXT,__unwind_info entries; encoding 0 is not a function start, sizes run to the next entry.</summary>
     private List<(uint Start, uint? Size)> CompactUnwind(IssueLog log, WorkBudget budget)
     {
         var result = new List<(uint, uint?)>();

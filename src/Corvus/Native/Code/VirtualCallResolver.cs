@@ -7,24 +7,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Resolves virtual call sites (x86 / x64) to implementations through MSVC RTTI. Each function with an indirect call
-/// is run through a forward data flow over its blocks that tracks registers, stack slots (by offset from the entry stack
-/// pointer, so spills and frame pointers are followed) and fields of objects: the entry this (rcx / ecx), objects a call
-/// returns, constant addresses. A call through [[obj + o] + 8k] (directly, through a register, or through the CFG
-/// dispatch with the target in rax) is a virtual call site on the subobject at o, slot k. The receiver's class:
-/// <list type="bullet">
-/// <item>a vftable stored into the object in the function (constructors, inlined construction), or by a constructor the
-/// function calls on it (summaries: the vftables a function leaves in [this + o] on every return): the slot of that
-/// vftable, exact;</item>
-/// <item>this of a virtual method: the classes whose vftables hold the method; the slot in their vftable at the
-/// subobject and in the vftables of every derived class at the same subobject (RTTI base class arrays give its
-/// offset in each derived class). Pure virtual stubs (functions that do not return) are left out. One distinct
-/// implementation is exact, several are possible targets.</item>
-/// </list>
-/// Calls whose receiver is neither are unresolved and counted. Merges of different values lose them; the flow is
-/// iterated to a fixed point within a visit budget per function.
-/// </summary>
+/// <summary>Resolves x86 / x64 virtual call sites through RTTI with a forward data flow over registers, stack slots and object fields; one implementation is exact, several are possible.</summary>
 internal sealed class VirtualCallResolver
 {
     private const int MaxInstructions = 100_000;
@@ -39,13 +22,13 @@ internal sealed class VirtualCallResolver
     private readonly int _maxTargets;
     private readonly CancellationToken _ct;
 
-    // RTTI model
+    // RTTI model.
     private readonly Dictionary<(uint Td, uint Offset), List<MsvcRttiVtable>> _vftablesAt = [];
     /// <summary>Non-virtual member functions by start, and their class (from the decorated export name).</summary>
     private readonly Dictionary<uint, MsvcRttiClass> _named = [];
     /// <summary>Functions and import slots whose decorated name returns a pointer to a class (index in <see cref="_classes"/>).</summary>
     private readonly Dictionary<uint, int> _returns = [];
-    /// <summary>Functions whose decorated name passes class pointers: entry register (or stack slot) and class; class -1 is this on the stack.</summary>
+    /// <summary>Class pointer arguments by function: entry register or stack slot, and class; class -1 is this on the stack.</summary>
     private readonly Dictionary<uint, (int Reg, int Slot, int Class)[]> _seeds = [];
     private List<MsvcRttiClass> _classes = [];
     private readonly Dictionary<uint, List<(MsvcRttiClass Class, uint Offset)>> _owners = [];
@@ -84,10 +67,7 @@ internal sealed class VirtualCallResolver
         return r.Run(classes, options, sw);
     }
 
-    /// <summary>
-    /// The sites an instruction-set-specific scan found (ARM: <see cref="Calls.ArmVirtualCalls"/>), resolved through the class model:
-    /// a call through this of a virtual method like the x86 flow; other receivers are unresolved.
-    /// </summary>
+    /// <summary>Resolves the sites a per-architecture scan found; only calls through this of a virtual method resolve.</summary>
     public static (VirtualCallSet Set, CodeXref[] Edges) ResolveShapes(NativeCodeIndex index, CodeContext ctx, CodeIndexOptions options, MsvcRttiResult rtti,
         Func<IReadOnlyList<VirtualShape>> find, CancellationToken ct)
     {
@@ -135,13 +115,13 @@ internal sealed class VirtualCallResolver
                 _vftableStarts.Add(v.VftableRva);
                 foreach (var s in v.SlotRvas.Distinct())
                 {
-                    // a slot bound to an import (Itanium __cxa_pure_virtual)
+                    // A slot bound to an import (Itanium __cxa_pure_virtual).
                     if (s == 0) { _pure.Add(0); continue; }
                     if (!_owners.TryGetValue(s, out var owners)) _owners[s] = owners = [];
                     if (!owners.Any(o => ReferenceEquals(o.Class, c) && o.Offset == v.Offset)) owners.Add((c, v.Offset));
                 }
             }
-            // where each base sits in this class: non-virtual paths by member displacement; a virtual base anywhere on the path is not placed
+            // Place each base by member displacement; a virtual base on the path leaves it unplaced.
             for (int i = 0; i < c.Bases.Count; i++)
             {
                 var b = c.Bases[i];
@@ -160,8 +140,7 @@ internal sealed class VirtualCallResolver
         tables.Sort((a, b) => a.Item1.CompareTo(b.Item1));
         _tables = [.. tables];
 
-        // decorated names (exports, imports): the class of this in non-virtual member functions (at offset 0), class pointers passed
-        // as parameters, class pointers returned
+        // Decorated names give the class of this, of class pointer parameters and of returned class pointers.
         _classes = polymorphic;
         var byName = new Dictionary<string, int>(StringComparer.Ordinal);
         for (int i = 0; i < polymorphic.Count; i++) byName.TryAdd(polymorphic[i].Name, i);
@@ -186,7 +165,7 @@ internal sealed class VirtualCallResolver
             if (imp.Name is { Length: > 3 } name && name[0] == '?' && Signature(name, demangle) is { } sig && ClassOf(sig.Return) is var ret and >= 0)
                 _returns[imp.SlotRva] = ret;
 
-        // pure virtual stubs: functions that do not return, or thunks to _purecall / __cxa_pure_virtual
+        // Pure virtual stubs: no-return functions, or thunks to _purecall / __cxa_pure_virtual.
         foreach (var target in _owners.Keys)
             if (_index.FunctionByStart(target) is { } f
                 && ((f.Flags & FunctionFlags.NoReturn) != 0 || IsPureName(f.ThunkImport?.Name) || IsPureName(f.KnownName)))
@@ -209,15 +188,12 @@ internal sealed class VirtualCallResolver
     private static bool IsPureName(string? name) =>
         name is "_purecall" or "purecall" or "__purecall" or "__cxa_pure_virtual" or "___cxa_pure_virtual" or "__cxa_deleted_virtual" or "___cxa_deleted_virtual";
 
-    /// <summary>A function's decorated name, decoded: a non-static member or not, virtual, its class, calling convention, return and parameter types.</summary>
+    /// <summary>A decoded function name: member and virtual flags, class, calling convention, return and parameter types.</summary>
     internal sealed record DecoratedSignature(bool Member, bool Virtual, string? Class, string Convention, string Return, IReadOnlyList<string> Params);
 
     private static readonly string[] Conventions = ["__cdecl", "__stdcall", "__thiscall", "__fastcall", "__vectorcall", "__clrcall"];
 
-    /// <summary>
-    /// The signature of a decorated function name ("public: class ns::B * __cdecl ns::A::get(void) const"), from its
-    /// demangled text; null for other names.
-    /// </summary>
+    /// <summary>The signature of a decorated function name from its demangled text; null for other names.</summary>
     internal static DecoratedSignature? Signature(string decorated, MsvcDemangleOptions options)
     {
         var full = MsvcDemangler.Demangle(decorated, options);
@@ -228,7 +204,7 @@ internal sealed class VirtualCallResolver
         if (colon > 0 && text[..colon] is "public" or "protected" or "private") { member = true; rest = text[(colon + 2)..]; }
         if (rest.StartsWith("static ", StringComparison.Ordinal)) { isStatic = true; rest = rest[7..]; }
         else if (rest.StartsWith("virtual ", StringComparison.Ordinal)) { isVirtual = true; rest = rest[8..]; }
-        // the calling convention: the first one outside brackets
+        // The calling convention is the first one outside brackets.
         int conv = -1, depth = 0;
         string convention = "";
         for (int i = 0; i < rest.Length && conv < 0; i++)
@@ -242,7 +218,7 @@ internal sealed class VirtualCallResolver
         }
         if (conv < 0) return null;
         var tail = rest[(conv + convention.Length + 1)..];
-        // the parameters: the last parenthesized group
+        // The parameters are the last parenthesized group.
         int close = tail.LastIndexOf(')'), open = -1;
         depth = 0;
         for (int i = close; i >= 0; i--)
@@ -311,17 +287,13 @@ internal sealed class VirtualCallResolver
         || type is "int" or "unsigned int" or "long" or "unsigned long" or "bool" or "char" or "signed char" or "unsigned char" or "short" or "unsigned short"
             or "wchar_t" or "float";
 
-    /// <summary>
-    /// Where the arguments of <paramref name="sig"/> are at entry: a register (index from rax) or an entry stack slot, with their
-    /// type; a null type marks this passed on the stack (x86 members that are not __thiscall). x64: this, a hidden return
-    /// pointer for a record returned by value, then the parameters in rcx, rdx, r8, r9 and [rsp+28h]...; x86: the stack from
-    /// [esp+4] while the parameters take one slot each.
-    /// </summary>
+    /// <summary>Entry locations of the arguments of <paramref name="sig"/>: register index from rax or stack slot, with type; null type is this.</summary>
     internal static List<(int Reg, int Slot, string? Type)> ParameterLocations(DecoratedSignature sig, bool is64)
     {
         var result = new List<(int, int, string?)>();
         bool hidden = ByValueRecord(sig.Return);
-        if (hidden && !sig.Member) return result; // a small record may come back in rax: positions unknown
+        // A small record may come back in rax, so positions are unknown.
+        if (hidden && !sig.Member) return result;
         if (is64)
         {
             int[] regs = [1, 2, 8, 9];
@@ -355,7 +327,7 @@ internal sealed class VirtualCallResolver
             int mid = (lo + hi) >>> 1;
             if (_tables[mid].Start <= rva) { best = mid; lo = mid + 1; } else hi = mid - 1;
         }
-        // tables may share a start (folded vftables); any one that holds the address serves
+        // Folded vftables share a start; any one that holds the address serves.
         for (int i = best; i >= 0 && i > best - 4; i--)
         {
             var t = _tables[i];
@@ -368,7 +340,7 @@ internal sealed class VirtualCallResolver
     {
         var functions = _index.Functions;
         var po = new ParallelOptions { CancellationToken = _ct, MaxDegreeOfParallelism = options.MaxParallelism > 0 ? options.MaxParallelism : Environment.ProcessorCount };
-        // constructors and destructors (functions that reference a vftable) first: their summaries are used at calls to them
+        // Functions that reference a vftable go first; their summaries are used at calls to them.
         const byte Stores = 1, Calls = 2;
         var role = new byte[functions.Count];
         if (functions.Count > 0) Parallel.ForEach(Partitioner.Create(0, functions.Count, 4096), po, range =>
@@ -405,7 +377,7 @@ internal sealed class VirtualCallResolver
         }, _ => { });
         foreach (var (k, v) in summaries) _summaries[k] = v;
 
-        // each worker keeps its sites and edges; the merge below sorts them, so the result does not depend on the schedule
+        // The merge sorts each worker's sites and edges, so the result does not depend on the schedule.
         var flows = new ConcurrentBag<Flow>();
         if (callers.Count > 0) Parallel.ForEach(Partitioner.Create(0, callers.Count, 64), po, () => new Flow(this), (range, _, flow) =>
         {
@@ -420,9 +392,9 @@ internal sealed class VirtualCallResolver
         int n = 0;
         foreach (var flow in flows)
             foreach (var s in flow.AllSites) { keys[n] = (ulong)s.Rva << 32 | s.Function; all[n++] = s; }
-        // a site in code two functions share is reported once, for the lower function (one site per function and address)
+        // A site in shared code is reported once, for the lower function.
         KeySort.Sort(ref keys, ref all, total, options.MaxParallelism);
-        // a function's walk can reach one address twice (overlapping blocks): ties ordered so the kept site does not depend on the schedule
+        // Overlapping blocks can reach one address twice; ties are ordered so the kept site is stable.
         KeySort.OrderTies(keys, all, total, SiteOrder.Instance);
         int w = 0;
         for (int k = 0; k < all.Length; k++)
@@ -467,7 +439,7 @@ internal sealed class VirtualCallResolver
         return -1;
     }
 
-    /// <summary>Edges by source, target, then kind.</summary>
+    /// <summary>Orders sites at one address by every field.</summary>
     private sealed class SiteOrder : IComparer<VirtualCallSite>
     {
         public static readonly SiteOrder Instance = new();
@@ -488,6 +460,7 @@ internal sealed class VirtualCallResolver
         }
     }
 
+    /// <summary>Edges by source, target, then kind.</summary>
     private sealed class EdgeOrder : IComparer<CodeXref>
     {
         public static readonly EdgeOrder Instance = new();
@@ -495,7 +468,7 @@ internal sealed class VirtualCallResolver
         public int Compare(CodeXref a, CodeXref b) => a.From != b.From ? a.From.CompareTo(b.From) : a.To != b.To ? a.To.CompareTo(b.To) : a.Kind.CompareTo(b.Kind);
     }
 
-    /// <summary>Any byte pair FF /2 (call r/m) or FF /4 (jmp r/m) in the function's code: a cheap filter, false positives are fine.</summary>
+    /// <summary>Any byte pair FF /2 or FF /4 in the function's code; a cheap filter that allows false positives.</summary>
     private bool HasIndirectTransfer(NativeFunction f)
     {
         for (int k = 0; k < f.RangeCount; k++)
@@ -569,7 +542,7 @@ internal sealed class VirtualCallResolver
         return FromOwners(owners, vfptr, slot, receiver);
     }
 
-    /// <summary>A call through an object of class <paramref name="classIndex"/> (from a decorated name), the vfptr at + <paramref name="vfptr"/>.</summary>
+    /// <summary>A call through an object of class <paramref name="classIndex"/>, the vfptr at + <paramref name="vfptr"/>.</summary>
     private Resolution FromClass(int classIndex, int vfptr, int slot) =>
         classIndex >= 0 && classIndex < _classes.Count
             ? FromOwners([(_classes[classIndex], 0)], vfptr, slot, VirtualReceiver.Name)
@@ -582,7 +555,7 @@ internal sealed class VirtualCallResolver
         bool incomplete = false, any = false;
         var reason = VirtualCallReason.None;
         uint classTd = 0, vftable = 0;
-        // the owner every other derives from names the receiver
+        // The owner every other derives from names the receiver.
         var root = owners.FirstOrDefault(o => owners.All(p => ReferenceEquals(p.Class, o.Class)
             || p.Class.Bases.Any(b => b.TypeDescriptorRva == o.Class.TypeDescriptorRva))).Class ?? owners[0].Class;
         foreach (var (c, s) in owners)
@@ -615,7 +588,8 @@ internal sealed class VirtualCallResolver
             {
                 if (viaVirtual) { incomplete = true; continue; }
                 long y = (long)at + x;
-                if (y < 0 || y > uint.MaxValue || !_vftablesAt.TryGetValue((d.TypeDescriptorRva, (uint)y), out var dvs)) continue; // no vftable of its own there (abstract, novtable)
+                // An abstract or novtable class has no vftable of its own there.
+                if (y < 0 || y > uint.MaxValue || !_vftablesAt.TryGetValue((d.TypeDescriptorRva, (uint)y), out var dvs)) continue;
                 foreach (var v in dvs)
                     if (slot < v.SlotRvas.Count) targets.Add(v.SlotRvas[slot]);
                     else incomplete = true;
@@ -696,7 +670,7 @@ internal sealed class VirtualCallResolver
             Array.Clear(Regs);
             Slots.Clear();
             Cells.Clear();
-            // clearing costs the capacity: do not carry one large function's tables into every later one
+            // Clearing costs the capacity, so do not carry one large function's tables into later ones.
             if (Slots.EnsureCapacity(0) > 256) Slots.TrimExcess();
             if (Cells.EnsureCapacity(0) > 256) Cells.TrimExcess();
         }
@@ -718,8 +692,7 @@ internal sealed class VirtualCallResolver
                 else if (j != v) { Slots[k] = j; changed = true; }
             }
             if (dropSlots != null) { foreach (var k in dropSlots) Slots.Remove(k); changed = true; }
-            // fields of this: known where every path agrees; fields of objects created here: from the paths that set them,
-            // a disagreement leaves Unknown (so a later path cannot bring the value back)
+            // Fields of this need every path to agree; fields of local objects keep Unknown on disagreement so it sticks.
             List<(VKind, uint, int)>? drop = null;
             List<((VKind, uint, int), Val)>? set = null;
             foreach (var (k, v) in Cells)
@@ -747,7 +720,7 @@ internal sealed class VirtualCallResolver
         private readonly FunctionWalker _walker = new(r._ctx);
         private readonly InstructionInfoFactory _info = new();
         private readonly BlockList _graph = new();
-        // instructions of block b: _insns[_blockFirst[b] .. _blockFirst[b + 1])
+        // Instructions of block b: _insns[_blockFirst[b] .. _blockFirst[b + 1]).
         private Instruction[] _insns = new Instruction[256];
         private int[] _blockFirst = new int[65];
         private readonly SliceReader _reader = new();
@@ -786,7 +759,7 @@ internal sealed class VirtualCallResolver
             var entry = Rent();
             entry.Regs[Rsp] = new Val(VKind.Stack);
             entry.Regs[ThisReg] = new Val(VKind.This);
-            // arguments whose class the decorated name gives (and x86 this passed on the stack)
+            // Arguments whose class the decorated name gives, and x86 this on the stack.
             if (r._seeds.TryGetValue(f.Start, out var seeds))
                 foreach (var (reg, slot, cls) in seeds)
                 {
@@ -824,7 +797,7 @@ internal sealed class VirtualCallResolver
             }
             if (summarize)
             {
-                // the vftables this function leaves in [this + o] on every return
+                // The vftables this function leaves in [this + o] on every return.
                 for (int b = 0; b < n; b++)
                 {
                     if (ins[b] == null) continue;
@@ -868,7 +841,7 @@ internal sealed class VirtualCallResolver
 
         private bool _seenReturn;
 
-        // states of one analysis, reused by the next: a fresh state per block costs two dictionaries
+        // States are reused across analyses; a fresh one per block costs two dictionaries.
         private readonly List<State> _pool = [];
         private readonly State _scratch = new();
         private int _rented;
@@ -892,7 +865,7 @@ internal sealed class VirtualCallResolver
 
         private ReadOnlySpan<Instruction> Block(int b) => _insns.AsSpan(_blockFirst[b], _blockFirst[b + 1] - _blockFirst[b]);
 
-        /// <summary>Decodes every block into one reused buffer, each block's bytes alone (an instruction crossing its end is invalid).</summary>
+        /// <summary>Decodes every block from its own bytes into one reused buffer, so an instruction crossing a block end is invalid; false past <see cref="MaxInstructions"/>.</summary>
         private bool Decode()
         {
             _seenReturn = false;
@@ -942,13 +915,13 @@ internal sealed class VirtualCallResolver
             return true;
         }
 
-        /// <summary>An immediate operand as a constant: 0, or an address in the image (x86: covered by a relocation when the image has them).</summary>
+        /// <summary>An immediate as a constant: zero, or an image address (x86: relocated when the image has relocations).</summary>
         private Val Imm(in Instruction x, int operand)
         {
             ulong v = x.GetImmediate(operand);
             if (v == 0) return new Val(VKind.Zero);
             if (!InImage(v, out uint rva)) return Val.Unknown;
-            // x86: the relocation sits on the immediate's 4 bytes, at the end of the instruction for the forms compilers emit
+            // x86: compilers place the relocated immediate in the instruction's last 4 bytes.
             if (!r._is64 && r._ctx.Relocations.Length > 0 && !r._ctx.IsRelocated(Rva(in x) + (uint)x.Length - 4)) return Val.Unknown;
             return new Val(VKind.Const, rva);
         }
@@ -995,7 +968,7 @@ internal sealed class VirtualCallResolver
                     }
                 case VKind.Typed:
                     {
-                        // objects of a static type share the class index: no fields are tracked
+                        // Objects of one static type share the class index, so no fields are tracked.
                         long off = (long)p.Off + d;
                         return off is < int.MinValue or > int.MaxValue ? Val.Unknown : new Val(VKind.Field, p.Id, (int)off, 0, VKind.Typed);
                     }
@@ -1202,7 +1175,7 @@ internal sealed class VirtualCallResolver
             var thisArg = s.Regs[ThisReg];
             (int, uint)[]? summary = null;
             if (direct is uint d0) r._summaries.TryGetValue(d0, out summary);
-            // the call: volatile registers lost, the result is a new object (a constructor returns this)
+            // A call loses volatile registers and returns a new object; a constructor returns this.
             var volatiles = r._systemV ? SystemVVolatiles : r._is64 ? X64Volatiles : X86Volatiles;
             foreach (int v in volatiles) s.Regs[v] = Val.Unknown;
             if (summary != null && thisArg.Kind is VKind.This or VKind.Obj or VKind.Stack)
@@ -1218,7 +1191,7 @@ internal sealed class VirtualCallResolver
             }
             else
             {
-                // a function or import whose decorated name returns a class pointer
+                // A function or import whose decorated name returns a class pointer.
                 uint? callee = direct;
                 if (direct is uint d2 && r._index.FunctionByStart(d2)?.ThunkImport is { } thunked) callee = thunked.SlotRva;
                 else if (direct == null && x.Op0Kind == OpKind.Memory && x.MemoryIndex == Register.None
@@ -1228,7 +1201,7 @@ internal sealed class VirtualCallResolver
             }
             if (!r._is64)
             {
-                // the callee pops its stack arguments (stdcall, thiscall) when it returns with ret n
+                // A stdcall or thiscall callee pops its stack arguments with ret n.
                 int? pops = direct is uint d1 ? r.PopsOf(d1) : targets is { Count: > 0 } ? r.PopsOf(targets[0]) : null;
                 var sp = s.Regs[Rsp];
                 s.Regs[Rsp] = pops is int n && sp.Kind == VKind.Stack ? sp.Plus(n) : Val.Unknown;

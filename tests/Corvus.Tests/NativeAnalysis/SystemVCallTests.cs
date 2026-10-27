@@ -53,7 +53,7 @@ public class SystemVCallTests
         a.AddInstruction(CallSlot(Dlsym));
         a.AddInstruction(Instruction.Create(Iced.Intel.Code.Mov_rm64_r64, new MemoryOperand(Register.RIP, (long)(Base + Global), 8), Register.RAX));
         a.AddInstruction(CallSlot(Global));
-        // rsi is volatile under System V, rbx is not
+        // Rsi is volatile under System V, rbx is not.
         a.mov(esi, 7);
         a.mov(ebx, 9);
         a.mov(edi, 1);
@@ -62,7 +62,7 @@ public class SystemVCallTests
         a.AddInstruction(CallSlot(Free));
         a.mov(edi, ebx);
         a.AddInstruction(CallSlot(Free));
-        // a local call without a signature: the registers set before it
+        // A local call without a signature: the registers set before it.
         a.mov(edi, 10);
         a.mov(esi, 11);
         a.call(helper);
@@ -216,7 +216,7 @@ public class SystemVCallTests
         var cabs = new ApiParam("z", ApiParamType.FloatPair);
         var pair = new ApiParam("s", ApiParamType.IntPair);
         var n = new ApiParam("n", ApiParamType.Int);
-        // integer pairs take two of rdi..r9, or two stack slots once fewer than two are left; the next integer still takes a register
+        // Integer pairs take two of rdi..r9, or two stack slots once fewer than two are left; the next integer still takes a register.
         Assert.Equal(["rdi", "rsi:rdx", "rcx:r8", "[rsp+0h]:[rsp+8h]", "r9", "xmm0:xmm1"],
             X64Abi.SystemV.Assign([n, pair, pair, pair, n, cabs], int.MaxValue, tail: false).Select(x => x.Label));
         Assert.Equal(["rcx", "rdx"], X64Abi.Microsoft.Assign([cabs, cabs], int.MaxValue, tail: false).Select(x => x.Label));
@@ -235,7 +235,7 @@ public class SystemVCallTests
         Assert.Equal("[rsp+10h]", slices.LocationName(slices.ParameterEntry(7)));
         Assert.Equal("xmm2", slices.LocationName(slices.ParameterEntry(2, isFloat: true)));
 
-        // the helper's parameters come from the caller's rdi and rsi
+        // The helper's parameters come from the caller's rdi and rsi.
         var helper = index.Functions.Single(f => f.Start != Code);
         var incoming = NativeFunctionTools.IncomingParameters(index, helper, default);
         Assert.Equal([(0, "rdi"), (1, "rsi")], incoming);
@@ -281,7 +281,7 @@ public class SystemVCallTests
         var code = new NativeCodeService(ws, options, null, new AnnotationStore(dir.File("ann")));
         var tools = new NativeFunctionTools(ws, code, new OutputPager(options));
         var text = await tools.AnalyzeNativeFunction(NativeFixtures.LinuxX64DbgShim, "RegisterForRuntimeStartup", sections: "signature");
-        // a wrapper that passes the pid (rdi) on unchanged and reads the other three
+        // A wrapper that passes the pid (rdi) on unchanged and reads the other three.
         Assert.Contains("parameters read at entry: 2 (rsi), 3 (rdx), 4 (rcx)", text);
         Assert.Contains("argument registers read before written: rcx, rdx, rsi", text);
     }

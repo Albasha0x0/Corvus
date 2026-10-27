@@ -44,7 +44,7 @@ public sealed class WasmCodeTests(ITestOutputHelper output) : IDisposable
         var dup = index.Functions.First(f => f.Name == "dup");
         Assert.Equal(add.Start, Assert.Single(index.Callees(dup)).Target);
         Assert.Contains(index.RefsFrom(dup), x => x.Kind == XrefKind.Write && x.To == image.GlobalAddress(1));
-        // call_indirect of type 1 reaches the table's functions of that type (dup and dup.1 are in the element segment)
+        // call_indirect of type 1 reaches the table's functions of that type (dup and dup.1 are in the element segment).
         var cafe = index.Functions.Single(f => f.Name == "café");
         Assert.Equal(2, index.Callees(cafe).Count(c => c.Kind == XrefKind.VirtualPossible));
     }
@@ -70,7 +70,7 @@ public sealed class WasmCodeTests(ITestOutputHelper output) : IDisposable
 
     [Trait("Smoke", "push")]
     [Fact]
-    public async Task Cfg_and_instructions_of_a_function()
+    public async Task A_function_gives_its_CFG_and_instructions()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var path = Save("control.wasm", WasmFixtures.Valid().Single(f => f.Name == "control").Bytes);
@@ -132,12 +132,12 @@ public sealed class WasmCodeTests(ITestOutputHelper output) : IDisposable
         foreach (var c in h.Calls.Where(c => c.Failed || c.Error != null)) output.WriteLine(c.ToString());
         output.WriteLine($"{h.Calls.Count} calls, {h.Calls.Count(c => c.Error != null)} typed errors");
         Assert.DoesNotContain(h.Calls, c => c.Failed);
-        // the code tools answer: list, disassemble (WAT), references and call trees
+        // The code tools answer: list, disassemble (WAT), references and call trees.
         Assert.DoesNotContain(h.Calls, c => c.Tool is "list_functions" or "disassemble" or "find_xrefs" or "native_call_tree" or "search_native_strings" && c.Error == ErrorCode.Unsupported);
     }
 }
 
-/// <summary>Index time of a Unity-WebGL-size module, held to its budget in the perf run, which runs alone.</summary>
+/// <summary>Index time of a module the size of a WebGL player build, held to its budget in the perf run, which runs alone.</summary>
 public sealed class WasmIndexSpeedTests(ITestOutputHelper output)
 {
     [Fact]

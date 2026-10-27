@@ -6,10 +6,7 @@ using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Regexes run over file contents match in linear time, so they take no match timeout: NonBacktracking, or a generated
-/// regex whose work per start is bounded. Only patterns a caller supplies keep one, through <see cref="RegexTimeouts"/>.
-/// </summary>
+/// <summary>Regexes over file contents match in linear time without a timeout; only caller patterns keep one, through <see cref="RegexTimeouts"/>.</summary>
 public sealed partial class RegexPolicyTests
 {
     private static readonly string Root = DocsTests.RepoRoot();

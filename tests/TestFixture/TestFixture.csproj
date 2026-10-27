@@ -6,9 +6,9 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Fixture</RootNamespace>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <!-- the PDB path in the image is the same in every checkout, so the fixture is byte-identical -->
+    <!-- Same PDB path in every checkout, so the fixture is byte-identical. -->
     <PathMap>$(MSBuildProjectDirectory)$([System.IO.Path]::DirectorySeparatorChar)obj$([System.IO.Path]::DirectorySeparatorChar)$(Configuration)=/_/TestFixture/obj,$(MSBuildProjectDirectory)=/_/TestFixture/</PathMap>
-    <!-- the same image in Debug and Release (CI tests Release): protocol samples record what the compiler emits -->
+    <!-- Same image in Debug and Release (CI tests Release): protocol samples record compiler output. -->
     <Optimize>false</Optimize>
     <DebugType>portable</DebugType>
     <DefineConstants>TRACE</DefineConstants>

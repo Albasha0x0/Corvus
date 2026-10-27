@@ -11,10 +11,7 @@ public sealed partial class NoteTools
 {
     private const int MaxVerdictChars = 300;
 
-    /// <summary>
-    /// Evidence that links a saved record: last:N is kept (so the link outlives the session) and every link takes the
-    /// record's tool and content hash.
-    /// </summary>
+    /// <summary>Evidence linking saved records: last:N is kept so the link outlives the session; each link takes the record's tool and hash.</summary>
     private NoteEvidence[]? Link(NoteEvidence[]? entries, RequestContext<CallToolRequestParams>? context)
     {
         if (entries == null || !entries.Any(e => !string.IsNullOrWhiteSpace(e.Result))) return entries;
@@ -30,10 +27,7 @@ public sealed partial class NoteTools
         })];
     }
 
-    /// <summary>
-    /// Checks each linked record as read_result format=verify does and whether it names the note's anchor; a hypothesis
-    /// becomes confirmed or refuted only from records that pass both, otherwise open.
-    /// </summary>
+    /// <summary>Verifies each linked record and that it names the anchor; a hypothesis is confirmed or refuted only by records passing both.</summary>
     private async Task<(List<NoteEvidence> Evidence, string? Status)> Verify(Note note, RequestContext<CallToolRequestParams> context, CancellationToken ct)
     {
         var linked = note.Evidence.Where(e => e.Result != null).ToList();
@@ -61,7 +55,7 @@ public sealed partial class NoteTools
             catch (ToolError x) { verdict = "not checked: " + x.Message; }
             checkedList.Add(e with { Verdict = Format.Clip($"{verdict} ({DateTime.UtcNow:yyyy-MM-dd})", MaxVerdictChars) });
         }
-        // a refuting record outweighs supporting ones
+        // A refuting record outweighs supporting ones.
         string? status = note.Kind != "hypothesis" ? null : refuted ? "refuted" : supported ? "confirmed" : "open";
         return (checkedList, status);
     }
@@ -78,7 +72,7 @@ public sealed partial class NoteTools
         if (native == null) return $"{anchor.Label} is not loaded here";
         bool In(uint rva) => anchor.Kind == NoteAnchor.File || (fn != null ? rva >= fn.Start && rva < fn.Start + Math.Max(1u, fn.Size) : rva == anchor.Rva);
         if (EvidenceBundle.NamedAddresses(record).Any(a => string.Equals(a.Sha256, anchor.Sha256, StringComparison.OrdinalIgnoreCase) && In(a.Rva))) return null;
-        // a record without named addresses names the anchor in its text: its function name or address
+        // A record without named addresses names the anchor in its text: its function name or address.
         if (anchor.Kind == NoteAnchor.Native && anchor.Rva is { } at)
         {
             var va = NativeAddress.Va(native.Image, fn?.Start ?? at);

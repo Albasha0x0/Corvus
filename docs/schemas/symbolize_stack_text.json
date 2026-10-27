@@ -2,7 +2,7 @@
   "type": "object",
   "properties": {
     "format": {
-      "description": "The format recognized (unity, dotnet, wer, eventlog, windbg, android), or the one requested.",
+      "description": "The format recognized (mono, dotnet, wer, eventlog, windbg, android), or the one requested.",
       "type": "string"
     },
     "exception": {
@@ -65,7 +65,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "native, managed or il2cpp.",
+            "description": "native, managed or aot.",
             "type": "string"
           },
           "module": {
@@ -82,7 +82,7 @@
             "type": "string"
           },
           "source": {
-            "description": "user, pdb, il2cpp, export, discovered, nearest_export, metadata, or none.",
+            "description": "user, pdb, metadata, export, discovered, nearest_export or none.",
             "type": "string"
           },
           "image": {

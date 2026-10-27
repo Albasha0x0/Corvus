@@ -2,12 +2,7 @@ using AsmArm64;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Decodes one ARM64 instruction with AsmArm64 into <see cref="InspectedInstruction"/>: operands (registers with widths,
-/// memory as base, index with extend, offset and writeback), register and NZCV use, memory accesses, stack pointer change,
-/// flow and the ADRP pair it belongs to. The run is decoded from the block start so ADRP pairs and loads through import
-/// slots resolve as they do in the code index.
-/// </summary>
+/// <summary>One ARM64 instruction as <see cref="InspectedInstruction"/>, decoded from its block start so references resolve as in the code index.</summary>
 internal static class Arm64Inspector
 {
     private const int MaxRun = 256;
@@ -34,7 +29,7 @@ internal static class Arm64Inspector
         var i = step.Instruction;
         var facts = step.Facts;
 
-        // pair: the adrp this instruction completes, or the instruction completing this adrp
+        // The adrp this instruction completes, or the instruction completing this adrp.
         uint? pair = null, formed = null;
         if (i.Id == Arm64InstructionId.ADRP_only_pcreladdr)
         {
@@ -284,7 +279,7 @@ internal static class Arm64Inspector
         return "read";
     }
 
-    /// <summary>Bytes the memory operand accesses: the transfer register's width (byte / halfword / signed forms by mnemonic), twice for pairs.</summary>
+    /// <summary>Bytes the memory operand accesses: the transfer width, twice for pairs.</summary>
     internal static int AccessSize(in Arm64Instruction i)
     {
         var m = i.Mnemonic.ToString();

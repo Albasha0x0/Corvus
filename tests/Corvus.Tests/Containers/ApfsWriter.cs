@@ -4,11 +4,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Builds an APFS container (Apple File System Reference, 4 KiB blocks, one checkpoint): volumes with their object maps
-/// and file-system trees, split into several leaves under an index node when the records pass one node. Files are
-/// written in fragments, with holes, as hard links, symbolic links, FIFOs and decmpfs files.
-/// </summary>
+/// <summary>Writes an APFS container (4 KiB blocks, one checkpoint) with multi-leaf trees and every file shape.</summary>
 internal sealed class ApfsWriter
 {
     public const int BlockSize = 4096;

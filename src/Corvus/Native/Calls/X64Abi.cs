@@ -2,11 +2,7 @@ using Iced.Intel;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// The x64 calling convention of an image: Microsoft x64 on PE (rcx, rdx, r8, r9 or xmm0-3 by position, stack arguments
-/// above a 0x20-byte home area), System V on ELF and Mach-O (rdi, rsi, rdx, rcx, r8, r9 and xmm0-7 counted separately,
-/// stack arguments from [rsp] at the call).
-/// </summary>
+/// <summary>The x64 calling convention of an image: Microsoft x64 on PE, System V on ELF and Mach-O.</summary>
 internal sealed class X64Abi
 {
     public static readonly X64Abi Microsoft = new(false, [Register.RCX, Register.RDX, Register.R8, Register.R9], 4, 0x20,
@@ -46,13 +42,7 @@ internal sealed class X64Abi
     /// <summary>Clobbered by a call: the volatile general registers, xmm0-5 (Microsoft) or every vector register (System V).</summary>
     public bool IsVolatile(Register full) => VolatileInts.Contains(full) || full >= Register.ZMM0 && full < Register.ZMM0 + _volatileVectors;
 
-    /// <summary>
-    /// Where each parameter is passed at a call (before the return address is pushed): Microsoft by position, System V by
-    /// class with the rest on the stack in order. Floating-point parameters from <paramref name="variadicFrom"/> on go in
-    /// integer registers under Microsoft (System V passes them in xmm registers). A 16-byte struct takes two registers of
-    /// its class under System V (<see cref="Second"/>), or two stack slots when both are not free; Microsoft passes it
-    /// by reference. <paramref name="structReturn"/>: rdi / rcx holds the caller's buffer for a returned struct.
-    /// </summary>
+    /// <summary>Where each parameter is passed at a call, before the return address is pushed; Microsoft passes variadic floats in integer registers.</summary>
     public List<(Loc Loc, string Label, Loc? Second)> Assign(IReadOnlyList<ApiParam> ps, int variadicFrom, bool tail, bool structReturn = false)
     {
         var result = new List<(Loc, string, Loc?)>(ps.Count);
@@ -64,7 +54,7 @@ internal sealed class X64Abi
             Register reg = Register.None, second = Register.None;
             if (!IsSystemV)
             {
-                // a 16-byte struct goes by reference: its address in the integer register of its position
+                // Microsoft passes a 16-byte struct by reference, in the integer register of its position.
                 if (position < 4) reg = p.IsFloat && position < variadicFrom ? Register.XMM0 + position : IntArgs[position];
             }
             else if (p.Type == ApiParamType.FloatPair) { if (floats + 2 <= FloatArgs) (reg, second) = (Register.XMM0 + floats, Register.XMM0 + floats + 1); floats += reg != Register.None ? 2 : 0; }
@@ -85,10 +75,7 @@ internal sealed class X64Abi
         return result;
     }
 
-    /// <summary>
-    /// The 0-based parameter position of an entry location: an integer register's position, an xmm register's number, a
-    /// stack argument after the register ones; -1 for none.
-    /// </summary>
+    /// <summary>The 0-based parameter position of an entry location; -1 for none.</summary>
     public int ParameterIndex(Loc entry)
     {
         if (entry.Kind == LocKind.Stack)

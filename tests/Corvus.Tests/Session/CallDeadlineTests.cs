@@ -20,7 +20,7 @@ public class CallDeadlineTests
     private static readonly CallToolResult Done = new() { Content = [new TextContentBlock { Text = "done" }] };
 
     [Fact]
-    public void LongRunningToolsHaveNoDeadline()
+    public void Long_running_tools_have_no_deadline()
     {
         var options = new ServerOptions { TimeoutSeconds = 180 };
         Assert.Null(CallFilter.Deadline("export_project", options));
@@ -28,7 +28,7 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    public async Task CallsPastTheDeadlineEndWithATimeout()
+    public async Task Calls_past_the_deadline_end_with_a_timeout()
     {
         var clock = new ArmedClock();
         using var services = Services(time: clock);
@@ -110,7 +110,7 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    public async Task WorkLeftRunningPastTheDeadlineIsBoundedAndCounted()
+    public async Task Work_left_running_past_the_deadline_is_bounded_and_counted()
     {
         var clock = new ArmedClock();
         using var services = Services(time: clock);
@@ -123,7 +123,7 @@ public class CallDeadlineTests
         Assert.True(abandoned.GetProperty("details").GetProperty("stillRunning").GetBoolean());
         Assert.Equal(1, leftovers.Running);
 
-        // at the cap a call waits until its deadline, then is refused as busy with a retry hint
+        // At the cap a call waits until its deadline, then is refused as busy with a retry hint.
         var started = false;
         var refusing = Run(services, "get_type_info", _ => { started = true; return Task.FromResult(Done); }).AsTask();
         await clock.RunUntilAsync(refusing);
@@ -135,7 +135,7 @@ public class CallDeadlineTests
         Assert.Equal(1, refused.GetProperty("details").GetProperty("leftoverCalls").GetInt32());
         Assert.NotEqual(true, (await Run(services, "server_status", _ => Task.FromResult(Done))).IsError);
 
-        // a waiting call starts as soon as the leftover finishes; the clock stands still, so its deadline cannot end it
+        // A waiting call starts as soon as the leftover finishes; the clock stands still, so its deadline cannot end it.
         var waiting = Run(services, "get_type_info", _ => Task.FromResult(Done)).AsTask();
         await clock.ArmedAsync();
         Assert.False(waiting.IsCompleted);
@@ -146,7 +146,7 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    public async Task WorkLeftRunningAfterAClientCancelIsCounted()
+    public async Task Work_left_running_after_a_client_cancel_is_counted()
     {
         var clock = new ArmedClock();
         using var services = Services(timeoutSeconds: 3600, time: clock);
@@ -166,7 +166,7 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    public async Task ClientCancellationIsNotATimeout()
+    public async Task Client_cancellation_is_not_a_timeout()
     {
         // A deadline out of reach: with timers for both, a busy pool could run the deadline's first.
         using var services = Services(timeoutSeconds: 3600);
@@ -177,7 +177,7 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    public async Task ServerSideCancellationIsACancelledError()
+    public async Task Server_side_cancellation_is_a_cancelled_error()
     {
         // The clock never moves, so the deadline cannot be what cancelled the call.
         using var services = Services(time: new ArmedClock());
@@ -188,7 +188,7 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    public async Task ToolTimeoutErrorsKeepTheirPartialResult()
+    public async Task Tool_timeout_errors_keep_their_partial_result()
     {
         using var services = Services();
         var result = await Run(services, "search_il", ct =>
@@ -197,7 +197,7 @@ public class CallDeadlineTests
     }
 
     [Fact]
-    public async Task AWriterBehindALongReaderAnswersByItsDeadline_NamingTheHolder()
+    public async Task A_writer_behind_a_long_reader_answers_by_its_deadline_naming_the_holder()
     {
         var clock = new ArmedClock();
         using var services = Services(time: clock);

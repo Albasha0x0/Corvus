@@ -4,10 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Hermes;
 
-/// <summary>
-/// One decoded instruction: its offset in the function, the operation and up to six operand values (registers, immediates,
-/// ids and jump targets as absolute offsets in the function; a Double operand's bits in <see cref="Double"/>).
-/// </summary>
+/// <summary>One decoded instruction with up to six operands; jump targets are absolute offsets in the function.</summary>
 public readonly struct HermesInstruction
 {
     public int Offset { get; init; }
@@ -72,7 +69,7 @@ public static class HermesCode
             if (op.Name == "SwitchImm" && Switch(file.Bytes.Span, ins, f.Offset) is { } sw)
             {
                 switches?.Add(sw);
-                // a table inside the function's bytes ends its code
+                // A table inside the function's bytes ends its code.
                 int tableAt = TableAt(ins, f.Offset);
                 if (tableAt > at && tableAt < end) end = tableAt;
             }
@@ -81,7 +78,7 @@ public static class HermesCode
         return list;
     }
 
-    // the table is aligned in the file (the interpreter aligns the absolute address), not in the function
+    // The table is aligned in the file, as the interpreter aligns the absolute address, not in the function.
     private static int TableAt(in HermesInstruction ins, int functionOffset) => (int)(((functionOffset + ins.Offset + ins.B + 3) & ~3L) - functionOffset);
 
     /// <summary>The jump table of a SwitchImm: read from the file, since it may follow the function's counted bytes.</summary>
@@ -96,10 +93,7 @@ public static class HermesCode
         return new HermesSwitch(ins.Offset, min, max, (int)ins.C, targets);
     }
 
-    /// <summary>
-    /// One instruction as text: name padded to 18, then operands — registers rN, strings quoted, functions
-    /// Function&lt;name&gt;N, jumps as L_offset, builtins by name, doubles as JavaScript numbers.
-    /// </summary>
+    /// <summary>One instruction as text: the name padded to 18, then its operands.</summary>
     public static string Text(HermesFile file, in HermesInstruction ins)
     {
         var sb = new StringBuilder();

@@ -3,10 +3,7 @@ using Corvus.Native;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=rust: the crate dependency list cargo-auditable embeds (.dep-v0): root crate, every crate with version, source and
-/// kind, and the edges. Without it, the rustc commit and the crates named in the panic locations' source paths.
-/// </summary>
+/// <summary>view=rust: the cargo-auditable crate list (.dep-v0), else the rustc commit and crates named in panic source paths.</summary>
 internal sealed class RustFileView : IFileSummaryView
 {
     private const int MaxListed = 200;

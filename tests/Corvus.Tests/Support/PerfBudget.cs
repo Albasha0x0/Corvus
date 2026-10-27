@@ -4,11 +4,8 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// Performance measurements. Each writes one line to the test output, <c>perf: name value unit (budget op limit unit)</c>,
-/// which the perf run reads to compare medians with <c>Ratchets/perf-baseline.txt</c>; it fails the test only in the perf
-/// run (<see cref="Variable"/> = 1), so gating runs check the mechanism and report the time. Tests that measure carry
-/// <c>[Trait(PerfBudget.Trait, PerfBudget.Timing)]</c>, which the perf run selects. In every run, the name's baseline for this
-/// OS must be no looser than the test's limit: the limit is the hard budget, the baseline only tightens below it.
+/// Writes <c>perf: name value unit (budget op limit unit)</c> lines the perf run compares with Ratchets/perf-baseline.txt;
+/// fails only in the perf run (<see cref="Variable"/> = 1). Each baseline must be no looser than the test's limit.
 /// </summary>
 internal static class PerfBudget
 {

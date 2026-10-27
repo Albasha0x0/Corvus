@@ -31,10 +31,10 @@ public class PluginManifestTests
     }
 
     [Fact]
-    public void ClaudeCodePlugin() => AssertPlugin(Read(".claude-plugin/plugin.json"), "claude-code");
+    public void The_Claude_Code_plugin_manifest_is_valid() => AssertPlugin(Read(".claude-plugin/plugin.json"), "claude-code");
 
     [Fact]
-    public void CodexPlugin()
+    public void The_Codex_plugin_manifest_is_valid()
     {
         var plugin = Read(".codex-plugin/plugin.json");
         AssertPlugin(plugin, "codex");
@@ -43,7 +43,7 @@ public class PluginManifestTests
     }
 
     [Fact]
-    public void MarketplaceListsThePluginAtTheRoot()
+    public void The_marketplace_lists_the_plugin_at_the_root()
     {
         // Claude Code and Codex both read .claude-plugin/marketplace.json.
         var marketplace = Read(".claude-plugin/marketplace.json");
@@ -61,7 +61,7 @@ public class PluginManifestTests
     [Fact]
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
-    public async Task ClaudeCodeValidatesTheManifests()
+    public async Task Claude_Code_validates_the_manifests()
     {
         var claude = Environment.GetEnvironmentVariable("CORVUS_CLAUDE") ?? BundleTests.FindOnPath(OperatingSystem.IsWindows() ? "claude.exe" : "claude");
         if (claude is null) return; // no claude CLI on this machine

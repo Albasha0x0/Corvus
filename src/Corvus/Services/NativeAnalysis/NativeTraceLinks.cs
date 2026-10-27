@@ -4,11 +4,8 @@ using Corvus.Native.Code;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The loaded images a value trace crosses into: imports bound to code in a loaded image (thunks followed) and the call
-/// sites in other loaded images that reach a function through their imports. Only images whose code index is built and
-/// whose instruction set matches are entered (the calling convention must be the same on both sides).
-/// </summary>
+// Only indexed images with the same instruction set are entered, so both sides share the calling convention.
+/// <summary>The loaded images a value trace crosses into, through bound imports and importing call sites.</summary>
 internal sealed class NativeTraceLinks : ITraceLinks
 {
     private readonly NativeLinkService _link;

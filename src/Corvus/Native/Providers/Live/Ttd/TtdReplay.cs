@@ -32,12 +32,8 @@ internal sealed record TtdModule(string Path, ulong Base, ulong Size, uint Check
 /// <summary>Why a replay stopped: an execute watchpoint, or the end of the recording.</summary>
 internal readonly record struct TtdStop(bool Watchpoint, string Reason);
 
-/// <summary>
-/// One recording opened with the TTD Replay API (TTDReplay.dll, from WinDbg or the TTD package): its modules, and
-/// one cursor that moves forward through it. Not thread-safe; x64 recordings only. The
-/// interface slots and layouts are those of the API headers 0.9.5 (Microsoft.TimeTravelDebugging.Apis), taken from
-/// MSVC's own vtable layout of those headers.
-/// </summary>
+// Interface slots and layouts follow the 0.9.5 API headers (Microsoft.TimeTravelDebugging.Apis) as MSVC lays them out.
+/// <summary>One recording opened with TTDReplay.dll: its modules and one forward cursor. Not thread-safe; x64 only.</summary>
 internal sealed class TtdReplay : IDisposable
 {
     private static readonly Guid EngineView = new("4D3420A5-37EF-4114-AE91-63D0378C84A9");

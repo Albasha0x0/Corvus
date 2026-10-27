@@ -1,9 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// An applied edit with the inputs needed to replay it. Used for undo (rebuild from the original image and replay),
-/// edit scripts and diffs.
-/// </summary>
+/// <summary>An applied edit with the inputs to replay it, for undo, edit scripts and diffs.</summary>
 /// <param name="Kind">Name of the edit tool that produced the record.</param>
 /// <param name="Args">Tool arguments; symbols stored as stable labels (Ns.Type::Method(int)) plus the metadata token.</param>
 /// <param name="Touched">Labels of members changed or added by the edit.</param>
@@ -21,10 +18,7 @@ public sealed record EditRecord(string Kind, IReadOnlyDictionary<string, string?
     public string ContentDigest() => EditDigest.Of(Kind, Args);
 }
 
-/// <summary>
-/// The record a dry run would have made, for the calling tool to report its digest. Scoped to the call: dry runs hold only
-/// the read lock and can run side by side.
-/// </summary>
+/// <summary>The record a dry run would have made, scoped to the call, since dry runs hold only the read lock and run side by side.</summary>
 public static class EditPreview
 {
     private sealed class Slot { public EditRecord? Record; }

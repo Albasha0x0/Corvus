@@ -2,11 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// HTTP/2 over one connection's in-order streams: frames read from each side (the client's preface first), header blocks
-/// decoded with each side's HPACK table, DATA gathered per stream; a response is handed on when the server ends its
-/// stream. A gap stops that side (its HPACK table can no longer be followed).
-/// </summary>
+/// <summary>HTTP/2 over one connection; a response is handed on at stream end, and a gap stops that side, whose HPACK table is then lost.</summary>
 internal sealed class Http2Stream(string scheme, string server, Action<CapturedResponse> emit, long maxBody) : ITcpConsumer
 {
     private static readonly byte[] Preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"u8.ToArray();
@@ -93,7 +89,8 @@ internal sealed class Http2Stream(string scheme, string server, Action<CapturedR
                 if (side.Block == null || stream != side.BlockStream) return false;
                 side.Block.AddRange(body);
                 return (flags & 4) == 0 || Headers(side);
-            case 5: // PUSH_PROMISE: its header block still feeds the table
+            // PUSH_PROMISE: its header block still feeds the table.
+            case 5:
             {
                 if (!Unpad(flags, ref body) || body.Length < 4) return false;
                 var block = body[4..].ToArray();
@@ -126,7 +123,7 @@ internal sealed class Http2Stream(string scheme, string server, Action<CapturedR
             _streams[stream] = x = new Exchange();
         }
         x.Take(headers, side.Client);
-        // an interim (1xx) response is followed by the final one's headers
+        // An interim (1xx) response is followed by the final one's headers.
         if (!side.Client && x.Status >= 200) x.Body ??= new MemoryStream();
         if ((side.BlockFlags & 1) != 0 && !side.Client) Finish(stream);
         return true;

@@ -2,11 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// A PDF read the way pdf-parser reads it: every "n g obj" in the file in order (so objects outside the cross-reference
-/// table and earlier versions from incremental updates are seen), trailers and xref sections counted, then the objects
-/// inside object streams. The newest version of an object number is the one resolved; streams are decoded on demand.
-/// </summary>
+/// <summary>A PDF read as pdf-parser reads it, every "n g obj" in order, so objects outside the xref and earlier versions are seen; the newest version resolves, streams decode on demand.</summary>
 internal sealed class PdfFile
 {
     private readonly byte[] _data;
@@ -55,7 +51,7 @@ internal sealed class PdfFile
             Version = Encoding.Latin1.GetString(_data, header + 5, e - header - 5);
         }
         var lex = new PdfLexer(_data);
-        // the last two numbers seen, with their positions, to recognize "n g obj"
+        // The last two numbers seen, with their positions, to recognize "n g obj".
         long n1 = -1, n2 = -1;
         int n1At = 0, n2At = 0;
         int steps = 0;
@@ -78,7 +74,8 @@ internal sealed class PdfFile
             }
             if (b is (byte)'(' or (byte)'<' or (byte)'[' or (byte)'/')
             {
-                lex.Value(); // strings and dictionaries outside objects (trailers handled below)
+                // Strings and dictionaries outside objects; trailers are handled below.
+                lex.Value();
                 n1 = n2 = -1;
                 continue;
             }
@@ -101,7 +98,7 @@ internal sealed class PdfFile
             n1 = n2 = -1;
             if (Objects.Count >= MaxObjects) { Notes.Add($"stopped at {MaxObjects:N0} objects"); break; }
         }
-        // comments are skipped by the lexer: count %%EOF markers in the bytes
+        // The lexer skips comments, so %%EOF markers are counted in the bytes.
         EofMarkers = 0;
         int last = -1;
         for (int i = _data.AsSpan().IndexOf("%%EOF"u8); i >= 0; )
@@ -150,7 +147,7 @@ internal sealed class PdfFile
             {
                 int found = _data.AsSpan(start).IndexOf("endstream"u8);
                 end = found < 0 ? _data.Length : start + found;
-                // the end-of-line before endstream is not data
+                // The end-of-line before endstream is not data.
                 if (end > start && _data[end - 1] == 10) end--;
                 if (end > start && _data[end - 1] == 13) end--;
             }
@@ -191,7 +188,7 @@ internal sealed class PdfFile
                 if (first + offset < 0 || first + offset >= data.Length) continue;
                 var inner = new PdfLexer(data, first + offset);
                 var value = inner.Value() ?? new PdfKeyword("null");
-                // an object in a stream is current unless a later object at a file offset replaced it
+                // An object in a stream is current unless a later object at a file offset replaced it.
                 var o = new PdfObject(number, 0, stm.Offset, value) { InObjectStream = stm.Number };
                 Objects.Add(o);
                 if (!_current.TryGetValue(number, out var existing) || existing.InObjectStream != null || existing.Offset < stm.Offset) _current[number] = o;

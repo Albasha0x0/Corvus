@@ -3,14 +3,7 @@ using Corvus.Native.Pdb;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>
-/// Writes DWARF types as CodeView type records (the PDB's TPI form), so <see cref="PdbTypeModel"/> and everything built
-/// on it (get_native_type, list_native_types, typed globals and prototypes, the engines' declarations) read DWARF the
-/// way they read a PDB. Structs, classes and unions (members at their DWARF offsets, bit fields, bases, static members),
-/// enums, typedefs (kept as type names), pointers, references, arrays, const/volatile and function types. Types repeated
-/// across units are written once: named aggregates and enums by kind, qualified name and size; derived types by their
-/// shape. Base types map to the CodeView simple type of their encoding and size.
-/// </summary>
+/// <summary>Writes DWARF types as CodeView TPI records so PDB type consumers read DWARF; repeated types are written once.</summary>
 internal sealed class DwarfTypes
 {
     public const uint FirstIndex = 0x1000;
@@ -183,10 +176,10 @@ internal sealed class DwarfTypes
             case Dw.TagUnspecifiedType: return SimplePointer(Void);
             case Dw.TagTypedef or Dw.TagTemplateAlias:
             {
-                // C's "typedef struct { ... } Name": the unnamed type takes the typedef's name
+                // C's "typedef struct { ... } Name": the unnamed type takes the typedef's name.
                 if (d.Name is { Length: > 0 } && _reader.Entry(d.Type, u) is { } e)
                 {
-                    // a declaration by signature stands for its definition in a type unit
+                    // A declaration by signature stands for its definition in a type unit.
                     var t = e.Die.SignatureTarget >= 0 && _reader.Entry(e.Die.SignatureTarget, e.Unit) is { } s ? s.Die : e.Die;
                     if (t is { Name: null, Declaration: false, Tag: Dw.TagStructureType or Dw.TagClassType or Dw.TagUnionType or Dw.TagEnumerationType })
                         _nameFor = (t.Offset, Qualify(u, d, d.Name, _reader));
@@ -208,7 +201,7 @@ internal sealed class DwarfTypes
             case Dw.TagRvalueReferenceType: return Pointer(TypeOf(u, d.Type), 4, d.ByteSize);
             case Dw.TagPtrToMemberType:
             {
-                // Itanium: a data member pointer is one word, a member function pointer two
+                // Itanium ABI: a data member pointer is one word, a member function pointer two.
                 bool function = _reader.Entry(d.Type, u) is { Die.Tag: Dw.TagSubroutineType };
                 return Array(0x20, function ? 2L * _pointerSize : _pointerSize);
             }
@@ -302,16 +295,13 @@ internal sealed class DwarfTypes
         return inner;
     }
 
-    /// <summary>
-    /// The prototype of a function entry: return type and parameter types (the parameters of its own children, else its
-    /// declaration's); <paramref name="names"/> receives the parameter names.
-    /// </summary>
+    /// <summary>The prototype of a function entry from its own or its declaration's parameters; <paramref name="names"/> receives the parameter names.</summary>
     public uint Procedure(DwarfUnit u, DwarfDie d, long returnType, List<string?>? names = null)
     {
         var args = new List<uint>();
         bool variadic = false;
         var (pu, pd) = (u, d);
-        // a definition without parameter entries takes them from its declaration or abstract origin
+        // A definition without parameter entries takes them from its declaration or abstract origin.
         for (int hop = 0; hop < 4; hop++)
         {
             int idx = pu.IndexOf(pd);
@@ -360,10 +350,7 @@ internal sealed class DwarfTypes
         return true;
     }
 
-    /// <summary>
-    /// "ns::Outer::name": the enclosing namespaces and types of <paramref name="d"/> (in its unit), then <paramref name="name"/>.
-    /// A type declared by signature (its definition in a type unit) is named by its definition.
-    /// </summary>
+    /// <summary>"ns::Outer::name": <paramref name="name"/> qualified by the enclosing namespaces and types; a type declared by signature is named by its definition.</summary>
     public static string Qualify(DwarfUnit u, DwarfDie d, string name, DwarfReader? reader = null)
     {
         StringBuilder? prefix = null;
@@ -402,7 +389,7 @@ internal sealed class DwarfTypes
         long size = Math.Max(0, d.ByteSize);
         string key = $"{tag}:{unique ?? name}:{size}";
         if (_byShape.TryGetValue(key, out var existing)) return existing;
-        // reserve the index first: members may point back at the type
+        // Reserve the index first: members may point back at the type.
         uint self = Add([], size);
         if (self == Void) return Void;
         _byShape[key] = self;
@@ -471,11 +458,11 @@ internal sealed class DwarfTypes
     {
         long storage = c.ByteSize > 0 ? c.ByteSize : SizeOf(type);
         if (storage <= 0) storage = 4;
-        // positions are counted from the storage unit's least significant bit, as CodeView counts them
+        // Positions count from the storage unit's least significant bit, as CodeView does.
         long byteOffset, position;
         if (c.DataBitOffset >= 0)
         {
-            // DWARF 4+: bits from the start of the struct in memory order (from the first byte's MSB on big-endian targets)
+            // DWARF 4+: bits from the struct start in memory order (from the first byte's MSB on big-endian targets).
             long bits = c.DataBitOffset;
             byteOffset = bits / (storage * 8) * storage;
             position = bits - byteOffset * 8;
@@ -483,7 +470,7 @@ internal sealed class DwarfTypes
         }
         else
         {
-            // DWARF 2/3: bit_offset counts from the storage unit's most significant bit, on either byte order
+            // DWARF 2/3: bit_offset counts from the storage unit's most significant bit on either byte order.
             byteOffset = union ? 0 : Math.Max(0, c.MemberLocation);
             position = storage * 8 - Math.Max(0, c.BitOffset) - c.BitSize;
         }
@@ -507,7 +494,7 @@ internal sealed class DwarfTypes
             chunks[^1].Add(m);
             bytes += m.Length;
         }
-        // written last chunk first, so each can name the next
+        // Written last chunk first, so each can name the next.
         uint next = 0;
         for (int i = chunks.Count - 1; i >= 0; i--)
         {

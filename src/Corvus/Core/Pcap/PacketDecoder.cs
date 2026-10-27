@@ -3,10 +3,7 @@ using System.Net;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// An IP packet's addresses (IPv4 in the low 32 bits), protocol and, for TCP and UDP, ports, TCP flags and sequence, and
-/// the payload's range in the frame. <see cref="Fragment"/> marks a later IPv4 / IPv6 fragment: no transport header.
-/// </summary>
+/// <summary>An IP packet's decoded headers and payload range; IPv4 addresses in the low 32 bits, <see cref="Fragment"/> marks a later fragment.</summary>
 internal readonly record struct DecodedPacket(bool V6, UInt128 Src, UInt128 Dst, byte Protocol, ushort SrcPort, ushort DstPort,
     byte TcpFlags, uint Seq, int PayloadStart, int PayloadLength, bool Fragment)
 {
@@ -71,7 +68,7 @@ internal static class PacketDecoder
             case 0 or 108:
                 {
                     if (f.Length < 4) return false;
-                    // the address family in the capturing host's order (null) or network order (loopback)
+                    // The address family in the capturing host's order (null) or network order (loopback).
                     uint family = BinaryPrimitives.ReadUInt32LittleEndian(f);
                     if (family > 0xFFFF) family = BinaryPrimitives.ReadUInt32BigEndian(f);
                     etherType = family == 2 ? 0x0800 : family is 10 or 24 or 28 or 30 ? 0x86DD : 0;
@@ -94,7 +91,8 @@ internal static class PacketDecoder
         if (ip.Length < 20 || ip[0] >> 4 != 4) return false;
         int ihl = (ip[0] & 0xF) * 4, total = BinaryPrimitives.ReadUInt16BigEndian(ip[2..]);
         if (ihl < 20 || ihl > ip.Length || total < ihl) return false;
-        ip = ip[..Math.Min(total, ip.Length)]; // drops Ethernet padding; a snapped packet keeps what was captured
+        // Drops Ethernet padding; a snapped packet keeps what was captured.
+        ip = ip[..Math.Min(total, ip.Length)];
         bool later = (BinaryPrimitives.ReadUInt16BigEndian(ip[6..]) & 0x1FFF) != 0;
         var src = BinaryPrimitives.ReadUInt32BigEndian(ip[12..]);
         var dst = BinaryPrimitives.ReadUInt32BigEndian(ip[16..]);
@@ -107,7 +105,8 @@ internal static class PacketDecoder
         p = default;
         if (ip.Length < 40 || ip[0] >> 4 != 6) return false;
         int payload = BinaryPrimitives.ReadUInt16BigEndian(ip[4..]);
-        if (payload > 0) ip = ip[..Math.Min(40 + payload, ip.Length)]; // 0 is a jumbogram: the frame bounds it
+        // A payload length of 0 is a jumbogram, bounded by the frame.
+        if (payload > 0) ip = ip[..Math.Min(40 + payload, ip.Length)];
         byte next = ip[6];
         int at = 40;
         bool later = false;

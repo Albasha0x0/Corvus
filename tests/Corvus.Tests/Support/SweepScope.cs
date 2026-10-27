@@ -1,10 +1,6 @@
 namespace Corvus.Tests;
 
-/// <summary>
-/// How much the real-image sweeps take: a routine full run sweeps a fixed quarter of each sweep's inputs (spread evenly,
-/// so every format and folder stays represented); CORVUS_SWEEP=exhaustive (test.ps1 -Full -Exhaustive) sweeps them all,
-/// as gates and releases do. A sweep's own CORVUS_*_LIMIT variable still wins.
-/// </summary>
+/// <summary>Routine full runs sweep an even quarter of each sweep's inputs; CORVUS_SWEEP=exhaustive sweeps all; a sweep's CORVUS_*_LIMIT wins.</summary>
 internal static class SweepScope
 {
     public const string Variable = "CORVUS_SWEEP";

@@ -34,10 +34,7 @@ import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
 
-/**
- * Stack frames and decompiler locals. Frame offsets count from the frame's lowest address (the bottom of the locals),
- * as the IDA worker reports them; Ghidra's stack offsets are relative to the stack pointer at entry.
- */
+/** Stack frames and decompiler locals; frame offsets count from the frame's lowest address, as the IDA worker's do; Ghidra's stack offsets are relative to the entry stack pointer. */
 final class FrameOps {
     private FrameOps() {
     }
@@ -78,8 +75,8 @@ final class FrameOps {
     }
 
     /**
-     * members [offset, name, type, size, kind (local, arg, special)]; locals [name, type, location, stack offset or
-     * null, argument, user name, user type]; Ghidra keeps saved registers among the locals, so saved_regs is 0.
+     * members [offset, name, type, size, kind (local, arg, special)]; locals [name, type, location, stack offset or null,
+     * argument, user name, user type]; saved_regs is 0 (Ghidra lists them among the locals).
      */
     static JsonElement frame(Worker w, Worker.Request r) throws Exception {
         Function f = CodeOps.functionAt(w, w.addr(r.args, "rva"));
@@ -171,10 +168,7 @@ final class FrameOps {
         return a;
     }
 
-    /**
-     * Names and/or types the stack frame member at a frame offset; a type at an offset without a member creates one.
-     * The return address slot is refused.
-     */
+    /** Names and/or types the frame member at an offset, creating one for a type; the return address slot is refused. */
     static JsonArray applyStack(Worker w, long rva, int offset, String name, String type) {
         String target = "+0x" + Integer.toHexString(offset).toUpperCase();
         Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + rva));
@@ -226,9 +220,8 @@ final class FrameOps {
     }
 
     /**
-     * The struct a pointer local is used as, from its loads and stores (Ghidra's FillOutStructureHelper), as a C
-     * declaration other engines parse too: undefinedN become plain integer types, gaps become char arrays. Nothing in the
-     * program changes; the tool declares the struct and retypes the local as kept edits. Args: rva, local, stack, name.
+     * The struct a pointer local is used as (FillOutStructureHelper), as a portable C declaration; changes nothing.
+     * Args: rva, local, stack, name.
      */
     static JsonElement inferStruct(Worker w, Worker.Request r) throws Exception {
         long rva = r.args.get("rva").getAsLong();
@@ -303,10 +296,7 @@ final class FrameOps {
         return s.getStorage() + "@" + s.getPCAddress();
     }
 
-    /**
-     * The pins of the variables that locals [[function, local, stack, name, type]] name, taken before any edit: Ghidra
-     * renumbers its default names (iVar2 becomes iVar1) once another local is named. Null where not found.
-     */
+    /** Pins of the locals named, taken before any edit because Ghidra renumbers default names; null where not found. */
     static String[] pins(Worker w, Worker.Request r, JsonArray locals) throws Exception {
         String[] out = new String[locals.size()];
         java.util.Map<Function, HighFunction> seen = new java.util.HashMap<>();
@@ -333,10 +323,7 @@ final class FrameOps {
         return out;
     }
 
-    /**
-     * Whether a parameter edit needs the decompiler's parameters committed first: when the database has another count or
-     * storage, committing only the edited one would lock a prototype that drops the others.
-     */
+    /** Whether the decompiler's parameters must be committed first: the database has another count or storage, and committing only the edited one would drop the others. */
     private static boolean paramsDiffer(HighSymbol s, HighFunction hf) {
         if (!s.isParameter()) return false;
         Parameter[] db = hf.getFunction().getParameters();

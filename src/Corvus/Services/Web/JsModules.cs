@@ -5,13 +5,13 @@ using Corvus.Core;
 namespace Corvus.Services.Web;
 
 /// <summary>A module recovered from a bundle: its id, the name and where the name came from, its byte range and what it requires.</summary>
-/// <see cref="Provenance"/>: bundler_key (esbuild / Metro paths), dependency_map (Browserify) or module_table (an id only).
+/// <remarks>Provenance: bundler_key (esbuild / Metro paths), dependency_map (Browserify) or module_table (an id only).</remarks>
 public sealed record JsModule(string Id, string? Name, string Provenance, string Family, int Start, int End, IReadOnlyList<string> Requires);
 
-/// <summary>The module table of a bundle, found on its syntax tree (the design's L3 recognizers).</summary>
+/// <summary>The module table of a bundle, found on its syntax tree.</summary>
 public static class JsModules
 {
-    /// <summary>Largest file parsed whole; larger ones report no modules (a tokenizer split is the design's fallback).</summary>
+    /// <summary>Largest file parsed whole; larger ones report no modules.</summary>
     public const int MaxParseBytes = 64 * 1024 * 1024;
 
     /// <summary>The syntax tree, or null with the reason in <paramref name="notes"/> (over the budget, or a parse error).</summary>
@@ -22,13 +22,13 @@ public static class JsModules
             notes.Add($"not parsed: {text.Length:N0} characters, over the {MaxParseBytes:N0} parse budget");
             return null;
         }
-        // a deep tree must not overflow the server's stack: a thread of its own with a large stack
+        // A deep tree must not overflow the server's stack, so the parse runs on a thread with a large stack.
         Acornima.Ast.Program? parsed = null;
         Exception? error = null;
         var thread = new Thread(() =>
         {
             var parser = new Parser(new ParserOptions { Tolerant = true });
-            // a script first; import / export make it a module (Rollup and Vite chunks)
+            // A script first; import / export make it a module (Rollup and Vite chunks).
             try { parsed = parser.ParseScript(text); }
             catch (ParseErrorException)
             {
@@ -44,7 +44,7 @@ public static class JsModules
         return parsed;
     }
 
-    // module tables of the last files read, by path, size and write time: a large bundle is parsed once for its views
+    // Module tables of the last files read, by path, size and write time, so a large bundle is parsed once.
     private static readonly List<((string Path, long Size, DateTime Written) Key, List<JsModule> Modules, List<string> Notes)> Recent = [];
 
     /// <summary>The module table of the file at <paramref name="path"/>, from the recent cache when the file is unchanged.</summary>
@@ -125,7 +125,7 @@ public static class JsModules
             foreach (var child in node.ChildNodes)
                 if (child != null) stack.Push(child);
         }
-        // an ES module (a Rollup or Vite chunk): the file is one module and its imports are its requires
+        // An ES module (Rollup or Vite chunk) is one module whose imports are its requires.
         if (modules.Count == 0 && script.Body.Any(s => s is ImportDeclaration or ExportNamedDeclaration or ExportAllDeclaration))
         {
             var imports = script.Body.Select(s => s switch

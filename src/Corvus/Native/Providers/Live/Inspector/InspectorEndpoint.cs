@@ -4,12 +4,8 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Live.Inspector;
 
-/// <summary>
-/// A V8 inspector a session connects to, named as <c>inspector:PORT</c>, <c>inspector:HOST:PORT</c> or
-/// <c>inspector:ws://HOST:PORT/ID</c>, with an optional <c>#TARGET</c> (id, type or part of the title). Node opens one with
-/// --inspect, an Electron main process with --inspect, its pages with --remote-debugging-port. Only loopback hosts are
-/// accepted: the inspector runs any code it is sent.
-/// </summary>
+// Loopback hosts only: the inspector runs any code it is sent.
+/// <summary>A V8 inspector: <c>inspector:PORT</c>, <c>inspector:HOST:PORT</c> or <c>inspector:ws://HOST:PORT/ID</c>, optional <c>#TARGET</c>.</summary>
 public static class InspectorEndpoint
 {
     public const string Prefix = "inspector:";

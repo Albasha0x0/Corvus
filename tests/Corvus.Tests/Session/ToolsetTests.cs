@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 public class ToolsetTests
 {
     [Fact]
-    public void EveryToolIsInExactlyOneFamily()
+    public void Every_tool_is_in_exactly_one_family()
     {
         var registered = Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         var listed = Toolsets.Families.SelectMany(f => f.Tools).ToList();
@@ -20,7 +20,7 @@ public class ToolsetTests
     }
 
     [Fact]
-    public void ParseAndFormat()
+    public void Toolset_lists_parse_and_format()
     {
         Assert.Equal(["dotnet", Toolsets.Session], Toolsets.Parse("dotnet").Order());
         Assert.True(Toolsets.Parse("ALL").SetEquals(Toolsets.All));
@@ -39,7 +39,7 @@ public class ToolsetTests
     }
 
     [Fact]
-    public void DefaultIsEveryToolAndCoreLeavesOutTheRest()
+    public void The_default_is_every_tool_and_core_leaves_out_the_rest()
     {
         Assert.Equal(Catalog.OfThisBuild(Toolsets.All).Tools.Count, Catalog.OfThisBuild().Tools.Count);
         var core = Catalog.OfThisBuild(Toolsets.CoreProfile).Tools.Select(t => (string)t["name"]!).ToList();
@@ -55,7 +55,7 @@ public class ToolsetTests
     }
 
     [Fact]
-    public async Task ServerRegistersOnlyItsToolsets()
+    public async Task Server_registers_only_its_toolsets()
     {
         await using var server = await Start(Toolsets.Option, "dotnet");
         var tools = (await server.Client.ListToolsAsync()).Select(t => t.Name).ToHashSet();
@@ -65,12 +65,12 @@ public class ToolsetTests
     }
 
     [Fact]
-    public void ShippedToolListsNameRealTools_AndReadonlyChangesNothing()
+    public void Shipped_tool_lists_name_real_tools_and_readonly_changes_nothing()
     {
         foreach (var (name, list) in Toolsets.ToolLists)
             Assert.True(Toolsets.LoadToolList(name).SetEquals(list), name);
         Assert.All(Toolsets.ToolLists["readonly"], t => Assert.True(ToolEffects.Of(t).ReadOnly, t));
-        // every read-only tool is in it, but the session tools (always on), device tools and live processes
+        // Every read-only tool is in it, but the session tools (always on), device tools and live processes.
         var missing = Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!)
             .Where(t => ToolEffects.Of(t).ReadOnly && Toolsets.FamilyOf(t) is not (Toolsets.Session or "live") && !ToolAvailability.DeviceTools.Contains(t))
             .Except(Toolsets.ToolLists["readonly"]).ToList();
@@ -79,7 +79,7 @@ public class ToolsetTests
     }
 
     [Fact]
-    public void ToolsFile_IsAWhitelistAppliedAfterToolsets()
+    public void The_tools_file_is_an_allowlist_applied_after_toolsets()
     {
         using var dir = new TempDir();
         var file = dir.File("tools.txt");
@@ -101,7 +101,7 @@ public class ToolsetTests
     }
 
     [Fact]
-    public async Task ServerRegistersOnlyTheWhitelistedTools()
+    public async Task The_server_registers_only_the_allowlisted_tools()
     {
         await using var server = await Start(Toolsets.ToolsFileOption, "triage");
         var tools = (await server.Client.ListToolsAsync()).Select(t => t.Name).ToHashSet();

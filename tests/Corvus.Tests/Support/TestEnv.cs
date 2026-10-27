@@ -16,9 +16,9 @@ public sealed class Env : IDisposable
     public DecompilerService Decompiler { get; }
     public SearchService Search { get; } = new();
     public ReferenceService References { get; }
-    public Il2CppService Il2Cpp { get; }
-    public Il2CppStringService Il2CppStrings { get; }
-    public Il2CppNavigator Il2CppNavigator { get; }
+    public AotMetadataService AotMetadata { get; }
+    public AotStringService MetadataStrings { get; }
+    public AotNavigator AotNavigator { get; }
     public ResourceService Resources { get; } = new();
     public AssemblyReport Report { get; }
     public EditService Edits { get; }
@@ -31,10 +31,10 @@ public sealed class Env : IDisposable
         Pager = new OutputPager(Options);
         Decompiler = new DecompilerService(Workspace, Options);
         References = new ReferenceService(Workspace);
-        Il2Cpp = new Il2CppService(Workspace);
-        Il2CppStrings = new Il2CppStringService(Workspace, Il2Cpp);
-        Il2CppNavigator = new Il2CppNavigator(Workspace, Il2Cpp, Il2CppStrings);
-        Report = new AssemblyReport(Workspace, Il2Cpp);
+        AotMetadata = new AotMetadataService(Workspace);
+        MetadataStrings = new AotStringService(Workspace, AotMetadata);
+        AotNavigator = new AotNavigator(Workspace, AotMetadata, MetadataStrings);
+        Report = new AssemblyReport(Workspace, AotMetadata);
         Edits = new EditService(Workspace, new IlAssembler(Workspace), new CSharpPatcher(Workspace, Decompiler));
         History = new EditHistoryService(Workspace, Edits, Decompiler, new AssemblyComparer(Workspace));
         Fixture = Workspace.Load(path ?? FixturePath);
@@ -54,11 +54,11 @@ public sealed class Env : IDisposable
 
     public string Edit(Func<string> edit) => Workspace.Write(edit);
 
-    /// <summary>What a native address is (see <see cref="Il2CppNavigator.Locate"/>), across all loaded assemblies.</summary>
-    public List<Il2CppNavigator.AddressResult> Locate(ulong address, string kind = "auto") =>
-        Workspace.Read(() => Il2CppNavigator.Locate(address, kind, Workspace.Assemblies));
+    /// <summary>What a native address is (see <see cref="AotNavigator.Locate"/>), across all loaded assemblies.</summary>
+    public List<AotNavigator.AddressResult> Locate(ulong address, string kind = "auto") =>
+        Workspace.Read(() => AotNavigator.Locate(address, kind, Workspace.Assemblies));
 
-    public Corvus.Tools.Il2CppTools Il2CppTools() => new(Workspace, Il2Cpp, new Il2CppExporter(Il2Cpp), Il2CppStrings, Il2CppNavigator);
+    public Corvus.Tools.MethodAddressTools MethodAddressTools() => new(Workspace, AotMetadata, new AotExporter(AotMetadata), MetadataStrings, AotNavigator);
 
     public void Dispose() => Workspace.Dispose();
 }
@@ -109,11 +109,7 @@ public sealed class TempDir : IDisposable
     }
 }
 
-/// <summary>
-/// A copy of a real file with bytes past its end that differ per copy, so its annotation sidecar (kept per file hash in
-/// the shared test data folder) belongs to one test run; names a crashed or concurrent run left behind cannot reach it.
-/// Dispose deletes that sidecar.
-/// </summary>
+/// <summary>A copy of a real file with per-copy trailing bytes, so its annotation sidecar belongs to one run; dispose deletes the sidecar.</summary>
 public sealed class OwnCopy : IDisposable
 {
     private readonly string _sha256;
@@ -173,10 +169,10 @@ public static class RealData
 {
     /// <summary>A folder of real-world .NET assemblies.</summary>
     public const string AssemblyDir = "CORVUS_ASSEMBLY_DIR";
-    /// <summary>A DummyDll folder of Il2Cpp dummy assemblies.</summary>
-    public const string Il2CppDummyDir = "CORVUS_IL2CPP_DUMMY_DIR";
-    /// <summary>A DummyDll folder with stringliteral.json / script.json (and optionally GameAssembly.dll) beside it.</summary>
-    public const string Il2CppStringsDir = "CORVUS_IL2CPP_STRINGS_DIR";
+    /// <summary>A folder of dummy assemblies with [Address] attributes.</summary>
+    public const string AotDummyDir = "CORVUS_AOT_DUMMY_DIR";
+    /// <summary>A dummy assembly folder with stringliteral.json / script.json (and optionally GameAssembly.dll) beside it.</summary>
+    public const string AotStringsDir = "CORVUS_AOT_STRINGS_DIR";
     /// <summary>Two builds of the same application (folders), and the assembly to compare between them.</summary>
     public const string CompareOldDir = "CORVUS_COMPARE_OLD_DIR";
     public const string CompareNewDir = "CORVUS_COMPARE_NEW_DIR";
@@ -211,8 +207,7 @@ public static class RealData
 
     /// <summary>A native C++ image whose virtual calls are resolved and checked against IDA on a sample.</summary>
     public const string VirtualCallImage = "CORVUS_VCALL_IMAGE";
-    /// <summary>A Mono Unity title's folder; its serialized files and bundles that keep type trees are compared with the scripts' assemblies.</summary>
-    public const string UnityTitle = "CORVUS_UNITY_TITLE";
+    /// <summary>A Mono program's folder; its serialized files and bundles that keep type trees are compared with the scripts' assemblies.</summary>
 
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 
@@ -313,10 +308,7 @@ internal static class Tools
 
     private static readonly string[] MSBuildVerbs = ["build", "publish", "pack", "test", "msbuild", "restore"];
 
-    /// <summary>
-    /// The MSBuild switch that keeps a build's worker nodes at this process's lowered priority, or none when it runs at
-    /// normal priority or higher: the nodes set their own priority, normal unless the switch asks for low.
-    /// </summary>
+    /// <summary>The MSBuild switch that keeps worker nodes at this process's lowered priority; none at normal priority or higher.</summary>
     public static string[] BuildPriority()
     {
         try
@@ -327,10 +319,7 @@ internal static class Tools
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or PlatformNotSupportedException) { return []; }
     }
 
-    /// <summary>
-    /// PATH for a child that runs through cmd: cmd expands no variable over 8,191 characters, so a longer PATH loses its
-    /// duplicates and missing folders (otherwise vcvarsall finds no Windows SDK and cmd /c finds no dotnet).
-    /// </summary>
+    /// <summary>PATH for a child run through cmd, deduplicated under its 8,191-character limit.</summary>
     public static string? CmdPath(string? path = null)
     {
         path ??= Environment.GetEnvironmentVariable("PATH");

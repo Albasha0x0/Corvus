@@ -4,11 +4,7 @@ using Corvus.Native;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=flutter: Dart AOT snapshots of a Flutter app (libapp.so, App.framework/App, or the one inside an APK or .ipa: version
-/// hash, features with mode, architecture and OS, and the isolate's string pool as packages and dart: libraries) and the Dart
-/// VM version of an engine (libflutter.so, Flutter.framework).
-/// </summary>
+/// <summary>view=flutter: an app's Dart AOT snapshots (version hash, target, string pool, packages) or an engine's Dart VM version.</summary>
 internal sealed class FlutterFileView : IFileSummaryView
 {
     public sealed record Facts(string Role, IReadOnlyList<DartSnapshot> Snapshots, string? DartVersion, string? EngineBuildId, IReadOnlyList<string> Notes)
@@ -115,10 +111,8 @@ internal sealed class FlutterFileView : IFileSummaryView
         return [.. snapshots.Select(s => names.TryGetValue(s.Offset, out var n) ? s with { Symbol = n } : s)];
     }
 
-    /// <summary>
-    /// The isolate's images read as objects: the data image after the clustered data, to the end of _kDartIsolateSnapshotData
-    /// (_kDartSnapshotData from Dart 3.13), and _kDartIsolateSnapshotInstructions (_kDartSnapshotText); none without those symbols.
-    /// </summary>
+    /// <summary>The isolate's data and instructions images, located by their _kDart* symbols; empty without those symbols.</summary>
+    // Dart 3.13 renamed _kDartIsolateSnapshotData to _kDartSnapshotData and the instructions symbol to _kDartSnapshotText.
     internal static List<DartImage> Images(byte[] bytes, string path, DartSnapshot isolate)
     {
         INativeImage image;

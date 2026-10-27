@@ -31,7 +31,7 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         _owned.Add(workspace);
         var names = new NativeNamePush(code);
         var analysis = new NativeAnalysisTools(workspace, engines, new OutputPager(options), names, code, new NativeTypePush(), new NativeUserTypePush(code));
-        // the image without its debug file: the engine's analysis has no DWARF of its own
+        // The image without its debug file: the engine's analysis has no DWARF of its own.
         var image = Path.Combine(Directory.CreateDirectory(_dir.File("bin")).FullName, Library);
         File.Copy(NativeFixtures.NativeAotLib("linux-x64", Library), image, overwrite: true);
         var debug = Path.Combine(Directory.CreateDirectory(_dir.File("symbols")).FullName, Library + ".dbg");

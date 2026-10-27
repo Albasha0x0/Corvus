@@ -93,7 +93,7 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         uint helper = index.AddressOfName("Helper")!.Value, main = index.AddressOfName("Main")!.Value;
         var site = a.CallsIn(index.FunctionByStart(helper)!).Single().Rva;
 
-        // the argument slice comes from the engine, as a request by argument index
+        // The argument slice comes from the engine, as a request by argument index.
         var session = new SliceSession(failing: uint.MaxValue);
         var provider = new EngineSliceProvider(a, session);
         var seed = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, site), null, "2", default);
@@ -102,7 +102,7 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(("argument", 1), (session.Requests[0].Seed, session.Requests[0].Index));
         Assert.Contains(g.Values, v => v.Text.StartsWith("0x2A = FILE_WRITE_DATA", StringComparison.Ordinal)); // decoded through dwDesiredAccess
         Assert.Equal((1, 0), (provider.EngineSlices, provider.Fallbacks));
-        // the same trace again reuses the graph and a fresh provider counts nothing: the note still says what built it (E2)
+        // The same trace again reuses the graph and a fresh provider counts nothing: the note still says what built it (E2).
         var note = NativeTraceTools.SliceNote(g, provider);
         var again = new EngineSliceProvider(a, session);
         var g1 = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 1), again);
@@ -111,13 +111,13 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         Assert.Equal("ida answered 1 slice; 0 slices fell back to the built-in analysis", note);
         Assert.Equal(note, NativeTraceTools.SliceNote(g1, again));
 
-        // a stack-slot location is not one the engine names: the built-in slice answers it, and says so
+        // A stack-slot location is not one the engine names: the built-in slice answers it, and says so.
         var stack = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, site), "[rsp+20h]", null, default);
         var g2 = ValueTrace.Build(a, stack, new ValueTraceOptions(), provider);
         Assert.Contains(g2.Values, v => v.Text.StartsWith('3'));
         Assert.Contains(g2.Notes, n => n.Contains("ida: the seed [rsp+20h] is not a register or argument the engine names; built-in slice", StringComparison.Ordinal));
 
-        // an engine failure on one function falls back for that function only
+        // An engine failure on one function falls back for that function only.
         var failing = new SliceSession(failing: main);
         var p3 = new EngineSliceProvider(a, failing);
         var param = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, helper), null, "1", default);
@@ -140,10 +140,7 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         return (ws, code, engines);
     }
 
-    /// <summary>
-    /// Constant API arguments: for call sites in a system DLL whose argument the built-in slice resolves to constants, the
-    /// engine's slice of the same argument (depth 0) gives the same constants. Counts are written to the output.
-    /// </summary>
+    /// <summary>For constant API arguments the built-in slice resolves, the engine's depth-0 slice gives the same constants.</summary>
     private async Task ConstantsAgree(string engine)
     {
         var (ws, code, engines) = Rig();
@@ -180,7 +177,7 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         Assert.True(agree + partial >= compared * 0.8, $"{agree + partial} of {compared} agree");
         Assert.True(provider.EngineSlices >= compared * 0.8, $"{provider.EngineSlices} engine slices for {compared} arguments");
 
-        // forward: a function's first parameter reaches the same API arguments
+        // Forward: a function's first parameter reaches the same API arguments.
         var withParam = index.Functions.Where(f => f.ThunkImport == null && a.CallsIn(f).Count(x => x.Kind == CalleeKind.Import) >= 2).Take(10).ToList();
         int forwardCompared = 0, forwardAgree = 0;
         foreach (var f in withParam)
@@ -196,7 +193,7 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         output.WriteLine($"{engine}: forward from parameter 1 in {forwardCompared} functions: {forwardAgree} reach a call site ours reaches");
         Assert.True(forwardAgree >= forwardCompared / 2, $"forward: {forwardAgree} of {forwardCompared}");
 
-        // across functions: parameters bound to callers' arguments, call results to the callee's returned values
+        // Across functions: parameters bound to callers' arguments, call results to the callee's returned values.
         int before = provider.Fallbacks, crossCompared = 0, crossAgree = 0;
         var called = index.Functions.Where(f => f.ThunkImport == null && index.Callers(f, CallEdgeFilter.Direct).Count(c => c.Kind == XrefKind.Call) is >= 1 and <= 4).Take(12).ToList();
         foreach (var f in called)
@@ -221,7 +218,7 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
                          $"{provider.Fallbacks - before} slices fell back");
         Assert.True(crossAgree >= crossCompared / 2, $"cross-function: {crossAgree} of {crossCompared}");
 
-        // a register at an ordinary instruction: the result register read after a call
+        // A register at an ordinary instruction: the result register read after a call.
         int located = 0, placed = 0;
         before = provider.Fallbacks;
         foreach (var c in index.Functions.Where(f => f.ThunkImport == null).SelectMany(f => a.CallsIn(f)).Where(x => x.Kind == CalleeKind.Import && !x.TailCall))

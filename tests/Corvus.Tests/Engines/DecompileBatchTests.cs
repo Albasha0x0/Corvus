@@ -61,7 +61,7 @@ public sealed class DecompileBatchTests : IDisposable
         Assert.Contains("// 1 input not reached (maxFunctions=1) [More: offset=1]", text);
         Assert.DoesNotContain("(input \"Second\")", text);
         Assert.Equal(1, provider.Decompiles);
-        // the next call starts at that input
+        // The next call starts at that input.
         var next = await tools.DecompileNative(native.Id, functions: ["First", "Second"], maxFunctions: 1, offset: 1);
         Assert.Contains("// 2 inputs from offset 1: 1 decompiled", next);
         Assert.Contains("(input \"Second\")", next);

@@ -2,12 +2,7 @@ using System.Numerics;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Table-driven decoding of A32 (ARM) and T32 (Thumb / Thumb-2) instructions in the classes compilers emit: data
-/// processing, multiplies and divides, loads and stores (single, dual, exclusive, multiple), branches (CBZ / CBNZ, IT,
-/// table branches), MOVW / MOVT, system and hint instructions, VFP and NEON loads, stores and moves, VFP arithmetic.
-/// NEON data processing goes to <see cref="Arm32Neon"/>; anything unallocated is invalid.
-/// </summary>
+/// <summary>Decodes the A32 and T32 instructions compilers emit; NEON data processing is in <see cref="Arm32Neon"/>, unallocated is invalid.</summary>
 internal static class Arm32Decode
 {
     private const int Pc = 15, Lr = 14, Sp = 13;
@@ -44,10 +39,8 @@ internal static class Arm32Decode
 
     // ---------------------------------------------------------------- T32
 
-    /// <summary>
-    /// Decodes the Thumb instruction at <paramref name="address"/> from <paramref name="bytes"/> (2 or 4 bytes, little-endian).
-    /// <paramref name="inIt"/>: inside an IT block, where 16-bit data processing does not set the flags.
-    /// </summary>
+    /// <summary>Decodes the 2- or 4-byte little-endian Thumb instruction at <paramref name="address"/>.</summary>
+    /// <param name="inIt">Inside an IT block, where 16-bit data processing does not set the flags.</param>
     public static void Thumb(ReadOnlySpan<byte> bytes, uint address, bool inIt, out ArmInstruction i)
     {
         if (bytes.Length < 2) { Init(out i, address, Math.Max(1, bytes.Length), true, 0); return; }
@@ -395,7 +388,7 @@ internal static class Arm32Decode
                 i.Flow = ArmFlow.IndirectJump;
                 return;
             }
-            // exclusive and (ARMv8) acquire / release byte, halfword, doubleword
+            // Exclusive and ARMv8 acquire / release byte, halfword, doubleword.
             string size = (op3 & 3) switch { 0 => "b", 1 => "h", 3 => "d", _ => "" };
             if ((op3 & 3) == 2) return;
             string kind = (op3 & 0xC) switch { 4 => "ex", 8 => "", 12 => "ex", _ => "?" };
@@ -442,7 +435,7 @@ internal static class Arm32Decode
         if (DpNames[op] is not { } name) return;
         if (op == 2 && rn == Pc)
         {
-            // mov.w and the shifts
+            // mov.w and the shifts.
             if (shift == ArmShift.None || (shift == ArmShift.Lsl && amount == 0)) { Set(ref i, "mov"); i.Reg(rd, true); i.Reg(rm); }
             else
             {
@@ -881,7 +874,7 @@ internal static class Arm32Decode
             }
             return;
         }
-        // pld / pldw / pli (immediate and register)
+        // pld / pldw / pli, immediate and register.
         if ((w & 0x0F300000) == 0x05100000 || (w & 0x0F300010) == 0x07100000 || (w & 0x0F700000) == 0x04500000 || (w & 0x0F700010) == 0x06500000)
         {
             bool reg = (w & 0x02000000) != 0;
@@ -1165,7 +1158,7 @@ internal static class Arm32Decode
             wb = (w & 0x00200000) != 0, l = (w & 0x00100000) != 0;
         int rn = (int)((w >> 16) & 15), rt = (int)((w >> 12) & 15);
         bool unprivileged = !p && wb;
-        // a single-register push / pop
+        // A single-register push / pop.
         if (!reg && !b && rn == Sp)
         {
             if (!l && p && !u && wb && (w & 0xFFF) == 4) { Set(ref i, "push"); Store(ref i, 4); i.List(1 << rt, false); i.Use(Sp, false); i.Use(Sp, true); return; }
@@ -1266,7 +1259,7 @@ internal static class Arm32Decode
         }
         if (op1 < 24)
         {
-            // rd at 19:16, ra at 15:12, rm at 11:8, rn at 3:0
+            // rd at 19:16, ra at 15:12, rm at 11:8, rn at 3:0.
             int d = rn, a = rd, m = rs, n = rm;
             bool acc = a != Pc;
             bool x = (w & 0x20) != 0;
@@ -1445,7 +1438,7 @@ internal static class Arm32Decode
             }
             return;
         }
-        // coproc 11: scalar moves and vdup
+        // Coprocessor 11: scalar moves and vdup.
         int dn = (int)((w >> 3) & 0x10 | (w >> 16) & 15);
         uint opc = ((w >> 21) & 3) << 2 | (w >> 5) & 3;
         if (!toCore && (w & 0x00800000) != 0)
@@ -1545,7 +1538,7 @@ internal static class Arm32Decode
                 return;
             case 10 or 11 or 14 or 15:
             {
-                // fixed point: the fraction bits are size - imm5
+                // Fixed point: the fraction bits are size - imm5.
                 bool sixteen = !bit7;
                 string fixedType = ((opc2 & 1) != 0 ? ".u" : ".s") + (sixteen ? "16" : "32");
                 Set(ref i, "vcvt");
@@ -1637,7 +1630,7 @@ internal static class Arm32Decode
     {
         if (i.Flow == ArmFlow.Invalid) { Bad(ref i); return; }
         if (i.Flow != ArmFlow.Next || !i.WritesPc) return;
-        // pop {.., pc}, ldm sp!, {.., pc}, ldr pc, [sp], #4, mov pc, lr: returns; any other write to pc jumps
+        // Loading pc from the stack or moving lr to pc returns; any other write to pc jumps.
         bool fromStack = i.Loads && (i.Mnemonic == "pop" || i.OperandCount > 0 && (i.Op(0).Kind == ArmOperandKind.Register && i.Op(0).Reg == Sp && i.Mnemonic.StartsWith("ldm", StringComparison.Ordinal)
             || i.OperandCount > 1 && i.Op(1).Kind == ArmOperandKind.Memory && i.Op(1).Reg == Sp && i.Op(1).Indexing == ArmIndexing.PostIndex));
         bool fromLr = i.Mnemonic == "mov" && i.OperandCount == 2 && i.Op(1).Kind == ArmOperandKind.Register && i.Op(1).Reg == Lr;

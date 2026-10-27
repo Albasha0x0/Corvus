@@ -23,9 +23,8 @@ public sealed partial class NativeCodeTools
     };
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
-    [Description("What references a native address: calls (also via import slots, thunks), jumps, reads/writes, address uses, switch tables, " +
-                 "relocations, RTTI virtual calls; each with its function and call arguments. Imports: call sites, binding; exports: other loaded " +
-                 "images too. direction=from: what it references. Struct members: engine pseudocode uses.")]
+    [Description("What references a native address: calls, jumps, data reads and writes, pointers and switch tables, each with its function; " +
+                 "exports include other loaded images. direction=from lists what it references; Type::member finds struct member uses.")]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Or Type::member, Type.member, Type+0xOFFSET.")] string? address = null,
@@ -35,7 +34,7 @@ public sealed partial class NativeCodeTools
         [Description(EngineDescription + " Adds RTTI virtual calls.")]
         string? engine = null,
         [Description("Default to.")] string? direction = null,
-        [Description("any, code (calls, jumps), data (reads, writes, pointers), metadata (.pdata, CFG, exports).")] string? kind = null,
+        [Description("code: calls, jumps; data: reads, writes, pointers; metadata: .pdata, CFG, exports.")] string? kind = null,
         [Description("Struct member: typed (default) or all (every function; call again to go on).")] string? scope = null,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -62,7 +61,7 @@ public sealed partial class NativeCodeTools
         if (addresses?.Length > MaxXrefTargets)
             throw new ToolError(ErrorCode.InvalidArgument, $"{addresses.Length} addresses; at most {MaxXrefTargets} per call.", "split the addresses");
         var (native, index) = await Open(image, context, progress, cancellationToken);
-        // never "0 references" for code the built-in analysis cannot read
+        // Never "0 references" for code the built-in analysis cannot read.
         bool member = addresses is not { Length: > 0 } && FieldTarget(address!) is not null && !IsAddress(index, address!);
         if (!member && index.Support == CodeSupport.DeclaredFunctionsOnly && !Choose(mode, native, index).External) throw NativeEngineCode.Unsupported(index, engines);
         if (addresses is { Length: > 0 })
@@ -82,7 +81,7 @@ public sealed partial class NativeCodeTools
                 Xrefs(native.Id, NativeAddress.Va(index.Image, at), meta, offset, limit, null, choice));
         }
         var parts = new List<XrefPart>();
-        // call arguments only for the page: a kind filter moves rows, so it analyzes every row
+        // Call arguments only for the page: a kind filter moves rows, so it analyzes every row.
         if (dir != "from") parts.Add(await XrefsTo(native, index, address!, choice, progress, cancellationToken, code == null ? (offset, limit) : (0, int.MaxValue)));
         if (dir != "to") parts.Add(await XrefsFrom(native, index, address!, choice, progress, cancellationToken));
         var filtered = Filter(parts, code);
@@ -90,7 +89,7 @@ public sealed partial class NativeCodeTools
         var titles = string.Concat(filtered.Select(p => p.Title + (filtered.Count > 1 || code != null ? $"  {Plural(p.Rows.Count, "row")}" +
                                                                                                       (code is { } c ? $", {(c ? "code" : "data")} only" : "") + "\n" : "")));
         var external = choice.External ? "" : Coverage(index);
-        // format tables naming the address are not listed with the code and data references; the engines count them
+        // Format tables naming the address are not listed with the code and data references; the engines count them.
         if (!choice.External && dir != "from" && code == null && TryAddress(index, address!) is { } target && MetadataRows(index.Image, target) is { Count: > 0 } extra)
             titles += $"+{extra.Count} metadata reference{(extra.Count == 1 ? "" : "s")} (.pdata, CFG or export tables; kind=metadata lists them)\n";
         var boundTo = filtered.Select(p => p.BoundTo).FirstOrDefault(b => b != null);
@@ -109,10 +108,7 @@ public sealed partial class NativeCodeTools
     private static List<XrefPart> Filter(List<XrefPart> parts, bool? code) =>
         parts.Select(p => p with { Rows = code is { } c ? p.Rows.Where(r => KindOf(r) is { } k && CodeKinds.Contains(k) == c).ToList() : p.Rows }).ToList();
 
-    /// <summary>
-    /// find_xrefs addresses=[...]: a section per target, in order; a target that fails is its section's error. With an engine the
-    /// references to every target come from one request.
-    /// </summary>
+    /// <summary>find_xrefs addresses=[...]: one section per target in order; a failed target is its section's error.</summary>
     private async Task<string> XrefsBatch(LoadedNative native, NativeCodeIndex index, string[] inputs, string dir, bool? code, EngineChoice choice,
         int offset, int limit, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -183,7 +179,7 @@ public sealed partial class NativeCodeTools
             var via = await _engine!.Xrefs(native, index, Address(index, address), choice, progress, ct);
             return new XrefPart(via.Title, via.Rows, via.Target, null);
         }
-        // a late-bound import (GetProcAddress) by name: its resolution and the calls through its pointer
+        // A late-bound import (GetProcAddress) by name: its resolution and the calls through its pointer.
         var dynamicRows = NativeCallTools.DynamicXrefRows(index, address, ct);
         uint rva;
         try { rva = Address(index, address); }
@@ -198,7 +194,7 @@ public sealed partial class NativeCodeTools
             rows.AddRange(NativeCallTools.ImportRows(index, import, from => Where(index, from), ct));
         else
         {
-            // virtual call sites that may reach the address (RTTI resolution) among the instruction references, by source
+            // Virtual call sites that may reach the address (RTTI resolution) among the instruction references, by source.
             var refs = index.RefsTo(rva).Concat(index.VirtualEdgesTo(rva)).OrderBy(x => x.From).ToList();
             var refRows = NativeCallTools.WithArguments(index, refs.Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall || x.IsVirtualCall)),
                 from => Where(index, from), ct, page.First, page.Count);
@@ -224,10 +220,7 @@ public sealed partial class NativeCodeTools
         return new XrefPart(title, rows, target, boundTo);
     }
 
-    /// <summary>
-    /// References made by the item at the address (an instruction, or a data pointer) or, at a function start, by the whole
-    /// function, with the RTTI-resolved virtual calls; rows end "-> target (name)".
-    /// </summary>
+    /// <summary>References made by the item at the address, or by the whole function at its start; rows end "-> target (name)".</summary>
     private async Task<XrefPart> XrefsFrom(LoadedNative native, NativeCodeIndex index, string address, EngineChoice choice,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {

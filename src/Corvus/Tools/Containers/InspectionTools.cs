@@ -15,12 +15,12 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     Native.Providers.Worker.WorkerPool? workers = null)
 {
     private const string AssemblyParam = "A loaded assembly; pass this or path.";
-    private const string PathParam = "A .NET assembly or container, a Unity build folder, package or zip, or a serialized file or bundle; pass this or assembly.";
+    private const string PathParam = "An assembly, container, build folder, package, or serialized asset file or bundle; pass this or assembly.";
 
     // The views that read each paging parameter; any other view refuses it.
     private static readonly string[] TableViews = ["sqlite", "sqlite-recover", "lmdb", "ese", "berkeleydb", "realm", "evtx", "procmon", "registry", "pri", "esp32"];
     private static readonly string[] ColumnViews = ["sqlite", "sqlite-recover"];
-    private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "unity", "leveldb", "qlog", "certificate", "model"];
+    private static readonly string[] LimitViews = [.. TableViews, "protobuf", "layers", "assets", "leveldb", "qlog", "certificate", "model"];
     private static readonly string[] OffsetViews = [.. LimitViews, "script", "python", "xbf"];
 
     /// <summary>The first paging parameter passed that <paramref name="view"/> does not read, with the views that do; null when all apply.</summary>
@@ -32,16 +32,15 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         : null;
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true, OutputSchemaType = typeof(FileSummaryRecord))]
-    [Description("Read a file or assembly, not run: type, hashes, signature, containers, assemblies, highlights (toolchain, " +
-                 "capabilities, packagers), entry points. view=: package, raw (headerless code), " +
-                 "script (layers), sqlite, unity (MonoBehaviour fields); views lists all.")]
+    [Description("Summarize a file, folder or assembly, never run: type, hashes, signature, containers, assemblies, " +
+                 "highlights, entry points. view= opens one aspect; the overview lists the views.")]
     public Task<string> SummarizeFile(
         [Description("File (assembly, executable, package, archive) or folder.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A view the overview lists.")] string view = "overview",
         [Description("Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace.")] string? table = null,
         [Description("With table=: these columns and rowid.")] string[]? columns = null,
-        [Description("unity: assets of this script class.")] string? script = null,
+        [Description("assets: assets of this script class.")] string? script = null,
         [Description(ToolSupport.RowOffsetDescription)] long offset = 0,
         [Description(ToolSupport.LimitDescription)] int? limit = null,
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
@@ -54,7 +53,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             if (Refused(name, table != null, columns != null, offset != 0, limit != null) is { } refused)
                 throw new ToolError(ErrorCode.InvalidArgument, $"{refused.Parameter}= applies to view={string.Join(", view=", refused.Views)}, not view={name}.",
                     $"drop {refused.Parameter}=, or pass one of those views");
-            if (script != null && name != "unity") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=unity.", "pass view=unity with script=, or drop it");
+            if (script != null && name != "assets") throw new ToolError(ErrorCode.InvalidArgument, "script selects the assets of view=assets.", "pass view=assets with script=, or drop it");
             if (columns != null && table == null) throw new ToolError(ErrorCode.InvalidArgument, "columns selects columns of a table: pass table= with it.");
             var options = new FileViewOptions(name, table, columns, offset, limit) { Sbom = sbomPath != null, Stix = stixPath != null, Script = script };
             var native = NativeNamed(assembly, path);
@@ -103,10 +102,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true, OutputSchemaType = typeof(SurveyRecord))]
-    [Description("Rules over API calls, P/Invokes and strings (network, execution, registry, persistence, collection, system changes, code loading, " +
-                 "cross-process, crypto); category= adds evidence. Native: imports, call arguments, strings, sections, RTTI. Apps: MASVS findings " +
-                 "(WebView, TLS, pinning, root checks, code loading, weak crypto, keys) by method offset. category=capa: capa labels by function " +
-                 "(CORVUS_CAPA; Il2Cpp: direct calls).")]
+    [Description("Capabilities found by rules over API calls, imports and strings (network, execution, persistence, crypto); " +
+                 "category= adds evidence. Apps add MASVS findings; category=capa adds capa labels by function (CORVUS_CAPA).")]
     public async Task<string> SurveyFeatures(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("A .NET, native or app file, read without loading.")] string? path = null,
@@ -123,9 +120,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true, OutputSchemaType = typeof(ValuePage))]
-    [Description("Typed values (URLs, domains, IPs, emails, file paths, pipes, registry keys, mutexes, user agents, crypto keys, encoded base64 / " +
-                 "hex) from assembly literals, constants, resource and decoded text, and Unity script fields and TextAssets, with count, locations " +
-                 "and receiving APIs. read_result outputPath exports all (text: CSV).")]
+    [Description("Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literals, constants, resources and " +
+                 "serialized asset fields, with count, locations and receiving APIs. read_result outputPath exports all (text: CSV).")]
     public async Task<string> ExtractStrings(
         [Description(AssemblyParam)] string? assembly = null,
         [Description(PathParam)] string? path = null,
@@ -133,13 +129,13 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        [Description("Unity: asset bytes read; at most 4 GiB (default).")] long? maxAssetBytes = null,
-        [Description("Unity: seconds until the read stops with what it read.")] double? timeLimit = null,
+        [Description("Asset bytes to read; at most 4 GiB (default).")] long? maxAssetBytes = null,
+        [Description("Seconds until the asset read stops with what it read.")] double? timeLimit = null,
         CancellationToken cancellationToken = default)
     {
         if (maxAssetBytes is <= 0) throw new ToolError(ErrorCode.InvalidArgument, "maxAssetBytes must be above 0.");
         if (timeLimit is not null and (<= 0 or > 86_400)) throw new ToolError(ErrorCode.InvalidArgument, "timeLimit must be above 0 seconds, at most 86400.");
-        var assets = new InspectionService.AssetReadLimits(Math.Min(maxAssetBytes ?? UnityAssetStrings.MaxBytes, UnityAssetStrings.MaxBytes),
+        var assets = new InspectionService.AssetReadLimits(Math.Min(maxAssetBytes ?? AssetFileStrings.MaxBytes, AssetFileStrings.MaxBytes),
             timeLimit is { } seconds ? TimeSpan.FromSeconds(seconds) : null);
         var report = await Task.Run(() => inspection.ExtractStrings(assembly, path, types, cancellationToken, assets), cancellationToken);
         if (report.Partial is { } partial) ToolOutput.Coverage("partial", partial, [.. report.PartialIn]);
@@ -151,9 +147,8 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
-    [Description("Embedded content of an assembly or each assembly in a container (resources, byte arrays, long literals), decoded through hex, " +
-                 "base64, compression and XOR until a PE, archive, ELF, Mach-O or text appears, plus high-entropy blobs, each with its encoding " +
-                 "chain. save=true writes them (defanged names).")]
+    [Description("Embedded content of an assembly or container (resources, byte arrays, long literals), decoded through hex, base64, " +
+                 "compression and XOR to an image, archive or text, with its encoding chain. save=true writes them (defanged names).")]
     public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("An assembly or container file, read without loading; pass this or assembly.")] string? path = null,

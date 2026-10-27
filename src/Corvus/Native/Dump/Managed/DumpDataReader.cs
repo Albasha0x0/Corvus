@@ -5,11 +5,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Dump.Managed;
 
-/// <summary>
-/// ClrMD's view of a minidump through our parser. Bytes the dump does not hold come from the module image only in its
-/// headers and read-only sections, relocated to the module's base; writable data never falls back, because initial
-/// values would mislead the runtime's data access layer.
-/// </summary>
+/// <summary>ClrMD's view of a minidump; missing bytes come from read-only image parts only, since initial writable values would mislead the DAC.</summary>
 public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> image) : ByteDataReader, IDataReader, IDisposable
 {
     private readonly Dictionary<DumpModule, (PeFile? Image, uint[] Pointers)> _images = [];
@@ -60,7 +56,7 @@ public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> 
         while (n < buffer.Length)
         {
             ulong at = address + (ulong)n;
-            // the image fills only the gap up to the next captured range
+            // The image fills only the gap up to the next captured range.
             int gap = (int)Math.Min((ulong)(buffer.Length - n), NextCaptured(at) - at);
             int k = ReadImage(at, buffer.Slice(n, gap));
             if (k == 0) break;
@@ -134,7 +130,8 @@ public sealed class DumpDataReader(MinidumpFile dump, Func<DumpModule, PeFile?> 
         for (; i < pointers.Length && pointers[i] < rva + (uint)bytes.Length; i++)
         {
             long at = (long)pointers[i] - rva;
-            if (at < 0 || at + width > bytes.Length) continue; // a pointer split across reads keeps its file value
+            // A pointer split across reads keeps its file value.
+            if (at < 0 || at + width > bytes.Length) continue;
             if (width == 8) BinaryPrimitives.WriteUInt64LittleEndian(bytes[(int)at..], BinaryPrimitives.ReadUInt64LittleEndian(bytes[(int)at..]) + delta);
             else BinaryPrimitives.WriteUInt32LittleEndian(bytes[(int)at..], BinaryPrimitives.ReadUInt32LittleEndian(bytes[(int)at..]) + (uint)delta);
         }

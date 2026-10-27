@@ -35,10 +35,7 @@ public static class PeLimits
     public const int MaxIssuesPerArea = 100;
 }
 
-/// <summary>
-/// Issues of one parse area, capped at <see cref="PeLimits.MaxIssuesPerArea"/>. Interpolated messages are not formatted
-/// once the cap is reached, so hostile tables that repeat a problem millions of times stay cheap.
-/// </summary>
+/// <summary>Issues of one parse area, capped at <see cref="PeLimits.MaxIssuesPerArea"/>; messages past the cap are not formatted, so a table repeating a problem millions of times stays cheap.</summary>
 internal sealed class IssueLog(string area)
 {
     private readonly List<ParseIssue> items = [];

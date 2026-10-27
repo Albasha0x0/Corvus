@@ -95,11 +95,7 @@ internal sealed class A32Code(uint origin)
     }
 }
 
-/// <summary>
-/// 32-bit ARM code analysis on synthetic ELF and PE images: Thumb and ARM functions with interworking, literal pools and
-/// PC-relative addresses, PLT and GOT import calls, IT blocks and conditional returns, MOVW / MOVT import thunks,
-/// disassembly and a saved index.
-/// </summary>
+/// <summary>32-bit ARM analysis on synthetic ELF and PE images: interworking, literal pools, PLT and GOT calls, IT blocks, MOVW / MOVT thunks and a saved index.</summary>
 public class NativeArm32Tests
 {
     private const uint Text = ElfWriter.TextRva;
@@ -184,7 +180,7 @@ public class NativeArm32Tests
         Assert.All(index.Functions.Skip(1), f => Assert.True((f.Sources & FunctionSource.CodeGap) != 0));
         Assert.Equal(3, index.FunctionByStart(Text + 0x20)!.InstructionCount);
 
-        // an .ARM.exidx entry the linker merged over both functions does not hide them
+        // An .ARM.exidx entry the linker merged over both functions does not hide them.
         var merged = NativeCodeIndex.Build(Elf(code, w => { w.Entry = Text; w.Exidx.Add((Text, true)); w.Exidx.Add((Text + 0x30, true)); }));
         Assert.Equal([Text, Text + 0x10, Text + 0x20], merged.Functions.Select(f => f.Start));
 
@@ -215,16 +211,16 @@ public class NativeArm32Tests
         Assert.Equal("abort", stub.ThunkImport?.Name);
         Assert.True((stub.Flags & FunctionFlags.NoReturn) != 0);
 
-        // the string formed by ldr r0, [pc, #x]; add r0, pc
+        // The string formed by ldr r0, [pc, #x]; add r0, pc.
         Assert.Contains(index.RefsTo(Data), x => x.Kind == XrefKind.Address && x.From == Text + 4);
         Assert.Equal("Hello, thumb", index.ReadString(index.StringAt(Data)!.Value));
-        // free called through its GOT slot: ldr r3, [pc]; add r3, pc; ldr r3, [r3]; blx r3
+        // Free called through its GOT slot: ldr r3, [pc]; add r3, pc; ldr r3, [r3]; blx r3.
         var free = image.Imports.Single(i => i.Name == "free");
         Assert.Contains(index.Callers(free), c => c.Kind == XrefKind.ImportCall && c.Caller == main);
         Assert.Contains(index.Callees(main), c => c.Function?.Start == armFn);
         Assert.Contains(index.Callees(main), c => c.Function?.Start == helper);
 
-        // conditional returns keep the fall-through: two blocks each, and both functions return
+        // Conditional returns keep the fall-through: two blocks each, and both functions return.
         foreach (var f in new[] { helper, armFn })
         {
             var fn = index.FunctionByStart(f)!;
@@ -247,7 +243,7 @@ public class NativeArm32Tests
     [Fact]
     public void Odd_addresses_are_thumb_and_code_pointers_name_their_state()
     {
-        // an ARM function and a Thumb function reached only through relocated pointers in data (the Thumb one odd)
+        // An ARM function and a Thumb function reached only through relocated pointers in data (the Thumb one odd).
         var a = new A32Code(Text);
         a.W(A32Code.ArmCmp(0, 1)).W(A32Code.ArmBxLr);
         uint thumb = a.Here;
@@ -262,10 +258,10 @@ public class NativeArm32Tests
         var dis = index.CreateDisassembler();
         Assert.Equal((false, true), (dis.ThumbAt(Text), dis.ThumbAt(thumb)));
         Assert.Equal("movs   r0, #2", dis.DecodeOne(thumb)!.Text);
-        // an odd address asks for Thumb decoding at the address below it
+        // An odd address asks for Thumb decoding at the address below it.
         Assert.Equal("movs   r0, #2", index.Disassemble(thumb | 1, 1)[0].Text);
         Assert.Contains(index.RefsTo(thumb), x => x.Kind == XrefKind.Pointer);
-        // the even pointer gives no state: cmp r0, #1; bx lr also reads as Thumb (movs r1, r0; b), so ARM is a guess
+        // The even pointer gives no state: cmp r0, #1; bx lr also reads as Thumb (movs r1, r0; b), so ARM is a guess.
         Assert.Equal((FunctionFlags.StateGuessed, FunctionFlags.None),
             (index.FunctionByStart(Text)!.Flags & FunctionFlags.StateGuessed, index.FunctionByStart(thumb)!.Flags & FunctionFlags.StateGuessed));
     }
@@ -415,7 +411,7 @@ public class NativeArm32Tests
     [Fact]
     public void Windows_thumb_import_thunk_and_relocated_movw_movt()
     {
-        // Windows on ARM: every function is Thumb; movw / movt r12 (THUMB_MOV32 relocation); ldr.w pc, [r12]
+        // Windows on ARM: every function is Thumb; movw / movt r12 (THUMB_MOV32 relocation); ldr.w pc, [r12].
         uint slot = CodeTestImage.SyntheticDataRva + 0x10;
         ulong imageBase = 0x10000000;
         uint va = (uint)(imageBase + slot);
@@ -424,7 +420,7 @@ public class NativeArm32Tests
         a.H(A32Code.PushLr(0)).Later(-4, at => A32Code.Bl(at, thunk)).H(A32Code.PopPc(0));
         thunk = a.Here;
         a.T(A32Code.Movw(12, va & 0xFFFF)).T(A32Code.Movt(12, va >> 16)).T(A32Code.LdrW(15, 12, 0));
-        // the base relocation of the pair sits at the movw
+        // The base relocation of the pair sits at the movw.
         var image = CodeTestImage.Synthetic(NativeArch.Arm, a.Bytes(), imports: [new NativeImport("kernel32.dll", "Sleep", null, 0, slot, false)],
             entry: CodeTestImage.SyntheticCodeRva, relocations: [thunk]);
         var index = NativeCodeIndex.Build(image);
@@ -497,7 +493,7 @@ public class NativeArm32Tests
         Assert.Equal("j_j_dst", index.FunctionByStart(thunk)!.Name);
         Assert.Equal(Text, index.FunctionAt(Text + 2)?.Start);
 
-        // a mnemonic search ignores the width qualifier: ^b$ finds b.w
+        // A mnemonic search ignores the width qualifier: ^b$ finds b.w.
         using var dir = new TempDir();
         var path = dir.File("veneer.so");
         File.WriteAllBytes(path, ElfBytes(a.Bytes(), w =>

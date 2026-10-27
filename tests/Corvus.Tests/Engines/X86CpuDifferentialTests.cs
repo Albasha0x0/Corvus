@@ -7,10 +7,7 @@ using static Iced.Intel.AssemblerRegisters;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Random x86-64 integer sequences run on the host processor and in <see cref="X86Cpu"/>: the six data registers and
-/// every arithmetic flag the architecture defines after the sequence must agree.
-/// </summary>
+/// <summary>Random x86-64 integer sequences leave the same registers and flags on the host and in <see cref="X86Cpu"/>.</summary>
 public sealed class X86CpuDifferentialTests(ITestOutputHelper output)
 {
     private const ulong Base = 0x10000000;
@@ -91,7 +88,7 @@ public sealed class X86CpuDifferentialTests(ITestOutputHelper output)
                 }
                 case 17 or 18:
                 {
-                    // rcl, rcr read CF.
+                    // Rcl, rcr read CF.
                     Reads(Cf);
                     int c = Count(width);
                     Shift(width, d, c, kind == 17 ? 2 : 3);

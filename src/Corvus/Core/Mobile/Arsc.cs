@@ -3,10 +3,7 @@ using Corvus.Native;
 
 namespace Corvus.Core.Mobile;
 
-/// <summary>
-/// The configuration a resource value applies to (ResTable_config), with its qualifier string as aapt writes it in
-/// directory names ("pt-rBR", "b+zh+Hans", "night", "xxhdpi", "v31"); "" is the default configuration.
-/// </summary>
+/// <summary>A resource configuration (ResTable_config) with its aapt qualifier string; "" is the default.</summary>
 public sealed record ArscConfig(byte[] Raw)
 {
     public static readonly ArscConfig Default = new(new byte[64]);
@@ -93,10 +90,7 @@ public sealed record ArscConfig(byte[] Raw)
     }
 }
 
-/// <summary>
-/// One value of a resource in one configuration. A bag (style, array, plurals, attr) has <see cref="Map"/> and
-/// <see cref="Parent"/> instead of <see cref="Value"/>.
-/// </summary>
+/// <summary>One resource value in one configuration; a bag has <see cref="Map"/> and <see cref="Parent"/> instead of <see cref="Value"/>.</summary>
 public sealed record ArscEntry(uint Id, string Type, string Key, ArscConfig Config, ushort Flags, ResValue? Value, uint Parent,
     IReadOnlyList<(uint Name, ResValue Value)>? Map)
 {
@@ -105,10 +99,7 @@ public sealed record ArscEntry(uint Id, string Type, string Key, ArscConfig Conf
 
 public sealed record ArscPackage(uint Id, string Name, IReadOnlyList<ArscEntry> Entries);
 
-/// <summary>
-/// resources.arsc: the compiled resource table of an APK. Never throws: what cannot be read is reported in
-/// <see cref="Issues"/> and the entries read so far are kept.
-/// </summary>
+/// <summary>An APK's compiled resource table (resources.arsc); never throws, problems go to <see cref="Issues"/>.</summary>
 public sealed class ArscTable
 {
     public const int MaxEntries = 4_000_000;
@@ -152,10 +143,7 @@ public sealed class ArscTable
     /// <summary>The value of a simple entry as text (strings from the table pool, references by name).</summary>
     public string Format(ResValue value) => value.Format(Strings, Name);
 
-    /// <summary>
-    /// The value of <paramref name="id"/> for the default configuration (or the first one), following references up to
-    /// a few levels; null when there is none or it is a bag.
-    /// </summary>
+    /// <summary>The default value of <paramref name="id"/>, references followed a few levels; null when none or a bag.</summary>
     public string? DefaultText(uint id)
     {
         for (int depth = 0; depth < 8; depth++)

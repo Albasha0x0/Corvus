@@ -2,20 +2,14 @@ using System.Security.Cryptography;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Where save_assembly / save_native write, and whether that is the loaded original, decided by file identity (so a
-/// link, junction, short name or hard link to the original is the original too).
-/// </summary>
+/// <summary>Where save_assembly and save_native write, and whether that is the original by file identity, links included.</summary>
 public static class SaveTarget
 {
     public sealed record Plan(string Path, bool IsOriginal);
 
-    /// <summary>
-    /// Refuses the original without <paramref name="replaceOriginal"/> (<paramref name="overwrite"/> alone never replaces it),
-    /// another existing file without <paramref name="overwrite"/>, and an original whose bytes on disk are neither the ones
-    /// loaded (<paramref name="originalSha256"/>) nor this server's last save over it (<paramref name="savedSha256"/>).
-    /// <paramref name="versioned"/> writes the first free name &lt;stem&gt;.N&lt;ext&gt; instead. A link to the original resolves to the original itself.
-    /// </summary>
+    /// <summary>The write plan; refuses the original without <paramref name="replaceOriginal"/>, or when its bytes changed on disk.</summary>
+    /// <remarks>"Changed" means neither the loaded bytes nor this server's last save over it; <paramref name="overwrite"/> alone never replaces the original.
+    /// Another existing file needs <paramref name="overwrite"/>; <paramref name="versioned"/> takes the first free &lt;stem&gt;.N&lt;ext&gt;.</remarks>
     public static Plan Resolve(string target, string originalPath, string originalSha256, bool overwrite, string? savedSha256 = null,
         bool replaceOriginal = false, bool versioned = false)
     {

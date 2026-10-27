@@ -116,9 +116,8 @@ public sealed partial class NativeCodeTools
     private const int MaxInspectCount = 64;
 
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
-    [Description("What is at an address of a native image, instruction by instruction (decoded, mid_instruction, data...): bytes, prefixes, encoding; " +
-                 "operands (kind, size, access, registers, memory parts); registers and flags read and written; memory accesses; stack change; flow; " +
-                 "references; call arguments; switch table. Up to 64 per walk.")]
+    [Description("Instruction details at an address of a native image: encoding, operands, registers and flags read and written, memory " +
+                 "accesses, stack change, flow and references. Walks up to 64 positions.")]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -135,13 +134,13 @@ public sealed partial class NativeCodeTools
         int n = Math.Clamp(limit, 1, MaxInspectCount), skip = Math.Clamp(offset, 0, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
         bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
-        // instruction details for other instruction sets come from an engine
+        // Instruction details for other instruction sets come from an engine.
         var wasm = native.Image as WasmImage;
         var choice = EngineChoice.Of(mode.Mode, mode.Named, engines, native, operands || wasm != null ? null
             : undecoded ? $"the built-in analysis does not decode {index.Image.ArchName()} instructions"
             : $"the built-in inspector reads x86 / x64 / ARM operands, not {index.Image.ArchName()}");
         if (!choice.External && !operands && wasm == null) throw NativeEngineCode.Unsupported(index, engines);
-        // the engines and wasm walk the whole 64 positions (cheap there); ours classifies them all and describes the page only
+        // The engines and wasm walk the whole 64 positions (cheap there); ours classifies them all and describes the page only.
         var report = !choice.External && wasm != null ? InspectWasm(native.Id, index, wasm, rva, MaxInspectCount, choice).Report.Page(skip, n)
             : choice.External ? (await InspectWithEngine(native, index, rva, MaxInspectCount, choice, progress, cancellationToken)).Report.Page(skip, n)
             : await Task.Run(() => Inspect(native.Id, index, rva, n, choice, cancellationToken, skip, MaxInspectCount).Report, cancellationToken);
@@ -151,10 +150,7 @@ public sealed partial class NativeCodeTools
             page => report with { Items = [.. page.Select(r => r.First)], Texts = [.. page.Select(r => r.Second)] }, "address", header);
     });
 
-    /// <summary>
-    /// Positions [skip, skip + count) of the walk from <paramref name="rva"/>; the walk is classified up to <paramref name="walk"/>
-    /// positions (at least the page's end), which sets the report's total. An address inside an instruction is a position of its own.
-    /// </summary>
+    /// <summary>Positions [skip, skip + count) of the walk from <paramref name="rva"/>; <paramref name="walk"/> positions set the total; a mid-instruction address is its own position.</summary>
     internal static (string Text, InstructionReport Report) Inspect(string imageId, NativeCodeIndex index, uint rva, int count, EngineChoice choice, CancellationToken ct,
         int skip = 0, int walk = 0)
     {

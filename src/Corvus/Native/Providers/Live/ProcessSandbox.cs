@@ -27,7 +27,7 @@ internal static class ProcessSandbox
             {
                 if (GetTokenInformation(token, TokenIntegrityLevel, label, 64, out _))
                 {
-                    // TOKEN_MANDATORY_LABEL: a SID pointer, then the SID; the integrity level is its last subauthority
+                    // TOKEN_MANDATORY_LABEL: a SID pointer, then the SID; the integrity level is its last subauthority.
                     var sid = Marshal.ReadIntPtr(label);
                     int rid = Marshal.ReadInt32(sid, 8 + 4 * (Marshal.ReadByte(sid, 1) - 1));
                     if (rid < SECURITY_MANDATORY_MEDIUM_RID) parts.Add(rid == 0 ? "untrusted integrity" : "low integrity");

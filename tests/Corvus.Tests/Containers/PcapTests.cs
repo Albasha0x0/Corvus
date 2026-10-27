@@ -16,7 +16,6 @@ public sealed class PcapTests : IDisposable
     internal static readonly byte[] Client = [10, 0, 0, 2], Web = [93, 184, 216, 34], Resolver = [8, 8, 8, 8];
     internal const long T0 = 1_700_000_000;
 
-    // ---- packet builders ----
 
     internal static byte[] Ipv4(byte protocol, byte[] src, byte[] dst, byte[] transport)
     {
@@ -77,7 +76,8 @@ public sealed class PcapTests : IDisposable
         byte[] sniExt = [0, 0, .. U16(host.Length + 5), .. U16(host.Length + 3), 0, .. U16(host.Length), .. host];
         byte[] list = [.. alpn.SelectMany(a => (byte[])[(byte)a.Length, .. Encoding.ASCII.GetBytes(a)])];
         byte[] alpnExt = [0, 16, .. U16(list.Length + 2), .. U16(list.Length), .. list];
-        byte[] padding = [0, 21, .. U16(300), .. new byte[300]]; // makes the hello span two segments when split
+        // Makes the hello span two segments when split.
+        byte[] padding = [0, 21, .. U16(300), .. new byte[300]];
         byte[] extensions = [.. sniExt, .. alpnExt, .. padding];
         byte[] body = [3, 3, .. new byte[32], 0, 0, 2, 0x13, 0x01, 1, 0, .. U16(extensions.Length), .. extensions];
         byte[] handshake = [1, 0, .. U16(body.Length), .. body];
@@ -100,7 +100,8 @@ public sealed class PcapTests : IDisposable
         if (splitHello)
         {
             list.Add(Tcp(Client, 50000, Web, 443, 0x18, 1001, hello[..40]));
-            list.Add(Tcp(Client, 50000, Web, 443, 0x18, 1001, hello[..40])); // a retransmission
+            // A retransmission.
+            list.Add(Tcp(Client, 50000, Web, 443, 0x18, 1001, hello[..40]));
             list.Add(Tcp(Client, 50000, Web, 443, 0x18, 1041, hello[40..]));
         }
         else list.Add(Tcp(Client, 50000, Web, 443, 0x18, 1001, hello));
@@ -108,7 +109,6 @@ public sealed class PcapTests : IDisposable
         return list;
     }
 
-    // ---- capture writers ----
 
     internal static byte[] Pcap(IReadOnlyList<byte[]> frames, int linkType = 1, bool big = false, bool nano = false)
     {
@@ -145,7 +145,8 @@ public sealed class PcapTests : IDisposable
         o.Write(Block(0x0A0D0D0A, [.. Le(0x1A2B3C4D), 1, 0, 0, 0, .. Enumerable.Repeat((byte)0xFF, 8)]));
         o.Write(Block(1, [1, 0, 0, 0, .. Le(65535)]));
         o.Write(Block(1, [113, 0, 0, 0, .. Le(65535), 9, 0, 1, 0, 9, 0, 0, 0, 0, 0, 0, 0]));
-        o.Write(Block(5, Le(0, 0))); // interface statistics: skipped
+        // Interface statistics: skipped.
+        o.Write(Block(5, Le(0, 0)));
         ulong micros = (ulong)T0 * 1_000_000;
         foreach (var f in ethernet)
             o.Write(Block(6, [.. Le(0, (uint)(micros >> 32), (uint)micros, (uint)f.Length, (uint)f.Length), .. f]));
@@ -157,7 +158,6 @@ public sealed class PcapTests : IDisposable
     internal static List<byte[]> EthernetFrames(bool splitHello = false) =>
         [.. Packets(splitHello).Select((p, i) => Ethernet(p, vlan: i == 2))];
 
-    // ---- tests ----
 
     [Fact]
     public void Pcap_flows_have_client_server_counts_and_times()
@@ -224,7 +224,7 @@ public sealed class PcapTests : IDisposable
     }
 
     [Fact]
-    public void Http_request_line_and_host_header()
+    public void An_HTTP_request_gives_its_method_host_and_path()
     {
         var c = CaptureAnalysis.Read(Pcap(EthernetFrames()), default);
         Assert.Equal(new CaptureHttpRequest("GET", "api.example.com", "/users/42?token=secret", 1), Assert.Single(c.Requests()));

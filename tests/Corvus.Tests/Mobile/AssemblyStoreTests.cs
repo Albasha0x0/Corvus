@@ -88,7 +88,7 @@ public class AssemblyStoreTests
     private static readonly byte[] Consumer = File.ReadAllBytes(Env.ConsumerPath);
 
     [Fact]
-    public void V3_InTheStoreLibrary_NamesEntries_DecompressesZstdAndLz4_KeepsDebugAndConfig()
+    public void A_v3_store_names_entries_decompresses_zstd_and_LZ4_and_keeps_debug_and_config()
     {
         var store = AssemblyStoreWriter.V2([
             new("TestFixture.dll", AssemblyStoreWriter.Xazs(Fixture), Debug: [1, 2, 3], Config: "<configuration/>\0"u8.ToArray()),
@@ -108,7 +108,7 @@ public class AssemblyStoreTests
     }
 
     [Fact]
-    public void V2_InThePayloadSection_32Bit_WithoutIgnoreFlags()
+    public void A_v2_store_reads_from_the_payload_section_of_a_32_bit_library()
     {
         var store = AssemblyStoreWriter.V2([new("TestFixture.dll", Fixture)], version: 2, abi: 0x00040000, is64: false, ignoreByte: false);
         var s = AssemblyStore.TryRead(AssemblyStoreWriter.Elf(store, symbol: false, is64: false), "lib/x86/libassemblies.x86.blob.so", AnalysisLimits.Default)!;
@@ -119,7 +119,7 @@ public class AssemblyStoreTests
     }
 
     [Fact]
-    public void V1_NamesComeFromTheManifest_OrFromTheMetadata()
+    public void V1_names_come_from_the_manifest_or_the_metadata()
     {
         var shared = AssemblyStoreWriter.V1([ContainerFixtures.Xalz(Fixture)], storeId: 0, globalCount: 2);
         var arch = AssemblyStoreWriter.V1([Consumer], storeId: 1);
@@ -135,10 +135,11 @@ public class AssemblyStoreTests
 
     [Fact]
     [FuzzEntry(typeof(Core.Mobile.AssemblyStore))]
-    public void DamagedStores_ReportIssues_AndKeepWhatReads()
+    public void Damaged_stores_report_issues_and_keep_what_reads()
     {
         var store = AssemblyStoreWriter.V2([new("A.dll", Fixture), new("B.dll", Consumer)]);
-        var cut = store[..^(Consumer.Length / 2)]; // B's data runs past the end
+        // B's data runs past the end.
+        var cut = store[..^(Consumer.Length / 2)];
         var s = AssemblyStore.TryRead(cut, "x", AnalysisLimits.Default)!;
         Assert.Equal("A.dll", s.Entries.Single().Name);
         Assert.Contains(s.Issues, i => i.Message.Contains("B.dll", StringComparison.Ordinal));
@@ -157,12 +158,13 @@ public class AssemblyStoreTests
         {
             var bytes = (byte[])store.Clone();
             for (int k = 0; k < 4; k++) bytes[random.Next(bytes.Length)] = (byte)random.Next(256);
-            AssemblyStore.TryRead(bytes[..random.Next(20, bytes.Length)], "x", AnalysisLimits.Default); // never throws
+            // Never throws.
+            AssemblyStore.TryRead(bytes[..random.Next(20, bytes.Length)], "x", AnalysisLimits.Default);
         }
     }
 
     [Fact]
-    public void Apk_UnpacksStoreEntriesUnderTheirNames_WithAbi()
+    public void APK_unpacks_store_entries_under_their_names_with_ABI()
     {
         var v3 = AssemblyStoreWriter.Elf(AssemblyStoreWriter.V2([new("TestFixture.dll", AssemblyStoreWriter.Xazs(Fixture))]), symbol: true);
         var v3x86 = AssemblyStoreWriter.Elf(AssemblyStoreWriter.V2([new("TestFixture.dll", AssemblyStoreWriter.Xazs(Fixture))], abi: 0x00030000), symbol: true);
@@ -188,7 +190,7 @@ public class AssemblyStoreTests
     }
 
     [Fact]
-    public void StandaloneXazs_IsDecompressed()
+    public void Standalone_XAZS_is_decompressed()
     {
         var contents = Containers.Open(AssemblyStoreWriter.Xazs(Fixture), "TestFixture.dll", AnalysisLimits.Default, default);
         Assert.Equal(Fixture, Assert.Single(contents.Items).Bytes);

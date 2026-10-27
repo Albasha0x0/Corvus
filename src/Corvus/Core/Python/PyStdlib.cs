@@ -3,8 +3,7 @@ namespace Corvus.Core.Python;
 /// <summary>The top-level module names of the Python standard library.</summary>
 public static class PyStdlib
 {
-    // sys.stdlib_module_names of 3.12, the modules 3.12 and 3.13 removed, those 3.13 and 3.14 added, and the test
-    // modules CPython builds.
+    // sys.stdlib_module_names of 3.12, plus modules removed in 3.12-3.13, added in 3.13-3.14, and CPython's test modules.
     private static readonly HashSet<string> Names = new(StringComparer.Ordinal)
     {
         "__future__", "_abc", "_aix_support", "_android_support", "_apple_support", "_ast", "_asyncio", "_bisect",

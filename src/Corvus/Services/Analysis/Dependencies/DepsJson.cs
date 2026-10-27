@@ -12,10 +12,7 @@ public sealed record DepsLibrary(string Name, string Version, string Type, strin
     public IReadOnlyList<string> Assets { get; init; } = [];
 }
 
-/// <summary>
-/// The dependency manifest (.deps.json) the .NET SDK writes next to an app or into its single-file bundle: the
-/// runtime target and its libraries with dependencies and assets.
-/// </summary>
+/// <summary>A .deps.json dependency manifest: the runtime target and its libraries with dependencies and assets.</summary>
 public sealed record DepsJson(string Path, string? RuntimeTarget, IReadOnlyList<DepsLibrary> Libraries)
 {
     private const int MaxLibraries = 20_000;

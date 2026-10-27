@@ -3,10 +3,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Whether two paths name the same file, seen through symbolic links, junctions, 8.3 short names and hard links: the
-/// volume serial and file index on Windows, the device and inode on Linux and macOS, else the resolved full paths.
-/// </summary>
+/// <summary>Whether two paths name the same file through links and short names, by file id, else by resolved full path.</summary>
 public static class FileIdentity
 {
     private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -64,7 +61,8 @@ public static class FileIdentity
     private struct ByHandleFileInformation
     {
         public uint FileAttributes;
-        public uint CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh; // FILETIMEs: 4-byte aligned
+        // FILETIMEs as 4-byte-aligned halves.
+        public uint CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh;
         public uint VolumeSerialNumber, FileSizeHigh, FileSizeLow, NumberOfLinks, FileIndexHigh, FileIndexLow;
     }
 

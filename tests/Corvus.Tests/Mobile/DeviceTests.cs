@@ -3,11 +3,7 @@ using Corvus.Services.Mobile;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The Android device tools against the fake adb: parsing, serial selection, pulls and the device-change gate. The fake is
-/// passed to the service, not through CORVUS_ADB, so these run beside the external tool environment tests. Each fake
-/// adb call starts a process, so the tests are split into nested classes by topic, which run side by side.
-/// </summary>
+/// <summary>The Android device tools against the fake adb, in nested classes that run side by side.</summary>
 public abstract class DeviceTests : IDisposable
 {
     private protected readonly TempDir _dir = new();
@@ -50,7 +46,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void Devices_RowsStatesAndUnparsedLines()
+        public void Devices_list_their_states_and_keep_unparsed_lines()
         {
             var list = Service().Devices(default);
             Assert.Equal([(FakeDevice.Serial, "device", "sdk_gphone64_arm64"), ("R58M123ABC", "unauthorized", null)], list.Items.Select(d => (d.Serial, d.State, d.Model)));
@@ -59,7 +55,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void DeviceInfo_SummaryAndEmulatorEvidence_PinsTheOnlyReadyDevice()
+        public void Device_info_summary_and_emulator_evidence_pins_the_only_ready_device()
         {
             var info = Service().DeviceInfo(null, null, 0, 100, default);
             Assert.Equal(FakeDevice.Serial, info.Serial);
@@ -67,13 +63,14 @@ public abstract class DeviceTests : IDisposable
             Assert.Equal(["arm64-v8a", "armeabi-v7a"], info.Summary.Abis);
             Assert.Contains("ro.kernel.qemu=1", info.Summary.EmulatorEvidence);
             Assert.Contains("ro.hardware=ranchu", info.Summary.EmulatorEvidence);
-            Assert.Equal(9, info.Total); // the unterminated multi-line value is not a property
+            // The unterminated multi-line value is not a property.
+            Assert.Equal(9, info.Total);
             Assert.Equal(["-s", FakeDevice.Serial, "shell", "getprop"], _fake.ArgumentLists.Last());
             Assert.Equal(["ro.build.version.sdk"], Service().DeviceInfo(FakeDevice.Serial, "version.sdk", 0, 100, default).Properties.Select(p => p.Name));
         }
 
         [Fact]
-        public void DeviceInfo_Views_ListProcessesFeaturesServicesSettingsAndFiles()
+        public void Device_info_views_list_processes_features_services_settings_and_files()
         {
             string Rows(string view, string? query = null, int offset = 0, int limit = 100) =>
                 string.Join("; ", Service().DeviceInfo(null, query, offset, limit, default, view).Properties.Select(p => $"{p.Name}={p.Value}"));
@@ -90,7 +87,7 @@ public abstract class DeviceTests : IDisposable
     public sealed class Capture : DeviceTests
     {
         [Fact]
-        public void Screen_WritesTheExecOutPng_WithItsSize_AndNeverReplacesAFile()
+        public void Screen_writes_the_exec_out_PNG_with_its_size_and_never_replaces_a_file()
         {
             var path = Path.GetFullPath(_dir.File("shots/screen.png"));
             var facts = Facts(Service().DeviceInfo(null, null, 0, 100, default, "screen", path));
@@ -102,7 +99,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void Window_ResolvesTheFocusedActivityToItsDexClass()
+        public void Window_resolves_the_focused_activity_to_its_DEX_class()
         {
             var apk = AndroidSamples.Save(_dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex())));
             var dex = new DexService();
@@ -110,7 +107,8 @@ public abstract class DeviceTests : IDisposable
             var unread = Facts(service.DeviceInfo(null, null, 0, 100, default, "window"));
             Assert.Equal(("com.example.app", "com.example.app.Main"), (unread["package"], unread["activity"]));
             Assert.StartsWith("no package read", unread["dex class"]);
-            dex.ListClasses(apk, null, null, 0, 1, default); // a package read by a DEX tool is used without query
+            // A package read by a DEX tool is used without query.
+            dex.ListClasses(apk, null, null, 0, 1, default);
             var facts = Facts(service.DeviceInfo(null, null, 0, 100, default, "window"));
             Assert.StartsWith($"{AndroidSamples.Main} in {apk}", facts["dex class"]);
             Assert.Equal("Landroid/app/Activity;", facts["extends"]);
@@ -118,7 +116,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void Display_SizesDensityScreenStateAndDisplayDevices()
+        public void Display_facts_name_sizes_density_screen_state_and_displays()
         {
             var facts = Facts(Service().DeviceInfo(null, null, 0, 100, default, "display"));
             Assert.Equal(("1080x2400", "720x1600", "420", "ON"), (facts["physical size"], facts["override size"], facts["physical density"], facts["screen state"]));
@@ -126,7 +124,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void Bugreport_StreamsTheZip_FallsBackToAPulledZip_AndKeepsNothingPastTheBudget()
+        public void Bugreport_streams_the_zip_falls_back_to_a_pulled_zip_and_keeps_nothing_past_the_budget()
         {
             var streamed = Facts(Service().DeviceInfo(null, null, 0, 100, default, "bugreport", _dir.File("br")));
             Assert.Equal("bugreportz -s (streamed)", streamed["method"]);
@@ -156,7 +154,7 @@ public abstract class DeviceTests : IDisposable
     public sealed class Packages : DeviceTests
     {
         [Fact]
-        public void Packages_PathsUidsInstallers_AndPackageInfoFromDumpsys()
+        public void Packages_give_paths_UIDs_installers_and_dumpsys_info()
         {
             var packages = Service().Packages(null, null, null, 0, 100, default);
             var app = packages.Items.Single(p => p.Package == FakeDevice.Package);
@@ -178,7 +176,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void PullPackage_EverySplit_IntoAnEmptyDirectory_ThenReadsTheBase()
+        public void Pull_package_every_split_into_an_empty_directory_then_reads_the_base()
         {
             var pulled = Service().PullPackage(FakeDevice.Package, _dir.File("apks"), null, default);
             Assert.Equal(["base.apk", "split_config.arm64_v8a.apk"], pulled.Files.Select(f => Path.GetFileName(f.Local)));
@@ -189,7 +187,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void PullFile_RefusesDirectories_AndLeavesNothingOnFailure()
+        public void Pull_file_refuses_directories_and_leaves_nothing_on_failure()
         {
             var file = Service().PullFile("/data/local/tmp/notes.txt", _dir.File("out/notes.txt"), false, null, default);
             Assert.Equal("hello from the device\n", File.ReadAllText(file.Local));
@@ -201,7 +199,7 @@ public abstract class DeviceTests : IDisposable
         }
 
         [Fact]
-        public void Log_FiltersAndParsesLines()
+        public void Log_filters_and_parses_lines()
         {
             var error = Service().Log(null, null, null, "error", null, null, default).Lines;
             Assert.Equal(("01-02 03:04:05.679", 123, 456, "E", "App", "boom"), (error[1].Time, error[1].Pid, error[1].Tid, error[1].Priority, error[1].Tag, error[1].Message));
@@ -218,7 +216,7 @@ public abstract class DeviceTests : IDisposable
     public sealed class Changes : DeviceTests
     {
         [Fact]
-        public void InstallAndUninstall_AreGated_ThenMapFailures()
+        public void Install_and_uninstall_are_gated_then_map_failures()
         {
             var apk = AndroidSamples.Save(_dir, "app.apk", AndroidSamples.Apk());
             var gated = Assert.Throws<ToolError>(() => Service().Install(apk, true, false, false, null, default));
@@ -243,10 +241,10 @@ public abstract class DeviceTests : IDisposable
             Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => allowed.Uninstall("com.missing", false, null, default)).Code);
         }
 
-        /// <summary>install_android_package replaces an installed app unless keepInstalled (the default of the former replace=true).</summary>
+        /// <summary>install_android_package replaces an installed app unless keepInstalled.</summary>
         [Trait("Speed", "Slow")]
         [Fact]
-        public async Task InstallReplacesByDefault_KeepInstalledDoesNot()
+        public async Task Install_replaces_by_default_keep_installed_does_not()
         {
             var apk = AndroidSamples.Save(_dir, "app.apk", AndroidSamples.Apk());
             var tools = new Corvus.Tools.DeviceTools(Service(allowChanges: true));
@@ -278,7 +276,7 @@ public sealed class DeviceEnvironmentTests : IDisposable
     /// <summary>A 1 MB log reads newest first in pages within the report budget; nextOffset walks to older lines.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task Log_PagesNewestFirstWithinTheBudget()
+    public async Task Log_pages_newest_first_within_the_budget()
     {
         using var script = new EnvironmentScope().Set(FakeTool.ScriptVariable, _fake.ScriptPath);
         await using var server = await InProcessServer.StartAsync();
@@ -294,7 +292,7 @@ public sealed class DeviceEnvironmentTests : IDisposable
     }
 
     [Fact]
-    public void WithoutAdb_ProviderUnavailableNamingTheVariable()
+    public void Without_adb_provider_unavailable_naming_the_variable()
     {
         using var env = new EnvironmentScope().Set("CORVUS_ADB", _dir.File("none.exe"));
         var error = Assert.Throws<ToolError>(() => Service().Devices(default));

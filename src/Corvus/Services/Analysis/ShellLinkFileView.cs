@@ -3,11 +3,7 @@ using Corvus.Core.Documents;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=lnk: a Windows shortcut's fields (<see cref="ShellLink"/>): target as the shell resolves it with arguments, working
-/// directory, icon and show command; the ID list, link info and environment paths it came from; times, volume serial and
-/// label, the tracker's machine id and MAC address; flags, extra data blocks, appended data and what is worth reviewing.
-/// </summary>
+/// <summary>view=lnk: a Windows shortcut's target, arguments, paths, times, tracker machine id, extra data and findings.</summary>
 internal sealed class ShellLinkFileView : IFileSummaryView
 {
     public sealed record Overlay(string Offset, long Size, string Kind, string Sha256);

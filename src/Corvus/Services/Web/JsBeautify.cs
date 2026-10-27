@@ -4,12 +4,7 @@ using Acornima.Ast;
 
 namespace Corvus.Services.Web;
 
-/// <summary>
-/// Reformats a script or module from its tokens: one statement per line, blocks and object literals indented, operators
-/// spaced, comments kept where they stood. Semicolons the parser inserted are written out, so a line break never changes
-/// the meaning. With renames (<see cref="JsNames"/>), each renamed binding is written with its new name at every site.
-/// Throws <see cref="InvalidDataException"/> when the text does not parse.
-/// </summary>
+/// <summary>Reformats a script or module from its tokens, writing inserted semicolons and applying <see cref="JsNames"/> renames; throws <see cref="InvalidDataException"/> when it does not parse.</summary>
 internal static class JsBeautify
 {
     public const int MaxBytes = 64 << 20;
@@ -111,8 +106,7 @@ internal static class JsBeautify
         return (i + 1, offset - lines[i] + 1);
     }
 
-    // What the AST says about tokens the layout depends on: which braces open blocks, object literals or switch bodies, and
-    // which closing braces end a do-while body.
+    // Which braces open blocks, object literals or switch bodies, and which end a do-while body.
     private sealed class Shape
     {
         public readonly HashSet<int> Blocks = [], Objects = [], Switches = [], DoBodies = [];
@@ -360,8 +354,7 @@ internal static class JsBeautify
             After(level.Kind, end);
         }
 
-        // After a closing brace: an object or inline brace ends an operand; a block ends a statement unless what follows
-        // continues it (else, catch, a call, a comma).
+        // An object or inline brace ends an operand; a block ends a statement unless else, catch, a call or a comma follows.
         private void After(Frame kind, int end)
         {
             _prevEnd = end;

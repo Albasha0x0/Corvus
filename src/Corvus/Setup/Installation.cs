@@ -7,10 +7,7 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// The per-user install layout written by the install scripts: &lt;root&gt;/versions/&lt;version&gt;/ holds each build,
-/// &lt;root&gt;/current links to the active one, and client configurations point at the link so updates need no edits.
-/// </summary>
+/// <summary>The per-user install layout: versions/&lt;version&gt;/ per build, current links to the active one, clients point at the link.</summary>
 internal static class Installation
 {
     public const string DefaultRepository = "Albasha0x0/Corvus";
@@ -71,7 +68,7 @@ internal static class Installation
         var actual = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data));
         return actual.Equals(expected, StringComparison.OrdinalIgnoreCase)
             ? null
-            : $"Checksum mismatch for {assetName} (expected {expected.ToLowerInvariant()}, got {actual}); the download is corrupt or was altered. Nothing was installed.";
+            : $"Checksum mismatch for {assetName} (expected {expected.ToLowerInvariant()}, got {actual}): download corrupt or altered. Nothing was installed.";
     }
 
     /// <summary>Set to 1 to refuse a build whose provenance could not be checked; 0 skips the check (a self-built archive).</summary>
@@ -89,18 +86,14 @@ internal static class Installation
     /// <summary>gh's exit code and combined output for <paramref name="arguments"/>, or null when gh is not on PATH.</summary>
     internal delegate (int ExitCode, string Output)? GhRunner(IReadOnlyList<string> arguments);
 
-    // gh's words for a check it could not make (offline, rate limited, too old for these flags), as opposed to a
-    // finding about the file. Anything else on exit 1 refuses: an unrecognised failure is not taken as a pass.
+    // Output of a gh check that could not run (offline, rate limited, old gh), not a finding about the file.
+    // Anything else on exit 1 refuses: an unrecognised failure is not a pass.
     private static readonly System.Text.RegularExpressions.Regex GhUnavailable = new(
         @"unknown command|unknown flag|sigstore verifier|trusted root|dial tcp|no such host|connection refused|connection reset|i/o timeout|timed out|timeout exceeded|TLS handshake|proxyconnect|HTTP (?:401|403|429|5\d\d)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    /// <summary>
-    /// Checks the SLSA build provenance of <paramref name="archivePath"/> with <c>gh attestation verify</c>: made by
-    /// <paramref name="repo"/>'s release workflow, from tag <paramref name="tag"/> when one is given. Verified on gh's
-    /// pass; not checked when gh is absent, not signed in or cannot reach GitHub; refused on any other failure, and on
-    /// not checked when <paramref name="require"/> is "1". <paramref name="require"/> "0" skips the check.
-    /// </summary>
+    /// <summary>Checks the archive's build provenance with gh attestation verify; not checked without gh or GitHub, refused on other failures.</summary>
+    // A require of "1" refuses an unchecked archive; "0" skips the check.
     internal static Provenance CheckProvenance(string archivePath, string assetName, string repo, string? tag, string? require, GhRunner gh)
     {
         if (require == "0") return new(ProvenanceState.NotChecked, $"Provenance not checked ({RequireAttestationVariable}=0).");
@@ -109,7 +102,7 @@ internal static class Installation
         string reason;
         if (gh(args) is not { } run) reason = "gh is not on PATH";
         else if (run.ExitCode == 0) return new(ProvenanceState.Verified, $"Provenance verified: {assetName} was built by {repo}'s release workflow.");
-        // gh's exit code 4: authentication required.
+        // Exit code 4: gh needs authentication.
         else if (run.ExitCode == 4) reason = "gh is not signed in: gh auth login, or set GH_TOKEN";
         else if (run.ExitCode != 1 || GhUnavailable.IsMatch(run.Output)) reason = $"gh: {FirstLine(run.Output)}";
         else return new(ProvenanceState.Refused, $"Provenance check failed for {assetName} against {repo}'s release workflow: " +
@@ -164,7 +157,7 @@ internal static class Installation
     public static string NotSelfUpdating(string installKind, string? version = null) => installKind switch
     {
         "dotnet-tool" => $"This copy is the .NET tool {PackageId}, which the dotnet CLI updates: {UpdateCommand(installKind, version)}",
-        "dnx" => $"This copy runs from the NuGet package cache (dotnet tool exec / dnx), which starts the newest release (or a pinned one) each time: {UpdateCommand(installKind, version)}",
+        "dnx" => $"This copy runs from the NuGet package cache, which starts the newest or pinned release each time: {UpdateCommand(installKind, version)}",
         _ => "This copy was not installed by the install script, so it cannot update itself." + Environment.NewLine
             + "Install with the one-line command in the README, or rebuild from source.",
     };
@@ -173,18 +166,14 @@ internal static class Installation
     public static string ReleaseApi(string repo, string? version) =>
         version is { Length: > 0 } v ? $"https://api.github.com/repos/{repo}/releases/tags/v{v.TrimStart('v')}" : $"https://api.github.com/repos/{repo}/releases/latest";
 
-    /// <summary>
-    /// Downloads the latest release (or <paramref name="version"/>, which may be older: a rollback) into versions/,
-    /// switches "current" to it, removes unused versions and refreshes existing registrations. With
-    /// <paramref name="dryRun"/> it only reports the release, asset and checksum manifest it would use.
-    /// </summary>
     /// <summary>A warning when <paramref name="target"/> is older than the running <paramref name="current"/>, else null.</summary>
     public static string? DowngradeWarning(string current, string target) =>
         System.Version.TryParse(target.TrimStart('v'), out var t) && System.Version.TryParse(current, out var c) && t < c
-            ? $"Warning: {target.TrimStart('v')} is older than the installed {current} (a downgrade): its tools, options and saved formats may differ; " +
+            ? $"Warning: {target.TrimStart('v')} is older than the installed {current} (a downgrade); tools, options and saved formats may differ. " +
               $"corvus update returns to the latest release."
             : null;
 
+    /// <summary>Installs the latest release or <paramref name="version"/> (older: a rollback) and refreshes registrations; dryRun only reports.</summary>
     public static int Update(TextWriter output, string? version = null, bool dryRun = false, string? installKind = null)
     {
         if (Root() is not { } root)
@@ -230,8 +219,8 @@ internal static class Installation
         }
         if (dryRun)
         {
-            output.WriteLine($"Would install {tag} ({AssetName}, verified against the release's {ChecksumManifest} and, when gh can, its build provenance) into {Path.Combine(root, "versions", latest)},");
-            output.WriteLine($"point {Path.Combine(root, "current")} at it and refresh existing registrations (no clients are added).");
+            output.WriteLine($"Would install {tag} ({AssetName}, checked against {ChecksumManifest} and, when gh can, its build provenance) into {Path.Combine(root, "versions", latest)},");
+            output.WriteLine($"point {Path.Combine(root, "current")} at it and refresh existing registrations; no clients are added.");
             output.WriteLine("Dry run: nothing was changed.");
             return 0;
         }
@@ -301,10 +290,7 @@ internal static class Installation
         return p.ExitCode;
     }
 
-    /// <summary>
-    /// Puts &lt;root&gt;/current on the user's PATH (Windows) or links ~/.local/bin/corvus to the program in it, and removes
-    /// <paramref name="dropRoot"/>'s entry or link (<paramref name="dropExe"/>), as the install scripts do.
-    /// </summary>
+    /// <summary>Puts current on PATH (Windows) or links ~/.local/bin/corvus to it, and removes the dropped root's entry or link.</summary>
     public static void PutOnPath(string root, string? dropRoot = null, string? dropExe = null)
     {
         var current = Path.Combine(root, "current");
@@ -332,7 +318,8 @@ internal static class Installation
         var current = Path.Combine(root, "current");
         if (OperatingSystem.IsWindows())
         {
-            if (Directory.Exists(current)) Directory.Delete(current); // removes the junction, not its target
+            // Removes the junction, not its target.
+            if (Directory.Exists(current)) Directory.Delete(current);
             using var p = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{current}\" \"{target}\"")
                 { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true })!;
             p.WaitForExit();
@@ -363,7 +350,7 @@ internal static class Installation
         }
     }
 
-    /// <summary>Default location of per-user data: annotations, analysis and code-index caches, symbols, Il2Cpp caches, reference packs.</summary>
+    /// <summary>Default location of per-user data: annotations, analysis and code-index caches, symbols, metadata caches, reference packs.</summary>
     public static string? DataRoot(SetupEnvironment env) =>
         env.Variable(Native.Providers.DataFolder.RootVariable) is { Length: > 0 } custom ? Path.GetFullPath(custom)
         : Path.IsPathFullyQualified(env.LocalAppData) ? Path.Combine(env.LocalAppData, Native.Providers.DataFolder.Name) : null;
@@ -421,10 +408,7 @@ internal static class Installation
         return string.Join(" & ", steps);
     }
 
-    /// <summary>
-    /// Removes the program (versions/, current, its PATH entry or ~/.local/bin link) and keeps user data unless
-    /// <paramref name="purgeData"/>. On Windows the running files are deleted after exit.
-    /// </summary>
+    /// <summary>Removes the program and its PATH entry or link, keeping user data unless <paramref name="purgeData"/>; Windows deletes after exit.</summary>
     public static void RemoveFiles(string root, string dataRoot, bool purgeData, TextWriter output)
     {
         var plan = PlanRemoval(root, dataRoot, purgeData);

@@ -3,16 +3,13 @@ using Corvus.Core;
 
 namespace Corvus.Native.Annotations;
 
-/// <summary>Native function names: validation of user-supplied names (rename_native) and identifiers made from Il2Cpp names.</summary>
+/// <summary>Validates user-supplied native names and makes C identifiers from managed names.</summary>
 public static class NativeName
 {
     public const int MaxLength = 255;
     private const int MaxIdentifierLength = 200;
 
-    /// <summary>
-    /// Returns the trimmed name when it is a C-identifier-ish symbol (letter/underscore start, then letters, digits,
-    /// underscore, '$', '@'), at most <see cref="MaxLength"/> characters; throws <see cref="ToolError"/> otherwise.
-    /// </summary>
+    /// <summary>The trimmed name when it is an identifier (also '$', '@') of at most <see cref="MaxLength"/> characters; throws otherwise.</summary>
     public static string Validate(string name)
     {
         var n = (name ?? "").Trim();
@@ -28,7 +25,7 @@ public static class NativeName
         return n;
     }
 
-    /// <summary>The C identifier for an Il2Cpp name, as the Il2Cpp name layer names functions: "Ns.Type$$Method" -> "Ns_Type__Method".</summary>
+    /// <summary>The C identifier for a managed method name: "Ns.Type$$Method" -> "Ns_Type__Method".</summary>
     public static string Identifier(string text)
     {
         var sb = new StringBuilder(Math.Min(text.Length, MaxIdentifierLength) + 4);
@@ -39,7 +36,8 @@ public static class NativeName
             if (sb.Length >= MaxIdentifierLength) break;
             if (c == '$' && i + 1 < text.Length && text[i + 1] == '$')
             {
-                if (replaced) sb.Length--; // "List<int>$$Add" -> "List_int__Add"
+                // "List<int>$$Add" -> "List_int__Add".
+                if (replaced) sb.Length--;
                 sb.Append("__");
                 replaced = false;
                 i++;
@@ -60,7 +58,8 @@ public static class NativeName
                 replaced = true;
             }
         }
-        if (replaced && sb.Length > 1) sb.Length--; // a trailing replacement ("List<int>" -> "List_int")
+        // Drop a trailing replacement: "List<int>" -> "List_int".
+        if (replaced && sb.Length > 1) sb.Length--;
         if (sb.Length == 0 || char.IsDigit(sb[0])) sb.Insert(0, '_');
         return sb.ToString();
     }

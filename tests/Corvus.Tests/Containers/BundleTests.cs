@@ -32,7 +32,7 @@ public partial class BundleTests
     }
 
     [Fact]
-    public void ManifestTemplateAndReleaseWiring()
+    public void The_bundle_manifest_and_release_workflow_agree_on_version_and_platforms()
     {
         var version = Regex.Match(Read("src/Corvus/Corvus.csproj"), "<Version>([^<]+)</Version>").Groups[1].Value;
         AssertManifest(JsonNode.Parse(Read("mcpb/manifest.json"))!, version);
@@ -49,7 +49,7 @@ public partial class BundleTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task ReleaseScriptBundlesEachDesktopArchive()
+    public async Task Release_script_bundles_each_desktop_archive()
     {
         if (FindOnPath(OperatingSystem.IsWindows() ? "pwsh.exe" : "pwsh") is not { } pwsh) return;
         using var dir = new TempDir();

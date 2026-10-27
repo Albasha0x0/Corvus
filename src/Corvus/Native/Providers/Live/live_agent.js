@@ -1,11 +1,10 @@
-// Session script loaded into the observed program: stop points hold the hitting thread until the worker posts its
-// resume token; watched calls are recorded; module, thread and exception events are forwarded. Observation only: the
-// program's code is written only where a stop point or watch is set.
+// Session script in the observed program: stop points hold the thread until the worker posts its resume token, watched
+// calls are recorded, module, thread and exception events forwarded. Code is written only at stop points and watches.
 const points = {};
 const hits = {};
-let observing = false; // the observers first replay what is already there; open's info() reports that instead
-// The replies threads wait for. The worker posts every one of them before it unloads the script (closeBegin): a
-// reply still in flight would otherwise never come, and nothing ends recv().wait().
+// The observers first replay what is already there; open's info() reports that instead.
+let observing = false;
+// Replies threads wait for; the worker posts all of them before unloading (closeBegin), or recv().wait() never ends.
 const awaited = new Set();
 let closing = false;
 
@@ -19,9 +18,8 @@ function waitFor(type) {
   awaited.delete(type);
 }
 
-// Outside Windows a stop also sends the stack from the stack pointer up, for the server to unwind with the modules'
-// CFI: Frida's backtrace there starts with the word at the stack pointer, a return address only at a function's start,
-// and its accurate walk ends the process at some C runtime start-up functions on x86, so only the stack scan runs.
+// Outside Windows a stop sends the raw stack for the server to unwind with CFI: Frida's backtrace misreads the first
+// word there, and its accurate walk ends the process in some x86 C runtime start-up functions.
 const STACK_BYTES = 32768;
 const BACKTRACER = Process.platform === 'windows' ? Backtracer.ACCURATE : Backtracer.FUZZY;
 
@@ -36,12 +34,10 @@ function stackFrom(sp) {
   }
 }
 
-// A bare point (a coverage count) sends only where it stopped: no stack, no registers. at is the point's address: the
-// hook may run elsewhere, where the registers are the same (a detour's stub, see hookAt, or behind another agent's hook
-// on the same function, whose trampoline Gum on ia32 reports as the pc).
+// A bare point (a coverage count) sends only where it stopped. at is the point's address: the hook may run at a
+// detour stub (hookAt) or behind another agent's trampoline, with the same registers.
 function stopsIn(id, context, at, bare) {
-  // The point was cleared while this thread was in the hook: a stop reported
-  // now would hold it after the clear.
+  // The point was cleared while this thread was in the hook: a stop now would hold it after the clear.
   if (!points[id]) return;
   const tid = Process.getCurrentThreadId();
   hits[id] = (hits[id] || 0) + 1;
@@ -58,8 +54,7 @@ function stopsIn(id, context, at, bare) {
   waitFor('resume-' + tid);
 }
 
-// A counted point reports each hit without holding the thread and clears
-// itself at its hit limit, so the program does not wait on the server.
+// A counted point reports hits without holding the thread and clears itself at its hit limit.
 function countsIn(id, at, limit) {
   const p = points[id];
   if (!p || p.spent) return;
@@ -67,8 +62,7 @@ function countsIn(id, at, limit) {
   send({ type: 'stop', point: id, tid: Process.getCurrentThreadId(), hits: hits[id], registers: {}, frames: [at.toString()], counted: true });
   if (hits[id] < limit) return;
   p.spent = true;
-  // The hook is undone once this thread has left it, from the script's own
-  // thread.
+  // The hook is undone from the script's own thread once this thread has left it.
   setTimeout(() => {
     if (points[id] !== p) return;
     p.detach();
@@ -80,10 +74,8 @@ function moduleRow(m) {
   return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
 }
 
-// Frida's module registry lags the loader up to the next LoadLibrary on every release tested (16.7 to 17.24; frida/frida-gum#1190, fixed in 4e628a8):
-// a DLL mapped through a delay-load import is missing from enumerateModules and onAdded until then; the loader's
-// own list (K32EnumProcessModules, which takes no loader lock, so a thread held inside DllMain does not block it) adds
-// those, leaving out the agent's cloaked ranges.
+// Workaround for frida/frida-gum#1190 (16.7 to 17.24, fixed in 4e628a8): delay-loaded DLLs are missing from the registry
+// until the next LoadLibrary; K32EnumProcessModules (no loader lock) adds them, minus the agent's cloaked ranges.
 function loadedModules() {
   const rows = Process.enumerateModules().map(moduleRow);
   if (Process.platform !== 'windows') return rows;
@@ -108,13 +100,13 @@ function loadedModules() {
       rows.push({ name: path.substring(path.lastIndexOf('\\') + 1), base: base.toString(), size, path });
     }
   } catch (e) {
-    // the observer's list stands
+    // The observer's list stands.
   }
   return rows;
 }
 
-// Modules with deferred points (lower-case name or name without extension): their load holds the loading thread, before
-// the module's code runs, until the worker posts load-<tid> once the points are set.
+// Modules with deferred points (lower-case name, or without extension): the loading thread waits for load-<tid>
+// before the module's code runs, until the points are set.
 const deferredModules = new Set();
 
 function isDeferred(m) {
@@ -123,8 +115,7 @@ function isDeferred(m) {
   return deferredModules.has(name) || (dot > 0 && deferredModules.has(name.substring(0, dot)));
 }
 
-// Managed methods with stop points or watches, by the address of their IL body: the thread that compiles one is held when
-// the JIT returns its code, before that code first runs, until the worker posts load-<tid> once the point is set there.
+// Managed methods with points, by IL body address: the compiling thread waits for load-<tid> before the code first runs.
 const jitWatched = new Set();
 // IL bodies a coverage run counts, by run: each method's first compile is reported (not held) as its first run
 const jitCounted = new Map();
@@ -149,7 +140,7 @@ function hookJit(m, running) {
       if (!jitWatched.has(il)) return;
       this.il = il;
       this.entry = a[4];
-      // the compiling thread's callers tell a compile at a loop (on-stack replacement) from a new version of the method
+      // The compiling thread's callers tell on-stack replacement from a new version of the method.
       this.frames = Thread.backtrace(this.context, Backtracer.FUZZY).slice(0, 64).map(p => p.toString());
     },
     onLeave(r) {
@@ -160,7 +151,7 @@ function hookJit(m, running) {
       waitFor('load-' + tid);
     },
   });
-  // a running runtime has asked for its JIT already; a starting one asks once, after the library's start-up
+  // A running runtime has its JIT already; a starting one asks once, after the library's start-up.
   if (running) hookCompiler(new NativeFunction(getJit, 'pointer', [])());
   else {
     const asked = Interceptor.attach(getJit, { onLeave(r) { asked.detach(); hookCompiler(r); } });
@@ -169,8 +160,7 @@ function hookJit(m, running) {
 
 const JIT_LIBRARY = /^(lib)?clrjit\.(dll|so|dylib)$/i;
 
-// The parts of a PE image's executable sections the file leaves empty (VirtualSize past SizeOfRawData), which the image
-// fills at start-up (a packed DLL), with its entry point; null for any other image.
+// Executable section parts past SizeOfRawData that the image fills at start-up, with its entry point; null otherwise.
 function codeWrittenAtStart(m) {
   if (Process.platform !== 'windows') return null;
   try {
@@ -182,7 +172,8 @@ function codeWrittenAtStart(m) {
     }
     return empty.length > 0 && entry !== 0 ? { entry: m.base.add(entry), empty } : null;
   } catch (e) {
-    return null; // unreadable headers: an ordinary image
+    // Unreadable headers: an ordinary image.
+    return null;
   }
 }
 
@@ -193,7 +184,7 @@ function moduleLoaded(m, held, afterEntry, unobserved) {
   if (held) waitFor('load-' + tid);
 }
 
-// The current thread's stack pointer and stack base (Windows)
+// The current thread's stack pointer and stack base (Windows).
 let stackPointer = null, stackLimits = null;
 if (Process.platform === 'windows') {
   try {
@@ -208,7 +199,7 @@ if (Process.platform === 'windows') {
   }
 }
 
-// Whether the instruction before p is a call (E8 rel32, or FF /2 in its 2, 3, 6 and 7 byte forms), so p is a return address
+// Whether the instruction before p is a call (E8 rel32, or FF /2 in its 2, 3, 6 and 7 byte forms).
 function afterCall(p) {
   try {
     const b = new Uint8Array(p.sub(7).readByteArray(7));
@@ -219,8 +210,7 @@ function afterCall(p) {
   }
 }
 
-// Where the current thread returns from the outermost call into m's code: the return address and the stack slot that
-// holds it; null when no live frame is in m
+// Return address and stack slot of the outermost live call into m's code; null when none.
 function returnFrom(m) {
   if (stackPointer === null) return null;
   const limits = Memory.alloc(2 * Process.pointerSize), size = Process.pointerSize;
@@ -230,7 +220,7 @@ function returnFrom(m) {
   for (let slot = base.sub(size); slot.compare(sp) >= 0; slot = slot.sub(size)) {
     const v = slot.readPointer();
     if (!inM(v) || !afterCall(v)) continue;
-    // the call into m's code pushed its return address above m's own frames
+    // The call into m's code pushed its return address above m's own frames.
     for (let up = slot.add(size); up.compare(base) < 0; up = up.add(size)) {
       const r = up.readPointer();
       if (!inM(r) && afterCall(r)) return { at: r, slot: up };
@@ -262,16 +252,13 @@ if (typeof Process.attachModuleObserver === 'function') {
       if (JIT_LIBRARY.test(m.name)) hookJit(m, !observing);
       if (!observing) return;
       const held = deferredModules.size > 0 && isDeferred(m);
-      // a point written before such an image's start-up code runs is overwritten by it: hold once that code returns. The
-      // registry can report a DLL first from a load its entry point makes (frida/frida-gum#1190), or after it returned.
+      // Start-up code overwrites earlier points: hold once it returns. The registry may report the DLL late (frida/frida-gum#1190).
       const start = held ? codeWrittenAtStart(m) : null;
       if (start === null) {
         moduleLoaded(m, held, false);
         return;
       }
-      // Under emulation a hook in code written at start-up is not run (x64:
-      // the translated code runs without it), and the loader's frames are
-      // native ARM64 code (x86: CHPE), so its return cannot be hooked.
+      // Under emulation hooks in start-up-written code do not run and the loader's frames are native, so no return hook.
       if (emulated) {
         moduleLoaded(m, false, false, 'its entry point writes its code, and a stop point there is not seen in a program emulated on an ARM64 machine');
         return;
@@ -279,7 +266,7 @@ if (typeof Process.attachModuleObserver === 'function') {
       const inside = returnFrom(m), tid = Process.getCurrentThreadId();
       if (inside !== null) {
         const returned = Interceptor.attach(inside.at, function () {
-          // past the slot once returned (a stdcall entry also pops its arguments); a nested load's return stays below it
+          // Past the slot once returned (stdcall pops its arguments); a nested load's return stays below it.
           if (this.threadId !== tid || this.context.sp.compare(inside.slot) <= 0) return;
           returned.detach();
           moduleLoaded(m, true, true);
@@ -290,15 +277,14 @@ if (typeof Process.attachModuleObserver === 'function') {
         moduleLoaded(m, true, true);
         return;
       }
-      Interceptor.flush(); // attached inside the observer: in place before the loader goes on
+      // Attached inside the observer: in place before the loader goes on.
+      Interceptor.flush();
     },
     onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
   });
 }
-// The program's thread ids, without Frida's own. On Linux, Process.enumerateThreads and the thread observer's first
-// attach read every thread's registers through a helper process that ptrace-attaches it, and a helper whose thread
-// never stops waits forever: under load a session's open hung in the script's load that way. Workaround for
-// frida/frida-gum#1196, tested on Frida 17.24.3, no fix yet: /proc lists the ids without a helper.
+// The program's thread ids, without Frida's. Workaround for frida/frida-gum#1196 (tested 17.24.3, no fix yet): Linux
+// enumeration ptrace-attaches each thread and can hang, so /proc lists the ids.
 const readTaskDir = (() => {
   if (Process.platform !== 'linux') return null;
   const [open, read, close] = ['opendir', 'readdir64', 'closedir'].map(globalExport);
@@ -319,7 +305,7 @@ function threadIds() {
   return ids;
 }
 
-// every thread id reported; an ended thread stays, since the thread list can still name it for a moment
+// Every thread id reported; an ended thread stays, since the thread list can still name it for a moment.
 const threads = new Set(threadIds());
 
 function threadStarted(id) {
@@ -362,8 +348,7 @@ function globalExport(name) {
   return typeof Module.findGlobalExportByName === 'function' ? Module.findGlobalExportByName(name) : Module.findExportByName(null, name);
 }
 
-// On Linux the observer reports no new thread (glibc starts them through clone3): a pthread_create that succeeds
-// reports the thread id the kernel stored in the new thread's descriptor, found at the offset that holds this thread's id
+// On Linux the observer misses clone3 threads: a successful pthread_create reports the id from the new descriptor.
 if (Process.platform === 'linux') {
   const create = globalExport('pthread_create'), self = globalExport('pthread_self');
   let tidOffset = -1;
@@ -378,14 +363,12 @@ if (Process.platform === 'linux') {
     });
   }
 }
-// The accurate backtracer runs dbghelp inside the program, which looks for each module's symbol files in the current
-// directory, the image's folder and the path its debug record names: file activity that is not the program's, and
-// helper modules loaded at the first stop, where module events wait for the resume. Started here, its search goes to
-// the agent's own folder only.
+// dbghelp in the program searches symbol files everywhere and loads helpers at the first stop; started here, it
+// searches the agent's folder only.
 function quietSymbols() {
   try {
     Thread.backtrace(); // loads and initializes dbghelp
-    // the agent's module is cloaked: enumerateModules leaves it out, the loader still names it
+    // The agent's module is cloaked: enumerateModules leaves it out, the loader still names it.
     const abi = Process.arch === 'ia32' ? 'stdcall' : 'default';
     const k32 = Process.getModuleByName('kernel32.dll');
     const handle = new NativeFunction(k32.getExportByName('GetModuleHandleW'), 'pointer', ['pointer'], abi)(Memory.allocUtf16String('frida-agent.dll'));
@@ -403,30 +386,30 @@ function quietSymbols() {
     setOptions(getOptions() | 0x80 | 0x200000); // SYMOPT_IGNORE_CVREC | SYMOPT_IGNORE_IMAGEDIR
     setPath(ptr(Process.pointerSize === 8 ? '0xffffffffffffffff' : '0xffffffff'), Memory.allocUtf16String(dir)); // GetCurrentProcess()
   } catch (e) {
-    // stacks still come; only the search is not narrowed
+    // Stacks still come; only the search is not narrowed.
   }
 }
 if (Process.platform === 'windows') quietSymbols();
 observing = true;
-// The kinds that usually end the program wait for the worker to receive the event: a message still queued when the
-// process dies is lost.
+// Kinds that usually end the program wait for the worker to receive the event, or it is lost with the process.
 const FATAL_KINDS = new Set(['abort', 'access-violation', 'guard-page', 'illegal-instruction', 'stack-overflow', 'arithmetic']);
 Process.setExceptionHandler(d => {
   const tid = Process.getCurrentThreadId();
   const ack = FATAL_KINDS.has(d.type);
   if (ack) {
-    flushAll(); // calls recorded just before the fault
+    // Calls recorded just before the fault.
+    flushAll();
     expect('exception-' + tid);
   }
   send({ type: 'exception', tid, kind: d.type, address: d.address.toString(), ack,
     memory: d.memory ? { operation: d.memory.operation, address: d.memory.address.toString() } : null });
   if (ack) waitFor('exception-' + tid);
-  return false; // the program's own handlers decide
+  // The program's own handlers decide.
+  return false;
 });
 
-// Before the process exits, the last watch batches and the exit status (which the detach reason does not carry outside
-// Windows) go out, and the thread waits for the worker to have them, as for a fatal exception. Sent later, from dispose
-// during the exit itself, the batches can hold Frida's unload forever, and the program never finishes exiting.
+// Before exit, the last watch batches and the exit status (which the detach reason lacks outside Windows) go out and
+// the thread waits for the worker; sent from dispose during the exit, they can hold Frida's unload forever.
 let exiting = false;
 function beforeExit(code) {
   const tid = Process.getCurrentThreadId();
@@ -436,27 +419,25 @@ function beforeExit(code) {
   expect('exit-' + tid);
   send({ type: 'exit_status', tid, code, ack: true });
   waitFor('exit-' + tid);
-  // The exit ends Frida's threads at once; one still busy (sending, or serving a close) can leave the agent's heap lock
-  // held, and Frida's hook on the DLL unloads of the shutdown then waits on it forever: give them time to finish
+  // A Frida thread cut off by the exit can hold the heap lock and hang the shutdown: give them time to finish.
   // Workaround for frida/frida-gum#1192: hangs on 17.24.0 to 17.24.3, not on 17.23.3 and earlier; no fix release yet.
   if (Process.platform === 'windows') Thread.sleep(EXIT_DRAIN);
 }
 const EXIT_DRAIN = 0.3; // seconds
 if (Process.platform === 'windows') {
-  // ExitProcess and a return from main end in RtlExitUserProcess; a probe, so no hook frame is left during the exit
+  // ExitProcess and a return from main end in RtlExitUserProcess; a probe leaves no hook frame during the exit.
   const exitUser = Process.getModuleByName('ntdll.dll').findExportByName('RtlExitUserProcess');
   if (exitUser !== null)
     Interceptor.attach(exitUser, function () {
       beforeExit(Process.arch === 'x64' ? this.context.rcx.toInt32() : Process.arch === 'arm64' ? this.context.x0.toInt32() : this.context.sp.add(4).readS32());
     });
 } else {
-  // exit() and a return from main end in _exit
+  // exit() and a return from main end in _exit.
   const _exit = globalExport('_exit');
   if (_exit !== null) Interceptor.attach(_exit, { onEnter(a) { beforeExit(a[0].toInt32()); } });
 }
 
-// Watched functions: each call's arguments (strings read while the call runs) and return value, sent in batches;
-// calls over a watch's rate limit are counted, not recorded, so the program keeps its speed.
+// Watched calls' arguments and return values, sent in batches; calls over the rate limit are counted, not recorded.
 const watches = {};
 const BATCH_ROWS = 512;
 const FLUSH_MS = 100;
@@ -492,9 +473,8 @@ function flush(w) {
 
 setInterval(flushAll, FLUSH_MS);
 
-// Code in a mapped file view (not an image) cannot be made PAGE_EXECUTE_READWRITE, which Gum's hooks write through, and
-// Gum ends the process when that fails. There the hook goes on a stub near the code (the instructions a jump replaces,
-// copied, then a jump back) and a jump to the stub is written copy-on-write; detaching restores the original bytes.
+// Gum ends the process when it cannot make mapped-view code RWX: there a copy-on-write jump goes to a nearby stub
+// instead, and detaching restores the original bytes.
 const MEM_MAPPED = 0x40000, PAGE_EXECUTE_WRITECOPY = 0x80, JMP_BYTES = 5, STUB_BYTES = 128, NEAR = 0x7FFF0000;
 let winApi = null;
 const stubPages = []; // { base, used }: stubs are carved from pages within a rel32 jump of their code
@@ -540,12 +520,12 @@ function writeCode(p, bytes) {
   win().flush(win().process(), p, bytes.length);
 }
 
-// Where to hook p, and how to undo it: p itself, or for code in a mapped view the stub its detour jumps to.
+// Where to hook p and how to undo it: p itself, or for mapped-view code the stub its detour jumps to.
 function hookAt(p) {
   if (!inMappedView(p)) return { at: p, undo() {} };
   if (Process.arch !== 'x64' && Process.arch !== 'ia32') throw new Error('code in a mapped file view is hooked on x86 and x64 only');
-  // A copy-on-write page of a shared memory view stops seeing what the owner writes through its other view: the .NET
-  // runtime's W^X code heap would run stale code on that page. A file view (a single-file bundle) is never rewritten.
+  // A copy-on-write page of a shared view stops seeing the owner's writes, so the .NET W^X code heap would run stale
+  // code; a file view (a single-file bundle) is never rewritten.
   if (win().mappedFile(win().process(), p, Memory.alloc(1024), 512) === 0)
     throw new Error('the code at ' + p + ' is in a shared memory view (the .NET runtime W^X code heap); start the program in a session, which sets DOTNET_EnableWriteXorExecute=0');
   const stub = stubNear(p);
@@ -597,16 +577,15 @@ function watch(id, address, args, perSecond) {
 }
 
 rpc.exports = {
-  // runs before the script is unloaded; once the program is exiting, beforeExit has sent the batches
+  // Runs before the script is unloaded; once the program is exiting, beforeExit has sent the batches.
   dispose() {
     if (!exiting) flushAll();
   },
-  // the replies still awaited, and whether the program is exiting; a wait that starts later returns at once
+  // The replies still awaited and whether the program is exiting; a later wait returns at once.
   closeBegin() {
     closing = true;
-    // Observers go first: a callback on a Frida thread during the unload faults
-    // in the script runtime. Workaround for frida/frida-gum#1194: fails on
-    // 17.23.3 to 17.24.3; no fix release yet.
+    // Observers go first: a callback during the unload faults the script runtime.
+    // Workaround for frida/frida-gum#1194: fails on 17.23.3 to 17.24.3; no fix release yet.
     stopThreadEvents();
     if (moduleObserver !== null) {
       moduleObserver.detach();
@@ -630,7 +609,7 @@ rpc.exports = {
   set(id, address, bare, limit) {
     const p = ptr(address), hook = hookAt(p);
     const counted = bare === true && limit > 0;
-    // a probe: the onEnter form takes the stack top for a return address, which past a function's start is a saved register
+    // A probe: onEnter takes the stack top for a return address, which past a function's start is wrong.
     const listener = Interceptor.attach(hook.at, counted
       ? function () { countsIn(id, p, limit); }
       : function () { stopsIn(id, this.context, p, bare === true); });
@@ -671,9 +650,9 @@ rpc.exports = {
     delete watches[id];
     return true;
   },
-  // ART prints every thread's Java stack when its Signal Catcher thread takes SIGQUIT. The signal goes to that
-  // thread alone: sent to the process, it could reach a Frida thread, which does not block it and would end the
-  // program. Null in a process without ART.
+  // ART dumps Java stacks on SIGQUIT to its Signal Catcher thread; sent to the process, it could reach a Frida thread,
+  // which does not block it, and end the program.
+  // Null without ART.
   artDump() {
     const named = id => { try { return File.readAllText(`/proc/self/task/${id}/comm`).trim(); } catch (e) { return null; } };
     const catcher = threadIds().find(id => named(id) === 'Signal Catcher');

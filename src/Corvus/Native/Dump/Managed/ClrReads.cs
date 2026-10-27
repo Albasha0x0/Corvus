@@ -3,10 +3,7 @@ using Microsoft.Diagnostics.Runtime;
 
 namespace Corvus.Native.Dump.Managed;
 
-/// <summary>
-/// Reads of a CLR opened through its DAC, as plain data: facts, the exception in flight, thread stacks and heap views.
-/// Shared with the 32-bit decoder process; calls are not thread-safe.
-/// </summary>
+/// <summary>Reads of a CLR through its DAC as plain data, shared with the 32-bit decoder; not thread-safe.</summary>
 public sealed class ClrReads(ClrRuntime runtime)
 {
     public const int MaxInnerExceptions = 5;
@@ -31,10 +28,7 @@ public sealed class ClrReads(ClrRuntime runtime)
         return new ManagedFacts(Runtime.AppDomains.Length, Runtime.Threads.Length, new ManagedHeapState(reason == null, segments.Length, bytes, reason));
     }
 
-    /// <summary>
-    /// The exception in flight: on <paramref name="threadId"/> when given (the faulting thread of a CLR exception), else
-    /// on the first thread that has one. Inner exceptions to <see cref="MaxInnerExceptions"/>, frames to <see cref="MaxExceptionFrames"/>.
-    /// </summary>
+    /// <summary>The exception in flight on <paramref name="threadId"/>, else on the first thread with one, inner exceptions and frames bounded; null for none.</summary>
     public ManagedException? Exception(uint? threadId)
     {
         foreach (var t in Runtime.Threads.Where(t => threadId == null || t.OSThreadId == threadId))
@@ -48,7 +42,7 @@ public sealed class ClrReads(ClrRuntime runtime)
         var raw = trace.Length > 0 && trace.All(f => f.Method != null)
             ? trace.Select(f => (f.InstructionPointer, f.StackPointer, f.Method)).ToList()
             : TraceArray(e.Address) ?? trace.Select(f => (f.InstructionPointer, f.StackPointer, f.Method)).ToList();
-        // frames past the first are calls: an IP the runtime did not step back is the return address
+        // Frames past the first are calls: an IP the runtime did not step back is the return address.
         var frames = raw.Take(MaxExceptionFrames).Select((f, i) => Frame(f.Item1, f.Item2, f.Item3, null, ClrStackFrameKind.ManagedMethod, returnAddress: i > 0)).ToList();
         var inner = depth < MaxInnerExceptions && e.Inner is { } i ? Describe(i, null, depth + 1) : null;
         return new ManagedException(e.Type?.Name ?? "(unknown type)", e.Message, e.HResult, e.Address, thread, frames, inner);
@@ -62,18 +56,14 @@ public sealed class ClrReads(ClrRuntime runtime)
         return thread.EnumerateStackTrace(false, maxFrames).Select(f => Frame(f.InstructionPointer, f.StackPointer, f.Method, f.FrameName, f.Kind, returnAddress: true)).ToList();
     }
 
-    /// <summary>
-    /// The exception's _stackTrace array read here: ClrMD takes its header as two pointers, but .NET 9+ adds a 32-bit
-    /// keep-alive count after the 32-bit size, which shifts every element by 4 bytes on x86. The header length whose
-    /// elements all name methods wins; null when none does.
-    /// </summary>
+    /// <summary>The exception's _stackTrace read here, since .NET 9+ shifts its x86 elements by 4 bytes past ClrMD's layout; null when no header fits.</summary>
     private List<(ulong Ip, ulong Sp, ClrMethod? Method)>? TraceArray(ulong exception)
     {
         var obj = Runtime.Heap.GetObject(exception);
         if (!obj.IsValid || obj.Type?.GetFieldByName("_stackTrace") == null) return null;
         var trace = obj.ReadObjectField("_stackTrace");
         if (trace.IsNull || !trace.IsArray) return null;
-        // .NET 9+: an object[] whose first element is the byte[] when the trace keeps objects alive
+        // .NET 9+: an object[] whose first element is the byte[] when the trace keeps objects alive.
         if (trace.Type?.ComponentType is { IsObjectReference: true } && trace.AsArray().Length > 0) trace = trace.AsArray().GetObjectValue(0);
         if (trace.IsNull || !trace.IsArray) return null;
         var reader = Runtime.DataTarget.DataReader;
@@ -96,10 +86,7 @@ public sealed class ClrReads(ClrRuntime runtime)
         return null;
     }
 
-    /// <summary>
-    /// A frame; <paramref name="returnAddress"/> when its IP may be a return address (a thread walk, a caller in an
-    /// exception trace) and the call is the byte before it. Stepping back is harmless for an IP already inside the call.
-    /// </summary>
+    /// <summary>A frame; <paramref name="returnAddress"/> looks up the IP one byte back, harmless for an IP inside the call.</summary>
     private ManagedFrame Frame(ulong ip, ulong sp, ClrMethod? m, string? frameName, ClrStackFrameKind kind, bool returnAddress)
     {
         if (kind != ClrStackFrameKind.ManagedMethod || m == null)
@@ -115,10 +102,7 @@ public sealed class ClrReads(ClrRuntime runtime)
             module?.Name, module != null ? Mvid(module) : null, m.NativeCode != 0 && m.NativeCode != ulong.MaxValue ? m.NativeCode : null);
     }
 
-    /// <summary>
-    /// The IL offset of the map entry holding <paramref name="ip"/>; null outside mapped code (prolog, epilog, no mapping)
-    /// and without a map: a dump without the runtime's memory has none, which ClrMD's GetILOffset reads as offset 0.
-    /// </summary>
+    /// <summary>The IL offset at <paramref name="ip"/>; null outside mapped code or without a map (ClrMD would report 0).</summary>
     private static int? IlOffset(System.Collections.Immutable.ImmutableArray<ILToNativeMap> map, ulong ip)
     {
         if (map.IsDefaultOrEmpty) return null;

@@ -13,19 +13,15 @@ public sealed record JavaDotNetPair(
     [property: Description("The assembly: its workspace id when loaded, else its path inside the package.")] string Assembly,
     bool Loaded,
     [property: Description("register_attribute, component_name, crc64_package (the Java callable wrapper name computed from namespace and assembly), " +
-                           "mono_android_package, override (a .NET override of a registered Java method); Unity C#: unity_call (Call / CallStatic / " +
-                           "Get / Set by name), unity_new (AndroidJavaClass / AndroidJavaObject), unity_proxy (an AndroidJavaProxy of the interface), unity_jni (AndroidJNI).")] string Basis,
-    [property: Description("Unity pairs: descriptor (a JNI signature), name_and_arity (the only Java method of that name and argument count), or name_match.")] string? Confidence = null);
+                           "mono_android_package, override (a .NET override of a registered Java method); by name: java_call (Call / CallStatic / " +
+                           "Get / Set by name), java_new (AndroidJavaClass / AndroidJavaObject), java_proxy (an AndroidJavaProxy of the interface), java_jni (AndroidJNI).")] string Basis,
+    [property: Description("java_* pairs: descriptor (a JNI signature), name_and_arity (the only Java method of that name and argument count), or name_match.")] string? Confidence = null);
 
 public sealed record JavaDotNetResult(string Query,
     [property: Description("java_to_dotnet, dotnet_to_java, or pattern (a * / ? query matched against both sides).")] string Direction,
     IReadOnlyList<JavaDotNetPair> Items, int Offset, int Total, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// The Java / .NET binding of Xamarin and .NET for Android apps: Java callable wrappers (crc64 package names computed exactly as the
-/// build does, or the Name of [Register] / [Activity] / [Service] / ... attributes) and bound Java types ([Register] with
-/// DoNotGenerateAcw); methods through their own [Register] or the registered base method they override.
-/// </summary>
+/// <summary>Maps Java and .NET types of .NET for Android apps: crc64 or attribute-named wrappers, bound types, and registered or overriding methods.</summary>
 public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex = null)
 {
     private sealed record Source(ModuleDef Module, string Label, bool Loaded);
@@ -37,9 +33,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         public readonly Dictionary<string, TypeDef> ByName = new(StringComparer.Ordinal);
         public readonly Dictionary<TypeDef, Source> SourceOf = [];
         public readonly List<string> Notes = [];
-        public readonly List<(UnityJavaCall Call, Source Source)> Unity = [];
-        /// <summary>The assemblies are a Unity player's (UnityEngine), not a .NET for Android app's (Mono.Android): messages follow.</summary>
-        public bool IsUnity;
+        public readonly List<(ManagedJavaCall Call, Source Source)> Bridge = [];
+        /// <summary>The assemblies reference UnityEngine rather than Mono.Android; error messages follow.</summary>
+        public bool IsBridgeApp;
         /// <summary>The package's DEX code, read when a method's base has no [Register] left.</summary>
         public Lazy<DexIndex?>? Dex;
     }
@@ -74,7 +70,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         var sep = symbol.IndexOf("::", StringComparison.Ordinal);
         var typeName = (sep > 0 ? symbol[..sep] : symbol).Replace('+', '/');
         var type = java ? null : FindType(index, typeName);
-        // A dotted Java name (the manifest's com.example.app.MainActivity, a crc64 wrapper, a class Unity C# names) when no .NET type has it.
+        // A dotted Java name (manifest component, crc64 wrapper, class C# names by string) when no .NET type has it.
         if (type == null && sep < 0 && KnownJava(index, symbol.Replace('.', '/'))) java = true;
         var items = new List<JavaDotNetPair>();
         if (java)
@@ -82,11 +78,11 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             var arrow = symbol.IndexOf("->", StringComparison.Ordinal);
             var cls = arrow > 0 ? symbol[..arrow] : symbol;
             var javaName = cls.StartsWith('L') && cls.EndsWith(';') ? cls[1..^1] : cls.Replace('.', '/');
-            if (!index.ByJava.TryGetValue(javaName, out var hit) && UnityToDotNet(index, javaName, arrow > 0 ? symbol[(arrow + 2)..] : null) is { Count: > 0 } unity)
-                return Result(symbol, "java_to_dotnet", unity, index);
+            if (!index.ByJava.TryGetValue(javaName, out var hit) && BridgeToDotNet(index, javaName, arrow > 0 ? symbol[(arrow + 2)..] : null) is { Count: > 0 } bridged)
+                return Result(symbol, "java_to_dotnet", bridged, index);
             if (hit.Type == null)
                 throw new ToolError(ErrorCode.NotFound,
-                    index.IsUnity ? $"no C# in {Describe(path)} reaches {javaName} by name (AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI)."
+                    index.IsBridgeApp ? $"no C# in {Describe(path)} reaches {javaName} by name (AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI)."
                                   : $"no .NET type is bound to {javaName} in {Describe(path)}.",
                     path == null ? "pass path=the package to read its assemblies too; Java-only classes have no .NET side"
                                  : $"Java-only classes have no .NET side: get_dex_class path={path} class=L{javaName}; shows the Java class") { Details = new { index.Notes } };
@@ -106,10 +102,10 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         if (type == null)
             throw new ToolError(ErrorCode.NotFound, $"no type {typeName} among the assemblies of {Describe(path)}.",
                 "a Java class takes its descriptor (Lpkg/C;) or dotted name; a * / ? pattern lists the pairs it matches (crc64*, MyApp.*)");
-        if (!index.ByType.TryGetValue(type, out var bound) && DotNetToUnity(index, type, sep > 0 ? symbol[(sep + 2)..] : null, path, ct) is { Count: > 0 } calls)
+        if (!index.ByType.TryGetValue(type, out var bound) && DotNetToBridge(index, type, sep > 0 ? symbol[(sep + 2)..] : null, path, ct) is { Count: > 0 } calls)
             return Result(symbol, "dotnet_to_java", calls, index);
         if (bound.Java == null)
-            throw new ToolError(ErrorCode.NotFound, index.IsUnity
+            throw new ToolError(ErrorCode.NotFound, index.IsBridgeApp
                 ? $"{TypeLabel(type)}{(sep > 0 ? symbol[sep..] : "")} reaches no Java class or member: no AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI use names one."
                 : $"{TypeLabel(type)} is not a Java peer (no [Register] binding and no registered base type): it has no Java side.");
         var source = index.SourceOf[type];
@@ -132,9 +128,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
     private static JavaDotNetResult Result(string query, string direction, List<JavaDotNetPair> items, Index index) =>
         new(query, direction, items, 0, items.Count, index.Notes);
 
-    /// <summary>A Java class the package binds, Unity C# names, or the DEX code defines.</summary>
+    /// <summary>A Java class the package binds, C# names by string, or the DEX code defines.</summary>
     private static bool KnownJava(Index index, string slashed) =>
-        index.ByJava.ContainsKey(slashed) || index.Unity.Any(u => u.Call.Class == slashed) || index.Dex?.Value?.Classes.ContainsKey($"L{slashed};") == true;
+        index.ByJava.ContainsKey(slashed) || index.Bridge.Any(u => u.Call.Class == slashed) || index.Dex?.Value?.Classes.ContainsKey($"L{slashed};") == true;
 
     /// <summary>Every pair whose Java name (slashed or dotted) or .NET side matches <paramref name="pattern"/>.</summary>
     private static JavaDotNetResult Matching(Index index, string pattern)
@@ -142,13 +138,13 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         bool Hit(string java, string dotnet) => Wildcard.Matches(java, pattern) || Wildcard.Matches(java.Replace('/', '.'), pattern) || Wildcard.Matches(dotnet, pattern);
         var items = index.ByJava.Where(p => Hit(p.Key, TypeLabel(p.Value.Type))).OrderBy(p => p.Key, StringComparer.Ordinal)
             .Select(p => new JavaDotNetPair($"L{p.Key};", TypeLabel(p.Value.Type), p.Value.Source.Label, p.Value.Source.Loaded, p.Value.Basis)).ToList();
-        foreach (var (call, source) in index.Unity)
+        foreach (var (call, source) in index.Bridge)
         {
             if (call.Class == null) continue;
             var java = call.Member == null || call.Kind == "proxy" ? $"L{call.Class};" : $"L{call.Class};->{call.Member}{call.Signature}";
             var label = call.Kind == "proxy" ? TypeLabel(call.Caller.DeclaringType) : Format.MemberLabel(call.Caller);
             if ((Hit(call.Class, label) || Wildcard.Matches(TypeLabel(call.Caller.DeclaringType), pattern)) && !items.Any(i => i.Java == java && i.DotNet == label))
-                items.Add(new(java, label, source.Label, source.Loaded, UnityBasis(call.Kind), call.Signature != null ? "descriptor" : "name_match"));
+                items.Add(new(java, label, source.Label, source.Loaded, BridgeBasis(call.Kind), call.Signature != null ? "descriptor" : "name_match"));
         }
         return Result(pattern, "pattern", items, index);
     }
@@ -171,16 +167,16 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
 
     private static string Describe(string? path) => path ?? "the loaded assemblies";
 
-    private static string UnityBasis(string kind) => kind switch
+    private static string BridgeBasis(string kind) => kind switch
     {
-        "new" => "unity_new",
-        "proxy" => "unity_proxy",
-        "jni" => "unity_jni",
-        _ => "unity_call",
+        "new" => "java_new",
+        "proxy" => "java_proxy",
+        "jni" => "java_jni",
+        _ => "java_call",
     };
 
-    /// <summary>Unity C# that reaches a Java class or member by name: the calling methods, and an AndroidJavaProxy's methods of that name.</summary>
-    private static List<JavaDotNetPair> UnityToDotNet(Index index, string javaClass, string? member)
+    /// <summary>C# that reaches a Java class or member by name: the calling methods, and an AndroidJavaProxy's methods of that name.</summary>
+    private static List<JavaDotNetPair> BridgeToDotNet(Index index, string javaClass, string? member)
     {
         var pairs = new List<JavaDotNetPair>();
         string? name = member, signature = null;
@@ -192,16 +188,16 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             arity = DexIndex.SplitParameters(member[(paren + 1)..close]).Count;
         }
         var java = member == null ? $"L{javaClass};" : $"L{javaClass};->{member}";
-        foreach (var (call, source) in index.Unity)
+        foreach (var (call, source) in index.Bridge)
         {
             if (call.Class != javaClass) continue;
             if (call.Kind == "proxy")
             {
                 var proxy = call.Caller.DeclaringType;
-                if (member == null) pairs.Add(new(java, TypeLabel(proxy), source.Label, source.Loaded, "unity_proxy", "name_match"));
+                if (member == null) pairs.Add(new(java, TypeLabel(proxy), source.Label, source.Loaded, "java_proxy", "name_match"));
                 else
                     foreach (var m in proxy.Methods.Where(m => m.Name == name && (arity == null || m.MethodSig.Params.Count == arity)))
-                        pairs.Add(new(java, Format.MemberLabel(m), source.Label, source.Loaded, "unity_proxy", arity != null ? "name_and_arity" : "name_match"));
+                        pairs.Add(new(java, Format.MemberLabel(m), source.Label, source.Loaded, "java_proxy", arity != null ? "name_and_arity" : "name_match"));
                 continue;
             }
             if (member == null ? call.Member != null : call.Member != name) continue;
@@ -210,16 +206,16 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             string confidence = call.Signature != null ? "descriptor" : call.Arity != null && arity != null ? "name_and_arity" : "name_match";
             var label = Format.MemberLabel(call.Caller);
             if (!pairs.Any(p => p.DotNet == label))
-                pairs.Add(new(java, label, source.Label, source.Loaded, UnityBasis(call.Kind), confidence));
+                pairs.Add(new(java, label, source.Label, source.Loaded, BridgeBasis(call.Kind), confidence));
         }
         return pairs;
     }
 
-    /// <summary>The Java classes and members a Unity C# type or method reaches, as exact DEX ids when the package's DEX code has them.</summary>
-    private List<JavaDotNetPair> DotNetToUnity(Index index, TypeDef type, string? member, string? path, CancellationToken ct)
+    /// <summary>The Java classes and members a C# type or method reaches by name, as exact DEX ids when the DEX code has them.</summary>
+    private List<JavaDotNetPair> DotNetToBridge(Index index, TypeDef type, string? member, string? path, CancellationToken ct)
     {
         var simple = member?.Split('(')[0];
-        var calls = index.Unity.Where(u => u.Call.Caller.DeclaringType == type && (simple == null || u.Call.Caller.Name == simple || u.Call.Kind == "proxy")).ToList();
+        var calls = index.Bridge.Where(u => u.Call.Caller.DeclaringType == type && (simple == null || u.Call.Caller.Name == simple || u.Call.Kind == "proxy")).ToList();
         if (calls.Count == 0) return [];
         DexIndex? code = null;
         if (dex != null && path != null)
@@ -234,18 +230,18 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             if (call.Class == null) continue;
             if (call.Kind == "proxy")
             {
-                if (simple == null) Add(new($"L{call.Class};", TypeLabel(type), source.Label, source.Loaded, "unity_proxy", "name_match"));
+                if (simple == null) Add(new($"L{call.Class};", TypeLabel(type), source.Label, source.Loaded, "java_proxy", "name_match"));
                 else
                     foreach (var m in type.Methods.Where(m => m.Name == simple))
                         foreach (var (id, confidence) in JavaMembers(code, call.Class, m.Name, m.MethodSig.Params.Count, null))
-                            Add(new(id, Format.MemberLabel(m), source.Label, source.Loaded, "unity_proxy", confidence));
+                            Add(new(id, Format.MemberLabel(m), source.Label, source.Loaded, "java_proxy", confidence));
                 continue;
             }
             var label = Format.MemberLabel(call.Caller);
-            if (call.Member == null) Add(new($"L{call.Class};", label, source.Label, source.Loaded, UnityBasis(call.Kind), "name_match"));
+            if (call.Member == null) Add(new($"L{call.Class};", label, source.Label, source.Loaded, BridgeBasis(call.Kind), "name_match"));
             else
                 foreach (var (id, confidence) in JavaMembers(code, call.Class, call.Member, call.Arity, call.Signature, call.Kind is "get" or "set" or "get_static" or "set_static"))
-                    Add(new(id, label, source.Label, source.Loaded, UnityBasis(call.Kind), confidence));
+                    Add(new(id, label, source.Label, source.Loaded, BridgeBasis(call.Kind), confidence));
         }
         return pairs;
     }
@@ -363,7 +359,8 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                 foreach (var a in assemblies)
                 {
                     try { fromPackage.Add(new Source(ModuleDefMD.Load(a.Bytes, context), a.Path, false)); }
-                    catch (Exception) { notes.Add($"{a.Path} is not readable .NET metadata."); } // dnlib throws several types on malformed images
+                    // dnlib throws several exception types on malformed images.
+                    catch (Exception) { notes.Add($"{a.Path} is not readable .NET metadata."); }
                 }
                 if (fromPackage.Count == 0) throw NoAssemblies(full);
                 lock (_lock) _packageCache = (key, fromPackage);
@@ -376,7 +373,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         return BuildIndex(sources, notes, ct);
     }
 
-    /// <summary>A package without assemblies: an Il2Cpp build compiled its C# to native code, else it is Java only.</summary>
+    /// <summary>The error for a package without assemblies: C# compiled to native code (AOT), else Java only.</summary>
     private static ToolError NoAssemblies(string full)
     {
         IReadOnlyList<AndroidRuntimeFamily> runtimes;
@@ -386,11 +383,11 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             runtimes = AndroidRuntime.Detect(package);
         }
         catch (ToolError) { runtimes = []; }
-        if (runtimes.FirstOrDefault(r => r.Family == "unity-il2cpp") is { } il2cpp)
+        if (runtimes.FirstOrDefault(r => r.Family == "aot") is { } aot)
             return new ToolError(ErrorCode.Unsupported,
-                $"{full} is a Unity Il2Cpp build ({string.Join(", ", il2cpp.Evidence.Take(2))}): its C# is compiled to native code, so there are no .NET assemblies to map.",
-                $"load_assembly path={full} reads the C# types from the Il2Cpp metadata and search_strings finds the Java class names passed to AndroidJavaClass; get_dex_class path={full} shows the Java side")
-            { Details = new { reason = "il2cpp" } };
+                $"{full} is an AOT build ({string.Join(", ", aot.Evidence.Take(2))}): its C# is native code, with no .NET assemblies to map.",
+                $"load_assembly path={full} reads the C# types from the metadata; search_strings finds Java class names passed to AndroidJavaClass; get_dex_class path={full} shows the Java side")
+            { Details = new { reason = "aot" } };
         return new ToolError(ErrorCode.NotFound, $"{full} has no .NET assemblies: a Java-only package has no .NET side.",
             $"get_dex_class path={full} and decompile_java read its Java classes");
     }
@@ -406,9 +403,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                 index.ByName.TryAdd(t.FullName, t);
                 index.SourceOf.TryAdd(t, s);
             }
-            index.Unity.AddRange(UnityJavaCalls.Scan(s.Module, ct).Select(c => (c, s)));
+            index.Bridge.AddRange(ManagedJavaCalls.Scan(s.Module, ct).Select(c => (c, s)));
         }
-        index.IsUnity = !index.ByName.ContainsKey("Android.Runtime.RegisterAttribute")
+        index.IsBridgeApp = !index.ByName.ContainsKey("Android.Runtime.RegisterAttribute")
                         && (index.ByName.ContainsKey("UnityEngine.AndroidJavaObject") || sources.Any(s => s.Module.GetAssemblyRefs().Any(r => r.Name.String.StartsWith("UnityEngine", StringComparison.Ordinal))));
         var peer = new Dictionary<TypeDef, bool>();
         bool IsPeer(TypeDef t, int depth)
@@ -470,7 +467,8 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
 
     private static ulong[] BuildTable()
     {
-        const ulong Reflected = 0x95AC9329AC4BC9B5; // crc-64-jones (0xad93d23594c935a9) bit-reversed
+        // CRC-64-Jones (0xad93d23594c935a9) bit-reversed.
+        const ulong Reflected = 0x95AC9329AC4BC9B5;
         var table = new ulong[256];
         for (ulong i = 0; i < 256; i++)
         {

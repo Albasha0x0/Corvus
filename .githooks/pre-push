@@ -1,6 +1,6 @@
 #!/bin/sh
-# Starts the full suite in the background on the commit pushed to main (./test.ps1 -Full -Background -Commit); the push
-# does not wait for it. Enabled per clone: git config core.hooksPath .githooks
+# Starts ./test.ps1 -Full -Background -Commit on the commit pushed to main; the push does not wait.
+# Enabled per clone: git config core.hooksPath .githooks
 root=$(git rev-parse --show-toplevel)
 while read -r local_ref local_sha remote_ref remote_sha; do
     # A push of another branch, or one that deletes main (an all-zero sha), starts no run.

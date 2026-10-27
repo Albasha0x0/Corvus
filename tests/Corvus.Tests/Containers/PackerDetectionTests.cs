@@ -44,7 +44,7 @@ public sealed class PackerDetectionTests
     [Fact]
     public void Upx_elf_is_named_from_l_info_and_p_info()
     {
-        // l_info (checksum, UPX!, l_lsize, version 14, format 22) and p_info (progid, unpacked size, block size) at the start of the code, the stub's string after
+        // l_info (checksum, UPX!, l_lsize, version 14, format 22) and p_info (progid, unpacked size, block size) at the start of the code, the stub's string after.
         var text = new byte[0x400];
         var info = new byte[] { 1, 2, 3, 4, (byte)'U', (byte)'P', (byte)'X', (byte)'!', 0x34, 0x0C, 14, 22, 0, 0, 0, 0, 0x60, 0x38, 0x26, 0, 0xF0, 0x09, 0x26, 0 };
         info.CopyTo(text, 0);

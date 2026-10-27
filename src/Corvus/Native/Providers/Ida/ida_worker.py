@@ -1,8 +1,8 @@
 # idalib worker, or the server of a database open in IDA (corvus_connect.py).
 # Protocol: one JSON object per line. Requests on stdin (a connected IDA: its socket): {"id": n, "op": "...", "args": {...}}.
 # Responses on stdout: {"id": n, "ok": true, "result": ...} or {"id": n, "ok": false, "error": {"code": ..., "message": ...}}.
-# A request may carry "timeout" (seconds); {"op": "cancel", "args": {"id": n}} stops request n. A stopped request answers
-# with what it has, marked {"partial": reason, "next": cursor}, or with a timeout / cancelled error.
+# Optional "timeout" (seconds); {"op": "cancel", "args": {"id": n}} stops request n.
+# A stopped request answers with what it has, marked {"partial": reason, "next": cursor}, or a timeout / cancelled error.
 # Unsolicited lines: {"event": "progress", "id": n, "op": ..., "elapsed": seconds}.
 # Anything IDA or Python prints goes to stderr: fd 1 is redirected there before idalib loads.
 # Addresses on the wire are RVAs relative to the database image base.
@@ -51,7 +51,7 @@ class WorkerError(Exception):
 
 
 class Request:
-    # stop: None, "cancelled" (a cancel op) or "deadline" (the request's time limit, less a margin for the reply)
+    # stop: None, "cancelled" or "deadline" (the time limit less a margin for the reply).
     def __init__(self, rid, op, args, timeout):
         self.id, self.op, self.args, self.timeout = rid, op, args, timeout
         self.start = self.deadline = None
@@ -65,7 +65,7 @@ _requests_lock = threading.Lock()
 
 
 def read_requests(readline=None):
-    # stdin is read on its own thread so a cancel reaches the request it names while that request runs
+    # Runs on its own thread so a cancel reaches a running request.
     readline = readline or sys.stdin.readline
     while True:
         try:
@@ -95,8 +95,7 @@ def read_requests(readline=None):
 
 
 def stop_request(rid, reason):
-    # Only flags the request: idalib's set_cancelled blocks when called off the main thread, so the main thread notices
-    # through cancelled() in loops, the Hex-Rays stage hook and the script profile hook.
+    # Only flags the request: idalib's set_cancelled blocks off the main thread, which polls cancelled() instead.
     with _requests_lock:
         r = _requests.get(rid)
         if r is not None and r.stop is None:
@@ -104,7 +103,7 @@ def stop_request(rid, reason):
 
 
 def clear_cancel():
-    # a script may have set IDA's cancel flag, which is sticky
+    # A script may have set IDA's cancel flag, which is sticky.
     m = _ida
     if m is not None and m.ida_kernwin is not None:
         try:
@@ -114,13 +113,13 @@ def clear_cancel():
 
 
 def deadline():
-    # absolute time.time() the running request must answer by, or None
+    # Absolute time.time() the running request must answer by, or None.
     r = _current
     return r.deadline if r is not None else None
 
 
 def cancelled():
-    # whether the running request was cancelled or reached its deadline: long loops stop and return what they have
+    # True when the running request was cancelled or reached its deadline.
     r = _current
     if r is None:
         return False
@@ -148,7 +147,7 @@ def check_stop():
 
 
 def partial(result, cursor):
-    # marks a result cut short: why ("cancelled", "deadline" or "budget") and where to continue
+    # Marks a result cut short: why ("cancelled", "deadline" or "budget") and where to continue.
     result["partial"] = stop_reason() or "budget"
     result["next"] = cursor
     return result
@@ -181,8 +180,7 @@ def ida():
             import idapro
         except BaseException as e:
             raise WorkerError("provider_unavailable", "idalib failed to load: %s" % (str(e).strip() or type(e).__name__))
-        # IDA's own messages go to stderr (fd 1 is redirected there), so a fatal
-        # error that ends the process inside idalib names its cause.
+        # IDA's messages go to stderr, so a fatal error inside idalib names its cause.
         if hasattr(idapro, "enable_console_messages"):
             idapro.enable_console_messages(True)
     import ida_auto, ida_bytes, ida_entry, ida_funcs, ida_ida, ida_lines, ida_loader, ida_nalt, ida_name, ida_segment, ida_ua, ida_xref, idautils
@@ -200,8 +198,7 @@ def ida():
 
 
 def batch_mode():
-    # no dialog may wait for an answer that never comes: IDA takes the default of every question
-    # (not in a connected IDA: the analyst's dialogs stay theirs)
+    # IDA answers every question with its default; a connected IDA keeps the analyst's dialogs.
     if _connected:
         return
     try:
@@ -230,7 +227,7 @@ def rva_of(ea):
 
 
 def extern_at(m, ea):
-    # IDA's extern segment: imported symbols, typed as functions past the image's end
+    # IDA's extern segment: imported symbols past the image's end.
     seg = m.ida_segment.getseg(ea)
     return seg is not None and seg.type == m.ida_segment.SEG_XTRN
 
@@ -238,7 +235,8 @@ def extern_at(m, ea):
 def func_at(m, ea):
     f = m.ida_funcs.get_func(ea)
     if f is None and not _state["auto"] and m.ida_funcs.add_func(ea):
-        f = m.ida_funcs.get_func(ea)  # without auto-analysis, functions are made where they are asked for
+        # Without auto-analysis, functions are made where they are asked for.
+        f = m.ida_funcs.get_func(ea)
     if f is None:
         raise WorkerError("not_found", "no function contains rva 0x%X" % (ea - _state["base"]))
     return f
@@ -255,7 +253,7 @@ def hexrays_ready(m):
     except BaseException:
         return False
     if ready and _stop_hooks is None:
-        # every decompilation checks at each stage whether its request was cancelled or reached its deadline
+        # Every decompilation stage checks whether its request was stopped.
         class StopHooks(hr.Hexrays_Hooks):
             def _check(self, *unused):
                 return hr.MERR_CANCELED if cancelled() else 0
@@ -268,7 +266,7 @@ def hexrays_ready(m):
 
 
 def ida_version(m):
-    # "9.3.0": idalib's version, or the kernel's in a connected IDA
+    # "9.3.0": idalib's version, or the kernel's in a connected IDA.
     if m.idapro is not None:
         v = m.idapro.get_library_version()
         return "%d.%d.%d" % v if v else None
@@ -321,8 +319,7 @@ def op_open(args):
     _state["auto"] = args.get("auto", True) is not False
     raw = args.get("raw")
     overrides = args.get("overrides")
-    # analysis runs after the open (analyze_within), so a headerless image (bitness, Thumb, base, entry) and import
-    # overrides are set up before it sees the image and it stops within the open's budget
+    # Analysis runs after the open, so raw layout and import overrides apply first and it stops within the budget.
     rc = m.idapro.open_database(path, False, cmdline)
     if rc != 0:
         raise WorkerError("provider_unavailable", "open_database returned %d for %s (%d characters; database %s, %d characters)"
@@ -344,7 +341,7 @@ def op_open(args):
     if not _state["auto"]:
         complete = True
     elif reuse and not m.ida_auto.auto_is_ok():
-        # saved with its analysis cut short: opened as it is, as Ghidra's projects are; reanalyze_native completes it
+        # Saved with a partial analysis: opened as is; reanalyze_native completes it.
         bound_auto_wait(m)
         complete = False
     else:
@@ -364,7 +361,7 @@ def op_open(args):
         if isinstance(made_from, bytes):
             made_from = made_from.decode("ascii", "replace")
         if made_from is None and args.get("adopted"):
-            # a copy of the user's own database: IDA records the hashes of the input it was made from
+            # A copy of the user's database: IDA's recorded input hashes must match.
             recorded = m.ida_nalt.retrieve_input_file_sha256()
             recorded_md5 = m.ida_nalt.retrieve_input_file_md5()
             if (recorded and recorded.hex() == sha) or (not recorded and recorded_md5 and recorded_md5.hex() == args.get("md5")):
@@ -389,8 +386,7 @@ def op_open(args):
 
 
 def analyze_within(m, seconds):
-    # auto_wait in steps, so the open answers within its budget or request deadline; what is left stays queued in the
-    # saved database for reanalyze_native. True: the queue ran empty.
+    # Runs auto_wait in steps within the budget; the rest stays queued for reanalyze_native. True: the queue ran empty.
     end = time.time() + float(seconds) if seconds else None
     m.ida_auto.enable_auto(True)
     while True:
@@ -405,7 +401,7 @@ def analyze_within(m, seconds):
 
 
 def auto_steps(m, count=500):
-    # False when the analysis queue ran empty
+    # False when the analysis queue ran empty.
     step, bad = m.ida_auto.auto_make_step, m.idautils.ida_idaapi.BADADDR
     for _ in range(count):
         if not step(0, bad):
@@ -414,7 +410,7 @@ def auto_steps(m, count=500):
 
 
 def bound_auto_wait(m):
-    # on a partial analysis every auto_wait (edits, scripts) runs the queue only until its request's deadline
+    # On a partial analysis every auto_wait runs the queue only until its request's deadline.
     if getattr(m.ida_auto, "_full_wait", None) is not None:
         return
     full = m.ida_auto.auto_wait
@@ -436,7 +432,7 @@ def setup_raw(m, raw):
     """A binary-file load: segment bitness, Thumb state, image base and the entry function, as load_assembly format=raw gave them."""
     import ida_entry, ida_idp, ida_segment, ida_segregs
     base, bits = int(raw["base"]), int(raw["bits"])
-    # the database's bitness too: a 32-bit ARM image left 64-bit is refused by the 32-bit decompiler
+    # The 32-bit decompiler refuses a 32-bit ARM image left in a 64-bit database.
     if bits in (32, 64):
         m.ida_ida.inf_set_app_bitness(bits)
     seg = ida_segment.get_first_seg()
@@ -462,7 +458,7 @@ def setup_overrides(m, ov, warnings):
     if compiler is not None:
         cc = m.ida_ida.compiler_info_t()
         cc.id = int(compiler)
-        # set as the user's choice, which the loader and its modules do not replace
+        # Set as the user's choice, which the loader does not replace.
         if not ida_typeinf.set_compiler(cc, ida_typeinf.SETCOMP_OVERRIDE | ida_typeinf.SETCOMP_ONLY_ID | ida_typeinf.SETCOMP_BY_USER):
             warnings.append("IDA did not take compiler id %d" % int(compiler))
     for name in ov.get("disable") or []:
@@ -477,7 +473,7 @@ def setup_overrides(m, ov, warnings):
             warnings.append("seed %s at rva 0x%X: no instruction decodes there" % (kind, rva))
             continue
         if kind == "function" and m.ida_funcs.get_func(ea) is None and not m.ida_funcs.add_func(ea):
-            # the analysis makes it from the queue when its flow ends later
+            # The analysis makes it from the queue later.
             m.ida_auto.auto_make_proc(ea)
         if kind == "code":
             m.ida_auto.auto_make_code(ea)
@@ -505,7 +501,7 @@ def file_type_name(m):
 
 
 def is_thumb(m, ea):
-    # 32-bit ARM: the T segment register is 1 in Thumb code
+    # 32-bit ARM: the T segment register is 1 in Thumb code.
     if m.ida_ida.inf_get_procname().lower() != "arm" or m.ida_ida.inf_is_64bit():
         return False
     try:
@@ -535,8 +531,8 @@ def op_rebase(args):
 
 
 def op_functions(args):
-    # [start, end, name, flags (1 thunk, 2 library, 4 thumb, 8 typed)] plus, with refs, the number of code references to the
-    # start; from rva start when given. Stopped early: {rows, partial, next} where next is the start rva of the following call.
+    # Rows [start, end, name, flags (1 thunk, 2 library, 4 thumb, 8 typed), refs?] where refs counts code references to
+    # the start; from rva start. Stopped early: {rows, partial, next}, next being the following call's start.
     m = need_open()
     import ida_typeinf
     refs = bool(args.get("refs"))
@@ -579,7 +575,7 @@ def line_addresses(m, cf, line):
 
 
 def too_big(m, hf, f):
-    # Hex-Rays' size limit is a limit, not a fault: the caller can pick Ghidra or the disassembly
+    # Hex-Rays' size limit is a limit, not a fault: the caller can pick Ghidra or the disassembly.
     if hf.code != m.ida_hexrays.MERR_FUNCSIZE:
         return None
     return WorkerError("limit_exceeded", "decompilation failed: the function is %d bytes, over Hex-Rays' MAX_FUNCSIZE (cfg/hexrays.cfg, 64 KB by default)"
@@ -587,7 +583,7 @@ def too_big(m, hf, f):
 
 
 def known_failure(m, hf, f):
-    # A decompiler the license lacks is unsupported here, not a fault in the function: the caller can pick Ghidra
+    # A decompiler the license lacks is unsupported, not a fault in the function: the caller can pick Ghidra.
     if hf.code == getattr(m.ida_hexrays, "MERR_LICENSE", None):
         return WorkerError("unsupported", "the Hex-Rays decompiler for %s (%d-bit) is not licensed on this machine (%s)"
                            % (m.ida_ida.inf_get_procname(), 64 if m.ida_ida.inf_is_64bit() else 32, hf.desc()))
@@ -637,7 +633,7 @@ def op_disasm(args):
 
 
 def op_disasm_range(args):
-    # count items from rva in address order, whether or not a function contains them
+    # count items from rva in address order, inside a function or not.
     m = need_open()
     ea = ea_of(args)
     count = max(1, min(int(args.get("count") or 100), 200000))
@@ -660,7 +656,7 @@ def op_disasm_range(args):
 
 
 def switch_row(m, ea, si):
-    # a recognized switch: its values per target (from IDA's case calculation), default, tables and bias
+    # A recognized switch: values per target, default, tables and bias.
     import ida_xref, ida_idaapi
     bad = ida_idaapi.BADADDR
     cases = []
@@ -686,7 +682,7 @@ def switch_row(m, ea, si):
 
 
 def op_blocks(args):
-    # basic blocks of the function containing rva: [start, end, instructions, kind, successors, switch, switch details or None]
+    # Blocks of the function at rva: [start, end, instructions, kind, successors, switch, switch details or None].
     m = need_open()
     import ida_gdl, ida_nalt
     f = func_at(m, ea_of(args))
@@ -705,7 +701,7 @@ def op_blocks(args):
         for s in b.succs():
             if rva_of(s.start_ea) is not None:
                 succs.append(rva_of(s.start_ea))
-        # flow leaving the function (tail calls): code references from the last instruction to other functions
+        # Tail calls: code references from the last instruction to other functions.
         for x in m.idautils.XrefsFrom(last, 0):
             if x.iscode and x.type in (m.ida_xref.fl_JF, m.ida_xref.fl_JN):
                 g = m.ida_funcs.get_func(x.to)
@@ -747,7 +743,7 @@ def op_xrefs_to(args):
 
 
 def op_xrefs_to_many(args):
-    # xrefs_to rows for each rva, in order
+    # xrefs_to rows for each rva, in order.
     m = need_open()
     out = []
     for rva in args.get("rvas") or []:
@@ -776,8 +772,7 @@ DIRTY_LIMIT = 512  # more changed addresses than this clear every cached functio
 
 
 def changed(m, eas=None):
-    # Hex-Rays caches pseudocode per function; names and comments must show in the next decompilation. With eas, only the
-    # functions holding or referencing them are decompiled again.
+    # Drops cached pseudocode so edits show; with eas, only of functions holding or referencing them.
     if not hexrays_ready(m):
         return
     hr = m.ida_hexrays
@@ -862,18 +857,17 @@ def op_sync_patches(args):
         touched.add(ea)
     mismatches = [ea - base for ea, b in desired.items() if m.ida_bytes.is_loaded(ea) and m.ida_bytes.get_byte(ea) != b]
     if not touched:
-        # no auto_wait: on a partial database it would run the rest of the analysis until the request's deadline
+        # No auto_wait: on a partial database it would run the analysis until the deadline.
         return {"patched": 0, "reverted": 0, "ranges": 0, "functions": 0, "missing": missing[:20], "missing_count": len(missing),
                 "mismatches": mismatches[:20], "mismatch_count": len(mismatches), "seconds": round(time.time() - start, 3)}
-    # coalesce touched bytes into ranges, then decode the code in them again
+    # Coalesce touched bytes into ranges, then decode them again.
     ranges = []
     for ea in sorted(touched):
         if ranges and ea <= ranges[-1][1]:
             ranges[-1][1] = ea + 1
         else:
             ranges.append([ea, ea + 1])
-    # functions that held patched code, remembered in the database: a patch can end a function (IDA deletes it when the
-    # new code no longer forms one), and reverting the bytes must bring it back
+    # Functions that held patched code are recorded, so reverting a patch that ended one restores it.
     node = stamp_node(True)
     remembered = node.hashstr_buf(PATCH_FUNCTIONS) or ""
     if isinstance(remembered, bytes):
@@ -923,11 +917,9 @@ def c_ident(text):
 
 
 def op_apply_types(args):
-    # decls: C declarations (parse_decls); prototypes: [[rva, C declaration]] applied to functions;
-    # classes (C++ with vftables): {"ptr": 4|8, "classes": [{"name", "vftables": [[offset, vftable rva, [slot rvas]]],
-    #   "bases": [[name, offset]]}], "methods": [[rva, class name]]}: a <name>_vftable struct per vftable (slot function
-    #   pointers typed from the target's type when it has one), a <name> struct (vftable pointers at their subobject
-    #   offsets, base subobjects there), the vftables typed, and the methods' first argument set to <name>*.
+    # decls: C declarations; prototypes: [[rva, C declaration]].
+    # classes: {"ptr", "classes": [{"name", "vftables": [[offset, rva, [slots]]], "bases": [[name, offset]]}], "methods": [[rva, class]]}.
+    # Defines <name>_vftable and <name> structs, types the vftables and sets each method's first argument to <name>*.
     # Addresses the user typed (apply_user_types) keep their type.
     m = need_open()
     import ida_typeinf as ti
@@ -937,7 +929,7 @@ def op_apply_types(args):
     result = {"decl_errors": 0, "typed": 0, "type_failures": 0, "failures": [], "structs": 0, "vftables_typed": 0, "methods_typed": 0}
     decls = args.get("decls")
     if decls:
-        # not the kernel call with a message printer: on a PDB's thousands of declarations it ran past the request deadline
+        # Not the kernel call with a message printer: on thousands of PDB declarations it overran the deadline.
         errors = idc.parse_decls(decls, idc.PT_SILENT)
         result["decl_errors"] = errors
         result["decl_messages"] = refused_decls(ti, decls, errors) if errors else []
@@ -1000,40 +992,39 @@ def apply_classes(m, ti, til, model, result):
         t.create_udt(udt, ti.BTF_STRUCT)
         return t.set_named_type(til, name, ti.NTF_REPLACE) == ti.TERR_OK
 
-    # forward declarations, so pointers to every class resolve
+    # Forward declarations, so pointers to every class resolve.
     forward = "".join("struct %s; struct %s_vftable;" % (c["name"], c["name"]) for c in classes)
     if forward:
         refused = idc.parse_decls(forward, idc.PT_SILENT)
         result["decl_errors"] += refused
         if refused:
             result.setdefault("decl_messages", []).extend(refused_decls(ti, forward, refused))
-    # methods: first argument becomes a pointer to the class (functions without a type of their own only)
+    # Methods without a type of their own get a pointer to the class as first argument.
     skips = result.setdefault("method_skips", {})
 
     def skip(reason):
         skips[reason] = skips.get(reason, 0) + 1
 
-    # decompiling for a method's arguments is the slow part of a push (seconds on a large image): by default none here,
-    # each such method is typed when it is decompiled
+    # Decompiling for arguments is the slow part of a push: by default each method is typed when decompiled.
     deadline = time.time() + float(model.get("method_seconds") or 0)
     for rva, cname in model.get("methods") or []:
         ea = base + rva
         cls = named(cname)
         f = m.ida_funcs.get_func(ea)
-        # library code (_purecall and the like) and thunks are not the class's own
+        # Library code (_purecall) and thunks are not the class's own.
         if cls is None:
             skip("no_class_type")
             continue
         if f is None or f.start_ea != ea or f.flags & (m.ida_funcs.FUNC_LIB | m.ida_funcs.FUNC_THUNK):
             skip("not_own_function")
             continue
-        # a type set on purpose (PDB, user, a pushed prototype) is kept
+        # A type set on purpose (PDB, user, pushed prototype) is kept.
         if m.ida_nalt.is_userti(ea):
             skip("typed")
             continue
         ftif = ti.tinfo_t()
         if not m.ida_nalt.get_tinfo(ftif, ea) and ti.guess_tinfo(ftif, ea) != ti.GUESS_FUNC_OK:
-            # the decompiler's view of the function gives its arguments; bounded per batch, the rest are typed when asked for
+            # The decompiler gives the arguments; bounded per batch, the rest are typed on demand.
             if time.time() > deadline:
                 skip("deferred")
                 continue
@@ -1052,7 +1043,7 @@ def apply_classes(m, ti, til, model, result):
             skip("no_arguments")
             continue
         if ftd.size() == 0:
-            # a method that does not use this still receives it
+            # A method that does not use this still receives it.
             arg = ti.funcarg_t()
             arg.type = pointer_to(cls)
             ftd.push_back(arg)
@@ -1065,7 +1056,7 @@ def apply_classes(m, ti, til, model, result):
                 m.ida_hexrays.mark_cfunc_dirty(ea, False)
         else:
             skip("rejected")
-    # vftable structs (slots typed from their targets), then class structs
+    # Vftable structs (slots typed from their targets), then class structs.
     for c in classes:
         cname = c["name"]
         vmembers = {}
@@ -1113,12 +1104,10 @@ def apply_classes(m, ti, til, model, result):
 
 
 def op_virtual_targets(args):
-    # What IDA knows about the call instructions at sites (rvas) in functions (rvas), within seconds:
-    # [site, "xref", target]: IDA's code references from the call instruction to a function;
-    # [site, "vftable", struct name, member offset]: Hex-Rays shows the call through a member of a vftable struct type
-    #   (<class>_vftable or <class>_vftable_<offset>, as apply_types defines them);
-    # [site, "direct", target]: Hex-Rays resolved the call to a function;
-    # [site, "other", expression kind]: Hex-Rays shows the call through an untyped pointer.
+    # Call targets at sites in functions, within seconds. Rows:
+    # [site, "xref", target]: IDA's code reference; [site, "direct", target]: Hex-Rays resolved it;
+    # [site, "vftable", struct, offset]: call through a vftable struct member (as apply_types names them);
+    # [site, "other", expression kind]: call through an untyped pointer.
     m = need_open()
     base = _state["base"]
     sites = set(base + r for r in args.get("sites") or [] if isinstance(r, int) and r >= 0)
@@ -1197,7 +1186,7 @@ def parse_type(ti, text, function):
         t = ti.tinfo_t()
         if t.get_named_type(None, text):
             return t
-    # an abstract type gets a declarator name where C wants it: "int[4]" -> "int x[4]", "int (*)(int)" -> "int (*x)(int)"
+    # An abstract type gets a declarator name: "int[4]" -> "int x[4]", "int (*)(int)" -> "int (*x)(int)".
     named = text.replace("(*)", "(*__parsed_x)", 1) if "(*)" in text else \
         text[:text.index("[")] + " __parsed_x" + text[text.index("["):] if "[" in text else text + " __parsed_x"
     for candidate in (text + ";", named + ";"):
@@ -1242,7 +1231,7 @@ def apply_user_type(m, ti, rva, decl):
         return ["type", rva, decl, False, "IDA did not apply the type at rva 0x%X" % rva, None, None, None]
     node.altset(rva, 1)
     if function:
-        # a __noreturn prototype sets FUNC_NORET; the callers are planned again so their flow stops at the call
+        # A __noreturn prototype sets FUNC_NORET; callers are reanalyzed so their flow stops at the call.
         ftd = ti.func_type_data_t()
         noret = tif.get_func_details(ftd) and bool(ftd.flags & ti.FTI_NORET)
         if noret != bool(f.flags & m.ida_funcs.FUNC_NORET):
@@ -1269,7 +1258,7 @@ def decompile_function(m, ea):
 
 
 def find_lvar(lvars, local, stack, name):
-    # by stack offset (stable over renames), else the name it had when first edited, else the name it got
+    # By stack offset (stable over renames), else the name when first edited, else the current name.
     if stack is not None:
         for v in lvars:
             if v.is_stk_var() and v.get_stkoff() == stack:
@@ -1283,7 +1272,7 @@ def find_lvar(lvars, local, stack, name):
 
 
 def apply_local(m, ti, rva, local, stack, name, typ):
-    # Hex-Rays user lvar settings through modify_user_lvar_info (lvar_saved_info_t keyed by the variable's locator)
+    # Hex-Rays user lvar settings via modify_user_lvar_info, keyed by the variable's locator.
     hr = m.ida_hexrays
     f = m.ida_funcs.get_func(_state["base"] + rva)
     if f is None:
@@ -1340,8 +1329,7 @@ def _set_cc(ftd, cc):
 
 
 def apply_storage(m, ti, rva, local, stack, name, typ, storage):
-    # an argument moved to a register (the prototype becomes __usercall), or to its calling convention's place (auto);
-    # when every argument is back in its place the prototype returns to the convention
+    # Moving an argument to a register makes the prototype __usercall; with all back in place it returns to the convention.
     import ida_typeinf as t
     hr = m.ida_hexrays
     f = m.ida_funcs.get_func(_state["base"] + rva)
@@ -1374,7 +1362,7 @@ def apply_storage(m, ti, rva, local, stack, name, typ, storage):
         ftd[pos].type = tif
     if name:
         ftd[pos].name = name
-    # the convention's places: the same arguments under the plain convention
+    # The convention's places: the same arguments under the plain convention.
     base = _cc(ftd) & t.CM_CC_MASK
     if base in (t.CM_CC_SPECIAL, t.CM_CC_SPECIALE, t.CM_CC_SPECIALP):
         base = m.ida_ida.inf_get_cc_cm() & t.CM_CC_MASK
@@ -1414,7 +1402,7 @@ def apply_storage(m, ti, rva, local, stack, name, typ, storage):
 
 
 class FrameMember:
-    # a copy: udm_t proxies die with their udt_type_data_t
+    # A copy: udm_t proxies die with their udt_type_data_t.
     def __init__(self, index, u):
         import ida_typeinf as ti
         self.index, self.name, self.offset, self.size, self.type = index, u.name, u.offset // 8, u.size // 8, ti.tinfo_t(u.type)
@@ -1440,7 +1428,7 @@ def frame_kind(f, frame, i, offset):
 
 
 def op_frames(args):
-    # frames of several functions in the order asked; a function that fails is {"rva", "error"}
+    # Frames in the order asked; a failed function is {"rva", "error"}.
     out = []
     for rva in args.get("rvas") or []:
         try:
@@ -1481,7 +1469,7 @@ def op_frame(args):
 
 
 def stack_at(m, row, index):
-    # a stack row's offset: from the return address (row[index], when given) placed in this frame, else as sent
+    # A stack row's offset: from the return address (row[index]) placed in this frame, else as sent.
     if len(row) <= index or row[index] is None:
         return row[1]
     import ida_frame
@@ -1490,7 +1478,7 @@ def stack_at(m, row, index):
 
 
 def apply_stack(m, ti, rva, offset, name, typ):
-    # IDA 9 frames: rename in place; a new type replaces the member (delete, then define_stkvar at the frame-base offset)
+    # IDA 9 frames: rename in place; a new type deletes the member and defines it again at the frame-base offset.
     import ida_frame
     f = m.ida_funcs.get_func(_state["base"] + rva)
     target = "+0x%X" % offset
@@ -1535,9 +1523,8 @@ def apply_stack(m, ti, rva, offset, name, typ):
 
 
 def refused_decls(ti, text, errors, limit=20, seconds=5.0):
-    # without the kernel's messages: each top-level declaration parsed again on its own, after the whole text was; the
-    # refused ones (conflicts with the database's type libraries show only there). Stops at the error count, the limit or
-    # the time budget: a PDB's declarations run to thousands, each parse costs milliseconds.
+    # Without the kernel's messages: reparses each top-level declaration alone to name the refused ones.
+    # Stops at the error count, the limit or the time budget; each parse costs milliseconds.
     import idc
     import time
     parts, depth, start = [], 0, 0
@@ -1559,8 +1546,7 @@ def refused_decls(ti, text, errors, limit=20, seconds=5.0):
 
 
 def parse_decls_reporting(text):
-    # (errors, error messages, declared type names). On Windows the kernel's parse_decls runs through ctypes with a printer
-    # that collects IDA's messages; elsewhere idc.parse_decls, with names found in the text.
+    # (errors, error messages, declared type names); Windows collects IDA's messages through ctypes, elsewhere idc.parse_decls.
     import idc
     import ida_typeinf as ti
     if os.name == "nt":
@@ -1576,7 +1562,7 @@ def parse_decls_reporting(text):
                 lines.append((fmt or b"").replace(b"%s", arg or b"").decode("utf-8", "replace"))
                 return 0
 
-            # the kernel takes HTI flags, not PT ones (PT_EMPTY is HTI_PAK2): HTI_EXT prints the "// struct tag" lines, packing stays the default
+            # The kernel takes HTI flags, not PT ones (PT_EMPTY is HTI_PAK2); HTI_EXT prints "// struct tag" lines.
             errors = kernel.parse_decls(None, text.encode("utf-8"), printer, ti.HTI_EXT)
             names = []
             for line in lines:
@@ -1606,7 +1592,7 @@ def type_kind(ti, t):
 
 
 def type_members(ti, t, limit):
-    # the first limit members: struct / union [offset, name, type, size]; enum [value, name, null, 0]
+    # The first limit members: struct / union [offset, name, type, size]; enum [value, name, null, 0].
     out = []
     if t.is_udt():
         udt = ti.udt_type_data_t()
@@ -1627,8 +1613,8 @@ def type_members(ti, t, limit):
 
 
 def op_types(args):
-    # named local types: rows [name, kind, size, members, first members (members > 0)]. filter: case-insensitive substring;
-    # pattern: a regex (flags: i, m, s); kind also ptr (resolves to a pointer) and udt (struct or union); sort: ordinal (default), name, size
+    # Named local types: rows [name, kind, size, members, first members]. filter: substring, any case; pattern: regex (i, m, s);
+    # kind also ptr and udt (struct or union); sort: ordinal (default), name, size.
     need_open()
     import ida_typeinf as ti
     import re
@@ -1677,8 +1663,8 @@ def op_types(args):
 
 
 def op_type(args):
-    # one named type: its C declaration, alignment and packing and, for a struct or union, members
-    # [offset, name, type, size, bit offset in the storage unit or null, bit width or null, comment or null]
+    # One named type: C declaration, alignment, packing and members
+    # [offset, name, type, size, bit offset or null, bit width or null, comment or null].
     need_open()
     import ida_typeinf as ti
     name = args.get("name") or ""
@@ -1708,9 +1694,8 @@ def op_type(args):
 
 
 def op_field_xrefs(args):
-    # References to a struct member: IDA's references to the member (operands typed as struct offsets), then member accesses
-    # in the pseudocode of functions whose prototype names the type (typed this / arguments) plus the functions given,
-    # within seconds. rows: [rva, kind (operand, read, write, address), function rva or null]
+    # References to a struct member: operands typed as its offset, then pseudocode accesses in functions whose prototype
+    # names the type plus those given, within seconds. Rows: [rva, kind (operand, read, write, address), function or null].
     m = need_open()
     import ida_typeinf as ti
     t, tname = None, None
@@ -1759,7 +1744,7 @@ def op_field_xrefs(args):
             funcs.add(ea)
     funcs.update(_state["base"] + r for r in args.get("functions") or [])
     if args.get("all_from") is not None:
-        # every function from that rva on (scope all, resumed where the last call stopped)
+        # Every function from that rva on (scope all, resumed where the last call stopped).
         first = _state["base"] + int(args["all_from"])
         funcs.update(ea for ea in m.idautils.Functions() if ea >= first)
     result = {"type": tname, "member": mname, "offset": moff, "size": msize, "member_type": mtype, "rows": rows, "candidates": len(funcs),
@@ -1787,7 +1772,7 @@ def op_field_xrefs(args):
             return 0
 
         def address(self, e):
-            # the nearest item up the tree that has an address
+            # The nearest item up the tree that has an address.
             bad = m.idautils.ida_idaapi.BADADDR
             if e.ea != bad:
                 return e.ea
@@ -1814,7 +1799,7 @@ def op_field_xrefs(args):
 
 
 def reapply_user_decls():
-    # the user's declarations (blob 'D' of USER_NODE) win over recovered types of the same name
+    # The user's declarations (blob 'D' of USER_NODE) win over recovered types of the same name.
     n = user_node(False)
     blob = n.getblob(0, "D") if n is not None else None
     if blob:
@@ -1967,7 +1952,8 @@ def op_load_pdb(args):
     if result["loaded"]:
         stamps = stamp_node(True)
         stamps.hashdel("names")
-        stamps.hashdel("user_types")  # the PDB's prototypes may replace the user's: push them again
+        # The PDB's prototypes may replace the user's: push them again.
+        stamps.hashdel("user_types")
         key = args.get("stamp_key")
         if key:
             stamps.hashset_buf(key, args.get("stamp") or "")
@@ -1979,7 +1965,7 @@ def op_load_pdb(args):
 
 
 class ScriptStopped(BaseException):
-    # raised inside a running script when its request is cancelled or reaches its deadline
+    # Raised inside a running script when its request is stopped.
     pass
 
 
@@ -1993,7 +1979,7 @@ def script_started(request):
 
 
 def script_ended():
-    # also drops an interrupt sent but not yet raised, so it cannot reach the worker's own code
+    # Also drops an interrupt sent but not yet raised, so it cannot reach the worker's own code.
     import ctypes
     with _script_lock:
         tid = _script["thread"]
@@ -2003,8 +1989,8 @@ def script_ended():
 
 
 def interrupt_scripts():
-    # A loop that makes no calls never reaches the profile hook: a stopped script gets ScriptStopped raised in its thread
-    # (between bytecodes; a native call finishes first), again every half second while it swallows it.
+    # A loop without calls never reaches the profile hook: ScriptStopped is raised in its thread every 0.5 s, between
+    # bytecodes, so a native call finishes first.
     import ctypes
     while True:
         time.sleep(0.5)
@@ -2028,8 +2014,8 @@ def clip(text, limit=200000):
 
 
 def op_python(args):
-    # Runs code with IDAPython modules imported and `base` (the image base) set; globals persist between calls (reset clears
-    # them). The value of a final expression is returned, with stdout and stderr; an exception comes back as its traceback.
+    # Runs code with IDAPython modules and `base` set; globals persist until reset.
+    # Returns the final expression's value, stdout and stderr; an exception returns its traceback.
     global _py_globals
     m = need_open()
     import ast
@@ -2048,14 +2034,15 @@ def op_python(args):
     saved = sys.stdout, sys.stderr
     value = error = None
     def stop_hook(frame, event, arg):
-        # Never raise inside the worker's own callbacks (the Hex-Rays stop hook): a C caller swallows the error and
-        # Python drops the profiler with it, leaving the script unchecked until the cancel grace kills the worker.
+        # Never raise inside the worker's callbacks: a C caller swallows the error and Python drops the profiler, leaving
+        # the script unchecked until the cancel grace kills the worker.
         if frame.f_code.co_filename != __file__ and cancelled():
             raise stopped_error()
 
     try:
         sys.stdout, sys.stderr = out, err
-        sys.setprofile(stop_hook)  # a script that calls functions stops on cancel or at the deadline
+        # A script that calls functions stops on cancel or at the deadline.
+        sys.setprofile(stop_hook)
         tree = ast.parse(args.get("code") or "", "<ida_python>", "exec")
         last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
         script_started(_current)
@@ -2192,7 +2179,7 @@ def insn_data(m, head):
 
 
 def op_insn(args):
-    # what is at rva and the items after it: status, item head and extent, decoded operands, flow and references
+    # What is at rva and the items after it: status, head and extent, operands, flow and references.
     m = need_open()
     ea = ea_of(args)
     count = max(1, min(int(args.get("count") or 1), 64))
@@ -2261,8 +2248,8 @@ DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double"
 
 
 def apply_edits_before(m, ti, args):
-    # type_edits (when given, the whole kept list): [[name, new name or null]]; enums: [[enum, member, value or null]]; fields;
-    # analysis: [[rva, kind, end or null, type or null]] in the order made
+    # type_edits (the whole kept list): [[name, new name or null]]; enums: [[enum, member, value or null]]; fields;
+    # analysis: [[rva, kind, end or null, type or null]] in the order made.
     items = apply_type_edits(m, ti, args["type_edits"]) if args.get("type_edits") is not None else []
     items += [apply_enum_member(m, ti, e[0], e[1], e[2]) for e in args.get("enums") or []]
     items += apply_fields(m, ti, args.get("fields") or [])
@@ -2277,7 +2264,7 @@ def apply_edits_after(m, ti, args):
 
 
 def user_enums():
-    # blob 'E' of USER_NODE: {"enum::member": value or null}, applied again after declarations replace enums
+    # Blob 'E' of USER_NODE: {"enum::member": value or null}, applied again after declarations replace enums.
     n = user_node(False)
     blob = n.getblob(0, "E") if n is not None else None
     return json.loads(blob.decode("utf-8")) if blob else {}
@@ -2303,7 +2290,7 @@ def apply_enum_member(m, ti, enum, member, value):
 
 
 def edit_enum_member(m, ti, enum, member, value):
-    # adds, changes or (value None) removes a member; a missing enum is created
+    # Adds, changes or (value None) removes a member; a missing enum is created.
     target = "%s::%s" % (enum, member)
 
     def item(applied, error, text=None):
@@ -2448,7 +2435,7 @@ def make_data(m, ti, ea, end, typ):
 
 
 def item_text(m, ea):
-    # what the database holds at ea now: "dword[4], 16 bytes", "code, 5 bytes"
+    # What the database holds at ea: "dword[4], 16 bytes", "code, 5 bytes".
     import idc
     b = m.ida_bytes
     f = b.get_flags(ea)
@@ -2480,7 +2467,7 @@ def apply_analysis(m, ti, rva, kind, end, typ):
     if not b.is_loaded(ea) or (end_ea is not None and (end_ea <= ea or not b.is_loaded(end_ea - 1))):
         return item(False, "rva 0x%X%s is not in the image" % (rva, "" if end is None else "-0x%X" % end))
     if kind == "undefine":
-        # at a function start without an end: the whole function
+        # At a function start without an end: the whole function.
         f = m.ida_funcs.get_func(ea)
         start = ea if end_ea is not None else b.get_item_head(ea)
         if f is not None and f.start_ea == ea:
@@ -2516,7 +2503,8 @@ def apply_analysis(m, ti, rva, kind, end, typ):
             return item(False, "rva 0x%X is inside the function at rva 0x%X" % (rva, rva_of(f.start_ea) or 0))
         else:
             if end_ea is None and not b.is_code(b.get_flags(ea)):
-                m.ida_auto.auto_make_code(ea)  # decode the flow first so the function gets its extent
+                # Decode the flow first so the function gets its extent.
+                m.ida_auto.auto_make_code(ea)
                 m.ida_auto.auto_wait()
             if not m.ida_funcs.add_func(ea, end_ea if end_ea is not None else m.idautils.ida_idaapi.BADADDR):
                 return item(False, "IDA did not make a function at rva 0x%X" % rva)
@@ -2538,14 +2526,14 @@ def apply_analysis(m, ti, rva, kind, end, typ):
 # ---- type renames, deletions and struct members (apply_user_types) ----
 
 def user_type_edits():
-    # blob 'R' of USER_NODE: [[name, new name or null]], applied again after declarations
+    # Blob 'R' of USER_NODE: [[name, new name or null]], applied again after declarations.
     n = user_node(False)
     blob = n.getblob(0, "R") if n is not None else None
     return json.loads(blob.decode("utf-8")) if blob else []
 
 
 def apply_type_edits(m, ti, edits):
-    # the kept list becomes the edits that applied
+    # The kept list becomes the edits that applied.
     items = [edit_type(m, ti, name, new_name) for name, new_name in edits]
     kept = [e for e, i in zip(edits, items) if i[3]]
     user_node(True).setblob(json.dumps(kept).encode("utf-8"), 0, "R")
@@ -2562,8 +2550,8 @@ def reapply_user_type_edits():
 
 
 def edit_type(m, ti, name, new_name):
-    # renames or (new_name None) deletes a named type; a type already gone is no change, and a rename onto an existing
-    # type deletes the old one (a declaration made it again)
+    # Renames or (new_name None) deletes a named type; a type already gone is no change, and a rename onto an existing
+    # type deletes the old one.
     def item(applied, error, text):
         return ["type_edit", 0, name, applied, error, None, None, text]
 
@@ -2584,7 +2572,7 @@ def edit_type(m, ti, name, new_name):
 
 
 def rekey_kept_members(name, new_name):
-    # the kept enum and struct member edits of a renamed type follow it; a deleted type's are dropped
+    # Member edits follow a renamed type; a deleted type's are dropped.
     prefix = name + "::"
     for tag, edits in (("E", user_enums()), ("F", user_fields())):
         if any(k.startswith(prefix) for k in edits):
@@ -2598,7 +2586,7 @@ def rekey_kept_members(name, new_name):
 
 
 def user_fields():
-    # blob 'F' of USER_NODE: {"type::member or @0xoffset": [name, offset, type or null]} in the order made, applied again after declarations
+    # Blob 'F' of USER_NODE: {"type::member or @0xoffset": [name, offset, type or null]}, applied again after declarations.
     n = user_node(False)
     blob = n.getblob(0, "F") if n is not None else None
     return json.loads(blob.decode("utf-8")) if blob else {}
@@ -2637,9 +2625,8 @@ def reapply_user_fields():
 
 
 def edit_layout(ti, tname, name, offset, typ, op):
-    # op insert moves later members down (typ None: the member is cut and they move back), resize sets the size to offset
-    # (the struct becomes fixed-layout, as IDA requires), gaps names the unnamed gaps gap_<offset> (typ None: removes those
-    # names); each is a no-op when its result is already there, as kept edits replay
+    # op insert moves later members down (typ None: back); resize sets the size (fixed layout); gaps names gaps gap_<offset>.
+    # Each is a no-op when its result is already there, as kept edits replay.
     import re
     target = "%s.%s" % (tname, (name if name else "+0x%X" % offset) if op == "insert" else op)
 
@@ -2733,8 +2720,7 @@ def edit_layout(ti, tname, name, offset, typ, op):
 
 
 def edit_field(m, ti, tname, name, offset, typ):
-    # a member by name, else by offset: typ None removes it; else it is retyped in place (and renamed), or placed at offset
-    # (moving a named member there; overlapped members are replaced), or appended
+    # A member by name, else offset: typ None removes it; else retyped in place, placed at offset (replacing overlaps), or appended.
     target = "%s.%s" % (tname, name if name else "+0x%X" % offset)
 
     def item(applied, error, text=None):
@@ -2807,7 +2793,7 @@ def apply_clears(m, ti, args):
 
 
 def clear_local(m, rva, local, stack, name):
-    # drops the variable's saved user settings (name, type, comment): Hex-Rays shows its own again
+    # Drops the variable's saved user settings, so Hex-Rays shows its own again.
     hr = m.ida_hexrays
     f = m.ida_funcs.get_func(_state["base"] + rva)
     if f is None:
@@ -2821,7 +2807,8 @@ def clear_local(m, rva, local, stack, name):
         return ["local_clear", rva, local, True, None, None, stack, "no such local; nothing to clear"]
     resolved = lv.name
     stk = lv.get_stkoff() if lv.is_stk_var() else None
-    loc = hr.lvar_locator_t(lv.location, lv.defea)  # a copy: lv dies with its cfunc
+    # A copy: lv dies with its cfunc.
+    loc = hr.lvar_locator_t(lv.location, lv.defea)
     info = hr.lvar_uservec_t()
     if hr.restore_user_lvar_settings(info, f.start_ea):
         kept = [hr.lvar_saved_info_t(x) for x in info.lvvec if not x.ll == loc]
@@ -2837,7 +2824,7 @@ def clear_local(m, rva, local, stack, name):
 
 
 def clear_stack(m, ti, rva, offset):
-    # restores the member IDA had before the first user edit; without that record the default name is given back and the type kept
+    # Restores the member IDA had before the first user edit; without that record, the default name with the type kept.
     import ida_frame
     target = "+0x%X" % offset
     f = m.ida_funcs.get_func(_state["base"] + rva)
@@ -2879,7 +2866,7 @@ def clear_stack(m, ti, rva, offset):
 
 
 def put_comment_kind(m, f, ea, comment, kind):
-    # eol: the regular comment; pre: anterior lines; plate: the function comment at a function start, else anterior lines
+    # eol: regular comment; pre: anterior lines; plate: function comment at a function start, else anterior lines.
     import ida_lines
     if kind == "eol":
         return m.ida_bytes.set_cmt(ea, comment, False)
@@ -2892,7 +2879,7 @@ def put_comment_kind(m, f, ea, comment, kind):
 
 
 def pseudo_anchors(cf, ea):
-    # the statements made from ea, else from the nearest lower address that generated code (innermost first)
+    # Statements made from ea, else from the nearest lower address that generated code, innermost first.
     eamap = cf.get_eamap()
     key = ea if ea in eamap else max([k for k in eamap.keys() if k <= ea], default=None)
     if key is None:
@@ -2914,7 +2901,7 @@ def placement_key(rva):
 
 
 def drop_placement(m, func_ea, rva):
-    # removes the comment placed for rva (its statement and placement are kept in USER_NODE)
+    # Removes the comment placed for rva; its statement and placement stay in USER_NODE.
     hr = m.ida_hexrays
     node = user_node(True)
     kept = node.hashstr_buf(placement_key(rva))
@@ -2931,8 +2918,8 @@ def drop_placement(m, func_ea, rva):
 
 
 def set_pseudo_comment(m, rva, text):
-    # [rva, applied, anchor rva, error]: each statement made from the address and placement (ITP_SEMI..) in turn until the
-    # comment is neither orphaned nor hidden; the placement is kept so a later change replaces exactly that comment
+    # [rva, applied, anchor rva, error]: tries each statement and placement until the comment is neither orphaned nor
+    # hidden; the placement is kept so a later change replaces that comment.
     hr = m.ida_hexrays
     ea = _state["base"] + rva
     f = m.ida_funcs.get_func(ea)
@@ -2973,8 +2960,7 @@ SIZE_TYPES = {1: "uint8_t", 2: "uint16_t", 4: "uint32_t", 8: "uint64_t"}
 
 
 def op_type_guess(args):
-    # {type, method, confidence}: at a function start the decompiler's prototype, else IDA's guess, else the type
-    # applied there, else one from the item's size; nothing is applied
+    # {type, method, confidence}: decompiler prototype, else IDA's guess, else the applied type, else from the size. Applies nothing.
     m = need_open()
     import ida_typeinf as ti
     ea = ea_of(args)
@@ -3016,8 +3002,8 @@ OPS.update({"pseudo_comments": op_pseudo_comments, "type_guess": op_type_guess})
 
 
 def op_decompile_many(args):
-    # the function containing each rva, in order; each item within seconds_per_item, all within budget_seconds.
-    # Hex-Rays has no timeout: the deadline is checked at every optimization stage and cancels the decompilation there.
+    # The function at each rva, in order; each within seconds_per_item, all within budget_seconds.
+    # Hex-Rays has no timeout: the deadline is checked at every optimization stage.
     m = need_open()
     if not hexrays_ready(m):
         raise WorkerError("unsupported", "the Hex-Rays decompiler for %s (%d-bit) is not available: not installed or not licensed"
@@ -3061,8 +3047,8 @@ OPS["decompile_many"] = op_decompile_many
 
 
 class _Slicer:
-    # Value slices over Hex-Rays microcode at MMAT_LVARS (cfunc.mba): a local's definitions backward (the one before the
-    # use in its block, else all of them), its uses forward. Reply shape shared with the Ghidra worker's value_slice.
+    # Value slices over Hex-Rays microcode at MMAT_LVARS: definitions backward, uses forward.
+    # Reply shape shared with the Ghidra worker's value_slice.
     COPIES = ("m_mov", "m_xdu", "m_xds", "m_low")
     JUMPS = ("m_jcnd", "m_jnz", "m_jz", "m_jae", "m_jb", "m_ja", "m_jbe", "m_jg", "m_jge", "m_jl", "m_jle",
              "m_setnz", "m_setz", "m_setae", "m_setb", "m_seta", "m_setbe", "m_setg", "m_setge", "m_setl", "m_setle")
@@ -3107,12 +3093,12 @@ class _Slicer:
         return self.lvars[idx].name if 0 <= idx < self.lvars.size() else "v%d" % idx
 
     def target(self, value):
-        # an image address the constant names, as an RVA
+        # An image address the constant names, as an RVA.
         m = self.m
         return rva_of(value) if m.ida_bytes.is_loaded(value) and m.ida_segment.getseg(value) is not None else None
 
     def nested(self, ins):
-        # ins and the instructions nested in its operands
+        # ins and the instructions nested in its operands.
         yield ins
         for op in (ins.l, ins.r, ins.d):
             yield from self.nested_mop(op)
@@ -3154,7 +3140,7 @@ class _Slicer:
         t = op.t
         if t == hr.mop_n:
             v = op.nnn.value
-            # a number is an address only where something is defined (images based at 0 make every small number loaded)
+            # A number is an address only where something is defined; images based at 0 make every small number loaded.
             m = self.m
             named = v >= 0x10000 and (m.ida_name.get_name(v) or m.ida_bytes.is_strlit(m.ida_bytes.get_flags(v)))
             tg = self.target(v) if op.size >= 4 and named else None
@@ -3236,7 +3222,7 @@ class _Slicer:
         return self.node("unknown", ins.ea, "?", "computed: " + ins.dstr())
 
     def fixed(self, op):
-        # a pointer that is a fixed address
+        # A pointer that is a fixed address.
         hr = self.hr
         if op.t == hr.mop_a and op.a.t == hr.mop_v:
             return op.a.g
@@ -3249,7 +3235,7 @@ class _Slicer:
     # forward
 
     def holds(self, op, idx):
-        # "direct" when op is the local (through copies), "derived" when computed from it, else None
+        # "direct" when op is the local (through copies), "derived" when computed from it, else None.
         hr = self.hr
         if op.t == hr.mop_l:
             return "direct" if op.l.idx == idx else None
@@ -3316,7 +3302,7 @@ class _Slicer:
                             self.use(origin, "compare", ins, ins.dstr(), path, derived, value=value)
                     elif op in (hr.m_jtbl, hr.m_ijmp) and (self.holds(ins.l, v) or self.holds(ins.d, v)):
                         self.use(origin, "switch", ins, "selects the jump target", path, derived)
-                # assignments of top-level instructions carry the value on
+                # Assignments of top-level instructions carry the value on.
                 if top.opcode in self.calls or top.opcode in (hr.m_stx, hr.m_ldx) or top.opcode in self.jumps:
                     continue
                 h = self.holds(top.l, v) or self.holds(top.r, v)
@@ -3344,8 +3330,8 @@ class _Slicer:
                 self.locals_in(a, out)
 
     def lvar_of_register(self, ea, name):
-        # the local the register holds at ea: one living in it that the instruction uses, the only local it uses,
-        # a call result read just after the call (the result register), or the latest definition of one living in it
+        # The local the register holds at ea: one living in it that the instruction uses, the only local it uses,
+        # a call result read just after the call, or the latest definition of one living in it.
         import ida_idp
         hr = self.hr
         reg = ida_idp.str2reg(name)
@@ -3377,7 +3363,7 @@ class _Slicer:
 
 
 def op_value_slice(args):
-    # per-function value slice from Hex-Rays microcode (see _Slicer)
+    # Per-function value slice from Hex-Rays microcode (see _Slicer).
     m = need_open()
     if not hexrays_ready(m):
         raise WorkerError("unsupported", "the Hex-Rays decompiler is not available: not installed or not licensed")
@@ -3455,7 +3441,7 @@ def op_value_slice(args):
         call = next((c for b, i, top in s.insns for c in s.nested(top)
                      if c.opcode in s.calls and c.ea + m.ida_bytes.get_item_size(c.ea) == ea), None) if result else None
         if call is not None:
-            # the result register read right after the call holds its result, whatever local the microcode folded it into
+            # The result register read right after the call holds its result, whatever local the microcode folded it into.
             s.node("call_result", call.ea, "result of the call", call.dstr(), site=rva_of(call.ea))
             return s.result()
         idx = s.lvar_of_register(ea, args.get("register") or "")
@@ -3481,7 +3467,7 @@ _STR_CODECS = {0: "utf-8", 1: "utf-16-le", 2: "utf-32-le"}
 
 
 def ref_string(m, ea):
-    # the text of a string literal item at ea, else None
+    # The text of a string literal item at ea, else None.
     import ida_bytes
     if not ida_bytes.is_strlit(ida_bytes.get_flags(ea)):
         return None
@@ -3495,8 +3481,7 @@ def ref_string(m, ea):
 
 
 def op_decompile_refs(args):
-    # objects the pseudocode of the function at rva names (globals, functions, strings, imports), in first-use order:
-    # rows [rva, name, string or null, uses, function start (bool)]
+    # Objects the pseudocode at rva names, in first-use order: rows [rva, name, string or null, uses, function start].
     m = need_open()
     f = func_at(m, ea_of(args))
     cf, why = decompile_function(m, f.start_ea)
@@ -3533,8 +3518,7 @@ OPS["decompile_refs"] = op_decompile_refs
 # ---- Database export ----
 
 def op_save_as(args):
-    # A packed, compressed copy of the open database at a new path for the IDA GUI. Never DBFL_KILL: it deletes the
-    # unpacked working files the open database still runs on. The worker keeps saving to its own path.
+    # A packed, compressed copy of the database at a new path. Never DBFL_KILL: it deletes the working files still in use.
     m = need_open()
     loader = m.ida_loader
     path = os.path.abspath(args["path"])
@@ -3592,7 +3576,7 @@ def op_image_info(args):
 
 
 def op_defined_data(args):
-    # data items in address order: total, rows [rva, size, type, label or null, value text or null, is string] up to max
+    # Data items in address order: total, rows [rva, size, type, label or null, value or null, is string] up to max.
     m = need_open()
     import ida_typeinf
     limit = int(args.get("max") or 200000)
@@ -3617,7 +3601,7 @@ def op_defined_data(args):
 
 
 def without_comment(line):
-    # the listing line up to its comment (a ';' outside quotes)
+    # The listing line up to its comment (a ';' outside quotes).
     quote = None
     for i, c in enumerate(line):
         if quote:
@@ -3644,7 +3628,7 @@ STRTYPE_NAMES = {0: "C", 1: "C_16", 2: "C_32"}
 
 
 def op_defined_strings(args):
-    # string literal items in address order: rows [rva, size, type, text] up to max
+    # String literal items in address order: rows [rva, size, type, text] up to max.
     m = need_open()
     limit = int(args.get("max") or 200000)
     rows = []
@@ -3682,7 +3666,7 @@ def argloc_text(m, loc, size):
 
 
 def op_function_info(args):
-    # the function containing rva as IDA records it; field names match the Ghidra worker's function_info
+    # The function at rva as IDA records it; field names match the Ghidra worker's function_info.
     m = need_open()
     import ida_typeinf
     f = func_at(m, ea_of(args))
@@ -3690,7 +3674,7 @@ def op_function_info(args):
     tif, ftd = ida_typeinf.tinfo_t(), ida_typeinf.func_type_data_t()
     typed = m.ida_nalt.get_tinfo(tif, ea) and tif.get_func_details(ftd)
     if not typed:
-        # IDA's guess, as the decompiler would start from
+        # IDA's guess, as the decompiler would start from.
         typed = ida_typeinf.guess_tinfo(tif, ea) != ida_typeinf.GUESS_FUNC_FAILED and tif.get_func_details(ftd)
     params = []
     if typed:
@@ -3752,7 +3736,7 @@ def _analyzer_bit(name):
 
 
 def op_analyzers(args):
-    # IDA's analysis flags as options: {options: [[name, "bool", "true"|"false", description]]}
+    # IDA's analysis flags as options: {options: [[name, "bool", "true"|"false", description]]}.
     need_open()
     rows = []
     for name, description in _ANALYZER_FLAGS:
@@ -3776,8 +3760,8 @@ def _set_analyzer(name, value, warnings):
 
 
 def op_reanalyze(args):
-    # plans [start, end) or the whole database for analysis again and waits for the queue within budget_seconds; options
-    # [[flag, value]] apply to this run only. Saved. complete: the queue ran empty; the rest runs on the next wait.
+    # Reanalyzes [start, end) or the whole database within budget_seconds and saves; options [[flag, value]] apply
+    # to this run only. complete: the queue ran empty; the rest runs on the next wait.
     m = need_open()
     import ida_ida
     start = time.time()
@@ -3813,8 +3797,8 @@ def op_reanalyze(args):
 
 
 def op_function_candidates(args):
-    # runs of code items in no function, in address order, over at most max_scan code items: rows
-    # [start, end (exclusive), instructions, call refs, jump refs, data refs] to the run's start; scanned, truncated
+    # Runs of code in no function, over at most max_scan items: rows [start, end, instructions, call refs, jump refs,
+    # data refs]; scanned, truncated.
     m = need_open()
     import ida_bytes, ida_xref
     limit = max(1, int(args.get("max_scan") or 2000000))
@@ -3871,8 +3855,8 @@ LEGACY_MARK_PREFIX = "NDM: "
 
 
 def op_set_marks(args):
-    # replaces the marked positions titled with MARK_PREFIX with items [[rva, text]] and records the stamp (stamp_key, stamp).
-    # Removing a slot (mark_position at BADADDR) shifts the later ones down, so slots are cleared from the top.
+    # Replaces MARK_PREFIX marked positions with items [[rva, text]] and records the stamp.
+    # Removing a slot shifts the later ones down, so slots are cleared from the top.
     m = need_open()
     import ida_idc, ida_moves
     badaddr = m.idautils.ida_idaapi.BADADDR
@@ -3907,8 +3891,8 @@ MEMORY_MAX = 16 << 20
 
 
 def op_memory(args):
-    # the loaded bytes of [rva, rva + size) as runs [rva, base64]; bytes IDA has not loaded (uninitialized) are gaps;
-    # with page, pages [rva, length, digest] cut at multiples of page, the digest being the SHA-256's first 8 bytes in hex
+    # Loaded bytes of [rva, rva + size) as runs [rva, base64]; unloaded bytes are gaps.
+    # With page: pages [rva, length, digest], digest = first 8 bytes of the SHA-256 in hex.
     m = need_open()
     import base64
     size = int(args.get("size") or 0)
@@ -3966,8 +3950,7 @@ def op_memory(args):
 
 
 def op_fixups(args):
-    # the fixups the loader recorded, at most max, in address order: rows [rva, size, type, symbol or None]; patched:
-    # runs [rva, base64 of the original bytes] of the bytes the database records as patched
+    # Loader fixups, at most max: rows [rva, size, type, symbol or None]; patched: runs [rva, base64 of original bytes].
     m = need_open()
     import base64
     import ida_fixup
@@ -4016,8 +3999,7 @@ OPS["set_marks"] = op_set_marks
 
 
 def op_classes(args):
-    # C++ classes among the local types: structs IDA marks as C++ objects, or with base classes or a vftable pointer.
-    # rows [name, size, vftable rva or null, slots, [[base, offset, virtual]], functions named Class::*]
+    # C++ classes among the local types: rows [name, size, vftable rva or null, slots, [[base, offset, virtual]], Class::* functions].
     need_open()
     import ida_typeinf as ti
     import re
@@ -4060,7 +4042,7 @@ def op_classes(args):
         cut = short.rfind("::", 0, paren if paren >= 0 else len(short))
         if cut > 0:
             owner = short[:cut]
-            # also under the identifier the RTTI push names the class struct with
+            # Also under the identifier the RTTI push names the class struct with.
             for key in {owner, re.sub(r"[^0-9A-Za-z_]", "_", owner.replace("::", "__"))}:
                 counts[key] = counts.get(key, 0) + 1
     for row in rows:
@@ -4072,7 +4054,8 @@ OPS["classes"] = op_classes
 
 
 def watch_parent(parent):
-    # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
+    # POSIX has no job object: exit when the server dies, even mid-request, as stdin
+    # EOF is seen only between requests.
     try:
         import ctypes
         import signal
@@ -4120,7 +4103,7 @@ def dispatch(run):
         with _requests_lock:
             r.start = time.time()
             if r.timeout is not None:
-                # answer before the server's limit: the margin carries a partial result back in time
+                # Answer before the server's limit, so a partial result arrives in time.
                 r.deadline = r.start + max(0.1, r.timeout - min(5.0, max(0.25, r.timeout * 0.1)))
             _current = r
         try:
@@ -4155,15 +4138,14 @@ CONNECT_FOLDER = "corvus"
 
 
 def connection_folder():
-    # <IDA user directory>/corvus: one file per serving IDA, readable by its user only
+    # <IDA user directory>/corvus: one file per serving IDA, readable by its user only.
     import ida_diskio
     return os.path.join(ida_diskio.get_user_idadir(), CONNECT_FOLDER)
 
 
 def serve_connected(once=False):
-    # Serves the open database on 127.0.0.1 until IDA closes it (once: one client, then returns). A client sends the
-    # connection file's token as its first line. In IDA's UI each op runs on the main thread (execute_sync); with
-    # once, the caller's thread is IDA's (a script run by -S) and runs them itself.
+    # Serves the database on 127.0.0.1 until IDA closes it (once: one client); the client's first line is the token.
+    # Ops run on IDA's main thread (execute_sync), or on the caller's thread with once.
     global _connected, _sink, _queue, _ida
     import secrets
     import socket

@@ -10,10 +10,7 @@ namespace Corvus.Native.Dump;
 /// <param name="Start">RVA of the named function (or of the function from .pdata when unnamed); null when unknown.</param>
 public sealed record ModuleSymbol(string? Name, string Source, uint? Start);
 
-/// <summary>
-/// Lightweight names for a module image without a code index: PDB functions (a matching local PDB, no network), the
-/// image's COFF function symbols and exports, with x64 function ranges from .pdata (chained fragments resolved to their primary function).
-/// </summary>
+/// <summary>Function names for a module without a code index: local PDB (no network), COFF symbols and exports, with x64 ranges from .pdata.</summary>
 public sealed class ModuleNames
 {
     private readonly PeFile _image;
@@ -63,7 +60,7 @@ public sealed class ModuleNames
         {
             int at = Array.BinarySearch(_starts, start);
             if (at >= 0) return new ModuleSymbol(_names[at], _sources[at], start);
-            // a PDB procedure whose range covers the address (the .pdata entry may be a separated fragment)
+            // A PDB procedure whose range covers the address; the .pdata entry may be a separated fragment.
             if (i >= 0 && _sizes[i] > 0 && rva - _starts[i] < _sizes[i]) return new ModuleSymbol(_names[i], _sources[i], _starts[i]);
             return new ModuleSymbol(null, "none", start);
         }

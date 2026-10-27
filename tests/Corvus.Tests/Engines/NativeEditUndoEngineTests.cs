@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The native edit journal against real engines (EL-6): a rename and each engine edit kind journaled, then undone, and the
-/// engine's database shows the state from before the edit again.
-/// </summary>
+/// <summary>Each journaled engine edit, undone, restores the engine database's prior state.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDisposable
@@ -104,7 +101,7 @@ public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDispo
         async Task<string> NameInEngine() => (await session.ListFunctionsAsync()).First(f => f.StartRva == fn).Name;
         async Task<string> Pseudocode() => (await session.DecompileAsync(fn)).Text;
 
-        // rename: pushed to the engine, undone and pushed back
+        // Rename: pushed to the engine, undone and pushed back.
         var original = await NameInEngine();
         await rig.Tools.RenameNative(native.Id, $"rva:0x{fn:X}", "corvus_undo_probe", dryRun: false, engine: engine);
         Assert.Equal("corvus_undo_probe", await NameInEngine());
@@ -113,7 +110,7 @@ public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDispo
         Assert.Contains(engine == "ida" ? "IDA" : "Ghidra", undone);
         Assert.Equal(original, await NameInEngine());
 
-        // engine edits: a prototype, an operand display, an analysis edit; each undone in turn
+        // Engine edits: a prototype, an operand display, an analysis edit; each undone in turn.
         Assert.DoesNotContain("corvus_", await Pseudocode());
         var proto = await rig.Journal.ApplyUserTypesAsync(native, session, "engine type",
             new NativeUserTypeBatch([], [new NativePrototype(fn, $"int __fastcall {Function}(void *corvus_base, unsigned int corvus_length, unsigned int *a3, unsigned int *a4);")], [], []),
@@ -135,7 +132,7 @@ public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDispo
             (r, layer) => r.Items.All(i => i.Applied) ? layer.WithAnalysis(define) : null, default);
         Assert.NotNull(defined.EditId);
 
-        // undone out of order: the prototype first, then the operand, then the data item
+        // Undone out of order: the prototype first, then the operand, then the data item.
         var r1 = await rig.Journal.UndoAsync(native, proto.EditId, default);
         output.WriteLine(string.Join("; ", r1.Notes));
         Assert.Equal([engine], r1.PushedTo);
@@ -151,7 +148,7 @@ public sealed class NativeEditUndoEngineTests(ITestOutputHelper output) : IDispo
         output.WriteLine(string.Join("; ", r3.Notes));
         Assert.DoesNotContain(r3.Notes, n => n.Contains("did not take back", StringComparison.Ordinal));
         Assert.True(rig.Code.Annotations(native).UserTypes.IsEmpty);
-        // a cleared prototype is the engine's own again (IDA may derive another calling convention than its type library gave)
+        // A cleared prototype is the engine's own again (IDA may derive another calling convention than its type library gave).
         Assert.DoesNotContain("corvus_", await Pseudocode());
         Assert.Empty(rig.Journal.Entries(native));
     }

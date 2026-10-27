@@ -10,10 +10,7 @@ public enum DalvikFormat
 /// <summary>What a pool index operand refers to.</summary>
 public enum DalvikRef : byte { None, String, Type, Field, Method, Proto, CallSite, MethodHandle }
 
-/// <summary>
-/// One decoded instruction. Offsets and branch targets are in 16-bit code units from the start of the method's code.
-/// Registers: A, B, C as the format numbers them, or the argument list of a call / filled-new-array (<see cref="Arguments"/>).
-/// </summary>
+/// <summary>One decoded instruction; offsets and targets are in 16-bit code units from the method's code start.</summary>
 public sealed record DalvikInstruction(int Offset, int Opcode, string Name, DalvikFormat Format, int Length, int A, int B, int C, long Literal,
     DalvikRef Ref, int Index, int Index2, int Target, IReadOnlyList<int> Arguments)
 {

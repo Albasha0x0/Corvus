@@ -4,14 +4,7 @@ using Corvus.Native.Pdb;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>
-/// Reads DWARF into the debug-info model the PDB reader fills (<see cref="PdbFile"/>): functions (with code) and global
-/// and static variables (with a static address) as symbols, named by their qualified source names ("ns::Class::f"),
-/// their linkage names kept; units as modules; types as CodeView records (<see cref="DwarfTypes"/>); and a lookup of
-/// source lines and inlined functions by address that reads the line tables and entries again on demand. One pass over
-/// the units, one unit in memory at a time: sections larger than <see cref="DebugContainer.WholeSectionBytes"/> are read
-/// a unit or a page at a time, so a debug file of any size is read within a bounded working set plus the results.
-/// </summary>
+/// <summary>Reads DWARF into the PDB debug-info model (symbols, modules, CodeView types, on-demand line lookup), one unit in memory at a time.</summary>
 internal static class DwarfDebugInfo
 {
     /// <summary>Most symbols kept.</summary>
@@ -20,10 +13,7 @@ internal static class DwarfDebugInfo
     /// <summary>Whether <paramref name="container"/> has DWARF entries to read.</summary>
     public static bool HasDwarf(DebugContainer container) => container.Has(".debug_info") && container.Has(".debug_abbrev");
 
-    /// <summary>
-    /// Reads the DWARF of <paramref name="container"/> for <paramref name="image"/> (addresses become the image's RVAs).
-    /// <paramref name="reopen"/> opens the same file again for the source lookup.
-    /// </summary>
+    /// <summary>Reads the DWARF of <paramref name="container"/> at <paramref name="image"/>'s RVAs; <paramref name="reopen"/> reopens the file for line lookups.</summary>
     public static PdbFile Read(DebugContainer container, INativeImage image, Func<DebugContainer> reopen, CancellationToken ct = default)
     {
         var issues = new List<ParseIssue>();
@@ -40,7 +30,7 @@ internal static class DwarfDebugInfo
         int lineTables = 0, inlined = 0, issuesDropped = 0;
         ulong imageBase = image.ImageBase;
         uint sizeOfImage = image.SizeOfImage;
-        // the files read: the debug file, or the object files of a Mach-O debug map; a unit is (source, header)
+        // Files read: the debug file, or a Mach-O debug map's object files; a unit is (source, header).
         var sources = new List<Source> { new(reader, reopen, null, container.FileType == 1) };
         if (!reader.HasInfo && container.Format == ImageFormat.MachO) sources = DebugMapSources(reader, container, issues);
         var units = new List<(int Source, int Header)>();
@@ -68,7 +58,7 @@ internal static class DwarfDebugInfo
                 module = modules.Count;
                 modules.Add(new PdbModule(module, unit.Name ?? "", unit.CompDir ?? "", -1, 0));
                 if (unit.StmtList >= 0) lineTables++;
-                // a debug map object's units are found by their functions' mapped ranges
+                // A debug map object's units are found by their functions' mapped ranges.
                 if (map == null)
                     foreach (var (lo, hi) in reader.RangesOf(unit, root))
                         if (!DwarfLineTable.Tombstone(lo, relocatable)) unitRanges.Add((lo, hi, key));
@@ -176,7 +166,7 @@ internal static class DwarfDebugInfo
             string found = path!;
             sources.Add(new Source(new DwarfReader(file.Section, file.BigEndian, file.Is64 ? 8 : 4, main.Family), () => DebugContainer.Open(found, null, image.CpuName), map, true));
         }
-        if (missing > 0) issues.Add(new ParseIssue("dwarf", $"debug map: {missing} of {objects.Count} object files not read; their functions and types are missing"));
+        if (missing > 0) issues.Add(new ParseIssue("dwarf", $"debug map: {missing} of {objects.Count} object files not read; their functions and types are not read"));
         return sources;
     }
 
@@ -212,10 +202,7 @@ internal static class DwarfDebugInfo
 
     internal readonly record struct Named(string? Name, string? Linkage, bool External, DwarfUnit Unit, DwarfDie Die, long ReturnType);
 
-    /// <summary>
-    /// The qualified name of a function or variable entry, following its specification and abstract origin (out-of-line
-    /// definitions of class members, concrete instances of inline functions) to the entry that names it.
-    /// </summary>
+    /// <summary>The qualified name of a function or variable entry, following its specification and abstract origin to the naming entry.</summary>
     internal static Named Naming(DwarfReader reader, DwarfUnit unit, DwarfDie die)
     {
         var (u, d) = (unit, die);
@@ -231,7 +218,7 @@ internal static class DwarfDebugInfo
             external |= d.External;
             if (returnType < 0) returnType = d.Type;
         }
-        // the declaration may be one more hop away (an abstract origin that has a specification)
+        // The declaration may be one more hop away: an abstract origin with a specification.
         var (su, sd) = (u, d);
         for (int hop = 0; hop < 4 && sd.Specification >= 0; hop++)
         {
@@ -270,7 +257,7 @@ internal static class DwarfDebugInfo
                         var source = sources[si];
                         if (!opened.TryGetValue(si, out var file))
                         {
-                            // the debug file may have been moved or deleted since it was read
+                            // The debug file may have moved or been deleted since it was read.
                             try { var c = source.Open(); file = (c, Open(c)); }
                             catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { file = null; }
                             opened[si] = file;
@@ -356,7 +343,7 @@ internal static class DwarfDebugInfo
                 if (address < units[k].High && seen.Add(units[k].Header)) yield return units[k].Header;
         }
 
-        // the highest end among ranges [0..k]: no earlier range reaches an address at or past it
+        // Highest end among ranges [0..k]: no earlier range reaches an address at or past it.
         private readonly ulong[] _reach = Reach(units);
 
         private static ulong[] Reach((ulong Low, ulong High, int Header)[] units)
@@ -368,7 +355,7 @@ internal static class DwarfDebugInfo
 
         private static DebugSourceInfo? Describe(DwarfReader reader, DwarfUnit unit, DwarfLineTable? lines, ulong address, NativeArch arch)
         {
-            // the chain of entries whose ranges contain the address: the function, then inlined functions inside it
+            // Entries whose ranges contain the address: the function, then its inlined functions.
             var chain = new List<DwarfDie>();
             for (int i = 1; i < unit.Dies.Count; i++)
             {

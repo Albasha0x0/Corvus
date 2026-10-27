@@ -27,7 +27,7 @@ public sealed class NativeResources(AssemblyWorkspace workspace, IServiceProvide
     });
 
     [McpServerResource(UriTemplate = Prefix + "entrypoints", Name = "native_entrypoints", Title = "Native entry points", MimeType = "text/plain")]
-    [Description("A native image's entry points with their addresses: the entry point, TLS callbacks and exports (PE ordinals; forwarders with their target).")]
+    [Description("A native image's entry point, TLS callbacks and exports, with addresses.")]
     public string EntryPoints([Description("Native image id.")] string image) => workspace.Read(() =>
     {
         var pe = workspace.GetNative(Decode(image)).Image;
@@ -44,7 +44,7 @@ public sealed class NativeResources(AssemblyWorkspace workspace, IServiceProvide
     });
 
     [McpServerResource(UriTemplate = Prefix + "type/{name}", Name = "native_type", Title = "Native type", MimeType = "text/plain")]
-    [Description("A native type's layout as get_native_type name=... shows it (PDB, RTTI, Il2Cpp, or an engine's types once analyzed).")]
+    [Description("A native type's layout, as get_native_type name=... shows it.")]
     public Task<string> Type([Description("Native image id.")] string image, [Description("Type name.")] string name, CancellationToken cancellationToken) =>
         ActivatorUtilities.CreateInstance<NativeTypeInfoTools>(services).GetNativeType(Decode(image), name: Decode(name), cancellationToken: cancellationToken);
 

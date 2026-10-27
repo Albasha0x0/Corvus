@@ -7,15 +7,13 @@ namespace Corvus.Native.Live;
 public sealed record UiElement(int Depth, string ControlType, string? Name, string? AutomationId, string? ClassName, string? Framework,
     ulong Window, int X, int Y, int Width, int Height, bool Enabled, bool Offscreen);
 
-/// <summary>
-/// Reads the UI Automation control view of a process's visible top-level windows (CUIAutomation8 through its COM
-/// vtables; slots from the Windows SDK's UIAutomationClient.h). The program's UI threads answer each query, so a hung
-/// program is bounded by the connection and transaction timeouts. Windows only.
-/// </summary>
+/// <summary>Reads the UI Automation control view of a process's visible top-level windows; Windows only.</summary>
 public static class UiAutomation
 {
     public const int MaxElements = 2000, MaxDepth = 16;
+    // The program's UI threads answer each query, so these bound a hung program.
     private const int ConnectionTimeoutMs = 2000, TransactionTimeoutMs = 5000;
+    // CUIAutomation8 is called through its COM vtables; slots from the Windows SDK's UIAutomationClient.h.
     private static readonly Guid Clsid = new("e22ad333-b25f-460c-83d0-0581107395c9");
     private static readonly Guid Iid = new("34723aff-0c9d-49d0-9896-7ab52df8cd8a");
 
@@ -31,10 +29,7 @@ public static class UiAutomation
         return windows;
     }
 
-    /// <summary>
-    /// The control view under each of <paramref name="windows"/>, depth first, at most <see cref="MaxElements"/> elements
-    /// and <see cref="MaxDepth"/> levels; <paramref name="truncated"/> says a limit was reached.
-    /// </summary>
+    /// <summary>The control view under <paramref name="windows"/>, depth first and bounded; <paramref name="truncated"/> says a limit was reached.</summary>
     public static List<UiElement> Read(IReadOnlyList<IntPtr> windows, CancellationToken ct, out bool truncated)
     {
         var rows = new List<UiElement>();
@@ -136,23 +131,18 @@ public static class UiAutomation
         "HeaderItem", "Table", "TitleBar", "Separator", "SemanticZoom", "AppBar",
     ];
 
-    /// <summary>
-    /// The class window procedure of <paramref name="hwnd"/> (GCLP_WNDPROC; another process cannot read a window's own
-    /// procedure or dialog procedure), its control id and its parent when it is a child window; zeros when it has none.
-    /// </summary>
+    /// <summary>The class window procedure, control id and parent of <paramref name="hwnd"/>; zeros when it has none.</summary>
     public static (ulong ClassProcedure, int ControlId, IntPtr Parent) WindowClass(IntPtr hwnd)
     {
         const int GclpWndProc = -24, GwlStyle = -16;
         const long WsChild = 0x40000000;
+        // Another process cannot read a window's own procedure, only its class procedure.
         var procedure = (ulong)GetClassLongPtrW(hwnd, GclpWndProc);
         bool child = (GetWindowLongPtrW(hwnd, GwlStyle) & WsChild) != 0;
         return (procedure, child ? GetDlgCtrlID(hwnd) : 0, child ? GetAncestor(hwnd, 1) : IntPtr.Zero);
     }
 
-    /// <summary>
-    /// A PNG of <paramref name="hwnd"/> as the program draws it (PrintWindow, PW_RENDERFULLCONTENT), with its width and
-    /// height; null when the window has no area or did not draw.
-    /// </summary>
+    /// <summary>A PNG of <paramref name="hwnd"/> as the program draws it, with its size; null when it has no area or did not draw.</summary>
     public static (byte[] Png, int Width, int Height)? Image(IntPtr hwnd)
     {
         if (!GetWindowRect(hwnd, out var r) || r.Right <= r.Left || r.Bottom <= r.Top) return null;

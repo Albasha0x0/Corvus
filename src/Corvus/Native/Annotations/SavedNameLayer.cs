@@ -4,12 +4,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Annotations;
 
-/// <summary>
-/// The file format of one saved imported name layer (&lt;sha256&gt;.&lt;source&gt;.names beside the annotation sidecar):
-/// gzip over a binary stream: magic, version, image hash and path, source, origin, provenance (source path, identity,
-/// import time), the function starts, then names and comments sorted by RVA with the RVA as a delta from the previous
-/// one (7-bit encoded) and the text as length-prefixed UTF-8. About 15 bytes per Il2Cpp name with its comment.
-/// </summary>
+/// <summary>The gzip binary format of a saved name layer: header, provenance, function starts, then delta-encoded names and comments.</summary>
 public static class SavedNameLayer
 {
     private const string Magic = "name-layer";
@@ -51,9 +46,10 @@ public static class SavedNameLayer
             using var r = new BinaryReader(gz, Encoding.UTF8, leaveOpen: true);
             if (r.ReadString() is not (Magic or LegacyMagic) || r.ReadInt32() != Version) return null;
             if (!string.Equals(r.ReadString(), sha256, StringComparison.OrdinalIgnoreCase)) return null;
-            r.ReadString(); // image path
+            // Image path.
+            r.ReadString();
             int source = r.ReadInt32();
-            if (source is not ((int)NativeNameSource.Pdb or (int)NativeNameSource.Il2Cpp or (int)NativeNameSource.Ida or (int)NativeNameSource.NativeAot)) return null;
+            if (source is not ((int)NativeNameSource.Pdb or (int)NativeNameSource.Metadata or (int)NativeNameSource.Ida or (int)NativeNameSource.NativeAot)) return null;
             var origin = r.ReadString();
             var path = r.ReadString();
             var identity = r.ReadString();

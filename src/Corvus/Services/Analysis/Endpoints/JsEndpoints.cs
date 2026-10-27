@@ -5,11 +5,8 @@ using Corvus.Services.Web;
 namespace Corvus.Services.Analysis.Endpoints;
 
 /// <summary>
-/// Endpoints a JavaScript file names, on its syntax tree: fetch, axios (and axios.create base URLs), XMLHttpRequest.open,
-/// jQuery ajax, sendBeacon, WebSocket and EventSource targets, method calls of HTTP clients (get, post...) on path-like
-/// URLs, GraphQL operations in gql / graphql templates, router path tables (React Router, Vue Router, Angular, Next.js
-/// build manifests) as ROUTE rows, and absolute URL literals no call names. Constants, concatenations and templates are
-/// folded ({name} for what stays computed); a function that passes its parameter into the URL is followed to its callers.
+/// Endpoints a JavaScript file names: HTTP, WebSocket and GraphQL calls, router tables as ROUTE rows, and URL literals.
+/// Computed parts fold to {name}; a function that builds a URL from its parameter is followed to its callers.
 /// </summary>
 internal static partial class JsEndpoints
 {
@@ -38,12 +35,12 @@ internal static partial class JsEndpoints
         {
             if (endpoints.Count - start >= MaxRows || url is not JsString s) return;
             var text = s.Text.Trim();
-            // a URL built from a parameter of the enclosing function: the function is a wrapper, its callers give the URL
+            // A URL built from a parameter makes the function a wrapper; its callers give the URL.
             if (!s.Exact && urlNode != null && Param(p, urlNode, scope) is { } param && text.Contains("{" + param.Name + "}", StringComparison.Ordinal))
             {
                 var placeholder = "{" + param.Name + "}";
                 wrappers.TryAdd(param.ParamOf!, new Wrapper(param.ParamIndex, text, placeholder, verb, client));
-                // a parameter that is a whole segment (/users/{id}) leaves an endpoint; one that is the path (BASE + path) does not
+                // A whole-segment parameter (/users/{id}) leaves an endpoint; a whole-path one (BASE + path) does not.
                 int pos = text.IndexOf(placeholder, StringComparison.Ordinal);
                 if (pos == 0 || text[pos - 1] is not ('/' or '=' or '-' or '.' or '_')) return;
             }
@@ -83,7 +80,7 @@ internal static partial class JsEndpoints
             }
         }, ct);
 
-        // callers of URL wrappers: a literal (or folded constant) at the wrapper's parameter
+        // Callers of URL wrappers: a literal or folded constant at the wrapper's parameter.
         if (wrappers.Count > 0)
         {
             var wrapperNames = wrappers.Keys.Select(f => names.GetValueOrDefault((Node)f)).OfType<string>().ToHashSet(StringComparer.Ordinal);
@@ -102,7 +99,7 @@ internal static partial class JsEndpoints
             }
         }
 
-        // absolute URL literals no call named
+        // Absolute URL literals no call named.
         p.Walk((node, _) =>
         {
             if (node is StringLiteral s && !named.Contains(s) && s.Value.Length is >= 10 and <= 2048 && EndpointTemplates.IsLinkUrl(s.Value) && endpoints.Count - start < MaxRows)
@@ -147,7 +144,7 @@ internal static partial class JsEndpoints
         {
             var client = obj is JsClient jc ? jc.Name : chain?.Contains("axios", StringComparison.Ordinal) == true ? "axios" : owner is "$" or "jQuery" ? "jquery" : "http";
             var url = p.Eval(args[0], scope);
-            // a generic get/post: only a URL-shaped first argument counts
+            // A generic get/post counts only with a URL-shaped first argument.
             if (client == "http" && (url is not JsString us || !Plausible(us.Text, strict: true))) return;
             add(method.ToUpperInvariant(), Based(p, obj, url, null), c, client, args[0], scope);
         }
@@ -162,7 +159,7 @@ internal static partial class JsEndpoints
     private static JsValue? Based(JsProgram p, JsValue? client, JsValue? url, JsValue? baseUrl)
     {
         var b = client is JsClient { Base: { } cb } ? cb : baseUrl is JsString bs ? bs.Text : null;
-        // axios joins as combineURLs does: the base without trailing slashes, '/', the URL without leading ones
+        // As axios combineURLs: base without trailing slashes, '/', URL without leading ones.
         return b != null && url is JsString u && !EndpointTemplates.IsAbsoluteUrl(u.Text) ? new JsString(b.TrimEnd('/') + "/" + u.Text.TrimStart('/'), u.Exact) : url;
     }
 
@@ -218,8 +215,7 @@ internal static partial class JsEndpoints
 
     private static string Line(Node n) => $"{n.Location.Start.Line}:{n.Location.Start.Column + 1}";
 
-    // Fixed linear patterns take no match timeout: a 50 ms one ran out on a
-    // loaded machine and threw.
+    // Fixed linear patterns take no match timeout: a 50 ms one threw on a loaded machine.
     [GeneratedRegex(@"\b(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)")]
     private static partial Regex GraphQlOperation();
 

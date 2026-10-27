@@ -6,29 +6,19 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Contract sweep: every tool advertised by tools/list, called through a real stdio client with arguments generated from its
-/// input schema (missing, wrong-typed, empty, blank, huge, out-of-range, nonexistent, path-like and invisible-character
-/// values). Every call must finish within <see cref="CallLimit"/> with either a success whose structured content matches the
-/// output schema or a coded tool error ("Error (code) in tool: ..."); an internal error, a protocol error, a hang or a dead
-/// server fails. New tools are covered as soon as they are advertised.
-/// </summary>
+/// <summary>Every advertised tool, called with schema-generated good and bad arguments, answers within <see cref="CallLimit"/> with a schema-valid success or a coded tool error.</summary>
 public static partial class ContractSweep
 {
     public static readonly TimeSpan CallLimit = TimeSpan.FromSeconds(20);
 
-    /// <summary>
-    /// The parameters naming files a tool writes; the sweep only passes paths inside its temp directory there. What tools do
-    /// (read-only, destructive, open-world) is in the server's ToolEffects table, checked against these and against what the
-    /// full sweep observes.
-    /// </summary>
+    /// <summary>Parameters naming files a tool writes; the sweep passes only paths inside its temp directory there.</summary>
     internal static readonly Dictionary<string, Dictionary<string, string[]>> FileWritersByFamily = new(StringComparer.Ordinal)
     {
         ["session"] = SessionFileWriters(),
         ["dotnet"] = DotnetFileWriters(),
         ["containers"] = ContainersFileWriters(),
         ["edit"] = EditFileWriters(),
-        ["il2cpp"] = Il2CppFileWriters(),
+        ["aot"] = AotFileWriters(),
         ["native"] = NativeFileWriters(),
         ["native-edit"] = NativeEditFileWriters(),
         ["builds"] = BuildsFileWriters(),
@@ -64,8 +54,7 @@ public static partial class ContractSweep
     {
         var cwd = dir.File("cwd");
         Directory.CreateDirectory(cwd);
-        // No engine is found, whatever this machine has installed: a call that would open an IDA or Ghidra database (minutes
-        // under load) answers provider_unavailable at once; the engines' own tests cover them.
+        // No engine is found, so calls that would open an IDA or Ghidra database answer provider_unavailable at once.
         var noEngines = new Dictionary<string, string?>
         {
             [Corvus.Native.Providers.Ida.IdaInstallation.DirectoryVariable] = dir.File("no-ida"),
@@ -176,11 +165,7 @@ public static partial class ContractSweep
         _ => null,
     };
 
-    /// <summary>
-    /// The cases for every tool: a plausible call, then one bad value at a time on top of it. <see cref="Depth.Full"/> tries
-    /// every value class on every parameter; <see cref="Depth.Core"/> one per parameter, taking the classes in turn so that
-    /// each class still meets many tools.
-    /// </summary>
+    /// <summary>A plausible call per tool, then one bad value at a time; <see cref="Depth.Full"/> tries every value class per parameter, <see cref="Depth.Core"/> one in turn.</summary>
     public static List<Case> Build(IList<McpClientTool> tools, TempDir dir, Depth depth)
     {
         var known = McpProtocolTests.ToolCases(dir);
@@ -272,15 +257,10 @@ public static partial class ContractSweep
     }
 
     /// <summary>
-    /// Runs the cases tool by tool (calls of one tool in parallel), restoring the workspace between tools; or, when
-    /// <paramref name="byTool"/> is false, in two parallel batches (faster; the contract holds whatever the workspace state
-    /// is): first the read-only tools and those with a dry run, then the others, which mostly take the exclusive lock and
-    /// would hold up the first batch; the <see cref="DeviceTools"/> run last, on their own.
+    /// Runs the cases tool by tool, restoring the workspace between tools, or with <paramref name="byTool"/> false in two parallel
+    /// batches: read-only and dry-run tools first, then the rest; <see cref="DeviceTools"/> run last.
     /// </summary>
-    /// <remarks>
-    /// With <paramref name="observe"/> (by tool only), the files under that directory and the fixtures' edits are compared
-    /// before and after each tool's calls: a tool annotated read-only that changed them fails.
-    /// </remarks>
+    /// <remarks>With <paramref name="observe"/> (by tool only), a read-only tool that changed files or edits fails.</remarks>
     public static async Task<List<Result>> RunAsync(McpClient client, IList<McpClientTool> tools, List<Case> cases, bool byTool = true, int parallelism = 6,
         string? observe = null)
     {
@@ -313,30 +293,17 @@ public static partial class ContractSweep
         return all;
     }
 
-    /// <summary>
-    /// Tools that start adb for each call, twice (devices -l, then the command): the fake adb is a .NET program, and with
-    /// 60 below-normal CPU burners beside the parallel batch each start took 4-11 s, so a call reached <see cref="CallLimit"/>.
-    /// </summary>
+    /// <summary>Tools that start the fake adb twice per call; under load each start took 4-11 s, reaching <see cref="CallLimit"/>.</summary>
     private static readonly HashSet<string> DeviceTools =
     [
         "get_android_device_info", "get_android_package_info", "install_android_package", "list_android_devices", "list_android_packages",
         "pull_android_file", "pull_android_package", "read_android_log", "uninstall_android_package",
     ];
 
-    /// <summary>
-    /// Tools whose first call in a server pays a cold start: JIT of a large library (the decompiler, the PDB type reader,
-    /// the C# compiler, the ReadyToRun reader) or, for list_assemblies with a path, the start of the files worker and its
-    /// first read. Alone in a fresh test server a first call took 1-5 s idle and 6-22 s loaded, near or over
-    /// <see cref="CallLimit"/>; the files worker under load took 3-17 s to start and 4-5 s more for its first read.
-    /// Warm, each call takes under 1 s.
-    /// </summary>
+    /// <summary>Tools whose first call pays a cold start (JIT of a large library, the files worker): 6-22 s loaded, near <see cref="CallLimit"/>; warm calls take under 1 s.</summary>
     private static readonly string[] Warmed = ["decompile_member", "get_native_type", "add_members_csharp", "get_r2r_code", "list_assemblies"];
 
-    /// <summary>
-    /// Calls each <see cref="Warmed"/> tool's plausible case once, untimed and unjudged, the C# edit as a dry run, then
-    /// unloads a file it loaded, so the timed calls see a warm server and the same workspace; a warm call that hangs is
-    /// left to its timed call.
-    /// </summary>
+    /// <summary>Calls each <see cref="Warmed"/> tool's plausible case once, untimed, then unloads what it loaded, so timed calls see a warm server and the same workspace.</summary>
     public static async Task WarmAsync(McpClient client, List<Case> cases)
     {
         await Task.WhenAll(cases.Where(c => c.Label == "plausible" && Warmed.Contains(c.Tool)).Select(async c =>
@@ -441,11 +408,7 @@ public static partial class ContractSweep
 
     private static string Clip(string s) => s.Length > 400 ? s[..400] + "..." : s;
 
-    /// <summary>
-    /// S4.1 (StructuredCompletenessTests): what the text says the record must say too. (a) a continuation footer: nextOffset
-    /// or resultId; (b) [workspace] notices: notices; (c) "Incomplete"/"Partial": coverage or warnings; (d) a code or bytes
-    /// page: the body. Null when the record is complete.
-    /// </summary>
+    /// <summary>What the text says the record must say too (continuations, notices, coverage, page bodies); null when the record is complete.</summary>
     public static string? Incomplete(string tool, string text, JsonElement record)
     {
         bool Has(string name) => record.ValueKind == JsonValueKind.Object && record.TryGetProperty(name, out _);
@@ -564,7 +527,7 @@ public sealed class ContractSweepTests : IAsyncLifetime
     }
 
     [Fact]
-    public void AdvertisedSchemasAreValid()
+    public void Advertised_schemas_are_valid()
     {
         var problems = new List<string>();
         foreach (var tool in _tools)
@@ -584,7 +547,7 @@ public sealed class ContractSweepTests : IAsyncLifetime
     }
 
     [Fact]
-    public void AnnotationsMatchWhatToolsDo()
+    public void Annotations_match_what_tools_do()
     {
         var problems = new List<string>();
         var table = Corvus.Mcp.ToolEffects.Table;
@@ -630,7 +593,7 @@ public sealed class ContractSweepTests : IAsyncLifetime
 
     /// <summary>What the sweep found: wrong JSON types, paths System.IO rejects and offsets that overflowed were internal errors.</summary>
     [Fact]
-    public async Task BadArgumentsAreInvalidArgumentErrors()
+    public async Task Bad_arguments_are_invalid_argument_errors()
     {
         // The error text; the JSON block after it is checked by the sweep.
         async Task<string> Call(string tool, Dictionary<string, object?> args) =>
@@ -644,7 +607,7 @@ public sealed class ContractSweepTests : IAsyncLifetime
             await Call("list_types", new() { ["limit"] = 9_999_999_999L }));
         Assert.Equal("Error (invalid_argument) in get_type_info: parameter 'type' must be a string, not null." + typeNext,
             await Call("get_type_info", new() { ["type"] = null }));
-        // null for an optional parameter means "not given".
+        // Null for an optional parameter means "not given".
         Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account", ["includeCompilerGenerated"] = null }));
         Assert.StartsWith("Error (invalid_argument) in load_assembly: parameter 'path' is empty.", await Call("load_assembly", new() { ["path"] = "" }));
         Assert.StartsWith("Error (invalid_argument) in load_assembly: parameter 'path' is not a valid path: a name in it is 100000 characters long; the limit is 255.",
@@ -665,7 +628,7 @@ public sealed class ContractSweepTests : IAsyncLifetime
 
     /// <summary>The list, search and info tools agents chain: readable text as the text block, the same facts as structured content.</summary>
     [Fact]
-    public async Task ListsAndSearchesAreStructured()
+    public async Task Lists_and_searches_are_structured()
     {
         string[] structured =
         [
@@ -718,10 +681,7 @@ public sealed class ContractSweepTests : IAsyncLifetime
     }
 }
 
-/// <summary>
-/// The core of the sweep, in a class of its own so it runs beside the other contract tests rather than after them. Full set:
-/// the quick set runs its slice (QuickSweepTests).
-/// </summary>
+/// <summary>The core sweep, in its own class so it runs beside the other contract tests; the quick set runs its slice (QuickSweepTests).</summary>
 [Trait("Speed", "Slow")]
 public sealed class ContractSweepCoreTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
 {
@@ -743,7 +703,7 @@ public sealed class ContractSweepCoreTests(Xunit.Abstractions.ITestOutputHelper 
     }
 
     [Fact]
-    public async Task CoreSweep()
+    public async Task Core_tools_keep_the_contract()
     {
         var cases = ContractSweep.Build(_tools, _dir, ContractSweep.Depth.Core);
         var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -761,7 +721,7 @@ public sealed class ContractSweepFullTests(Xunit.Abstractions.ITestOutputHelper 
     private readonly Xunit.Abstractions.ITestOutputHelper _output = output;
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task FullSweep()
+    public async Task Every_tool_keeps_the_contract_at_full_depth()
     {
         using var dir = new TempDir();
         await using var client = await ContractSweep.StartAsync(dir);

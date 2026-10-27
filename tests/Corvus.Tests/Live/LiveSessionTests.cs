@@ -205,7 +205,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 return new JsonObject { ["dropped"] = true, ["kept"] = 0 };
             case "resume":
                 BeforeResumeReply?.Invoke();
-                // as the worker: a program started suspended runs on the first resume of every thread
+                // As the worker: a program started suspended runs on the first resume of every thread.
                 var started = _suspended && args["thread"] == null;
                 if (started) _suspended = false;
                 long[] resumed;
@@ -216,7 +216,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 }
                 return new JsonObject { ["resumed"] = new JsonArray([.. resumed.Select(r => (JsonNode)r)]), ["started"] = started };
             case "read":
-                // as Frida reads: the whole range or nothing; the pages Memory touches are readable, zero outside its bytes
+                // As Frida reads: the whole range or nothing; the pages Memory touches are readable, zero outside its bytes.
                 ulong at = Convert.ToUInt64(((string)args["address"]!)[2..], 16);
                 var bytes = new byte[(int)args["length"]!];
                 for (int i = 0; i < bytes.Length; i++)
@@ -231,7 +231,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 return new JsonObject { ["address"] = Exports.TryGetValue($"{args["module"]}!{args["name"]}", out var export) ? $"0x{export:x}" : null };
             case "capture_memory" when Captures:
             {
-                // as the worker: each block of Memory is one writable range, saved in address order
+                // As the worker: each block of Memory is one writable range, saved in address order.
                 var saved = new JsonArray();
                 long offset = 0;
                 using (var file = File.Create((string)args["path"]!))
@@ -403,7 +403,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         }
         Assert.Contains($"3 modules, 2 matched to loaded images", status);
         Assert.Contains($"0x7FF700000000 Newtonsoft.Json.dll  = {asm.Id} (assembly)", status);
-        // another build under the same name is not that assembly
+        // Another build under the same name is not that assembly.
         File.WriteAllBytes(copy, [.. File.ReadAllBytes(original).Take(0x400), .. new byte[16]]);
         _backend.Load("Newtonsoft.Json.dll", copy, 0x7ff7_1000_0000, size);
         // The load event is read in the background: wait for its row as above rather than for a fixed time.
@@ -483,7 +483,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         const ulong PluginBase = 0x7ff7_0000_0000;
         _backend.Load("plugin.dll", Sqlite, PluginBase, 0x200000, heldBy: 77);
         for (int i = 0; i < 100 && !_backend.Ops.Contains("release_load"); i++) await Task.Delay(50);
-        // the loading thread goes on only once both are set
+        // The loading thread goes on only once both are set.
         List<string> ops;
         lock (_backend.Ops) ops = [.. _backend.Ops];
         Assert.True(ops.IndexOf("release_load") > ops.IndexOf("set") && ops.IndexOf("release_load") > ops.IndexOf("watch"), string.Join(",", ops));
@@ -514,7 +514,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
     [Fact]
     public async Task A_deferred_point_not_set_at_the_load_is_reported_once_and_listed_as_failed()
     {
-        // the session's code service carries an Il2Cpp layer naming sqlite3_open "App_Player__Update"; the point is given in the managed form
+        // The session's code service carries a metadata layer naming sqlite3_open "App_Player__Update"; the point is given in the managed form.
         var code = new NativeCodeService(_workspace, SharedCodeIndex.Options());
         using var service = new LiveSessionService(_workspace, code) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
         var backend = (ScriptedLiveBackend)service.Backend;
@@ -522,7 +522,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         var native = _workspace.LoadAny(Sqlite).Native!;
         var index = await code.Index(native, null, default);
         var rva = index.AddressOfName("sqlite3_open")!.Value;
-        NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [rva] = "App_Player__Update" },
+        NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Metadata, new Dictionary<uint, string> { [rva] = "App_Player__Update" },
             new Dictionary<uint, string>(), "test"), index);
         await tools.LiveSession("attach", program: "99994242");
         await tools.LiveBreak("live-1", "set", at: "plugin!App.Player::Update()");
@@ -535,17 +535,17 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         Assert.Contains("deferred watch w1 at plugin!no_such_function was dropped (plugin.dll loaded): ", first);
         Assert.Contains("0 stop point(s), 1 failed", first);
         Assert.Contains("s1 plugin!App.Player::Update(): failed (plugin.dll loaded): ", first);
-        Assert.Contains("Next: at=plugin.dll!App_Player__Update (the il2cpp layer's name for it)", first);
-        // said once; the list keeps the failed point until it is cleared
+        Assert.Contains("Next: at=plugin.dll!App_Player__Update (the metadata layer's name for it)", first);
+        // Said once; the list keeps the failed point until it is cleared.
         var again = await tools.LiveBreak("live-1");
         Assert.DoesNotContain("was dropped", again);
         Assert.DoesNotContain("Next:", again);
         Assert.Contains("s1 plugin!App.Player::Update(): failed", again);
         Assert.Contains("w1 plugin!no_such_function: failed (plugin.dll loaded): ", await tools.LiveWatchCalls("live-1"));
         Assert.DoesNotContain("failed", await tools.LiveBreak("live-1", "clear", stopPoint: "s1"));
-        // set now: the same hint
+        // Set now: the same hint.
         var refused = await Assert.ThrowsAsync<ToolError>(() => tools.LiveBreak("live-1", "set", at: "plugin!App.Player::Update"));
-        Assert.Equal("at=plugin.dll!App_Player__Update (the il2cpp layer's name for it)", refused.Remediation);
+        Assert.Equal("at=plugin.dll!App_Player__Update (the metadata layer's name for it)", refused.Remediation);
         Assert.Contains("plugin.dll!App_Player__Update", await tools.LiveBreak("live-1", "set", at: "plugin!App_Player__Update"));
     }
 
@@ -605,10 +605,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         Assert.Matches($@"#1 0x{LibBase + inner:X} old\.dll\+0x{inner:X}\r?\n", stop);
     }
 
-    // An unloaded ELF names frames by its .symtab and .dynsym functions, as
-    // dump_stack does. A static function is not named after the export below
-    // it, and a return address just past a noreturn call at a function's end
-    // names that function.
+    // An unloaded ELF names frames by .symtab and .dynsym; a return address just past a final noreturn call names that function.
     [Fact]
     public async Task An_unloaded_elf_names_frames_by_its_symbol_table_and_a_return_address_by_its_call()
     {
@@ -696,7 +693,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         await tools.LiveBreak("live-1", "set", at: "SystemNative_FStat");
         var index = new NativeCodeService(_workspace, SharedCodeIndex.Options()).IndexOfOriginal(_workspace.Natives.Single(), default);
         ulong caller = ElfBase + index.AddressOfName("SystemNative_StrErrorR")!.Value + 0x10;
-        // at the function's start the return address is at the stack pointer; the backend's walk put the word there twice
+        // At the function's start the return address is at the stack pointer; the backend's walk put the word there twice.
         backend.HitWithStack("s1", 77, Sp, [.. BitConverter.GetBytes(caller), .. new byte[8]], caller, caller);
         var stop = await tools.LiveBreak("live-1", wait: true, waitSeconds: 10);
         Assert.Contains($"#1 0x{caller:X} libSystem.Native.so!SystemNative_StrErrorR+0x10", stop);
@@ -704,7 +701,9 @@ public sealed class LiveSessionTests : LiveSessionTestBase
     }
 }
 
-/// <summary>Sessions on a scripted backend: how a program starts, ends and closes, and the exit events.</summary>
+/// <summary>Sessions on a scripted backend: how a program starts, ends and closes, and the exit events. Serial: it sets
+/// the shared StuckExit that real-program tests read.</summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class LiveSessionExitTests : LiveSessionTestBase
 {
     [Fact]
@@ -762,7 +761,7 @@ public sealed class LiveSessionExitTests : LiveSessionTestBase
     [Trait("Speed", "Slow")]
     public async Task A_program_whose_exit_never_finishes_is_ended_with_its_exit_code()
     {
-        // a TLS callback that never returns on process detach holds the exit, as a stuck DLL shutdown does
+        // A TLS callback that never returns on process detach holds the exit, as a stuck DLL shutdown does.
         const string Source = """
             #include <windows.h>
             static void NTAPI OnTls(PVOID h, DWORD reason, PVOID r) { if (reason == DLL_PROCESS_DETACH) for (;;) Sleep(10); }
@@ -922,8 +921,7 @@ public sealed class LiveSessionExitTests : LiveSessionTestBase
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
             await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "99994242");
             var session = service.Get("live-1");
-            // Both closes are released together, so both can pass the closed check. Each waits on a thread of its
-            // own: on a busy pool, a pool thread blocked at the barrier waits seconds for the other to start.
+            // Both closes are released together; each waits on its own thread, since a pool thread at the barrier can wait seconds.
             using var together = new Barrier(2);
             var closes = Enumerable.Range(0, 2).Select(_ => Task.Factory.StartNew(() => { together.SignalAndWait(); return service.CloseAsync(session, "request"); },
                 CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap()).ToArray();
@@ -942,8 +940,7 @@ public sealed class LiveSessionExitTests : LiveSessionTestBase
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
             await new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service).LiveSession("attach", program: "99994242");
             var session = service.Get("live-1");
-            // A spinning reader sees the state the moment it changes; on a thread of its own, it neither waits for a
-            // pool thread nor holds one, which stalled this test for seconds beside the parallel classes.
+            // A spinning reader on its own thread sees each change at once without holding a pool thread.
             var reader = Task.Factory.StartNew(() =>
             {
                 while (session.State != "exited") Thread.SpinWait(1);
@@ -1209,7 +1206,7 @@ public sealed class LiveSessionReadTests : LiveSessionTestBase
         using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "findstr.exe"), "x")
             { RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true })!;
         var dumps = new MinidumpService();
-        // findstr runs as the machine's own architecture.
+        // Findstr runs as the machine's own architecture.
         var arch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
         var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = child.Id, Arch = arch } };
         var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true }, service, dumps);
@@ -1246,7 +1243,7 @@ public sealed class LiveSessionReadTests : LiveSessionTestBase
         Assert.Contains($"  \"{text}\"\n", (await _tools.LiveRead("live-1", memory: "0x10000", type: "cstring")).ReplaceLineEndings("\n"));
         Assert.Contains($"  \"{text}\"\n", (await _tools.LiveRead("live-1", memory: "0x20000", type: "utf16")).ReplaceLineEndings("\n"));
         Assert.Contains($"  \"{text[..16]}\" (cut: no terminator in 16 bytes)", await _tools.LiveRead("live-1", memory: "0x10000", type: "cstring", length: 16));
-        // a string that runs to the end of readable memory, and one across a page boundary
+        // A string that runs to the end of readable memory, and one across a page boundary.
         _backend.Memory[0x30FF0] = [.. Enumerable.Repeat((byte)'b', 16)];
         Assert.Contains($"  \"{new string('b', 16)}\" (cut: unreadable memory at 0x31000)", await _tools.LiveRead("live-1", memory: "0x30FF0", type: "cstring"));
         _backend.Memory[0x40F00] = [.. Enumerable.Repeat((byte)'c', 0x180), 0, .. new byte[0x100]];

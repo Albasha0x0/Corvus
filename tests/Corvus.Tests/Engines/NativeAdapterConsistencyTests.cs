@@ -6,11 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The code index and RTTI recovery give the same results on the real PE parser (<see cref="PeFile"/>, the reference for
-/// loader semantics) and on the test-only adapters written before it (<see cref="CodeTestImage"/>, <see cref="MsvcTestImage"/>).
-/// CORVUS_NATIVE_ADAPTER_SAMPLE sets the files per directory (default 60; 0 = all).
-/// </summary>
+/// <summary>The code index and RTTI recovery agree on <see cref="PeFile"/> and the test adapters <see cref="CodeTestImage"/>, <see cref="MsvcTestImage"/> (CORVUS_NATIVE_ADAPTER_SAMPLE, default 60, 0 all).</summary>
 [Trait("Speed", "Slow")]
 public class NativeAdapterConsistencyTests(ITestOutputHelper output)
 {
@@ -24,7 +20,7 @@ public class NativeAdapterConsistencyTests(ITestOutputHelper output)
 
     [Theory]
     [MemberData(nameof(Directories))]
-    public void SameFunctionsReferencesAndClasses(string directory)
+    public void Adapters_report_the_same_functions_references_and_classes(string directory)
     {
         if (!OperatingSystem.IsWindows() || !Directory.Exists(directory)) return;
         var files = NativeToolSweepTests.Sample(NativeToolHarness.NativeFiles(directory, maxSize: 30_000_000)

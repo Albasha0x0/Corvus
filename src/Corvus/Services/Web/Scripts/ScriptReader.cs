@@ -2,10 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Services.Web.Scripts;
 
-/// <summary>
-/// Reads PowerShell, batch, VBScript and JavaScript with their transformation layers peeled to plain text. Runs on a
-/// thread of its own with a large stack, so deeply nested input ends at the evaluator's depth limits, not the stack's.
-/// </summary>
+/// <summary>Reads PowerShell, batch, VBScript and JavaScript with transformation layers peeled to plain text; runs nothing.</summary>
 public static class ScriptReader
 {
     /// <summary>The languages read; cmd is a command line (cmd /c, Run, wmic), batch a .bat / .cmd file.</summary>
@@ -30,16 +27,14 @@ public static class ScriptReader
         return null;
     }
 
-    /// <summary>
-    /// Reads <paramref name="text"/> in <paramref name="language"/> within <paramref name="steps"/> evaluation steps, or
-    /// <paramref name="milliseconds"/> if that comes first; never runs it.
-    /// </summary>
+    /// <summary>Reads <paramref name="text"/> within <paramref name="steps"/> or <paramref name="milliseconds"/>, whichever ends first.</summary>
     public static ScriptReading Read(string text, string language, CancellationToken ct = default, long steps = ScriptBudget.DefaultSteps,
         int milliseconds = ScriptBudget.DefaultMilliseconds)
     {
         var ctx = new ScriptContext(new ScriptBudget(steps, milliseconds, ct: ct));
         string? plain = null;
         Exception? failure = null;
+        // A 64 MiB stack lets nested input end at the evaluators' depth limits, not the stack's.
         var thread = new Thread(() =>
         {
             try { plain = ReadLayer(language, text, ctx, 0); }
@@ -53,7 +48,7 @@ public static class ScriptReader
             ctx.Note($"The {language} reader stopped: {failure.GetType().Name}.");
             ctx.Incomplete = true;
         }
-        if (ctx.Budget.TimedOut) ctx.Note(FormattableString.Invariant($"The {ctx.Budget.Seconds:0.##} s time limit ran out before the step budget: the reading is partial."));
+        if (ctx.Budget.TimedOut) ctx.Note(FormattableString.Invariant($"The {ctx.Budget.Seconds:0.##} s time limit ran out: the reading is partial."));
         return new ScriptReading(language, plain ?? text, ctx.Layers, ctx.Folded, ctx.Calls.ToList(), ctx.Notes) { Complete = !ctx.Incomplete && !ctx.Budget.Exhausted, Recovered = ctx.Recovered.ToList() };
     }
 

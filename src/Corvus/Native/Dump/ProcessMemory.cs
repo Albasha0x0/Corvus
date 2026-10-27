@@ -3,10 +3,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Dump;
 
-/// <summary>
-/// The address space of a user-mode process as the stack walker and the namer see it: a minidump
-/// (<see cref="MinidumpFile"/>) or a running process read without changing it (<see cref="Live.LiveProcess"/>).
-/// </summary>
+/// <summary>A user-mode process address space: a minidump or a running process read without changing it.</summary>
 public interface IProcessMemory
 {
     /// <summary>Instruction set of the process (x86 for a WoW64 process seen from its 32-bit side).</summary>
@@ -22,10 +19,7 @@ public interface IProcessMemory
 
     IReadOnlyList<DumpUnloadedModule> UnloadedModules { get; }
 
-    /// <summary>
-    /// Copies memory starting at <paramref name="address"/>; stops at the first byte that cannot be read and returns the
-    /// number of bytes copied. Never throws for unreadable addresses.
-    /// </summary>
+    /// <summary>Copies memory from <paramref name="address"/> up to the first unreadable byte; returns the count copied, never throws.</summary>
     int ReadMemory(ulong address, Span<byte> destination);
 
     DumpModule? ModuleAt(ulong address);

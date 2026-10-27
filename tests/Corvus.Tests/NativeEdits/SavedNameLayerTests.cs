@@ -4,7 +4,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Tests;
 
-/// <summary>Name layers saved in the data folder (PDB, Il2Cpp, IDA, NativeAOT names) and read back at load.</summary>
+/// <summary>Name layers saved in the data folder (PDB, metadata, IDA, NativeAOT names) and read back at load.</summary>
 public sealed class SavedNameLayerTests
 {
     private const string Sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -37,5 +37,23 @@ public sealed class SavedNameLayerTests
         }, 1000);
         failures.AddRange(FormatFuzz.Run(saved, b => SavedNameLayer.Read(new MemoryStream(b), Sha), 300));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
+
+    // A metadata layer as versions up to 2.7 named it: <sha256>.il2cpp.names.
+    [Fact]
+    public void A_metadata_layer_saved_under_the_earlier_file_name_loads_and_deletes()
+    {
+        using var dir = new TempDir();
+        var store = new AnnotationStore(dir.File("ann"));
+        var layer = new NativeNameLayers.Layer(NativeNameSource.Metadata, new Dictionary<uint, string> { [0x1000] = "App_Main" },
+            new Dictionary<uint, string>(), "metadata");
+        Assert.Null(store.SaveLayer(Sha, "x.dll", layer));
+        var written = store.LayerFileFor(Sha, NativeNameSource.Metadata);
+        Assert.EndsWith(".metadata.names", written, StringComparison.Ordinal);
+        File.Move(written, Path.Combine(store.Root, Sha + ".il2cpp.names"));
+
+        Assert.Equal("App_Main", store.LoadLayer(Sha, NativeNameSource.Metadata)!.Names[0x1000]);
+        Assert.True(store.DeleteLayer(Sha, NativeNameSource.Metadata));
+        Assert.Empty(Directory.GetFiles(store.Root, "*.names"));
     }
 }

@@ -23,7 +23,7 @@ public sealed class DiskImageTests
     [Fact]
     public void Disc_images_list_their_tree_as_7zip_does()
     {
-        // 7-Zip 24 lists the same names and sizes for each image
+        // 7-Zip 24 lists the same names and sizes for each image.
         Assert.Equal(["DOCS/AFOLDE~1/QUARTE~1.TXT 11", "DOCS/SETUP.ZIP 139", "README.TXT 19"], Paths(Open("iso9660.iso")));
         string[] tree = ["docs/a folder with a long name/Quarterly Report (final).txt 11", "docs/setup.zip 139", "readme.txt 19"];
         Assert.Equal(tree, Paths(Open("joliet.iso")));
@@ -40,7 +40,8 @@ public sealed class DiskImageTests
         Assert.Equal("VHDX", c.Kind);
         Assert.Equal(["partition1/docs/a folder with a long name/Quarterly Report (final).txt 11", "partition1/docs/setup.zip 122",
             "partition1/docs/setup.zip:Zone.Identifier 26", "partition1/packed/repeated.txt 20000", "partition1/readme.txt 21", "partition2/fat-readme.txt 21"], Paths(c));
-        Assert.Equal(new string('A', 20000), Encoding.ASCII.GetString(c.Items.Single(i => i.Name == "partition1/packed/repeated.txt").Bytes)); // LZNT1
+        // LZNT1.
+        Assert.Equal(new string('A', 20000), Encoding.ASCII.GetString(c.Items.Single(i => i.Name == "partition1/packed/repeated.txt").Bytes));
         Assert.Contains("ZoneId=3", Encoding.ASCII.GetString(c.Items.Single(i => i.Name == "partition1/docs/setup.zip:Zone.Identifier").Bytes));
         Assert.Contains(c.Notes, n => n.Contains("volume 'CORVUS'", StringComparison.Ordinal));
     }
@@ -70,7 +71,7 @@ public sealed class DiskImageTests
     [FuzzEntry(typeof(Iso9660Reader), typeof(VirtualDiskReader), typeof(NtfsReader), typeof(DiskVolumes))]
     public void Fuzzed_disk_images_never_throw_past_a_tool_error()
     {
-        // the NTFS volume alone, read out of the VHDX's first partition
+        // The NTFS volume alone, read out of the VHDX's first partition.
         var volume = new byte[8 << 20];
         using (var disk = DiskStream.Open(Core.Firmware.FsSource.Of(Fixture("disk-gpt.vhdx"), "d"))!)
         {

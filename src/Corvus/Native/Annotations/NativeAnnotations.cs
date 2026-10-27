@@ -4,14 +4,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Native.Annotations;
 
-/// <summary>
-/// The user's names, comments and engine types for one image, keyed by RVA. The authoritative in-memory copy for a
-/// session: it is loaded from the sidecar when the image loads (by the image's load-time SHA-256, which stays the
-/// annotation key even after in-memory patches) and saved on every change. Saves merge: under the sidecar's lock the
-/// file is re-read and only this process's changes since the last read or write are applied on top, so several server
-/// processes annotating one image keep each other's entries; their entries flow into this copy
-/// (<see cref="MergedFromDisk"/>). The code index mirrors it so names show up in disassembly, list_functions and cross-references.
-/// </summary>
+/// <summary>The user's annotations of one image by RVA, keyed by the load-time SHA-256 even after patches; saved on every change, merging other processes' changes under the sidecar lock.</summary>
 public sealed class NativeAnnotations
 {
     private readonly AnnotationStore _store;
@@ -157,11 +150,7 @@ public sealed class NativeAnnotations
         lock (_gate) return _pseudo.Select(kv => (kv.Key, kv.Value)).OrderBy(p => p.Key).ToList();
     }
 
-    /// <summary>
-    /// Names, comments and pseudocode comments in one change, persisted once; a null or empty value removes the entry. Names
-    /// are validated and, unless <paramref name="allowDuplicate"/>, refused when used at another address (also within the
-    /// change); nothing is recorded when one is refused.
-    /// </summary>
+    /// <summary>Applies names and comments in one persisted change; null removes; a duplicate name refuses the whole change.</summary>
     public void Apply(IReadOnlyList<(uint Rva, string? Name)> names, IReadOnlyList<(uint Rva, string? Text)> comments,
         IReadOnlyList<(uint Rva, string? Text)> pseudo, bool allowDuplicate = false, IReadOnlyList<(uint Rva, string? Kind)>? kinds = null)
     {
@@ -205,10 +194,7 @@ public sealed class NativeAnnotations
         }
     }
 
-    /// <summary>
-    /// Validates and records a name at <paramref name="rva"/>; a null or empty name removes it. Refuses a name already
-    /// used at another address unless <paramref name="allowDuplicate"/>. Persists on success.
-    /// </summary>
+    /// <summary>Records a validated name at <paramref name="rva"/>; null removes it; refuses a duplicate unless allowed.</summary>
     public void SetName(uint rva, string? name, bool allowDuplicate = false)
     {
         Merged? merged;
@@ -271,10 +257,7 @@ public sealed class NativeAnnotations
 
     private static string Cap(string text) => text.Length > MaxComment ? text[..MaxComment] : text;
 
-    /// <summary>
-    /// Takes in what other processes saved since the last read or write. Cheap when nothing changed (one file stat), so
-    /// readers call it before reporting names.
-    /// </summary>
+    /// <summary>Takes in what other processes saved; one file stat when nothing changed.</summary>
     public void Refresh()
     {
         if (WriteBlocked != null) return;
@@ -330,8 +313,8 @@ public sealed class NativeAnnotations
         }
         _lastSaveProblem = null;
         if (conflicts.Count > 0)
-            _notify?.Invoke($"Annotations of {FilePath} were also changed by another process: {conflicts.Count} conflict(s), this process's values kept " +
-                            $"(a replaced name is kept as a [conflict] comment): {string.Join("; ", conflicts.Take(5))}{(conflicts.Count > 5 ? "; ..." : "")}");
+            _notify?.Invoke($"Annotations of {FilePath} were also changed by another process; {conflicts.Count} conflict(s) kept this process's values, replaced names as [conflict] comments: " +
+                            $"{string.Join("; ", conflicts.Take(5))}{(conflicts.Count > 5 ? "; ..." : "")}");
         var written = saved.Written!;
         var merged = Adopt(written);
         _base = Live();
@@ -480,11 +463,7 @@ public sealed class NativeAnnotations
         return doc;
     }
 
-    /// <summary>
-    /// Applies this process's changes (<paramref name="mine"/> against <paramref name="base"/>) onto <paramref name="disk"/>.
-    /// Where another process changed the same key too, this process's value wins, except that a removal loses to a
-    /// change; a replaced name is kept as a [conflict] comment and a replaced comment is appended to ours.
-    /// </summary>
+    /// <summary>Applies this process's changes onto <paramref name="disk"/>; ours win a conflict, except a removal loses to a change; a replaced name becomes a [conflict] comment.</summary>
     private static (Snapshot Merged, List<string> Conflicts) Merge(Snapshot @base, Snapshot mine, Snapshot disk)
     {
         var merged = disk.Clone();

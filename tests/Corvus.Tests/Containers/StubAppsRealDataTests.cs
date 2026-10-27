@@ -8,11 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real .NET applications whose references are missing, so their first resolutions build stubs (a re-entrant stub build
-/// raised dnlib's LockException on LINQPad 5.52.01 and Codist 9.0). CORVUS_STUB_APPS: <c>;</c>-separated entries
-/// <c>assembly path|member token|method token|type token</c>, e.g. <c>LINQPad.exe|0x06000413|0x06001AFA|0x020001FF</c>.
-/// </summary>
+/// <summary>Real applications with missing references build stubs on first resolution (CORVUS_STUB_APPS).</summary>
 public class StubAppsRealDataTests(ITestOutputHelper output)
 {
     private const string Variable = "CORVUS_STUB_APPS";
@@ -23,7 +19,7 @@ public class StubAppsRealDataTests(ITestOutputHelper output)
     [Fact]
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task FirstResolutionsAndEditsSucceed_AndVerifyDoesNotChainTimeouts()
+    public async Task First_resolutions_and_edits_succeed_and_verify_does_not_chain_timeouts()
     {
         if (Environment.GetEnvironmentVariable(Variable) is not { Length: > 0 } list) return;
         foreach (var entry in list.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))

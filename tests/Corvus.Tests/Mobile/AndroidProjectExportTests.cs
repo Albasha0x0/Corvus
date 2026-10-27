@@ -26,7 +26,7 @@ public sealed class AndroidProjectExportTests : IDisposable
     private string Read(string root, string relative) => File.ReadAllText(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
 
     [Fact]
-    public async Task WithoutJadx_ResourcesDecodedAndSmaliPerClass()
+    public async Task Without_JADX_export_decodes_resources_and_writes_smali_per_class()
     {
         using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
         using var java = new JavaDecompilerService(new DexService());
@@ -67,7 +67,7 @@ public sealed class AndroidProjectExportTests : IDisposable
 
     /// <summary>R8 names classes a and A in one package: on a case-insensitive file system the second gets its own file, not a conflict.</summary>
     [Fact]
-    public async Task ClassesDifferingOnlyInCaseGetTheirOwnFiles()
+    public async Task Classes_differing_only_in_case_get_their_own_files()
     {
         using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
         using var java = new JavaDecompilerService(new DexService());
@@ -83,7 +83,7 @@ public sealed class AndroidProjectExportTests : IDisposable
     }
 
     [Fact]
-    public async Task WithJadx_OneJavaFilePerTopLevelClass()
+    public async Task With_JADX_export_writes_one_Java_file_per_top_level_class()
     {
         var jar = Path.Combine(_fake.Directory, "jadx-headless-mcp-0.7.1-all.jar");
         File.WriteAllBytes(jar, [0x50, 0x4B, 3, 4]);
@@ -94,14 +94,15 @@ public sealed class AndroidProjectExportTests : IDisposable
         Assert.Equal("java", r.Sources);
         var javaRoot = Path.Combine(r.Directory, "app", "src", "main", "java");
         Assert.Equal("// source of com.example.app.Main", Read(javaRoot, "com/example/app/Main.java"));
-        Assert.False(File.Exists(Path.Combine(javaRoot, "com", "example", "app", "Main$Inner.java"))); // in its outer class's file
+        // In its outer class's file.
+        Assert.False(File.Exists(Path.Combine(javaRoot, "com", "example", "app", "Main$Inner.java")));
         Assert.Equal(r.Classes, Directory.GetFiles(javaRoot, "*.java", SearchOption.AllDirectories).Length);
         Assert.False(Directory.Exists(Path.Combine(r.Directory, "app", "src", "main", "smali")));
     }
 
     /// <summary>aapt2 rejects numbers for enum and flag attributes: the exported manifest names them; values without a name stay numbers.</summary>
     [Fact]
-    public async Task ManifestEnumAndFlagValuesAreWrittenByName()
+    public async Task Manifest_enum_and_flag_values_are_written_by_name()
     {
         const byte Hex = 0x11;
         var manifest = Write(new Node("manifest", String("package", "com.example.app", ns: null), Int("installLocation", 1, 0x010102b7))
@@ -128,7 +129,7 @@ public sealed class AndroidProjectExportTests : IDisposable
     /// as the framework names it; several attributes and flags were missing, so their values stayed numbers aapt2 rejects.
     /// </summary>
     [Fact]
-    public void ManifestEnumAndFlagNamesMatchTheFrameworkAttributes()
+    public void Manifest_enum_and_flag_names_match_the_framework_attributes()
     {
         // name=value pairs per attribute, as attrs_manifest.xml declares them (aliases such as protectionLevel "system" left out).
         const string Framework = """
@@ -182,7 +183,7 @@ public sealed class AndroidProjectExportTests : IDisposable
 
     /// <summary>A shrunk build renames resource files; they are written where their table entry says they belong.</summary>
     [Fact]
-    public async Task RenamedResourceFilesGoToTheirCanonicalPath()
+    public async Task Renamed_resource_files_go_to_their_canonical_path()
     {
         var res = new ArscWriter(0x7f, "com.example.app");
         res.String("string", "app_name", "Example");
@@ -196,6 +197,7 @@ public sealed class AndroidProjectExportTests : IDisposable
         var r = await new AndroidProjectExport(new DexService(), java).Export(apk, _dir.File("out"), null, default);
         Assert.Contains("<full-backup-content", Read(r.Directory, "app/src/main/res/xml/rules.xml"));
         Assert.False(File.Exists(Path.Combine(r.Directory, "app", "src", "main", "res", "a1.xml")));
-        Assert.Equal("none", r.Sources); // no DEX code
+        // No DEX code.
+        Assert.Equal("none", r.Sources);
     }
 }

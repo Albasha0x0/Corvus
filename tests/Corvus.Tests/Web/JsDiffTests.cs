@@ -78,7 +78,7 @@ public sealed class JsDiffTests : IDisposable
     /// <summary>Pairs of real bundle builds (a folder of folders, each with old.* and new.*): pairing rate and time.</summary>
     [RequiresRealDataFact(RealData.BundlePairs)]
     [Trait("Speed", "Slow")]
-    public void Real_bundle_pairs()
+    public void Real_bundle_builds_pair_their_functions()
     {
         foreach (var folder in Directory.EnumerateDirectories(RealData.Path(RealData.BundlePairs)))
         {

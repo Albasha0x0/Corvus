@@ -8,7 +8,7 @@ public class ReleaseScriptTests
     private static readonly string Script = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), "release.ps1"));
 
     [Fact]
-    public void TargetsComeFromTheWorkflowAndTheRepositoryIsOurs()
+    public void Targets_come_from_the_workflow_and_the_repository_is_this_one()
     {
         Assert.Contains(".github/workflows/release.yml", Script);
         Assert.Contains("'SHA256SUMS'", Script);
@@ -18,7 +18,7 @@ public class ReleaseScriptTests
     }
 
     [Fact]
-    public void ChecksAndListsEveryChannel()
+    public void The_release_script_checks_and_lists_every_channel()
     {
         // Assets the verification expects, matching what release.yml attaches.
         Assert.Contains("\"corvus-$_.mcpb\"", Script);
@@ -90,7 +90,7 @@ public class ReleaseScriptTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void ParsesAsPowerShell()
+    public void The_release_script_parses_as_PowerShell()
     {
         var path = Path.Combine(DocsTests.RepoRoot(), "release.ps1");
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true };

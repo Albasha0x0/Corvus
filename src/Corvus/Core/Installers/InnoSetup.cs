@@ -9,11 +9,7 @@ using SharpCompress.Compressors.LZMA;
 
 namespace Corvus.Core.Installers;
 
-/// <summary>
-/// Inno Setup installers (data formats 5.5 to 7.1; before 6.3 the Unicode builds): the loader's offset table (resource RCDATA 11111) locates setup-0,
-/// whose compressed blocks hold the header, the entries up to the file list, and the file locations; setup-1 holds the
-/// file data in chunks. Files are listed under their destination names ({app}\...) and checked against their SHA-1 or SHA-256.
-/// </summary>
+/// <summary>Inno Setup installers, data formats 5.5 to 7.1 (Unicode only before 6.3); files listed by destination and hash-checked.</summary>
 internal sealed class InnoSetupReader : IContainerReader
 {
     private const string OffsetTableType = "#10";
@@ -116,7 +112,7 @@ internal sealed class InnoSetupReader : IContainerReader
         if (layout.EncryptionHeader > 0)
         {
             var e = read(at, 4 + layout.EncryptionHeader) ?? throw new EndOfStreamException("the encryption header is cut short");
-            // EncryptionUse: 0 none, 1 files, 2 everything (setup-0 too)
+            // EncryptionUse: 0 none, 1 files, 2 everything (setup-0 too).
             if (e[4] == 2) throw new ToolError(ErrorCode.Unsupported, $"{name}: the Inno Setup data is encrypted with a password.");
             encryptedFiles = e[4] == 1;
             at += 4 + layout.EncryptionHeader;
@@ -312,10 +308,7 @@ internal sealed class InnoSetupReader : IContainerReader
     private sealed record LocationLayout(int Size, int StartOffset, int StartOffsetBytes, int ChunkSuboffset, int OriginalSize, int ChunkCompressedSize,
         int Hash, int Flags, int CallOptimized, int ChunkEncrypted, int ChunkCompressed, int HashBytes = 32);
 
-    /// <summary>
-    /// One data format: the encryption header size (0: none), the block stored-size width, the header record, the entry
-    /// records up to and including the file entries, their count fields in the header, and the file entry and location fields.
-    /// </summary>
+    /// <summary>The record layout of one data format; an encryption header size of 0 means none.</summary>
     private sealed record Layout(string Id, int EncryptionHeader, int StoredSizeBytes, Rec Header, Rec[] Entries, int[] Counts, int FileLocations,
         int CompressMethod, int FileLocation, int ExternalSize, int FileType, LocationLayout Location);
 

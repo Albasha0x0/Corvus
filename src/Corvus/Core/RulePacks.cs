@@ -6,20 +6,14 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A public YARA rule set pinned to one release archive: its URL and SHA-256, the archive folder whose .yar and .yara
-/// files are kept, the archive entry holding its license (null when the archive has none) and the license it states.
-/// </summary>
+/// <summary>A public YARA rule set pinned to one release archive by URL and SHA-256; LicenseEntry is null when it has none.</summary>
 public sealed record RulePack(string Name, string Version, string Url, string Sha256, string RulesFolder, string? LicenseEntry, string License, string Description);
 
 /// <summary>A rule pack installed under the data folder: its version, folder and number of rule files.</summary>
 public sealed record InstalledRulePack(string Name, string Version, string Folder, int RuleFiles);
 
-/// <summary>
-/// Opt-in YARA rule packs: <c>corvus rules fetch</c> downloads a pinned archive, refuses it unless its SHA-256 matches the
-/// pinned value, and installs its rules with their license under &lt;data&gt;/rules/&lt;pack&gt;/&lt;version&gt;/;
-/// search_container kind=yara reads them as query=pack:&lt;name&gt;. Nothing is fetched unless asked.
-/// </summary>
+/// <summary>Opt-in YARA rule packs fetched by <c>corvus rules fetch</c> and verified against a pinned SHA-256.</summary>
+/// <remarks>Installed with their license under &lt;data&gt;/rules/&lt;pack&gt;/&lt;version&gt;/; search_container kind=yara reads them as query=pack:&lt;name&gt;.</remarks>
 public static class RulePacks
 {
     public const string QueryPrefix = "pack:";
@@ -59,10 +53,7 @@ public static class RulePacks
         return packs;
     }
 
-    /// <summary>
-    /// The folder of installed pack <paramref name="name"/>: its pinned version when installed, else the one installed last;
-    /// null when none is.
-    /// </summary>
+    /// <summary>The installed pack's folder, pinned version first, else the last installed; null when none is.</summary>
     public static string? Folder(string root, string name)
     {
         var installed = Installed(root).Where(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -72,10 +63,7 @@ public static class RulePacks
                 ?? installed.OrderBy(p => File.GetLastWriteTimeUtc(Path.Combine(p.Folder, ManifestName))).Last()).Folder;
     }
 
-    /// <summary>
-    /// The rule folder a kind=yara query of the form pack:&lt;name&gt; names, or null for any other query; a pack that is not
-    /// installed is a not_found error naming the command that installs it.
-    /// </summary>
+    /// <summary>The rule folder a pack:&lt;name&gt; query names, null for other queries; a missing pack is a not_found error naming the install command.</summary>
     public static string? ResolveQuery(string query, string root)
     {
         var text = query.Trim();
@@ -87,11 +75,7 @@ public static class RulePacks
             Find(name) is { } known ? $"run: corvus rules fetch {known.Name}" : $"corvus rules list names the known packs: {string.Join(", ", Known.Select(p => p.Name))}");
     }
 
-    /// <summary>
-    /// Downloads <paramref name="pack"/> through <paramref name="handler"/> and installs it under <paramref name="root"/>;
-    /// an installed copy is returned without a download. Refuses with nothing installed when <paramref name="offline"/>,
-    /// when the archive is larger than <see cref="MaxArchiveBytes"/>, or when its SHA-256 differs from the pinned one.
-    /// </summary>
+    /// <summary>Installs <paramref name="pack"/> unless present; refuses offline, past <see cref="MaxArchiveBytes"/>, or on a hash mismatch.</summary>
     public static async Task<(InstalledRulePack Pack, bool Downloaded)> FetchAsync(RulePack pack, string root, HttpMessageHandler handler, bool offline, CancellationToken ct)
     {
         var target = Path.Combine(root, pack.Name, pack.Version);

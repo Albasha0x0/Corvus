@@ -3,11 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>
-/// The readers of one debug read: the main file's, a dwz supplementary file's (.gnu_debugaltlink, .debug_sup) and one
-/// per split unit (a .dwo file, or a unit of a .dwp package). Each owns an offset space: bits from
-/// <see cref="SpaceShift"/> up of every offset it gives out. Owns the files it opened.
-/// </summary>
+/// <summary>The readers of one debug read (main file, dwz supplementary file, split units), each owning an offset space; owns the files it opened.</summary>
 internal sealed class DwarfReaders : IDisposable
 {
     public const int SpaceShift = 50;
@@ -70,11 +66,7 @@ internal sealed class DwarfReaders : IDisposable
         lock (_gate) return _splits ??= new SplitUnits(this, debugFile);
     }
 
-    /// <summary>
-    /// Attaches the dwz supplementary file named by <paramref name="container"/>'s .gnu_debugaltlink or .debug_sup to
-    /// <paramref name="main"/>: found by its recorded path, beside the debug file, under <see cref="DwarfLocator.DirsVariable"/>
-    /// (as recorded and by build-id), and checked by build-id when the link carries one. Null when attached, else why not.
-    /// </summary>
+    /// <summary>Attaches the dwz supplementary file <paramref name="container"/> names, checked by build-id when recorded; null when attached, else why not.</summary>
     public static string? AttachSupplement(DwarfReader main, DebugContainer container)
     {
         string? name = null, buildId = null;
@@ -121,11 +113,7 @@ internal sealed class DwarfReaders : IDisposable
     }
 }
 
-/// <summary>
-/// Split DWARF: the split unit of each skeleton unit, from the debug file's .dwp package (&lt;file&gt;.dwp) or the
-/// skeleton's .dwo file (DW_AT_dwo_name under DW_AT_comp_dir, else beside the debug file). The split unit's DWO id
-/// must match the skeleton's.
-/// </summary>
+/// <summary>Split DWARF: each skeleton unit's split unit from a .dwp package or its .dwo file; the DWO id must match.</summary>
 internal sealed class SplitUnits(DwarfReaders family, string debugFile)
 {
     private readonly Dictionary<ulong, DwarfReader?> _byId = [];

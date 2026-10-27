@@ -32,7 +32,8 @@ public sealed class GodotPackTests(ITestOutputHelper output)
         long dirAt = header + data.Length;
         if (format >= 2)
         {
-            w.Write(2u); // file base relative to the pack
+            // File base relative to the pack.
+            w.Write(2u);
             w.Write((ulong)header);
             if (format >= 3) w.Write((ulong)dirAt);
         }
@@ -55,7 +56,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
         }
         if (format < 3)
         {
-            // earlier formats keep the directory after the header, so the data follows it
+            // Earlier formats keep the directory after the header, so the data follows it.
             var head = ms.ToArray();
             using var dir = new MemoryStream();
             w = new BinaryWriter(dir);
@@ -66,7 +67,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
             all.Write(dir.ToArray());
             all.Write(data.ToArray());
             var bytes = all.ToArray();
-            // the data moved past the directory: point the file base (format 2) or each offset (format 1) there
+            // The data moved past the directory: point the file base (format 2) or each offset (format 1) there.
             if (format == 2) BitConverter.GetBytes((ulong)(header + shift)).CopyTo(bytes, 24);
             else
             {
@@ -99,7 +100,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
     [InlineData(2u, "Godot 4.2.1")]
     [InlineData(3u, "Godot 4.7.1")]
     [InlineData(4u, "Godot 4.7.1")]
-    public void ListsEveryFileWithItsRole(uint format, string engine)
+    public void Lists_every_file_with_its_role(uint format, string engine)
     {
         var contents = Containers.Open(Build(format, Sample()), "app.pck", AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal(GodotPack.Kind, contents.Kind);
@@ -111,7 +112,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void APackEmbeddedInAnExecutableIsFound()
+    public void A_pack_embedded_in_an_executable_is_found()
     {
         var pe = new PeBuilder();
         pe.Add(".text", [0xC3], 0x60000020);
@@ -125,7 +126,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void EncryptedAndRemovedEntriesAreNoted()
+    public void Encrypted_and_removed_entries_are_noted()
     {
         var contents = Containers.Open(Build(4, ("a.scn", "RSRC"u8.ToArray(), 1), ("b.scn", [], 2)), "patch.pck", AnalysisLimits.Default, default);
         Assert.Equal(["a.scn: encrypted", "b.scn: removal (a patch pack deletes it)"], contents.Entries!.Select(e => $"{e.Path}: {e.Detail}"));
@@ -152,7 +153,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
     [InlineData("format-2.pck", 2, "Godot 4.3.0")]
     [InlineData("format-3.pck", 3, "Godot 4.5.1")]
     [InlineData("format-4.pck", 4, "Godot 4.7.2")]
-    public void Engine_written_packs_of_each_format_list_and_extract_their_files(string fixture, int format, string engine)
+    public void Packs_PCKPacker_wrote_in_each_format_list_and_extract_their_files(string fixture, int format, string engine)
     {
         var contents = Containers.Open(File.ReadAllBytes(Fixture(fixture)), fixture, AnalysisLimits.Default, default, allFiles: true);
         Assert.StartsWith($"Godot pack format {format}, {engine}: 2 file(s)", contents.Notes[0]);
@@ -183,7 +184,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void An_engine_written_pack_with_an_encrypted_directory_lists_nothing_and_says_so()
+    public void A_PCKPacker_pack_with_an_encrypted_directory_lists_nothing_and_says_so()
     {
         var contents = Containers.Open(File.ReadAllBytes(Fixture("format-4-encrypted.pck")), "format-4-encrypted.pck", AnalysisLimits.Default, default);
         Assert.Equal("Godot pack format 4, Godot 4.7.2: the directory is encrypted (the export's encryption key opens it); no files listed.", contents.Notes[0]);
@@ -195,7 +196,7 @@ public sealed class GodotPackTests(ITestOutputHelper output)
     // The engine refuses an encrypted pack without the key compiled into it; Corvus must then name the encryption.
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_GODOT_RELEASES")]
-    public void Paths_and_contents_equal_what_the_engine_mounts()
+    public void Paths_and_contents_equal_what_the_runtime_mounts()
     {
         var releases = Directory.GetDirectories(RealData.Path("CORVUS_GODOT_RELEASES"), "godot-*")
             .Select(d => (Version: Version.Parse(Path.GetFileName(d)[6..]), Exe: Engine(d))).Where(r => r.Exe != null).ToList();

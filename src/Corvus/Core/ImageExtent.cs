@@ -2,11 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Where a native image's own bytes end in its file: past the last PE section, ELF segment, section or header table, or
-/// Mach-O segment (each slice of a fat file). What follows is an overlay (an installer payload, a bundle, a signature
-/// appended later), which parsers of the image do not need.
-/// </summary>
+/// <summary>Where a native image's own bytes end in its file; what follows is an overlay.</summary>
 public static class ImageExtent
 {
     private const int MaxHeaders = 1 << 16;
@@ -63,7 +59,8 @@ public static class ImageExtent
             for (int i = 0; i < shnum; i++)
             {
                 var s = sh.AsSpan(i * shentsize);
-                if (U(s, 4, 4) == 8) continue; // SHT_NOBITS: no file bytes
+                // SHT_NOBITS has no file bytes.
+                if (U(s, 4, 4) == 8) continue;
                 ulong offset = U(s, is64 ? 24 : 16, w), size = U(s, is64 ? 32 : 20, w);
                 if (offset + size <= (ulong)length) end = Math.Max(end, (long)(offset + size));
             }

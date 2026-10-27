@@ -7,13 +7,8 @@ using Corvus.Native.Providers.Ida;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The external decompiler engines (IDA through idalib, Ghidra through a Java worker) and, per loaded native image, one
-/// session per engine, opened on first use and closed when the image is unloaded or reloaded. A session analyzes the
-/// file as loaded; in-memory patches (patch_bytes / patch_asm, undo) are applied to its database before it answers, so
-/// a patched image decompiles without a new auto-analysis. When the database cannot take the patch set (bytes outside
-/// what the engine loaded), a second session of that engine analyzes the patched bytes instead.
-/// </summary>
+/// <summary>The IDA and Ghidra engines with one session per engine and image, opened on first use and closed on unload;
+/// patches go into the open database, or into a second session on the patched bytes when it cannot take them.</summary>
 public sealed class NativeEngineService : IDisposable
 {
     /// <summary>The engines in order of preference (IDA, then Ghidra).</summary>
@@ -121,10 +116,8 @@ public sealed class NativeEngineService : IDisposable
         return provider.CheckAvailability() is { IsAvailable: false } a ? (a.Reason ?? $"{DisplayName(id)} is not available", a.Remediation) : null;
     }
 
-    /// <summary>
-    /// The engine <paramref name="id"/> names (InvalidArgument for an unknown one, ProviderUnavailable when it is not
-    /// installed); null or auto: the first engine installed.
-    /// </summary>
+    /// <summary>The engine <paramref name="id"/> names, or the first installed for null or auto; throws InvalidArgument or
+    /// ProviderUnavailable.</summary>
     public INativeDecompilerProvider Provider(string? id)
     {
         var wanted = Named(id);
@@ -148,11 +141,8 @@ public sealed class NativeEngineService : IDisposable
     private static string? Named(string? engine) =>
         string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? null : engine.Trim().ToLowerInvariant();
 
-    /// <summary>
-    /// The engine a call on the image uses: the one it names; else the server default when that names an engine; else the
-    /// first that has analyzed these bytes (<see cref="AnalyzedBy"/>); else the first one installed. Never depends on
-    /// which sessions earlier calls opened.
-    /// </summary>
+    /// <summary>The engine a call uses: the named one, the server default, the first that analyzed these bytes, else the
+    /// first installed; never depends on earlier calls.</summary>
     public string Resolve(LoadedNative native, string? engine)
     {
         var wanted = Named(engine) ?? EngineModes.ProviderId(DefaultMode);
@@ -166,16 +156,14 @@ public sealed class NativeEngineService : IDisposable
         return AnalyzedBy(native) ?? FirstAvailable() ?? Provider(null).Id;
     }
 
-    /// <summary>
-    /// The first installed engine, in order of preference, that has analyzed the image's bytes: a complete analysis open
-    /// in this process, or a saved one in the analysis cache (shared by every process). Never opens or asks an engine.
-    /// </summary>
     /// <summary>The Ghidra provider when this server has one set up, else null.</summary>
     internal GhidraProvider? Ghidra => _providers.Where(p => p.Id == GhidraProvider.ProviderId).Select(p => p.Provider.Value as GhidraProvider).FirstOrDefault();
 
+    /// <summary>The first installed engine with a complete analysis of the image, open here or saved; null when none.
+    /// Never opens an engine.</summary>
     public string? AnalyzedBy(LoadedNative native)
     {
-        // an image loaded from a Ghidra archive carries Ghidra's analysis
+        // An image loaded from a Ghidra archive carries Ghidra's analysis.
         if (native.EngineDatabase != null && _providers.Any(p => p.Id == GhidraProvider.ProviderId) && UnavailabilityOf(GhidraProvider.ProviderId) == null)
             return GhidraProvider.ProviderId;
         foreach (var (id, provider) in _providers)
@@ -189,10 +177,8 @@ public sealed class NativeEngineService : IDisposable
         (Find(id) switch { IdaProvider i => i.Cache, GhidraProvider g => g.Cache, _ => new AnalysisCache(_cacheRoot ?? AnalysisCache.DefaultRoot) })
             .Find(id, native.OriginalSha256) is { } dir && AnalysisCache.Held(dir);
 
-    /// <summary>
-    /// Whether engine <paramref name="id"/>'s analysis of the image is partial (an open's budget ran out): this process's
-    /// open session says so, else the marker beside the saved database. Never opens or asks an engine.
-    /// </summary>
+    /// <summary>Whether engine <paramref name="id"/>'s analysis ran out of budget, from the open session or the saved
+    /// marker; never opens an engine.</summary>
     public bool IsPartial(LoadedNative native, string id)
     {
         if (_analysis == EngineAnalysis.None) return false;
@@ -213,10 +199,7 @@ public sealed class NativeEngineService : IDisposable
 
     private readonly string? _cacheRoot;
 
-    /// <summary>
-    /// Every engine session open or opening, with the loaded image it serves (its id; a patched copy or slice by file
-    /// name). Never asks a worker, so it answers while one is busy.
-    /// </summary>
+    /// <summary>Every engine session open or opening with the image it serves; never asks a worker.</summary>
     public IReadOnlyList<(string Image, EngineSessionState State)> SessionStates()
     {
         var images = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -243,20 +226,18 @@ public sealed class NativeEngineService : IDisposable
 
     private readonly EngineAnalysis _analysis;
 
-    /// <summary>Engine answers kept across processes (EL-1); null when switched off (<see cref="EngineOutputCache.MaxMegabytesVariable"/>=0).</summary>
+    /// <summary>Engine answers kept across processes; null when switched off (<see cref="EngineOutputCache.MaxMegabytesVariable"/>=0).</summary>
     public EngineOutputCache? OutputCache => _outputCache.Value;
 
     private Lazy<EngineOutputCache?> _outputCache = null!;
 
     // ---- answers without opening an engine ----
 
-    /// <summary>
-    /// The state of engine <paramref name="id"/>'s saved database of the image when this process has no session of it (a
-    /// session's own state wins: it may hold changes not saved yet); null when unknown. Reads files only.
-    /// </summary>
+    /// <summary>The state of engine <paramref name="id"/>'s saved database when no session is open here; null when unknown.
+    /// Reads files only.</summary>
     public string? SavedState(LoadedNative native, string id)
     {
-        // answers stored without an open are those of the default database, not of an import override's own
+        // Answers stored without an open belong to the default database, not an import override's.
         if (OutputCache == null || native.Overrides != null || Existing(native, id)?.Opening != null || native.HasPatches || UnavailabilityOf(id) != null) return null;
         var db = Find(id) switch
         {
@@ -270,11 +251,8 @@ public sealed class NativeEngineService : IDisposable
     private string NoOpenKey(LoadedNative native, string id, string state, string setup, string kind, uint rva) =>
         EngineOutputCache.Key("no-open", OutputIdentity(id), id, native.OriginalSha256.ToLowerInvariant(), state, setup, kind, OutputCacheKinds.At(rva));
 
-    /// <summary>
-    /// An answer stored for the database state saved on disk and the server's setup inputs <paramref name="setup"/> (names,
-    /// types, PDB, notes and patches it would push first); the engine is not opened. Null when the image has a session of
-    /// that engine here, or nothing is stored.
-    /// </summary>
+    /// <summary>A stored answer for the saved database state and <paramref name="setup"/>, without opening the engine;
+    /// null when a session is open here or nothing is stored.</summary>
     public T? Answer<T>(LoadedNative native, string id, string setup, string kind, uint rva) where T : class
     {
         if (OutputCache is not { } cache || SavedState(native, id) is not { } state) return null;
@@ -283,11 +261,8 @@ public sealed class NativeEngineService : IDisposable
         catch (System.Text.Json.JsonException) { return null; }
     }
 
-    /// <summary>
-    /// Stores an answer made by <paramref name="session"/> for later processes that have not opened the engine: under the state
-    /// the session opened at and the state it is in now (a later open of the database saved now), when only the server's
-    /// setup pushes for <paramref name="setup"/> changed the database since the open.
-    /// </summary>
+    /// <summary>Stores a session's answer under its open and current database states, when only setup pushes changed the
+    /// database.</summary>
     public void Remember<T>(LoadedNative native, INativeDecompilerSession session, string setup, string kind, uint rva, T value)
     {
         if (OutputCache is not { } cache || session is not WorkerSessionBase w || !w.OnlySetupSinceOpen || native.HasPatches) return;
@@ -302,7 +277,7 @@ public sealed class NativeEngineService : IDisposable
     private NativeOpenOptions OpenOptions(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
         new()
         {
-            // a raw layout and import overrides are databases of their own: answers are not shared with the default one
+            // A raw layout and import overrides are databases of their own, with their own answers.
             OutputCache = OutputCache,
             OutputIdentity = OutputIdentity(id) + ((native.Image as Native.RawCodeImage)?.Layout.Key is { } raw ? "|raw " + raw : "") +
                              (native.Overrides is { } ov ? "|" + ov.Key : ""),
@@ -326,12 +301,8 @@ public sealed class NativeEngineService : IDisposable
         return ranges;
     }
 
-    /// <summary>
-    /// The image's session of engine <paramref name="provider"/> (null: the first engine in order of preference that has
-    /// one) when its analysis is complete in this process and reflects the image's current patch set, else null. A
-    /// Ghidra analysis that ran out of time is not complete. Never opens, waits for or asks an engine anything (the
-    /// auto engine's check).
-    /// </summary>
+    /// <summary>The image's session of <paramref name="provider"/> (null: any) with a complete analysis of the current
+    /// patch set, else null; never opens, waits or asks.</summary>
     public INativeDecompilerSession? CompletedSession(LoadedNative native, string? provider = null)
     {
         if (native.Released.IsCancellationRequested || !_holders.TryGetValue(native, out var set)) return null;
@@ -346,22 +317,20 @@ public sealed class NativeEngineService : IDisposable
         if (h.Opening is not { IsCompletedSuccessfully: true } opened || !opened.Result.IsOpen) return null;
         if (!opened.Result.AnalysisComplete) return null;
         var key = PatchKey(native);
-        if (h.SyncedKey != key) return null; // never synced, or patched since: syncing is a request
+        // Never synced, or patched since; syncing is a request.
+        if (h.SyncedKey != key) return null;
         if (h.PatchedState == key)
             return h.Patched is { IsCompletedSuccessfully: true } patched && patched.Result.IsOpen ? patched.Result : null;
         return opened.Result;
     }
 
-    /// <summary>
-    /// The first engine, in order of preference, whose analysis cache holds a saved database of the image's bytes (file
-    /// checks; no provider is asked), or null. Opening it loads the analysis without running auto-analysis again.
-    /// </summary>
+    /// <summary>The first engine with a saved database of the image's bytes, from file checks; null when none.</summary>
     public string? SavedAnalysis(LoadedNative native) => _providers.Select(p => p.Id).FirstOrDefault(id => HasSavedAnalysis(native, id));
 
     /// <summary>Whether the analysis cache holds a saved database of engine <paramref name="id"/> for the image's bytes.</summary>
     public bool HasSavedAnalysis(LoadedNative native, string id)
     {
-        // looked up again at most every few seconds per image and engine (a database appears when an analysis finishes)
+        // Looked up at most every few seconds per image and engine; a database appears when an analysis finishes.
         var seen = _saved.GetOrCreateValue(native).GetOrAdd(id, _ => new SavedCheck());
         long now = Environment.TickCount64;
         lock (seen)
@@ -385,10 +354,8 @@ public sealed class NativeEngineService : IDisposable
             : Directory.EnumerateFiles(dir, overrides != null ? $"ida-default-{overrides}*.i64" : "ida-default*.i64").Any(f => overrides != null || !f.Contains("-ov-"));
     }
 
-    /// <summary>
-    /// Checks import overrides against each installed engine's own names (Ghidra's .ldefs, IDA's processor modules); no
-    /// engine is started. InvalidArgument names the nearest known ones.
-    /// </summary>
+    /// <summary>Checks import overrides against each installed engine's names without starting it; InvalidArgument names
+    /// the nearest.</summary>
     public void CheckOverrides(Native.EngineOverrides overrides, Native.RawLayout? raw)
     {
         foreach (var provider in Providers)
@@ -445,11 +412,8 @@ public sealed class NativeEngineService : IDisposable
         }
     }
 
-    /// <summary>
-    /// Queues the image's analysis by the prewarm engine (auto: the first one installed): one image at a time, in load
-    /// order; waiting and running work ends when the image is unloaded or reloaded. Images no engine is available for
-    /// are skipped.
-    /// </summary>
+    /// <summary>Queues the image's background analysis, one image at a time in load order, ended by unload; skipped when no
+    /// engine is available.</summary>
     public Task Prewarm(LoadedNative native) => PrewarmCore(native);
 
     private async Task PrewarmCore(LoadedNative native)
@@ -522,15 +486,12 @@ public sealed class NativeEngineService : IDisposable
     private SessionHolder? Existing(LoadedNative native, string id) =>
         _holders.TryGetValue(native, out var set) && set.Holders.TryGetValue(id, out var h) ? h : null;
 
-    /// <summary>
-    /// The image's session of the engine <see cref="Resolve"/> picks for <paramref name="engine"/>, reflecting the image's
-    /// current bytes; the first call opens it (the first open of an image runs auto-analysis), later calls bring the
-    /// database's patched bytes up to date with the image's patch set first.
-    /// </summary>
+    /// <summary>The image's session of the engine <see cref="Resolve"/> picks, opened on first use and synced to the current
+    /// patch set.</summary>
     public async Task<INativeDecompilerSession> Session(LoadedNative native, string? engine, IProgress<NativeProviderProgress>? progress, CancellationToken ct)
     {
         var id = Resolve(native, engine);
-        // an open reports its stages as they change; an analysis stage can last minutes, so the wait reports every few seconds too
+        // An analysis stage can last minutes, so the wait also reports every few seconds.
         var waiting = System.Diagnostics.Stopwatch.StartNew();
         using var heartbeat = progress == null ? null : new Timer(_ =>
         {
@@ -542,7 +503,7 @@ public sealed class NativeEngineService : IDisposable
             progress.Report(new NativeProviderProgress($"{(opening ? h?.Stage ?? "start" : "sync")}, waiting {waiting.Elapsed.TotalSeconds:0} s", since));
         }, null, OpenHeartbeat, OpenHeartbeat);
         var session = await SessionCore(native, id, progress, ct).ConfigureAwait(false);
-        // the image's PDB types, once per PDB and database (see NativePdbTypes)
+        // The image's PDB types, once per PDB and database.
         var holder = Holder(native, id);
         var patched = holder.Patched is { IsCompletedSuccessfully: true } p && ReferenceEquals(p.Result, session);
         var pdbClock = System.Diagnostics.Stopwatch.StartNew();
@@ -611,7 +572,8 @@ public sealed class NativeEngineService : IDisposable
             holder.Stage = "start";
             holder.Profile = new EngineOpenProfile();
             holder.PdbTimed = 0;
-            holder.Profile.Mark("prepare", 0); // the input copy and cache entry, before the engine starts
+            // The input copy and cache entry, before the engine starts.
+            holder.Profile.Mark("prepare", 0);
             var started = holder.OpenStarted;
             progress = new StageProgress(holder, holder.Profile.Recording(() => (DateTime.UtcNow - started).TotalSeconds, progress));
             // Set after OpenStarted and Stage, cleared once Opening holds the
@@ -655,7 +617,7 @@ public sealed class NativeEngineService : IDisposable
         {
             var bytes = content ?? native.Patches.PatchedBytes();
             var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
-            // one folder per open, deleted whole: a shared parent outlived it, and two opens of one hash shared the file
+            // One folder per open, deleted whole, so two opens of one hash never share a file.
             var dir = Path.Combine(Path.GetTempPath(), $"corvus-{(content == null ? "patched" : "slice")}-{sha[..16]}-{Guid.NewGuid().ToString("N")[..8]}");
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, name);
@@ -676,14 +638,14 @@ public sealed class NativeEngineService : IDisposable
     {
         try { return await opening.WaitAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested) { throw native.Gone(); }
-        // the call's deadline came first: the open is not the call's and goes on, so the same call later picks it up (EL-5)
+        // The call's deadline came first; the open goes on and a later call picks it up.
         catch (OperationCanceledException) when (ct.IsCancellationRequested && !opening.IsCompleted && !native.Released.IsCancellationRequested)
         {
             var stage = holder.Stage ?? "start";
             var seconds = Math.Round((DateTime.UtcNow - holder.OpenStarted).TotalSeconds);
             throw new ToolError(ErrorCode.Timeout,
-                $"the engine is still opening {native.Id}: {stage}, {seconds:0} s so far (a first analysis can take minutes); the open goes on in the background.",
-                "call again after details.retryAfterMs: the same open is picked up, not started again; server_status shows its stage and seconds")
+                $"the engine is still opening {native.Id} ({stage}, {seconds:0} s; a first analysis can take minutes); the open goes on in the background.",
+                "call again after details.retryAfterMs to pick up the same open; server_status shows its stage")
                 { Details = new { stillRunning = true, stage, seconds }, RetryAfter = OpenRetryAfter };
         }
     }
@@ -691,10 +653,7 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>When a call that left an engine open running should come back.</summary>
     internal static readonly TimeSpan OpenRetryAfter = TimeSpan.FromSeconds(30);
 
-    /// <summary>
-    /// The import of the open IDA session's library names (the number imported, -1 when it failed), or null when no IDA
-    /// session was opened for the image; does not open one.
-    /// </summary>
+    /// <summary>The IDA library name import (count, -1 on failure), or null when no IDA session was opened.</summary>
     public Task<int>? LibraryNames(LoadedNative native) => Existing(native, IdaProvider.ProviderId)?.LibraryNames;
 
     /// <summary>The import of the open Ghidra session's names (the number imported, -1 when it failed), or null when no Ghidra session was opened; does not open one.</summary>
@@ -707,10 +666,7 @@ public sealed class NativeEngineService : IDisposable
     public bool ServesPatchedCopy(LoadedNative native, string id) =>
         Existing(native, id) is { Patched: not null } h && h.PatchedState == h.SyncedKey;
 
-    /// <summary>
-    /// One engine's session of an image as the engine status reports it: State opening (Stage, Seconds since the open
-    /// started), open (Session), failed (Error) or closed.
-    /// </summary>
+    /// <summary>One engine session's status: opening (Stage, Seconds), open (Session), failed (Error) or closed.</summary>
     public sealed record ImageEngineStatus(string Engine, string State, string? Stage, double Seconds, INativeDecompilerSession? Session, string? Error)
     {
         /// <summary>The open's stages with their seconds (see <see cref="EngineOpenProfile"/>).</summary>
@@ -729,7 +685,7 @@ public sealed class NativeEngineService : IDisposable
             if (!opening.IsCompleted) list.Add(new(id, "opening", h.Stage, seconds, null, null) { OpenStages = stages });
             else if (opening.IsCompletedSuccessfully)
             {
-                // a patched copy serves the current patch set when the database could not take it
+                // A patched copy serves the current patch set when the database could not take it.
                 var served = h.Patched is { IsCompletedSuccessfully: true } p && h.PatchedState == h.SyncedKey ? p.Result : opening.Result;
                 list.Add(new(id, served.IsOpen ? "open" : "closed", null, seconds, served, null) { OpenStages = stages });
             }

@@ -8,7 +8,7 @@ public partial class CommunityFilesTests
     private static readonly string Root = FindRoot();
 
     [Fact]
-    public void PathsNamedInContributingExist()
+    public void Paths_named_in_contributing_exist()
     {
         var text = File.ReadAllText(Path.Combine(Root, "CONTRIBUTING.md"));
         var paths = RepoPath().Matches(text).Select(m => m.Groups[1].Value).Distinct().ToList();
@@ -19,7 +19,7 @@ public partial class CommunityFilesTests
     }
 
     [Fact]
-    public void IssueFormsHaveTheRequiredKeys()
+    public void Issue_forms_have_the_required_keys()
     {
         var forms = Directory.GetFiles(Path.Combine(Root, ".github", "ISSUE_TEMPLATE"), "*.yml").Where(f => Path.GetFileName(f) != "config.yml").ToList();
         Assert.Equal(3, forms.Count);
@@ -35,7 +35,7 @@ public partial class CommunityFilesTests
     }
 
     [Fact]
-    public void SolutionProjectNamesAreUniquePerFolder()
+    public void Solution_project_names_are_unique_per_folder()
     {
         // The SDK's solution parser refuses two projects of one name in a folder; local runs build the test project and never parse it.
         var solution = System.Xml.Linq.XDocument.Load(Path.Combine(Root, "Corvus.slnx"));
@@ -48,7 +48,7 @@ public partial class CommunityFilesTests
     }
 
     [Fact]
-    public void SecurityNamesEveryCallThatReachesOutside()
+    public void Security_names_every_call_that_reaches_outside()
     {
         var text = File.ReadAllText(Path.Combine(Root, "SECURITY.md"));
         var missing = ContractSweep.OpenWorldParameters.Concat(ContractSweep.AlwaysOpenWorld).Where(name => !text.Contains($"`{name}", StringComparison.Ordinal)).ToList();
@@ -56,7 +56,7 @@ public partial class CommunityFilesTests
     }
 
     [Fact]
-    public void TrackedFilesNameNoMachinePath()
+    public void Tracked_files_name_no_machine_path()
     {
         // The checkout's own location and the current account's home folder are what leak from a machine into a commit.
         var user = Environment.UserName;

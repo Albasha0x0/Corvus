@@ -1,9 +1,7 @@
 namespace Corvus.Services.Web.Packages;
 
-/// <summary>
-/// Widely installed package names from the registries' public download rankings: a new name one or two edits away from one
-/// of these is worth a second look. Matching a name exactly is never a finding.
-/// </summary>
+/// <summary>Top package names from registry download rankings, for spotting names one or two edits away; an exact
+/// match is never a finding.</summary>
 internal static class PopularNames
 {
     public static readonly HashSet<string> Npm = new(StringComparer.OrdinalIgnoreCase)

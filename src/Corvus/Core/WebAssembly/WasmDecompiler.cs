@@ -3,12 +3,8 @@ using System.Text;
 
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>
-/// A readable view of one WebAssembly function: the operand stack folded into expressions, structured control flow as
-/// labeled blocks and loops (JavaScript-style "break label" / "continue label"), memory accesses as typed pointer
-/// dereferences, calls by name, constants inside data segments annotated with their string. Evaluation order is kept:
-/// before anything with an effect, pending values that read memory, globals or calls are bound to temporaries.
-/// </summary>
+/// <summary>One WebAssembly function as expressions, labeled blocks and typed memory accesses, evaluation order kept.</summary>
+/// <remarks>Before any effect, pending values that read memory, globals or calls are bound to temporaries.</remarks>
 public sealed class WasmDecompiler
 {
     private readonly WasmBinary _m;
@@ -99,7 +95,7 @@ public sealed class WasmDecompiler
         void Mark(uint depth) { if (depth < ids.Count) _targeted.Add(ids[ids.Count - 1 - (int)depth]); }
     }
 
-    // ---- output ----
+    // Output.
 
     private void Line(string text) => _o.Append(' ', _indent * 2).AppendLine(text);
 
@@ -110,7 +106,7 @@ public sealed class WasmDecompiler
         return name;
     }
 
-    // ---- the stack ----
+    // The stack.
 
     private void Push(Ex e) => _stack.Add(e);
 
@@ -130,10 +126,7 @@ public sealed class WasmDecompiler
         return list;
     }
 
-    /// <summary>
-    /// Binds pending values to temporaries, oldest first: those that read state or have effects, those reading
-    /// <paramref name="local"/>, or with <paramref name="all"/> every value that is not a constant or temporary (at block boundaries).
-    /// </summary>
+    /// <summary>Binds pending stateful values, or those reading <paramref name="local"/>, or with <paramref name="all"/> (block boundaries) every non-constant, to temporaries, oldest first.</summary>
     private void Spill(uint? local = null, bool all = false)
     {
         for (int i = 0; i < _stack.Count; i++)
@@ -156,7 +149,7 @@ public sealed class WasmDecompiler
         return set;
     }
 
-    // ---- instructions ----
+    // Instructions.
 
     private void Instruction(in WasmInstr ins)
     {
@@ -303,10 +296,7 @@ public sealed class WasmDecompiler
     private WasmField? FieldOf(uint type, uint field) =>
         type < _m.TypeDefs.Count && field < _m.TypeDefs[(int)type].Fields.Length ? _m.TypeDefs[(int)type].Fields[field] : null;
 
-    /// <summary>
-    /// GC and typed reference instructions: new T{...}, x.field_N, a[i], a.length, x is T, (T)x, x!, i31(x), call_ref as
-    /// (*f)(...); the cast branches are written as a line beside the value they keep.
-    /// </summary>
+    /// <summary>GC and typed reference instructions as expressions; cast branches become a line beside the kept value.</summary>
     private void Gc(in WasmInstr ins)
     {
         var self = WasmRef.Make(false, ins.A);
@@ -453,7 +443,8 @@ public sealed class WasmDecompiler
         if (f.Op != 0x04) { Line("// else outside an if"); return; }
         if (_dead == 0) AssignResults(f);
         _stack.RemoveRange(f.Height, _stack.Count - f.Height);
-        foreach (var a in f.Args) Push(a); // the else branch starts from the if's parameters too
+        // The else branch starts from the if's parameters too.
+        foreach (var a in f.Args) Push(a);
         _indent--;
         Line("} else {");
         _indent++;
@@ -594,7 +585,7 @@ public sealed class WasmDecompiler
             Line($"*({MemoryType(name)}*){pointer} = {operands[1].Text};");
             return;
         }
-        // atomics and SIMD memory access: function form, the address first
+        // Atomics and SIMD memory access: function form, the address first.
         string call = $"{Identifier(name)}({string.Join(", ", new[] { pointer }.Concat(operands.Skip(1).Select(o => o.Text)))}{(info.Imm == WasmImm.MemArgLane ? $", {ins.Lane}" : "")})";
         if (resultType == null) { Spill(); Line(call + ";"); return; }
         Spill();

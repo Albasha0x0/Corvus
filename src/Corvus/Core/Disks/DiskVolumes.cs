@@ -34,10 +34,7 @@ internal sealed class SubStream(Stream inner, long start, long length) : Stream
     public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 }
 
-/// <summary>
-/// The volumes of a disk: MBR (primary and extended partitions) or GPT partitions, or the whole disk when it starts with a
-/// file system; each opened by the container reader its first sectors match (NTFS, FAT, ext, ISO 9660 / UDF, ...).
-/// </summary>
+/// <summary>A disk's MBR or GPT partitions, or the whole disk as one file system, each opened by the matching reader.</summary>
 internal static class DiskVolumes
 {
     private const int MaxPartitions = 128;
@@ -49,7 +46,7 @@ internal static class DiskVolumes
         var parts = new List<Partition>();
         var mbr = Read(disk, 0, 512);
         if (mbr.Length < 512 || mbr[510] != 0x55 || mbr[511] != 0xAA) return parts;
-        // a boot sector of a file system, not a partition table
+        // A file system boot sector, not a partition table.
         if (mbr.AsSpan(3, 4).SequenceEqual("NTFS"u8) || mbr.AsSpan(54, 3).SequenceEqual("FAT"u8) || mbr.AsSpan(82, 5).SequenceEqual("FAT32"u8)) return parts;
         var gpt = Read(disk, 512, 512);
         if (gpt.Length >= 92 && gpt.AsSpan(0, 8).SequenceEqual("EFI PART"u8))

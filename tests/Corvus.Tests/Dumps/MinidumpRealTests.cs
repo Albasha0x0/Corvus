@@ -9,12 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real crash dumps written at run time: an MSVC-built program (x64 and x86, with its PDB) crashes on purpose and is
-/// dumped by this process through MiniDumpWriteDump (with the child's exception pointers) or dumps itself from its
-/// unhandled-exception filter; a hung child and a .NET process are dumped too. cdb (Windows SDK debuggers), when
-/// installed, is the oracle for the faulting frames and the module list. Skipped without the MSVC build tools.
-/// </summary>
+/// <summary>Real minidumps of MSVC-built crashes, hangs and a .NET process; cdb is the oracle when installed.</summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
 public sealed class MinidumpRealTests(ITestOutputHelper output)
@@ -81,7 +76,6 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
 
     private static readonly string[] CrashFrames = ["crash_here", "level2", "level1", "main"];
 
-    // ---- dbghelp ----
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct MinidumpExceptionInformation
@@ -97,7 +91,8 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
     [DllImport("dbghelp.dll", SetLastError = true)]
     private static extern bool MiniDumpWriteDump(IntPtr process, uint processId, SafeFileHandle file, uint type, IntPtr exception, IntPtr user, IntPtr callback);
 
-    private const uint Normal = 0x1000 | 0x4 | 0x20 | 0x800; // thread info, handles, unloaded modules, full memory info
+    // Thread info, handles, unloaded modules, full memory info.
+    private const uint Normal = 0x1000 | 0x4 | 0x20 | 0x800;
     private const uint Full = Normal | 0x2;
     private static readonly object DbgHelpGate = new();
 
@@ -117,7 +112,6 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         Assert.True(ok, $"MiniDumpWriteDump failed: {Marshal.GetLastWin32Error()}");
     }
 
-    // ---- the sample ----
 
     private static string? Build(TempDir dir, string arch)
     {
@@ -196,7 +190,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task X64AccessViolationIsNamedAndUnwound()
+    public async Task An_x64_access_violation_is_named_and_unwound()
     {
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
@@ -241,7 +235,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task FullMemoryDumpUnwindsWithoutTheImageFile()
+    public async Task Full_memory_dump_unwinds_without_the_image_file()
     {
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
@@ -259,7 +253,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task X86SelfDumpWalksTheFramePointerChain()
+    public async Task An_x86_self_dump_walks_the_frame_pointer_chain()
     {
         using var dir = new TempDir();
         if (Build(dir, "x86") is not { } exe) return;
@@ -295,12 +289,13 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         Print(stack);
         Assert.Equal(CrashFrames, Functions(stack).Take(4));
         Assert.Equal(["frame_data", "frame_data", "frame_data"], stack.Items.Skip(1).Take(3).Select(f => f.Method));
-        Assert.Contains(stack.Items, f => f.Function == "BaseThreadInitThunk"); // SysWOW64 images for a 32-bit process
+        // SysWOW64 images for a 32-bit process.
+        Assert.Contains(stack.Items, f => f.Function == "BaseThreadInitThunk");
         CompareWithCdb(dump, dir.Path, summary, stack);
     }
 
     [Fact]
-    public async Task CppExceptionNamesTheThrownType()
+    public async Task A_Cpp_exception_names_the_thrown_type()
     {
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
@@ -318,7 +313,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task HungProcessDumpShowsTheWaitingThread()
+    public async Task Hung_process_dump_shows_the_waiting_thread()
     {
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
@@ -342,7 +337,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task ManagedProcessFramesAreIdentified()
+    public async Task Managed_process_frames_are_identified()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
@@ -382,7 +377,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
 
     /// <summary>Three crashes of two kinds (ASLR moves the image between runs) make two buckets.</summary>
     [Fact]
-    public async Task RealCrashesBucketBySignature()
+    public async Task Real_crashes_bucket_by_signature()
     {
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
@@ -397,12 +392,13 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         var av = r.Items[0];
         Assert.Equal(2, av.Count);
         Assert.StartsWith("0xC0000005 | crash!crash_here | crash!level2 > crash!level1 > crash!main", av.Signature);
-        Assert.StartsWith("0xE06D7363 | crash!thrower", r.Items[1].Signature); // the raising frames are skipped
+        // The raising frames are skipped.
+        Assert.StartsWith("0xE06D7363 | crash!thrower", r.Items[1].Signature);
     }
 
     /// <summary>Through the server: a loaded image's user name wins over the PDB name in dump_stack.</summary>
     [Fact]
-    public async Task UserNamesOfALoadedImageNameTheFrames()
+    public async Task User_names_of_a_loaded_image_name_the_frames()
     {
         using var dir = new TempDir();
         if (Build(dir, "x64") is not { } exe) return;
@@ -425,7 +421,6 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         Assert.Contains(("level2", "pdb"), frames);
     }
 
-    // ---- cdb ----
 
     private static string? Cdb()
     {

@@ -15,10 +15,7 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
 
     public sealed record Hierarchy(List<string> BaseChain, List<string> Interfaces, List<ResolvedSymbol> Derived, int DerivedTotal);
 
-    /// <param name="includeVirtualCalls">
-    /// For methods: also report call sites that target a base or interface method this method overrides/implements
-    /// (they dispatch here at runtime). Labelled "via Base::Method".
-    /// </param>
+    /// <param name="includeVirtualCalls">Methods: also report calls to the base or interface methods it overrides, as "via Base::Method".</param>
     public SearchResult<Reference> FindReferences(ResolvedSymbol target, bool includeVirtualCalls, int limit, CancellationToken ct)
     {
         Action<LoadedAssembly, TypeDef, List<Reference>> visit = target.Member switch
@@ -163,7 +160,7 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
     public List<Callee> FindCallees(MethodDef method)
     {
         var body = SafeBody(method)
-                   ?? throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} has no IL body (abstract, extern, runtime-implemented or an Il2Cpp stub).");
+                   ?? throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} has no IL body (abstract, extern, runtime-implemented or a stub).");
         var list = new List<Callee>();
         var owner = workspace.FindByModule(method.Module);
         var throughFields = owner == null ? [] : Simplify.DelegateCalls.Of(owner, default).Where(s => s.Caller == method).ToDictionary(s => s.Offset);
@@ -209,14 +206,15 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
         {
             var resolved = Try(() => current.ResolveTypeDef());
             chain.Add(current.FullName + (resolved == null
-                ? "  (unresolved — load its assembly to go further)"
+                ? "  (unresolved; load its assembly to go further)"
                 : $"  [{workspace.FindByModule(resolved.Module)?.Id ?? resolved.Module.Name}]"));
             if (resolved == null) break;
             current = resolved.BaseType;
         }
 
         var interfaces = AllInterfaces(type).Select(i => i.FullName)
-            .Union(type.Interfaces.Select(i => i.Interface.FullName)) // keep unresolved direct interfaces too
+            // Keeps unresolved direct interfaces too.
+            .Union(type.Interfaces.Select(i => i.Interface.FullName))
             .OrderBy(n => n, StringComparer.Ordinal).ToList();
 
         var derived = new List<ResolvedSymbol>();

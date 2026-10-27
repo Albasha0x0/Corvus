@@ -2,10 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// Files an Apple filesystem stores compressed (decmpfs): the com.apple.decmpfs attribute's header, and its data in the
-/// attribute or in the resource fork. zlib, LZVN and LZFSE (types 3, 4, 7, 8, 11, 12) are read; other types are named.
-/// </summary>
+/// <summary>decmpfs-compressed files: zlib, LZVN and LZFSE (types 3, 4, 7, 8, 11, 12) are read, other types named.</summary>
 internal static class Decmpfs
 {
     /// <summary>The attribute's (type, uncompressed size), or null when it carries no 'cmpf' header.</summary>
@@ -18,10 +15,7 @@ internal static class Decmpfs
 
     public static string Name(uint type) => type switch { 3 or 4 => "zlib", 7 or 8 => "LZVN", 11 or 12 => "LZFSE", 1 or 9 or 10 => "uncompressed", _ => "unknown" };
 
-    /// <summary>
-    /// The first <paramref name="n"/> bytes of a decmpfs file of <paramref name="size"/> bytes: zlib, LZVN or LZFSE in the
-    /// attribute (3, 7, 11) or in 64 KiB resource fork blocks (4, 8, 12); damaged data throws InvalidDataException.
-    /// </summary>
+    /// <summary>The first <paramref name="n"/> bytes of a decmpfs file; damaged data throws InvalidDataException.</summary>
     public static byte[] Decode(uint type, byte[] attribute, Func<byte[]> resourceFork, long size, long n, long maxBytes)
     {
         if (size < 0 || size > maxBytes) throw new InvalidDataException($"{size:N0} bytes");

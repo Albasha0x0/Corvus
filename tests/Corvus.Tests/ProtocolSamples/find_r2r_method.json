@@ -6,8 +6,8 @@
   },
   "isError": true,
   "content": [
-    "Error (unsupported) in find_r2r_method: TestFixture is not a ReadyToRun image: it carries IL only, no precompiled native code.\nNext: decompile_member or get_il read its IL; ReadyToRun images come from crossgen (PublishReadyToRun), e.g. the .NET shared framework's assemblies",
-    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"TestFixture is not a ReadyToRun image: it carries IL only, no precompiled native code.\",\"next\":\"decompile_member or get_il read its IL; ReadyToRun images come from crossgen (PublishReadyToRun), e.g. the .NET shared framework's assemblies\",\"partial\":null,\"details\":null}"
+    "Error (unsupported) in find_r2r_method: TestFixture is not a ReadyToRun image: it carries IL only, no precompiled native code.\nNext: decompile_member or get_il read its IL; crossgen (PublishReadyToRun) builds ReadyToRun images",
+    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"TestFixture is not a ReadyToRun image: it carries IL only, no precompiled native code.\",\"next\":\"decompile_member or get_il read its IL; crossgen (PublishReadyToRun) builds ReadyToRun images\",\"partial\":null,\"details\":null}"
   ],
   "structuredContent": null
 }

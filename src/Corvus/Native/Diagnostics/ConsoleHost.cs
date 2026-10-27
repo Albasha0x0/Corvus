@@ -37,10 +37,7 @@ public interface IConsoleHost
 
     ConsoleHostUnavailable? Unavailable();
 
-    /// <summary>
-    /// Starts <paramref name="program"/> with a <paramref name="columns"/> x <paramref name="rows"/> console; its output, as the
-    /// console renders it (text with virtual terminal sequences), reaches <paramref name="output"/> on the reader's thread, in order.
-    /// </summary>
+    /// <summary>Starts <paramref name="program"/> in a console; its rendered output (with VT sequences) reaches <paramref name="output"/> in order.</summary>
     IConsoleProcess Start(string program, IReadOnlyList<string> arguments, int columns, int rows, Action<string> output);
 }
 
@@ -61,10 +58,7 @@ public static class ConsoleHosts
     }
 }
 
-/// <summary>
-/// Virtual terminal output to plain text: control and escape sequences left out, cursor-forward as spaces, \r dropped.
-/// Keeps its state across chunks, as a sequence may span two reads.
-/// </summary>
+/// <summary>Virtual terminal output to plain text; keeps state across chunks, as a sequence may span two reads.</summary>
 public sealed class VirtualTerminalText
 {
     private enum State { Text, Escape, Csi, String, StringEscape }
@@ -84,12 +78,13 @@ public sealed class VirtualTerminalText
                 case State.Escape:
                     if (c == '[') { _state = State.Csi; _parameters.Clear(); }
                     else if (c is ']' or 'P' or 'X' or '^' or '_') _state = State.String;
-                    else if (c is < ' ' or > '/') _state = State.Text; // a final byte; 0x20-0x2F are intermediates
+                    // A final byte; 0x20-0x2F are intermediates.
+                    else if (c is < ' ' or > '/') _state = State.Text;
                     break;
                 case State.Csi:
                     if (c is >= '@' and <= '~')
                     {
-                        // ConPTY writes runs of blanks as cursor-forward
+                        // ConPTY writes runs of blanks as cursor-forward.
                         if (c == 'C') text.Append(' ', int.TryParse(_parameters.ToString(), out int n) && n is > 0 and < 1000 ? n : 1);
                         _state = State.Text;
                     }
@@ -107,10 +102,7 @@ public sealed class VirtualTerminalText
     }
 }
 
-/// <summary>
-/// The Windows pseudoconsole (ConPTY), as Microsoft's terminal samples create it: CreatePseudoConsole over two pipes, the
-/// program started with PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE inside a kill-on-close job, so it ends with the server.
-/// </summary>
+/// <summary>The Windows pseudoconsole (ConPTY); the program runs in a kill-on-close job, so it ends with the server.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class PseudoConsoleHost : IConsoleHost
 {
@@ -165,7 +157,7 @@ internal sealed class PseudoConsoleProcess : IConsoleProcess
             var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION { BasicLimitInformation = new() { LimitFlags = KillOnJobClose } };
             if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
-            // not inheritable: the console host duplicates its ends
+            // Not inheritable; the console host duplicates its ends.
             if (!CreatePipe(out inRead, out inWrite, IntPtr.Zero, 0) || !CreatePipe(out outRead, out outWrite, IntPtr.Zero, 0))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe failed");
             int hr = CreatePseudoConsole(new COORD { X = (short)columns, Y = (short)rows }, inRead, outWrite, 0, out console);
@@ -181,7 +173,7 @@ internal sealed class PseudoConsoleProcess : IConsoleProcess
 
             var si = new STARTUPINFOEX { lpAttributeList = attributes };
             si.StartupInfo.cb = Marshal.SizeOf<STARTUPINFOEX>();
-            // empty standard handles: without them the program inherits the server's redirected stdio instead of the console
+            // Empty standard handles, or the program inherits the server's redirected stdio instead of the console.
             si.StartupInfo.dwFlags = StartfUseStdHandles;
             var commandLine = new StringBuilder(ChildProcess.QuoteArgument(program));
             foreach (var a in arguments) commandLine.Append(' ').Append(ChildProcess.QuoteArgument(a));
@@ -213,7 +205,7 @@ internal sealed class PseudoConsoleProcess : IConsoleProcess
         }
         finally
         {
-            // the console host holds its own copies of these ends
+            // The console host holds its own copies of these ends.
             inRead?.Dispose(); outWrite?.Dispose();
             if (attributes != IntPtr.Zero) { DeleteProcThreadAttributeList(attributes); Marshal.FreeHGlobal(attributes); }
         }
@@ -279,7 +271,7 @@ internal sealed class PseudoConsoleProcess : IConsoleProcess
     public void Dispose()
     {
         Kill();
-        // the process handle stays open under a pending wait
+        // The process handle stays open under a pending wait.
         bool ended = _exited.Task.Wait(TimeSpan.FromSeconds(5));
         CloseConsole();
         _reader.Join(TimeSpan.FromSeconds(2));

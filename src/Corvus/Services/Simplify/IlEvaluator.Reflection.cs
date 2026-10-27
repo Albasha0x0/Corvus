@@ -6,10 +6,7 @@ using OpCodes = dnlib.DotNet.Emit.OpCodes;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// A reflection object of the module being evaluated (or a framework type): immutable once created, one instance per
-/// member, so reference comparison is member identity. <see cref="Is"/> answers type tests against framework types.
-/// </summary>
+/// <summary>An immutable reflection object, one instance per member, so reference equality is member identity.</summary>
 internal abstract class ReflectionObject
 {
     protected abstract string[] Types { get; }
@@ -72,11 +69,7 @@ internal sealed class DelegateObject(TypeSig type, IMethod? method, object? targ
     public override bool Is(string typeName) => base.Is(typeName) || typeName == Type.FullName;
 }
 
-/// <summary>
-/// A DynamicMethod being built: its signature and its IL, emitted by its ILGenerator or, once a delegate is created,
-/// decoded from the code its DynamicILInfo was given. Both ways accept the same instructions and operands
-/// (<see cref="IlEvaluator.DynamicInstruction"/>).
-/// </summary>
+/// <summary>A DynamicMethod being built: its signature and IL, from its ILGenerator or its DynamicILInfo code.</summary>
 internal sealed class DynamicMethodObject(TypeObject? returnType, TypeObject[] parameters) : ReflectionObject
 {
     public TypeObject? ReturnType { get; } = returnType;
@@ -91,11 +84,7 @@ internal sealed class DynamicMethodObject(TypeObject? returnType, TypeObject[] p
     protected override string[] Types => ["System.Reflection.Emit.DynamicMethod", "System.Reflection.MethodInfo", "System.Reflection.MethodBase", "System.Reflection.MemberInfo"];
 }
 
-/// <summary>
-/// A DynamicMethod's DynamicILInfo: its token scope and the code SetCode stored. Tokens are numbered as the runtime's
-/// DynamicScope numbers them: the entry's index (0 is unused, 1 holds the method's signature) with the metadata table of
-/// its kind in the high byte.
-/// </summary>
+/// <summary>A DynamicILInfo's token scope and code; tokens are the scope index (1: the signature) with the table in the high byte, as DynamicScope.</summary>
 internal sealed class DynamicILInfoObject(DynamicMethodObject method) : ReflectionObject
 {
     public DynamicMethodObject Method { get; } = method;
@@ -157,7 +146,7 @@ internal sealed partial class IlEvaluator
 
     private DelegateObject CreateDelegate(TypeSig type, IMethod method, object? target)
     {
-        // Bound to an instance with no fields (a lambda class's singleton): the instance method sees nothing that can change.
+        // A fieldless target, such as a lambda class singleton, has no state that can change.
         if (target != null && !(Fieldless(target) && (method.MethodSig?.HasThis ?? false)))
             throw Bail(FallbackReason.InstanceObject, $"creates a delegate bound to an object ({Describe(method)})");
         if (target == null && (method.MethodSig?.HasThis ?? false)) throw Bail(FallbackReason.InstanceObject, $"creates a delegate of instance method {Describe(method)}");
@@ -241,10 +230,7 @@ internal sealed partial class IlEvaluator
         }
     }
 
-    /// <summary>
-    /// Module.ResolveSignature: the signature blob of a field, method, member reference, stand-alone signature or type
-    /// specification of this module, as stored.
-    /// </summary>
+    /// <summary>Module.ResolveSignature: the stored signature blob of a module token.</summary>
     private byte[] SignatureBlob(int token)
     {
         if (module is not ModuleDefMD md) throw Bail(FallbackReason.UnsupportedValue, "signatures of a module that was not read from an image");
@@ -265,7 +251,7 @@ internal sealed partial class IlEvaluator
         return bytes;
     }
 
-    /// <summary>FieldInfo.GetOptionalCustomModifiers / GetRequiredCustomModifiers: one modifier at most (the runtime's order of several is not modelled).</summary>
+    /// <summary>FieldInfo.Get(Optional|Required)CustomModifiers; several modifiers bail, as their runtime order is not modelled.</summary>
     private ArrayObject CustomModifiers(FieldDef field, bool optional)
     {
         var found = new List<object?>();
@@ -275,13 +261,7 @@ internal sealed partial class IlEvaluator
         return NewArray(found.ToArray());
     }
 
-    /// <summary>
-    /// MemberInfo.GetCustomAttributes(bool) of a field of this module: a new instance of each attribute class (a class of
-    /// this module deriving from System.Attribute), made by running its constructor with the stored arguments. One
-    /// attribute at most (the runtime's order of several is not modelled), with constructor arguments of primitive types
-    /// or strings and no named arguments; fields the runtime reports pseudo-attributes for (NonSerialized, MarshalAs,
-    /// FieldOffset) are not modelled.
-    /// </summary>
+    /// <summary>GetCustomAttributes of a module field: at most one module attribute with primitive or string arguments, constructed.</summary>
     private ArrayObject CustomAttributes(object? member)
     {
         if (member is not FieldObject { Field: var field }) throw Bail(FallbackReason.UnsupportedValue, "custom attributes of anything but a field");
@@ -313,7 +293,7 @@ internal sealed partial class IlEvaluator
         return NewArray(instances.ToArray());
     }
 
-    /// <summary>Members of a type of this module that a BindingFlags value selects, in metadata order (the order the CLR returns them in).</summary>
+    /// <summary>Members of a module type that a BindingFlags value selects, in metadata order, as the CLR returns them.</summary>
     private object?[] Members<T>(TypeObject type, object? flagsValue, Func<TypeDef, IEnumerable<T>> members, Func<T, bool> isStatic, Func<T, bool> isPublic, Func<T, object> wrap)
     {
         var flags = (BindingFlags)I4(flagsValue);
@@ -355,7 +335,7 @@ internal sealed partial class IlEvaluator
         const string Mod = "System.Reflection.Module", Asm = "System.Reflection.Assembly", MH = "System.ModuleHandle", BF = "System.Reflection.BindingFlags";
         const string DM = "System.Reflection.Emit.DynamicMethod", IL = "System.Reflection.Emit.ILGenerator", OC = "System.Reflection.Emit.OpCode", D = "System.Delegate";
 
-        // Types and handles. A RuntimeXHandle is kept as the reflection object itself.
+        // A Runtime*Handle or ModuleHandle is kept as the reflection object itself.
         add(T, T, "GetTypeFromHandle", "System.RuntimeTypeHandle", (e, a) => e.TypeOf(a[0]));
         add("System.RuntimeTypeHandle", T, "get_TypeHandle", "", (e, a) => e.TypeOf(a[0]));
         add(B, T, "op_Equality", $"{T},{T}", (_, a) => ReferenceEquals(a[0], a[1]) ? 1 : 0);
@@ -387,7 +367,7 @@ internal sealed partial class IlEvaluator
         {
             FieldObject f => (int)f.Field.MDToken.Raw,
             MethodObject { Method: IMDTokenProvider m } => (int)m.MDToken.Raw,
-            // The runtime gives a type's token in the module defining it: known for this module's own types only.
+            // A type's token is relative to its defining module, so only own types are known.
             TypeObject t => e.OwnType(t) is { } td ? (int)td.MDToken.Raw : throw Bail(FallbackReason.OtherModule, $"the metadata token of {t.Sig.FullName}, defined in another module"),
             null => throw Bail(FallbackReason.RuntimeError, "null reference"),
             _ => throw Bail(FallbackReason.UnsupportedValue, "the token of an object the interpreter does not model"),
@@ -409,7 +389,6 @@ internal sealed partial class IlEvaluator
         });
         add("System.Object[]", Mem, "GetCustomAttributes", B, (e, a) => e.CustomAttributes(a[0] is Pointer p ? p.Get() : a[0]));
 
-        // Fields
         add(T, FI, "get_FieldType", "", (e, a) => e.TypeObjectOf(Of<FieldObject>(a[0], "a FieldInfo").Field.FieldType));
         add($"{T}[]", FI, "GetOptionalCustomModifiers", "", (e, a) => e.CustomModifiers(Of<FieldObject>(a[0], "a FieldInfo").Field, optional: true));
         add($"{T}[]", FI, "GetRequiredCustomModifiers", "", (e, a) => e.CustomModifiers(Of<FieldObject>(a[0], "a FieldInfo").Field, optional: false));
@@ -427,19 +406,15 @@ internal sealed partial class IlEvaluator
             return null;
         });
 
-        // Methods
         add(B, MB, "get_IsStatic", "", (e, a) => e.MethodOf(a[0]).IsStatic ? 1 : 0);
         add(T, MI, "get_ReturnType", "", (e, a) => e.TypeObjectOf(e.MethodOf(a[0]).Method.MethodSig.RetType));
         add("System.Reflection.ParameterInfo[]", MB, "GetParameters", "", (e, a) =>
             e.ObjectArray(e.MethodOf(a[0]).Method.MethodSig.Params.Select(p => (object?)new ParameterObject(e.TypeObjectOf(p))).ToArray()));
         add(T, "System.Reflection.ParameterInfo", "get_ParameterType", "", (_, a) => Of<ParameterObject>(a[0], "a ParameterInfo").Type);
         add(MB, MB, "GetMethodFromHandle", "System.RuntimeMethodHandle", (e, a) => e.MethodOf(a[0]));
-        // Handles are kept as the reflection objects themselves.
         add("System.RuntimeMethodHandle", MB, "get_MethodHandle", "", (e, a) => e.MethodOf(a[0]));
         add("System.RuntimeFieldHandle", FI, "get_FieldHandle", "", (_, a) => Of<FieldObject>(a[0], "a FieldInfo"));
 
-        // The module and its handle
-        // (A ModuleHandle is kept as the module itself.)
         add(Asm, Asm, "GetExecutingAssembly", "", (e, _) => e._assemblyObject);
         add($"{Mod}[]", Asm, "GetModules", "", (e, a) =>
         {
@@ -473,10 +448,9 @@ internal sealed partial class IlEvaluator
             });
         }
 
-        // Delegates
         add(D, D, "CreateDelegate", $"{T},{MI}", (e, a) => e.CreateDelegate(e.TypeOf(a[0]).Sig, e.MethodOf(a[1]).Method, null));
 
-        // DynamicMethod and ILGenerator: the emitted IL is recorded.
+        // DynamicMethod and ILGenerator record the emitted IL.
         Func<IlEvaluator, object?[], object?> newDynamic = (e, a) =>
         {
             var parameters = a[2] == null ? [] : ArrayOf(a[2]).Data is object?[] items ? items.Select(e.TypeOf).ToArray() : throw Bail(FallbackReason.InvalidCode, "expected a Type array");
@@ -504,7 +478,7 @@ internal sealed partial class IlEvaluator
         };
         add(D, DM, "CreateDelegate", T, createDynamicDelegate);
         add(D, MI, "CreateDelegate", T, createDynamicDelegate);
-        // DynamicILInfo: GetTokenFor fills the token scope; the code SetCode stores is decoded when the delegate is created.
+        // DynamicILInfo code is decoded when the delegate is created.
         const string Info = "System.Reflection.Emit.DynamicILInfo";
         add(Info, DM, "GetDynamicILInfo", "", (_, a) =>
         {
@@ -531,7 +505,8 @@ internal sealed partial class IlEvaluator
             if (info.Method.Sealed) throw Bail(FallbackReason.UnsupportedValue, "sets the code of a dynamic method after creating its delegate");
             var code = a[1] == null ? [] : ArrayOf(a[1]).Data as byte[] ?? throw Bail(FallbackReason.InvalidCode, "expected a byte array");
             e.Allocate(24 + code.Length);
-            info.Code = (byte[])code.Clone(); // the runtime copies the array
+            // The runtime copies the array.
+            info.Code = (byte[])code.Clone();
             return null;
         });
         add("System.Void", Info, "SetLocalSignature", "System.Byte[]", (_, a) =>
@@ -572,11 +547,7 @@ internal sealed partial class IlEvaluator
         return null;
     }
 
-    /// <summary>
-    /// An instruction of a dynamic method, built by ILGenerator.Emit or decoded from DynamicILInfo code: the one check of
-    /// what the evaluator models there (numeric operands take the opcode's own operand type; arguments, but no locals,
-    /// labels, switch tables, floating-point constants or signatures).
-    /// </summary>
+    /// <summary>A dynamic method instruction; bails for locals, labels, switch tables, float constants and signatures.</summary>
     internal static Instruction DynamicInstruction(OpCode op, object? operand)
     {
         object? actual = (op.OperandType, operand) switch
@@ -606,10 +577,7 @@ internal sealed partial class IlEvaluator
         return (scope.Count - 1) | table;
     }
 
-    /// <summary>
-    /// Decodes the code a DynamicILInfo was given into the dynamic method's instructions, resolving tokens in its scope.
-    /// Every instruction goes through <see cref="DynamicInstruction"/>, as ILGenerator.Emit does.
-    /// </summary>
+    /// <summary>Decodes DynamicILInfo code into the dynamic method's instructions, resolving tokens in its scope.</summary>
     private void DecodeDynamicCode(DynamicILInfoObject info)
     {
         var code = info.Code ?? throw Bail(FallbackReason.RuntimeError, "creates the delegate of a dynamic method whose DynamicILInfo has no code (InvalidOperationException)");
@@ -644,14 +612,15 @@ internal sealed partial class IlEvaluator
                 OperandType.InlineField => (FieldDef)Entry(I4At(Take(4)), 0x04000000, "field"),
                 OperandType.InlineType or OperandType.InlineTok => TypeOperand(I4At(Take(4))),
                 OperandType.InlineSwitch => SwitchTable(),
-                _ => I4At(Take(4)), // InlineI, InlineBrTarget, InlineSig: a number, as ILGenerator.Emit(OpCode, int) gives
+                // InlineI, InlineBrTarget and InlineSig read as a number, as Emit(OpCode, int) gives.
+                _ => I4At(Take(4)),
             };
             instructions.Add(DynamicInstruction(op, operand));
         }
 
         object TypeOperand(int token) => (token & unchecked((int)0xFF000000)) == 0x02000000
             ? ((TypeObject)Entry(token, 0x02000000, "type")).Sig.ToTypeDefOrRef() ?? throw Bail(FallbackReason.UnsupportedValue, "emits a type token of a constructed type")
-            : Entry(token, token & unchecked((int)0xFF000000), "member"); // a method or field token for ldtoken: not a type
+            : Entry(token, token & unchecked((int)0xFF000000), "member");
 
         object SwitchTable()
         {

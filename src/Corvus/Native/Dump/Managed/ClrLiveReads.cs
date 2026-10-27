@@ -14,10 +14,7 @@ public sealed record LiveCode(ulong Code, string? Kind, ulong ModuleBase, bool F
 /// <summary>Where the runtime mapped a module, and whether as the file (flat) rather than as an image.</summary>
 public sealed record LiveModuleImage(ulong Base, bool Flat);
 
-/// <summary>
-/// Reads of a running program's CLR through its DAC: code addresses named, held threads walked, prepared code found.
-/// Shared with the 32-bit decoder process; calls are not thread-safe.
-/// </summary>
+/// <summary>Reads of a running program's CLR through its DAC, shared with the 32-bit decoder; not thread-safe.</summary>
 public sealed class ClrLiveReads(ClrRuntime runtime)
 {
     public ClrRuntime Runtime { get; } = runtime;
@@ -31,15 +28,10 @@ public sealed class ClrLiveReads(ClrRuntime runtime)
     {
         if (Runtime.GetMethodByInstructionPointer(ip) is not { } m) return null;
         var hc = m.HotColdInfo;
-        // The hot/cold ranges and the IL map can each describe another version
-        // of the method's code (ReadyToRun code a JIT tier replaced), so a start
-        // counts only when its range holds the address. With no such range the
-        // offset is reported unknown: ClrMD exposes no start for the code that
-        // holds an address, microsoft/clrmd#1520, tested on ClrMD 3.1.512801,
-        // no fix yet.
+        // Ranges can describe a replaced code version, so a start counts only when its range holds the address;
+        // ClrMD exposes no start for the code at an address (microsoft/clrmd#1520, tested on 3.1.512801, no fix yet).
         ulong start = Holds(hc.HotStart, hc.HotSize, ip) ? hc.HotStart : Holds(hc.ColdStart, hc.ColdSize, ip) ? hc.ColdStart : 0;
-        // A method can come without a hot/cold start (seen on a 32-bit
-        // ReadyToRun frame): its native code may still give one.
+        // A method without a hot/cold start (a 32-bit ReadyToRun frame) may still give one through its native code.
         if (start == 0 && hc.HotStart == 0 && m.NativeCode is > 0 and var code && code <= ip) start = code;
         var map = m.ILOffsetMap;
         if (start == 0 && map.Any(x => x.StartAddress <= ip && ip < x.EndAddress))
@@ -47,10 +39,7 @@ public sealed class ClrLiveReads(ClrRuntime runtime)
         return new LiveMethod(FileName(m.Type?.Module), m.Signature ?? m.Name ?? "?", start);
     }
 
-    /// <summary>
-    /// The managed frames of a thread whose context the data reader holds (instruction pointers of methods only),
-    /// innermost first; empty when the runtime does not know the thread or the walk finds nothing.
-    /// </summary>
+    /// <summary>Method instruction pointers of a held thread, innermost first; empty when the runtime does not know the thread.</summary>
     public IReadOnlyList<ulong> Frames(uint thread, int max)
     {
         try
@@ -104,10 +93,7 @@ public static class StopContext
 {
     private static readonly string[] X64Names = ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
 
-    /// <summary>
-    /// An x64 (rip or pc, rsp or sp, rax..r15) or x86 (eip or pc, esp or sp, eax..edi) context; null for another
-    /// architecture or a stop without an instruction and stack pointer.
-    /// </summary>
+    /// <summary>An x64 or x86 context; null for another architecture or a stop without instruction and stack pointers.</summary>
     public static byte[]? From(Architecture arch, IReadOnlyDictionary<string, string> registers)
     {
         ulong Reg(string name, string? alias = null) =>

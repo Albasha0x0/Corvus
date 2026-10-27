@@ -12,7 +12,7 @@ public class ConcurrencyTests(ITestOutputHelper output)
 {
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task ReadersAndWritersInterleaveSafely()
+    public async Task Readers_and_writers_interleave_safely()
     {
         using var env = new Env(withConsumer: true);
         var errors = new ConcurrentBag<Exception>();
@@ -52,17 +52,14 @@ public class ConcurrencyTests(ITestOutputHelper output)
         Assert.True(env.Fixture.Edits.Count > 10);
     }
 
-    /// <summary>
-    /// An edit, a reload and an unload issued while export_project decompiles: none of them waits for the export, and the export
-    /// finishes from the snapshot it took (the image before the edit), not from readers the writers replaced or disposed.
-    /// </summary>
+    /// <summary>An edit, reload and unload during export_project do not wait for it, and the export finishes from its own snapshot.</summary>
     [Fact]
-    public Task EditReloadAndUnloadDuringAnExportLeaveItConsistent() => ExportRound(new Env(withConsumer: true), pauseAtFirstFile: true);
+    public Task Edit_reload_and_unload_during_an_export_leave_it_consistent() => ExportRound(new Env(withConsumer: true), pauseAtFirstFile: true);
 
     /// <summary>The same with no pause, many times over: the writers land at random points of the export.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task ExportsStayConsistentUnderRepeatedEditsReloadsAndUnloads()
+    public async Task Exports_stay_consistent_under_repeated_edits_reloads_and_unloads()
     {
         for (int round = 0; round < 150; round++)
             await ExportRound(new Env(withConsumer: true), pauseAtFirstFile: round % 2 == 0);
@@ -73,7 +70,7 @@ public class ConcurrencyTests(ITestOutputHelper output)
         using var _ = env;
         using var dir = new TempDir();
         var editTools = new Corvus.Tools.EditTools(env.Workspace, env.Edits, env.History, env.Decompiler, env.Pager);
-        var workspaceTools = new Corvus.Tools.WorkspaceTools(env.Workspace, new Il2CppService(env.Workspace),
+        var workspaceTools = new Corvus.Tools.WorkspaceTools(env.Workspace, new AotMetadataService(env.Workspace),
             new IndexingService(env.Workspace, new CallGraphService(env.Workspace), new ServerOptions()), new Corvus.Services.Analysis.UnpackService(env.Workspace));
         using var started = new ManualResetEventSlim();
         using var resume = new ManualResetEventSlim(!pauseAtFirstFile);
@@ -120,7 +117,7 @@ public class ConcurrencyTests(ITestOutputHelper output)
 
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task QueuedLockWaitEndsWhenItsCallIsCancelled()
+    public async Task Queued_lock_wait_ends_when_its_call_is_cancelled()
     {
         using var workspace = new AssemblyWorkspace();
         var (holder, release) = HoldWriteLock(workspace);
@@ -152,7 +149,7 @@ public class ConcurrencyTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task WorkLeftRunningAfterItsCallWaitsUncancellably()
+    public async Task Work_left_running_after_its_call_waits_uncancellably()
     {
         using var workspace = new AssemblyWorkspace();
         using var cts = new CancellationTokenSource();
@@ -168,7 +165,7 @@ public class ConcurrencyTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task LongReadInSections_LetsAQueuedWriterIn()
+    public async Task Long_read_in_sections_lets_a_queued_writer_in()
     {
         using var workspace = new AssemblyWorkspace();
         var order = new ConcurrentQueue<char>();
@@ -191,7 +188,7 @@ public class ConcurrencyTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task MonitorWaitOfACall_EndsWhenTheCallIsCancelled()
+    public async Task Monitor_wait_of_a_call_ends_when_the_call_is_cancelled()
     {
         var gate = new object();
         using var release = new ManualResetEventSlim();

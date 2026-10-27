@@ -5,16 +5,11 @@ using Corvus.Services.Mobile;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// The "dex:" features of the mobile rules, evaluated in one pass over an app's DEX code. Forms: "call:PATTERN" (a call
-/// whose target descriptor matches; '*' wildcards), optionally "#i=s:REGEX" (argument i is a string constant matching),
-/// "#i=i:N" (an int constant) or "#i=literal" (bytes or chars from a literal: a string's bytes, base64, array data);
-/// "field:PREFIX" (a field read); "str:REGEX" (a const-string); "class:PREFIX" (a class the app defines, counted as the
-/// app's whatever package it is in); "check:trust-all" (an X509TrustManager whose checkServerTrusted returns without a
-/// check) and "check:any-hostname" (a HostnameVerifier whose verify returns true). Methods are prefiltered on raw code
-/// units; only those that touch a feature are decoded. Arguments are followed through one method in code order. Strings
-/// that string decoder calls return (<see cref="DexStringFolding"/>) count as const-strings and string arguments at the call.
-/// </summary>
+/// <summary>Evaluates the "dex:" features of the mobile rules in one pass over an app's DEX code.</summary>
+// Forms: call:PATTERN ('*' wildcards) with optional #i=s:REGEX, #i=i:N or #i=literal argument tests; field:PREFIX;
+// str:REGEX; class:PREFIX (always counted as app code); check:trust-all; check:any-hostname.
+// Only methods whose raw code units touch a feature are decoded; arguments are tracked within one method.
+// Strings returned by decoder calls (DexStringFolding) count as const-strings at the call.
 internal sealed class DexRuleScan
 {
     private const int MaxLocations = 5;
@@ -99,7 +94,7 @@ internal sealed class DexRuleScan
                 if (regex.IsMatch(value)) _hits[f].Add(library, $"{site.Method} +0x{site.Offset:x}: \"{Clip(value)}\" from {site.Decoder}");
         }
         if (folds.MethodsLeft > 0)
-            _notes.Add($"{folds.MethodsLeft} method(s) with string decoder calls not evaluated within {FoldTimeLimit.TotalSeconds:0} s; the strings they return are unknown to the dex rules (search_dex kind=string continues the pass).");
+            _notes.Add($"{folds.MethodsLeft} method(s) with string decoder calls not evaluated within {FoldTimeLimit.TotalSeconds:0} s; their strings are unknown to the dex rules (search_dex kind=string continues).");
     }
 
     /// <summary>The evidence of one feature, or null when nothing matched.</summary>
@@ -346,10 +341,7 @@ internal sealed class DexRuleScan
         return false;
     }
 
-    /// <summary>
-    /// A body that only returns (returnsTrue: a constant 1), around Kotlin parameter checks; or that calls one such method and
-    /// returns its result (a desugared lambda), followed <paramref name="depth"/> levels.
-    /// </summary>
+    /// <summary>Whether a body only returns (1 when <paramref name="returnsTrue"/>), past Kotlin checks or through <paramref name="depth"/> delegating calls.</summary>
     private static bool Accepts(DexIndex index, DexFile dex, DexCode code, bool returnsTrue, int depth)
     {
         var list = Dalvik.Decode(code.Instructions, 64);
@@ -360,7 +352,8 @@ internal sealed class DexRuleScan
         {
             switch (i.Opcode)
             {
-                case 0x00 or 0x1a or 0x1b: continue; // nop; parameter names for Kotlin's null checks
+                // Nop, or parameter names for Kotlin's null checks.
+                case 0x00 or 0x1a or 0x1b: continue;
                 case 0x0e: return !returnsTrue;
                 case 0x0f: return returnsTrue && i.A == trueReg;
                 case 0x12 or 0x13: trueReg = i.Literal == 1 ? i.A : (trueReg == i.A ? -1 : trueReg); continue;

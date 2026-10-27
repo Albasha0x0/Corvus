@@ -5,10 +5,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// The time limit of engine requests made on the current async flow, set by a tool call that names one (timeoutSeconds);
-/// null: each session's <see cref="NativeOpenOptions.RequestTimeout"/>.
-/// </summary>
+/// <summary>A tool call's engine request limit on the current async flow; null uses the session's <see cref="NativeOpenOptions.RequestTimeout"/>.</summary>
 public static class EngineRequestLimit
 {
     private static readonly AsyncLocal<TimeSpan?> CurrentLimit = new();
@@ -56,13 +53,9 @@ public static class EngineUse
     }
 }
 
-/// <summary>
-/// One image open in an engine worker process. Worker start and requests that change the database are serialized by
-/// a gate; with <see cref="ConcurrentRequests"/> other requests run in parallel once the worker is up. When the worker
-/// dies (crash, timeout, cancellation) the next request starts a new worker on the saved database and re-applies the
-/// changes journaled since the last save; more than <see cref="MaxRestarts"/> consecutive failures close the session.
-/// Derived sessions implement <see cref="INativeDecompilerSession"/>.
-/// </summary>
+/// <summary>One image in an engine worker: writes serialized, a dead worker restarted with the journal replayed, closed past <see cref="MaxRestarts"/> failures.</summary>
+/// <remarks>With <see cref="ConcurrentRequests"/> other requests run in parallel once the worker is up. A restart opens
+/// the saved database and replays the changes journaled since the last save; the limit counts consecutive failures.</remarks>
 internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDisposable, IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -99,10 +92,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>Whether <paramref name="op"/> leaves the database as it is; every other request advances <see cref="Generation"/>.</summary>
     protected virtual bool ReadsOnly(string op) => false;
 
-    /// <summary>
-    /// Advances before and after every request that may change the database and on each worker start: engine output
-    /// cached under one value is current while it holds.
-    /// </summary>
+    /// <summary>Advances around every database change and on each worker start; output cached under one value is current while it holds.</summary>
     internal long Generation => Interlocked.Read(ref _generation);
 
     public string ImagePath { get; private set; } = "";
@@ -218,7 +208,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     {
         DiscardLeftovers();
         var reuse = DatabaseExists;
-        // read before the engine opens it: an open may touch the database's files
+        // Read before the engine opens it, as an open may touch the database's files.
         var saved = reuse && firstOpen && !ReadOnlySnapshot && DatabaseLocation is { } db ? EngineOutputCache.ReadChains(db) : null;
         bool fresh = !reuse;
         try
@@ -229,7 +219,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         {
             fresh = true;
             Rebuilt = $"the saved {EngineName} database could not be opened ({e.Message}); it was analyzed again";
-            // A damaged database (killed during save, older engine format) or one stamped with other input is rebuilt from the input copy.
+            // A damaged or mismatched database is rebuilt from the input copy.
             KillWorker("reopen");
             DeleteDatabase();
             if (!firstOpen) lock (_sync) _unsaved.Clear();
@@ -242,13 +232,14 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             foreach (var (op, args) in replay)
             {
                 try { await _worker!.RequestAsync(op, (JsonObject)args.DeepClone(), Options.RequestTimeout, cancellationToken).ConfigureAwait(false); }
-                catch (ToolError e) when (e.Code is not (ErrorCode.Timeout or ErrorCode.ProviderUnavailable)) { /* rejected now: skip */ }
+                // A replayed edit the engine now rejects is skipped.
+                catch (ToolError e) when (e.Code is not (ErrorCode.Timeout or ErrorCode.ProviderUnavailable)) { }
             }
-            // what was not journaled is gone: the state is unknown
+            // Unjournaled changes are lost, so the state is unknown.
             SetState(UnknownState(), offSetup: true);
             return;
         }
-        // a snapshot is not saved and the snapshot's source may have unsaved changes; a time-limited first analysis is not reproducible
+        // Snapshots and time-limited first analyses are not reproducible, so their state is unknown.
         bool complete = this is not INativeDecompilerSession { AnalysisComplete: false };
         var start = ReadOnlySnapshot ? UnknownState()
             : fresh ? (complete ? EngineOutputCache.Key("fresh", Options.OutputIdentity, Sha256) : UnknownState())
@@ -263,8 +254,6 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>Why the saved database was analyzed again on the last open (damaged, truncated, another input), until a tool reports it.</summary>
     internal string? Rebuilt { get; set; }
 
-    // ---- database state (engine output cache) ----
-
     private string _state = "";
     private int _offSetup;
     private int _writesInFlight;
@@ -273,11 +262,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private Dictionary<uint, string> _functions = [];
     private int _functionChanges;
 
-    /// <summary>
-    /// What the database holds: a chain over the requests that changed it since it was created (or loaded from a saved
-    /// state), combined with the per-function chains; one starting "u" is unknown (not reproducible elsewhere: a worker
-    /// restart, a snapshot, a partial analysis).
-    /// </summary>
+    /// <summary>The database state: a chain over its changes combined with per-function chains; a "u" prefix means unknown.</summary>
     internal string DatabaseState
     {
         get
@@ -319,10 +304,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         Volatile.Write(ref _offSetup, offSetup ? 1 : 0);
     }
 
-    /// <summary>
-    /// The functions whose output alone a change affects, by the starts the engine reported: user-type requests that only
-    /// rename locals and stack members without committing a signature; none for one that only stamps. Null for any other change.
-    /// </summary>
+    /// <summary>Functions a local or stack rename alone affects (empty for a stamp only); null for any other change.</summary>
     internal static HashSet<uint>? FunctionScope(string op, JsonObject args, JsonElement result)
     {
         if (op != "apply_user_types" || result.ValueKind != JsonValueKind.Object || !result.TryGetProperty("items", out var items)) return null;
@@ -332,7 +314,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             bool confined = key switch
             {
                 "stamp_key" or "stamp" or "save" => true,
-                // a retype or a storage can change the prototype callers see
+                // A retype or a storage can change the prototype callers see.
                 "locals" => value is JsonArray rows && rows.All(r => r is JsonArray { Count: 5 } row && row[4] == null),
                 "stack" => value is JsonArray rows && rows.All(r => r is JsonArray { Count: 4 } row && row[3] == null),
                 _ => value is JsonArray { Count: 0 },
@@ -352,7 +334,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private void Advance(string op, JsonObject args, JsonElement result)
     {
         if (NoContentOps.Contains(op)) return;
-        // a patch sync that found the database as wanted changed nothing
+        // A patch sync that found the database as wanted changed nothing.
         if (op == "sync_patches" && result.ValueKind == JsonValueKind.Object && result.TryGetProperty("patched", out var p) && result.TryGetProperty("reverted", out var r)
             && p.GetInt32() + r.GetInt32() == 0) return;
         var scope = FunctionScope(op, args, result);
@@ -370,10 +352,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
     }
 
-    /// <summary>
-    /// Records the state with the database as saved now, for the next open in any process; <paramref name="own"/> counts
-    /// the saving request among the changes in flight. With another change in flight the saved state is unknown.
-    /// </summary>
+    /// <summary>Records the saved database's state for later opens; unknown when a change other than <paramref name="own"/> is in flight.</summary>
     private void Saved(int own = 0)
     {
         if (ReadOnlySnapshot || Options.OutputCache == null || DatabaseLocation is not { } db) return;
@@ -385,10 +364,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         else EngineOutputCache.ClearState(db);
     }
 
-    /// <summary>
-    /// The engine answer <paramref name="what"/> (decompile, frame) of <paramref name="key"/> stored in this database state, in
-    /// any process; false in an unknown state, while a change is in flight, or when none is stored.
-    /// </summary>
+    /// <summary>A cached answer for this database state; false when the state is unknown, a change is in flight, or none is stored.</summary>
     internal bool TryCached<T>(string what, string key, out T value, out string state)
     {
         value = default!;
@@ -398,7 +374,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         if (cache.Get(EngineOutputCache.OutputKey(Options.OutputIdentity, ProviderId, Sha256, global, what, key)) is not { } hit) return false;
         try
         {
-            // the entry holds its function's chain when made: a later change confined to that function makes it stale
+            // The entry holds its function's chain, so a later change to that function makes it stale.
             if (JsonNode.Parse(hit) is not JsonObject entry || entry["value"] is not { } stored) return false;
             value = stored.Deserialize<T>(EngineOutputCache.Json)!;
             if (value == null || (string?)entry["function"] != FunctionChain(StartOf(value) ?? uint.MaxValue)) return false;
@@ -549,7 +525,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     internal string? BackgroundResult { get; private set; }
 
-    // the background job's own requests pass; every other caller gets conflict until it ends
+    // The background job's own requests pass; other callers get conflict until it ends.
     private static readonly AsyncLocal<bool> InBackground = new();
 
     internal bool BackgroundRunning => Background is { Task.IsCompleted: false };
@@ -584,10 +560,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         { RetryAfter = TimeSpan.FromSeconds(Math.Clamp((job.Budget - elapsed).TotalSeconds, 2, 30)), Retryable = true };
     }
 
-    /// <summary>
-    /// Runs a batch request whose worker starts no item after <paramref name="budget"/> seconds (its "seconds" argument);
-    /// the request ends one request limit later, so the item still running when the budget ends gets a request's own limit.
-    /// </summary>
+    /// <summary>Runs a batch that starts no item after <paramref name="budget"/> seconds, timed out one request limit later, so the item running at the budget gets a full request limit.</summary>
     internal Task<JsonElement> CallBatchAsync(string op, JsonObject args, double budget, CancellationToken cancellationToken) =>
         CallAsync(op, args, cancellationToken, timeout: TimeSpan.FromSeconds(budget) + RequestTimeout);
 
@@ -640,7 +613,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
                 try { result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? RequestTimeout, cancellationToken).ConfigureAwait(false); }
                 catch when (changes)
                 {
-                    // a change that failed part way leaves the database in a state nobody can name
+                    // A change that failed part way leaves an unknown state.
                     SetState(UnknownState(), offSetup: true);
                     throw;
                 }
@@ -702,8 +675,9 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     public async Task CloseAsync(bool save = true, CancellationToken cancellationToken = default)
     {
+        // The running request fails; its gate release is still awaited below.
         if (!await _gate.WaitAsync(ShutdownGrace, cancellationToken).ConfigureAwait(false))
-            KillWorker("close while busy"); // the running request fails; its release is still awaited below
+            KillWorker("close while busy");
         else
         {
             try { await CloseCoreAsync(save).ConfigureAwait(false); }
@@ -727,7 +701,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
         if (w != null)
         {
-            // only a close that rewrote the database saved what the state names (a killed worker saves nothing)
+            // Only a close that rewrote the database saved the named state; a killed worker saves nothing.
             var before = save && DatabaseLocation is { } db ? EngineOutputCache.Identity(db) : null;
             try
             {

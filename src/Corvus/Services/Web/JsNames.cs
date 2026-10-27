@@ -5,13 +5,7 @@ using Acornima.Ast;
 
 namespace Corvus.Services.Web;
 
-/// <summary>
-/// Lexical scopes of one parsed script or module and every binding's declaration and reference sites, for renaming a
-/// binding everywhere it is used and nowhere else. A rename is refused when the new name would shadow or capture another
-/// name, and bindings that code outside the file or a direct eval / with can reach (script globals, exports) stay fixed.
-/// Suggested names for minified bindings come from evidence: a require or import source, a constructor, a getter call,
-/// a destructured key, a callback position, a catch parameter, a loop counter.
-/// </summary>
+/// <summary>Scopes and binding sites of one script for safe renames; refuses shadowing or capture, keeps globals, exports and eval-reachable names fixed.</summary>
 internal sealed partial class JsNames
 {
     /// <summary>A reference or declaration site: the identifier's start, and how it is written when renamed.</summary>
@@ -513,12 +507,7 @@ internal sealed partial class JsNames
         return n == 0 ? s : s[..Math.Max(1, n)].ToLowerInvariant() + s[Math.Max(1, n)..];
     }
 
-    /// <summary>
-    /// Applies <paramref name="requested"/> (name=new or name@line:column=new, comma-separated) and, with
-    /// <paramref name="auto"/>, the suggested names of minified bindings; returns the renames applied and notes for the
-    /// ones refused. A requested name that names no binding, or more than one without a position, is refused with the
-    /// positions to choose from.
-    /// </summary>
+    /// <summary>Applies <paramref name="requested"/> renames (name=new or name@line:column=new) and, with <paramref name="auto"/>, suggested names; refusals go to <paramref name="refused"/>.</summary>
     public List<Rename> Plan(string? requested, bool auto, Func<int, (int Line, int Column)> position, List<string> refused)
     {
         var applied = new List<Rename>();

@@ -10,10 +10,7 @@ internal static partial class ToolCli
 {
     public sealed record BatchStep(string Tool, Dictionary<string, object?> Arguments);
 
-    /// <summary>
-    /// Steps from a JSON array or JSON Lines, each {"tool": name, "args": {...}} ("arguments" also accepted); lines starting
-    /// with # are comments. Every tool is checked before anything runs.
-    /// </summary>
+    /// <summary>Steps from a JSON array or JSON Lines ({"tool", "args"}; # lines are comments); every tool is checked before any runs.</summary>
     public static List<BatchStep> ParseBatch(string text)
     {
         var nodes = new List<JsonNode?>();
@@ -45,10 +42,7 @@ internal static partial class ToolCli
         return steps.Count > 0 ? steps : throw new UsageException("The batch has no steps.");
     }
 
-    /// <summary>
-    /// Runs the steps in one session, so ids (app.dll#2) and in-memory edits carry from step to step. Exit code: the first
-    /// failed step's, or 0; --stop-on-error stops there.
-    /// </summary>
+    /// <summary>Runs the steps in one session; returns the first failed step's exit code, or 0; --stop-on-error stops there.</summary>
     private static async Task<int> BatchAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.BatchFile != null)

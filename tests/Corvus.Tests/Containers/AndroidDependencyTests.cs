@@ -6,7 +6,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>summarize_file view=dependencies on Android packages: Java libraries, native libraries, .NET and Il2Cpp code.</summary>
+/// <summary>summarize_file view=dependencies on Android packages: Java libraries, native libraries, .NET and AOT code.</summary>
 public sealed class AndroidDependencyTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -88,17 +88,17 @@ public sealed class AndroidDependencyTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_apk_lists_unity_and_the_apps_assemblies_from_its_metadata()
+    public void An_AOT_APK_lists_the_runtime_and_the_apps_assemblies_from_its_metadata()
     {
-        var metadata = new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0").Assembly("Newtonsoft.Json", "13.0.0.0").Build();
-        // globalgamemanagers keeps the Unity version as a NUL-terminated string at offset 20.
+        var metadata = new AotMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0").Assembly("Newtonsoft.Json", "13.0.0.0").Build();
+        // globalgamemanagers keeps the runtime version as a NUL-terminated string at offset 20.
         byte[] managers = [.. new byte[20], .. Encoding.ASCII.GetBytes("2021.3.45f1"), 0, .. new byte[64]];
         var facts = Facts("app.apk", AndroidSamples.Apk(30,
             ("assets/bin/Data/Managed/Metadata/global-metadata.dat", metadata), ("assets/bin/Data/globalgamemanagers", managers),
             ("lib/arm64-v8a/libil2cpp.so", NativeLibrary("il2cpp")), ("lib/arm64-v8a/libunity.so", NativeLibrary("unity"))));
         Assert.Equal("com.example.app", facts.Subject!.Name);
-        var unity = Assert.Single(facts.All, c => c.Name == "Unity");
-        Assert.Equal(("2021.3.45f1", "pkg:generic/unity@2021.3.45f1"), (unity.Version, unity.Purl));
+        var engine = Assert.Single(facts.All, c => c.Name == "Unity");
+        Assert.Equal(("2021.3.45f1", "pkg:generic/unity@2021.3.45f1"), (engine.Version, engine.Purl));
         Assert.Equal(("13.0.0.0", null), Assert.Single(facts.All, c => c.Name == "Newtonsoft.Json") is var j ? (j.AssemblyVersion, j.Version) : default);
         Assert.Contains(facts.All, c => c.Name == "libil2cpp.so");
     }
@@ -133,9 +133,9 @@ public sealed class AndroidDependencyTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_split_set_lists_unity_from_the_metadata_in_its_base_apk()
+    public void An_AOT_split_set_lists_the_runtime_from_the_metadata_in_its_base_APK()
     {
-        var metadata = new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0").Build();
+        var metadata = new AotMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0").Build();
         byte[] managers = [.. new byte[20], .. Encoding.ASCII.GetBytes("2021.3.45f1"), 0, .. new byte[64]];
         var facts = Facts("app.xapk", ContainerFixtures.Zip(
             ("base.apk", AndroidSamples.Apk(30,

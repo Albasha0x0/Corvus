@@ -5,11 +5,11 @@
   },
   "isError": false,
   "content": [
-    "// [TestFixture] Fixture.Model.Account::CheckPreview()\n// IL hash: 001fc5b5253a2a25  raw IL SHA-256: 7ca6425d8eecfad5\n.method /* 0600001C */ public hidebysig \n\tinstance bool CheckPreview () cil managed \n{\n\t// Method begins at RVA 0x21d9\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"PREVIEW-CODE-42\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 06000025 */\n\tIL_000a: ret\n} // end of method Account::CheckPreview\n"
+    "// [TestFixture] Fixture.Model.Account::CheckPreview()\n// IL hash: 001fc5b5253a2a25  raw IL SHA-256: 52b0a14e2ce368d6\n.method /* 06000015 */ public hidebysig \n\tinstance bool CheckPreview () cil managed \n{\n\t// Method begins at RVA 0x21ad\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"PREVIEW-CODE-42\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 0600001E */\n\tIL_000a: ret\n} // end of method Account::CheckPreview\n"
   ],
   "structuredContent": {
     "language": "il",
-    "code": "// [TestFixture] Fixture.Model.Account::CheckPreview()\n// IL hash: 001fc5b5253a2a25  raw IL SHA-256: 7ca6425d8eecfad5\n.method /* 0600001C */ public hidebysig \n\tinstance bool CheckPreview () cil managed \n{\n\t// Method begins at RVA 0x21d9\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"PREVIEW-CODE-42\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 06000025 */\n\tIL_000a: ret\n} // end of method Account::CheckPreview\n",
+    "code": "// [TestFixture] Fixture.Model.Account::CheckPreview()\n// IL hash: 001fc5b5253a2a25  raw IL SHA-256: 52b0a14e2ce368d6\n.method /* 06000015 */ public hidebysig \n\tinstance bool CheckPreview () cil managed \n{\n\t// Method begins at RVA 0x21ad\n\t// Header size: 1\n\t// Code size: 11 (0xb)\n\t.maxstack 8\n\n\tIL_0000: ldstr \"PREVIEW-CODE-42\" /* 7000001B */\n\tIL_0005: call bool Fixture.Model.Secret::Validate(string) /* 0600001E */\n\tIL_000a: ret\n} // end of method Account::CheckPreview\n",
     "offset": 0,
     "totalChars": 472,
     "symbols": [
@@ -17,12 +17,12 @@
         "kind": "method",
         "label": "Fixture.Model.Account::CheckPreview()",
         "assembly": "TestFixture",
-        "token": "0x0600001C"
+        "token": "0x06000015"
       }
     ],
     "methods": [
       {
-        "token": "0x0600001C",
+        "token": "0x06000015",
         "ilHash": "<id>",
         "rawSha256": "<id>"
       }

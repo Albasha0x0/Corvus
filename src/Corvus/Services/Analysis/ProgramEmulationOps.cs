@@ -16,11 +16,7 @@ public sealed record EmulatedApiCall(string Site, string Api, IReadOnlyList<stri
 /// <summary>A file the emulated program wrote in the emulator's virtual file system; SavedAs is null when the emulator kept no content.</summary>
 public sealed record EmulatedFile(string Path, long Size, string? Sha256, string? SavedAs);
 
-/// <summary>
-/// A whole-program emulation: how it stopped (complete, or the emulator's error type such as unsupported_api or timeout,
-/// with the address and the API or reason), the API calls in order, the files written, and the region-set manifest of
-/// the program's own memory (its image, allocations and stack), or null when no region was kept.
-/// </summary>
+/// <summary>A whole-program emulation: stop reason, API calls, files written, and the region-set manifest (null when no region was kept).</summary>
 public sealed record ProgramEmulation(string Arch, string Stop, string? StoppedAt, string? Detail, string? ReturnValue,
     IReadOnlyList<EmulatedApiCall> ApiCalls, IReadOnlyList<EmulatedFile> FilesWritten, string? RegionSet, int Regions, long RegionBytes,
     double ElapsedSeconds, IReadOnlyList<string> Notes);
@@ -40,11 +36,7 @@ internal sealed class ProgramEmulationOps : IWorkerOps
 
     public IReadOnlyDictionary<string, WorkerOp> Ops => new Dictionary<string, WorkerOp> { [EmulateOp] = Emulate };
 
-    /// <summary>
-    /// Emulates <c>input</c> with the emulator at <c>emulator</c> (as raw code at <c>offset</c> for <c>arch</c> when
-    /// <c>raw</c>, else from <c>entry</c> or the PE's entry point), bounded by <c>seconds</c>, <c>apis</c> and
-    /// <c>instructions</c>, and writes the report, region files and written files under <c>output</c>.
-    /// </summary>
+    /// <summary>Emulates <c>input</c> within the given bounds and writes the report, region files and written files under <c>output</c>.</summary>
     public static Task<JsonNode?> Emulate(JsonObject args, CancellationToken cancellationToken)
     {
         var emulator = Arg(args, "emulator");
@@ -53,8 +45,7 @@ internal sealed class ProgramEmulationOps : IWorkerOps
         long seconds = Number(args, "seconds") ?? 10;
         Directory.CreateDirectory(output);
         var report = Path.Combine(output, "report.json");
-        // speakeasy 2.0.0b9 mounts every file beside a PE into the emulated file system; a copy alone in its own folder
-        // keeps the input's neighbours out of reach of the emulated program.
+        // speakeasy 2.0.0b9 mounts every file beside a PE; a copy in its own folder keeps neighbours out of reach.
         var target = Path.Combine(output, "target", Path.GetFileName(input));
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         try { File.Copy(input, target, overwrite: true); }

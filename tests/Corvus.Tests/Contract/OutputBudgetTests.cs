@@ -7,12 +7,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// D1/D2 on real inputs over stdio: every default page within its class budget + 5% per part (text and structured content
-/// each), maxTokens=24000 within 24k + 5%, no read-only size error, the same rows in both parts, one continuation, and a
-/// walk of pages that equals a walk of larger pages. Each test starts its own server; the tests are grouped in nested
-/// classes so that the groups run in parallel (xUnit runs the tests of one class one after another).
-/// </summary>
+/// <summary>Default pages on real inputs within their class budget + 5% per part, the same rows in both parts, and walks that match larger pages.</summary>
 public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
 {
     private readonly Xunit.Abstractions.ITestOutputHelper _output = output;
@@ -96,15 +91,15 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
 
     private static bool IsList(string tool) => ToolContract.Of(tool).Output == OutputClass.List;
 
-    /// <summary>An Il2Cpp build folder (GameAssembly + global-metadata.dat), loaded through the built-in metadata reader.</summary>
-    public const string Il2CppBuild = "CORVUS_IL2CPP_BUILD";
+    /// <summary>An AOT build folder (GameAssembly + global-metadata.dat), loaded through the built-in metadata reader.</summary>
+    public const string AotBuild = "CORVUS_AOT_BUILD";
 
     /// <summary>Default pages on CoreLib, and walks of its pages.</summary>
     [Trait("Speed", "Slow")]
     public sealed class CoreLibPages(Xunit.Abstractions.ITestOutputHelper output) : OutputBudgetTests(output)
     {
         [Fact]
-        public async Task DefaultPagesOnCoreLibFitTheirBudget()
+        public async Task Default_pages_on_CoreLib_fit_their_budget()
         {
             var problems = await Run(
             [
@@ -125,7 +120,7 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
 
         /// <summary>A walk of budget-cut pages gives the same rows, in order, without gaps or repeats, as a walk of small pages.</summary>
         [Fact]
-        public async Task PagesConcatenateToTheSameRows()
+        public async Task Pages_concatenate_to_the_same_rows()
         {
             async Task<List<string>> Walk(int limit)
             {
@@ -158,7 +153,7 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
     {
         /// <summary>Two CoreLib builds compared, and a whole-assembly simplify dry run whose full report stays readable through read_result.</summary>
         [Fact]
-        public async Task ACoreLibComparisonAndAWholeAssemblySimplifyFitTheirBudget()
+        public async Task A_CoreLib_comparison_and_a_whole_assembly_simplify_fit_their_budget()
         {
             var other = RealPackages.File("Microsoft.NETCore.App.Runtime.osx-arm64", "10.0.11", "runtimes", "osx-arm64", "lib", "net10.0", "System.Private.CoreLib.dll");
             var json = RealPackages.File("Newtonsoft.Json", "13.0.4", "lib", "net6.0", "Newtonsoft.Json.dll");
@@ -183,7 +178,7 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
     public sealed class NativeLibrary(Xunit.Abstractions.ITestOutputHelper output) : OutputBudgetTests(output)
     {
         [Fact]
-        public async Task DefaultPagesOnANativeLibraryFitTheirBudget()
+        public async Task Default_pages_on_a_native_library_fit_their_budget()
         {
             var problems = await Run(
             [
@@ -202,15 +197,12 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
     [Trait("Speed", "Slow")]
     public sealed class NativePackages(Xunit.Abstractions.ITestOutputHelper output) : OutputBudgetTests(output)
     {
-        /// <summary>
-        /// Every native reading tool's default page on a C++ ELF (libSkiaSharp), a C PE and a C ELF (e_sqlite3): within its class
-        /// budget per part, same rows in both parts, one continuation.
-        /// </summary>
+        /// <summary>Every native reading tool's default page on real C++ and C images: within budget, same rows in both parts, one continuation.</summary>
         [Theory]
         [InlineData("SkiaSharp.NativeAssets.Linux", "3.119.4", "linux-x64", "libSkiaSharp.so", "sk_canvas_draw_rect")]
         [InlineData("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "win-x64", "e_sqlite3.dll", "sqlite3_open")]
         [InlineData("SQLitePCLRaw.lib.e_sqlite3", "2.1.11", "linux-x64", "libe_sqlite3.so", "sqlite3_open")]
-        public async Task DefaultNativePagesFitTheirBudget(string package, string version, string rid, string file, string function)
+        public async Task Default_native_pages_fit_their_budget(string package, string version, string rid, string file, string function)
         {
             var image = RealPackages.File(package, version, "runtimes", rid, "native", file);
             Dictionary<string, object?> On(params (string Key, object? Value)[] more) => new[] { ("image", (object?)image) }.Concat(more).ToDictionary(p => p.Item1, p => p.Item2);
@@ -227,13 +219,13 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
         }
     }
 
-    /// <summary>An Android package and an Il2Cpp build.</summary>
+    /// <summary>An Android package and an AOT build.</summary>
     [Trait("Speed", "Slow")]
     public sealed class Mobile(Xunit.Abstractions.ITestOutputHelper output) : OutputBudgetTests(output)
     {
         /// <summary>FINDINGS-4 on a real APK (CORVUS_ANDROID_PACKAGE): pages with nextOffset, not limit_exceeded.</summary>
         [RequiresRealDataFact(RealData.AndroidPackage)]
-        public async Task AndroidListsArePagesNotErrors()
+        public async Task Android_lists_are_pages_not_errors()
         {
             var apk = RealData.Path(RealData.AndroidPackage);
             var problems = await Run(
@@ -249,10 +241,10 @@ public abstract partial class OutputBudgetTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(JsonDocument.Parse(first.StructuredContent!.Value.GetRawText()).RootElement.GetProperty("nextOffset").GetInt32() > 0);
         }
 
-        [RequiresRealDataFact(Il2CppBuild)]
-        public async Task Il2CppPagesFitTheirBudget()
+        [RequiresRealDataFact(AotBuild)]
+        public async Task Pages_of_a_metadata_build_fit_their_budget()
         {
-            var load = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = RealData.Path(Il2CppBuild) });
+            var load = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = RealData.Path(AotBuild) });
             Assert.True(load.IsError != true, Text(load));
             var problems = await Run(
             [

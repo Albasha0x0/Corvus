@@ -77,7 +77,7 @@ public class NativeAotStaticsTests
     }
 
     [Fact]
-    public void Statics_OwnersAndFields()
+    public void Statics_name_their_owners_and_fields()
     {
         var f = Build();
         var statics = f.Aot.Statics;
@@ -101,7 +101,7 @@ public class NativeAotStaticsTests
 
     /// <summary>Bytes just past an owned non-GC statics base that has no field metadata read as Owner::field_0xN; never past the next base.</summary>
     [Fact]
-    public void Statics_WithoutFieldNamesKeepTheirOwner()
+    public void Statics_without_field_names_keep_their_owner()
     {
         NativeAotStaticBase[] bases =
         [
@@ -117,7 +117,7 @@ public class NativeAotStaticsTests
 
     /// <summary>The name layer gains Owner__field_0xN where code uses a static the metadata keeps no name for; never past the next base, never over a name.</summary>
     [Fact]
-    public void Statics_WithoutFieldNamesAreNamedFromTheirCodeReferences()
+    public void Statics_without_field_names_are_named_from_their_code_references()
     {
         NativeAotStaticBase[] bases =
         [
@@ -142,7 +142,7 @@ public class NativeAotStaticsTests
     }
 
     [Fact]
-    public void Statics_NamedInTheLayerAndDescribed()
+    public void Statics_are_named_in_the_layer_and_described()
     {
         var f = Build();
         var built = NativeAotNames.Build(f.Aot);

@@ -36,7 +36,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void ListsFilesDirectoriesAndLinks()
+    public void Lists_files_directories_and_links()
     {
         var (bytes, header) = AsarWriter.Build(AppFiles, [("dist/alias.js", "dist/main.js")]);
         Assert.Equal("asar", Blob.Identify(bytes));
@@ -53,7 +53,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void ListAssembliesShowsEntriesWithIntegrityAndPages()
+    public void List_assemblies_shows_entries_with_integrity_and_pages()
     {
         var path = Write("app.asar", AsarWriter.Build(AppFiles).Archive);
         var listing = new UnpackService(_workspace).List(path, AnalysisLimits.Default, default, limit: 3);
@@ -71,7 +71,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void UnpacksEveryFileWithUnpackedEntriesAndLinkCopies()
+    public void Unpacks_every_file_with_unpacked_entries_and_link_copies()
     {
         var path = Write("app.asar", AsarWriter.Build(AppFiles, [("dist/alias.js", "dist/main.js")]).Archive);
         Directory.CreateDirectory(_dir.File("app.asar.unpacked/native"));
@@ -88,7 +88,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void FileAndBlockHashesAreChecked()
+    public void File_and_block_hashes_are_checked()
     {
         var big = Enumerable.Range(0, 100).Select(i => (byte)i).ToArray();
         var (bytes, _) = AsarWriter.Build([new("a.bin", big), AsarWriter.Text("b.txt", "bee"), new("c.txt", "sea"u8.ToArray(), Integrity: false)], blockSize: 16);
@@ -98,13 +98,13 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
         Assert.Equal("ok", archive.Verify(stream, null, archive.Find("a.bin")!, ref buffer).Status);
         Assert.Equal("no_integrity", archive.Verify(stream, null, archive.Find("c.txt")!, ref buffer).Status);
 
-        // one byte in block 3 of a.bin
+        // One byte in block 3 of a.bin.
         var damaged = (byte[])bytes.Clone();
         damaged[archive.DataStart + 3 * 16 + 5] ^= 0xFF;
         var verdict = archive.Verify(new MemoryStream(damaged), null, archive.Find("a.bin")!, ref buffer);
         Assert.Equal(("hash_mismatch", 3), (verdict.Status, verdict.FirstBadBlock));
 
-        // only a declared block hash is wrong: the whole-file hash still matches
+        // Only a declared block hash is wrong: the whole-file hash still matches.
         var blockHash = Convert.ToHexStringLower(SHA256.HashData(big.AsSpan(32, 16)));
         var (edited, _) = AsarWriter.Build([new("a.bin", big)], blockSize: 16, editHeader: h => h.Replace(blockHash, new string('0', 64)));
         var e = Read(edited);
@@ -113,13 +113,13 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void UnpackedAddonSignedAfterPackingStillMatches()
+    public void Unpacked_addon_signed_after_packing_still_matches()
     {
         var unsigned = ElectronFixtures.Executable(null, fuses: null);
         Array.Resize(ref unsigned, (unsigned.Length + 7) & ~7);
         var (bytes, _) = AsarWriter.Build([new("addon.node", unsigned, Unpacked: true)]);
         var path = Write("app.asar", bytes);
-        // what signing does: checksum and security directory set, the certificate table appended
+        // What signing does: checksum and security directory set, the certificate table appended.
         var signed = unsigned.Concat(new byte[16]).ToArray();
         BitConverter.GetBytes(0x1234u).CopyTo(signed, 0x58 + 64);
         BitConverter.GetBytes((uint)unsigned.Length).CopyTo(signed, 0x58 + 112 + 32);
@@ -137,7 +137,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void HeaderIntegrityIsGoodBadOrAbsent()
+    public void Header_integrity_is_good_bad_or_absent()
     {
         var (bytes, header) = AsarWriter.Build(AppFiles);
         var sha = Convert.ToHexStringLower(SHA256.HashData(header));
@@ -150,7 +150,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void TraversalNamesAreListedButNeverWritten()
+    public void Traversal_names_are_listed_but_never_written()
     {
         var (bytes, _) = AsarWriter.Build([AsarWriter.Text("evil1.txt", "x"), AsarWriter.Text("evil2.txt", "y"), AsarWriter.Text("ok.txt", "z")],
             editHeader: h => h.Replace("\"evil1.txt\"", "\"..\"").Replace("\"evil2.txt\"", "\"..\\\\..\\\\x.txt\""));
@@ -165,7 +165,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void LinksStayInsideTheArchive()
+    public void Links_stay_inside_the_archive()
     {
         var (bytes, _) = AsarWriter.Build([AsarWriter.Text("a/f.txt", "f")],
             [("up", "../outside"), ("loop1", "loop2"), ("loop2", "loop1"), ("dir", "a"), ("gone", "a/missing")]);
@@ -178,7 +178,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [DirectoryLinkFact]
-    public void UnpackedEntriesThroughALinkAreRefused()
+    public void Unpacked_entries_through_a_link_are_refused()
     {
         var (bytes, _) = AsarWriter.Build([AsarWriter.Text("lib/secret.txt", "s", unpacked: true)]);
         var path = Write("app.asar", bytes);
@@ -198,7 +198,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     [InlineData("""{"files":{"a":{"size":1,"offset":"0"},"a":{"files":{"b":{"size":1,"offset":"0"}}}}}""", "duplicate_key")]
     [InlineData("""{"files":{"a":{"size":1,"offset":"0"}""", "malformed_header")]
     [InlineData("""{"files":{"a":7}}""", "bad_entry")]
-    public void MalformedHeadersGiveIssues(string json, string issue)
+    public void Malformed_headers_give_issues(string json, string issue)
     {
         var (bytes, _) = AsarWriter.Build([new("pad", new byte[8], Integrity: false)], editHeader: _ => json);
         var archive = Read(bytes);
@@ -206,7 +206,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void DuplicateKeysKeepTheLastOccurrence()
+    public void Duplicate_keys_keep_the_last_occurrence()
     {
         var (bytes, _) = AsarWriter.Build([new("pad", new byte[8], Integrity: false)],
             editHeader: _ => """{"files":{"a":{"files":{"old":{"size":1,"offset":"0"}}},"a":{"files":{"new":{"size":1,"offset":"1"}}}}}""");
@@ -214,7 +214,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void DeepNestingStopsWithAnIssue()
+    public void Deep_nesting_stops_with_an_issue()
     {
         var json = string.Concat(Enumerable.Repeat("""{"files":{"d":""", 300)) + """{"size":0,"offset":"0"}""" + new string('}', 600) + "}";
         var (bytes, _) = AsarWriter.Build([new("pad", new byte[8], Integrity: false)], editHeader: _ => json);
@@ -225,7 +225,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
     [InlineData(4u, 0xFFFFFFF0u, 0xFFFFFFECu, 8u)] // lengths past the end
     [InlineData(4u, 100u, 50u, 8u)] // pickle and payload disagree
     [InlineData(4u, 24u, 20u, 64u)] // JSON longer than the payload
-    public void BrokenPickleHeadersAreMalformedInput(uint first, uint pickle, uint payload, uint json)
+    public void Broken_pickle_headers_are_malformed_input(uint first, uint pickle, uint payload, uint json)
     {
         var bytes = new byte[64];
         BitConverter.GetBytes(first).CopyTo(bytes, 0);
@@ -238,7 +238,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
 
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void ThirtyMegabyteArchiveListsQuicklyAndCompactly()
+    public void A_30_MB_archive_lists_within_a_second_and_100_MiB()
     {
         var rng = new Random(7);
         var files = Enumerable.Range(0, 3000).Select(i =>
@@ -262,7 +262,7 @@ public sealed class AsarTests(ITestOutputHelper output) : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(AsarArchive), typeof(AsarContainer))]
-    public void HeaderFuzzNeverThrowsUnexpectedly()
+    public void Header_fuzz_never_throws_unexpectedly()
     {
         var (seed, _) = AsarWriter.Build(AppFiles, [("dist/alias.js", "dist/main.js")], blockSize: 8);
         var failures = FormatFuzz.Run(seed, bytes =>

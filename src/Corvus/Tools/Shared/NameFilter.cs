@@ -3,10 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// A name filter as list tools take it: /regex/flags (i, m, s; case-insensitive when no flag is given), a glob when it
-/// has * or ? (whole name, case-insensitive), else a case-insensitive substring.
-/// </summary>
+/// <summary>A list tool's name filter: /regex/flags (no flag: case-insensitive), a whole-name glob with * or ?, else a substring.</summary>
 internal sealed class NameFilter
 {
     public const string Description = "substring (case-insensitive), * ? glob, or /regex/ (flags i, m, s)";

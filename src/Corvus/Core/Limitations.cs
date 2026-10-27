@@ -1,9 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// Why a result may be incomplete or less certain: the closed vocabulary of provenance "limitations" (STANDARDS S5.4),
-/// published as docs/limitations.md. Free text goes to the result's text, not here; a new entry needs an id and a meaning.
-/// </summary>
+/// <summary>The closed set of reasons a result may be incomplete, published as docs/limitations.md; free text goes in the result text, a new entry needs an id and a meaning.</summary>
 public enum Limitation
 {
     AnalysisPartial,

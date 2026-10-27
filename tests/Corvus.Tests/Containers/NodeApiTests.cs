@@ -9,10 +9,7 @@ using static Iced.Intel.AssemblerRegisters;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Node-API add-ons: napi_create_function, napi_define_properties, napi_define_class and napi_module_register calls in
-/// synthetic x64 code under the Windows and System V conventions, read into the napi name layer.
-/// </summary>
+/// <summary>Node-API registration calls in synthetic x64 code, Windows and System V, read into the napi name layer.</summary>
 public sealed class NodeApiTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -21,9 +18,9 @@ public sealed class NodeApiTests : IDisposable
 
     private static readonly string[] Imports = ["napi_create_function", "napi_define_properties", "napi_define_class", "napi_module_register"];
 
-    // callbacks at fixed offsets after the registering function; distinct bodies so none fold
+    // Callbacks at fixed offsets after the registering function; distinct bodies so none fold.
     internal const uint Hello = 0x200; private const uint Add = 0x210, Version = 0x220, Ctor = 0x230, Increment = 0x240, Init = 0x250;
-    // data offsets
+    // Data offsets.
     private const uint SHello = 0x100, SAdd = 0x110, SVersion = 0x118, SCounter = 0x128, SIncrement = 0x138, SAddon = 0x148, Props = 0x200, ClassProps = 0x280, Module = 0x2C0;
 
     private static readonly string[] Expected =
@@ -39,7 +36,7 @@ public sealed class NodeApiTests : IDisposable
         Register[] args = sysv ? [rdi, rsi, rdx, rcx, r8, r9] : [rcx, rdx, r8, r9];
         void Lea(Register r, ulong va) => a.AddInstruction(Instruction.Create(Iced.Intel.Code.Lea_r64_m, r, new MemoryOperand(Register.RIP, (long)va, 8)));
         void Call(int import) => a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)slotVa(import), 8)));
-        // argument i: a register, else the stack slot past the Windows home area or at [rsp] under System V
+        // Argument i: a register, else the stack slot past the Windows home area or at [rsp] under System V.
         void Set(int i, Action<AssemblerRegister64> reg, Action<AssemblerMemoryOperand> stack)
         {
             if (i < args.Length) reg(new AssemblerRegister64(args[i]));
@@ -49,16 +46,16 @@ public sealed class NodeApiTests : IDisposable
         void Number(int i, long v) => Set(i, r => a.mov(r, v), m => a.mov(m, (int)v));
 
         a.sub(rsp, 0x58);
-        // napi_create_function(env, "hello", NAPI_AUTO_LENGTH, Hello, NULL, &result)
+        // napi_create_function(env, "hello", NAPI_AUTO_LENGTH, Hello, NULL, &result).
         Number(0, 0); Address(1, dataVa + SHello); Number(2, -1); Address(3, textVa + Hello); Number(4, 0); Address(5, dataVa + 0x3F0);
         Call(0);
-        // napi_define_properties(env, exports, 2, Props)
+        // napi_define_properties(env, exports, 2, Props).
         Number(0, 0); Number(1, 0); Number(2, 2); Address(3, dataVa + Props);
         Call(1);
-        // napi_define_class(env, "Counter", 7, Ctor, NULL, 1, ClassProps, &result)
+        // napi_define_class(env, "Counter", 7, Ctor, NULL, 1, ClassProps, &result).
         Number(0, 0); Address(1, dataVa + SCounter); Number(2, 7); Address(3, textVa + Ctor); Number(4, 0); Number(5, 1); Address(6, dataVa + ClassProps); Address(7, dataVa + 0x3F0);
         Call(2);
-        // napi_module_register(&Module)
+        // napi_module_register(&Module).
         Address(0, dataVa + Module);
         Call(3);
         a.add(rsp, 0x58);
@@ -81,11 +78,11 @@ public sealed class NodeApiTests : IDisposable
         void Str(uint at, string s) => Encoding.ASCII.GetBytes(s + "\0").CopyTo(d, at);
         void Ptr(uint at, ulong va) { BitConverter.GetBytes(va).CopyTo(d, at); pointers.Add(at); }
         Str(SHello, "hello"); Str(SAdd, "add"); Str(SVersion, "version"); Str(SCounter, "CounterWithSuffix"); Str(SIncrement, "increment"); Str(SAddon, "addon");
-        // napi_property_descriptor: utf8name, name, method, getter, setter, value, attributes, data
+        // napi_property_descriptor: utf8name, name, method, getter, setter, value, attributes, data.
         Ptr(Props, dataVa + SAdd); Ptr(Props + 16, textVa + Add);
         Ptr(Props + 64, dataVa + SVersion); Ptr(Props + 64 + 24, textVa + Version);
         Ptr(ClassProps, dataVa + SIncrement); Ptr(ClassProps + 16, textVa + Increment);
-        // napi_module: nm_version, nm_flags, nm_filename, nm_register_func, nm_modname
+        // napi_module: nm_version, nm_flags, nm_filename, nm_register_func, nm_modname.
         BitConverter.GetBytes(1).CopyTo(d, Module);
         Ptr(Module + 16, textVa + Init); Ptr(Module + 24, dataVa + SAddon);
         return d;
@@ -100,7 +97,7 @@ public sealed class NodeApiTests : IDisposable
     [Theory]
     [InlineData(ImageFormat.Pe)]
     [InlineData(ImageFormat.MachO)]
-    public void RegistrationsAreReadFromConstantArguments(ImageFormat format)
+    public void Registrations_are_read_from_constant_arguments(ImageFormat format)
     {
         const uint text = CodeTestImage.SyntheticCodeRva, data = CodeTestImage.SyntheticDataRva;
         const ulong b = 0x140000000UL;
@@ -120,7 +117,7 @@ public sealed class NodeApiTests : IDisposable
 
     /// <summary>node-addon-api's exports.Set("hello", Function::New(env, Hello)): the callback passed to a helper, then the named setter.</summary>
     [Fact]
-    public void NamedSettersAfterAFunctionHelperAreRegistrations()
+    public void Named_setters_after_a_function_helper_are_registrations()
     {
         const uint text = CodeTestImage.SyntheticCodeRva, data = CodeTestImage.SyntheticDataRva, helper = Add;
         const ulong b = 0x140000000UL;
@@ -162,7 +159,7 @@ public sealed class NodeApiTests : IDisposable
     }
 
     [Fact]
-    public async Task ElfAddonGetsTheLayerWhenIndexed()
+    public async Task An_ELF_addon_gets_the_layer_when_indexed()
     {
         var path = _dir.File("addon.node");
         File.WriteAllBytes(path, ElfAddon());
@@ -180,7 +177,7 @@ public sealed class NodeApiTests : IDisposable
 
     [RequiresRealDataFact(RealData.ElectronApps)]
     [Trait("Speed", "Slow")]
-    public async Task RealAddonsNameTheirCallbacks()
+    public async Task Real_addons_name_their_callbacks()
     {
         var addons = Directory.EnumerateFiles(RealData.Path(RealData.ElectronApps), "*.node",
                 new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 10, IgnoreInaccessible = true })
@@ -203,7 +200,7 @@ public sealed class NodeApiTests : IDisposable
     }
 
     [Fact]
-    public void OtherImagesAreNotAddons()
+    public void Other_images_are_not_addons()
     {
         var image = CodeTestImage.Synthetic(NativeArch.X64, [0xC3], imports: [new NativeImport("KERNEL32.dll", "Sleep", null, 0, CodeTestImage.SyntheticDataRva, false)]);
         Assert.False(NodeApi.IsAddon(image));

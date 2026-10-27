@@ -3,10 +3,7 @@ using System.Text.Json;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The YARA-X builds the tests use: the folder fetch-yara-x.ps1 fills (CORVUS_TEST_YARA_X), holding the C library and the
-/// <c>yr</c> reference command line where upstream publishes them for this platform (yara-x-assets.json).
-/// </summary>
+/// <summary>The YARA-X builds in the folder fetch-yara-x.ps1 fills (CORVUS_TEST_YARA_X): the C library and the <c>yr</c> command line.</summary>
 internal static class YaraTestTools
 {
     public const string Variable = "CORVUS_TEST_YARA_X";

@@ -8,10 +8,7 @@ internal static class PtraceScope
 {
     public const string SettingPath = "/proc/sys/kernel/yama/ptrace_scope";
 
-    /// <summary>
-    /// The setting when it refuses this user tracing a process: one the tracer started (<paramref name="started"/>) is
-    /// refused from 2 without CAP_SYS_PTRACE, any other from 1; 3 refuses everyone. Null where nothing is refused or there is no Yama.
-    /// </summary>
+    /// <summary>The setting when it refuses tracing the process (started: from 2 without CAP_SYS_PTRACE, other: from 1, 3: all); null when nothing is refused or there is no Yama.</summary>
     public static int? Refusing(bool started)
     {
         if (!OperatingSystem.IsLinux()) return null;

@@ -5,10 +5,7 @@ using Corvus.Setup;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Generated documentation: docs/tools.md from the tool catalog and the client table of docs/installation.md from the
-/// client catalog. Run the tests with CORVUS_UPDATE_DOCS=1 to regenerate them.
-/// </summary>
+/// <summary>docs/tools.md and the docs/installation.md client table match their catalogs; CORVUS_UPDATE_DOCS=1 regenerates them.</summary>
 public class DocsTests
 {
     internal static string RepoRoot()
@@ -21,7 +18,7 @@ public class DocsTests
     private static bool Update => Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1";
 
     [Fact]
-    public void ToolReferenceIsCurrent()
+    public void Tool_reference_is_current()
     {
         var path = Path.Combine(RepoRoot(), "docs", "tools.md");
         var expected = ToolsMarkdown();
@@ -31,7 +28,7 @@ public class DocsTests
     }
 
     [Fact]
-    public void InstallationClientTableIsCurrent()
+    public void Installation_client_table_is_current()
     {
         var path = Path.Combine(RepoRoot(), "docs", "installation.md");
         var text = File.ReadAllText(path).ReplaceLineEndings("\n");

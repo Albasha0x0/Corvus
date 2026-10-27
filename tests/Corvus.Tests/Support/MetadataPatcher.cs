@@ -6,11 +6,7 @@ using System.Text;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Byte-level changes to a compiled assembly's metadata, the way transformation tools malform it: extra or duplicate streams,
-/// table-stream header flags, rows pointing out of range. Changes that grow the metadata re-lay it out at the end of the
-/// last section (which is grown to hold it) and point the CLI header there.
-/// </summary>
+/// <summary>Byte-level metadata malformations: extra or duplicate streams, header flags, out-of-range rows; grown metadata moves to the end of the last section.</summary>
 internal static class MetadataPatcher
 {
     public sealed record Stream(string Name, byte[] Data);

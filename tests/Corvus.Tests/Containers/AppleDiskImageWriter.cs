@@ -5,11 +5,7 @@ using Corvus.Tests.NativeFormats;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Builds an HFS+ volume (TN1150 layout, 4 KiB blocks and B-tree nodes): folders, files, symbolic links, hard links
-/// through the private iNode folder, decmpfs zlib files (types 3 and 4) and files split past eight extents into the
-/// extents overflow file. Catalog leaves are chained and indexed by one index node when there are several.
-/// </summary>
+/// <summary>Writes an HFS+ volume (TN1150, 4 KiB blocks) with links, decmpfs files and overflow extents.</summary>
 internal sealed class HfsPlusWriter
 {
     public const int BlockSize = 4096;
@@ -418,10 +414,7 @@ internal sealed class HfsPlusWriter
     }
 }
 
-/// <summary>
-/// Wraps partitions in a UDIF disk image: each partition cut into 64 KiB chunks stored by the given methods in turn
-/// (all-zero chunks as zero fill), a blkx table in the XML property list, and the koly trailer.
-/// </summary>
+/// <summary>Wraps partitions in a UDIF image: 64 KiB chunks by the given methods, a blkx table and the koly trailer.</summary>
 internal static class UdifWriter
 {
     public const int ChunkBytes = 65536;

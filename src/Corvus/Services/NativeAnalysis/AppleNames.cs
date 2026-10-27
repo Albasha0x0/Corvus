@@ -4,11 +4,7 @@ using Corvus.Native.MachO;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The <see cref="NativeNameSource.ObjC"/> and <see cref="NativeNameSource.Swift"/> name layers of a Mach-O image,
-/// built from its Objective-C and Swift runtime metadata when the code index is first built (no tool call needed;
-/// see <see cref="AppleObjcNames"/> and <see cref="AppleSwiftNames"/> for the naming). Cheap to rebuild, so not saved.
-/// </summary>
+/// <summary>The ObjC and Swift name layers of a Mach-O image, built from its runtime metadata with the code index; not saved.</summary>
 public static class AppleNames
 {
     /// <summary>Set to 0 to turn off naming Mach-O images from their ObjC / Swift metadata.</summary>
@@ -41,10 +37,7 @@ public static class AppleNames
         }
     }
 
-    /// <summary>
-    /// On the index build thread: sets the objc and swift layers of a Mach-O image and returns the function starts they
-    /// name (method implementations, metadata accessors, vtable entries); null for other images or when turned off.
-    /// </summary>
+    /// <summary>Sets a Mach-O image's objc and swift layers on the index thread; returns the starts they name; null for other images or when off.</summary>
     public static IReadOnlyCollection<uint>? AutoApply(LoadedNative native, NativeCodeService code, CancellationToken ct)
     {
         if (Environment.GetEnvironmentVariable(AutoVariable) == "0" || native.Image is not MachOFile image) return null;
@@ -68,11 +61,7 @@ public static class AppleNames
         return starts;
     }
 
-    /// <summary>
-    /// list_cpp_classes lines for a Mach-O image: ObjC classes (superclass, Swift name, counts, protocols), categories and
-    /// protocols, then Swift types (superclass, fields, vtable, conformances); with <paramref name="slots"/> the methods
-    /// and vtable entries with their implementations. Empty for images without the metadata.
-    /// </summary>
+    /// <summary>list_cpp_classes lines for a Mach-O image's ObjC and Swift types, with methods when <paramref name="slots"/>; empty without metadata.</summary>
     public static List<string> ClassLines(LoadedNative native, string? filter, bool slots, Func<uint, string?> nameAt, CancellationToken ct)
     {
         var lines = new List<string>();

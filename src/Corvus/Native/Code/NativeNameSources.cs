@@ -3,20 +3,14 @@ using Corvus.Core;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Where a name or comment at a native address comes from. At one address the highest source wins:
-/// user (rename_native / comment_native) &gt; pdb &gt; nativeaot &gt; il2cpp &gt; objc &gt; swift (Mach-O runtime metadata) &gt; dart (Dart AOT snapshot objects) &gt;
-/// napi (Node-API add-on registrations) &gt;
-/// ida (library functions IDA recognized by signature) &gt;
-/// ghidra (names from Ghidra's loader and analysis, Function ID included) &gt; discovered (exports, imports, sub_&lt;rva&gt;). Values are stored in saved layers; priority is <see cref="NativeNameSources.Rank"/>.
-/// </summary>
-public enum NativeNameSource { Discovered = 0, Ida = 1, Il2Cpp = 2, Pdb = 3, User = 4, NativeAot = 5, Ghidra = 6, ObjC = 7, Swift = 8, NodeApi = 9, Dart = 10 }
+/// <summary>Where a name or comment at a native address comes from; values are saved, priority is <see cref="NativeNameSources.Rank"/>.</summary>
+public enum NativeNameSource { Discovered = 0, Ida = 1, Metadata = 2, Pdb = 3, User = 4, NativeAot = 5, Ghidra = 6, ObjC = 7, Swift = 8, NodeApi = 9, Dart = 10 }
 
 public static class NativeNameSources
 {
     /// <summary>Imported and user sources, highest priority first.</summary>
     public static readonly IReadOnlyList<NativeNameSource> ByPriority =
-        [NativeNameSource.User, NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.ObjC, NativeNameSource.Swift,
+        [NativeNameSource.User, NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Metadata, NativeNameSource.ObjC, NativeNameSource.Swift,
             NativeNameSource.Dart, NativeNameSource.NodeApi, NativeNameSource.Ida, NativeNameSource.Ghidra];
 
     /// <summary>Priority of a source at one address: higher wins.</summary>
@@ -25,7 +19,7 @@ public static class NativeNameSources
         NativeNameSource.User => 10,
         NativeNameSource.Pdb => 9,
         NativeNameSource.NativeAot => 8,
-        NativeNameSource.Il2Cpp => 7,
+        NativeNameSource.Metadata => 7,
         NativeNameSource.ObjC => 6,
         NativeNameSource.Swift => 5,
         NativeNameSource.Dart => 4,
@@ -35,13 +29,13 @@ public static class NativeNameSources
         _ => 0,
     };
 
-    /// <summary>The source's identifier in tool output and sidecar files: user, pdb, nativeaot, il2cpp, objc, swift, dart, napi, ida, ghidra, discovered.</summary>
+    /// <summary>The source's identifier in tool output and sidecar files.</summary>
     public static string Id(this NativeNameSource source) => source switch
     {
         NativeNameSource.User => "user",
         NativeNameSource.Pdb => "pdb",
         NativeNameSource.NativeAot => "nativeaot",
-        NativeNameSource.Il2Cpp => "il2cpp",
+        NativeNameSource.Metadata => "metadata",
         NativeNameSource.ObjC => "objc",
         NativeNameSource.Swift => "swift",
         NativeNameSource.Dart => "dart",
@@ -55,17 +49,13 @@ public static class NativeNameSources
     {
         "user" => NativeNameSource.User,
         "pdb" => NativeNameSource.Pdb,
-        "il2cpp" => NativeNameSource.Il2Cpp,
+        "metadata" => NativeNameSource.Metadata,
         "nativeaot" => NativeNameSource.NativeAot,
         _ => null,
     };
 }
 
-/// <summary>
-/// Names and comments of one code index by source (<see cref="NativeNameSource.Discovered"/> excluded: those are the
-/// index's own). Answers the name and comment in effect at an address and the address of a name in effect.
-/// Thread-safe.
-/// </summary>
+/// <summary>Names and comments of one code index by source, except discovered ones; thread-safe.</summary>
 public sealed class SourcedNames
 {
     private const int Sources = (int)NativeNameSource.Dart + 1;
@@ -231,27 +221,18 @@ public sealed class SourcedNames
     }
 }
 
-/// <summary>
-/// Where a saved layer came from: the source file (PDB, global-metadata.dat, script.json or dummy assembly), its identity
-/// when imported (PDB "GUID age", else the file's SHA-256), when, the function starts it contributes to the code index
-/// (PDB), and whether this layer was read back from disk at load rather than imported in this session.
-/// </summary>
+/// <summary>Provenance of a saved layer: source file, identity (PDB "GUID age" or SHA-256), time, function starts, restored flag.</summary>
 public sealed record ImportInfo(string? SourcePath, string? SourceIdentity, DateTime ImportedUtc, IReadOnlyList<uint>? FunctionStarts = null, bool Restored = false);
 
-/// <summary>
-/// The imported (non-user) names and comments of a loaded image, one layer per source, each replaced or removed as a
-/// whole. Kept per <see cref="LoadedNative"/> so they survive in-memory patching (which rebuilds the code index) and
-/// replayed onto every newly built index. Layers with <see cref="ImportInfo"/> (load_pdb, apply_il2cpp_names, NativeAOT) are also
-/// saved beside the image's annotations and restored when the image is loaded again.
-/// </summary>
+/// <summary>Imported names and comments of a loaded image, one layer per source; kept per loaded image so they survive patching, replayed onto every rebuilt index; layers with <see cref="ImportInfo"/> are saved and restored on reload.</summary>
 public sealed class NativeNameLayers
 {
     private static readonly ConditionalWeakTable<LoadedNative, NativeNameLayers> Table = new();
     private readonly object _gate = new();
     private readonly Dictionary<NativeNameSource, Layer> _layers = new();
 
-    /// <summary>One source's names and comments by RVA, with where they came from (for reports).</summary>
-    /// <param name="Info">Provenance of an import that is saved with the image's annotations; null for layers not saved.</param>
+    /// <summary>One source's names and comments by RVA, with their origin.</summary>
+    /// <param name="Info">Provenance of a layer saved with the image's annotations; null when not saved.</param>
     public sealed record Layer(NativeNameSource Source, IReadOnlyDictionary<uint, string> Names, IReadOnlyDictionary<uint, string> Comments, string Origin,
         ImportInfo? Info = null);
 

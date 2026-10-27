@@ -4,10 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// Which passes run, the evaluator limits, and whether environment reads are pinned to fixed stand-ins
-/// (<see cref="EnvironmentStandIns"/>; off unless asked for).
-/// </summary>
+/// <summary>The passes to run, evaluator limits, and whether environment reads use <see cref="EnvironmentStandIns"/> (off by default).</summary>
 public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, bool Forwarders = true, EvaluationLimits? Limits = null, bool DeterministicEnvironment = false)
 {
     public EvaluationLimits EffectiveLimits => Limits ?? new EvaluationLimits();
@@ -59,9 +56,9 @@ public sealed class MethodChange(MethodDef method)
     public int RemovedHandlers { get; set; }
     /// <summary>Stores to locals that the other passes left unread.</summary>
     public int RemovedStores { get; set; }
-    /// <summary>Loads kept only for their effect (<c>_ = S.F;</c>) that repeat one that always ran before them, removed.</summary>
+    /// <summary>Removed effect-only loads (<c>_ = S.F;</c>) repeating one that always ran before.</summary>
     public int RemovedLoads { get; set; }
-    /// <summary>Reads of locals through their address (<c>ldloca; ldind</c>) that read a constant, replaced by it.</summary>
+    /// <summary><c>ldloca; ldind</c> reads of a constant, replaced by it.</summary>
     public int ConstantReads { get; set; }
     /// <summary>Switch dispatchers of flattened control flow removed: each transition goes straight to its case.</summary>
     public int Dispatchers { get; set; }
@@ -69,7 +66,7 @@ public sealed class MethodChange(MethodDef method)
     public int InstructionsBefore { get; set; }
     public int InstructionsAfter { get; set; }
     public CilBody? NewBody { get; set; }
-    /// <summary>Why the method was left unchanged as a whole (it did not verify before or after, it took too long, or an error).</summary>
+    /// <summary>Why the whole method was left unchanged: verification, time limit or error.</summary>
     public Fallback? Rejected { get; set; }
 
     public bool Changed => NewBody != null;
@@ -78,31 +75,19 @@ public sealed class MethodChange(MethodDef method)
                               + ConstantReads + RemovedLoads > 0;
 }
 
-/// <summary>
-/// Compiler-style simplification of method bodies, on copies (the methods are not touched; callers assign
-/// <see cref="MethodChange.NewBody"/>):
-/// <list type="number">
-/// <item>inline: call sites of forwarder methods (bodies that only pass their arguments on to another method) call the target directly;</item>
-/// <item>fold: calls producing a string from constant inputs are evaluated with <see cref="IlEvaluator"/> and replaced by ldstr;</item>
-/// <item>cfg: branches on constant conditions are folded (also conditions computed through locals and blocks:
-/// <see cref="ConstantFlow"/>), stores to locals left unread removed, branch-to-branch chains collapsed, flattened switch dispatchers
-/// (in the clean form, or analyzed per state: <see cref="PlanPerState"/>)
-/// normalized, empty try regions and handlers removed, and unreachable code deleted.</item>
-/// </list>
-/// Every rewritten body must pass <see cref="BodyGraph.Verify"/>; otherwise the method is reported and left unchanged.
-/// </summary>
+/// <summary>Runs the inline, fold and cfg passes on body copies; a result that fails <see cref="BodyGraph.Verify"/> is reported and dropped.</summary>
 public sealed class MethodSimplifier
 {
     private readonly ModuleDef _module;
     private readonly SimplifyOptions _options;
     private readonly IlEvaluator _evaluator;
     private readonly Forwarders _forwarders;
-    /// <summary>Calls and static reads of the method being simplified that the evaluator computed (they only produce their value).</summary>
+    /// <summary>Calls and static reads of the current method that the evaluator computed.</summary>
     private readonly HashSet<Instruction> _evaluated = new();
     /// <summary>In a static constructor: each instruction of the working copy that stands at an instruction of the original body.</summary>
     private readonly Dictionary<Instruction, Instruction> _origin = new();
 
-    /// <summary>Type initializer runs that used the extended tier (see IlEvaluator.Progress.cs).</summary>
+    /// <summary>Type initializer runs that used the extended tier.</summary>
     public IReadOnlyList<ExtendedInitializer> ExtendedInitializers => _evaluator.ExtendedInitializers;
 
     public MethodSimplifier(ModuleDef module, SimplifyOptions options)
@@ -180,8 +165,10 @@ public sealed class MethodSimplifier
         _origin.Clear();
         if (method.IsStaticConstructor)
             for (int i = 0; i < body.Instructions.Count; i++) _origin[body.Instructions[i]] = original.Instructions[i];
-        var dead = new HashSet<Instruction>(); // instructions turned into nops by the passes; removed at the end
-        var unclean = new List<Fallback>(); // flattened dispatchers not in the clean form, as of the last round
+        // Instructions the passes turned into nops; removed at the end.
+        var dead = new HashSet<Instruction>();
+        // Flattened dispatchers not in the clean form, as of the last round.
+        var unclean = new List<Fallback>();
         var readOriginally = body.Instructions
             .Where(i => i.IsLdloc() || i.OpCode.Code is Code.Ldloca or Code.Ldloca_S).Select(i => i.GetLocal(body.Variables)).OfType<Local>().ToHashSet();
         if (_options.Forwarders)
@@ -232,14 +219,8 @@ public sealed class MethodSimplifier
 
     private static string At(Instruction ins) => $"IL_{ins.Offset:X4}";
 
-    /// <summary>
-    /// The instruction of the original body a slice starting at <paramref name="ins"/> stands at: the working copy's own
-    /// instructions keep their place in the program's run (rewrites in place keep what runs before them); instructions
-    /// the passes added map to none.
-    /// </summary>
+    /// <summary>The original instruction <paramref name="ins"/> stands at; null for instructions the passes added.</summary>
     private Instruction? Origin(Instruction ins) => _origin.GetValueOrDefault(ins);
-
-    // ---- pass: forwarder inlining
 
     private void InlineForwarders(MethodDef caller, CilBody body, MethodChange change)
     {
@@ -248,7 +229,7 @@ public sealed class MethodSimplifier
         {
             var site = code[i];
             if (site.OpCode.Code is not (Code.Call or Code.Callvirt)) continue;
-            if (i > 0 && code[i - 1].OpCode.OpCodeType == OpCodeType.Prefix) continue; // tail. / constrained. / readonly.
+            if (i > 0 && code[i - 1].OpCode.OpCodeType == OpCodeType.Prefix) continue;
             var first = site.Operand as IMethod;
             for (int hop = 0; hop < 8 && site.Operand is MethodDef wrapper; hop++)
             {
@@ -262,16 +243,7 @@ public sealed class MethodSimplifier
         }
     }
 
-    // ---- pass: calls through delegate fields
-
-    /// <summary>
-    /// Call sites <c>ldsfld F; args; call(virt) D::Invoke</c> through a static delegate field of this module whose value
-    /// the evaluator computes (the field's type initializer run in the sandbox, reflection-based initializers included)
-    /// call the delegate's target directly: <c>args; call M</c> for a delegate of a static method, or the code of its
-    /// dynamic method after it has loaded its arguments, in order (<c>ldarg.0 ... ldarg.n-1; [code]; ret</c>). The field
-    /// must only be written while its type initializes (readonly, or proven by <see cref="ModuleFacts"/>); anything else is
-    /// reported (delegate-target) and the call is kept.
-    /// </summary>
+    /// <summary>Rewrites <c>ldsfld F; args; Invoke</c> on an evaluated static delegate field to call its target; others are reported delegate-target.</summary>
     private void ResolveDelegateCalls(MethodDef caller, CilBody body, HashSet<Instruction> dead, MethodChange change)
     {
         var code = body.Instructions;
@@ -324,7 +296,8 @@ public sealed class MethodSimplifier
             site.Operand = replacement[0].Operand;
             for (int k = 1; k < replacement.Count; k++)
             {
-                replacement[k].Offset = site.Offset; // reported at the call they replace
+                // Reported at the call they replace.
+                replacement[k].Offset = site.Offset;
                 code.Insert(i + k, replacement[k]);
             }
             i += replacement.Count - 1;
@@ -333,11 +306,7 @@ public sealed class MethodSimplifier
         }
     }
 
-    /// <summary>
-    /// Index of the instruction that pushes the stack slot <paramref name="depth"/> positions below the top before
-    /// code[end] (0: the top), found in the straight-line code before it (no instruction after it is in
-    /// <paramref name="targets"/>); -1 when it is not a single push there.
-    /// </summary>
+    /// <summary>Index of the straight-line single push of the slot <paramref name="depth"/> below the top before code[end], or -1.</summary>
     internal static int Producer(IList<Instruction> code, ISet<Instruction> targets, int end, int depth)
     {
         for (int k = end - 1; k >= 0; k--)
@@ -378,7 +347,8 @@ public sealed class MethodSimplifier
             for (int k = arguments; k < body.Count - 1; k++)
             {
                 var ins = body[k];
-                if (ins.OpCode.Code == Code.Tailcall) continue; // the call is followed by its ret
+                // The call is followed by its ret.
+                if (ins.OpCode.Code == Code.Tailcall) continue;
                 if (ins.IsLdarg() || ins.IsStarg() || ins.OpCode.Code is Code.Ldarga or Code.Ldarga_S || ins.OpCode.FlowControl is not (FlowControl.Next or FlowControl.Call)
                     || ins.OpCode.OpCodeType == OpCodeType.Prefix)
                 {
@@ -411,8 +381,6 @@ public sealed class MethodSimplifier
         return null;
     }
 
-    // ---- pass: evaluation of string-producing calls
-
     private void FoldStringCalls(CilBody body, HashSet<Instruction> dead, MethodChange change)
     {
         var code = body.Instructions;
@@ -424,7 +392,7 @@ public sealed class MethodSimplifier
             if (!ProducesString(call.OpCode.Code, callee)) continue;
             call.CalculateStackUsage(false, out _, out int pops);
             int? start = SliceStart(code, graph, j, pops);
-            if (start == null) continue; // arguments are not compile-time constants
+            if (start == null) continue;
 
             object? value;
             try
@@ -435,7 +403,7 @@ public sealed class MethodSimplifier
             }
             catch (EvaluationBailout ex)
             {
-                // Reported for the assembly's own helpers; framework calls that cannot be evaluated are expected.
+                // Only the assembly's own helpers are reported; framework calls are expected to bail.
                 if (Generics.Definition(callee) is MethodDef def && def.Module == _module)
                     change.Bailouts.Add(new(ex.Reason, $"{At(call)} {Describe(callee)}: {ex.Message}", def));
                 continue;
@@ -454,12 +422,8 @@ public sealed class MethodSimplifier
         ? callee.DeclaringType?.FullName == "System.String"
         : Generics.ReturnType(callee)?.RemovePinnedAndModifiers().ElementType == ElementType.String;
 
-    /// <summary>
-    /// Start of the shortest run of instructions ending before <paramref name="end"/> that pushes the
-    /// <paramref name="needed"/> operands of code[end] from an empty stack, without branches, arguments, locals or
-    /// incoming branches in between; null when there is none.
-    /// </summary>
-    /// <remarks><paramref name="endMayBeTarget"/>: code[end] may be entered from elsewhere (the slice ends just before it).</remarks>
+    /// <summary>Start of the shortest straight-line run pushing code[end]'s <paramref name="needed"/> operands without arguments or locals, or null.</summary>
+    /// <remarks><paramref name="endMayBeTarget"/>: code[end] may be a branch target, since the slice ends before it.</remarks>
     private static int? SliceStart(IList<Instruction> code, BodyGraph graph, int end, int needed, bool endMayBeTarget = false)
     {
         int i = end;
@@ -487,8 +451,6 @@ public sealed class MethodSimplifier
         return ins.OpCode.Code is not (Code.Ldarga or Code.Ldarga_S or Code.Ldloca or Code.Ldloca_S or Code.Calli or Code.Jmp or Code.Pop);
     }
 
-    // ---- pass: control flow
-
     private bool FoldBranches(CilBody body, HashSet<Instruction> dead, MethodChange change)
     {
         var code = body.Instructions;
@@ -511,7 +473,7 @@ public sealed class MethodSimplifier
             }
             catch (EvaluationBailout)
             {
-                continue; // not constant after all
+                continue;
             }
 
             var head = code[start.Value];
@@ -531,12 +493,7 @@ public sealed class MethodSimplifier
         return changed;
     }
 
-    /// <summary>
-    /// Branches and switches whose operands are the same on every run though computed across instructions, locals and
-    /// blocks (<see cref="ConstantFlow"/>) go straight to the code they select. The instructions computing the operands are
-    /// deleted when they only compute them (loads, arithmetic, evaluated calls and static reads right before the branch);
-    /// otherwise the branch pops them. Stores whose local is no longer read are removed afterwards (<see cref="RemoveDeadStores"/>).
-    /// </summary>
+    /// <summary>Sends branches with a <see cref="ConstantFlow"/> outcome to their target, deleting pure operand code or popping the rest.</summary>
     private bool PropagateConstants(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, MethodMeter meter)
     {
         var all = body.Instructions;
@@ -549,7 +506,6 @@ public sealed class MethodSimplifier
         _evaluated.UnionWith(flow.Evaluated);
         var code = body.Instructions;
 
-        // A constant hidden behind a local read through its address becomes the constant.
         bool replaced = false;
         foreach (var (read, value) in flow.AddressReads)
         {
@@ -582,7 +538,7 @@ public sealed class MethodSimplifier
             }
             else
             {
-                // The operands stay computed (they may have effects); the branch only drops them.
+                // The operands may have effects, so they stay and the branch drops them.
                 branch.OpCode = OpCodes.Pop;
                 branch.Operand = null;
                 var after = Enumerable.Range(1, pops - 1).Select(_ => OpCodes.Pop.ToInstruction()).ToList();
@@ -599,21 +555,11 @@ public sealed class MethodSimplifier
         return true;
     }
 
-    /// <summary>
-    /// Start of the run of instructions right before code[end] that pushes its <paramref name="needed"/> operands and
-    /// does nothing else, so that it can be deleted with code[end]: constants, loads of locals and arguments, arithmetic,
-    /// comparisons and conversions, and calls or static reads the evaluator computed; null when there is none.
-    /// <paramref name="mayThrow"/>: operations that throw for some operands (division, checked arithmetic and
-    /// conversions) are included, which is right only when their operands are known not to make them throw.
-    /// </summary>
+    /// <summary>Start of the effect-free run before code[end] pushing its operands, or null; <paramref name="mayThrow"/> admits ops that throw for some operands.</summary>
     private int? OperandSlice(IList<Instruction> code, BodyGraph graph, int end, int needed, bool mayThrow) =>
         graph.Targets.Contains(code[end]) ? null : RemovableRun(code, graph, end - 1, needed, mayThrow);
 
-    /// <summary>
-    /// Start of the run of instructions ending at code[last] that pushes <paramref name="needed"/> values and does nothing
-    /// else (see <see cref="OperandSlice"/>; a local read through its address right away, <c>ldloca; ldind</c>, counts as a
-    /// load); last + 1 when nothing is needed, null when there is no such run.
-    /// </summary>
+    /// <summary>Start of the effect-free run ending at code[last] pushing <paramref name="needed"/> values; last + 1 for none, null when absent.</summary>
     private int? RemovableRun(IList<Instruction> code, BodyGraph graph, int last, int needed, bool mayThrow)
     {
         int i = last + 1;
@@ -653,11 +599,7 @@ public sealed class MethodSimplifier
         or Code.Conv_Ovf_I4_Un or Code.Conv_Ovf_I8_Un or Code.Conv_Ovf_U1_Un or Code.Conv_Ovf_U2_Un or Code.Conv_Ovf_U4_Un
         or Code.Conv_Ovf_U8_Un or Code.Conv_Ovf_I_Un or Code.Conv_Ovf_U_Un;
 
-    /// <summary>
-    /// Locals the passes left unread (the original body read them): their stores do nothing any more. A store whose value
-    /// is computed right before it without effects (<see cref="OperandSlice"/>, nothing that may throw) is deleted with
-    /// that computation; any other store pops its value instead.
-    /// </summary>
+    /// <summary>Removes stores to locals the passes left unread, with their effect-free computation, else turns them into pops.</summary>
     private bool RemoveDeadStores(CilBody body, HashSet<Local> readOriginally, HashSet<Instruction> dead, MethodChange change)
     {
         var code = body.Instructions;
@@ -751,8 +693,6 @@ public sealed class MethodSimplifier
         return changed;
     }
 
-    // ---- pass: control flow, flattened switch dispatchers
-
     /// <summary>What normalizing one dispatcher does to the body.</summary>
     private sealed class NormalizePlan
     {
@@ -760,18 +700,12 @@ public sealed class MethodSimplifier
         public List<Instruction> Dead { get; } = new();
         /// <summary>Branches into the dispatcher (or a shared tail) that now go straight to their case.</summary>
         public List<(Instruction Branch, Instruction Target)> Retarget { get; } = new();
-        /// <summary>Transitions that fell into the dispatcher (or a shared tail): a br to their case is inserted before it.</summary>
+        /// <summary>Transitions that fell into the dispatcher or a shared tail; a br to their case goes before it.</summary>
         public List<(Instruction Before, Instruction Target)> Insert { get; } = new();
         public int Transitions => Retarget.Count + Insert.Count;
     }
 
-    /// <summary>
-    /// Flattened control flow: a loop whose body is a switch over a state local, each case storing the next state as a
-    /// constant and branching back to the switch. Only the clean form (<see cref="PlanNormalize"/>) is rewritten: every
-    /// transition goes straight to the case its state selects, the constant stores are deleted, and the dispatcher, no
-    /// longer entered, is removed as unreachable code. A dispatcher in any other form is kept as it is and listed in
-    /// <paramref name="unclean"/> (refilled on every call); the other passes still apply to the method.
-    /// </summary>
+    /// <summary>Removes flattened switch dispatchers, sending each transition to its case; kept dispatchers are listed in <paramref name="unclean"/>.</summary>
     private bool Normalize(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, List<Fallback> unclean, MethodMeter meter)
     {
         unclean.Clear();
@@ -792,7 +726,7 @@ public sealed class MethodSimplifier
             var plan = PlanNormalize(body, graph, depth, s, out var head, out var why);
             if (plan == null)
             {
-                // Not the clean form: the dispatcher is analyzed per state.
+                // Not the clean form, so the dispatcher is analyzed per state.
                 if (DispatcherStart(body, graph, depth, s) is not { } start)
                 {
                     if (why != null)
@@ -824,22 +758,8 @@ public sealed class MethodSimplifier
         return changed;
     }
 
-    /// <summary>
-    /// Plans normalizing the switch at code[s]. Null with <paramref name="why"/> null: not flattened control flow, i.e. not
-    /// <c>ldloc state; ...; switch</c> where code reachable from the switch stores the state and goes back to the ldloc
-    /// (a plain <c>switch (local)</c> is not a candidate). Null with <paramref name="why"/> set: flattened, but not in the
-    /// clean form, which is:
-    /// <list type="bullet">
-    /// <item>the dispatcher <c>ldloc state; key; switch</c> is entered only at the ldloc, with an empty stack, and the key
-    /// only computes on the stack (e.g. <c>ldc.i4 k; xor</c>);</item>
-    /// <item>the state is an int local whose address is never taken, read only by the dispatcher;</item>
-    /// <item>every entry into the dispatcher is a transition: <c>constant; stloc state</c>, straight-line code that leaves
-    /// the state alone, then <c>br dispatcher</c> or falling into it. A shared tail <c>stloc state; br dispatcher</c>
-    /// (what <c>state = c ? 3 : 5;</c> compiles to) counts when every way into it is a br or fall-through after a constant;</item>
-    /// <item>every store to the state belongs to a transition, and the constants are computed without calls.</item>
-    /// </list>
-    /// Unreachable code is ignored: it is removed with the dispatcher.
-    /// </summary>
+    // Clean form: an int state read only by `ldloc state; key; switch`, entered empty, every entry a constant transition.
+    /// <summary>Plans the clean-form rewrite of the switch at code[s]; null with <paramref name="why"/> null when it is not flattened flow, set when not clean.</summary>
     private NormalizePlan? PlanNormalize(CilBody body, BodyGraph graph, int[] depth, int s, out Instruction? head, out string? why)
     {
         head = null;
@@ -849,7 +769,7 @@ public sealed class MethodSimplifier
         while (h >= 0 && !code[h].IsLdloc() && code[h].OpCode.FlowControl is FlowControl.Next or FlowControl.Call) h--;
         if (h < 0 || !code[h].IsLdloc() || code[h].GetLocal(body.Variables) is not { } state) return null;
         var entry = code[h];
-        // Flattened control flow loops: some case stores the state and goes back to the dispatcher.
+        // Flattened flow loops: some case stores the state and goes back to the dispatcher.
         var loop = graph.ReachableFrom(s);
         bool IsEntry(int e) => BodyGraph.BranchTargets(code[e]).Contains(entry) || (e + 1 == h && BodyGraph.FallsThrough(code[e]));
         if (!Enumerable.Range(0, code.Count).Any(e => loop[e] && IsEntry(e) &&
@@ -933,7 +853,7 @@ public sealed class MethodSimplifier
 
             if (!graph.Targets.Contains(code[store]))
             {
-                // constant; stloc state; ...; br dispatcher
+                // The form is `constant; stloc state; ...; br dispatcher`.
                 if (!graph.SameRegions(store, h) || SliceStart(code, graph, store, 1) is not { } start || Case(start, store - 1) is not { } target)
                 {
                     why = notConstant;
@@ -945,7 +865,7 @@ public sealed class MethodSimplifier
                 continue;
             }
 
-            // Shared tail stloc state; br dispatcher: each way in pushes a constant and goes straight to its case instead.
+            // In a shared tail `stloc state; br dispatcher`, each way in goes straight to its case instead.
             if (store != (jumps ? e - 1 : e) || depth[store] != 1 || !graph.SameRegions(store, h) || RegionStartsAt(graph, code[store]))
             {
                 why = notConstant;
@@ -983,25 +903,20 @@ public sealed class MethodSimplifier
     /// <summary>What normalizing one dispatcher analyzed per state does to the body.</summary>
     private sealed class PerStatePlan
     {
-        /// <summary>Instructions deleted (the values a transition pushed for the dispatcher).</summary>
+        /// <summary>Values a transition pushed for the dispatcher, deleted.</summary>
         public List<Instruction> Dead { get; } = new();
-        /// <summary>Branch operands that pointed into the dispatcher (From) and now point at the case (To).</summary>
+        /// <summary>Branch operands moved from the dispatcher (From) to the case (To).</summary>
         public List<(Instruction Branch, Instruction From, Instruction To)> Retarget { get; } = new();
-        /// <summary>Code inserted before an instruction (a transition that fell into the dispatcher).</summary>
+        /// <summary>Code inserted before a transition that fell into the dispatcher.</summary>
         public List<(Instruction Before, Instruction[] Code)> Insert { get; } = new();
-        /// <summary>Instructions rewritten in place (reads of the state that are the same on every run become constants).</summary>
+        /// <summary>Constant state reads rewritten in place.</summary>
         public List<(Instruction Instruction, OpCode OpCode, object? Operand)> Replace { get; } = new();
-        /// <summary>Code appended at the end of the body (stubs that drop the values a conditional branch passed to the dispatcher).</summary>
+        /// <summary>Stubs appended to the body that drop values a conditional branch passed to the dispatcher.</summary>
         public List<Instruction> Append { get; } = new();
         public int Transitions { get; set; }
     }
 
-    /// <summary>
-    /// The first instruction of the dispatcher that ends with the switch at code[s]: the straight-line code before the
-    /// switch, from its earliest branch target on. Null unless it is flattened control flow: code reachable from the
-    /// switch branches back into it (a loop over the switch), and that loop passes it a state, by storing a local the
-    /// dispatcher reads or by values on the stack.
-    /// </summary>
+    /// <summary>The first instruction of the dispatcher ending at code[s], or null unless a loop passes it a state in a local or on the stack.</summary>
     private static int? DispatcherStart(CilBody body, BodyGraph graph, int[] depth, int s)
     {
         var code = graph.Instructions;
@@ -1029,11 +944,7 @@ public sealed class MethodSimplifier
         return backEdge && state ? start : null;
     }
 
-    /// <summary>
-    /// Whether code[i] may be part of a dispatcher that transitions bypass: it only computes (constants, loads and stores
-    /// of locals, arithmetic, comparisons, conversions), so skipping it changes nothing but its locals. Division and
-    /// remainder only by a constant that cannot make them throw.
-    /// </summary>
+    /// <summary>Whether skipping code[i] changes only locals; division only by a constant that cannot throw.</summary>
     private static bool InDispatcher(IList<Instruction> code, int i)
     {
         var ins = code[i];
@@ -1046,23 +957,13 @@ public sealed class MethodSimplifier
                || IsArithmetic(op) && !Throws(op) || op == Code.Call && IsNativeRoutine(ins.Operand);
     }
 
-    /// <summary>
-    /// A call of a native method of the module with 32-bit integers in and out: where the evaluator runs it, it only
-    /// computes on its own stack frame (see <see cref="NativeRoutine"/>); where it does not, the analysis cannot decide
-    /// the way in and keeps the dispatcher.
-    /// </summary>
+    /// <summary>Whether the operand is a module native method with 32-bit integers in and out, which <see cref="NativeRoutine"/> may run.</summary>
     private static bool IsNativeRoutine(object? operand) =>
         operand is MethodDef { IsNative: true, IsStatic: true, ImplMap: null } m &&
         m.MethodSig.RetType.RemovePinnedAndModifiers().ElementType is ElementType.I4 or ElementType.U4 &&
         m.MethodSig.Params.All(p => p.RemovePinnedAndModifiers().ElementType is ElementType.I4 or ElementType.U4);
 
-    /// <summary>
-    /// Plans normalizing the dispatcher code[start..s] by analyzing it per state (<see cref="ConstantFlow.Dispatch"/>):
-    /// its locals (the state, and what the dispatcher computes from it) must be tracked; every way into the dispatcher
-    /// must select the same case on every run; and every read of those locals outside the dispatcher must read the same
-    /// value on every run. Each way in then goes straight to its case (values passed on the stack are dropped), the reads
-    /// become constants, and the dispatcher, no longer entered, is removed with the stores to its locals.
-    /// </summary>
+    /// <summary>Plans removing dispatcher code[start..s] by <see cref="ConstantFlow.Dispatch"/>; null with <paramref name="why"/> when a way in or a read varies.</summary>
     private PerStatePlan? PlanPerState(CilBody body, BodyGraph graph, int[] depth, bool hasReturnValue, int start, int s, MethodMeter meter, out string? why)
     {
         why = null;
@@ -1076,7 +977,7 @@ public sealed class MethodSimplifier
             }
         }
         var members = DispatcherMembers(body, graph, depth, start, s);
-        // Ways in that no plan could rewrite are found before the (costly) analysis.
+        // Ways in no plan could rewrite are found before the costly analysis.
         for (int e = 0; e < code.Count; e++)
         {
             if (depth[e] < 0 || code[e].OpCode.FlowControl is not FlowControl.Cond_Branch and not FlowControl.Branch) continue;
@@ -1127,11 +1028,11 @@ public sealed class MethodSimplifier
         foreach (var ((from, to), target) in result.Edges.OrderBy(e => e.Key))
         {
             int t = graph.IndexOf(target);
-            int k = depth[to]; // values passed to the dispatcher on the stack
+            // Values passed to the dispatcher on the stack.
+            int k = depth[to];
             var entered = code[to];
             if (from < 0)
             {
-                // The method starts with the dispatcher.
                 if (graph.Regions(to).Length > 0 || graph.Regions(t).Any(id => id % 3 != 0 || graph.Handlers[id / 3].TryStart != target))
                 {
                     why = "the method starts with the dispatcher inside a protected region";
@@ -1158,7 +1059,7 @@ public sealed class MethodSimplifier
 
             if (falls || e.OpCode.Code is Code.Br or Code.Br_S)
             {
-                // Values pushed for the dispatcher right before are deleted; otherwise popped.
+                // Values pushed for the dispatcher right before are deleted, others popped.
                 int last = falls ? from : from - 1;
                 var drop = new List<Instruction>();
                 if (RemovableRun(code, graph, last, k, mayThrow: false) is { } run)
@@ -1176,7 +1077,7 @@ public sealed class MethodSimplifier
                 }
                 else
                 {
-                    // br dispatcher becomes pop...; br case.
+                    // The br dispatcher becomes pop...; br case.
                     plan.Replace.Add((e, OpCodes.Pop, null));
                     plan.Insert.Add((code[from + 1 < code.Count ? from + 1 : from], [.. drop.Skip(1), OpCodes.Br.ToInstruction(target)]));
                     if (from + 1 >= code.Count)
@@ -1197,7 +1098,7 @@ public sealed class MethodSimplifier
             }
             else
             {
-                // A conditional branch (or switch) that passes values: it branches to a stub that drops them.
+                // A conditional branch or switch that passes values goes to a stub that drops them.
                 if (graph.Regions(from).Length > 0 || body.ExceptionHandlers.Any(h => h.HandlerEnd == null) ||
                     BodyGraph.FallsThrough(code[^1]))
                 {
@@ -1222,18 +1123,15 @@ public sealed class MethodSimplifier
             if (read.IsLdloc()) plan.Replace.Add((read, constant.OpCode, constant.Operand));
             else
             {
-                plan.Replace.Add((code[index - 1], constant.OpCode, constant.Operand)); // ldloca; ldind
+                // The read is `ldloca; ldind`.
+                plan.Replace.Add((code[index - 1], constant.OpCode, constant.Operand));
                 plan.Dead.Add(read);
             }
         }
         return plan.Transitions > 0 ? plan : null;
     }
 
-    /// <summary>
-    /// The dispatcher's code: code[start..s], and tails that only lead into it: straight-line code from a branch target
-    /// on that only computes (<see cref="InDispatcher"/>) and ends with a br into the dispatcher, such as the
-    /// <c>stloc state; br dispatcher</c> that <c>state = c ? a : b;</c> compiles to.
-    /// </summary>
+    /// <summary>The dispatcher's indexes: code[start..s] plus computing tails that branch into it, such as <c>stloc state; br dispatcher</c>.</summary>
     private static HashSet<int> DispatcherMembers(CilBody body, BodyGraph graph, int[] depth, int start, int s)
     {
         var code = graph.Instructions;
@@ -1249,8 +1147,9 @@ public sealed class MethodSimplifier
                 while (run > 0 && depth[run - 1] >= 0 && InDispatcher(code, run - 1) && graph.SameRegions(run - 1, s) && !members.Contains(run - 1))
                     run--;
                 int first = Enumerable.Range(run, j - run + 1).FirstOrDefault(i => graph.BranchTargetSet.Contains(code[i]), -1);
-                if (first < 0 || first == j) continue; // entered only by falling through, or a plain br: an ordinary transition
-                // A tail may only store the dispatcher's own locals: skipping it must not lose other stores.
+                // Entered only by falling through, or a plain br: an ordinary transition.
+                if (first < 0 || first == j) continue;
+                // A tail may only store the dispatcher's own locals, so skipping it loses no other store.
                 var own = members.Where(i => code[i].IsLdloc() || code[i].IsStloc()).Select(i => code[i].GetLocal(body.Variables)).ToHashSet();
                 if (Enumerable.Range(first, j - first + 1).Any(i => code[i].IsStloc() && !own.Contains(code[i].GetLocal(body.Variables)))) continue;
                 for (int i = first; i <= j; i++) members.Add(i);
@@ -1304,10 +1203,7 @@ public sealed class MethodSimplifier
     private static bool RegionStartsAt(BodyGraph graph, Instruction ins) =>
         graph.Handlers.Any(eh => eh.TryStart == ins || eh.HandlerStart == ins || eh.FilterStart == ins);
 
-    /// <summary>
-    /// The store to the state local that code[last] is reached from by straight-line code that leaves the local alone
-    /// (e.g. <c>state = 0; acc = x;</c> before the loop), or -1.
-    /// </summary>
+    /// <summary>The state store that reaches code[last] by straight-line code leaving the state alone, or -1.</summary>
     private static int StateStore(IList<Instruction> code, BodyGraph graph, int last, Local state, CilBody body)
     {
         for (int k = last; k >= 0; k--)
@@ -1335,11 +1231,7 @@ public sealed class MethodSimplifier
         }
     }
 
-    /// <summary>
-    /// Removes handlers that can no longer run or do nothing: a finally that only ends; a catch, fault or filter whose
-    /// try only leaves; a try that only leaves into its finally, whose body then runs inline. Leaves that no longer
-    /// exit a region become plain branches.
-    /// </summary>
+    /// <summary>Removes empty finallys and handlers of trys that only leave; leaves that exit no region become branches.</summary>
     private static bool SimplifyTryRegions(CilBody body, HashSet<Instruction> dead, bool hasReturnValue, MethodChange change)
     {
         bool changed = false;
@@ -1372,7 +1264,7 @@ public sealed class MethodSimplifier
             }
         }
 
-        // Leaves that do not exit any region (left over after removing handlers) are plain branches.
+        // Leaves that exit no region after handler removal are plain branches.
         var final = new BodyGraph(body);
         var depths = final.Verify(hasReturnValue, out _);
         if (depths == null) return changed;
@@ -1387,10 +1279,7 @@ public sealed class MethodSimplifier
         return changed;
     }
 
-    /// <summary>
-    /// try { leave L } finally { F } with the finally right after the leave: the leave falls into F and F's own endfinally
-    /// instructions branch to L.
-    /// </summary>
+    /// <summary>Inlines <c>try { leave L } finally { F }</c> with F right after the leave: it falls into F, whose endfinallys branch to L.</summary>
     private static bool InlineFinally(BodyGraph graph, int[] depth, int h, int leave, List<int> handlerCode, HashSet<Instruction> dead)
     {
         var code = graph.Instructions;
@@ -1399,7 +1288,7 @@ public sealed class MethodSimplifier
         int handlerStart = graph.IndexOf(eh.HandlerStart);
         for (int k = leave + 1; k < handlerStart; k++)
             if (code[k].OpCode.Code != Code.Nop) return false;
-        // L must be outside exactly this try: the leave's regions without the try.
+        // L must be outside exactly this try.
         var expected = graph.Regions(leave).Where(id => id != h * 3).ToArray();
         if (!graph.Regions(graph.IndexOf(target)).AsSpan().SequenceEqual(expected)) return false;
         var ends = handlerCode.Where(i => code[i].OpCode.Code == Code.Endfinally && OwnEndfinally(graph, i, h)).ToList();
@@ -1475,12 +1364,9 @@ public sealed class MethodSimplifier
         return true;
     }
 
-    /// <summary>
-    /// An unconditional branch to the next instruction does nothing; a conditional one only consumes its operands and
-    /// becomes pops. (A conditional branch whose target is also its fall-through crashes the .NET 10 JIT when that
-    /// instruction starts nested try regions, so it must not be left behind. The IL is valid: this is a runtime-level
-    /// issue; minimal repro in docs/known-issues.md, fixture SimplifyRegressionTests.ConditionalBranchToNextBecomesPops.)
-    /// </summary>
+    // Workaround: a conditional branch to its own fall-through that starts nested trys crashes the .NET 10 JIT
+    // (valid IL); repro in docs/known-issues.md, test SimplifyRegressionTests.Conditional_branch_to_next_becomes_pops.
+    /// <summary>Deletes branches to the next instruction; conditional ones become pops of their operands.</summary>
     private static bool DropBranchesToNext(CilBody body, HashSet<Instruction> dead)
     {
         var code = body.Instructions;
@@ -1506,13 +1392,7 @@ public sealed class MethodSimplifier
         return changed;
     }
 
-    /// <summary>
-    /// A pop of a value computed right before it without effects (what folding leaves behind, see
-    /// <see cref="RemovableRun"/>; nothing that may throw) is deleted with that computation. So is a pop of a constant or
-    /// a load of a local or argument pushed earlier in the same straight-line code, below values the code in between
-    /// pushes and pops itself (<c>ldc.i4 N; ldsfld S; ldfld F; pop; pop</c>, around a load kept for its effect): the
-    /// code in between does not see it.
-    /// </summary>
+    /// <summary>Deletes pops of effect-free values with their computation, including a constant or load pushed earlier below balanced code.</summary>
     private bool RemovePurePops(CilBody body, HashSet<Instruction> dead)
     {
         var code = body.Instructions;
@@ -1542,14 +1422,7 @@ public sealed class MethodSimplifier
         return changed;
     }
 
-    /// <summary>
-    /// A load kept only for what it may do (<c>ldsfld S; ldfld F; pop</c>: run S's type initializer, throw on a null
-    /// receiver) does nothing when the same load has run before it: its pop dominates this one (every path from the entry,
-    /// exception edges included, passes it) and the receivers cannot have changed in between. The root is an argument
-    /// never stored to nor taken the address of (not a struct's 'this'), or a static field that only its type's
-    /// initialization writes, read outside that initialization (or with no field after it: then only the initializer
-    /// matters, and it has run); the fields between root and the last one are readonly, outside constructors.
-    /// </summary>
+    /// <summary>Removes an effect-only load (<c>ldsfld S; ldfld F; pop</c>) dominated by the same load on stable receivers.</summary>
     private bool RemoveRepeatedLoads(MethodDef method, CilBody body, HashSet<Instruction> dead, MethodChange change)
     {
         var code = body.Instructions;
@@ -1597,6 +1470,7 @@ public sealed class MethodSimplifier
         return changed;
     }
 
+    // A root is an argument never stored or address-taken (not a struct's 'this'), or a static only its initializer writes.
     private bool StableRoot(MethodDef method, CilBody body, Instruction root, bool hasFields)
     {
         if (root.OpCode.Code == Code.Ldsfld)
@@ -1612,11 +1486,7 @@ public sealed class MethodSimplifier
         return !body.Instructions.Any(ins => (ins.IsStarg() || ins.OpCode.Code is Code.Ldarga or Code.Ldarga_S) && ins.GetParameterIndex() == index);
     }
 
-    /// <summary>
-    /// Whether every path from the entry to <paramref name="to"/> passes <paramref name="from"/>: with it taken out,
-    /// <paramref name="to"/> is unreachable. Edges: fall-through, branches, from each instruction of a protected region
-    /// to its handler (or filter), from endfinally to every leave target.
-    /// </summary>
+    /// <summary>Whether every path from the entry to <paramref name="to"/>, exception edges included, passes <paramref name="from"/>.</summary>
     private static bool Dominates(CilBody body, Instruction from, Instruction to)
     {
         var code = body.Instructions;
@@ -1690,7 +1560,7 @@ public sealed class MethodSimplifier
         foreach (var ins in survivors) code.Add(ins);
         dead.ExceptWith(replacement.Keys);
 
-        // A try that lost all its instructions is empty: drop the handler (its code becomes unreachable).
+        // A try that lost all its instructions drops its handler, whose code becomes unreachable.
         for (int h = body.ExceptionHandlers.Count - 1; h >= 0; h--)
         {
             var eh = body.ExceptionHandlers[h];

@@ -957,9 +957,7 @@ internal sealed class SwitchExpressionHelpers : IAstTransform
 }
 
 /// <summary>
-/// Recovers local functions the engine references but never declares (compiled into a closure class shared with
-/// lambdas). The method is decompiled separately, closure field accesses become captured variables, and the
-/// declaration is placed in the innermost block containing all uses.
+/// Recovers local functions the engine references but never declares, placed in the innermost block holding every use.
 /// </summary>
 internal sealed class MissingLocalFunctions : IAstTransform
 {
@@ -1021,7 +1019,8 @@ internal sealed class MissingLocalFunctions : IAstTransform
                     || member.Target is IdentifierExpression { Identifier: var t } && closureParameters.Contains(t)
                     || member.Target.GetSymbol() is IField outer && outer.DeclaringType != null && IsClosure(outer.DeclaringType) && IsClosure(outer.Type)))
                 continue;
-            if (IsClosure(field.Type)) continue; // outer-closure hop: handled below
+            // Outer-closure hops are handled below.
+            if (IsClosure(field.Type)) continue;
             node.ReplaceWith(IsThisCopy(field) ? new ThisReferenceExpression() : new IdentifierExpression(Captured(field)));
         }
         // Remaining outer-closure hops: `CS$<>8__locals1.x` → `x`.

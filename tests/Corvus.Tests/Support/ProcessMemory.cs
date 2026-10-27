@@ -5,10 +5,7 @@ namespace Corvus.Tests;
 /// <summary>Private memory this process holds, for streaming budgets.</summary>
 internal static class ProcessMemory
 {
-    /// <summary>
-    /// Bytes: resident anonymous pages (RssAnon) on Linux, where PrivateMemorySize64 is VmData, address space that swung
-    /// from +9 to +657 MB across runs of one 500 MB stream holding +0 MB; PrivateMemorySize64 (committed private bytes) elsewhere.
-    /// </summary>
+    /// <summary>Bytes: RssAnon on Linux, where PrivateMemorySize64 is VmData and swings by hundreds of MB; committed private bytes elsewhere.</summary>
     public static long Private()
     {
         if (OperatingSystem.IsLinux())

@@ -5,11 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Many native tool calls in parallel on the same and different images while other tasks load, unload and reload them:
-/// no deadlock, no unexpected exception, and no code index build left running for an image that is gone.
-/// CORVUS_NATIVE_STRESS_SECONDS sets the duration (default 30).
-/// </summary>
+/// <summary>Parallel native calls while images load, unload and reload: no deadlock, no unexpected exception, no orphan index build (CORVUS_NATIVE_STRESS_SECONDS, default 30).</summary>
 [Trait("Speed", "Slow")]
 public class NativeConcurrencyTests(ITestOutputHelper output)
 {
@@ -19,7 +15,7 @@ public class NativeConcurrencyTests(ITestOutputHelper output)
     private static bool Expected(ErrorCode code) => code is ErrorCode.NotLoaded or ErrorCode.NotFound or ErrorCode.Conflict;
 
     [WindowsFact]
-    public async Task ToolsLoadsUnloadsAndReloadsInParallel()
+    public async Task Tools_loads_unloads_and_reloads_run_in_parallel()
     {
         var seconds = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_STRESS_SECONDS"), out var s) ? s : 30;
         var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -123,7 +119,7 @@ public class NativeConcurrencyTests(ITestOutputHelper output)
 
     /// <summary>Unloading an image ends its IDA auto-analysis: the waiting decompile_native gets a conflict at once.</summary>
     [WindowsFact]
-    public async Task UnloadEndsAnIdaAnalysisInProgress()
+    public async Task Unload_ends_an_IDA_analysis_in_progress()
     {
         using var harness = new NativeToolHarness(backgroundIndexing: false);
         if (!harness.Engines.Providers[0].CheckAvailability().IsAvailable) return; // IDA not installed here

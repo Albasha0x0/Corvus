@@ -42,10 +42,7 @@ public enum StackTraceFormat
     Commands,
 }
 
-/// <summary>
-/// The format facts of one NativeAOT compiler generation, keyed by the ReadyToRun header major version
-/// (ModuleHeaders.cs CurrentMajorVersion at each dotnet/runtime release tag).
-/// </summary>
+/// <summary>Format facts of one NativeAOT generation, keyed by the ReadyToRun header major version.</summary>
 public sealed record NativeAotFormat(ushort RtrMajor, string Runtime, MetadataDialect Metadata, MethodTableLayout Layout,
     RehydrationFormat Rehydration, StackTraceFormat StackTrace, bool InvokeMapAlwaysHasMethodHandle)
 {

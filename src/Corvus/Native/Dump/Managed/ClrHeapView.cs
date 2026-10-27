@@ -8,12 +8,7 @@ public static class ClrHeapView
 {
     public const int MaxStringChars = 200;
 
-    /// <summary>
-    /// Walks up to <paramref name="maxObjects"/> objects, keeping those whose type matches <paramref name="type"/>
-    /// (null: all) and whose size is at least <paramref name="minSize"/>. Returns per-type statistics, the matching
-    /// objects in heap order from <paramref name="objectsFrom"/> (up to <paramref name="objectsTake"/>), the matched
-    /// count, the walked count and whether the walk stopped early.
-    /// </summary>
+    /// <summary>Walks up to <paramref name="maxObjects"/> objects matching <paramref name="type"/> (null: all) and <paramref name="minSize"/>: per-type statistics and one page of matches.</summary>
     public static HeapWalk Walk(ClrReads clr, string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct)
     {
         var heap = clr.Runtime.Heap;
@@ -43,10 +38,7 @@ public static class ClrHeapView
         return new HeapWalk(list, objects, matched, walked, stopped);
     }
 
-    /// <summary>
-    /// The object at <paramref name="address"/>: fields (references expanded <paramref name="depth"/> levels, structs
-    /// inline), a string's value, or an array's first <paramref name="maxArrayItems"/> elements. Null when no valid object is there.
-    /// </summary>
+    /// <summary>Fields, string value or first array elements of the object at <paramref name="address"/>; null when no valid object is there.</summary>
     public static ObjectView? Object(ClrReads clr, ulong address, int depth, int maxFields, int maxArrayItems)
     {
         var o = clr.Runtime.Heap.GetObject(address);

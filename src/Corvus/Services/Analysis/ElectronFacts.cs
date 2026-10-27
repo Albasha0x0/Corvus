@@ -32,7 +32,7 @@ public sealed record ElectronFacts(
     /// <summary>search_container kind=feature: the chains from a literal (not serialized).</summary>
     internal IReadOnlyList<FeatureTrace>? Traces { get; init; }
 
-    /// <summary>Settings worth a highlight: what the app sets for these differs from nothing else in the summary.</summary>
+    /// <summary>The summary's highlight lines.</summary>
     internal IEnumerable<string> Highlights()
     {
         if (ElectronVersion != null)
@@ -101,7 +101,7 @@ internal static class ElectronInspector
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
-            if (binary == null) notes.Add("No Electron binary found beside the archive (expected two folders up, or the framework of a macOS bundle): versions and fuses unknown.");
+            if (binary == null) notes.Add("No Electron binary two folders up or in the macOS bundle's framework; versions and fuses are unknown.");
         }
         else if (kind is "native PE" or "elf" or "mach-o")
         {
@@ -154,10 +154,7 @@ internal static class ElectronInspector
         finally { stream?.Dispose(); }
     }
 
-    /// <summary>
-    /// The surface rows of the app at <paramref name="app"/> (what app.getAppPath() returns): an .asar as summarize_file
-    /// reads it, or an app folder's own scripts; empty when it is neither.
-    /// </summary>
+    /// <summary>Surface rows of the .asar or app folder at <paramref name="app"/> (app.getAppPath()); empty when it is neither.</summary>
     internal static IReadOnlyList<ElectronRow> AppSurface(string app, CancellationToken ct)
     {
         if (Directory.Exists(app))
@@ -216,17 +213,15 @@ internal static class ElectronInspector
             int deps = root.TryGetProperty("dependencies", out var d) && d.ValueKind == JsonValueKind.Object ? d.EnumerateObject().Count() : 0;
             return new ElectronPackage(Str("name"), Str("productName"), Str("version"), main, found, deps);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException) // InvalidOperationException: invalid UTF-8 in a string
+        // InvalidOperationException: invalid UTF-8 in a string.
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             notes.Add($"package.json is not valid JSON ({ex.Message}).");
             return null;
         }
     }
 
-    /// <summary>
-    /// webPreferences object literals in the app's own scripts (main entry first, node_modules skipped): each top-level
-    /// property of interest with its source text; a webPreferences that is not a literal is reported as its expression.
-    /// </summary>
+    /// <summary>webPreferences settings in the app's own scripts, main entry first; a non-literal value is reported as its expression.</summary>
     private static List<ElectronSetting> WebPreferences(AppFiles app, string? main, List<string> notes, List<ElectronRow> surface, ElectronGraph graph, CancellationToken ct)
     {
         var scripts = app.Files.Where(f => IsScript(f.Path) && !f.Path.StartsWith("node_modules/", StringComparison.Ordinal) && !f.Path.Contains("/node_modules/", StringComparison.Ordinal))
@@ -296,7 +291,7 @@ internal static class ElectronInspector
         return p;
     }
 
-    /// <summary>"!0" and "!1" as minifiers write true and false.</summary>
+    /// <summary>Restores minified literals ("!0", "!1", "void 0") and clips long values to 120 characters.</summary>
     private static string Normalize(string value) => value switch
     {
         "!0" => "true",
@@ -329,7 +324,8 @@ internal static class ElectronInspector
                 int start = p;
                 while (p < end && (char.IsLetterOrDigit(text[p]) || text[p] is '_' or '$')) p++;
                 key = text[start..p];
-                if (key.Length == 0) // spread, computed key or something else: skip the property
+                // A spread or computed key: skip the property.
+                if (key.Length == 0)
                 {
                     Value(text, p, out var next);
                     if (next >= end || text[next] != ',') yield break;

@@ -1,9 +1,6 @@
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>
-/// Where linear memory addresses come from in the file: the active data segments of memory 0 placed at constant offsets,
-/// sorted by address. A constant address inside one maps to the file offset of its initial bytes.
-/// </summary>
+/// <summary>Maps constant linear memory addresses to file offsets through memory 0's constant-offset active data segments.</summary>
 public sealed class WasmMemoryMap
 {
     private readonly (ulong Address, int Length, int FileStart)[] _segments;

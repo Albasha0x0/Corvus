@@ -11,10 +11,7 @@ namespace Corvus.Setup;
 /// <summary>The tool CLI's streams; Tty flags select indented JSON and a progress line.</summary>
 internal sealed record CliIo(TextWriter Out, TextWriter Error, TextReader In, bool OutTty = false, bool ErrorTty = false);
 
-/// <summary>
-/// Every tool from the terminal with no per-tool code: commands and argument types come from the live catalog, and calls
-/// run through an in-process server (<see cref="ToolSession"/>). Exit codes: <see cref="Exit"/>.
-/// </summary>
+/// <summary>Every tool from the terminal, typed from the live catalog and run through an in-process server.</summary>
 internal static partial class ToolCli
 {
     /// <summary>Exit codes, documented in docs/cli.md.</summary>
@@ -60,10 +57,7 @@ internal static partial class ToolCli
         finally { Console.CancelKeyPress -= onCancel; }
     }
 
-    /// <summary>
-    /// A CLI command, a tool name, or any other word that is not a setup command (reported as unknown); server options start
-    /// with "-", so a server start never matches. "help" alone is the setup help.
-    /// </summary>
+    /// <summary>True for a CLI command, a tool name or another non-setup word; options start with "-", so a server start never matches.</summary>
     public static bool Handles(string[] args)
     {
         if (args.Length == 0 || args[0].StartsWith('-')) return false;

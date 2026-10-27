@@ -9,13 +9,10 @@ public class OutputSchemaTransformTests
 {
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
-    /// <summary>Output schemas in tools/list: 194.6 KB for 87 tools before the compact form (SC-11); 102,565 B for 152 tools as fields and types to depth 2; 103,008 at 156 with analyze_js; 103,300 with read_result verify checks; 103,600 for C-ENG2b; 104,000 for ARCH-1 (row types inlined instead of $ref); 104,100 for ARCH-2 (measured 104,094); 104,400 for NATIVE-1 (measured 104,351); 104,700 for WEB-1 and MANAGED-1 (measured 104,680); 105,200 for EM-3 (measured 105,143); 107,100 for DF-2 and ARCH-3 (measured 107,076); 107,200 for SL-4 and X4 (measured 107,157); 107,250 for SL-4 storage and X3 (measured 107,237); 107,300 for OI-E5 batches (measured 107,294); 109,000 for WEB-2 (measured 107,803 with analyze_js endpoints and secrets; diff and runtime records to come) (Phase 4 target 110 KB); 109,200 with the Hermes views and MM-11's survey_features findings (measured 109,094); 109,450 for W-P3-1's analyze_js flow record (measured 109,406); 111,750 for LIVE-1's four session tools (measured 111,702); 111,850 for live_session's process rows (measured 111,828); 111,900 for inspect_instruction's list envelope (OI-N8; measured 111,892); 112,550 for the load, reload, unload and add_search_directory records (OI-S3; measured 112,525).; 113,250 for LIVE-2 (live_watch and live_script records; measured 113,234); 113,400 for L7 (live_session snapshot) (measured 113,355); 115,150 for L8 and L9 (the live_coverage record; measured 115,107); 116,050 for L10 (the live_timeline record; measured 116,033); 116,300 for L11 (the live_timeline diff record; measured 116,293); 117,350 for L22 (the live_console record; measured 117,302); 118,250 for edit digests (a digest per edit result, editList on both saves; measured 118,216); 118,450 for jump following, started process ids and live_read paging (measured 118,422); 118,500 for deferred stop points and watches (measured 118,476); 118,550 with the Pascal class record (measured 118,503); 118,350 without empty items schemas, with room for the live_coverage `unread` field (measured 118,267, 118,323 with it)</summary>
+    /// <summary>Ceiling of the output schemas in tools/list: the measured size rounded up to 50.</summary>
     private const int MaxOutputSchemaTotalBytes = 118_350;
 
-    /// <summary>
-    /// MM-9: a record field that says a result stopped early is one coverage reads (truncated, cut, incomplete, partial), so
-    /// the provenance says partial; the others named here mean something else.
-    /// </summary>
+    /// <summary>Record fields that say a result stopped early make the provenance partial; the others listed mean something else.</summary>
     [Fact]
     public void Stop_fields_are_ones_coverage_reads()
     {
@@ -37,7 +34,7 @@ public class OutputSchemaTransformTests
     }
 
     [Fact]
-    public void CatalogOutputSchemasAreCompact()
+    public void Catalog_output_schemas_are_compact()
     {
         long total = 0;
         foreach (var tool in Catalog.OfThisBuild(Corvus.Core.Toolsets.All).Tools)
@@ -48,7 +45,7 @@ public class OutputSchemaTransformTests
         }
         Assert.True(total <= MaxOutputSchemaTotalBytes, $"output schemas are {total:N0} bytes, over {MaxOutputSchemaTotalBytes:N0}");
 
-        // a property named description is data, not an annotation: only keywords count
+        // A property named description is data, not an annotation: only keywords count.
         static string? Annotation(JsonNode? node, string path = "#") => node switch
         {
             JsonObject o when o.ContainsKey("description") || o.ContainsKey("title") => path,
@@ -61,7 +58,7 @@ public class OutputSchemaTransformTests
     }
 
     [Fact]
-    public void Compact_StripsAnnotationsAndRequiredListsAndOpensDeepObjects()
+    public void Compact_strips_annotations_and_required_lists_and_opens_deep_objects()
     {
         var schema = Parse("""
             {"type":"object","description":"d","properties":{
@@ -82,11 +79,11 @@ public class OutputSchemaTransformTests
         Assert.Equal("string", (string?)compact["properties"]!["note"]!["type"]);
         Assert.Equal("""["a"]""", compact["properties"]!["kind"]!["enum"]!.ToJsonString());
         Assert.Equal("""{"type":"integer"}""", compact["properties"]!["offset"]!.ToJsonString());
-        // no required lists (the described form keeps them); objects below the rows are open: any object
+        // No required lists (the described form keeps them); objects below the rows are open: any object.
         Assert.Null(compact["required"]);
         Assert.Null(compact["properties"]!["rows"]!["items"]!["required"]);
         Assert.Equal("""{"type":"object"}""", compact["properties"]!["rows"]!["items"]!["properties"]!["inner"]!.ToJsonString());
-        // a reference into an opened object accepts any value
+        // A reference into an opened object accepts any value.
         Assert.Equal("{}", compact["properties"]!["again"]!.ToJsonString());
         // and an array of them is any array, without an empty items schema
         Assert.Equal("""{"type":"array"}""", compact["properties"]!["ids"]!.ToJsonString());
@@ -96,7 +93,7 @@ public class OutputSchemaTransformTests
         Assert.Equal("x", (string?)described["properties"]!["note"]!["description"]);
         Assert.NotNull(described["properties"]!["rows"]!["items"]!["properties"]!["inner"]!["properties"]!["deep"]!["properties"]);
         Assert.NotNull(described["properties"]!["rows"]!["items"]!["required"]);
-        // nullable is optional; the rest stays required
+        // Nullable is optional; the rest stays required.
         Assert.Equal("""["description","offset","rows","again"]""", described["required"]!.ToJsonString());
     }
 
@@ -117,7 +114,7 @@ public class OutputSchemaTransformTests
     }
 
     [Fact]
-    public void SharedEnvelopeFieldsAreDeclaredOnceOutsideTheCompactForm()
+    public void Shared_envelope_fields_are_declared_once_outside_the_compact_form()
     {
         var notices = """{"type":"array","items":{"type":"string"}}""";
         var schema = Parse("""
@@ -134,7 +131,7 @@ public class OutputSchemaTransformTests
     private sealed record Row(string Name, string? Note, int? Count);
 
     [Fact]
-    public void ResultsLeaveNullsOut_AndStillValidate()
+    public void Results_leave_nulls_out_and_still_validate()
     {
         var json = JsonSerializer.Serialize(new Row("a", null, null), Catalog.ToolSerializerOptions);
         Assert.Equal("""{"name":"a"}""", json);

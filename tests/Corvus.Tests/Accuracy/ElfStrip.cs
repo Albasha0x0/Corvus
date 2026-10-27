@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Tests.Accuracy;
 
-/// <summary>
-/// A stripped copy of an ELF image with the layout unchanged: .symtab, .strtab, .debug_*, .zdebug_*, .gnu_debuglink and
-/// .gnu_debugdata zeroed and their headers made SHT_NULL. .dynsym, .eh_frame and relocations stay, as in a shipped image.
-/// Same rule as the research stripping tool, so local scores and this test agree.
-/// </summary>
+/// <summary>A stripped ELF copy, layout unchanged: symbol and debug sections zeroed; .dynsym, .eh_frame and relocations kept.</summary>
 public static class ElfStrip
 {
     public static byte[] Strip(byte[] input)

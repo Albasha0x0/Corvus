@@ -5,11 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// live_read on each target: strings read to their terminator, globals by name, a module's header by module name, a
-/// pointer as wide as the program's, values of each scalar type, and the refusals (unreadable memory, unknown register,
-/// a thread not held); memory of a running program read without a stop.
-/// </summary>
+/// <summary>live_read on each target: strings, globals, module headers, pointers, scalars, and refusals; memory of a running program read without a stop.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -36,7 +32,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         var thread = Regex.Match(stop, @"thread (\d+) stopped at s1").Groups[1].Value;
         Assert.False(string.IsNullOrEmpty(thread), stop);
 
-        // a 300-character string and its UTF-16 copy, read whole without a length
+        // A 300-character string and its UTF-16 copy, read whole without a length.
         string text = string.Concat(Enumerable.Range(0, 300).Select(i => (char)('a' + i % 26))), wide = text.ToUpperInvariant();
         var cstring = await Read(server, await Argument(server, target, 0), "cstring");
         Assert.Contains($"  \"{text}\"\n", cstring);
@@ -44,7 +40,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         Assert.Contains($"  \"{wide}\"\n", await Read(server, await Argument(server, target, 1), "utf16"));
         Assert.Contains($"  \"{text[..16]}\" (cut: no terminator in 16 bytes)", await Read(server, await Argument(server, target, 0), "cstring", length: 16));
 
-        // globals by name, each scalar type
+        // Globals by name, each scalar type.
         Assert.Contains("  42\n", await Read(server, "g_count", "int32"));
         Assert.Contains("  2.5\n", await Read(server, "g_ratio", "double"));
         Assert.Contains("  0.5\n", await Read(server, "g_scale", "float"));
@@ -62,7 +58,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         if (target.Arm64) Assert.Matches($@"(?i)\blr +{caller}\b", await Ok(server, "live_read", new() { ["session"] = "live-1", ["registers"] = "lr" }));
         else Assert.Contains($"  {caller}\n", await Read(server, "sp", "pointer"));
 
-        // below 64 KiB nothing is mapped; past the image's size, so not taken as an image address (a PIE's start at 0)
+        // Below 64 KiB nothing is mapped; past the image's size, so not taken as an image address (a PIE's start at 0).
         var (unreadable, e1) = await Call(server, "live_read", new() { ["session"] = "live-1", ["memory"] = "0xF000", ["type"] = "uint32" });
         Assert.True(e1 && unreadable.Contains("\"code\":\"not_found\""), unreadable);
         var (register, e2) = await Call(server, "live_read", new() { ["session"] = "live-1", ["registers"] = "pc,xmm9" });
@@ -70,7 +66,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
         var (notHeld, e3) = await Call(server, "live_read", new() { ["session"] = "live-1", ["thread"] = "1" });
         Assert.True(e3 && notHeld.Contains("\"code\":\"not_found\""), notHeld);
 
-        // running again: memory reads without a stop
+        // Running again: memory reads without a stop.
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "clear", ["stopPoint"] = "s1" });
         Assert.Contains($"resumed thread(s) {thread}", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" }));
         var running = await Read(server, "g_count", "int32");
@@ -86,9 +82,7 @@ public sealed class LiveReadRealTests(ITestOutputHelper output) : LiveToolCalls(
     [LiveTargetFact("win-x86")] public Task Memory_in_the_image_file_range_is_read_where_the_program_has_it_on_win_x86() => ReadInImageRange(LiveTarget.WinX86);
     [LiveTargetFact("win-x64")] public Task Memory_in_the_image_file_range_is_read_where_the_program_has_it_on_win_x64() => ReadInImageRange(LiveTarget.WinX64);
 
-    // The program commits a page inside its own file range, left free where
-    // ASLR loaded the image elsewhere. The range spans over 2 MiB, past the
-    // 1 MiB main thread stack that can lie in it (CI run 39884500244).
+    // A page committed in the image's own free file range; the range exceeds 2 MiB, past a 1 MiB main stack inside it (CI run 39884500244).
     private async Task ReadInImageRange(LiveTarget target)
     {
         var exe = target.Build(_dir, "inrange", LivePrograms.InImageRange);

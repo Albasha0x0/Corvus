@@ -6,11 +6,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// Value tracing and call-target facts for ARM64 code under the AAPCS64 (x0-x7 and 8-byte stack slots for arguments, x0
-/// for results, x0-x18 and x30 caller-saved): decoded functions, the backward resolver and the per-function slices the
-/// <see cref="ValueTrace"/> driver composes. One instance per code index, thread-safe.
-/// </summary>
+/// <summary>AAPCS64 value tracing: decoded functions, the backward resolver and the slices <see cref="ValueTrace"/> composes; thread-safe.</summary>
 internal sealed class Arm64Trace : ITraceHost
 {
     private const int MaxCachedFunctions = 512;
@@ -33,10 +29,7 @@ internal sealed class Arm64Trace : ITraceHost
                 if (va > index.Image.ImageBase && va - index.Image.ImageBase < index.Image.SizeOfImage) _guardSlots.Add((uint)(va - index.Image.ImageBase));
     }
 
-    /// <summary>
-    /// A blr through the CFG check function pointer (Windows ARM64): it validates x15 and preserves every register but
-    /// x16, x17 and x30, so values and arguments flow past it.
-    /// </summary>
+    /// <summary>Whether this is a blr through the Windows ARM64 CFG check, which preserves all registers but x16, x17 and x30.</summary>
     public bool IsGuardCheck(A64Function code, int block, int k)
     {
         if (_guardSlots.Count == 0) return false;
@@ -159,7 +152,7 @@ internal sealed class Arm64SliceProvider(Arm64Trace host) : IFunctionSliceProvid
             {
                 var (block, index) = code.Position(seed.Address);
                 var loc = block >= 0 ? A64Function.Parse(seed.Location, seed.Kind == SliceSeedKind.Argument ? null : code.Blocks[block][index]) : null;
-                // an argument's entry slot is the slot at the call, where sp is the caller's sp there
+                // An argument's entry slot is its slot at the call, relative to the caller's sp.
                 if (seed.Kind == SliceSeedKind.Argument && loc is { IsSlot: true } entry && block >= 0)
                     loc = code.Blocks[block][index].Sp is { } sp ? A64Loc.Slot(sp + entry.Value) : null;
                 b.Add(block < 0 || loc == null ? A64Val.Unknown(block < 0 ? "not an instruction of the function" : $"unknown location '{seed.Location}'") : r.Before(loc.Value, block, index));
@@ -289,11 +282,7 @@ internal sealed class Arm64SliceProvider(Arm64Trace host) : IFunctionSliceProvid
     }
 }
 
-/// <summary>
-/// Forward slice in an ARM64 function: the registers and stack slots holding the value are followed over the blocks
-/// through copies and arithmetic until overwritten; each use is a node: call argument (x0-x7, stack slots at the call),
-/// call target, store to a global or through a pointer, compare (cmp, cbz, tbz), switch index, dereference, return in x0.
-/// </summary>
+/// <summary>Forward slice in an ARM64 function: follows the value's registers and slots until overwritten, one node per use.</summary>
 internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
 {
     private const int MaxSteps = 20_000;
@@ -450,7 +439,6 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
         var mem = A64Function.Memory(s);
         Live? source = null;
         bool store = Arm64Resolver.IsStore(i), load = Arm64Resolver.IsLoad(i);
-        // register operands read
         int firstRead = store ? 0 : 1;
         for (int k = firstRead; k < i.OperandCount; k++)
         {
@@ -458,7 +446,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             int n = A64Function.Number(((Arm64RegisterOperand)op).Value);
             if (n is >= 0 and not 31 && live.TryGetValue(A64Loc.Reg(n), out var l)) { source ??= l; if (store) break; }
         }
-        // a live base or index register: the value is a pointer used here
+        // A live base or index register: the value is used as a pointer.
         if (mem is { } m && m.Slot == null)
         {
             var a = m.Accessor;
@@ -480,7 +468,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
                     { Derived = p.Derived, Offset = field ? Displacement(m) : null });
             }
         }
-        // loads from a live stack slot carry it into the destination
+        // Loads from a live stack slot carry it into the destination.
         if (load && mem is { Slot: { } slot } && live.TryGetValue(A64Loc.Slot(slot), out var sl)) source = sl;
 
         if (i.Mnemonic is Arm64Mnemonic.CMP or Arm64Mnemonic.CMN or Arm64Mnemonic.TST or Arm64Mnemonic.CCMP or Arm64Mnemonic.CCMN)
@@ -509,7 +497,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
         }
         else if (store && mem is { Slot: { } over }) live.Remove(A64Loc.Slot(over));
 
-        // destinations: written registers get the value (derived unless a copy) or lose it
+        // Written registers get the value (derived unless a copy) or lose it.
         bool copy = i.Mnemonic is Arm64Mnemonic.MOV or Arm64Mnemonic.FMOV or Arm64Mnemonic.SXTW or Arm64Mnemonic.SXTH or Arm64Mnemonic.SXTB
             or Arm64Mnemonic.UXTB or Arm64Mnemonic.UXTH || load && mem is { Slot: not null };
         for (int k = 0; k < i.OperandCount && !store; k++)

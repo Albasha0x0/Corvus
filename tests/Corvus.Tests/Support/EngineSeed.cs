@@ -7,10 +7,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Engine analyses shared between tests: an input is analysed once per engine build, worker scripts and recipe, and a
-/// test starts from a copy of that cache entry in its own cache root. Tests about cold opens keep an empty cache.
-/// </summary>
+/// <summary>Engine analyses shared between tests: analysed once per engine build, scripts and recipe, then copied into each test's cache root.</summary>
 internal static class EngineSeed
 {
     private static readonly string Folder = Path.Combine(LeakGuard.SharedTemp, "corvus-test-data", "engine-seed");
@@ -39,7 +36,7 @@ internal static class EngineSeed
             sha ??= Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(input)));
             var key = $"{engine}-{(recipe == Recipe.Tools ? "" : "nosym-")}{Builds.GetOrAdd(engine, BuildKey)}-{sha[..16]}";
             string seed;
-            // a seed that cannot be made leaves the test its cold open
+            // A seed that cannot be made leaves the test its cold open.
             try { seed = Seeds.GetOrAdd(key, k => new(() => Make(k, input, engine, recipe))).Value; }
             catch (Exception) { continue; }
             foreach (var file in Directory.EnumerateFiles(seed, "*", SearchOption.AllDirectories))
@@ -63,7 +60,7 @@ internal static class EngineSeed
         RemoveOtherBuilds();
         var work = dir + "-" + Environment.ProcessId;
         if (Directory.Exists(work)) Directory.Delete(work, true);
-        // off the test's synchronization context, which the open's continuations would otherwise wait on
+        // Off the test's synchronization context, which the open's continuations would otherwise wait on.
         var fingerprint = Task.Run(() => Analyse(Path.Combine(work, "cache"), input, engine, recipe)).GetAwaiter().GetResult();
         // A partial analysis (the open's time ran out) would give every copy a short function list.
         if (Directory.EnumerateFiles(Path.Combine(work, "cache"), "*.partial", SearchOption.AllDirectories).Any())
@@ -151,10 +148,7 @@ internal static class EngineSeed
         return differences;
     }
 
-    /// <summary>
-    /// What changes an engine's analysis: the engine build, the worker scripts embedded in Corvus and the seed format.
-    /// Corvus's own code is left out, so a change to it reuses the seeds.
-    /// </summary>
+    /// <summary>What changes an engine's analysis: the engine build, the embedded worker scripts and the seed format; Corvus's own code does not.</summary>
     private static string BuildKey(string engine)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);

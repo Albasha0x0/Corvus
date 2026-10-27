@@ -49,10 +49,7 @@ public sealed record MsvcDemangleOptions
     public bool X86 { get; init; }
 }
 
-/// <summary>
-/// Outcome of <see cref="MsvcDemangler.Demangle"/>: <see cref="Text"/> is null when the name could not be decoded and
-/// <see cref="Error"/> says why (with <see cref="ErrorOffset"/> into <see cref="Input"/> when known).
-/// </summary>
+/// <summary>Demangle result: <see cref="Text"/> null means undecoded, with <see cref="Error"/> and <see cref="ErrorOffset"/> when known.</summary>
 public sealed record MsvcDemangleResult(string Input, string? Text, MsvcSymbolKind Kind, string? Error = null, int ErrorOffset = -1)
 {
     public bool Success => Text != null;
@@ -67,10 +64,7 @@ public sealed record MsvcDemangleResult(string Input, string? Text, MsvcSymbolKi
     public bool IsImport { get; init; }
 }
 
-/// <summary>
-/// Microsoft C++ name undecorator. Never throws: undecodable input yields a result with <see cref="MsvcDemangleResult.Error"/>.
-/// Input length, nesting depth and output length are capped.
-/// </summary>
+/// <summary>Microsoft C++ undecorator; never throws, reports bad input in <see cref="MsvcDemangleResult.Error"/>; sizes are capped.</summary>
 public static class MsvcDemangler
 {
     public const int MaxInputLength = 32 * 1024;
@@ -102,10 +96,7 @@ public static class MsvcDemangler
         return DemangleC(name, body, import, options);
     }
 
-    /// <summary>
-    /// The type in an RTTI type descriptor name (".?AVA@@" / ".?AUB@n@@"): the full form ("class A") and the bare
-    /// qualified name ("A"); null when the name does not decode.
-    /// </summary>
+    /// <summary>The type of an RTTI descriptor name (".?AVA@@"): full ("class A") and bare ("A") forms; null when undecodable.</summary>
     public static (string Type, string Name)? DemangleTypeDescriptorName(string? name)
     {
         if (string.IsNullOrEmpty(name) || name[0] != '.' || name.Length > MaxInputLength) return null;
@@ -153,10 +144,7 @@ public static class MsvcDemangler
         }
     }
 
-    /// <summary>
-    /// x86 C decorations: "_f@8" __stdcall, "@f@8" __fastcall, "f@@8" __vectorcall, and with <see cref="MsvcDemangleOptions.X86"/>
-    /// "_f" __cdecl. Anything else is reported as not decorated.
-    /// </summary>
+    /// <summary>x86 C decorations ("_f@8", "@f@8", "f@@8", and "_f" with <see cref="MsvcDemangleOptions.X86"/>); others are not decorated.</summary>
     private static MsvcDemangleResult DemangleC(string input, string body, bool import, MsvcDemangleOptions options)
     {
         string? conv = null;

@@ -14,10 +14,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The native tools through a real Ghidra (CORVUS_GHIDRA_DIR): engine=ghidra on the code tools and decompile_native, our
-/// names and patches pushed into the project, PDB types through Ghidra's loader, and agreement with IDA where both run.
-/// </summary>
+/// <summary>The native tools through a real Ghidra (CORVUS_GHIDRA_DIR): engine=ghidra, names and patches pushed, PDB types, and agreement with IDA.</summary>
 [Trait("Speed", "Slow")]
 public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposable
 {
@@ -79,10 +76,10 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
             Output.WriteLine(frame);
             Assert.Contains("base  SampleHeader *", frame);
             Assert.Contains("SampleHeader *base", await rig.Analysis.DecompileNative(path, Export, engine: "ghidra"));
-            // ida is the only other engine; an unknown one fails before the image is opened
+            // Ida is the only other engine; an unknown one fails before the image is opened.
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => types.ListNativeTypes(path, engine: "binja"))).Code);
 
-            // the edits are kept with the image's annotations: a new project (another cache) gets them again
+            // The edits are kept with the image's annotations: a new project (another cache) gets them again.
             var again = Setup(_dir.File("cache-new"));
             var decompiled = await again.Analysis.DecompileNative(path, Export, engine: "ghidra");
             Assert.Contains("SampleHeader *base", decompiled);
@@ -122,7 +119,7 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
             Assert.Contains("(ghidra", list);
             var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
 
-            // auto now takes Ghidra's complete analysis without a request
+            // Auto now takes Ghidra's complete analysis without a request.
             var cfg = await rig.Tools.GetCfg(native.Id, Export);
             Assert.Contains("Engine: ghidra (server default auto: Ghidra has analyzed these bytes)", cfg);
             Assert.Contains(NativeEngineCode.Via("ghidra"), cfg);
@@ -131,7 +128,7 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
             var tree = await rig.Tools.NativeCallTree(native.Id, Export, depth: 1);
             Assert.Contains(NativeEngineCode.Via("ghidra"), tree);
 
-            // a user name reaches Ghidra's listing and pseudocode
+            // A user name reaches Ghidra's listing and pseudocode.
             var index = await rig.Code.Index(native, null, default);
             var callee = Regex.Match(tree, @"\n    (\S+)  0x([0-9A-F]+)").Groups[2].Value;
             var calleeRva = (uint)(Convert.ToUInt64(callee, 16) - native.Image.ImageBase);
@@ -142,7 +139,7 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
             Assert.Contains("SampleRenamedHelper", decompiled);
             Assert.Contains("SampleRenamedHelper", await rig.Tools.NativeCallTree(native.Id, Export, depth: 1));
 
-            // a patch goes into the project; undo reverts it
+            // A patch goes into the project; undo reverts it.
             var edits = new NativeEditService(rig.Workspace, rig.Code);
             var rva = native.Image.Exports.First(e => e.Name == Export).Rva;
             edits.ApplyPatch(native, index, edits.PreparePatch(index, rva, [0xB8, 0x17, 0x5A, 0x00, 0x00, 0xC3], false, "return 0x5A17"), dryRun: false);
@@ -168,10 +165,9 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
             Assert.True(await rig.Engines.GhidraNameLayer(native)! > 0);
             var names = await session.ListNamesAsync();
             Output.WriteLine($"{names.Count} Ghidra names, e.g. {string.Join(", ", names.Where(n => n.Function).Take(8).Select(n => $"{n.Name} ({(n.Imported ? "imported" : "analysis")})"))}");
-            // the ghidra layer holds Ghidra's names below the others; without the PDB layer a name only Ghidra has left resolves through it
+            // The ghidra layer holds Ghidra's names below the others; without the PDB layer a name only Ghidra has left resolves through it.
             var exports = native.Image.Exports.Select(e => e.Rva).ToHashSet();
-            // the layer holds the names at the open; a PDB that reaches the session later (seen under load: 274 names, then
-            // 1,335) adds names it does not hold, so the name comes from the layer as imported
+            // A PDB that reaches the session later adds names the layer lacks (seen under load), so the name comes from the layer as imported.
             var layer = NativeNameLayers.Of(native).Get(NativeNameSource.Ghidra)!;
             var only = names.First(n => n.Function && layer.Names.GetValueOrDefault(n.Rva) == n.Name && !exports.Contains(n.Rva) && index.FunctionAt(n.Rva)?.Start == n.Rva);
             Assert.Equal(only.Name, index.Sourced.NameAt(only.Rva, NativeNameSource.Ghidra));
@@ -190,7 +186,7 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
         public async Task Pdb_types_reach_the_pseudocode_through_Ghidras_loader()
         {
             if (PdbIdaTypesTests.Build(_dir) is not { } built) { Output.WriteLine("no MSVC build tools"); return; }
-            // the PDB away from the image: the first analysis has no symbols
+            // The PDB away from the image: the first analysis has no symbols.
             var pdbPath = Path.Combine(Directory.CreateDirectory(_dir.File("symbols")).FullName, "fixture.pdb");
             File.Move(built.Pdb, pdbPath);
             var rig = Setup(_dir.File("cache"), EngineMode.Ghidra);
@@ -239,7 +235,7 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
         public async Task Refs_footer_labels_strings_without_the_built_in_index()
         {
             var rig = Setup(_dir.File("cache"));
-            // the function that looks up PAL_RegisterModule with dlsym
+            // The function that looks up PAL_RegisterModule with dlsym.
             var text = await rig.Analysis.DecompileNative(NativeFormats.NativeFixtures.LinuxX64DbgShim, "rva:0x2D51A", engine: "ghidra", refs: true);
             Output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
             Assert.Null(rig.Code.Ready(rig.Workspace.Read(() => rig.Workspace.Natives[0])));
@@ -272,14 +268,14 @@ public abstract class NativeGhidraEngineTests(ITestOutputHelper output) : IDispo
             Assert.True(both >= 0.9 * Math.Min(idaStarts.Count, ghidraStarts.Count), $"{both} common starts");
 
             var rva = native.Image.Exports.First(e => e.Name == Export).Rva;
-            // calls to functions both list (IDA also types calls through an import slot as calls; Ghidra reads the slot)
+            // Calls to functions both list (IDA also types calls through an import slot as calls; Ghidra reads the slot).
             HashSet<(uint, uint)> Calls(IReadOnlyList<NativeXref> x) =>
                 x.Where(c => c.Kind == NativeXrefKind.Call && idaStarts.Contains(c.ToRva) && ghidraStarts.Contains(c.ToRva)).Select(c => (c.FromRva, c.ToRva)).ToHashSet();
             var idaCalls = Calls(await ida.GetXrefsFromAsync(rva, wholeFunction: true));
             var ghidraCalls = Calls(await ghidra.GetXrefsFromAsync(rva, wholeFunction: true));
             Output.WriteLine($"{Export} calls: IDA {idaCalls.Count}, Ghidra {ghidraCalls.Count}, both {idaCalls.Intersect(ghidraCalls).Count()}");
             Assert.Equal(idaCalls, ghidraCalls);
-            // both sessions stay open on one image; auto prefers IDA's
+            // Both sessions stay open on one image; auto prefers IDA's.
             Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", await rig.Tools.GetCfg(native.Id, Export));
             Assert.Contains("Engine: ghidra", await rig.Tools.GetCfg(native.Id, Export, engine: "ghidra"));
         }

@@ -10,10 +10,7 @@ public sealed record MarkerFacts(IReadOnlyList<string> Tools, IReadOnlyList<stri
     public IReadOnlyList<TransformerFinding>? Transformers { get; init; }
 }
 
-/// <summary>
-/// Detects toolchain marker types and SuppressIldasmAttribute, plus heuristics: renamed identifiers, int -> string
-/// decoder methods, and methods missing an IL body.
-/// </summary>
+/// <summary>Detects toolchain markers, SuppressIldasmAttribute, renamed identifiers, int-to-string decoders and missing IL bodies.</summary>
 public static class Markers
 {
     /// <summary>Marker type full names: exact, prefix when ending in '*', substring when starting with '*'.</summary>
@@ -65,7 +62,8 @@ public static class Markers
             foreach (var name in new[] { t.Name.String }.Concat(t.Methods.Where(m => !m.IsSpecialName && !m.IsRuntimeSpecialName).Select(m => m.Name.String))
                          .Concat(t.Fields.Where(f => !f.IsSpecialName).Select(f => f.Name.String)))
             {
-                if (name.Length == 0 || name[0] == '<' || name.StartsWith("CS$", StringComparison.Ordinal)) continue; // compiler-generated
+                // Compiler-generated names are skipped.
+                if (name.Length == 0 || name[0] == '<' || name.StartsWith("CS$", StringComparison.Ordinal)) continue;
                 total++;
                 if (IsUnreadable(name)) unreadable++;
             }
@@ -91,7 +89,7 @@ public static class Markers
         int missing = types.SelectMany(t => t.Methods).Count(m => m.RVA == 0 && !m.IsAbstract && !m.IsPinvokeImpl && !m.IsInternalCall
                                                                   && !m.IsRuntime && m.DeclaringType?.IsInterface != true);
         if (missing > 0)
-            indicators.Add($"{missing} method(s) have no IL body although they should (encrypted or stripped bodies, or a reference assembly).");
+            indicators.Add($"{missing} concrete method(s) have no IL body: encrypted or stripped bodies, or a reference assembly.");
 
         var transformers = Transformers.Identify(module);
         return new MarkerFacts(tools, indicators, ratio) { Transformers = transformers.Count > 0 ? transformers : null };
@@ -102,13 +100,12 @@ public static class Markers
         : marker.EndsWith('*') ? name.StartsWith(marker[..^1], StringComparison.Ordinal)
         : name == marker;
 
-    /// <summary>
-    /// True when the method uses XOR, indexes static array / string data, or calls a decoding API; formatting helpers do not.
-    /// </summary>
+    /// <summary>True when the method uses XOR, indexes static array or string data, or calls a decoding API.</summary>
     private static bool LooksLikeDecoder(MethodDef method)
     {
         var body = MetadataUtil.SafeInstructions(method);
-        if (body.Count == 0) return true; // unreadable body: rely on the call-count heuristic
+        // An unreadable body falls back on the call-count heuristic.
+        if (body.Count == 0) return true;
         bool staticData = false, element = false;
         foreach (var i in body)
         {
@@ -154,10 +151,7 @@ public static class Markers
 /// <summary>An entry point kind and the method or type it refers to.</summary>
 public sealed record EntryPoint(string Kind, string Member);
 
-/// <summary>
-/// Finds code that runs without an explicit call: Main, module initializers, native exports, COM registration
-/// functions and hosted base types (Installer, ServiceBase, AppDomainManager). Returns partial results on corrupt metadata.
-/// </summary>
+/// <summary>Finds code that runs without an explicit call (Main, initializers, exports, COM and hosted types); partial on corrupt metadata.</summary>
 public static class EntryPoints
 {
     private static readonly (string BaseType, string Kind)[] HostedBases =

@@ -13,12 +13,7 @@ internal sealed class VbObject(string progId)
     public List<byte> Buffer { get; } = [];
 }
 
-/// <summary>
-/// A bounded VBScript / VBA evaluator: statements, loops and user functions over constants with the string built-ins
-/// (Chr, Mid, StrReverse, Replace, Split / Join, Hex, Asc, Escape) and the base64 decoders scripts reach through
-/// MSXML and ADODB.Stream. Execute, ExecuteGlobal and Eval of constant text are peeled as layers; WScript.Shell Run and
-/// Exec command lines are read as batch layers. VBA auto-run procedures are followed. Nothing is run.
-/// </summary>
+/// <summary>Bounded VBScript and VBA evaluator: peels Execute and Eval layers, reads Run command lines as batch, follows auto-run procedures; runs nothing.</summary>
 internal sealed class VbsInterpreter
 {
     private const int MaxCallDepth = 64, MaxEvalDepth = 300, MaxFold = 32_768;
@@ -342,7 +337,8 @@ internal sealed class VbsInterpreter
                 var v = Get(n.Name);
                 if (Known(v) || _fold) return v;
                 if (_procs.ContainsKey(n.Name) || Builtin(n.Name, []) is var r && Known(r)) return Call(n, []);
-                return IsBuiltinName(n.Name) ? v : null; // an unset variable is Empty
+                // An unset variable is Empty.
+                return IsBuiltinName(n.Name) ? v : null;
             }
             case VbName m:
             {
@@ -445,7 +441,7 @@ internal sealed class VbsInterpreter
         }
         if (callee is VbCall inner)
         {
-            // a(1)(2): an index of a call's result
+            // a(1)(2): an index of a call's result.
             var v = Eval(inner);
             var idx = argExprs.Select(a => a == null ? null : Eval(a)).ToList();
             return v is object[] items && idx.Count == 1 && Long(idx[0]) is { } k && k >= 0 && k < items.Length ? items[k] : PsUnknown.Value;

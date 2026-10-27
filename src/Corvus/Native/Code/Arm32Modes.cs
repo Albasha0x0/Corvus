@@ -3,14 +3,7 @@ using System.Collections.Concurrent;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// The instruction state (ARM or Thumb) of code in a 32-bit ARM image. Facts come from the image (bit 0 of ELF function
-/// symbols, $a / $t mapping symbols; Windows images are Thumb only, Go functions ARM) and from analysis (BL keeps the state, BLX switches
-/// it, bit 0 of code pointers in data). A function start without a fact is guessed (<see cref="Guess"/>); a guess between
-/// two plausible states with no prologue to tell them apart takes the image's prevailing state and is unsure
-/// (<see cref="IsUnsure"/>). Also the
-/// per-image relocation facts the decoder needs (MOVW / MOVT relocations, GOT slots of exported functions). Thread-safe.
-/// </summary>
+/// <summary>ARM or Thumb state of code in a 32-bit ARM image, from image facts, analysis or a guess; thread-safe.</summary>
 internal sealed class Arm32Modes
 {
     private readonly INativeImage _image;
@@ -23,7 +16,7 @@ internal sealed class Arm32Modes
     public Arm32Modes(INativeImage image)
     {
         _image = image;
-        // the Go compiler emits A32 only, Windows on ARM included
+        // The Go compiler emits A32 only, Windows on ARM included.
         var go = Go.GoFunctionTable.Of(image);
         _allThumb = (image.Format == ImageFormat.Pe || image is RawCodeImage { Layout.Thumb: true }) && go == null;
         if (go != null)
@@ -34,7 +27,7 @@ internal sealed class Arm32Modes
             foreach (var s in elf.DynamicSymbols.Concat(elf.StaticSymbols))
                 if (s.IsDefined && s.IsFunction && s.Value != 0 && elf.TryVaToRva(s.Value & ~1UL, out uint rva))
                     _facts.TryAdd(rva, (s.Value & 1) != 0);
-            // linkers do not always set bit 0 of a Thumb entry point: only an odd one is a fact
+            // Linkers do not always set bit 0 of a Thumb entry point: only an odd one is a fact.
             if ((elf.Entry & 1) != 0 && elf.TryVaToRva(elf.Entry & ~1UL, out uint entry)) _facts.TryAdd(entry, true);
             foreach (var (rva, kind) in elf.MappingSymbols)
                 if (kind is 'a' or 't' or 'd') mapping.Add((rva, kind));
@@ -49,10 +42,7 @@ internal sealed class Arm32Modes
     /// <summary>The state nine in ten of the image's own facts name (symbols, code pointers); null when mixed or few.</summary>
     private readonly bool? _prior;
 
-    /// <summary>
-    /// Relocated pointers in data name the state of the code they point to: an odd one Thumb, an even one to a declared
-    /// function start (unwind tables carry no state bit) ARM.
-    /// </summary>
+    /// <summary>Relocated pointers in data name the state of their target: odd is Thumb, even to a declared function start is ARM.</summary>
     private void CodePointers(Elf.ElfFile elf)
     {
         var declared = elf.DeclaredFunctions.Select(d => d.Rva).ToHashSet();
@@ -87,10 +77,7 @@ internal sealed class Arm32Modes
         if (!_facts.TryAdd(rva, thumb) && _facts.TryGetValue(rva, out bool known) && known == thumb) _unsure.TryRemove(rva, out _);
     }
 
-    /// <summary>
-    /// A hint from a value that may not be a code pointer (an unrelocated literal whose bit 0 happens to be set): taken
-    /// unless the bytes read surely in the other state.
-    /// </summary>
+    /// <summary>A hint from a value that may not be a code pointer; taken unless the bytes surely read in the other state.</summary>
     public void HintUnconfirmed(uint rva, bool thumb)
     {
         if (_allThumb || _sealed || HasFact(rva)) return;
@@ -157,10 +144,7 @@ internal sealed class Arm32Modes
 
     internal readonly record struct ModeEntry(ModeOp Op, uint Rva, bool Thumb);
 
-    /// <summary>
-    /// A speculative exploration on one thread: hints and fixes go to <see cref="Facts"/> (over the shared facts) and
-    /// <see cref="Ops"/> with every state read, so the run can be checked and applied later in its serial order.
-    /// </summary>
+    /// <summary>A speculative exploration on one thread, recorded so it can be checked and applied later in serial order.</summary>
     internal sealed class Speculation(Arm32Modes owner)
     {
         public readonly Arm32Modes Owner = owner;
@@ -180,7 +164,7 @@ internal sealed class Arm32Modes
     }
 
     [ThreadStatic] private static Speculation? t_speculation;
-    // commits run on one thread: the replay's scratch
+    // Commits run on one thread: the replay's scratch.
     private Speculation? _check;
 
     private bool Speculating(out Speculation spec)
@@ -197,10 +181,7 @@ internal sealed class Arm32Modes
     /// <summary>Starts (or with null ends) speculation on this thread: state changes are recorded instead of made.</summary>
     internal void Speculate(Speculation? spec) => t_speculation = spec;
 
-    /// <summary>
-    /// Whether the recorded run [<paramref name="from"/>, + <paramref name="count"/>) of <paramref name="log"/> reads the
-    /// same states replayed now (in order, over the current facts); when it does, its hints and fixes are applied.
-    /// </summary>
+    /// <summary>True and applied when the recorded run of <paramref name="log"/> reads the same states replayed now.</summary>
     internal bool Commit(Speculation log, int from, int count)
     {
         var check = _check ??= new Speculation(this);
@@ -276,12 +257,7 @@ internal sealed class Arm32Modes
         return g.Sure || _prior is not { } p ? g : (p, false);
     }
 
-    /// <summary>
-    /// The state of code at <paramref name="rva"/> with no fact about it: a halfword-aligned start is Thumb; else the bytes
-    /// are decoded in both states, and a state they do not decode in is ruled out. Both plausible: an ARM or Thumb prologue
-    /// decides; with neither, words with the always condition (three of four, or all up to an early return) read as ARM,
-    /// and the guess is unsure.
-    /// </summary>
+    /// <summary>The guessed state of code at <paramref name="rva"/> with no fact; unsure when no prologue decides.</summary>
     internal static (bool Thumb, bool Sure) Guess(INativeImage image, uint rva)
     {
         if ((rva & 3) != 0) return (true, true);
@@ -293,9 +269,9 @@ internal sealed class Arm32Modes
         if (arm != thumb) return (thumb, true);
         if (!arm) return (true, false);
         uint w = BinaryPrimitives.ReadUInt32LittleEndian(b);
-        // A32 bx lr reads in Thumb as a NEON op on d31; no Thumb function starts with movs r0, r0 (an A32 word with a zero low half)
+        // A32 bx lr reads as a Thumb NEON op; no Thumb function starts with movs r0, r0.
         if (w == 0xE12FFF1E || (w & 0xFFFF) == 0) return (false, true);
-        // a stack probe (mov ip, #n) may come first
+        // A stack probe (mov ip, #n) may come first.
         bool armPrologue = ArmPrologue(w) || (w & 0xFFFFF000) == 0xE3A0C000 && b.Length >= 8 && ArmPrologue(BinaryPrimitives.ReadUInt32LittleEndian(b[4..]));
         bool thumbPrologue = ThumbPrologue(b);
         if (armPrologue != thumbPrologue) return (thumbPrologue, true);
@@ -324,7 +300,7 @@ internal sealed class Arm32Modes
         for (int k = 0; k < 16 && k + 4 <= b.Length; k += 4)
         {
             uint w = BinaryPrimitives.ReadUInt32LittleEndian(b[k..]);
-            // zero padding after a few instructions ends the code (calls that do not return)
+            // Zero padding after a few instructions ends the code: calls that do not return.
             if (w == 0) return k >= 8;
             Arm32Decode.Arm(w, va + (uint)k, out var x);
             if (!x.IsValid) return false;
@@ -349,10 +325,7 @@ internal sealed class Arm32Modes
         return true;
     }
 
-    /// <summary>
-    /// The first words read as ARM: three of four have the always condition (or two with the first), or every word up
-    /// to an early exit does when the first has it.
-    /// </summary>
+    /// <summary>The first words read as ARM: three of four have the always condition, or every word up to an early exit.</summary>
     private static bool ArmRun(ReadOnlySpan<byte> b, uint va)
     {
         int always = 0;

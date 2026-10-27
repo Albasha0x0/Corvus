@@ -18,10 +18,7 @@ public static class EmbeddedScript
         return ms.ToArray();
     }
 
-    /// <summary>
-    /// Path of <c>directory/stem-hash.ext</c> holding the resource bytes; written atomically when missing or different.
-    /// Content-hash names let several server versions share the directory.
-    /// </summary>
+    /// <summary>Path of <c>directory/stem-hash.ext</c> holding the resource, written atomically when missing or different; the content hash lets server versions share the directory.</summary>
     public static string Extract(string resourceName, string directory, string stem, string extension)
     {
         var bytes = Read(resourceName);
@@ -30,10 +27,7 @@ public static class EmbeddedScript
         return Place(Path.Combine(directory, $"{stem}-{hash}{extension}"), bytes);
     }
 
-    /// <summary>
-    /// <paramref name="path"/>, a name that stands for its content, holding <paramref name="bytes"/>: written atomically
-    /// when missing or different, so concurrent writers and readers never see a partial file. Throws when it cannot be written.
-    /// </summary>
+    /// <summary>Writes <paramref name="bytes"/> to the content-named <paramref name="path"/> atomically when missing or different; throws when it cannot.</summary>
     public static string Place(string path, byte[] bytes)
     {
         try

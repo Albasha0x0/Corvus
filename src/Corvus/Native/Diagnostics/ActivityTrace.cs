@@ -10,8 +10,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Diagnostics;
 
-/// <summary>One entry of an activity trace: when, the kind of object (file, registry, network, process) and the name the OS reports for it.</summary>
-/// <summary>One recorded activity; <paramref name="ProcessId"/> is a started child's id.</summary>
+/// <summary>One activity trace entry: time, category (file, registry, network, process), OS name, and a started child's id.</summary>
 public sealed record ActivityEntry(DateTime Time, string Category, string Name, int? ProcessId = null);
 
 /// <summary>Why a trace cannot be collected on this machine, and the fix.</summary>
@@ -53,10 +52,7 @@ public static class ActivityTraceSources
     }
 }
 
-/// <summary>
-/// Event Tracing for Windows: a real-time session with the kernel's file, registry, network and process providers, as
-/// PerfView and Process Monitor collect them; events of the traced process kept, names joined to drive letters and HKLM/HKCU.
-/// </summary>
+/// <summary>A real-time ETW session with the kernel file, registry, network and process providers, filtered to one process.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class EventTraceSource : IActivityTraceSource
 {
@@ -154,10 +150,9 @@ public sealed class EventTraceSource : IActivityTraceSource
         {
             try { _session.Flush(); }
             catch (Exception e) when (e is COMException or InvalidOperationException) { /* already stopped */ }
-            // a flush can leave the traced program's last events more than a second behind: once it has ended, wait for its
-            // stop event (at most 10 s), which follows them
+            // The last events can trail a flush by over a second; an ended program's stop event follows them (wait at most 10 s).
             if (!Alive(_processId)) await Task.Run(() => _processStopped.Wait(10_000)).ConfigureAwait(false);
-            // flushed buffers reach a real-time consumer up to a second later: wait that long, then for a quiet spell, at most 4 s
+            // Flushed buffers arrive up to 1 s later: wait that long, then for a 400 ms quiet spell, at most 4 s.
             var flushed = Environment.TickCount64;
             while (Environment.TickCount64 - flushed < 4_000
                    && (Environment.TickCount64 - flushed < 1_000 || Environment.TickCount64 - Volatile.Read(ref _lastEvent) < 400))
@@ -193,10 +188,7 @@ public sealed class EventTraceSource : IActivityTraceSource
     }
 }
 
-/// <summary>
-/// Turns the kernel providers' payloads into entries: file paths with drive letters, registry keys joined through their
-/// key objects and shown as HKLM/HKCU, endpoints from network byte order, and a started program's image name.
-/// </summary>
+/// <summary>Turns kernel provider payloads into entries: DOS paths, joined HKLM/HKCU keys, endpoints and image names.</summary>
 internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? userSid)
 {
     /// <summary>Key objects remembered for joining relative names; past this the map starts over.</summary>
@@ -270,10 +262,7 @@ internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? 
         return new IPEndPoint(ip, p).ToString();
     }
 
-    /// <summary>
-    /// The ImageName field of a ProcessStart event (version 3 and later), past the fixed fields (48 bytes) and the
-    /// mandatory label SID; the dynamic parser stops at the SID.
-    /// </summary>
+    /// <summary>The ImageName of a ProcessStart event (version 3+), after 48 fixed bytes and the label SID the dynamic parser stops at.</summary>
     public static string? ImageName(byte[] data)
     {
         const int sidAt = 48;
@@ -305,10 +294,7 @@ internal sealed class ActivityDecoder(int processId, DeviceMap devices, string? 
     }
 }
 
-/// <summary>
-/// The registry keys a process holds open, by key object (the address the kernel registry provider reports): keys opened
-/// before a trace started, the HKLM handle among them, have no open event, so later relative opens need these names.
-/// </summary>
+/// <summary>Registry keys a process held open before the trace, by key object, so later relative opens can be joined.</summary>
 [SupportedOSPlatform("windows")]
 internal static class OpenKeys
 {
@@ -320,7 +306,8 @@ internal static class OpenKeys
     public static IReadOnlyList<(ulong Object, string Path)> Read(int processId)
     {
         var keys = new List<(ulong, string)>();
-        if (IntPtr.Size != 8) return keys; // the entry layout below is the 64-bit one
+        // The entry layout below is the 64-bit one.
+        if (IntPtr.Size != 8) return keys;
         using var probe = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("SOFTWARE");
         var process = OpenProcess(ProcessDupHandle, false, processId);
         if (probe == null || process == IntPtr.Zero) return keys;
@@ -329,7 +316,7 @@ internal static class OpenKeys
         {
             table = HandleTable();
             long count = Marshal.ReadInt64(table);
-            // the key object type's index differs between Windows builds: take it from a key handle of our own
+            // The key type index differs between Windows builds; take it from a key handle of our own.
             ulong own = (ulong)probe.Handle.DangerousGetHandle();
             int self = Environment.ProcessId, keyType = -1;
             for (long i = 0; i < count && keyType < 0; i++)
@@ -348,7 +335,7 @@ internal static class OpenKeys
                     if (!DuplicateHandle(process, Marshal.ReadIntPtr(e, 16),GetCurrentProcess(), out var dup, 0, false, DuplicateSameAccess)) continue;
                     try
                     {
-                        // KEY_NAME_INFORMATION: a byte length, then the name
+                        // KEY_NAME_INFORMATION: a byte length, then the name.
                         if (NtQueryKey(dup, KeyNameInformation, name, 4096, out _) == 0 && Marshal.ReadInt32(name) is var bytes and > 0 and <= 4092)
                             keys.Add(((ulong)Marshal.ReadInt64(e), Marshal.PtrToStringUni(name + 4, bytes / 2)));
                     }

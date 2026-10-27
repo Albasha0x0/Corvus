@@ -6,11 +6,7 @@ using Corvus.Native.Live;
 
 namespace Corvus.Native.Dump.Managed;
 
-/// <summary>
-/// ClrMD's view of a running process through <see cref="LiveProcess"/>: memory read with the inspector's read-only handle,
-/// the module list read again on each flush. Thread contexts are only those handed in with <see cref="SetContext"/>
-/// (a thread held at a stop point, as the stop captured it): a running thread's registers are never read.
-/// </summary>
+/// <summary>ClrMD's view of a running process through a read-only handle; thread contexts come only from <see cref="SetContext"/>, never from a running thread.</summary>
 public sealed class LiveDataReader(LiveProcess process) : ByteDataReader, IDataReader, IDisposable
 {
     private readonly ConcurrentDictionary<uint, byte[]> _contexts = new();

@@ -2,11 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// A QPACK decoder (RFC 9204) for the field sections one HTTP/3 endpoint sends: the static table, the dynamic table its
-/// encoder stream builds, and field lines with Huffman-coded or plain strings. Malformed input returns null, never an
-/// exception.
-/// </summary>
+/// <summary>A QPACK decoder (RFC 9204) for one HTTP/3 endpoint; malformed input returns null, never an exception.</summary>
 internal sealed class Qpack
 {
     private const int MaxHeaders = 200, MaxString = 64 * 1024, MaxInstructionBuffer = 1 << 20;
@@ -208,10 +204,7 @@ internal sealed class Qpack
         _dropped += n;
     }
 
-    /// <summary>
-    /// The Required Insert Count of a field section, or null when its prefix is malformed; a section whose count exceeds
-    /// <see cref="Inserts"/> waits for encoder stream bytes.
-    /// </summary>
+    /// <summary>A field section's Required Insert Count; null when its prefix is malformed; a count past <see cref="Inserts"/> waits for encoder stream bytes.</summary>
     public long? Required(ReadOnlySpan<byte> section)
     {
         int at = 0;

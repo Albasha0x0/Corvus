@@ -5,11 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// save_assembly writes what no edit touched byte-for-byte as in the original, and reports — member, reason, what
-/// changed — anything it cannot keep. Invalid shapes are injected into dnlib-built modules; every saved image is compared
-/// with its original independently of the writer's own check.
-/// </summary>
+/// <summary>save_assembly keeps what no edit touched byte for byte and reports each member it cannot keep, with the reason.</summary>
 public sealed class SaveFidelityTests(ITestOutputHelper output)
 {
     public static TheoryData<InvalidShape> Shapes => new(Enum.GetValues<InvalidShape>());
@@ -55,7 +51,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Theory, MemberData(nameof(Shapes))]
-    public void UnmodifiedSaveWritesTheOriginalBytesAndListsTheShape(InvalidShape shape)
+    public void Unmodified_save_writes_the_original_bytes_and_lists_the_shape(InvalidShape shape)
     {
         using var c = new Case(SaveFidelity.Build(shape));
         var result = c.Save();
@@ -66,7 +62,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Theory, MemberData(nameof(Shapes))]
-    public void EditedSaveKeepsTheShapeAndEverythingElseNoEditTouched(InvalidShape shape)
+    public void Edited_save_keeps_the_shape_and_everything_else_no_edit_touched(InvalidShape shape)
     {
         using var c = new Case(SaveFidelity.Build(shape));
         uint target = c.Token(SaveFidelity.EditTarget), method = c.Token(SaveFidelity.Method(shape));
@@ -98,7 +94,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void MixedModuleKeepsEveryInvalidShapeNextToAnEdit()
+    public void Mixed_module_keeps_every_invalid_shape_next_to_an_edit()
     {
         var shapes = Enum.GetValues<InvalidShape>();
         using var c = new Case(SaveFidelity.Build(shapes));
@@ -122,7 +118,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void EditedValidModuleIsKeptExceptTheEditAndStillRuns()
+    public void Edited_valid_module_is_kept_except_the_edit_and_still_runs()
     {
         using var c = new Case(SaveFidelity.Build());
         uint target = c.Token(SaveFidelity.EditTarget);
@@ -140,7 +136,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void UnmodifiedSaveWritesTheOriginalBytes()
+    public void Unmodified_save_writes_the_original_bytes()
     {
         using var dir = new TempDir();
         foreach (var path in new[] { Env.FixturePath, RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll") })
@@ -154,7 +150,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void StrictSaveFailsWithTheSameListAndWritesNothing()
+    public void Strict_save_fails_with_the_same_list_and_writes_nothing()
     {
         using var c = new Case(SaveFidelity.Build(InvalidShape.UnreadableBody, InvalidShape.EmptyBody));
         c.Edit();
@@ -173,7 +169,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void StrictSaveAcceptsInvalidShapesKeptByteForByte()
+    public void Strict_save_accepts_invalid_shapes_kept_byte_for_byte()
     {
         var kept = Enum.GetValues<InvalidShape>().Where(s => s != InvalidShape.UnreadableBody).ToArray();
         using var c = new Case(SaveFidelity.Build(kept));
@@ -184,7 +180,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void EditsRefuseAMethodWhoseSignatureCannotBeRead()
+    public void Edits_refuse_a_method_whose_signature_cannot_be_read()
     {
         using var c = new Case(SaveFidelity.Build(InvalidShape.MalformedSignature));
         var method = c.Env.One(SaveFidelity.Method(InvalidShape.MalformedSignature));
@@ -194,11 +190,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
         Assert.False(c.Env.Fixture.IsDirty);
     }
 
-    /// <summary>
-    /// Loads, edits (when the edit target resolves) and saves a damaged image. Loading and saving either work or refuse
-    /// with a <see cref="ToolError"/>; a refused save leaves no file behind, and a saved file is exactly the image whose
-    /// differences from the original, the edit aside, are all reported.
-    /// </summary>
+    /// <summary>Loads, edits and saves a damaged image: each step works or refuses with a <see cref="ToolError"/>, and a saved file reports every difference.</summary>
     private static string Survive(byte[] image)
     {
         using var dir = new TempDir();
@@ -222,8 +214,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
             }
             catch (Exception ex) when (ex is ToolError || ex.GetType().Namespace?.StartsWith("dnlib", StringComparison.Ordinal) == true)
             {
-                // Resolving or editing a member of damaged metadata may fail (the server returns it as a tool error);
-                // the save of whatever state results is what is checked here.
+                // Editing damaged metadata may fail; the save of the resulting state is what is checked.
                 edited = 0;
             }
 
@@ -256,7 +247,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void TruncatedImagesAreRefusedOrSavedWithEverythingReported()
+    public void Truncated_images_are_refused_or_saved_with_everything_reported()
     {
         var image = SaveFidelity.Build(Enum.GetValues<InvalidShape>());
         foreach (int length in new[] { 64, 512, image.Length / 2, image.Length - 600, image.Length - 1 })
@@ -264,7 +255,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void CorruptedMetadataIsRefusedOrSavedWithEverythingReported()
+    public void Corrupted_metadata_is_refused_or_saved_with_everything_reported()
     {
         var image = SaveFidelity.Build(Enum.GetValues<InvalidShape>());
         using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image.ToArray()));
@@ -291,7 +282,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void RandomDamageIsRefusedOrSavedWithEverythingReported()
+    public void Random_damage_is_refused_or_saved_with_everything_reported()
     {
         var image = SaveFidelity.Build(Enum.GetValues<InvalidShape>());
         int count = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FUZZ_COUNT"), out int n) ? n : 60;
@@ -313,7 +304,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void ReadyToRunImageWithFullHeadersIsWrittenAsIlOnlyAndReported()
+    public void ReadyToRun_image_with_full_headers_is_written_as_IL_only_and_reported()
     {
         var path = RealPackages.File("Microsoft.NETCore.App.Runtime.osx-arm64", "10.0.11", "runtimes", "osx-arm64", "lib", "net10.0", "System.Linq.dll");
         var (written, report) = Rewrite(path);
@@ -349,7 +340,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void ReportCodesFollowTheManifest()
+    public void Report_codes_follow_the_manifest()
     {
         Assert.Equal(Enum.GetValues<SaveIssueReason>().Length, SaveManifest.Reasons.Count);
         Assert.Equal(SaveManifest.Reasons.Count, SaveManifest.Reasons.Select(r => r.Code).Distinct().Count());
@@ -360,7 +351,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void SavingDocIsUpToDate()
+    public void Saving_doc_is_up_to_date()
     {
         var root = AppContext.BaseDirectory;
         while (!File.Exists(Path.Combine(root, "Corvus.slnx"))) root = Path.GetDirectoryName(root) ?? throw new InvalidOperationException("repository root not found");

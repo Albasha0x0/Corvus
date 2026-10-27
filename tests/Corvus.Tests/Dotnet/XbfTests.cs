@@ -22,10 +22,7 @@ public sealed class XbfTests : IDisposable
     private static ushort K(string type) => XbfWriter.Known(type);
     private static ushort P(string property) => XbfWriter.KnownProperty(property);
 
-    /// <summary>
-    /// A page with a resource dictionary and a style read through their deferred streams, a template, a conditional
-    /// element and constants of every kind; the Save button is connection 2.
-    /// </summary>
+    /// <summary>A page with a resource dictionary, a style, a template, a conditional element and constants of every kind; Save is connection 2.</summary>
     internal static byte[] Page()
     {
         var w = new XbfWriter();
@@ -116,10 +113,7 @@ public sealed class XbfTests : IDisposable
         Assert.True(facts.Complete);
     }
 
-    /// <summary>
-    /// App.MainPage with the Connect(int, object) method the XAML compiler generates: a switch on the connection id whose
-    /// case 2 adds Save_Click to the Button's Click event.
-    /// </summary>
+    /// <summary>App.MainPage with a generated Connect(int, object) whose case 2 adds Save_Click to the button's Click event.</summary>
     private static ModuleDefUser CodeBehind()
     {
         var module = new ModuleDefUser("App.dll") { Kind = ModuleKind.Dll };

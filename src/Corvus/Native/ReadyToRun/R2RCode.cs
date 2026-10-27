@@ -16,16 +16,15 @@ public sealed record R2RBody(int Index, R2REntry Entry, IReadOnlyList<R2RRange> 
     public int Size => Ranges.Sum(r => (int)(r.Function.End - r.Function.Begin));
 }
 
-/// <summary>
-/// The method bodies of a ReadyToRun image: which runtime functions each entry point owns (its own, the funclets
-/// that follow it up to the next entry point, and the cold parts the hot/cold map assigns to it), and the reverse
-/// lookup from a code address to its body.
-/// </summary>
+/// <summary>ReadyToRun method bodies: the runtime functions each entry point owns (funclets, cold parts) and the reverse lookup.</summary>
 public sealed class R2RCodeMap
 {
-    private readonly int[] _byBegin;     // runtime function indices sorted by begin address
-    private readonly int[] _owner;       // runtime function index -> body index, -1 when no entry point owns it
-    private readonly Dictionary<int, IReadOnlyList<R2RBody>> _sharing; // entry runtime function -> bodies starting there
+    // Runtime function indices sorted by begin address.
+    private readonly int[] _byBegin;
+    // Runtime function index to body index, -1 when no entry point owns it.
+    private readonly int[] _owner;
+    // Entry runtime function to the bodies starting there.
+    private readonly Dictionary<int, IReadOnlyList<R2RBody>> _sharing;
 
     public R2RCodeMap(R2RImage image)
     {
@@ -99,10 +98,7 @@ public sealed class R2RCodeMap
         FunctionAt(rva) is { } rf && rf.Begin == rva && _owner[rf.Index] >= 0 && Bodies[_owner[rf.Index]].EntryRva == rva ? Bodies[_owner[rf.Index]] : null;
 }
 
-/// <summary>
-/// Names for ReadyToRun disassembly: import cells by what their fixup resolves to (a called method, a type handle,
-/// a helper, a string literal) and method entry points by their method. Thread-safe.
-/// </summary>
+/// <summary>Names import cells by their fixup target and entry points by their method, for ReadyToRun disassembly; thread-safe.</summary>
 public sealed class R2RSymbols(R2RCodeMap map, IR2RNames names, Func<R2RBody, string> label) : ICodeSymbols
 {
     private readonly ConcurrentDictionary<uint, R2RFixup?> _cells = new();
@@ -162,10 +158,7 @@ public static class R2RDisassembly
     public static NativeDisassembler Disassembler(R2RImage image, ICodeSymbols symbols) =>
         new(image.Image.Arch == image.Arch ? image.Image : new ArchImage(image.Image, image.Arch), symbols);
 
-    /// <summary>
-    /// The instructions of every range of <paramref name="body"/>, a label line before each branch target, at most
-    /// <paramref name="maxInstructions"/> in all. <paramref name="truncated"/> tells whether the limit cut it short.
-    /// </summary>
+    /// <summary>The instructions of <paramref name="body"/> with branch labels, at most <paramref name="maxInstructions"/>; <paramref name="truncated"/> reports the cut.</summary>
     public static List<(string? Label, R2RRange? Range, DisasmLine? Line)> Lines(NativeDisassembler disassembler, R2RBody body, int maxInstructions, out bool truncated)
     {
         var decoded = new List<(R2RRange Range, List<DisasmLine> Lines)>();

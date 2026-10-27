@@ -5,12 +5,7 @@ using Acornima.Ast;
 
 namespace Corvus.Services.Web.Scripts;
 
-/// <summary>
-/// JavaScript with its transformation layers restored to the original form, pass by pass over the parsed tree: obfuscator.io
-/// string arrays (rotation, offset, base64 and RC4 decoders, wrapper functions, alias chains) decoded and inlined; proxy
-/// objects inlined; control-flow-flattening switch loops put back in order; constant tests and expressions folded; eval /
-/// Function / packer layers peeled. Each rewrite is a text replacement of a node's span, so the rest stays as written.
-/// </summary>
+/// <summary>Restores transformed JavaScript pass by pass; each rewrite replaces one node's span, so the rest stays as written.</summary>
 internal static class JsLayers
 {
     private const int MaxPasses = 12, MaxChars = 8 << 20;
@@ -37,7 +32,6 @@ internal static class JsLayers
             if (next == current) break;
             if (Parse(next) == null)
             {
-                // a rewrite that does not parse is dropped: the last text that parsed is kept
                 ctx.Note($"Pass {pass + 1} produced text that does not parse; the text before it is shown.");
                 break;
             }
@@ -201,7 +195,7 @@ internal sealed class JsPass
         _nodes.Reverse();
         _nodes.Sort((a, b) => a.Node.Start != b.Node.Start ? a.Node.Start.CompareTo(b.Node.Start) : b.Node.End.CompareTo(a.Node.End));
         Objects();
-        // members that are constants: member reads fold through them (string-array call arguments, tests)
+        // Constant members let member reads fold.
         foreach (var (name, members) in _objects)
         {
             var map = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -231,7 +225,6 @@ internal sealed class JsPass
             if (!ok) continue;
             _objects[name] = members;
         }
-        // single assignments to members of those objects
         var conflicts = new HashSet<(string, string)>();
         foreach (var (write, owner, key) in _memberWrites)
         {
@@ -240,7 +233,7 @@ internal sealed class JsPass
             else members[key!] = (write.Right, write.Start);
         }
         foreach (var (owner, key) in conflicts) _objects[owner].Remove(key);
-        // var b = a: an alias of the same object
+        // var b = a: an alias of the same object.
         foreach (var (name, decls) in _declarations)
             if (decls is [VariableDeclarator { Init: Identifier source }] && !_assigned.Contains(name) && !_dirtyObjects.Contains(name)
                 && !_memberWrites.Any(w => w.Owner == name) && _objects.TryGetValue(source.Name, out var shared))
@@ -284,7 +277,7 @@ internal sealed class JsPass
         foreach (var array in FindArrays())
         {
             if (!FindDecoder(array)) continue;
-            // the encoding read from the decoder's text first, then the others: the one whose rotation reaches the checksum is right
+            // Tries the decoder's apparent encoding first; the one whose rotation reaches the checksum is right.
             var original = array.Items.ToList();
             bool? matched = null;
             foreach (var encoding in new[] { array.Encoding }.Concat(new[] { "base64", "rc4", "none" }.Where(e => e != array.Encoding)))
@@ -311,7 +304,7 @@ internal sealed class JsPass
             // function _0x1(){var a=['..',..];_0x1=function(){return a;};return _0x1();}
             if (node is FunctionDeclaration { Id: { } fid, Body.Body: [VariableDeclaration { Declarations: [{ Init: ArrayExpression arr }] }, ..] } fn && Strings(arr) is { Count: >= 2 } items)
                 yield return new StringArray { Name = fid.Name, Declaration = fn, Items = items };
-            // var _0x1 = ['..', ..] used inside a decoder (older releases)
+            // var _0x1 = ['..', ..] used inside a decoder (older releases).
             else if (node is VariableDeclarator { Id: Identifier vid, Init: ArrayExpression varr } && Strings(varr) is { Count: >= 3 } vitems
                      && Regex.IsMatch(vid.Name, @"^_0x[0-9a-f]+$|^a\d+_0x[0-9a-f]+$") && parent is VariableDeclaration { Declarations.Count: 1 } decl)
                 yield return new StringArray { Name = vid.Name, Declaration = decl, Items = vitems };
@@ -343,7 +336,7 @@ internal sealed class JsPass
             if (!Regex.IsMatch(body, @"\b" + Regex.Escape(array.Name) + @"\b")) continue;
             array.Decoder = decl;
             array.DecoderName = name;
-            // the index shift: p = p - N (or p -= N) on a parameter of the decoder or of the function it replaces itself with
+            // The index shift: p = p - N or p -= N on a parameter of the decoder or its replacement.
             var parameters = Inside((Node)fn).Select(n => n.Node).OfType<IFunction>().Append(fn)
                 .SelectMany(f => f.Params.OfType<Identifier>().Select(p => p.Name)).ToHashSet(StringComparer.Ordinal);
             foreach (var (inner, _) in Inside((Node)fn))
@@ -380,11 +373,11 @@ internal sealed class JsPass
             if (_eval.Eval(call.Arguments[1]) is not double target) continue;
             array.Rotation = Statement(call);
             var items = array.Items;
-            // the checksum: a declarator whose init calls parseInt
+            // The checksum is the declarator whose init calls parseInt.
             var checksum = Inside(fn).Select(n => n.Node).OfType<VariableDeclarator>().FirstOrDefault(d => d.Init != null && Src(d.Init).Contains("parseInt", StringComparison.Ordinal))?.Init;
             if (checksum == null)
             {
-                // older releases: while (--n) { arr.push(arr.shift()) } called with ++count
+                // Older releases: while (--n) { arr.push(arr.shift()) } called with ++count.
                 if (Src(fn).Contains("push", StringComparison.Ordinal) && items.Count > 0)
                     RotateLeft(items, (int)((long)target % items.Count));
                 return null;
@@ -480,7 +473,7 @@ internal sealed class JsPass
         foreach (var ch in s)
         {
             int idx = Base64Alphabet.IndexOf(ch);
-            if (idx < 0) continue; // ~(-1) is falsy: skipped
+            if (idx < 0) continue;
             bc = bs % 4 != 0 ? bc * 64 + idx : idx;
             if (bs++ % 4 != 0) raw.Append((char)(0xFF & bc >> ((-2 * bs) & 6)));
         }
@@ -524,7 +517,8 @@ internal sealed class JsPass
             if (node is not CallExpression { Callee: Identifier callee } call) continue;
             if (!aliases.Contains(callee.Name) && !wrappers.ContainsKey(callee.Name)) continue;
             if (Inside(array.Decoder!).Any(n => n.Node == call) || array.Rotation != null && call.Start >= array.Rotation.Start && call.End <= array.Rotation.End) continue;
-            if (wrappers.Values.Any(w => w.Inner == call)) continue; // a wrapper's own forwarding call
+            // Skips a wrapper's own forwarding call.
+            if (wrappers.Values.Any(w => w.Inner == call)) continue;
             total++;
             var value = Resolve(array, aliases, wrappers, call, [], 0);
             if (value is string s)
@@ -538,7 +532,7 @@ internal sealed class JsPass
             if (total > 0) _ctx.Note($"{total - done} of {total} string-array calls left as written (arguments not constant).");
             return;
         }
-        // every call decoded: the array, decoder, rotation, wrappers and aliases are no longer used
+        // Every call decoded, so the array, decoder, rotation, wrappers and aliases are unused.
         Remove(array.Declaration);
         Remove(array.Decoder is VariableDeclarator vd ? _parents.GetValueOrDefault(vd) ?? vd : array.Decoder!);
         if (array.Rotation != null) Remove(array.Rotation);
@@ -632,7 +626,7 @@ internal sealed class JsPass
                 if (node is not Identifier id || id.Name != name || node == decl.Id) continue;
                 uses++;
                 if (parent is not MemberExpression m || m.Object != node) continue;
-                if (_parents.GetValueOrDefault(m) is AssignmentExpression assign && assign.Left == m) continue; // the member's own assignment
+                if (_parents.GetValueOrDefault(m) is AssignmentExpression assign && assign.Left == m) continue;
                 var key = MemberKey(m);
                 if (key == null || !members.TryGetValue(key, out var set) || set.SetAt > m.Start) continue;
                 var value = set.Value;
@@ -648,7 +642,7 @@ internal sealed class JsPass
                     inlined++;
                 }
             }
-            // removed once nothing reads it (a later pass): an inlined function body can name the object again
+            // Removed in a later pass, since an inlined function body can name the object again.
             if (uses == 0 && decl.Init is ObjectExpression && !_memberWrites.Any(w => w.Owner == name)) RemoveDeclarator(decl);
         }
     }
@@ -760,7 +754,8 @@ internal sealed class JsPass
             };
             var name = CalleeName(callee);
             if (name is not ("eval" or "Function" or "setTimeout" or "setInterval" or "execScript") || args.Count == 0) continue;
-            if (name == "Function" && args.Count > 1) continue; // parameters: the body is a function, not a layer
+            // With parameters, the body is a function, not a layer.
+            if (name == "Function" && args.Count > 1) continue;
             var arg = name == "Function" ? args[^1] : args[0];
             _eval.Steps.Clear();
             string? code = Packed(arg) ?? (_eval.Eval(arg) is string s ? s : null);
@@ -768,10 +763,10 @@ internal sealed class JsPass
             var via = _eval.Steps.Count > 0 ? $"{name} of {string.Join(" > ", _eval.Steps)}" : name;
             if (Packed(arg) != null) via = name + " of a packer";
             var site = node;
-            // Function(code)() runs the body: the call around it is the site
+            // Function(code)() runs the body, so the outer call is the site.
             if (name == "Function" && parent is CallExpression outer && outer.Callee == node) site = outer;
             if (_ctx.Peel("javascript", code, via, _depth + 1) is not { } plain) continue;
-            // statements take the layer's text in place; inside an expression the call stays and the layer is listed
+            // A statement takes the layer's text; inside an expression the call stays and the layer is listed.
             if (_parents.GetValueOrDefault(site) is ExpressionStatement statement && statement.Expression == site)
                 _edits.Set(statement.Start, statement.End, plain.Trim());
         }
@@ -840,13 +835,13 @@ internal sealed class JsPass
             if (name is "open" && args.Count > 1 && _eval.Eval(args[1]) is string url) shown += ", " + JsConstants.Literal(url);
             var callText = $"{(isNew ? "new " : "")}{name}({shown})";
             if (_ctx.Calls.Count < 200) _ctx.Calls.Add(callText);
-            // a command line run through WScript.Shell or child_process: read as a batch layer when it starts a script host
+            // A command line that starts a script host is read as a batch layer.
             if (name is "Run" or "Exec" or "exec" or "execSync" or "ShellExecute" && first is string command
                 && Regex.IsMatch(command, @"^\s*(cmd|powershell|pwsh|mshta)(\.exe)?\b", RegexOptions.IgnoreCase)
                 && _ctx.Peel("cmd", command, name == "ShellExecute" ? "Shell.Application.ShellExecute" : name is "Run" or "Exec" ? "WScript.Shell." + name : "child_process." + name, _depth + 1) is { } plain
                 && plain.Trim() != command.Trim() && _parents.GetValueOrDefault(node) is ExpressionStatement statement
                 && !_text.AsSpan(statement.End).TrimStart().StartsWith("/* runs:", StringComparison.Ordinal))
-                // the call stays as written; what it runs follows as a comment (on the last character: edits inside stay apart)
+                // The call stays; what it runs follows as a comment on the last character, apart from inner edits.
                 _edits.Set(statement.End - 1, statement.End, _text[statement.End - 1] + " /* runs: " + plain.Trim().Replace("*/", "* /") + " */");
         }
     }
@@ -877,7 +872,7 @@ internal sealed class JsPass
                 case MemberExpression { Computed: true, Property: StringLiteral key, Optional: false } m
                     when Regex.IsMatch(key.Value, @"^[A-Za-z_$][\w$]*$") && m.Object is not NumericLiteral && !Reserved.Contains(key.Value):
                 {
-                    // from the bracket: the object may end before a closing parenthesis the tree does not hold
+                    // From the bracket: the object may end before a parenthesis the tree does not hold.
                     int bracket = _text.LastIndexOf('[', key.Start);
                     if (bracket >= m.Object.End) _edits.Set(bracket, m.End, "." + key.Value, weak: true);
                 }

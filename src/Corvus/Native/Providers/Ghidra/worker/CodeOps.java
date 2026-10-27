@@ -59,10 +59,7 @@ final class CodeOps {
         return f;
     }
 
-    /**
-     * make_function: a function at the RVA when no function contains it (the server's index has one starting there that
-     * the analysis missed); the caller holds the write lock. Returns whether it was made.
-     */
+    /** make_function: makes a function the analysis missed at the RVA; the caller holds the write lock. Returns whether it was made. */
     static JsonElement makeFunction(Worker w, Worker.Request r) {
         Address a = w.addr(r.args, "rva");
         JsonObject o = new JsonObject();
@@ -96,8 +93,8 @@ final class CodeOps {
     }
 
     /**
-     * [start, end, name, flags (1 thunk, 8 typed: a signature not of default source), refs?]: refs counts code references to
-     * the start; from rva start when given. Stopped early: {rows, partial, next} where next is the start rva of the following call.
+     * Rows [start, end, name, flags (1 thunk, 8 typed: a signature not of default source), refs?] where refs counts code
+     * references to the start; from rva start. Stopped early: {rows, partial, next}, next being the following call's start.
      */
     static JsonElement functions(Worker w, Worker.Request r) throws Exception {
         boolean refs = r.args.has("refs") && r.args.get("refs").getAsBoolean();
@@ -106,7 +103,7 @@ final class CodeOps {
         boolean from = r.args.has("start") && !r.args.get("start").isJsonNull();
         FunctionIterator functions = from ? w.program.getFunctionManager().getFunctions(w.addr(r.args, "start"), true)
             : w.program.getFunctionManager().getFunctions(true);
-        // the background pass's table while the program is unchanged
+        // The background pass's table while the program is unchanged.
         Worker.FunctionTable table = w.functionTable;
         if (!from && table != null && table.modification() == w.program.getModificationNumber()) {
             for (JsonArray row : table.rows()) {
@@ -157,9 +154,8 @@ final class CodeOps {
     }
 
     /**
-     * As {@link #results(Worker, Function, int, Worker.Monitor)}; with retrySeconds > 0 a timeout or a full response buffer
-     * is tried once more within retrySeconds and twice the payload, on a fresh decompiler that is discarded afterwards.
-     * failFirst (test hook) treats the first attempt as timed out without running it.
+     * As {@link #results(Worker, Function, int, Worker.Monitor)}, with one retry on a fresh decompiler (retrySeconds, twice the
+     * payload) after a timeout or full buffer. failFirst (test hook) fails the first attempt.
      */
     static Outcome results(Worker w, Function f, int timeout, int retrySeconds, boolean failFirst, Worker.Monitor monitor) throws Exception {
         DecompileResults res = failFirst ? null : run(w, f, timeout, 0, monitor);
@@ -224,10 +220,7 @@ final class CodeOps {
         return o;
     }
 
-    /**
-     * The decompiler's high p-code (pcode): per basic block its index, range and successors, then each op with its address.
-     * Result: start, name, text.
-     */
+    /** High p-code per basic block (index, range, successors, ops with addresses). Result: start, name, text. */
     static JsonElement pcode(Worker w, Worker.Request r) throws Exception {
         Function f = functionAt(w, w.addr(r.args, "rva"));
         DecompileResults res = results(w, f, w.decompileTimeout, 0, false, r.monitor).results();
@@ -474,9 +467,8 @@ final class CodeOps {
     }
 
     /**
-     * Names Ghidra has that are neither its defaults nor ours: functions and labels from the loader and analysis (IMPORTED,
-     * ANALYSIS, including Function ID library names); USER_DEFINED names are what this server pushed. Rows [rva, name,
-     * source (imported, analysis), function]; offset/limit page them, total counts all.
+     * Loader and analysis names (IMPORTED, ANALYSIS, Function ID included); USER_DEFINED ones are the server's.
+     * Rows [rva, name, source, function]; offset/limit page them, total counts all.
      */
     static JsonElement names(Worker w, Worker.Request r) throws Exception {
         int offset = Math.max(0, r.args.has("offset") ? r.args.get("offset").getAsInt() : 0);

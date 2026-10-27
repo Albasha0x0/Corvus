@@ -86,7 +86,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     [InlineData(3, false)]
     [InlineData(4, false)]
     [InlineData(5, false)]
-    public void ChainedPointerFormats(int format, bool is64)
+    public void Chained_pointer_formats_decode(int format, bool is64)
     {
         bool binds = format is not (4 or 5 or 8 or 11);
         var w = new MachOWriter
@@ -135,7 +135,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     [Theory]
     [InlineData(2u, false)]
     [InlineData(3u, true)]
-    public void ChainedImportFormats_AddendsAndCompressedNames(uint importsFormat, bool compress)
+    public void Chained_import_formats_read_addends_and_compressed_names(uint importsFormat, bool compress)
     {
         var w = SampleMachO();
         w.ImportsFormat = importsFormat;
@@ -148,7 +148,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Executable_PageZeroAndEntryPoint()
+    public void An_executable_reads_page_zero_and_entry_point()
     {
         var w = new MachOWriter { FileType = 2, InstallName = null, MainOffset = MachOWriter.TextOffset + 4, ChainedFormat = 6, Fixups = [new(MachOWriter.ConstOffset, Target: MachOWriter.TextOffset)] };
         var m = Parse(w);
@@ -179,7 +179,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void DyldInfo_OpcodesIncludingThreadedBinds()
+    public void Dyld_info_opcodes_decode_including_threaded_binds()
     {
         var w = new MachOWriter { Dylibs = [("/usr/lib/libSystem.B.dylib", 0xC), ("/usr/lib/libc++.1.dylib", 0xC)], StubSymbols = ["_free"], ExportsInDyldInfo = true,
             Exports = [new("_api", MachOWriter.TextOffset)] };
@@ -232,7 +232,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Fat_SlicesAreNamedPerSubtypeAndSelected()
+    public void Fat_slices_are_named_per_subtype_and_selected()
     {
         var arm64 = SampleMachO().Build();
         var arm64e = new MachOWriter { CpuSubType = 0x80000002, InstallName = "@rpath/e.dylib" }.Build();
@@ -257,7 +257,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Encryption_CompactUnwindAndEhFrame()
+    public void Encryption_compact_unwind_and_EH_frame_are_read()
     {
         var w = SampleMachO();
         w.Encryption = (MachOWriter.TextOffset, 0x2000, 1);
@@ -279,7 +279,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void CodeSignature_DirectoryEntitlementsAndHashes()
+    public void The_code_signature_reads_directory_entitlements_and_hashes()
     {
         var w = SampleMachO();
         w.CodeSignature = new("com.example.sample", "ABCDE12345", "<plist><dict><key>get-task-allow</key><true/></dict></plist>", [0x70, 0x02, 0x05, 0x00]);
@@ -300,7 +300,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void BigEndian32_HeadersAndSymbols()
+    public void Big_endian_32_bit_headers_and_symbols_are_read()
     {
         var w = new MachOWriter { BigEndian = true, Is64 = false, CpuType = MachOWriter.CpuPpc, Symbols = [new("_ppc_fn", MachOWriter.TextOffset)], Exports = [new("_ppc_fn", MachOWriter.TextOffset)] };
         var m = Parse(w);
@@ -313,14 +313,14 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void NotMachO_Throws()
+    public void A_non_MachO_file_throws()
     {
         Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => MachOFile.FromBytes("\x7F" + "ELF\0\0\0\0"u8.ToArray().Length.ToString() is var _ ? [0x7F, 0x45, 0x4C, 0x46, 0, 0, 0, 0] : [])).Code);
     }
 
     /// <summary>The real dylib, executable and universal file agree with LibObjectFile on layout, and their fixups match the counts LLVM reports.</summary>
     [Fact]
-    public void RealImages_AgreeWithLibObjectFile()
+    public void Real_images_agree_with_LibObjectFile()
     {
         foreach (var (path, slice) in new[] { (NativeFixtures.OsxArm64DbgShim, (string?)null), (NativeFixtures.OsxArm64AppHost, null), (NativeFixtures.OsxFatSkia, "x86_64"), (NativeFixtures.OsxFatSkia, "arm64") })
         {
@@ -372,7 +372,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
 
     /// <summary>Fixups, exports and function starts match llvm-objdump's (needs CORVUS_LLVM_BIN).</summary>
     [Fact]
-    public void RealImages_AgreeWithLlvm()
+    public void Real_images_agree_with_LLVM()
     {
         if (LlvmOracle.Bin == null) { output.WriteLine($"{LlvmOracle.Variable} is not set"); return; }
         foreach (var path in new[] { NativeFixtures.OsxArm64DbgShim, NativeFixtures.OsxArm64AppHost })
@@ -408,7 +408,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
     [Fact]
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
-    public void ClangBuilds_AgreeWithLlvm()
+    public void Clang_builds_agree_with_LLVM()
     {
         if (LlvmOracle.Bin == null) { output.WriteLine($"{LlvmOracle.Variable} is not set"); return; }
         using var dir = new TempDir();

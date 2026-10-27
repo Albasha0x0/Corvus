@@ -4,20 +4,17 @@ using System.Text;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// apk-tools v3 packages and indexes (the ADB format, apk-tools doc/apk-v3.5): the schema-typed tree names the package
-/// and its paths, data blocks hold the file contents. A package lists every file and extracts them; an index lists its packages.
-/// </summary>
+/// <summary>apk-tools v3 packages and indexes (ADB format, doc/apk-v3.5): a package lists and extracts its files, an index its packages.</summary>
 internal sealed class ApkV3Reader : IContainerReader
 {
-    // adb.h: value types in the top nibble, the value or blob offset below
+    // adb.h: value types in the top nibble, the value or blob offset below.
     private const uint TypeMask = 0xF0000000, ValueMask = 0x0FFFFFFF;
     private const uint TypeInt = 0x10000000, TypeInt32 = 0x20000000, TypeInt64 = 0x30000000, TypeBlob8 = 0x80000000, TypeBlob16 = 0x90000000,
         TypeBlob32 = 0xA0000000, TypeArray = 0xD0000000, TypeObject = 0xE0000000;
     private const uint BlockAdb = 0, BlockSig = 1, BlockData = 2, BlockExt = 3;
     private const uint SchemaPackage = 0x676B6370, SchemaIndex = 0x78646E69; // "pckg", "indx"
 
-    // apk_adb.h field slots
+    // apk_adb.h field slots.
     private const int PkgInfo = 1, PkgPaths = 2, PkgScripts = 3, IndexDescription = 1, IndexPackages = 2;
     private const int PiName = 1, PiVersion = 2, PiDescription = 4, PiArch = 5, PiLicense = 6, PiOrigin = 7, PiMaintainer = 8, PiInstalledSize = 12,
         PiFileSize = 13, PiDepends = 15, PiProvides = 16, PiInstallIf = 18;
@@ -98,14 +95,14 @@ internal sealed class ApkV3Reader : IContainerReader
                 var fileName = adb.Text(adb.Slot(file, FiName));
                 if (!Firmware.FsTree.UsableName(fileName) || folder.Split('/').Contains("..")) continue;
                 var path = folder.Length > 0 ? folder + "/" + fileName : fileName;
-                // a target holds the file mode (u16), then a link's target
+                // A target holds the file mode (u16), then a link's target.
                 if (adb.Blob(adb.Slot(file, FiTarget)) is { Length: >= 2 } target)
                 {
                     if ((BinaryPrimitives.ReadUInt16LittleEndian(target) & 0xF000) == 0xA000) tree.Link(path, Encoding.UTF8.GetString(target, 2, target.Length - 2));
                     continue;
                 }
                 long size = (long)Math.Min(adb.Int(adb.Slot(file, FiSize)), long.MaxValue);
-                // data blocks name a file by its 1-based path and file slots
+                // Data blocks name a file by its 1-based path and file slots.
                 if (data.TryGetValue(((uint)d + 1, (uint)f + 1), out var stored)) tree.File(path, stored.Length, n => db.AsSpan(stored.At, (int)n).ToArray());
                 else if (size == 0) tree.File(path, 0, _ => []);
                 else tree.Notes.Add($"{path}: {size:N0} bytes listed, no data block");
@@ -139,7 +136,7 @@ internal sealed class ApkV3Reader : IContainerReader
             uint match = (uint)adb.Int(adb.Slot(dep, DepMatch));
             var name = ((match & 16) != 0 ? "!" : "") + adb.Text(adb.Slot(dep, DepName));
             if (version.Length == 0) return name;
-            // apk_version.h: EQUAL 1, LESS 2, GREATER 4, FUZZY 8, CONFLICT 16
+            // apk_version.h: EQUAL 1, LESS 2, GREATER 4, FUZZY 8, CONFLICT 16.
             var op = ((match & ~16u) is 0 ? 1 : match & ~16u) switch { 2 => "<", 3 => "<=", 11 => "<~", 8 or 9 => "~", 1 => "=", 5 => ">=", 13 => ">~", 4 => ">", 6 => "><", _ => "?" };
             return name + op + version;
         }));

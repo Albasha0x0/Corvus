@@ -3,20 +3,17 @@ using Corvus.Services.Web;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// The Electron graph of an app's scripts, read on their syntax trees: names resolved through require, esbuild __require,
-/// webpack module ids and export getters, destructuring and interop wrappers; windows with their preload; contextBridge
-/// keys and the functions they expose; IPC channels with the sends and listeners of each paired across files (renderer to
-/// main and main to renderer), through wrapper functions and bridge methods; child_process, fs and shell sinks; native
-/// add-ons and the functions called on them. A script that does not parse is read by its call shapes (<see cref="ElectronSurface"/>).
-/// </summary>
+/// <summary>Electron surface of an app's scripts from their syntax trees: windows, bridge keys, paired IPC channels, sinks and add-ons.</summary>
+// Names resolve through require, bundler module ids, destructuring and interop wrappers. A script that does not parse
+// is read by its call shapes (ElectronSurface).
 internal sealed partial class ElectronGraph
 {
     private sealed class Row(string kind, string value, string site, string file, int start)
     {
         public string Kind = kind, Value = value, Site = site, File = file;
         public int Start = start;
-        public int HandlerStart = -1, HandlerEnd = -1; // a listener's handler function
+        // A listener's handler function.
+        public int HandlerStart = -1, HandlerEnd = -1;
         public string? Call, Role, Link;
         public bool Literal;
     }
@@ -61,7 +58,7 @@ internal sealed partial class ElectronGraph
         var program = JsProgram.Build(path, text, notes, ct);
         if (program == null)
         {
-            // over the parse budget or not parsable: the call shapes still name most rows
+            // Over the parse budget or unparsable: call shapes still name most rows.
             var shaped = new List<ElectronRow>();
             ElectronSurface.Scan(text, path, shaped);
             _rows.AddRange(shaped.Select((r, i) => new Row(r.Kind, r.Value, r.Site, path, i)));
@@ -250,7 +247,7 @@ internal sealed partial class ElectronGraph
             {
                 var row = Add(kind, s.Text, c, call, s.Exact);
                 row.Role = role;
-                // a direct listener's handler: the function literal or the function its argument names
+                // A direct listener's handler: a function literal or the function its argument names.
                 if (role.StartsWith("listen", StringComparison.Ordinal) && ReferenceEquals(arg, c.Arguments[0]) && c.Arguments.Count > 1
                     && (c.Arguments[1] is FunctionExpression or ArrowFunctionExpression ? c.Arguments[1] : p.Eval(c.Arguments[1], scope) is JsFunction hf ? (Node)hf.Node : null) is { } handler)
                     (row.HandlerStart, row.HandlerEnd) = (handler.Start, handler.End);
@@ -261,7 +258,7 @@ internal sealed partial class ElectronGraph
                 var w = new Wrapper(index, kind, role, call);
                 if (_wrappers.TryAdd(fn, w) && _bridgeFunctions.TryGetValue(fn, out var b))
                     graph._bridge[b] = graph._bridge[b] with { Wrapper = w };
-                // a bridge method defined before contextBridge is called: matched by range at the end
+                // A bridge method defined before contextBridge is called is matched by range in Finish.
                 graph._pendingWrappers.Add((p.Path, ((Node)fn).Start, ((Node)fn).End, w));
                 return;
             }
@@ -295,7 +292,7 @@ internal sealed partial class ElectronGraph
     /// <summary>The rows with their links: IPC pairs, bridge methods with the channels they send, bridge calls of the pages.</summary>
     public List<ElectronRow> Finish()
     {
-        // bridge methods that are wrappers, and the global calls of them (window.api.invoke("ch"))
+        // Bridge methods that are wrappers, and global calls of them (window.api.invoke("ch")).
         for (int i = 0; i < _bridge.Count; i++)
             if (_bridge[i].Wrapper == null && _pendingWrappers.FirstOrDefault(w => w.File == _bridge[i].File && w.Start == _bridge[i].Start && w.End == _bridge[i].End) is { Wrapper: { } w })
                 _bridge[i] = _bridge[i] with { Wrapper = w };
@@ -307,13 +304,12 @@ internal sealed partial class ElectronGraph
                 if (chain.StartsWith(prefix, StringComparison.Ordinal)) chain = chain[prefix.Length..];
             if (!byName.TryGetValue(chain, out var method)) continue;
             _rows.Add(new Row("bridge-call", chain, g.Site, g.File, g.Start) { Call = g.Chain, Literal = true });
-            // the bridge forwards the channel; a call already read as an IPC row (window.ipcRenderer.send) is not repeated
+            // A call already read as an IPC row (window.ipcRenderer.send) is not repeated.
             if (method.Wrapper is { } w && w.Index < g.Args.Length && g.Args[w.Index] is { } channel
                 && !_rows.Any(r => r.File == g.File && r.Start == g.Start && r.Role != null))
                 _rows.Add(new Row(w.Kind, channel, g.Site, g.File, g.Start) { Call = $"{w.Call} via {g.Chain}", Role = w.Role, Literal = true });
         }
 
-        // IPC pairs: renderer sends with main listeners, main sends with renderer listeners
         var ipc = _rows.Where(r => r.Role != null && r.Literal).ToList();
         var byChannel = ipc.GroupBy(r => r.Value, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
         foreach (var r in ipc)
@@ -338,7 +334,6 @@ internal sealed partial class ElectronGraph
         }
         foreach (var r in _rows.Where(r => r.Role != null && !r.Literal)) r.Link ??= "computed channel: not paired";
 
-        // bridge methods with the channels sent inside them
         foreach (var b in _bridge)
         {
             var inside = _rows.Where(r => r.File == b.File && r.Start >= b.Start && r.Start < b.End && r.Role != null).ToList();

@@ -16,12 +16,8 @@ public sealed record MetadataIssue(
     [property: Description("File offset of the structure, when known (hex).")] string? FileOffset,
     string Detail);
 
-/// <summary>
-/// Structural checks of the metadata root and the tables stream header straight from the file bytes, independent of
-/// dnlib and System.Reflection.Metadata (which either read malformed metadata silently or refuse it without saying
-/// where). Transformation tools produce these on purpose: duplicate or bogus streams, Valid bits for tables that do not exist,
-/// the extra-data flag. The runtime, like dnlib, uses the last of duplicate streams.
-/// </summary>
+/// <summary>Structural checks of the metadata root and tables header from the file bytes, independent of either reader.</summary>
+/// <remarks>The runtime, like dnlib, uses the last of duplicate streams.</remarks>
 public static class MetadataSurvey
 {
     private const int MaxIssues = 64;
@@ -126,10 +122,7 @@ public static class MetadataSurvey
         return issues;
     }
 
-    /// <summary>
-    /// ImplMap rows whose columns point outside their target (ModuleRef row, #Strings heap, MethodDef row), by ImplMap
-    /// rid. dnlib reads such columns as null or empty without a trace, so P/Invoke names would silently come out wrong.
-    /// </summary>
+    /// <summary>ImplMap rows with out-of-range columns by rid, which dnlib reads as null without a trace.</summary>
     public static Dictionary<uint, MetadataIssue> ImplMapRows(ModuleDefMD module)
     {
         var byRid = new Dictionary<uint, MetadataIssue>();
@@ -183,14 +176,8 @@ public static class MetadataSurvey
         ["PropertyMap.PropertyList"] = (Table.Property, Table.PropertyPtr),
     };
 
-    /// <summary>
-    /// Sweeps every column of every row of the tables stream in use: table indexes and list starts past their table,
-    /// coded indexes with an undefined tag, a row past the target table or a null that is not allowed, #Strings and
-    /// #Blob offsets past their heap, blobs whose length prefix is invalid or runs past the heap, and #GUID indexes past
-    /// the heap. One issue per bad row (its first bad column), with the row's file offset. ImplMap rows are left to
-    /// <see cref="ImplMapRows"/>. When the decompiler's reader still refuses a row this sweep found nothing wrong with,
-    /// <see cref="MetadataProbe"/>'s finding is added. Never throws.
-    /// </summary>
+    /// <summary>One issue per row with an out-of-range column, with its file offset; ImplMap rows excluded. Never throws.</summary>
+    /// <remarks>A row the decompiler's reader refuses but this sweep passes gets <see cref="MetadataProbe"/>'s finding.</remarks>
     public static RowSweep Rows(ModuleDefMD module, byte[] image, int max = 200)
     {
         var issues = new List<MetadataIssue>();

@@ -7,17 +7,10 @@ using dnlib.DotNet;
 
 namespace Corvus.Services.Analysis.Endpoints;
 
-/// <summary>
-/// The API surface of an app's code: endpoints from DEX, .NET and Mach-O code (<see cref="DexEndpoints"/>,
-/// <see cref="IlEndpoints"/>, <see cref="MachOEndpoints"/>) and embedded protobuf descriptors (raw in native images), with
-/// each descriptor's gRPC methods as POST /package.Service/Method endpoints.
-/// </summary>
+/// <summary>Endpoints an app's code names and its protobuf descriptors; gRPC methods become POST /package.Service/Method.</summary>
 public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnlyList<FoundDescriptor> Descriptors, IReadOnlyList<string> Notes)
 {
-    /// <summary>
-    /// The code files of <paramref name="source"/>: the assemblies the container walk found, and from an APK, AAB, IPA, jar
-    /// or zip its DEX files, Mach-O images and native libraries (one ABI of each library); any other file is itself.
-    /// </summary>
+    /// <summary>The code files of <paramref name="source"/>: walked assemblies plus a zip's DEX, scripts and native images (one ABI each).</summary>
     public static List<ContainerItem> CodeItems(string source, IReadOnlyList<ContainerItem> walked, AnalysisLimits limits, CancellationToken ct)
     {
         var items = walked.Where(i => i.Kind == ".NET assembly").ToList();

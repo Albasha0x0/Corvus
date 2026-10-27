@@ -3,15 +3,12 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// An instance of a class of the module (or a plain <c>new object()</c>, <see cref="Type"/> null) created by evaluated
-/// code: its instance fields, those its base classes declare included.
-/// </summary>
+/// <summary>An evaluated instance of a module class with its inherited instance fields; <see cref="Type"/> null for <c>new object()</c>.</summary>
 internal sealed class InstanceObject(TypeDef? type, Dictionary<FieldDef, object?> fields) : HeapObject
 {
     public TypeDef? Type { get; } = type;
     public Dictionary<FieldDef, object?> Fields { get; } = fields;
-    /// <summary>Per field, the extended tier's window that last counted a change to it (see IlEvaluator.Progress.cs), or null.</summary>
+    /// <summary>Per field, the extended tier's window that last counted a change to it, or null.</summary>
     public Dictionary<FieldDef, int>? Stamps { get; set; }
 }
 
@@ -22,11 +19,7 @@ internal sealed partial class IlEvaluator
 
     private readonly Dictionary<TypeDef, (List<FieldDef> Fields, string? Why)> _classes = new();
 
-    /// <summary>
-    /// The instance fields of a class the evaluator models, or why it does not (unmodeled-instance): a non-generic class of
-    /// this module whose base classes are classes of this module up to System.Object or System.Attribute (which has no
-    /// instance state of its own), with no finalizer, no events, no explicit layout and no COM import.
-    /// </summary>
+    /// <summary>The instance fields of a modelled class; bails unmodeled-instance with the reason for any other class.</summary>
     private List<FieldDef> ClassModel(TypeDef type)
     {
         if (!_classes.TryGetValue(type, out var model))
@@ -122,11 +115,7 @@ internal sealed partial class IlEvaluator
         for (TypeDef? t = type; t != null; t = t.BaseType as TypeDef) yield return t;
     }
 
-    /// <summary>
-    /// The method a virtual or interface call reaches on the instance: an explicit override, or a virtual method of the
-    /// same name and signature, from the instance's class up. Anything that does not end at one method of the module
-    /// bails (virtual-dispatch).
-    /// </summary>
+    /// <summary>The module method a virtual or interface call reaches on the instance; bails virtual-dispatch otherwise.</summary>
     private MethodDef Dispatch(InstanceObject obj, IMethod method)
     {
         if (obj.Type == null) throw Bail(FallbackReason.VirtualDispatch, $"calls {Describe(method)} on a plain object (the framework implementation)");
@@ -154,11 +143,7 @@ internal sealed partial class IlEvaluator
     /// <summary>The framework class a modelled class derives from (System.Object or System.Attribute).</summary>
     private static ITypeDefOrRef? Root(InstanceObject obj) => obj.Type == null ? null : Chain(obj.Type).Last().BaseType;
 
-    /// <summary>
-    /// System.Attribute.GetHashCode, which a class of the module does not override: the hash of the first instance field
-    /// that is not null (and not an array), else the type's own hash. Modelled for a class whose only instance field is an
-    /// int (its hash is the value); anything else depends on the runtime.
-    /// </summary>
+    /// <summary>The inherited System.Attribute.GetHashCode, modelled only for a single int field, whose hash is its value.</summary>
     private object AttributeHashCode(InstanceObject obj)
     {
         if (obj.Fields.Count == 1 && obj.Fields.Single() is var (field, value) && field.FieldType.RemovePinnedAndModifiers().ElementType is ElementType.I4 && value is int hash)
@@ -182,7 +167,8 @@ internal sealed partial class IlEvaluator
         foreach (var t in Chain(obj.Type))
         {
             if (t.FullName == typeName || t.Interfaces.Any(i => i.Interface.FullName == typeName)) return true;
-            if (t.BaseType is { } root && root is not TypeDef && root.FullName == typeName) return true; // System.Attribute
+            // The framework root, System.Attribute.
+            if (t.BaseType is { } root && root is not TypeDef && root.FullName == typeName) return true;
         }
         return false;
     }

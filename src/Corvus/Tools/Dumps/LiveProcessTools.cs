@@ -11,16 +11,15 @@ namespace Corvus.Tools;
 public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService sessions)
 {
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true, OutputSchemaType = typeof(LiveProcessService.LiveReport))]
-    [Description("Inspects a running Windows process read-only, naming addresses as dumps do. summary: identity, counts, main module, " +
-                 "largest regions; modules, regions, threads, stacks (registers, frames), windows (UI tree, class procedures): paged rows. " +
-                 "Query and read access only; nothing is written or suspended.")]
+    [Description("Inspect a running Windows process read-only: summary, modules, regions, threads, stacks or windows, with addresses " +
+                 "named as in dumps. Nothing is written or suspended.")]
     public Task<string> InspectProcess(
         [Description("Process id (decimal or 0x hex), name (notepad[.exe]; a shared name is refused with the ids) or session id (live-1).")] string process,
         [Description("summary, modules, regions, threads, stacks or windows.")] string view = "summary",
         [Description("threads: only this one; stacks: the thread walked (default first). Id or name.")] string? thread = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = LiveProcessService.DefaultLimit,
-        [Description("regions: committed (default), all, executable, writable, image, private or mapped.")] string? regionFilter = null,
+        [Description("view=regions filter; default committed.")] string? regionFilter = null,
         [Description("view=stacks: max frames walked (up to 256).")] int maxFrames = LiveProcessService.DefaultFrames,
         [Description("Program binary folders (';'-separated), for modules whose file is unreadable.")] string? imageDirectories = null,
         [Description("Time limit in seconds (up to 120).")] int timeoutSeconds = LiveProcessService.DefaultTimeoutSeconds,

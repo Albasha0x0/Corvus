@@ -10,21 +10,21 @@ public sealed record CodeIndexOptions
     public long MaxXrefs { get; init; } = 200_000_000;
     public int MaxSwitchEntries { get; init; } = 16_384;
     public int MaxStringLength { get; init; } = 4096;
-    /// <summary>Rounds of noreturn propagation (each re-walks only the callers of newly found noreturn functions).</summary>
+    /// <summary>Rounds of noreturn propagation; each re-walks only callers of newly found noreturn functions.</summary>
     public int MaxNoReturnRounds { get; init; } = 64;
     /// <summary>x86: search gaps between known code for prologues.</summary>
     public bool ScanPrologues { get; init; } = true;
     /// <summary>0 = one worker per processor.</summary>
     public int MaxParallelism { get; init; }
-    /// <summary>Function starts from debug symbols (PDB): roots like .pdata entries, kept when they are in code.</summary>
+    /// <summary>PDB function starts used as roots, kept when they are in code.</summary>
     public IReadOnlyCollection<uint>? SymbolStarts { get; init; }
     /// <summary>Resolve virtual call sites through MSVC RTTI (<see cref="NativeCodeIndex.VirtualCalls"/>).</summary>
     public bool ResolveVirtualCalls { get; init; } = true;
-    /// <summary>A virtual call site with more possible implementations than this gets no edges (counted as too_many_targets).</summary>
+    /// <summary>A virtual call site with more implementations than this gets no edges (too_many_targets).</summary>
     public int MaxVirtualTargets { get; init; } = 64;
-    /// <summary>Weak candidates in one batch from which they are verified in parallel first (the result is the same either way).</summary>
+    /// <summary>Weak candidate batch size from which verification runs in parallel; the result is the same.</summary>
     internal int ParallelVerifyBatch { get; init; } = 4096;
-    /// <summary>Queued roots from which discovery explores them in parallel (the result is the same either way).</summary>
+    /// <summary>Queued roots from which discovery explores in parallel; the result is the same.</summary>
     internal int ParallelExploreMin { get; init; } = 256;
 }
 
@@ -44,7 +44,7 @@ internal sealed class CodeContext
     /// <summary>All .pdata ranges sorted by begin, with their primary start.</summary>
     public (uint Begin, uint End, uint Primary)[] PdataSorted { get; private set; } = [];
 
-    /// <summary>x64: language-specific handlers named by unwind information (__C_specific_handler thunks and the like).</summary>
+    /// <summary>x64: language-specific handlers named by unwind information.</summary>
     public HashSet<uint> ExceptionHandlers { get; } = [];
     /// <summary>Functions listed in the Control Flow Guard function table.</summary>
     public List<uint> GuardCfFunctions { get; } = [];
@@ -55,15 +55,9 @@ internal sealed class CodeContext
     public HashSet<uint> NoReturn { get; set; } = [];
     /// <summary>Functions whose callers resume after the call although their own code shows no return (Go's morestack).</summary>
     public HashSet<uint> Returns { get; } = [];
-    /// <summary>
-    /// Call targets that are part of their only caller's function (it also runs into them without a branch, as
-    /// x86 __finally blocks are): not functions.
-    /// </summary>
+    /// <summary>Call targets that are part of their only caller's function, such as x86 __finally blocks: not functions.</summary>
     public HashSet<uint> LocalSubroutines { get; } = [];
-    /// <summary>
-    /// Itanium landing pads with the function whose tables name them: discovery explores them (their callees, such as
-    /// __cxa_end_cleanup thunks, become functions) without making them functions; the build attaches them as chunks.
-    /// </summary>
+    /// <summary>Itanium landing pads by owning function: explored, never functions, attached as chunks.</summary>
     public List<(uint Function, uint Pad, bool Catches)> LandingPads { get; set; } = [];
     /// <summary>x86 functions that run in another function's frame (see <see cref="FunctionFlags.Funclet"/>).</summary>
     public HashSet<uint> Funclets { get; } = [];
@@ -125,7 +119,7 @@ internal sealed class CodeContext
                 {
                     if (marks[i].Kind != 'd') continue;
                     uint start = marks[i].Rva;
-                    // a data run ends at the next mapping symbol, or at the end of its section
+                    // A data run ends at the next mapping symbol or its section's end.
                     uint end = i + 1 < marks.Count ? marks[i + 1].Rva : image.SectionAt(start) is { } s ? s.Rva + s.MappedSize : start;
                     if (image.SectionAt(start) is { } sec && end > sec.Rva + sec.MappedSize) end = sec.Rva + sec.MappedSize;
                     if (end > start) ranges.Add((start, end));
@@ -138,10 +132,7 @@ internal sealed class CodeContext
 
     private (uint Slot, long Bit, uint Target)[]? _relocatedCodePointers;
 
-    /// <summary>
-    /// Relocated pointers whose target is in code, with the slot's bit in the code index (-1 outside code); read once,
-    /// shared by the discovery passes. ARM32 targets keep their Thumb bit.
-    /// </summary>
+    /// <summary>Relocated pointers into code with the slot's code index bit (-1 outside code); ARM32 targets keep their Thumb bit.</summary>
     public (uint Slot, long Bit, uint Target)[] RelocatedCodePointers(CancellationToken ct)
     {
         if (_relocatedCodePointers != null) return _relocatedCodePointers;
@@ -158,11 +149,7 @@ internal sealed class CodeContext
 
     private (uint Slot, uint Target)[]? _unrelocatedPointers;
 
-    /// <summary>
-    /// An image without relocations (fixed-address executables): aligned pointer-sized values in its data sections that
-    /// point into code and stand in runs of at least two (function tables, operation structures); ARM32 targets keep their
-    /// Thumb bit. Import slots and Go offset tables are skipped. Empty when the image has relocations: those name its pointers exactly.
-    /// </summary>
+    /// <summary>Without relocations: aligned data values pointing into code in runs of two or more; empty when the image has relocations.</summary>
     public (uint Slot, uint Target)[] UnrelocatedPointers()
     {
         if (_unrelocatedPointers != null) return _unrelocatedPointers;
@@ -171,7 +158,7 @@ internal sealed class CodeContext
         {
             int size = PointerSize;
             var buffer = new byte[1 << 16];
-            // offset tables whose values can fall in code when the image base is low: Go's function table and type links
+            // Go offset tables can hold values that fall in code when the image base is low.
             var go = Go.GoFunctionTable.Of(Image);
             bool Skipped(uint slot) => ImportSlots.ContainsKey(slot) || (go != null && slot - go.Rva < go.Size);
             foreach (var s in Image.Sections)
@@ -210,7 +197,7 @@ internal sealed class CodeContext
 
     private (uint Start, uint End)[]? _declared;
 
-    /// <summary>Inside, not at the start of, a function whose extent the image declares (unwind sizes, the Go function table).</summary>
+    /// <summary>Inside, not at the start of, a function whose extent the image declares.</summary>
     public bool InsideDeclared(uint rva)
     {
         if (_declared == null)
@@ -222,7 +209,7 @@ internal sealed class CodeContext
         }
         int lo = 0, hi = _declared.Length - 1, best = -1;
         while (lo <= hi) { int mid = (lo + hi) >>> 1; if (_declared[mid].Start <= rva) { best = mid; lo = mid + 1; } else hi = mid - 1; }
-        // extents may nest (an unwind entry inside a Go function): look back over a few
+        // Extents may nest: look back over a few.
         for (int i = best; i >= 0 && i > best - 8; i--)
             if (rva > _declared[i].Start && rva < _declared[i].End) return true;
         return false;
@@ -243,7 +230,7 @@ internal sealed class CodeContext
         var entries = Image.RuntimeFunctions;
         var byBegin = new Dictionary<uint, RuntimeFunction>();
         foreach (var rf in entries) byBegin.TryAdd(rf.BeginRva, rf);
-        // chains are followed on several threads; handlers are added in entry order afterwards
+        // Chains are followed in parallel; handlers are added in entry order afterwards.
         var primaries = new uint[entries.Count];
         var handlers = new uint[entries.Count];
         var po = new ParallelOptions { MaxDegreeOfParallelism = Options.MaxParallelism > 0 ? Options.MaxParallelism : Environment.ProcessorCount };
@@ -253,7 +240,7 @@ internal sealed class CodeContext
             {
                 var rf = entries[i];
                 if (rf.EndRva <= rf.BeginRva) continue;
-                // ARM and ARM64 .pdata have no chained entries: each one is a function
+                // ARM and ARM64 .pdata have no chained entries: each one is a function.
                 primaries[i] = Image.Arch == NativeArch.X64 ? PrimaryOf(rf, byBegin, out handlers[i]) : rf.BeginRva;
             }
         });
@@ -273,20 +260,15 @@ internal sealed class CodeContext
             keys[n] = (ulong)rf.BeginRva << 32 | (uint)n;
             sorted[n++] = (rf.BeginRva, rf.EndRva, primary);
         }
-        // entries sharing a begin stay in .pdata order
+        // Entries sharing a begin stay in .pdata order.
         KeySort.Sort(ref keys, ref sorted, n, Options.MaxParallelism);
         PdataSorted = sorted[..n];
     }
 
-    /// <summary>x64 NativeAOT: exception handler and filter funclets (their own .pdata entries) -> the method and the kind.</summary>
+    /// <summary>x64 NativeAOT: handler and filter funclet -> its method and kind.</summary>
     public Dictionary<uint, (uint Parent, Msvc.MsvcEhChildKind Kind)> AotFunclets { get; } = [];
 
-    /// <summary>
-    /// x64 NativeAOT: the byte after a managed method's unwind codes (and personality routine) holds its kind (0 the method,
-    /// 1 a handler, 2 a filter funclet). A funclet follows its method's code with no gap, and RyuJIT starts it with
-    /// "sub rsp, n"; its ranges join the method's, as chained fragments do. Native runtime code in the same image has no such
-    /// byte, so a run of entries counts only from a method whose byte reads as one.
-    /// </summary>
+    /// <summary>x64 NativeAOT: joins funclets to their method by the kind byte after the unwind codes (0 method, 1 handler, 2 filter).</summary>
     private void FindAotFunclets(IReadOnlyList<RuntimeFunction> entries, uint[] primaries)
     {
         var order = Enumerable.Range(0, entries.Count).Where(i => primaries[i] == entries[i].BeginRva && entries[i].EndRva > entries[i].BeginRva)
@@ -307,7 +289,7 @@ internal sealed class CodeContext
             int flags = code[0];
             if ((flags & 3) == 0)
             {
-                // a method: no flag besides EH info, reverse P/Invoke and associated data
+                // A method: no flag besides EH info, reverse P/Invoke and associated data.
                 parent = (flags & 0xE0) == 0 ? rf.BeginRva : null;
                 continue;
             }
@@ -321,10 +303,7 @@ internal sealed class CodeContext
         }
     }
 
-    /// <summary>
-    /// Follows UNW_FLAG_CHAININFO links (x64 UNWIND_INFO) to the function the entry is a fragment of; <paramref name="handler"/> is the
-    /// language-specific handler the last unwind information names when it is code, else 0.
-    /// </summary>
+    /// <summary>Follows UNW_FLAG_CHAININFO links to the primary function; <paramref name="handler"/> is the code handler named last, else 0.</summary>
     private uint PrimaryOf(RuntimeFunction rf, Dictionary<uint, RuntimeFunction> byBegin, out uint handler)
     {
         handler = 0;
@@ -336,7 +315,7 @@ internal sealed class CodeContext
             uint unwind = current.UnwindInfoRva;
             if ((unwind & 1) != 0)
             {
-                // indirect: the unwind data field points at another RUNTIME_FUNCTION
+                // Indirect: the unwind data field points at another RUNTIME_FUNCTION.
                 if (Read(unwind & ~1u, chained) < 12) return current.BeginRva;
                 uint begin = BinaryPrimitives.ReadUInt32LittleEndian(chained);
                 if (begin == current.BeginRva || !byBegin.TryGetValue(begin, out var next)) return current.BeginRva;
@@ -349,7 +328,7 @@ internal sealed class CodeContext
             uint at = unwind + 4 + (uint)(((codes + 1) & ~1) * 2);
             if ((flags & 4) == 0)
             {
-                // UNW_FLAG_EHANDLER / UNW_FLAG_UHANDLER: the language-specific handler RVA follows the unwind codes
+                // UNW_FLAG_EHANDLER / UNW_FLAG_UHANDLER: the handler RVA follows the unwind codes.
                 if ((flags & 3) != 0 && Read(at, chained[..4]) == 4)
                 {
                     uint named = BinaryPrimitives.ReadUInt32LittleEndian(chained);
@@ -365,10 +344,7 @@ internal sealed class CodeContext
         return current.BeginRva;
     }
 
-    /// <summary>
-    /// GuardCFFunctionTable of the load configuration (read from the mapped headers; the image contract has no load
-    /// configuration yet): RVAs of every address-taken function, each entry followed by optional flag bytes.
-    /// </summary>
+    /// <summary>Reads the load configuration's GuardCFFunctionTable: RVAs of every address-taken function.</summary>
     private void ReadGuardCfTable()
     {
         var b = new byte[8];
@@ -462,10 +438,7 @@ internal sealed class CodeContext
         return true;
     }
 
-    /// <summary>
-    /// Reads the case targets of a matched switch. Every entry must point into executable code (and, for absolute
-    /// tables, be covered by a relocation when the image has relocations); otherwise null with the reason.
-    /// </summary>
+    /// <summary>The case targets of a matched switch; null with the reason when an entry is not valid code.</summary>
     public SwitchTable? ReadSwitch(uint jumpRva, SwitchMatch m, List<(uint Begin, uint End)>? ownRanges, out string reason)
     {
         reason = "";
@@ -508,7 +481,7 @@ internal sealed class CodeContext
             else if (m.Base is { } b) target = (uint)(b + (entry << m.Shift));
             else if (m.RelativeToTable) target = (uint)(m.TableRva + (int)entry);
             else target = (uint)entry;
-            // ARM32 entries may carry the Thumb bit
+            // ARM32 entries may carry the Thumb bit.
             if (Image.Arch == NativeArch.Arm) target &= ~1u;
             if (!Code.IsCode(target)) { reason = $"entry {i} ({target:X}) is not in executable code"; return null; }
             if (aligned && (target & 3) != 0) { reason = $"entry {i} ({target:X}) is not an instruction address"; return null; }
@@ -552,10 +525,7 @@ internal static class SwitchDispatch
 {
     private const int MaxInstructions = 160;
 
-    /// <summary>
-    /// Decodes linearly from <paramref name="from"/> with <paramref name="bound"/> known on entry; when that reaches
-    /// the indirect jump at <paramref name="jump"/> without leaving the straight-line path, matches its switch table.
-    /// </summary>
+    /// <summary>Decodes from <paramref name="from"/> with <paramref name="bound"/> known and matches the switch at <paramref name="jump"/> if reached straight-line.</summary>
     /// <param name="noReturn">Whether a call target never returns (default: the context's set).</param>
     public static SwitchTable? Redecode(ICodeDecoder dec, CodeContext ctx, uint from, IndexBound bound, uint jump, List<(uint Begin, uint End)>? own,
         Func<uint, bool>? noReturn = null)
@@ -620,6 +590,6 @@ internal static class NoReturnNames
         GoNames.Contains(name) || (name.StartsWith("runtime.panic", StringComparison.Ordinal) && !name.StartsWith("runtime.panicCheck", StringComparison.Ordinal))
         || name.StartsWith("runtime.goPanic", StringComparison.Ordinal);
 
-    /// <summary>Go's stack growth: the scheduler resumes the caller after the call (it reloads its arguments and restarts).</summary>
+    /// <summary>Go's stack growth: the scheduler resumes the caller after the call.</summary>
     public static bool IsGoResumed(string name) => name is "runtime.morestack" or "runtime.morestack_noctxt";
 }

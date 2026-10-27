@@ -8,13 +8,10 @@ using Corvus.Native.Patching;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Crash safety for unsaved work: after every change, each assembly's edits are written as an edit script (the
-/// export_edits format, which apply_edits reads) and each native image's patches as a json patch set (which
-/// migrate_native_patches reads) to &lt;annotations&gt;/journal/&lt;sha256&gt;.&lt;session&gt;.&lt;id&gt;.{edits,patches}.json.
-/// One file per server process and target, so processes never contend. A journal is removed when its work is saved,
-/// reverted, unloaded or replayed; loading a file with a journal left by a process that is gone offers the replay.
-/// </summary>
+/// <summary>Journals unsaved edits and patches per process and target to
+/// &lt;annotations&gt;/journal/&lt;sha256&gt;.&lt;session&gt;.&lt;id&gt;.{edits,patches}.json in the apply_edits and
+/// migrate_native_patches formats; a journal left by an ended process is offered for replay on load. A journal is
+/// removed when its work is saved, reverted, unloaded or replayed.</summary>
 public sealed class EditJournal
 {
     public const string EditsSuffix = ".edits.json", PatchesSuffix = ".patches.json";
@@ -68,10 +65,7 @@ public sealed class EditJournal
     private string FileFor(string sha256, string id, string suffix) => Path.Combine(Root, $"{sha256.ToLowerInvariant()}.{Session}.{Safe(id)}{suffix}");
 
     /// <summary>Writes or removes the journal of every loaded target whose edits changed since the last call; never throws.</summary>
-    /// <remarks>
-    /// The shared lock is taken before the gate, as by <see cref="Saved"/>, which runs under it: the other order deadlocked
-    /// with a save waiting for the gate while a queued writer kept the gate holder out of the shared lock.
-    /// </remarks>
+    /// <remarks>Take the shared lock before the gate, as <see cref="Saved"/> does; the other order deadlocked.</remarks>
     public void Sync()
     {
         try
@@ -86,10 +80,7 @@ public sealed class EditJournal
         catch (OperationCanceledException) { } // the call was cancelled while waiting: the next change journals it
     }
 
-    /// <summary>
-    /// Whether a sync would write or remove a journal, read from the published targets without the workspace lock: a call
-    /// that changed nothing does not wait for another call's exclusive hold, and that call syncs once it ends.
-    /// </summary>
+    /// <summary>Whether a sync would write or remove a journal, read without the workspace lock so idle calls do not wait.</summary>
     private bool Pending()
     {
         var published = _workspace.Published;
@@ -132,7 +123,7 @@ public sealed class EditJournal
             if (version == state.Journaled) continue;
             var file = state.File ??= FileFor(native.OriginalSha256, native.Id, PatchesSuffix);
             byte[]? content;
-            // a patch set that cannot be rendered is not journaled; the tool call that made it must not fail for that
+            // A patch set that cannot be rendered is skipped; the call that made it must not fail.
             try { content = version < 0 ? null : Envelope(JsonNode.Parse(NativeEditService.RenderPatches(native, PatchExport.Format.Json).Content)!); }
             catch (ToolError ex)
             {
@@ -142,7 +133,7 @@ public sealed class EditJournal
             }
             pending.Add((native, version, file, content));
         }
-        // Targets unloaded or reloaded since: their edits were discarded deliberately.
+        // Unloaded or reloaded targets discarded their edits deliberately.
         foreach (var (file, target) in _files.ToList())
             if (!live.Contains(target))
             {
@@ -272,7 +263,7 @@ public sealed class EditJournal
 
     private void Offer(string id, string sha256)
     {
-        // The newest abandoned session per kind is offered in full; older ones only counted, so the notice stays one line each.
+        // Offer the newest abandoned session per kind; count older ones to keep one line each.
         foreach (var kind in Others(sha256).Where(e => !e.Live).GroupBy(e => e.Kind))
         {
             var all = kind.OrderByDescending(e => e.Written).ToList();

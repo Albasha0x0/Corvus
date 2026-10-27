@@ -92,7 +92,7 @@ public class NativeAotMetadataTests
 
     [Theory]
     [MemberData(nameof(Majors))]
-    public void TypeNames_InEachDialect(ushort major)
+    public void Type_names_format_in_each_dialect(ushort major)
     {
         var m = Model(major);
         var md = new NativeAotMetadata(m.Blob, m.Format);
@@ -108,7 +108,7 @@ public class NativeAotMetadataTests
 
     [Theory]
     [MemberData(nameof(Majors))]
-    public void MethodNames_InEachDialect(ushort major)
+    public void Method_names_format_in_each_dialect(ushort major)
     {
         var m = Model(major);
         var md = new NativeAotMetadata(m.Blob, m.Format);
@@ -121,7 +121,7 @@ public class NativeAotMetadataTests
 
     [Theory]
     [MemberData(nameof(Majors))]
-    public void Tokens_UseTheDialectShift(ushort major)
+    public void Tokens_use_the_dialect_shift(ushort major)
     {
         var m = Model(major);
         var md = new NativeAotMetadata(m.Blob, m.Format);
@@ -131,7 +131,7 @@ public class NativeAotMetadataTests
     }
 
     [Fact]
-    public void HandleTypeNumbering_DiffersBetweenDialects()
+    public void Handle_type_numbering_differs_between_dialects()
     {
         // ConstantBoxedEnumValue (.NET 7/8) sorts before ConstantByteArray; ConstantEnumValue (.NET 9+) after ConstantEnumArray.
         Assert.Equal(5u, NativeAotSchema.RawType(MetadataDialect.Net7, MdRecord.ConstantEnumValue));
@@ -144,7 +144,7 @@ public class NativeAotMetadataTests
     }
 
     [Fact]
-    public void Malformed_ThrowsFormatException()
+    public void Malformed_metadata_throws_a_format_exception()
     {
         var m = Model(16);
         Assert.Throws<NativeAotFormatException>(() => new NativeAotMetadata([1, 2, 3, 4, 5], m.Format));

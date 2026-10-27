@@ -7,10 +7,7 @@ namespace Corvus.Native.Providers;
 /// <summary>How an external tool is started: an executable, or a jar run by the configured Java.</summary>
 public enum ExternalToolKind { Executable, Jar }
 
-/// <summary>
-/// One external program: the environment variable that names it (a file or its folder), the file names looked for there
-/// and on PATH, extra folders probed, the version arguments, and its option strings by operation (placeholders in braces).
-/// </summary>
+/// <summary>One external program: its locating variable, file names, version arguments, and option strings per operation ({placeholders}).</summary>
 public sealed record ExternalTool(string Id, string Name, string Variable, ExternalToolKind Kind, string[] Files, string[] VersionArguments,
     int MinimumMajorVersion, string Purpose, bool TestOracle, IReadOnlyDictionary<string, string[]> Options)
 {
@@ -29,27 +26,17 @@ public sealed record ExternalToolProbe(string Id, string Name, string Purpose, b
     public string? VersionUnknown { get; init; }
 }
 
-/// <summary>
-/// The one table of external programs (engines, device bridge, test oracles), how each is found and run. Children get a
-/// minimal environment (<see cref="MinimalEnvironment"/>), never the whole server environment.
-/// </summary>
+/// <summary>The table of external programs and how each is found and run; children get <see cref="MinimalEnvironment"/>, never the server's.</summary>
 public static partial class ExternalTools
 {
     private static Dictionary<string, string[]> Ops(params (string Op, string[] Args)[] ops) => ops.ToDictionary(o => o.Op, o => o.Args, StringComparer.Ordinal);
 
     private static readonly string Exe = OperatingSystem.IsWindows() ? ".exe" : "";
 
-    /// <summary>
-    /// Reads a variable that locates a tool (its own, PATH, JAVA_HOME, the Android SDK's) or sets whether and where it
-    /// downloads (CORVUS_OFFLINE, CORVUS_SYMBOL_CACHE, _NT_SYMBOL_PATH); null when unset. The process
-    /// environment unless the host replaces it, as the tests do to keep one test's settings from another's lookups.
-    /// </summary>
+    /// <summary>Reads a tool-locating or download variable; null when unset. Tests replace it to isolate their settings.</summary>
     internal static Func<string, string?> ReadVariable { get; set; } = Environment.GetEnvironmentVariable;
 
-    /// <summary>
-    /// Values a host adds to the environment of the children it starts; empty in the server. The tests give their flow's
-    /// settings, so a tool one test starts sees them and a worker another test starts does not.
-    /// </summary>
+    /// <summary>Variables a host adds to its children's environment; empty in the server, per-flow in tests.</summary>
     internal static Func<IReadOnlyDictionary<string, string?>> ChildVariables { get; set; } = () => new Dictionary<string, string?>();
 
     /// <summary>The <see cref="ChildVariables"/> a child keeps: <see cref="KeptVariables"/> and ADB_*.</summary>
@@ -138,7 +125,7 @@ public static partial class ExternalTools
                 "-e", "frame.number", "-e", "frame.time_epoch", "-e", "ip.src", "-e", "ipv6.src", "-e", "ip.dst", "-e", "ipv6.dst",
                 "-e", "tcp.srcport", "-e", "udp.srcport", "-e", "tcp.dstport", "-e", "udp.dstport", "-e", "_ws.col.protocol"]),
             ("field", ["-e", "{field}"]),
-            // test oracle for unpack_container's HTTP objects; TShark leaves out-of-order segments unassembled by default
+            // Test oracle for HTTP objects; TShark leaves out-of-order segments unassembled by default.
             ("export-objects", ["-r", "{file}", "-n", "-q", "-o", "tcp.reassemble_out_of_order:TRUE", "--export-objects", "http,{out}"]),
             ("http-messages", ["-r", "{file}", "-n", "-Y", "http.request or http.response", "-T", "fields", "-e", "frame.number"]),
             ("key-log", ["-o", "tls.keylog_file:{keys}"])))
@@ -146,7 +133,7 @@ public static partial class ExternalTools
         KnownDirectories = WiresharkDirectories,
     };
 
-    // WABT; threads are enabled to match the in-process feature set (WABT leaves them off by default)
+    // Threads enabled to match the in-process feature set; WABT leaves them off by default.
     public static readonly ExternalTool WasmText = new("wasm2wat", "wasm2wat, WABT (test oracle)", "CORVUS_WASM_TO_TEXT", ExternalToolKind.Executable, ["wasm2wat" + Exe],
         ["--version"], 0, "oracle for the WebAssembly text writer in tests", true,
         Ops(("text", ["--enable-threads", "{module}"])));
@@ -155,7 +142,7 @@ public static partial class ExternalTools
         ["wasm-validate" + Exe], ["--version"], 0, "oracle for the WebAssembly validator in tests", true,
         Ops(("validate", ["--enable-threads", "{module}"])));
 
-    // Hermes's own dump tool; one build reads one bytecode version, so the variable may name a folder of builds (tests try each)
+    // One build reads one bytecode version, so the variable may name a folder of builds.
     public static readonly ExternalTool HbcDisassembler = new("hbcdump", "hbcdump, Hermes (test oracle)", "CORVUS_HBC_DISASSEMBLER", ExternalToolKind.Executable,
         ["hbcdump" + Exe], ["-version"], 0, "oracle for the Hermes bytecode disassembler in tests", true,
         Ops(("objdump", ["-objdump-disassemble", "-c", "disassemble;quit", "{file}"])));
@@ -170,8 +157,7 @@ public static partial class ExternalTools
         ["capa" + Exe], ["--version"], 0, "survey_features category=capa and analyze_native_function labels", false,
         Ops(("freeze", ["-j", "{file}"]), ("analyze", ["-j", "{file}"])));
 
-    // Tested with speakeasy 2.0.0b9 (report format 5); it prints no version, so the report's format is checked instead.
-    // Unknown functions stop the run rather than return a guessed 1, and region contents are saved for the region set.
+    // Tested with speakeasy 2.0.0b9 (report format 5, no version output); unknown APIs stop the run instead of returning 1.
     public static readonly ExternalTool Emulator = new("emulator", "speakeasy 2.0.0b9 (Windows API emulator)", "CORVUS_EMULATOR", ExternalToolKind.Executable,
         ["speakeasy" + Exe], [], 0, "emulate_native engine=speakeasy (a whole program or raw code)", false,
         Ops(("run", ["-t", "{input}", "--no-mp", "--snapshot-memory-regions", "--no-modules-functions-always-exist", "--timeout", "{seconds}",
@@ -185,16 +171,14 @@ public static partial class ExternalTools
         ["guarddog" + Exe], ["--version"], 3, "summarize_file view=package rules", false,
         Ops(("scan", ["{ecosystem}", "scan", "{file}", "--output-format=json"])));
 
-    // Dart 3.13.7 and 3.0.7 to 3.12.2 tested; --save-debugging-info alone also turns on DWARF stack traces, which drop most Function
-    // objects.
+    // Dart 3.13.7 and 3.0.7 to 3.12.2 tested; --save-debugging-info alone enables DWARF stack traces, which drop most Function objects.
     public static readonly ExternalTool DartSdk = new("dart", "Dart SDK (test oracle)", "CORVUS_DART", ExternalToolKind.Executable, ["dart" + Exe],
         ["--version"], 3, "oracle for the Dart AOT snapshot reader in tests", true,
         Ops(("aot", ["compile", "aot-snapshot", "-o", "{output}", "--extra-gen-snapshot-options=--save-debugging-info={debug}", "{source}"]),
             ("aot-split", ["compile", "aot-snapshot", "-o", "{output}", "--save-debugging-info={debug}", "{source}"])));
 
-    // Flutter 3.47.8 (Dart 3.13.7) and 3.10.6 to 3.44.9 (CORVUS_FLUTTER_RELEASES) tested. CORVUS_FLUTTER names the SDK
-    // folder; "kernel" runs in its dartaotruntime ("kernel-jit" in dart, before 3.16), "aot-elf" in the engine's
-    // gen_snapshot for an Android release (x64, arm64), which compresses pointers.
+    // Flutter 3.47.8 and 3.10.6 to 3.44.9 tested (CORVUS_FLUTTER_RELEASES); "kernel-jit" before 3.16; "aot-elf" is the
+    // engine's Android gen_snapshot (x64, arm64), which compresses pointers.
     public static readonly ExternalTool FlutterSdk = new("flutter", "Flutter SDK (test oracle)", "CORVUS_FLUTTER", ExternalToolKind.Executable,
         ["bin/cache/dart-sdk/bin/dartaotruntime" + Exe], ["--version"], 3, "oracle for compressed-pointer Dart AOT snapshots in tests", true,
         Ops(("kernel", ["{root}/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot", "--sdk-root",
@@ -205,7 +189,7 @@ public static partial class ExternalTools
                 "--no-print-incremental-dependencies", "--output-dill", "{output}", "{source}"]),
             ("aot-elf", ["--deterministic", "--snapshot_kind=app-aot-elf", "--elf={output}", "--save-debugging-info={debug}", "{kernel}"])));
 
-    // apple-codesign 0.29.0 tested; it prints each code requirement fully parenthesized, with every string quoted.
+    // apple-codesign 0.29.0 tested; it prints requirements fully parenthesized with every string quoted.
     public static readonly ExternalTool RCodesign = new("rcodesign", "rcodesign, apple-codesign (test oracle)", "CORVUS_RCODESIGN", ExternalToolKind.Executable,
         ["rcodesign" + Exe], ["--version"], 0, "oracle for Mach-O code requirements in tests", true, Ops(("signature", ["print-signature-info", "{file}"])));
 
@@ -213,32 +197,30 @@ public static partial class ExternalTools
     public static readonly ExternalTool ArchiveLister = new("7z", "7-Zip (test oracle)", "CORVUS_ARCHIVE_LISTER", ExternalToolKind.Executable,
         ["7z" + Exe], ["i"], 0, "oracle for disk image and archive readers in tests", true, Ops(("extract", ["x", "-y", "-snl", "-sccUTF-8", "-o{output}", "{file}"])));
 
-    // lzfse 1.0 (Apple's reference encoder, built from source) tested; it has no version option, so -h prints its usage.
+    // lzfse 1.0 (reference encoder) tested; it has no version option, so -h prints its usage.
     public static readonly ExternalTool LzfseTool = new("lzfse", "lzfse (test oracle)", "CORVUS_LZFSE", ExternalToolKind.Executable,
         ["lzfse" + Exe], ["-h"], 0, "oracle for the LZFSE decoder in tests", true, Ops(("encode", ["-encode", "-i", "{file}", "-o", "{output}"])));
 
-    // carfile-go 0.8.0 tested (a CGO_ENABLED=0 build). json writes catalog.json, the renditions in tree order; png
-    // (each bitmap) and resources (cropped images, originals) write a manifest.json naming each file's rendition index.
+    // carfile-go 0.8.0 tested; png and resources write a manifest.json naming each file's rendition index.
     public static readonly ExternalTool AssetCatalogReader = new("carfile", "carfile-go (test oracle)", "CORVUS_ASSET_CATALOG_READER", ExternalToolKind.Executable,
         ["carfile" + Exe], ["-v"], 0, "oracle for the asset catalog reader in tests", true,
         Ops(("json", ["-q", "-f", "json", "-o", "{output}", "{file}"]), ("png", ["-q", "-f", "png", "-o", "{output}", "{file}"]),
             ("resources", ["-q", "-f", "resources", "-o", "{output}", "{file}"])));
 
-    // ark_disasm from the OpenHarmony 5.1.0 public SDK (toolchains package) tested. list writes the listing to {output}.
+    // ark_disasm from the OpenHarmony 5.1.0 SDK tested.
     public static readonly ExternalTool ArkDisassembler = new("ark_disasm", "ark_disasm, OpenHarmony SDK (test oracle)", "CORVUS_ARK_DISASSEMBLER", ExternalToolKind.Executable,
         ["ark_disasm" + Exe], ["--version"], 0, "oracle for the Ark bytecode disassembler in tests", true,
         Ops(("list", ["{file}", "{output}"])));
 
-    // repak 0.2.3 tested. list and hashes print each path after the mount point (an empty -s strips nothing); hashes
-    // prints the SHA-256 of each file's contents and fails on a pak with encrypted files.
+    // repak 0.2.3 tested; paths print after the mount point (an empty -s strips nothing), and hash-list fails on
+    // encrypted files.
     public static readonly ExternalTool PakTool = new("repak", "repak (test oracle)", "CORVUS_PAK_TOOL", ExternalToolKind.Executable,
-        ["repak" + Exe], ["--version"], 0, "oracle for the Unreal pak reader in tests", true,
+        ["repak" + Exe], ["--version"], 0, "oracle for the .pak archive reader in tests", true,
         Ops(("list", ["list", "-s", "", "{file}"]), ("hashes", ["hash-list", "-s", "", "{file}"])));
 
-    // UndertaleModCli 0.9.2.0 tested. dump writes strings.txt, CodeEntries/<name>.gml and EmbeddedTextures/*.png under
-    // {output}.
+    // UndertaleModCli 0.9.2.0 tested.
     public static readonly ExternalTool GameMakerTool = new("UndertaleModCli", "UndertaleModCli (test oracle)", "CORVUS_GAMEMAKER_TOOL", ExternalToolKind.Executable,
-        ["UndertaleModCli" + Exe], ["--version"], 0, "oracle for the GameMaker data file reader in tests", true,
+        ["UndertaleModCli" + Exe], ["--version"], 0, "oracle for the data.win reader in tests", true,
         Ops(("dump", ["dump", "{file}", "-o", "{output}", "-s", "-t", "-c", "UMT_DUMP_ALL"])));
 
     /// <summary>Every external program, in display order.</summary>
@@ -281,7 +263,8 @@ public static partial class ExternalTools
             configured = configured.Trim().Trim('"');
             if (File.Exists(configured)) return (System.IO.Path.GetFullPath(configured), tool.Variable);
             if (Directory.Exists(configured) && InDirectory(tool, configured) is { } inside) return (inside, tool.Variable);
-            return null; // a variable that names nothing usable is not silently replaced by another copy
+            // A variable naming nothing usable is not replaced by another copy.
+            return null;
         }
         var path = tool.Kind == ExternalToolKind.Executable
             ? (ReadVariable("PATH") ?? "").Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).Select(d => (d.Trim('"'), "PATH"))
@@ -315,8 +298,7 @@ public static partial class ExternalTools
     /// <summary>How long a version check may take; tests shorten it.</summary>
     internal static TimeSpan VersionTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
-    // Lazy, so callers that race for one file share a single version check
-    // rather than each running the program.
+    // Lazy, so racing callers share one version check.
     private static readonly ConcurrentDictionary<string, Lazy<ExternalToolProbe>> Probes = new(StringComparer.Ordinal);
 
     /// <summary>The problem of a probe that found the tool neither through its variable nor on PATH.</summary>
@@ -341,10 +323,7 @@ public static partial class ExternalTools
         return probe;
     }
 
-    /// <summary>
-    /// <see cref="Probe(ExternalTool)"/> bounded by <paramref name="wait"/>: a version check still running then is reported
-    /// usable with its version unknown, and finishes for the next call.
-    /// </summary>
+    /// <summary><see cref="Probe(ExternalTool)"/> bounded by <paramref name="wait"/>; a check still running reports usable, version unknown.</summary>
     public static ExternalToolProbe Probe(ExternalTool tool, TimeSpan wait)
     {
         // Without version arguments nothing runs, so there is no check to report as running.
@@ -384,7 +363,8 @@ public static partial class ExternalTools
         if (tool.MinimumMajorVersion > 0)
         {
             var major = version == null ? 0 : int.Parse(version.Split('.')[0], System.Globalization.CultureInfo.InvariantCulture);
-            if (major == 1 && version!.Split('.') is [_, var legacy, ..]) major = int.Parse(legacy, System.Globalization.CultureInfo.InvariantCulture); // 1.8 means 8
+            // Java 1.8 means 8.
+            if (major == 1 && version!.Split('.') is [_, var legacy, ..]) major = int.Parse(legacy, System.Globalization.CultureInfo.InvariantCulture);
             if (major < tool.MinimumMajorVersion) problem = $"version {version ?? "unknown"}; {tool.MinimumMajorVersion} or newer is required";
         }
         return new(tool.Id, tool.Name, tool.Purpose, true, path, source, version, problem, Remediation(tool));
@@ -403,10 +383,7 @@ public static partial class ExternalTools
         "ANDROID_ADB_SERVER_ADDRESS",
     ];
 
-    /// <summary>
-    /// The overrides that reduce the server's environment to <see cref="KeptVariables"/> and ADB_* (null removes), then
-    /// the kept <see cref="ChildVariables"/>, then <paramref name="extra"/>.
-    /// </summary>
+    /// <summary>Overrides reducing the environment to <see cref="KeptVariables"/> and ADB_* (null removes), plus kept child variables and <paramref name="extra"/>.</summary>
     public static Dictionary<string, string?> MinimalEnvironment(IReadOnlyDictionary<string, string?>? extra = null)
     {
         var result = new Dictionary<string, string?>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -425,11 +402,7 @@ public static partial class ExternalTools
         public string Text => Encoding.UTF8.GetString(Output);
     }
 
-    /// <summary>
-    /// Runs a program to completion in its own job with a minimal environment. Stdout is kept up to <paramref name="maxOutputBytes"/>;
-    /// past that the tree is stopped and <see cref="RunResult.Truncated"/> set. Cancellation and the timeout stop the tree too.
-    /// With <paramref name="sink"/>, stdout streams there instead (same budget) and <see cref="RunResult.Output"/> is empty.
-    /// </summary>
+    /// <summary>Runs a program in its own job with a minimal environment; stops the tree past <paramref name="maxOutputBytes"/> (setting Truncated), the timeout or cancellation. With <paramref name="sink"/>, stdout streams there and Output is empty.</summary>
     public static RunResult Run(string exe, IReadOnlyList<string> args, TimeSpan timeout, long maxOutputBytes, CancellationToken ct,
         IReadOnlyDictionary<string, string?>? environment = null, string? workingDirectory = null, Stream? sink = null)
     {

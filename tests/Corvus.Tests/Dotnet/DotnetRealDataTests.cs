@@ -10,10 +10,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The dotnet read tools on System.Private.CoreLib over stdio (F-DN acceptance): default pages within their class budget per
-/// part, walks that rebuild the whole, records no larger than 1.3x their text, basis on derived rows, clamped limits reported.
-/// </summary>
+/// <summary>The .NET read tools on System.Private.CoreLib over stdio: pages within budget, walks that rebuild the whole, records at most 1.3x their text.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
@@ -82,7 +79,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task DefaultPagesFitAndRecordsStayCompact()
+    public async Task Default_pages_fit_and_records_stay_compact()
     {
         (string Tool, Dictionary<string, object?> Args, double Ratio)[] calls =
         [
@@ -90,7 +87,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
             ("list_types", new() { ["assembly"] = "System.Private.CoreLib" }, 1.3),
             ("get_type_info", new() { ["type"] = "System.String" }, 1.3),
             ("get_type_hierarchy", new() { ["type"] = "System.Exception" }, 1.3),
-            // typed arguments ({type, value, name}) repeat what the C# text shows: 1.82x measured
+            // Typed arguments ({type, value, name}) repeat what the C# text shows: 1.82x measured.
             ("get_attributes", new() { ["symbol"] = "System.String" }, 1.9),
             ("resolve_symbol", new() { ["symbol"] = "ToString" }, 1.3),
             ("search_symbols", new() { ["query"] = "Get" }, 1.3),
@@ -123,7 +120,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task TypeInfoMethodsWalkIsOneCall()
+    public async Task Type_info_methods_walk_is_one_call()
     {
         var walked = await Walk("get_type_info", new() { ["type"] = "System.String", ["section"] = "methods" });
         var (_, all, _, _) = await Call("get_type_info", new() { ["type"] = "System.String", ["section"] = "methods", ["limit"] = 5_000 });
@@ -133,7 +130,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task ResolveSymbolPagesItsMatches()
+    public async Task Resolve_symbol_pages_its_matches()
     {
         var walked = await Walk("resolve_symbol", new() { ["symbol"] = "ToString" });
         Assert.True(walked.Count > 100, $"{walked.Count} matches");
@@ -142,7 +139,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
 
     /// <summary>Code pages walked by nextOffset rebuild the text byte for byte, whatever the page size.</summary>
     [Fact]
-    public async Task DecompiledPagesRebuildTheWholeText()
+    public async Task Decompiled_pages_rebuild_the_whole_text()
     {
         async Task<string> Pages(int? maxTokens)
         {
@@ -167,7 +164,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task IlHashesInTheRecordMatchTheText()
+    public async Task IL_hashes_in_the_record_match_the_text()
     {
         var (text, record, t, s) = await Call("get_il", new() { ["symbol"] = "System.String::Concat(string, string)" });
         WithinBudget("get_il", t, s);
@@ -176,7 +173,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task ReferencesThroughBaseDeclarationsAreDerived()
+    public async Task References_through_base_declarations_are_derived()
     {
         var walked = await Walk("find_references", new() { ["symbol"] = "System.String::GetHashCode()", ["limit"] = 5_000 });
         Assert.Contains(walked, r => r.GetProperty("basis").GetString() == "derived");
@@ -186,7 +183,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task AHugeLimitIsClampedAndThePageCut()
+    public async Task A_huge_limit_is_clamped_and_the_page_cut()
     {
         var (text, record, t, s) = await Call("search_strings", new() { ["query"] = "e", ["limit"] = 100_000 });
         WithinBudget("search_strings", t, s);
@@ -197,7 +194,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task ResourcesNameTheirHash()
+    public async Task Resources_name_their_hash()
     {
         var walked = await Walk("list_resources", new() { ["assembly"] = "System.Private.CoreLib" });
         Assert.NotEmpty(walked);
@@ -211,7 +208,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
 
     /// <summary>The machine's own runtime: its CoreLib is ReadyToRun code for this host.</summary>
     [Fact]
-    public async Task ReadyToRunCodeAndTheMethodAtAnAddress()
+    public async Task ReadyToRun_code_resolves_back_to_its_method_by_address()
     {
         var runtime = typeof(object).Assembly.Location;
         var (text, record, t, s) = await Call("get_r2r_code", new() { ["method"] = "System.String::Concat(string, string)", ["assembly"] = runtime });
@@ -224,7 +221,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
-    public async Task ExportTwiceWithOverwrite()
+    public async Task A_second_export_conflicts_unless_overwrite_is_set()
     {
         await using var server = await _phases.Run("export server start", () => McpProtocolTests.StartServerAsync(null, null, ["--no-watch", "--load", Newtonsoft]));
         var target = _dir.File("export");
@@ -241,7 +238,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     /// <summary>A client that waits 10 s (deadline 5 s): a partial answer before it, and the export completes in the background.</summary>
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task AShortClientGetsAPartialAndTheExportCompletes()
+    public async Task A_short_client_gets_a_partial_and_the_export_completes()
     {
         await using var server = await _phases.Run("short client server start",
             () => McpProtocolTests.StartServerAsync(null, null, ["--no-watch", ClientProfiles.ClientTimeoutOption, "10", "--load", CoreLib]));
@@ -251,8 +248,7 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
         var r = await server.CallToolAsync("export_project", new Dictionary<string, object?> { ["assembly"] = "System.Private.CoreLib", ["outputDirectory"] = target });
         var answered = clock.Elapsed;
         _phases.Phase("export answered");
-        // The contract: the partial answer reaches the client before it gives up. The stop at 3.5 s leaves room for the
-        // first call's start on a loaded machine, so the export is running when it fires; the time from it is a measurement.
+        // The stop at 3.5 s leaves room for the first call's start on a loaded machine, so the export is running when it fires.
         Assert.True(answered < TimeSpan.FromSeconds(10), $"answered after {answered}, past the client's 10 s; {_phases.Summary()}");
         var stop = CallFilter.Early(TimeSpan.FromSeconds(10) - Deadlines.ClientMargin);
         var fromStop = answered > stop ? answered - stop : TimeSpan.Zero;

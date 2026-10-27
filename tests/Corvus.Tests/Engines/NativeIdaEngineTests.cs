@@ -150,10 +150,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.True(callers.Split('\n').Length > 2, callers);
     }
 
-    /// <summary>
-    /// Patches go into the open database (no new auto-analysis) and undo reverts them; compared with analyzing the
-    /// patched bytes from scratch (the fallback when the database cannot take a patch set).
-    /// </summary>
+    /// <summary>Patches go into the open database without new auto-analysis and undo reverts them; compared with analyzing the patched bytes afresh.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
     public async Task Patched_bytes_decompile_from_the_open_database_and_undo_reverts_them()
@@ -194,7 +191,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var undoTime = clock.Elapsed;
         Assert.Equal(Body(original), Body(undone));
         Assert.True(rig.Engines.LastPatchSync(native, "ida")!.Reverted > 0);
-        // the tool may answer from its page cache (same bytes as the original): ask the database itself
+        // The tool may answer from its page cache (same bytes as the original): ask the database itself.
         var session = await rig.Engines.Session(native, null, null, default);
         var fresh = await session.DecompileAsync(native.Image.Exports.First(e => e.Name == Export).Rva);
         Assert.DoesNotContain("23063", fresh.Text);
@@ -225,10 +222,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.False(engines.Prewarming.Enabled);
     }
 
-    /// <summary>
-    /// With prewarming on, loading native images queues their IDA analysis (one at a time, visible in the status); the
-    /// first decompile_native then finds the session open; unloading a queued or running image cancels its work.
-    /// </summary>
+    /// <summary>With prewarming, loading queues IDA analysis so decompile_native finds the session open; unloading cancels queued or running work.</summary>
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [IdaFact]
@@ -249,7 +243,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         }
         var warmed = clock.Elapsed;
         Assert.Contains(seen, s => s.StartsWith(first.Id, StringComparison.Ordinal) && s.EndsWith("/2", StringComparison.Ordinal)); // one runs, two wait
-        // dbghelp runs now: unloading it cancels its analysis
+        // Dbghelp runs now: unloading it cancels its analysis.
         while (rig.Engines.Prewarming.Running != big.Id && clock.Elapsed < TimeSpan.FromMinutes(5)) await Task.Delay(50);
         var cancel = Stopwatch.StartNew();
         rig.Workspace.UnloadNative(big);
@@ -271,18 +265,18 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         PerfBudget.Time("engines/ida-decompile-after-prewarm", after, TimeSpan.FromSeconds(20), output);
     }
 
-    /// <summary>The Il2Cpp header and method prototypes reach the pseudocode, persist in the database and are not pushed again.</summary>
+    /// <summary>The AOT header and method prototypes reach the pseudocode, persist in the database and are not pushed again.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
-    public async Task Il2Cpp_types_reach_the_pseudocode_and_persist()
+    public async Task Metadata_types_reach_the_pseudocode_and_persist()
     {
-        var (dll, binary) = Il2CppNativeNamesTests.CreateDump(_dir);
+        var (dll, binary) = AotNativeNamesTests.CreateDump(_dir);
         using var env = new Env(dll);
         var code = new NativeCodeService(env.Workspace, env.Options, null, new Native.Annotations.AnnotationStore(_dir.File("ann")));
         var native = env.Workspace.LoadAny(binary).Native!;
         var index = await code.Index(native, null, default);
-        new Il2CppNativeNames(env.Il2Cpp, env.Il2CppNavigator, code).Apply(native, index, env.Workspace.Assemblies, default);
-        var batch = NativeTypePush.Build(native, Il2CppNativeNames.Of(native), null, default);
+        new AotNativeNames(env.AotMetadata, env.AotNavigator, code).Apply(native, index, env.Workspace.Assemblies, default);
+        var batch = NativeTypePush.Build(native, AotNativeNames.Of(native), null, default);
         output.WriteLine($"{batch.Prototypes.Count} prototypes, header {batch.Declarations!.Length:N0} chars\n{string.Join('\n', batch.Prototypes.Select(p => $"0x{p.Rva:X} {p.Declaration}"))}");
         Assert.Contains(batch.Prototypes, p => p.Rva == 0x1000 && p.Declaration.Contains("struct Fixture_Native_NativeThing* __this"));
 
@@ -368,7 +362,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("Rect *this", decompiled);
         Assert.Contains("__vftable->", decompiled);
 
-        // a system DLL with many classes: how much is typed and what the push costs
+        // A system DLL with many classes: how much is typed and what the push costs.
         var system = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "msvcp_win.dll");
         if (!File.Exists(system)) return;
         var clock = Stopwatch.StartNew();
@@ -376,10 +370,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         output.WriteLine($"msvcp_win.dll first decompile_native {clock.Elapsed.TotalSeconds:0.0} s: {head.Split('\n').First(l => l.Contains("types:"))}");
     }
 
-    /// <summary>
-    /// native_call_tree direction=both through an engine on a real ELF library: a function with callers and callees, one
-    /// level by call site, the engine's sites agreeing with the built-in index's.
-    /// </summary>
+    /// <summary>native_call_tree direction=both through an engine on a real ELF: sites agree with the built-in index.</summary>
     internal static async Task CallTreeBoth(NativeCodeTools tools, AssemblyWorkspace workspace, NativeCodeService code, string engine, ITestOutputHelper output)
     {
         var path = NativeFormats.NativeFixtures.LinuxX64DbgShim;
@@ -436,7 +427,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.Matches(@"types: pushed .* and \d+ C\+\+ class\(es\) \([1-9]\d* structs, [1-9]\d* vftables", text);
     }
 
-    /// <summary>The protocol sample (no RTTI, no Il2Cpp): decompile_native with every push enabled.</summary>
+    /// <summary>The protocol sample (no RTTI, no AOT metadata): decompile_native with every push enabled.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
     public async Task Synthetic_sample_decompiles_with_name_and_type_pushes()
@@ -479,10 +470,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         }
         """;
 
-    /// <summary>
-    /// A statically linked (/MT) MSVC build: the CRT functions IDA recognizes become the ida name layer once a session is
-    /// open (list_functions alone does not start IDA for x64), flagged library; user names still win.
-    /// </summary>
+    /// <summary>In a /MT MSVC build, CRT functions IDA recognizes form the ida name layer flagged library; user names still win.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
     public async Task Library_functions_IDA_recognizes_name_a_static_MSVC_build()
@@ -499,7 +487,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         await rig.Analysis.DecompileNative(native.Id, $"rva:0x{native.Image.EntryPointRva:X}");
         var imported = await rig.Engines.LibraryNames(native)!;
         var opened = clock.Elapsed;
-        // the built-in listing with the ida name layer (auto would now answer from IDA: its analysis is complete)
+        // The built-in listing with the ida name layer (auto would now answer from IDA: its analysis is complete).
         var after = await rig.Tools.ListFunctions(native.Id, limit: 5000, engine: "ours");
         var rows = after.Split('\n').Where(l => l.StartsWith("  0x", StringComparison.Ordinal)).ToList();
         var library = rows.Where(r => r.Contains("library") && r.Contains(", ida;")).ToList();
@@ -525,7 +513,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var rig = Setup();
         var path = NativeIdaProviderTests.System64;
         var diff = new NativeDiffTools(rig.Workspace, rig.Code, rig.Engines);
-        // the function CheckSumMappedFile calls most often (ChkSum, twice), with its call sites as the references
+        // The function CheckSumMappedFile calls most often (ChkSum, twice), with its call sites as the references.
         var session = await rig.Engines.Session(rig.Workspace.LoadAny(path).Native!, null, null, default);
         var calls = (await session.GetXrefsFromAsync(NativeIdaProviderTests.ExportRva(path, "CheckSumMappedFile"), true))
             .Where(x => x.Kind == Native.Providers.NativeXrefKind.Call).GroupBy(x => x.ToRva).OrderByDescending(g => g.Count()).First();

@@ -9,14 +9,14 @@ public class MsvcDemangleTests
     /// <summary>Decorated name, full form, kind. Outputs are this undecorator's own formatting (LLVM-like spacing, no __ptr64).</summary>
     public static readonly TheoryData<string, string, MsvcSymbolKind> Names = new()
     {
-        // calling conventions, globals
+        // Calling conventions, globals.
         { "?f@@YAXXZ", "void __cdecl f(void)", MsvcSymbolKind.Function },
         { "?f@@YGHH@Z", "int __stdcall f(int)", MsvcSymbolKind.Function },
         { "?f@@YIXHH@Z", "void __fastcall f(int, int)", MsvcSymbolKind.Function },
         { "?f@@YQXN@Z", "void __vectorcall f(double)", MsvcSymbolKind.Function },
         { "?f@@$$J0YAXXZ", "extern \"C\" void __cdecl f(void)", MsvcSymbolKind.Function },
         { "?f@@YAXX_E", "void __cdecl f(void) noexcept", MsvcSymbolKind.Function },
-        // members: access, virtual, static, cv and ref qualifiers
+        // Members: access, virtual, static, cv and ref qualifiers.
         { "?f@A@@QAEXXZ", "public: void __thiscall A::f(void)", MsvcSymbolKind.Function },
         { "?f@A@@QEAAXXZ", "public: void __cdecl A::f(void)", MsvcSymbolKind.Function },
         { "?f@A@@QEBAHXZ", "public: int __cdecl A::f(void) const", MsvcSymbolKind.Function },
@@ -26,7 +26,7 @@ public class MsvcDemangleTests
         { "?f@A@@IAEXXZ", "protected: void __thiscall A::f(void)", MsvcSymbolKind.Function },
         { "?f@A@@QEGAAXXZ", "public: void __cdecl A::f(void) &", MsvcSymbolKind.Function },
         { "?f@A@@QEHAAXXZ", "public: void __cdecl A::f(void) &&", MsvcSymbolKind.Function },
-        // structors and operators
+        // Structors and operators.
         { "??0A@@QAE@XZ", "public: __thiscall A::A(void)", MsvcSymbolKind.Function },
         { "??1A@@UAE@XZ", "public: virtual __thiscall A::~A(void)", MsvcSymbolKind.Function },
         { "??0?$A@H@@QAE@XZ", "public: __thiscall A<int>::A<int>(void)", MsvcSymbolKind.Function },
@@ -46,7 +46,7 @@ public class MsvcDemangleTests
         { "??__M@YA_NHH@Z", "bool __cdecl operator<=>(int, int)", MsvcSymbolKind.Function },
         { "??$?6U?$char_traits@D@std@@@std@@YAAAV?$basic_ostream@DU?$char_traits@D@std@@@0@AAV10@PBD@Z",
             "class std::basic_ostream<char, struct std::char_traits<char>> & __cdecl std::operator<<<struct std::char_traits<char>>(class std::basic_ostream<char, struct std::char_traits<char>> &, char const *)", MsvcSymbolKind.Function },
-        // templates: type, integral, negative, nested, packs, arrays, qualified, function types, symbols, member pointers
+        // Templates: type, integral, negative, nested, packs, arrays, qualified, function types, symbols, member pointers.
         { "??$f@H@@YAXH@Z", "void __cdecl f<int>(int)", MsvcSymbolKind.Function },
         { "??$f@$0A@@@YAXXZ", "void __cdecl f<0>(void)", MsvcSymbolKind.Function },
         { "??$f@$0?0@@YAXXZ", "void __cdecl f<-1>(void)", MsvcSymbolKind.Function },
@@ -65,7 +65,7 @@ public class MsvcDemangleTests
         { "??$f@$F7A@@@YAXXZ", "void __cdecl f<{8, 0}>(void)", MsvcSymbolKind.Function },
         { "??$f@H@@YA?A_TH@Z", "decltype(auto) __cdecl f<int>(int)", MsvcSymbolKind.Function },
         { "?f@@YA?A_PXZ", "auto __cdecl f(void)", MsvcSymbolKind.Function },
-        // types: pointers, references, qualifiers, function and member pointers, arrays, primitives
+        // Types: pointers, references, qualifiers, function and member pointers, arrays, primitives.
         { "?f@@YAXP6AHH@Z@Z", "void __cdecl f(int (__cdecl *)(int))", MsvcSymbolKind.Function },
         { "?f@@YAXP6AXXZ@Z", "void __cdecl f(void (__cdecl *)(void))", MsvcSymbolKind.Function },
         { "?f@@YAP6AHH@ZXZ", "int (__cdecl * __cdecl f(void))(int)", MsvcSymbolKind.Function },
@@ -97,9 +97,9 @@ public class MsvcDemangleTests
         // back-references: parameters and names
         { "?f@@YAXPAUA@@0@Z", "void __cdecl f(struct A *, struct A *)", MsvcSymbolKind.Function },
         { "?f@A@B@@QAEXPAV12@@Z", "public: void __thiscall B::A::f(class B::A *)", MsvcSymbolKind.Function },
-        // inside its own argument list a template's name back-reference is the bare name
+        // Inside its own argument list a template's name back-reference is the bare name.
         { "?f@@YAXV?$A@V0@@@@Z", "void __cdecl f(class A<class A>)", MsvcSymbolKind.Function },
-        // scopes: anonymous namespace, function-local names, lambdas, extern "C" locals
+        // Scopes: anonymous namespace, function-local names, lambdas, extern "C" locals.
         { "?f@?A0x12345678@@YAXXZ", "void __cdecl `anonymous namespace'::f(void)", MsvcSymbolKind.Function },
         { "??R<lambda_1>@?0??f@@YAXXZ@QBEXXZ", "public: void __thiscall `void __cdecl f(void)'::`1'::<lambda_1>::operator()(void) const", MsvcSymbolKind.Function },
         { "?x@?1??f@@YAXXZ@4HA", "int `void __cdecl f(void)'::`2'::x", MsvcSymbolKind.Variable },
@@ -113,7 +113,7 @@ public class MsvcDemangleTests
         { "?x@A@@2HA", "public: static int A::x", MsvcSymbolKind.Variable },
         { "?x@A@@0HB", "private: static int const A::x", MsvcSymbolKind.Variable },
         { "?x@@3PQA@@HQ1@", "int A::*x", MsvcSymbolKind.Variable },
-        // tables, RTTI, guards, initializers
+        // Tables, RTTI, guards, initializers.
         { "??_7A@@6B@", "const A::`vftable'", MsvcSymbolKind.SpecialTable },
         { "??_7C@@6BA@@@", "const C::`vftable'{for `A'}", MsvcSymbolKind.SpecialTable },
         { "??_8C@@7BA@@@", "const C::`vbtable'{for `A'}", MsvcSymbolKind.SpecialTable },
@@ -131,7 +131,7 @@ public class MsvcDemangleTests
         { "?f@C@@$4PPPPPPPM@A@EAAXXZ", "[thunk]: public: virtual void __cdecl C::f`vtordisp{4294967292, 0}'(void)", MsvcSymbolKind.Thunk },
         { "?f@C@@$R4BA@7PPPPPPPM@A@AEXXZ", "[thunk]: public: virtual void __thiscall C::f`vtordispex{16, 8, 4294967292, 0}'(void)", MsvcSymbolKind.Thunk },
         { "??_9A@@$BA@AE", "[thunk]: __thiscall A::`vcall'{0, {flat}}", MsvcSymbolKind.Thunk },
-        // string literals (decoded), MD5 names, C++/CX, imports
+        // String literals (decoded), MD5 names, C++/CX, imports.
         { "??_C@_0M@ABCDEFGH@hello?5world?$AA@", "\"hello world\"", MsvcSymbolKind.StringLiteral },
         { "??_C@_1G@ABCDEFGH@?$AAh?$AAi?$AA?$AA@", "L\"hi\"", MsvcSymbolKind.StringLiteral },
         { "??_C@_0BL@ABCDEFGH@a?6b?$AN?7c?8d?$CCe?$AAf?$AA@", "\"a\\nb\\r\\tc'd\\\"e\\0f\\0\"...", MsvcSymbolKind.StringLiteral },
@@ -149,7 +149,7 @@ public class MsvcDemangleTests
 
     [Theory]
     [MemberData(nameof(Names))]
-    public void Undecorates(string mangled, string expected, MsvcSymbolKind kind)
+    public void Decorated_names_undecorate_to_the_expected_text_and_kind(string mangled, string expected, MsvcSymbolKind kind)
     {
         var r = MsvcDemangler.Demangle(mangled);
         Assert.True(r.Success, $"{mangled}: {r.Error}");
@@ -159,7 +159,7 @@ public class MsvcDemangleTests
 
     /// <summary>The same table through DbgHelp (Windows): equal after whitespace normalization, with __ptr64 printed and literals as "`string'".</summary>
     [Fact]
-    public void TableAgreesWithDbgHelp()
+    public void The_name_table_undecorates_like_DbgHelp()
     {
         if (!DbgHelp.IsAvailable) return;
         var options = new MsvcDemangleOptions { Ptr64 = true, DecodeStringLiterals = false };
@@ -188,16 +188,16 @@ public class MsvcDemangleTests
     [InlineData("?x@?1??f@A@@QAEXXZ@4HA", "`A::f'::`2'::x")]
     [InlineData("??_R0?AVA@@@8", "A `RTTI Type Descriptor'")]
     [InlineData("??_B?1??f@@YAXXZ@51", "`f'::`2'::`local static guard'")]
-    public void NameOnly(string mangled, string expected) =>
+    public void The_name_only_style_drops_signatures(string mangled, string expected) =>
         Assert.Equal(expected, MsvcDemangler.Undecorate(mangled, MsvcNameStyle.NameOnly));
 
     [Fact]
-    public void Options()
+    public void Options_control_ptr64_string_literals_and_x86_decorations()
     {
         Assert.Equal("public: int __cdecl A::f(char const * __ptr64) const __ptr64",
             MsvcDemangler.Demangle("?f@A@@QEBAHPEBD@Z", new MsvcDemangleOptions { Ptr64 = true }).Text);
         Assert.Equal("`string'", MsvcDemangler.Demangle("??_C@_0M@ABCDEFGH@hello?5world?$AA@", new MsvcDemangleOptions { DecodeStringLiterals = false }).Text);
-        // a plain leading underscore is a decoration only for x86 names
+        // A plain leading underscore is a decoration only for x86 names.
         Assert.False(MsvcDemangler.Demangle("_f").Success);
         var cdecl = MsvcDemangler.Demangle("_f", new MsvcDemangleOptions { X86 = true });
         Assert.Equal(("__cdecl f", "__cdecl"), (cdecl.Text, cdecl.CallingConvention));
@@ -213,7 +213,7 @@ public class MsvcDemangleTests
     [InlineData(".?AV?$C@H@x@@", "class x::C<int>", "x::C<int>")]
     [InlineData(".?AV<lambda_1>@?0??f@@YAXXZ@", "class `void __cdecl f(void)'::`1'::<lambda_1>", "`void __cdecl f(void)'::`1'::<lambda_1>")]
     [InlineData(".H", "int", "int")]
-    public void TypeDescriptorNames(string name, string type, string bare)
+    public void Type_descriptor_names_undecorate_with_and_without_the_keyword(string name, string type, string bare)
     {
         var r = MsvcDemangler.DemangleTypeDescriptorName(name);
         Assert.NotNull(r);
@@ -246,7 +246,7 @@ public class MsvcDemangleTests
     [InlineData("@@8")]
     [InlineData("__imp_")]
     [InlineData("hello")]
-    public void GarbageIsRejectedWithAReason(string name)
+    public void Garbage_is_rejected_with_a_reason(string name)
     {
         var r = MsvcDemangler.Demangle(name);
         Assert.False(r.Success);
@@ -256,7 +256,7 @@ public class MsvcDemangleTests
     }
 
     [Fact]
-    public void DeepAndLongInputsAreBounded()
+    public void Deep_and_long_inputs_are_bounded()
     {
         var cpu = ThreadCpuClock.Now();
         var deepPointers = "?x@@3" + string.Concat(Enumerable.Repeat("PA", 50_000)) + "HA";
@@ -269,7 +269,7 @@ public class MsvcDemangleTests
             Assert.False(r.Success);
             Assert.DoesNotContain("internal error", r.Error);
         }
-        // exponential output through back-references stays capped
+        // Exponential output through back-references stays capped.
         var blowup = "?f@@YAX" + string.Concat(Enumerable.Range(0, 9).Select(i => i == 0 ? "PAH" : $"P6AX{i - 1}{i - 1}{i - 1}{i - 1}@Z")) + "@Z";
         var b = MsvcDemangler.Demangle(blowup);
         Assert.True(b.Success || b.Error!.Contains("longer than"), b.Error);
@@ -279,7 +279,7 @@ public class MsvcDemangleTests
 
     /// <summary>Deterministic mutations of the table: no exception escapes, no internal error, bounded time.</summary>
     [Fact]
-    public void MutatedNamesNeverFailInternally()
+    public void Mutated_names_never_fail_internally()
     {
         var rng = new Random(1234);
         var seeds = Names.Select(r => (string)r[0]).ToList();

@@ -7,10 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// DWARF the main file does not hold, read from where the toolchain put it: split units (.dwo files, a .dwp package)
-/// built by clang and llvm-dwp from CORVUS_LLVM_BIN, compared with the same sources built unsplit.
-/// </summary>
+/// <summary>Split DWARF (.dwo files, a .dwp package) reads like the same sources built unsplit (clang and llvm-dwp from CORVUS_LLVM_BIN).</summary>
 [Trait("Speed", "Slow")]
 public sealed class DwarfSplitTests(ITestOutputHelper output)
 {
@@ -46,7 +43,7 @@ public sealed class DwarfSplitTests(ITestOutputHelper output)
         var symbols = pdb.Symbols.Where(s => s.Rva != null).OrderBy(s => s.Name, StringComparer.Ordinal)
             .Select(s => $"{s.Name}|{s.LinkageName}|{s.Kind}|{model.Spell(s.TypeIndex)}");
         var types = new[] { "geo::Point", "Holder", "Mode" }.Select(t => $"{t}:{model.Named(t).Count}");
-        // every byte of every function: lines and inlined frames
+        // Every byte of every function: lines and inlined frames.
         var rvas = pdb.Symbols.Where(s => s.IsFunction && s.Rva != null).SelectMany(s => Enumerable.Range(0, (int)s.Size).Select(i => s.Rva!.Value + (uint)i)).Order().ToList();
         var lines = pdb.Source!.Lookup(rvas).Select(i => i == null ? "none" : $"{Path.GetFileName(i.File)}:{i.Line}:{string.Join("<", i.Frames.Select(f => f.Function))}").Distinct();
         return string.Join("\n", [.. symbols, .. types, .. lines]);
@@ -79,7 +76,7 @@ public sealed class DwarfSplitTests(ITestOutputHelper output)
         Assert.Empty(split.Issues);
         Assert.Equal(expected, Shape(split, splitImage));
 
-        // the .dwo files packaged into split.so.dwp, then removed: the package answers alone
+        // The .dwo files packaged into split.so.dwp, then removed: the package answers alone.
         Assert.Null(LlvmOracle.Tool("llvm-dwp", dir.Path, LlvmOracle.Options.DwpFromExecutable, "split.so", LlvmOracle.Options.Output, "split.so.dwp"));
         File.Delete(dir.File("a.dwo"));
         File.Delete(dir.File("b.dwo"));

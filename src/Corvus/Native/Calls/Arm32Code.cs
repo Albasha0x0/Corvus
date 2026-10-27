@@ -3,7 +3,6 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>A 32-bit ARM value location: a core register r0-r14, or a stack slot as an offset from the stack pointer at function entry.</summary>
 /// <summary>A register (r0-r15; s0-s31 as 16-47, d0-d31 as 48-79) or an entry-relative stack slot.</summary>
 internal readonly record struct A32Loc(bool IsSlot, int Value)
 {
@@ -18,12 +17,7 @@ internal sealed record A32Step(uint Rva, ArmInstruction I, Insn Facts, int? Sp, 
     public string Text => I.Format();
 }
 
-/// <summary>
-/// A 32-bit ARM function decoded block by block, in its ARM or Thumb state, for value analysis: instructions with their
-/// facts (literal pools, PC-relative pairs, import slots), IT conditions, predecessors, and the stack pointer tracked from
-/// entry (push / pop, vpush / vpop, sub / add sp, writeback, the frame pointer r7 or r11) so stack slots read the same
-/// through sp and the frame pointer.
-/// </summary>
+/// <summary>A 32-bit ARM or Thumb function decoded per block for value analysis, with sp and the frame pointer tracked from entry.</summary>
 internal sealed class A32Function
 {
     public const int Sp = 13, Lr = 14, Pc = 15;
@@ -125,7 +119,6 @@ internal sealed class A32Function
                 return;
             }
         }
-        // writeback through sp
         if (Memory(in i) is { } m && m.Reg == Sp && m.Indexing != ArmIndexing.Offset && m.Index == ArmOperand.NoReg)
             sp += (int)(m.Subtract ? -m.Value : m.Value);
         bool toSp = (i.Writes & (1 << Sp)) != 0 && i.Op(0) is { Kind: ArmOperandKind.Register, Reg: Sp };
@@ -187,7 +180,7 @@ internal sealed class A32Function
     /// <summary>The VFP register an instruction writes as its first operand (not a store), or null.</summary>
     public static A32Loc? VfpDest(in ArmInstruction i) => !i.Stores && i.OperandCount > 0 ? Vfp(i.Op(0)) : null;
 
-    /// <summary>VFP registers a vpop / vldm list loads, as (first, count, double).</summary>
+    /// <summary>Whether a vpop / vldm register list loads <paramref name="loc"/>.</summary>
     public static bool ListCovers(in ArmInstruction i, A32Loc loc)
     {
         if (!i.Loads || !loc.IsVfp) return false;

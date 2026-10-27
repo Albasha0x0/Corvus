@@ -39,10 +39,7 @@ public enum VirtualReceiver : byte
     Name,
 }
 
-/// <summary>
-/// An indirect call (or tail jump) through a pointer loaded from an object's vftable: [vfptr + <see cref="Slot"/> * pointer size],
-/// the vfptr loaded from [object + <see cref="VfptrOffset"/>].
-/// </summary>
+/// <summary>A call or tail jump through [[object + <see cref="VfptrOffset"/>] + <see cref="Slot"/> * pointer size].</summary>
 /// <param name="Function">Start of the calling function.</param>
 /// <param name="ClassTypeDescriptor">RTTI type descriptor of the receiver's class (static type), 0 when unknown.</param>
 /// <param name="VftableRva">The receiver class's vftable the slot is read from, 0 when unknown.</param>
@@ -131,10 +128,7 @@ public sealed class VirtualCallSet
     };
 }
 
-/// <summary>
-/// A virtual call an instruction-set-specific scan found: through [[object + <see cref="VfptrOffset"/>] + <see cref="Slot"/> *
-/// pointer size], the object this of <see cref="Function"/> when <see cref="ThisReceiver"/>.
-/// </summary>
+/// <summary>A virtual call a per-architecture scan found, through [[object + <see cref="VfptrOffset"/>] + <see cref="Slot"/> * pointer size].</summary>
 public readonly record struct VirtualShape(uint Rva, uint Function, int VfptrOffset, int Slot, bool ThisReceiver, bool Tail);
 
 /// <summary>Which call edges a call graph query follows.</summary>

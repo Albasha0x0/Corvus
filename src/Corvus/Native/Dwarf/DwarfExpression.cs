@@ -2,10 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>
-/// DWARF expressions (DWARF 5 section 2.5) on the address-sized generic type: evaluated against registers and memory
-/// (CFI rules of a core's frames), or described as text (variable locations).
-/// </summary>
+/// <summary>DWARF expressions (DWARF 5 section 2.5): evaluated against registers and memory, or described as text.</summary>
 internal static class DwarfExpression
 {
     private const int MaxSteps = 4096;
@@ -17,11 +14,7 @@ internal static class DwarfExpression
     /// <summary><paramref name="size"/> bytes of memory at <paramref name="address"/> in the target's byte order; false when unreadable.</summary>
     public delegate bool MemoryReader(ulong address, int size, out ulong value);
 
-    /// <summary>
-    /// Evaluates <paramref name="expr"/> with <paramref name="push"/> (the CFA of a CFI rule) on the stack first; the
-    /// result is the top of the stack. Register locations (DW_OP_reg*), pieces and operations that need a frame base or
-    /// another unit fail with a reason.
-    /// </summary>
+    /// <summary>Evaluates <paramref name="expr"/> with <paramref name="push"/> pushed first and returns the stack top; register locations, pieces and frame-base operations fail with a reason.</summary>
     public static bool TryEvaluate(ReadOnlySpan<byte> expr, int addressSize, bool bigEndian, RegisterReader register, MemoryReader memory, ulong? push,
         out ulong result, out string? failure)
     {

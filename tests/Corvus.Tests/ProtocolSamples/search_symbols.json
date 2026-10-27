@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "4 matches (showing 1-4):\n  method   Fixture.Model.Account::Charge(int)  [TestFixture] 0x06000018\n  method   Fixture.Model.IChargeable::Charge(int)  [TestFixture] 0x0600000D\n  method   Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019\n  type     Fixture.Model.IChargeable  [TestFixture] 0x02000008\n[End: 4 matches]\n"
+    "4 matches (showing 1-4):\n  method   Fixture.Model.Account::Charge(int)  [TestFixture] 0x06000011\n  method   Fixture.Model.IChargeable::Charge(int)  [TestFixture] 0x06000006\n  method   Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000012\n  type     Fixture.Model.IChargeable  [TestFixture] 0x02000004\n[End: 4 matches]\n"
   ],
   "structuredContent": {
     "items": [
@@ -14,25 +14,25 @@
         "kind": "method",
         "label": "Fixture.Model.Account::Charge(int)",
         "assembly": "TestFixture",
-        "token": "0x06000018"
+        "token": "0x06000011"
       },
       {
         "kind": "method",
         "label": "Fixture.Model.IChargeable::Charge(int)",
         "assembly": "TestFixture",
-        "token": "0x0600000D"
+        "token": "0x06000006"
       },
       {
         "kind": "method",
         "label": "Fixture.Model.Account::Charge(int, string)",
         "assembly": "TestFixture",
-        "token": "0x06000019"
+        "token": "0x06000012"
       },
       {
         "kind": "type",
         "label": "Fixture.Model.IChargeable",
         "assembly": "TestFixture",
-        "token": "0x02000008"
+        "token": "0x02000004"
       }
     ],
     "offset": 0,

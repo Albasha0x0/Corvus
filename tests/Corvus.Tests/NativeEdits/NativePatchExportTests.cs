@@ -17,11 +17,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// export_native_patches: each format applied to the original file bytes (by small appliers written here, independent
-/// of the exporter) gives exactly the bytes save_native writes, including relocation-table edits and the PE checksum;
-/// the IDAPython script carries every entry; IPS handles its end-marker offset and the 16 MB limit.
-/// </summary>
+/// <summary>Each export_native_patches format, applied by independent appliers, gives the bytes save_native writes.</summary>
 public class NativePatchExportTests(ITestOutputHelper output)
 {
     // ---- independent appliers ----
@@ -111,7 +107,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
                 Put(Hex(e.GetProperty("fileOffset")), e.GetProperty("original").GetString()!, e.GetProperty("replacement").GetString()!);
         if (doc.RootElement.GetProperty("checksum") is { ValueKind: JsonValueKind.Object } cs)
             Put(Hex(cs.GetProperty("fileOffset")), cs.GetProperty("original").GetString()!, cs.GetProperty("replacement").GetString()!);
-        // the appended section grows the file
+        // The appended section grows the file.
         if (doc.RootElement.TryGetProperty("append", out var app) && app.ValueKind == JsonValueKind.Object)
         {
             long at = Hex(app.GetProperty("fileOffset"));
@@ -191,7 +187,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(PeBuilder.PeOffset + 24 + 64), 0x1234); // a stored checksum: save recomputes it
         using var h = new Harness(image);
         var (native, index) = await h.Open();
-        // a relocated operand moved one byte (entries neutralized and added), then a raw patch further on
+        // A relocated operand moved one byte (entries neutralized and added), then a raw patch further on.
         h.Edits.ApplyPatch(native, index, h.Asm(index, 0x1000, "nop\nmov eax, dword ptr [0x10002004]"), dryRun: false);
         index = await h.Code.Index(native, null, default);
         h.Edits.ApplyPatch(native, index, h.Edits.PreparePatch(index, 0x1020, [0xCC, 0xCC], false, "patch_bytes 2 bytes"), dryRun: false);
@@ -201,7 +197,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Equal(2, reports["json"].Patches);
         Assert.True(reports["json"].RelocationEdits >= 2);
 
-        // json: the patch set, with the assembly text, relocation changes and the original hash
+        // Json: the patch set, with the assembly text, relocation changes and the original hash.
         using var doc = JsonDocument.Parse(File.ReadAllText(h.Dir.File("x86.json")));
         Assert.Equal(PatchExport.JsonKind, doc.RootElement.GetProperty("kind").GetString());
         Assert.Equal(native.OriginalSha256, doc.RootElement.GetProperty("image").GetProperty("sha256").GetString());
@@ -211,7 +207,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Contains(first.GetProperty("relocationChanges").EnumerateArray(), c => c.GetProperty("action").GetString() == "added");
         Assert.Equal("bytes", doc.RootElement.GetProperty("patches")[1].GetProperty("origin").GetString());
 
-        // ida: rebased at run time, original bytes checked, one entry per patch, relocation edit and the checksum
+        // Ida: rebased at run time, original bytes checked, one entry per patch, relocation edit and the checksum.
         var script = File.ReadAllText(h.Dir.File("x86.ida"));
         Assert.Contains("base = idaapi.get_imagebase()", script);
         Assert.Contains("ida_bytes.patch_bytes(ea, new)", script);
@@ -259,17 +255,14 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Contains(doc.RootElement.GetProperty("extraEdits").EnumerateArray(), e => e.GetProperty("fileOffset").GetString() == "0x94");
         Assert.Contains(doc.RootElement.GetProperty("appendedSections").EnumerateArray(), e => e.GetProperty("name").GetString() == ".patch");
 
-        // the IDAPython script renders, creates the segment and still parses structurally
+        // The IDAPython script renders, creates the segment and still parses structurally.
         var ida = Encoding.UTF8.GetString(PatchExport.Render(src, PatchExport.Format.Ida).Content);
         Assert.Contains("ida_segment", ida);
         Assert.Contains("add_segments()", ida);
         Assert.Contains("(\".patch\", 0x5000,", ida);
     }
 
-    /// <summary>
-    /// The IDAPython script under stand-in IDA modules: a segment goes only where nothing is (or where an earlier run put
-    /// it); when another segment holds the range, nothing is written, the site patches included.
-    /// </summary>
+    /// <summary>The IDAPython script under stand-in IDA modules adds a segment only where the range is free, else writes nothing.</summary>
     [Fact]
     public void Ida_script_places_a_segment_only_where_the_range_is_free()
     {
@@ -346,14 +339,14 @@ public class NativePatchExportTests(ITestOutputHelper output)
             return new PatchExportSource("big.bin", "", 0x400000, NativeArch.X86, [], original, patched, -1, _ => null);
         }
 
-        // a change at 0x454F46 ("EOF" as an offset): the record starts at 0x454F45
+        // A change at 0x454F46 ("EOF" as an offset): the record starts at 0x454F45.
         var eof = Source((int)PatchExport.IpsEofOffset + 16, 0x10, PatchExport.IpsEofOffset);
         var ips = PatchExport.Render(eof, PatchExport.Format.Ips);
         Assert.Contains(ips.Notes, n => n.Contains("one byte earlier"));
         // (the applier stops at a record that reads "EOF" and then fails on the trailing bytes)
         Assert.Equal(eof.Output, ApplyIps(eof.Original, ips.Content));
 
-        // past 16 MB: ips refuses with a clear error, ips32 carries it
+        // Past 16 MB: ips refuses with a clear error, ips32 carries it.
         var big = Source(0x1000010, 0x20, 0x1000008);
         var ex = Assert.Throws<ToolError>(() => PatchExport.Render(big, PatchExport.Format.Ips));
         Assert.Contains("16 MB", ex.Message);
@@ -363,11 +356,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Equal(2, ips32.Records);
     }
 
-    /// <summary>
-    /// A copy of System32 version.dll patched with patch_asm (a 'xor eax, eax ; ret' at an export) and patch_bytes: the
-    /// .dif, IPS and JSON exports reproduce save_native's file; then the IDAPython script runs under idalib against a
-    /// fresh database of the original and every patched byte in the database matches the saved file.
-    /// </summary>
+    /// <summary>Exports of a patched System32 version.dll reproduce save_native's file, and the IDAPython script under idalib patches the same bytes.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
     public async Task Real_dll_round_trips_and_the_ida_script_applies_under_idalib()
@@ -385,7 +374,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         var reports = await RoundTrip(h, native, "version", output);
         output.WriteLine($"exports in {sw.ElapsedMilliseconds} ms");
 
-        // the script parses as Python
+        // The script parses as Python.
         var script = h.Dir.File("version.ida");
         var log = new List<string>();
         var python = PythonLocator.Find([], log);
@@ -463,11 +452,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         output.WriteLine($"idalib: {line} in {sw.Elapsed.TotalSeconds:0.0} s (of {reports["ida"].Records} entries)");
     }
 
-    /// <summary>
-    /// An extension placed in a new section: the IDAPython script run under idalib against a fresh database of the original
-    /// creates the segment at its RVA with the saved file's section bytes, then applies the site jump; a second run creates
-    /// nothing and applies nothing.
-    /// </summary>
+    /// <summary>The IDAPython script under idalib creates an extension's section and site jump once; a second run changes nothing.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
     public async Task Ida_script_creates_the_appended_segment_under_idalib()
@@ -476,7 +461,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         if (!File.Exists(src)) return;
         using var h = new Harness(File.ReadAllBytes(src), "version.dll");
         var (native, index) = await h.Open();
-        // the first instruction boundary past a prologue (unwind info) that takes a stub
+        // The first instruction boundary past a prologue (unwind info) that takes a stub.
         NativeEditService.PatchResult? prepared = null;
         foreach (var fn in native.Image.Exports.Where(e => e.Rva != 0).Select(e => index.FunctionByStart(e.Rva)).OfType<NativeFunction>())
         {

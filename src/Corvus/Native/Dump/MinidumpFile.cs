@@ -20,13 +20,7 @@ public static class MinidumpLimits
     public const int MaxStreamBytes = 64 << 20;
 }
 
-/// <summary>
-/// A Windows minidump (MINIDUMP_HEADER "MDMP"): the stream directory and the streams a crash analysis needs (threads,
-/// modules with CodeView records, exception, system and process info, memory lists, memory regions, handles, unloaded
-/// modules, thread info and names). Only the header check throws; every other problem (truncation, overlapping
-/// streams, counts past the data, unknown versions) is recorded in <see cref="Issues"/> and the rest is still read.
-/// The file is read with positional reads: captured memory is never loaded as a whole.
-/// </summary>
+/// <summary>A Windows minidump (MDMP); only the header check throws, other problems go to <see cref="Issues"/> and the rest is read; memory is read on demand, never whole.</summary>
 public sealed partial class MinidumpFile : IProcessMemory, IDisposable
 {
     public const uint Signature = 0x504D444D; // "MDMP"
@@ -113,10 +107,7 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
 
     public void Dispose() => _source.Dispose();
 
-    /// <summary>
-    /// Copies captured memory starting at <paramref name="address"/>; stops at the first byte the dump does not hold
-    /// and returns the number of bytes copied.
-    /// </summary>
+    /// <summary>Copies captured memory from <paramref name="address"/> up to the first byte the dump lacks; returns the count copied.</summary>
     public int ReadMemory(ulong address, Span<byte> destination)
     {
         int done = 0;

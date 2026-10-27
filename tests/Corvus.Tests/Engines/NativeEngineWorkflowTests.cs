@@ -9,10 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// One rig per engine for the class: the tests only read, so they share the workspace, the sample and the engine's open
-/// session instead of each starting a worker.
-/// </summary>
+/// <summary>One rig per engine: the tests only read, so they share the workspace, sample and open session.</summary>
 public sealed class EngineWorkflowRigs : IDisposable
 {
     private readonly TempDir _dir = new();

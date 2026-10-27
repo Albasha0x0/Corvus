@@ -5,10 +5,7 @@ using Corvus.Services.Web;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=hermes: the strings and function names of a React Native Hermes bytecode bundle (the file, or the
-/// one inside an APK, AAB or .ipa), each with its id and how many instructions use it.
-/// </summary>
+/// <summary>search_container kind=hermes: strings and function names of a Hermes bytecode bundle (also inside an APK, AAB or .ipa), with ids and use counts.</summary>
 internal sealed class HermesSearchKind : IContainerSearchKind
 {
     public IReadOnlyList<string> Kinds => ["hermes"];

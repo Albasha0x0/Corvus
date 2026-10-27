@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// squashfs 4.0 images (little endian, "hsqs"), every compressor (gzip, LZMA, LZO, xz, LZ4, Zstandard): the directory tree
-/// from the inode and directory tables, file data from its blocks and fragment, sparse blocks as zeros; read in ranges.
-/// </summary>
+/// <summary>squashfs 4.0 images ("hsqs") with every compressor, read in ranges; sparse blocks read as zeros.</summary>
 internal sealed class SquashfsReader : IContainerReader
 {
     public string Kind => "squashfs";
@@ -146,7 +143,7 @@ internal sealed class SquashfsReader : IContainerReader
                 startBlock = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(8));
                 listOffset = BinaryPrimitives.ReadUInt16LittleEndian(d.AsSpan(18));
             }
-            // the stored size counts 3 bytes for "." and ".." that are not in the table
+            // The stored size counts 3 bytes for "." and ".." that are not in the table.
             long remaining = listing - 3;
             long dirBlock = _dirTable + startBlock;
             int dirOffset = listOffset;
@@ -177,7 +174,7 @@ internal sealed class SquashfsReader : IContainerReader
                     var (childType, mode, childAt) = Inode(reference);
                     switch (childType)
                     {
-                        // a directory reached twice is a loop in damaged tables
+                        // A directory reached twice is a loop in damaged tables.
                         case 1 or 8: if (_visited.Add(reference)) Directory(child, childAt, childType, depth + 1); break;
                         case 2 or 9: File(child, childAt, childType, mode); break;
                         case 3 or 10: Symlink(child, childAt, mode); break;
@@ -227,7 +224,7 @@ internal sealed class SquashfsReader : IContainerReader
             bool hasFragment = fragment != 0xFFFFFFFF;
             long full = hasFragment ? size / _blockSize : (size + _blockSize - 1) / _blockSize;
             if (size < 0 || full > _src.Length) { _tree.Notes.Add($"{path}: a squashfs file of {size:N0} bytes cannot fit the image"); return; }
-            // the block size list follows the inode; it is read now, while the metadata position is at hand
+            // The block size list follows the inode; it is read now, while the metadata position is at hand.
             var sizes = full > 0 && size <= _tree.Limits.MaxItemBytes ? Meta(ref block, ref offset, checked((int)full * 4)) : [];
             _tree.File(path, size, count =>
             {
@@ -239,7 +236,8 @@ internal sealed class SquashfsReader : IContainerReader
                     int stored = (int)(word & 0xFFFFFF);
                     int want = (int)Math.Min(_blockSize, count - i * _blockSize);
                     var into = bytes.AsSpan((int)(i * _blockSize), want);
-                    if (stored == 0) continue; // a sparse block reads as zeros
+                    // A sparse block reads as zeros.
+                    if (stored == 0) continue;
                     var raw = _src.Read(pos, stored);
                     pos += stored;
                     if ((word & 0x1000000) != 0) raw.AsSpan(0, Math.Min(stored, want)).CopyTo(into);
@@ -269,7 +267,7 @@ internal sealed class SquashfsReader : IContainerReader
         {
             if (index == _cachedFragment) return _fragmentBytes;
             if (index >= _fragCount) throw new InvalidDataException($"fragment {index} of {_fragCount}");
-            // the fragment table: pointers to metadata blocks of 16-byte entries (start, size)
+            // The fragment table: pointers to metadata blocks of 16-byte entries (start, size).
             var pointer = _src.Read(_fragTable + index / 512 * 8, 8);
             long block = (long)BinaryPrimitives.ReadUInt64LittleEndian(pointer);
             int offset = (int)(index % 512) * 16;

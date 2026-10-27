@@ -5,11 +5,7 @@ using static Corvus.Tests.IlLab;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The engine contract (<see cref="SimplifyManifest"/>): every instruction on the manifest is evaluated with the runtime's
-/// semantics (checked against the runtime itself, case by case), everything else stops evaluation cleanly, every fallback
-/// reason can occur and is reported, and the resource limits hold on every path.
-/// </summary>
+/// <summary>The <see cref="SimplifyManifest"/> contract: manifest instructions evaluate as the runtime does, the rest stops cleanly, and every fallback reason is reported.</summary>
 public sealed class SimplifyContractTests
 {
     private static Instruction I(OpCode op, object? operand = null) => new(op, operand);
@@ -488,7 +484,7 @@ public sealed class SimplifyContractTests
     };
 
     [Fact]
-    public void EveryManifestInstructionMatchesTheRuntime()
+    public void Every_manifest_instruction_matches_the_runtime()
     {
         var p = Build();
         var image = p.Lab.Write();
@@ -545,7 +541,7 @@ public sealed class SimplifyContractTests
     }
 
     [Fact]
-    public void InstructionsOffTheManifestStopEvaluationCleanly()
+    public void Instructions_off_the_manifest_stop_evaluation_cleanly()
     {
         var lab = new IlLab();
         var evaluator = new IlEvaluator(lab.Module, new EvaluationLimits());
@@ -561,7 +557,7 @@ public sealed class SimplifyContractTests
 
     /// <summary>One program per evaluation fallback reason.</summary>
     [Fact]
-    public void EveryEvaluationFallbackReasonOccurs()
+    public void Every_evaluation_fallback_reason_occurs()
     {
         var lab = new IlLab();
         var t = lab.T;
@@ -688,8 +684,7 @@ public sealed class SimplifyContractTests
             Assert.True(bail.Reason == reason, $"{method.Name}: expected {reason}, got {bail.Describe()}");
         }
 
-        // Every evaluation reason of the manifest is covered here (method-level reasons have their own tests).
-        // Method-level reasons, and flattened-shape (a skipped rewrite), have their own tests.
+        // Method-level reasons and flattened shapes have their own tests.
         var methodLevel = new[] { FallbackReason.TimeLimit, FallbackReason.OriginalUnverifiable, FallbackReason.ResultUnverifiable, FallbackReason.Unexpected, FallbackReason.FlattenedShape };
         var uncovered = Enum.GetValues<FallbackReason>().Where(r => r <= FallbackReason.MemoryLimit).Except(cases.Select(c => c.Reason)).Except(methodLevel).ToList();
         Assert.True(uncovered.Count == 0, "reasons without a case: " + string.Join(", ", uncovered));
@@ -697,7 +692,7 @@ public sealed class SimplifyContractTests
     }
 
     [Fact]
-    public void MethodLevelFallbacksLeaveTheMethodUnchanged()
+    public void Method_level_fallbacks_leave_the_method_unchanged()
     {
         var lab = new IlLab();
         var t = lab.T;
@@ -756,7 +751,7 @@ public sealed class SimplifyContractTests
     }
 
     [Fact]
-    public void StaticConstructorsShareTheEvaluationBudgetAndRetryWhenItRunsOut()
+    public void Static_constructors_share_the_evaluation_budget_and_retry_when_it_runs_out()
     {
         var lab = new IlLab();
         var t = lab.T;
@@ -787,7 +782,7 @@ public sealed class SimplifyContractTests
     }
 
     [Fact]
-    public void StaticArraysModifiedElsewhereAreNotTrusted()
+    public void Static_arrays_modified_elsewhere_are_not_trusted()
     {
         var lab = new IlLab();
         var t = lab.T;
@@ -823,7 +818,7 @@ public sealed class SimplifyContractTests
     }
 
     [Fact]
-    public void CodeThatRunsDuringAStaticConstructorDoesNotUseItsFinalState()
+    public void Code_that_runs_during_a_static_constructor_does_not_use_its_final_state()
     {
         // Init.cctor: Prefix = Make(); Suffix = "!"   Make() reads Suffix (still null when the constructor calls it).
         var lab = new IlLab();
@@ -848,7 +843,7 @@ public sealed class SimplifyContractTests
     }
 
     [Fact]
-    public void ManifestDocumentIsCurrent()
+    public void Manifest_document_is_current()
     {
         var root = AppContext.BaseDirectory;
         while (!File.Exists(Path.Combine(root, "Corvus.slnx"))) root = Path.GetDirectoryName(root) ?? throw new InvalidOperationException("repository root not found");

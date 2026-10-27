@@ -3,11 +3,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Where each external tool is found (its setting, PATH, JAVA_HOME or a default install folder), for test.ps1's family
-/// keys: a tool installed, removed or updated outside the settings changes every key, as one a setting names does.
-/// test.ps1 runs it as <c>dotnet exec Corvus.Tests.dll --located-tools</c>.
-/// </summary>
+/// <summary>Where each external tool is found, for test.ps1's family keys (<c>dotnet exec Corvus.Tests.dll --located-tools</c>).</summary>
 internal static class LocatedTools
 {
     public const string Flag = "--located-tools";

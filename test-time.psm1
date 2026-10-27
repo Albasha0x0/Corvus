@@ -1,5 +1,4 @@
-# Test run timing (test.ps1 records every run): the test times of a run's TRX results, a history of the last runs of
-# each mode, and the time report built from both.
+# Test run timing: TRX test times, a history of the last runs per mode, and the time report.
 
 $script:Invariant = [cultureinfo]::InvariantCulture
 # Run time targets in seconds: the commit gate with its build, the background run after a push, a whole-suite run.
@@ -45,9 +44,8 @@ function Get-Spread($values) {
     @($median, $sorted[[math]::Ceiling(0.9 * $sorted.Count) - 1])
 }
 
-# The tests of a TRX file, timed from the first test's start: an object with At (that start), Wall (seconds to the last
-# test's end), Summed (seconds of all tests) and Tests (Name, Class, Start, End, Seconds, Outcome; Class is the test
-# class, a nested one as Outer+Inner); $null when the file is missing or no result has times.
+# A TRX file's tests timed from the first start: At, Wall, Summed and Tests (Name, Class as Outer+Inner, Start, End,
+# Seconds, Outcome); $null when the file is missing or no result has times.
 function Read-TestTimes([string]$trxPath) {
     if (-not (Test-Path $trxPath)) { return $null }
     [xml]$trx = Get-Content $trxPath -Raw
@@ -84,19 +82,17 @@ function Get-MachineLoad {
     return $null
 }
 
-# Starts sampling the machine's load on a thread of its own, so the sample costs a run no time; Receive-Job returns it.
+# Samples machine load on its own thread so it costs the run no time; Receive-Job returns it.
 function Start-MachineLoad { Start-ThreadJob -ScriptBlock ${function:Get-MachineLoad} }
 
-# The machine's processes as ProcessId, ParentProcessId, KernelModeTime and UserModeTime (100 ns units); $null where
-# the list cannot be read (off Windows).
+# Processes with ProcessId, ParentProcessId, KernelModeTime and UserModeTime (100 ns); $null off Windows.
 function Read-ProcessTimes {
     if (-not $IsWindows) { return $null }
     try { @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, KernelModeTime, UserModeTime -ErrorAction Stop) } catch { $null }
 }
 
-# The percent of the machine's CPU that processes outside the tree of $rootPid used since the call before with the same
-# $state, which keeps each process's CPU time and the tree; $null on the first call or without $processes. A process
-# stays in the tree once seen there, after its parent ends; one that ended between two calls is not counted.
+# CPU percent used outside $rootPid's tree since the previous call with $state; $null on the first call or without
+# $processes. A process stays in the tree once seen; one that ended between calls is not counted.
 function Get-OtherLoad([int]$rootPid, [hashtable]$state, [object[]]$processes, [double]$seconds, [int]$cores = [Environment]::ProcessorCount) {
     if ($null -eq $processes) { return $null }
     if (-not $state.Ours) { $state.Ours = [Collections.Generic.HashSet[int]]::new([int[]]@($rootPid)) }
@@ -119,8 +115,7 @@ function Get-OtherLoad([int]$rootPid, [hashtable]$state, [object[]]$processes, [
     [int][math]::Min(100, 100 * $used / ($elapsed * 1e7 * $cores))
 }
 
-# Writes "<time><tab>others=<percent>" to $log every $seconds while the calling process runs: the CPU that processes
-# outside the tree of $rootPid used (Get-OtherLoad); a sample that cannot be read writes nothing.
+# Writes "<time><tab>others=<percent>" (Get-OtherLoad) to $log every $seconds; unreadable samples write nothing.
 function Invoke-LoadSampler([string]$log, [int]$rootPid, [int]$seconds = 10) {
     $state = @{}
     $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -131,17 +126,15 @@ function Invoke-LoadSampler([string]$log, [int]$rootPid, [int]$seconds = 10) {
     }
 }
 
-# Starts Invoke-LoadSampler for this process's tree on a thread of its own; it ends with the process, or with Stop-Job
-# on the returned job.
+# Starts Invoke-LoadSampler on its own thread; it ends with the process or Stop-Job.
 function Start-LoadSampler([string]$log) {
     Set-Content -Path $log -Value $null
     $functions = 'Read-ProcessTimes', 'Get-OtherLoad', 'Invoke-LoadSampler' | ForEach-Object { "function $_ {$((Get-Item "function:$_").Definition)}" }
     Start-ThreadJob -InitializationScript ([scriptblock]::Create($functions -join "`n")) -ScriptBlock { Invoke-LoadSampler @args } -ArgumentList $log, $PID
 }
 
-# The other load a perf run met, from a Start-LoadSampler log: Text names how often other processes used over $busy
-# percent of the machine, and Partial is set when that was more than $share of the samples, so its timings cannot count.
-# $null when the log has no sample: the load is unknown.
+# Other load a perf run met: Text says how often others used over $busy percent; Partial when over $share of samples.
+# $null when the log has no sample (load unknown).
 function Get-PerfContention([string]$log, [int]$busy = 25, [double]$share = 0.1) {
     $samples = @(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match "`tothers=(\d+)$" } | ForEach-Object { [int]($_ -replace '.*=', '') })
     if (-not $samples) { return $null }
@@ -152,16 +145,13 @@ function Get-PerfContention([string]$log, [int]$busy = 25, [double]$share = 0.1)
     }
 }
 
-# Writes a line to $log every $seconds while the calling process runs: how late this thread woke for the sample (lag,
-# ms; the run's own priority, so it shows the run starved of CPU), the milliseconds a normal-priority helper took to
-# create, write and delete a small file in each of $folders (-1 when that failed), the disk queue length and idle
-# percent of the last folder's volume, free memory in MB and pages per second (-1 where a counter cannot be read).
+# Writes a line to $log every $seconds: wake lag in ms (shows CPU starvation), file create-write-delete ms per folder,
+# disk queue length and idle percent, free memory MB and pages per second; -1 where a value cannot be read.
 function Invoke-IoSampler([string]$log, [string[]]$folders, [int]$seconds = 10) {
     $volume = if ($IsWindows) { Split-Path -Qualifier $folders[-1] } else { $null }
     $counters = if ($volume) { "\LogicalDisk($volume)\Avg. Disk Queue Length", "\LogicalDisk($volume)\% Idle Time", '\Memory\Available MBytes', '\Memory\Pages/sec' } else { @() }
     $invariant = [cultureinfo]::InvariantCulture
-    # The helper times the file at normal priority, so a starved run does not read as a slow file system. It reads a
-    # folder per line and answers in milliseconds; it ends when this thread's process closes its input.
+    # The helper times files at normal priority, so a starved run does not read as a slow file system.
     $time = '$file = Join-Path $folder "corvus-io-probe-$PID.tmp"; $watch = [Diagnostics.Stopwatch]::StartNew(); ' +
         'try { [IO.File]::WriteAllBytes($file, [byte[]]::new(64)); [IO.File]::Delete($file); [int]$watch.ElapsedMilliseconds } catch { -1 }'
     $probe = 'while ($null -ne ($folder = [Console]::In.ReadLine())) { [Console]::Out.WriteLine($(' + $time + ')); [Console]::Out.Flush() }'
@@ -201,15 +191,14 @@ function Invoke-IoSampler([string]$log, [string[]]$folders, [int]$seconds = 10) 
     }
 }
 
-# Starts Invoke-IoSampler on a thread of its own; it ends with the process, or with Stop-Job on the returned job.
+# Starts Invoke-IoSampler on its own thread; it ends with the process or Stop-Job.
 function Start-IoSampler([string]$log, [string[]]$folders) {
     Set-Content -Path $log -Value $null
     Start-ThreadJob -ScriptBlock ${function:Invoke-IoSampler} -ArgumentList $log, $folders
 }
 
-# The windows of consecutive samples in an Invoke-IoSampler log where a file took over $limitMs or the run woke over
-# $limitMs late, one line each with the worst values seen in it ("unknown" where no sample could read one, as for the
-# lag of a log written before it was recorded); empty when there is none or no log.
+# Windows of samples where a file or the wake lag took over $limitMs, one line each with the worst values ("unknown"
+# where unreadable); empty when none or no log.
 function Get-IoStalls([string]$log, [int]$limitMs = 1000) {
     if (-not (Test-Path $log)) { return @() }
     # The worse of a window's value and a sample's; a sample's -1 is unreadable and leaves the window's value.
@@ -266,9 +255,8 @@ function Invoke-HistoryLocked([scriptblock]$action) {
     }
 }
 
-# Appends a run to the history file and returns its id: one line for the run ($context with its counts and times), one
-# per class (tests, summed seconds, first start, last end) and one per test that took $KeepSeconds or more or did not
-# pass. Keeps the last $keep runs of each mode.
+# Appends a run to the history and returns its id: a run line, class lines, and lines for tests of $KeepSeconds or
+# more or not passed. Keeps the last $keep runs per mode.
 function Add-TestHistory([string]$path, $times, [System.Collections.IDictionary]$context, [int]$keep = 30) {
     $id = (Get-Date -Format 'yyyyMMdd-HHmmss-') + [guid]::NewGuid().ToString('N').Substring(0, 8)
     $mode = $context.mode
@@ -304,8 +292,8 @@ function Add-TestHistory([string]$path, $times, [System.Collections.IDictionary]
     return $id
 }
 
-# The history of one mode: Runs (every run line of every mode, oldest first), and Tests and Classes (the seconds of each
-# test and class in that mode's runs, oldest first, keyed by their JSON-encoded names). Empty without a history file.
+# One mode's history: Runs (all modes, oldest first), Tests and Classes (seconds per JSON-encoded name). Empty without
+# a history file.
 function Read-TestHistory([string]$path, [string]$mode) {
     $runs = [System.Collections.Generic.List[object]]::new()
     $tests = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[double]]]::new()
@@ -332,8 +320,7 @@ function Read-TestHistory([string]$path, [string]$mode) {
     [pscustomobject]@{ Runs = $runs; Tests = $tests; Classes = $classes }
 }
 
-# The chain of tests that sets a run's end: the test that ended last, then the test that ended last before it started,
-# and so on back to the start. In a serial tail it is every test of the tail.
+# Critical path: the last test to end, then the last to end before it started, back to the start.
 function Get-CriticalPath($times) {
     $byEnd = @($times.Tests | Sort-Object End)
     $ends = [double[]]@($byEnd | ForEach-Object End)
@@ -365,8 +352,7 @@ function Get-Concurrency($times, [double]$bucket) {
     }
 }
 
-# A run's time outside its tests: its timed build and the rest (test start and setup) when the run built before its
-# tests, otherwise one figure for both.
+# A run's time outside its tests: build and setup separately when built first, otherwise one figure.
 function Format-Setup($times, $run) {
     $outside = [math]::Max(0, $run.wall - $times.Wall)
     if ($null -eq $run.build) { return "build and setup $(Format-Seconds $outside)" }
@@ -471,8 +457,7 @@ function Get-RunSection($times, $run, $history) {
     $lines
 }
 
-# The targets table, as markdown lines: each mode's latest run against its target, and what keeps an unmet target out
-# of reach (the longest tests of the critical path; for the commit gate, its build or its slowest tests).
+# Targets table as markdown lines: each mode's latest run against its target, and what keeps it over.
 function Get-TargetSection($history, [hashtable]$reasons) {
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add('## Targets')
@@ -491,8 +476,7 @@ function Get-TargetSection($history, [hashtable]$reasons) {
     $lines
 }
 
-# What keeps a run over its target: for the commit gate its build and its tests of a second or more, otherwise the
-# longest tests of the critical path.
+# What keeps a run over target: commit gate build and tests of 1 s or more, else the critical path's longest tests.
 function Get-TargetReason($times, $run) {
     $slow = if ($run.mode -eq 'quick') {
         @(Format-Setup $times $run) + @($times.Tests | Where-Object Seconds -ge 1 | Sort-Object Seconds -Descending | Select-Object -First 3 | ForEach-Object { "$($_.Name) $(Format-Seconds $_.Seconds)" })
@@ -501,8 +485,7 @@ function Get-TargetReason($times, $run) {
     ($slow -join '; ') -replace '\|', '\|'
 }
 
-# Records a run in the history and rewrites the time report: the targets table, this run's section, and the other
-# modes' sections as their last runs left them. Returns the one-line summary a run prints.
+# Records a run and rewrites the time report; returns the one-line summary the run prints.
 function Save-TestTimes([string]$trxPath, [System.Collections.IDictionary]$context, [string]$historyPath, [string]$reportPath) {
     $times = Read-TestTimes $trxPath
     if (-not $times) { return 'Time report not updated: the run wrote no timed results.' }
@@ -545,8 +528,7 @@ function Get-TimeSummary([string]$historyPath) {
     }
 }
 
-# The permit counts of Support/MachinePermits.cs, as @{ resource = count }: the most the tests take on any machine
-# (Counts plus LargeMachineExtra), so a holder of all of them holds every slot a test can open.
+# Maximum permit counts from MachinePermits.cs (Counts plus LargeMachineExtra), as @{ resource = count }.
 function Get-PermitCounts([string]$sourcePath) {
     $source = Get-Content $sourcePath -Raw
     $counts = @{}
@@ -558,8 +540,7 @@ function Get-PermitCounts([string]$sourcePath) {
     return $counts
 }
 
-# The engine permits a test takes per engine on a machine with $memoryBytes, as Support/MachinePermits.cs counts them
-# (Counts, plus LargeMachineExtra from its LargeMemory on). Reads the IDA count; both engines have the same.
+# Engine permits per engine on a machine with $memoryBytes, as MachinePermits.cs counts them (IDA and Ghidra match).
 function Get-EnginePermits([string]$sourcePath, [long]$memoryBytes) {
     $source = Get-Content $sourcePath -Raw
     $base = [int][regex]::Match($source, '(?s)\bCounts = new Dictionary.*?\["engine-ida"\]\s*=\s*(\d+)').Groups[1].Value
@@ -569,8 +550,7 @@ function Get-EnginePermits([string]$sourcePath, [long]$memoryBytes) {
     $base + $(if ($memoryBytes -ge ([long]$large.Groups[1].Value -shl 30)) { $extra } else { 0 })
 }
 
-# Takes every permit of every resource in $folder (the slot files MachinePermits opens), waiting until their holders
-# end, and returns the open slots for Exit-AllPermits.
+# Takes every permit slot in $folder, waiting for holders, and returns the slots for Exit-AllPermits.
 function Enter-AllPermits([hashtable]$counts, [string]$folder = (Join-Path ([IO.Path]::GetTempPath()) 'corvus-test-data/permits')) {
     $slots = [System.Collections.Generic.List[IO.FileStream]]::new()
     foreach ($resource in $counts.Keys | Sort-Object) {
@@ -596,8 +576,7 @@ function Exit-AllPermits($slots) {
     }
 }
 
-# The tests over budget in most of $samples samples: $over failed the first sample, and $rerun (a block taking test
-# names and returning the ones that failed again) takes the rest, only for tests not yet decided either way.
+# Tests over budget in most of $samples samples; $rerun reruns undecided tests and returns those that failed again.
 function Get-PerfOverBudget([string[]]$over, [scriptblock]$rerun, [int]$samples = 5) {
     $over = @($over | Where-Object { $_ })
     if (-not $over) { return @() }
@@ -614,8 +593,7 @@ function Get-PerfOverBudget([string[]]$over, [scriptblock]$rerun, [int]$samples 
     @($over | Where-Object { $failed[$_] -ge $majority })
 }
 
-# Records a perf run's tests over budget in $path and returns those also over budget in the perf run before: a
-# regression is confirmed by two runs in a row, not one slow run.
+# Records a perf run's flagged tests in $path and returns those flagged in the previous run too.
 function Update-PerfVerdicts([string]$path, [string[]]$over, [string]$commit) {
     $over = @($over | Where-Object { $_ })
     $before = if (Test-Path $path) { @((Get-Content $path -Raw | ConvertFrom-Json).over | Where-Object { $_ }) } else { @() }

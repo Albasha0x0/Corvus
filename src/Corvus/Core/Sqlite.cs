@@ -15,11 +15,7 @@ public sealed record SqliteBlob(long Length, byte[] Head);
 /// <summary>A table row: rowid (null in a WITHOUT ROWID table) and its values (null, long, double, string or <see cref="SqliteBlob"/>).</summary>
 public sealed record SqliteRow(long? RowId, IReadOnlyList<object?> Values);
 
-/// <summary>
-/// A table's shape from its CREATE TABLE: columns in declaration order with their type affinity, the INTEGER PRIMARY KEY
-/// column (a rowid alias, -1 when none) and the column each stored value belongs to: primary key columns first in a
-/// WITHOUT ROWID table, VIRTUAL generated columns left out (they are computed, not stored).
-/// </summary>
+/// <summary>A table's columns, affinities, rowid alias (-1 when none) and stored-value order from its CREATE TABLE.</summary>
 public sealed record SqliteTable(string Name, long RootPage, IReadOnlyList<string> Columns, IReadOnlyList<char> Affinities, int RowIdAlias, bool WithoutRowId,
     IReadOnlyList<int> StoredOrder)
 {
@@ -36,7 +32,7 @@ public sealed record SqliteTable(string Name, long RootPage, IReadOnlyList<strin
         for (int i = 0; i < row.Values.Count; i++)
         {
             int c = i < StoredOrder.Count ? StoredOrder[i] : i;
-            // a REAL column stores an integral value as an integer; it reads back as a real
+            // A REAL column stores an integral value as an integer; it reads back as a real.
             values[c] = row.Values[i] is long l && c < Affinities.Count && Affinities[c] == 'R' ? (double)l : row.Values[i];
         }
         for (int i = row.Values.Count; i < StoredOrder.Count; i++)
@@ -111,12 +107,8 @@ public abstract class SqliteSource : IDisposable
     }
 }
 
-/// <summary>
-/// A SQLite 3 database file read through its own B-tree reader: header, sqlite_schema, row counts and rows by position,
-/// with the committed frames of a -wal file applied when one is given. No SQL is run and no native library is used. Pages
-/// are read on demand (a small cache), so a large file is never held whole. Every walk is bounded (page visits, cells,
-/// payload bytes) and a page reached twice in one walk ends it, so a malformed file gives issues, never an exception.
-/// </summary>
+/// <summary>A SQLite 3 file read by its own bounded B-tree reader, -wal frames applied; a malformed file gives issues, not exceptions.</summary>
+/// <remarks>No SQL or native library runs; pages are read on demand, and a page reached twice in one walk ends it.</remarks>
 public sealed partial class SqliteDatabase
 {
     public int PageSize { get; private set; }
@@ -165,10 +157,7 @@ public sealed partial class SqliteDatabase
     /// <summary>The database, or null without the SQLite magic or with an impossible page size.</summary>
     public static SqliteDatabase? Open(byte[] data, CancellationToken ct = default) => Open(SqliteSource.Of(data), null, ct);
 
-    /// <summary>
-    /// The database read from <paramref name="db"/> with the committed frames of <paramref name="wal"/> (its -wal file) applied;
-    /// null without the SQLite magic or with an impossible page size. The sources stay owned by the caller.
-    /// </summary>
+    /// <summary>The database with <paramref name="wal"/> applied; null without the magic or with a bad page size; the caller owns the sources.</summary>
     public static SqliteDatabase? Open(SqliteSource db, SqliteSource? wal, CancellationToken ct = default)
     {
         var head = new byte[100];
@@ -189,7 +178,8 @@ public sealed partial class SqliteDatabase
                 if (log.Committed > 0) d._wal = wal;
             }
         }
-        if (d.Raw(1) is { } first) first.AsSpan(0, 100).CopyTo(head); // page 1 as of the last WAL commit
+        // Page 1 as of the last WAL commit.
+        if (d.Raw(1) is { } first) first.AsSpan(0, 100).CopyTo(head);
         d.Wal = head[18] == 2 || head[19] == 2;
         uint headerPages = Be32(head, 28), changeCounter = Be32(head, 24), validFor = Be32(head, 92);
         long filePages = db.Length / pageSize;
@@ -307,7 +297,7 @@ public sealed partial class SqliteDatabase
                 if (Entry(p, cell, interiorIndex: true) is { } e) rows.Add(e);
                 continue;
             }
-            // a whole subtree before the offset is skipped by its entry count
+            // A whole subtree before the offset is skipped by its entry count.
             if (skip > 0 && Count(pageNo, ct) is { } n && n <= skip) { skip -= n; continue; }
             if (!seen.Add(pageNo)) { Issues.Add($"page {pageNo} is reached twice (a cycle)"); break; }
             if (++_visits > MaxPageVisits) { Issues.Add($"page visit limit {MaxPageVisits:N0} reached"); break; }
@@ -350,7 +340,7 @@ public sealed partial class SqliteDatabase
             ct.ThrowIfCancellationRequested();
             var (pageNo, expanded) = stack.Pop();
             if (!expanded && _counts.ContainsKey(pageNo)) continue;
-            // a leaf's count is in its header: read 8 bytes, not the page
+            // A leaf's count is in its header: read 8 bytes, not the page.
             if (LeafCells(pageNo) is { } leaf) { _counts[pageNo] = leaf; continue; }
             if (Page(pageNo) is not { } p) { Issues.Add($"page {pageNo} is outside the file"); return null; }
             if (p.Type is not (5 or 2)) { Issues.Add($"page {pageNo}: not a B-tree page (type {p.Type})"); return null; }
@@ -507,10 +497,7 @@ public sealed partial class SqliteDatabase
         return k <= x ? k : m;
     }
 
-    /// <summary>
-    /// The first <see cref="MaxPayload"/> bytes of a payload, following its overflow chain; a chain that leaves the file is
-    /// an issue, or with <paramref name="carved"/> (a freed cell) ends the payload there, or null at its first page.
-    /// </summary>
+    /// <summary>A payload's first <see cref="MaxPayload"/> bytes; a chain leaving the file is an issue, or with <paramref name="carved"/> ends it there (null at its first page).</summary>
     internal byte[]? Payload(byte[] page, int at, long size, bool table, bool carved = false)
     {
         int u = _usable;
@@ -658,7 +645,7 @@ public sealed partial class SqliteDatabase
             shape.Columns.Add((name, DeclaredType().Match(rest).Value.Trim(), dflt, generated));
         }
         bool withoutRowId = close > 0 && WithoutRowIdClause.IsMatch(sql[(close + 1)..]);
-        // a table-level PRIMARY KEY(x) on an INTEGER column is also a rowid alias
+        // A table-level PRIMARY KEY(x) on an INTEGER column is also a rowid alias.
         if (alias < 0 && !withoutRowId && shape.PrimaryKey.Count == 1)
         {
             int i = shape.Columns.FindIndex(c => c.Name.Equals(shape.PrimaryKey[0], StringComparison.OrdinalIgnoreCase));
@@ -670,7 +657,7 @@ public sealed partial class SqliteDatabase
     /// <summary>A column definition's DEFAULT literal (null when absent or not a literal) and generated kind ('V', 'S', or '\0').</summary>
     private static (object? Default, char Generated) Clauses(string rest)
     {
-        // quoted text blanked, so keywords inside strings and names are not matched
+        // Quoted text is blanked, so keywords inside strings and names are not matched.
         var blank = rest.ToCharArray();
         char quote = '\0';
         for (int i = 0; i < blank.Length; i++)

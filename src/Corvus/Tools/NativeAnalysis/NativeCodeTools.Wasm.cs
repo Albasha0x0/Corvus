@@ -8,10 +8,7 @@ namespace Corvus.Tools;
 
 public sealed partial class NativeCodeTools
 {
-    /// <summary>
-    /// inspect_instruction on a WebAssembly image: each instruction from the address with its bytes, text (as in the WAT),
-    /// operand stack effect, flow and references; an address inside an instruction names the one covering it.
-    /// </summary>
+    /// <summary>inspect_instruction on a WebAssembly image: bytes, WAT text, stack effect, flow and references per instruction.</summary>
     private static (string Text, InstructionReport Report) InspectWasm(string imageId, NativeCodeIndex index, WasmImage w, uint rva, int count, EngineChoice choice)
     {
         var m = w.Module;

@@ -52,7 +52,7 @@ public sealed class InstallerTests
     {
         var c = Containers.Open(Fixture("sample.msi"), "sample.msi", AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal("Windows Installer msi", c.Kind);
-        // msiextract -l lists the same three paths
+        // msiextract -l lists the same three paths.
         Assert.Equal("installed readme", Encoding.ASCII.GetString(c.Items.Single(i => i.Name == "Program Files/Corvus Sample/readme.txt").Bytes));
         Assert.Contains(c.Items, i => i.Name == "Program Files/Corvus Sample/docs/Quarterly Report (final).txt");
         Assert.Contains("CreateObject(\"WScript.Shell\")", Encoding.ASCII.GetString(c.Items.Single(i => i.Name == "Binary/CheckScript.vbs").Bytes));
@@ -80,7 +80,7 @@ public sealed class InstallerTests
     [Fact]
     public void Stream_names_unpack_two_characters_per_unit()
     {
-        // 0x4840 marks a table, units from 0x3800 hold a pair (low six bits first), units from 0x4800 one character
+        // 0x4840 marks a table, units from 0x3800 hold a pair (low six bits first), units from 0x4800 one character.
         Assert.Equal("!x", MsiDatabase.DecodeName("䡀x"));
         Assert.Equal("ab", MsiDatabase.DecodeName(((char)(0x3800 + 36 + (37 << 6))).ToString()));
         Assert.Equal("c", MsiDatabase.DecodeName(((char)(0x4800 + 38)).ToString()));

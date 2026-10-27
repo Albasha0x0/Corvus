@@ -18,7 +18,7 @@ public sealed class ClientCatalogTests : IDisposable
         ClientCatalog.All(_home.Env(variables: variables, os: os)).Single(c => c.Id == id);
 
     [Fact]
-    public void NewClients_GetTheirOwnEntryShapes()
+    public void New_clients_get_their_own_entry_shapes()
     {
         var (code, output) = _home.Run("install", "--no-check", "--client", "devin,command-code,grok-build,omp,pi");
         Assert.True(code == 0, output);
@@ -156,7 +156,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void OmpAndPi_FollowProfilesAndAgentFolders()
+    public void OMP_and_Pi_follow_profiles_and_agent_folders()
     {
         Assert.Equal(_home.Path(".omp", "profiles", "work", "agent", "mcp.json"), Client("omp", new() { ["OMP_PROFILE"] = "work" }).Target.Path);
         Assert.Equal(_home.Path(".omp", "agent", "mcp.json"), Client("omp", new() { ["OMP_PROFILE"] = "default" }).Target.Path);
@@ -177,7 +177,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void DisabledEntries_AreDetected_AndKeptDisabledOnRefresh()
+    public void Disabled_entries_are_detected_and_kept_disabled_on_refresh()
     {
         _home.Write("""{ "mcpServers": { "corvus": { "command": "old", "disabled": true } } }""", ".cursor", "mcp.json");
         _home.Write("""{ "mcpServers": { "corvus": { "transport": "stdio", "command": "old", "enabled": false } } }""", ".commandcode", "mcp.json");
@@ -203,7 +203,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Enable_TurnsDisabledEntriesOn_IncludingDisableListsAndClaudeCodeProjects()
+    public void Enable_turns_disabled_entries_on_including_disable_lists_and_Claude_Code_projects()
     {
         _home.Write("""{ "mcpServers": { "corvus": { "command": "old", "disabled": true } } }""", ".cursor", "mcp.json");
         _home.Write("""{ "mcpServers": { "corvus": { "transport": "stdio", "command": "old", "enabled": false } } }""", ".commandcode", "mcp.json");
@@ -232,7 +232,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void SetAndUnset_AddAndRemoveASwitchOnEveryEntry()
+    public void Set_and_unset_add_and_remove_a_switch_on_every_entry()
     {
         _home.Write("""{ "mcpServers": { "corvus": { "command": "old", "args": ["--load", "a.dll"], "env": { "CORVUS_ALLOW_LIVE_SPAWN": "1" } } } }""", ".cursor", "mcp.json");
         _home.Write("[mcp_servers.corvus]\ncommand = \"old\"\nargs = [\"--load\", \"a.dll\"]\n", ".codex", "config.toml");
@@ -266,7 +266,7 @@ public sealed class ClientCatalogTests : IDisposable
     private JsonNode? Local(string folder) => ReadJson(_home.Path(".claude.json"))["projects"]?[Key(folder)]?["mcpServers"]?["corvus"];
 
     [Fact]
-    public void Project_CopiesTheGlobalEntryWithTheSwitch_AndTouchesNothingElse()
+    public void Project_copies_the_global_entry_with_the_switch_and_touches_nothing_else()
     {
         _home.Write("""{ "mcpServers": { "corvus": { "type": "stdio", "command": "relay.exe", "args": ["relay", "--target", "pub"], "env": { "CORVUS_GHIDRA_DIR": "g" } } }, "projects": { "D:/other": { "allowedTools": [] } } }""", ".claude.json");
         var global = ReadJson(_home.Path(".claude.json"))["mcpServers"]!.ToJsonString();
@@ -285,11 +285,11 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Project_ThroughTheClaudeCli_StillCopiesTheGlobalEntry()
+    public void Project_through_the_Claude_CLI_still_copies_the_global_entry()
     {
         _home.Write("""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": ["relay"], "env": { "CORVUS_GHIDRA_DIR": "g" } } } }""", ".claude.json");
         var folder = Folder("proj");
-        // a CLI that cannot start: the change falls back to the file
+        // A CLI that cannot start: the change falls back to the file.
         var env = _home.Env(findTool: t => t == "claude" ? _home.Path("missing", "claude.exe") : null);
 
         var (code, output) = _home.Run(env, "install", "--no-check", "--set", "allow-live-spawn", "--project", folder);
@@ -301,17 +301,17 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Project_KeepsAnExistingLocalEntry_RepeatsChangeNothing_AndUnsetRemoves()
+    public void Project_keeps_an_existing_local_entry_repeats_change_nothing_and_unset_removes()
     {
         var folder = Folder("app");
-        // Windows paths ignore case: an existing key spelling the folder in other capitals is that folder's
+        // Windows paths ignore case: an existing key spelling the folder in other capitals is that folder's.
         var spelled = OperatingSystem.IsWindows() ? Key(folder).ToLowerInvariant() : Key(folder);
         _home.Write($$"""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": [] } }, "projects": { "{{spelled}}": { "mcpServers": { "corvus": { "command": "relay.exe", "args": ["--load", "dlls"], "env": { "CORVUS_ALLOW_LIVE_ATTACH": "1" } } } } } }""", ".claude.json");
 
         var (code, output) = _home.Run("install", "--no-check", "--set", "allow-live-spawn", "--project", folder);
         Assert.True(code == 0, output);
         Assert.Contains("updated its local entry", output);
-        // an existing key spelling the same folder differently is the one updated
+        // An existing key spelling the same folder differently is the one updated.
         var projects = ReadJson(_home.Path(".claude.json"))["projects"]!.AsObject();
         Assert.Single(projects);
         var local = projects.Single().Value!["mcpServers"]!["corvus"]!;
@@ -331,7 +331,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void Project_DryRunWritesNothing_AndBadUseIsRefused()
+    public void Project_dry_run_writes_nothing_and_bad_use_is_refused()
     {
         _home.Write("""{ "mcpServers": { "corvus": { "command": "relay.exe", "args": [] } } }""", ".claude.json");
         var text = File.ReadAllText(_home.Path(".claude.json"));
@@ -349,7 +349,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void ASlowStart_GetsALongerStartupTimeout_OnlyWhenNeeded()
+    public void A_slow_start_gets_a_longer_startup_timeout_only_when_needed()
     {
         Assert.False(CodexTomlTarget.NeedsStartupTimeout(1.2, null));
         Assert.True(CodexTomlTarget.NeedsStartupTimeout(6, null));
@@ -367,7 +367,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void EveryClientEntry_CarriesItsClientId()
+    public void Every_client_entry_carries_its_client_ID()
     {
         var env = _home.Env(os: HostOs.Windows);
         var all = ClientCatalog.All(env);
@@ -389,7 +389,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void ClientOptions_ReplaceStaleOnes_AndAUsersToolsetsWins()
+    public void Client_options_replace_stale_ones_and_the_users_toolsets_win()
     {
         _home.Write("""{ "servers": { "corvus": { "type": "stdio", "command": "old", "args": ["--client", "cursor", "--toolsets", "core", "--load", "x"] } } }""",
             "AppData", "Roaming", "Code", "User", "mcp.json");
@@ -399,7 +399,7 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void ARaisedCodexToolTimeout_IsPassedOn_ButNeverWritten()
+    public void A_raised_Codex_tool_timeout_is_passed_on_but_never_written()
     {
         var before = "[mcp_servers.corvus]\ncommand = \"old\"\nargs = [\"--client\", \"codex\", \"--client-timeout\", \"90\"]\ntool_timeout_sec = 300\n";
         _home.Write(before, ".codex", "config.toml");
@@ -414,9 +414,9 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
-    public void ReadmeClientList_MatchesTheCatalog()
+    public void The_installation_guide_client_list_matches_the_catalog()
     {
-        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md")).Replace("\r\n", "\n");
+        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "docs", "installation.md")).Replace("\r\n", "\n");
         var sentence = Regex.Match(readme, @"Supported clients: (?<list>[^.]+)\.").Groups["list"].Value.Replace("\n", " ");
         var listed = Regex.Split(sentence, @",\s*|\s+and\s+").Select(s => s.Trim()).Where(s => s.Length > 0).Order(StringComparer.Ordinal);
         var catalog = ClientCatalog.All(_home.Env(os: HostOs.Windows)).Select(c => c.Name).Order(StringComparer.Ordinal);

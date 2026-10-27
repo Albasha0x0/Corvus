@@ -7,11 +7,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Text from the analyzed file in successful results (names, string literals, resources, attribute values): no line of it
-/// passes for a server marker (Error, Next, paging footers, [workspace]), and no control or invisible character comes back
-/// raw. InjectionTests covers the same text in errors.
-/// </summary>
+/// <summary>File text in successful results never passes for a server marker or carries raw control characters; InjectionTests covers errors.</summary>
 public sealed class ForgedMarkerSweepTests : IDisposable
 {
     /// <summary>Each line carries <see cref="Tag"/>, so a forged marker is told apart from the server's own.</summary>
@@ -59,7 +55,7 @@ public sealed class ForgedMarkerSweepTests : IDisposable
     }
 
     [Fact]
-    public async Task FileTextInResultsForgesNoMarkersAndCarriesNoRawControls()
+    public async Task File_text_in_results_forges_no_markers_and_carries_no_raw_controls()
     {
         var path = WriteFixture();
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };

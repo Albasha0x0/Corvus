@@ -2,10 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// An iNES or NES 2.0 ROM image: the 16-byte header, the trainer, PRG-ROM and CHR-ROM, and the 6502's view of PRG-ROM at
-/// 0x8000-0xFFFF as the mapper sets it at power-on, with the NMI, reset and IRQ vectors read from it.
-/// </summary>
+/// <summary>An iNES or NES 2.0 ROM image and the 6502's power-on view of PRG-ROM at 0x8000-0xFFFF with its vectors.</summary>
 public sealed class InesRom
 {
     public const int HeaderSize = 16, TrainerSize = 512, PrgBank = 0x4000, ChrBank = 0x2000, CpuBase = 0x8000, CpuWindow = 0x8000;

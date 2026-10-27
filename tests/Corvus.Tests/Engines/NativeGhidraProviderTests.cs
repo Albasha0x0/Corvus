@@ -46,11 +46,7 @@ public sealed class GhidraCacheFixture : IDisposable
     }
 }
 
-/// <summary>
-/// The Ghidra provider against a real Ghidra (CORVUS_GHIDRA_DIR) and JDK, on copies of system DLLs; skipped otherwise.
-/// Tests that share the fixture's cache entry stay in <see cref="NativeGhidraProviderTests"/>, so they never run in
-/// parallel; tests on an isolated provider are spread over classes that run side by side.
-/// </summary>
+/// <summary>The Ghidra provider on copies of system DLLs; tests sharing the fixture's cache stay in this class so they never run in parallel.</summary>
 public abstract class GhidraProviderTestBase(ITestOutputHelper output, GhidraCacheFixture shared) : IDisposable
 {
     protected const string Export = "CheckSumMappedFile";
@@ -213,7 +209,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Output.WriteLine($"{functions.Count} decompiles: serial {serialMs} ms, parallel {clock.ElapsedMilliseconds} ms");
         Assert.Equal(serial.Select(d => d.Text), parallel.Select(d => d.Text));
 
-        // one batch request runs its items across the decompiler pool and keeps their order and per-item outcomes
+        // One batch request runs its items across the decompiler pool and keeps their order and per-item outcomes.
         clock.Restart();
         var batch = await s.DecompileManyAsync([.. functions.Select(f => f.StartRva), 0x10u], 60, 600);
         Output.WriteLine($"batch of {batch.Count}: {clock.ElapsedMilliseconds} ms");
@@ -231,7 +227,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         using (var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500)))
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, cts.Token));
         var clock = Stopwatch.StartNew();
-        // the worker stops the request before the time limit and answers with what it has
+        // The worker stops the request before the time limit and answers with what it has.
         var r = await s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default);
         Assert.Contains(r.GetProperty("partial").GetString(), (string[])["deadline", "cancelled"]);
         PerfBudget.Time("engines/ghidra-partial-answer", clock.Elapsed, TimeSpan.FromSeconds(10), Output);
@@ -578,17 +574,17 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
         var patched = (await s.DisassembleRangeAsync(rva, 1)).Instructions[0];
         Assert.Equal([0xC3], patched.Bytes);
         Assert.Contains("RET", patched.Text, StringComparison.OrdinalIgnoreCase);
-        // the body was recomputed: the function ends at the ret
+        // The body was recomputed: the function ends at the ret.
         Assert.Equal(rva + 1, (await s.ListFunctionsAsync()).Single(f => f.StartRva == rva).EndRva);
         var same = await s.SyncPatchesAsync([new NativeByteRange(rva, [0xC3])]);
         Assert.Equal((0, 0), (same.Patched, same.Reverted));
 
-        // a byte outside the image is missing; the others still take
+        // A byte outside the image is missing; the others still take.
         var outside = await s.SyncPatchesAsync([new NativeByteRange(rva, [0xC3]), new NativeByteRange(0x7FFF_FF00, [0x90])]);
         Assert.Equal((1, false), (outside.Missing, outside.Complete));
         Assert.Contains(0x7FFF_FF00u, outside.Problems);
 
-        // the empty set restores the file's bytes and the function's body
+        // The empty set restores the file's bytes and the function's body.
         var reverted = await s.SyncPatchesAsync([]);
         Assert.Equal((0, 1), (reverted.Patched, reverted.Reverted));
         Assert.Equal(original.Bytes, (await s.DisassembleRangeAsync(rva, 1)).Instructions[0].Bytes);
@@ -610,7 +606,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
         Assert.Contains(frame.Members, m => m.Kind == "special" && m.Offset == frame.ReturnAddressOffset);
         Assert.Contains(frame.Locals, l => l.IsArgument);
 
-        // declarations: errors with the parser's message, the names made, the types listed and shown
+        // Declarations: errors with the parser's message, the names made, the types listed and shown.
         var declared = await s.ApplyUserTypesAsync(new NativeUserTypeBatch(["struct SamplePacket { int length; char data[16]; };", "struct SampleBad { int };"], [], [], []),
             "user_types", "u1");
         Assert.Equal(1, declared.DeclarationErrors);
@@ -627,7 +623,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
         Assert.Equal(new NativeTypeMember(4, "data", "char[16]", 16), type.Members[1]);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => s.GetTypeAsync("SampleNoSuchType"))).Code);
 
-        // a decompiler local by its name, then the prototype, a global, a stack member
+        // A decompiler local by its name, then the prototype, a global, a stack member.
         var arg = frame.Locals.First(l => l.IsArgument);
         var local = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(exportRva, arg.Name, arg.Stack, "sample_image", "SamplePacket *")]));
         var edit = Assert.Single(local.Items);
@@ -646,7 +642,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
         Assert.Equal((true, "SamplePacket"), (typed.Items[1].Applied, typed.Items[1].Text));
         Assert.Contains("inside the function", typed.Items[2].Error);
         Assert.Contains("SamplePacket *packet", (await s.DecompileAsync(exportRva)).Text);
-        // recovered prototypes leave the user's alone
+        // Recovered prototypes leave the user's alone.
         var recovered = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(exportRva, "int __fastcall Other(int a);")], [], [], 8));
         Assert.Equal((0, 0), (recovered.Typed, recovered.TypeFailures));
         Assert.Contains("SamplePacket *packet", (await s.DecompileAsync(exportRva)).Text);
@@ -666,7 +662,7 @@ public sealed class NativeGhidraEditTests(ITestOutputHelper output, GhidraCacheF
     [GhidraFact]
     public async Task Parameters_only_the_decompiler_knows_are_committed_before_an_edit()
     {
-        // the minimal profile runs no parameter analysis, so the database holds no parameters the decompiler shows
+        // The minimal profile runs no parameter analysis, so the database holds no parameters the decompiler shows.
         var path = Shared.Copy(NativeIdaProviderTests.System64);
         var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
         var dir = new TempDir();
@@ -702,7 +698,7 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
         var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
         await using var s = await Isolated(path).OpenAsync(path, null, Offline);
         var functions = await s.ListFunctionsAsync();
-        // functions Ghidra named itself carry no prototype from a type library
+        // Functions Ghidra named itself carry no prototype from a type library.
         var plain = functions.Where(f => f.Name.StartsWith("FUN_", StringComparison.Ordinal) && !f.Flags.HasFlag(NativeFunctionFlags.Thunk)).Take(2).ToList();
         Assert.Equal(2, plain.Count);
         var vftable = RdataRva(path) + 0x40;
@@ -728,12 +724,12 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
         Assert.Contains("PSamplePoint point", proto.Text);
         Assert.Contains(Export, proto.Text); // the prototype does not rename
         Assert.Contains("SampleBase *this", (await s.DecompileAsync(plain[0].StartRva)).Text);
-        // a failed prototype is counted, not thrown
+        // A failed prototype is counted, not thrown.
         var bad = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(exportRva, "int f(NoSuchType x);")], [], [], 8));
         Assert.Equal(1, bad.TypeFailures);
     }
 
-    /// <summary>An x86 Il2Cpp prototype carries __cdecl, which replaces the convention Ghidra gave the function (here an export's __stdcall).</summary>
+    /// <summary>An x86 AOT prototype carries __cdecl, which replaces the convention Ghidra gave the function (here an export's __stdcall).</summary>
     [GhidraFact]
     public async Task X86_prototypes_keep_their_cdecl_convention()
     {
@@ -750,7 +746,7 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
     [GhidraFact]
     public async Task Type_names_resolve_through_C_and_Windows_spellings()
     {
-        // Windows typedefs the PE loader defines are taken as they are; the others resolve through aliases, prefixes and case
+        // Windows typedefs the PE loader defines are taken as they are; the others resolve through aliases, prefixes and case.
         var path = Shared.Copy(NativeIdaProviderTests.System64);
         await using var s = await Isolated(path).OpenAsync(path, null, Offline);
         (string Type, string? Shown)[] table =
@@ -792,10 +788,7 @@ public sealed class NativeGhidraTypeTests(ITestOutputHelper output, GhidraCacheF
     }
 }
 
-/// <summary>
-/// Runs when Ghidra (CORVUS_GHIDRA_DIR or GHIDRA_INSTALL_DIR) and a JDK for it are present, on Windows (system DLL
-/// samples); checked when a test runs, as the JDK and PyGhidra probes start java and Python.
-/// </summary>
+/// <summary>Runs on Windows when Ghidra (CORVUS_GHIDRA_DIR or GHIDRA_INSTALL_DIR) and its JDK are present, checked at run time.</summary>
 [TraitDiscoverer(EngineTraitDiscoverer.TypeName, EngineTraitDiscoverer.AssemblyName)]
 [Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
 public sealed class GhidraFactAttribute : FactAttribute, ITraitAttribute, IRunTimeSkip

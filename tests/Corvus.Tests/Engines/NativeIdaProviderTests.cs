@@ -27,8 +27,7 @@ public sealed class IdaCacheFixture : IDisposable
 
     public IdaProvider NewProvider() => new(new IdaProviderOptions { CacheRoot = Cache.Path });
 
-    // The read-only tests share one open session, on a provider and cache of its own so that the other tests can
-    // still open the same image on Provider.
+    // Read-only tests share one session on their own provider and cache, so others can open the image on Provider.
     private readonly TempDir _readerCache = new();
     private IdaProvider? _reader;
     private Task<IdaSession>? _session;
@@ -59,11 +58,7 @@ public sealed class IdaCacheFixture : IDisposable
     }
 }
 
-/// <summary>
-/// The IDA provider against real system DLLs. Needs IDA Pro 9+ with idalib and a 64-bit Python; skipped otherwise.
-/// One class so that tests sharing a cache entry never run in parallel. Tests that rename, or need a cold cache,
-/// use an isolated provider.
-/// </summary>
+/// <summary>The IDA provider on system DLLs (IDA Pro 9+ with idalib, 64-bit Python); one class so shared cache entries never run in parallel.</summary>
 [Trait("Speed", "Slow")]
 public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFixture shared) : IClassFixture<IdaCacheFixture>, IDisposable
 {
@@ -145,7 +140,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         await using var s = await Isolated().OpenAsync(System64, null, Offline);
         var functions = await s.ListFunctionsAsync();
         var starts = functions.Select(f => f.StartRva).ToHashSet();
-        // a function with a caller that is itself a function
+        // A function with a caller that is itself a function.
         var (callee, caller) = functions.Select(f => (f.StartRva, Caller: s.GetXrefsToAsync(f.StartRva).GetAwaiter().GetResult()
                 .FirstOrDefault(x => x.Kind == NativeXrefKind.Call && x.FromFunctionRva is { } c && starts.Contains(c))?.FromFunctionRva))
             .First(p => p.Caller != null);
@@ -301,7 +296,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
                 warm = s.OpenTime;
             }
             timings.Add($"{path}: cold open {cold.TotalMilliseconds:0} ms, cached open {warm.TotalMilliseconds:0} ms; cached stages {stages}");
-            // the stages, not the clock: under a loaded machine a load can take longer than a small image's analysis
+            // The stages, not the clock: under a loaded machine a load can take longer than a small image's analysis.
             Assert.Contains("load@", stages.ToString());
             Assert.DoesNotContain("analysis@", stages.ToString());
         }
@@ -339,7 +334,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         PerfBudget.Time("engines/ida-partial-answer", clock.Elapsed, TimeSpan.FromSeconds(10), output);
         Assert.Equal(pid, s.WorkerProcessId);
 
-        // a script stops at the deadline as well
+        // A script stops at the deadline as well.
         var e = await Assert.ThrowsAsync<ToolError>(() => s.RunScriptAsync("import time\nwhile True: time.sleep(0.01)"));
         Assert.Equal(ErrorCode.Timeout, e.Code);
         Assert.Equal(pid, s.WorkerProcessId);
@@ -354,7 +349,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var input = Path.Combine(dir.Path, "imagehlp.dll");
         File.Copy(System64, input);
         var rva = ExportRva(input, Export);
-        // the user's database, as the IDA GUI leaves it next to the file
+        // The user's database, as the IDA GUI leaves it next to the file.
         await using (var made = (IdaSession)await Isolated().OpenAsync(input, null, Offline))
         {
             await made.SetNameAsync(rva, "named_in_the_users_database");
@@ -375,7 +370,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         }
         Assert.Equal(before, AnalysisCache.HashFile(user)); // never written
 
-        // beside other bytes it is not used: the image is analyzed from scratch
+        // Beside other bytes it is not used: the image is analyzed from scratch.
         var other = Path.Combine(dir.Path, "other", "imagehlp.dll");
         Directory.CreateDirectory(Path.GetDirectoryName(other)!);
         var bytes = File.ReadAllBytes(System64);
@@ -397,7 +392,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     {
         var dir = new TempDir();
         _owned.Add(dir);
-        // a long grace: an answer before it means the worker stopped the work itself rather than being killed
+        // A long grace: an answer before it means the worker stopped the work itself rather than being killed.
         var provider = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path, CancelGrace = TimeSpan.FromSeconds(60) });
         _owned.Add(provider);
         await using (var s = (IdaSession)await provider.OpenAsync(System64, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(3) }))
@@ -476,7 +471,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, cts.Token));
         // The bound is the only evidence that the worker stopped the 60 s request, so it gates.
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"cancel took {clock.Elapsed}");
-        // the worker stopped the request itself and keeps the database open
+        // The worker stopped the request itself and keeps the database open.
         Assert.Equal(pid, s.WorkerProcessId);
         Assert.NotEmpty(await s.ListFunctionsAsync());
         Assert.Equal(pid, s.WorkerProcessId);
@@ -514,7 +509,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             Assert.Equal(rva, decompiled.StartRva);
             PerfBudget.Time("engines/ida-open-no-analysis", s.OpenTime, TimeSpan.FromSeconds(60), output);
         }
-        // the full-analysis database of the same bytes is untouched (never made here)
+        // The full-analysis database of the same bytes is untouched (never made here).
         var sha = AnalysisCache.HashFile(path);
         Assert.False(File.Exists(provider.SavedDatabasePath(sha, "nopdb")));
         Assert.True(File.Exists(provider.SavedDatabasePath(sha, "nopdb-noauto")));
@@ -531,7 +526,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         await using var held = (IdaSession)await owner.OpenAsync(path, null, Offline);
         await held.SetNameAsync(rva, "sample_owner_name");
         await held.SaveAsync();
-        // as if another server process held the entry
+        // As if another server process held the entry.
         var entryDir = Path.GetDirectoryName(held.DatabasePath)!;
         File.WriteAllText(Path.Combine(entryDir, ".owner"), "4242");
 
@@ -552,7 +547,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         Assert.False(Directory.Exists(Path.GetDirectoryName(snapshotDb)));
         Assert.Contains(await held.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_owner_name");
 
-        // no saved database of the asked profile: the conflict names the owner
+        // No saved database of the asked profile: the conflict names the owner.
         File.WriteAllText(Path.Combine(entryDir, ".owner"), "4242");
         var e = await Assert.ThrowsAsync<ToolError>(() => second.OpenAsync(path, null, new NativeOpenOptions()));
         Assert.Equal(ErrorCode.Conflict, e.Code);
@@ -683,14 +678,14 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             Assert.Contains("analysis partial", s.DatabaseNote);
             // Other processes read the partial state from disk.
             Assert.True(PartialAnalysis.Marked(s.DatabasePath));
-            // a later request's auto_wait (edits run one) runs the rest only until that request's deadline: it answers, the worker stays
+            // A later request's auto_wait (edits run one) runs the rest only until that request's deadline: it answers, the worker stays.
             var pid = s.WorkerProcessId;
             var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("python", IdaProvider.Args(("code", "ida_auto.auto_wait()"), ("reset", false)), default,
                 timeout: TimeSpan.FromSeconds(2)));
             Assert.Equal(ErrorCode.Timeout, e.Code);
             Assert.Equal(pid, s.WorkerProcessId);
         }
-        // the next open takes the database as it is, as Ghidra's do; a reanalysis completes it
+        // The next open takes the database as it is, as Ghidra's do; a reanalysis completes it.
         await using (var s = (IdaSession)await provider.OpenAsync(path, null, Offline))
         {
             output.WriteLine($"second open: {s.OpenTime.TotalSeconds:0.0} s");
@@ -729,7 +724,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var r = await s.CallAsync("sync_patches", IdaProvider.Args(("items", new JsonArray())), default, timeout: TimeSpan.FromSeconds(10));
         Assert.Equal((0, 0), (r.GetProperty("patched").GetInt32(), r.GetProperty("reverted").GetInt32()));
         Assert.True(r.GetProperty("seconds").GetDouble() < 1, r.ToString());
-        // the sync ran none of the analysis left
+        // The sync ran none of the analysis left.
         Assert.Equal(before, await State());
         Assert.StartsWith("(False,", before);
     }
@@ -795,7 +790,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         Assert.Equal(1, s.UnsavedCount);
         await s.SetCommentAsync(rva, "saved with the second edit");
         Assert.Equal(0, s.UnsavedCount);
-        // nothing to replay: the restarted worker reads both from the saved database
+        // Nothing to replay: the restarted worker reads both from the saved database.
         await WorkerKill.KillAsync(s);
         Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_first");
         Assert.Equal("saved with the second edit", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
@@ -881,10 +876,7 @@ internal sealed class StageLog : IProgress<NativeProviderProgress>
 
 internal static class WorkerKill
 {
-    /// <summary>
-    /// Kills a session's worker process and waits until its connection has seen it go, so the next call restarts it
-    /// (a call sent before that goes to the dying worker and fails).
-    /// </summary>
+    /// <summary>Kills a session's worker and waits until its connection sees it go, so the next call restarts it.</summary>
     public static async Task KillAsync(object session)
     {
         var connection = ((WorkerSessionBase)session).Worker ?? throw new Xunit.Sdk.XunitException("the session has no worker");
@@ -893,11 +885,7 @@ internal static class WorkerKill
     }
 }
 
-/// <summary>
-/// Runs only when an IDA install with idalib and a usable 64-bit Python are present, and every real-data variable given
-/// names an existing path (see <see cref="RealData"/>): the install and the data are checked at discovery, the Python
-/// probe runs when a test runs (once per run).
-/// </summary>
+/// <summary>Runs when IDA with idalib, a 64-bit Python and every named real-data path exist; the Python probe runs once per run.</summary>
 [TraitDiscoverer(EngineTraitDiscoverer.TypeName, EngineTraitDiscoverer.AssemblyName)]
 [Xunit.Sdk.XunitTestCaseDiscoverer(RunTimeSkips.FactDiscoverer, RunTimeSkips.Assembly)]
 public sealed class IdaFactAttribute : FactAttribute, ITraitAttribute, IRunTimeSkip

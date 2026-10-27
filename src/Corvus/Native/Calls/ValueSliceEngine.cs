@@ -4,12 +4,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// Per-function slices from an engine's decompiler IR (IDA microcode, Ghidra p-code). Seeds the engine cannot place (stack
-/// slots, a register the IR does not name at that address) and functions it fails on fall back to the built-in slice of
-/// that function, counted in <see cref="Fallbacks"/> and said in the slice's note. Engine nodes are completed from the
-/// built-in analysis where it knows more: callees of call sites, import slots, parameter locations (x86 / x64 and ARM64).
-/// </summary>
+/// <summary>Per-function slices from IDA microcode or Ghidra p-code; unplaceable seeds and failures fall back to the built-in slice (<see cref="Fallbacks"/>).</summary>
 internal sealed class EngineSliceProvider(ITraceHost host, INativeDecompilerSession session) : IFunctionSliceProvider
 {
     private readonly CallAnalysis? _x86 = host as CallAnalysis;
@@ -78,7 +73,7 @@ internal sealed class EngineSliceProvider(ITraceHost host, INativeDecompilerSess
             case SliceSeedKind.Location:
             {
                 if (loc is not { Register: { } register } r) return null;
-                // a register passing an argument at a call: the engine knows the argument, not the register
+                // The engine knows the argument at a call, not the register passing it.
                 int index = _x86 != null && OursSliceProvider.ParseLocation(seed.Location, _x86.Is64) is { } l && _x86.Slices.CallToEntry(l, tail: false) is { } entry
                     ? _x86.Slices.ParameterIndex(entry) : _x86 == null ? r.Index : -1;
                 if (index >= 0 && IsCall(seed.Address, ct)) return new EngineSliceRequest(f.Start, "argument", seed.Address, forward, Index: index);

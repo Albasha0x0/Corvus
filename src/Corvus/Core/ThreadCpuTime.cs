@@ -3,11 +3,8 @@ using System.Runtime.InteropServices;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// The CPU time the calling thread has used (user and kernel), so work limits do not count the time a busy machine
-/// keeps the thread waiting. Falls back to wall time where the OS reports no thread CPU time; only differences
-/// between two readings on the same thread mean anything.
-/// </summary>
+/// <summary>The calling thread's CPU time, else wall time; only differences on the same thread mean anything.</summary>
+/// <remarks>Work limits use it so a busy machine's wait time is not counted.</remarks>
 public static class ThreadCpuTime
 {
     /// <summary>The calling thread's CPU time so far, or a wall-clock reading where it cannot be read.</summary>

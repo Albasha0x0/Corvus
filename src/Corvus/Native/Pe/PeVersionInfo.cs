@@ -38,10 +38,7 @@ public sealed record PeVersionInfo(PeFixedFileInfo? Fixed, IReadOnlyList<PeVersi
 
     private readonly record struct Block(int Start, int End, int ValueLength, int Type, string Key, int ValueStart, int ChildrenStart);
 
-    /// <summary>
-    /// Parses the block tree (length, value length, type, UTF-16 key, value, children; each part 4-byte aligned).
-    /// Damaged blocks end the walk of their parent; what was read before is kept.
-    /// </summary>
+    /// <summary>Parses the version block tree; a damaged block ends its parent's walk and keeps what was read.</summary>
     internal static PeVersionInfo? Parse(byte[] b, IssueLog log)
     {
         int blocks = 0;

@@ -7,11 +7,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// verify_native_imports verdicts beyond the export check: run-time loading found in the IL (dynamic_only), and
-/// assemblies with transformed malformed metadata (synthesized by patching a compiled fixture), which must give
-/// typed results with locations in verify_native_imports, load_assembly, get_assembly_info and the decompiler.
-/// </summary>
+/// <summary>verify_native_imports reports run-time loading (dynamic_only), and malformed metadata gives typed results with locations across the tools.</summary>
 public class NativeImportVerdictTests(ITestOutputHelper output)
 {
     private const string Source = """
@@ -56,7 +52,7 @@ public class NativeImportVerdictTests(ITestOutputHelper output)
         result.Checks.ToDictionary(c => c.Method.Split("::")[1].Split('(')[0]);
 
     [WindowsFact]
-    public void RunTimeLoadingMakesUnresolvedDeclarationsDynamicOnly()
+    public void Run_time_loading_makes_unresolved_declarations_dynamic_only()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -105,7 +101,7 @@ public class NativeImportVerdictTests(ITestOutputHelper output)
     }
 
     [WindowsFact]
-    public void MalformedImplMapRowsAreUnresolvedWithTheirLocation()
+    public void Malformed_ImplMap_rows_are_unresolved_with_their_location()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -125,7 +121,7 @@ public class NativeImportVerdictTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public void TransformedMetadataGivesTypedResultsWithLocations()
+    public void Transformed_metadata_gives_typed_results_with_locations()
     {
         using var env = new Env();
         using var dir = new TempDir();

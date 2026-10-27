@@ -48,7 +48,7 @@ public class ItaniumRttiTests
         }
         var data = new byte[0x200];
         var relocs = new List<ElfWriter.Reloc>();
-        // offsets in 8-byte cells; ARM32 halves them
+        // Offsets in 8-byte cells; ARM32 halves them.
         uint At(uint at) => arm32 ? D + (at - D) / 2 : at;
         void Ptr(uint at, uint target)
         {
@@ -70,13 +70,13 @@ public class ItaniumRttiTests
         Import(TiA, "_ZTVN10__cxxabiv117__class_type_infoE"); Ptr(TiA + 8, Names);
         Import(TiB, "_ZTVN10__cxxabiv120__si_class_type_infoE"); Ptr(TiB + 8, Names + 8); Ptr(TiB + 16, TiA);
         Import(TiC, "_ZTVN10__cxxabiv121__vmi_class_type_infoE"); Ptr(TiC + 8, Names + 16);
-        // flags and count: two 32-bit words in one cell (ARM32: the cell's two halves, as 8 bytes)
+        // Flags and count: two 32-bit words in one cell (ARM32: the cell's two halves, as 8 bytes).
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan((int)(At(TiC + 16) - D)), 2);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan((int)(At(TiC + 16) - D + 4)), 2);
         uint bases = arm32 ? TiC + 32 : TiC + 24; // ARM32: the 8 flag bytes take a full 8-byte cell's place
         Ptr(bases, TiA); Word(bases + 8, -(3 * p) << 8 | 3); // virtual public A, its offset at vtable -3 pointers
         Ptr(bases + 16, TiB); Word(bases + 24, p << 8 | 2); // public B at +1 pointer
-        // primary: vbase offset 16, offset-to-top 0, typeinfo, f1, f2
+        // Primary: vbase offset 16, offset-to-top 0, typeinfo, f1, f2.
         Word(VtC, 16); Word(VtC + 8, 0); Ptr(VtC + 16, TiC); Ptr(VtC + 24, Fn[0]); Ptr(VtC + 32, Fn[1]);
         // B-in-C
         Word(VtC + 40, -p); Ptr(VtC + 48, TiC); Ptr(VtC + 56, Fn[2]);
@@ -178,7 +178,7 @@ public class ItaniumRttiTests
         Assert.Equal(["virtual A", "B @+0x8"], c.Bases);
         Assert.Contains(list.Items.SelectMany(x => x.Vftables ?? []).SelectMany(v => v.Targets!), t => t == "0");
         Assert.Contains("3 classes with RTTI, 3 vftables, 3 typeinfos", classes);
-        // slot targets carry their function names
+        // Slot targets carry their function names.
         Assert.Matches(@"\[0\] 0x[0-9A-F]+  \S+", classes);
         Assert.Contains("class C : virtual A, B @+0x8", classes);
         Assert.Contains("[1] (import)", classes);
@@ -205,7 +205,7 @@ public class ItaniumRttiTests
         Assert.Equal([0u, 8], method.Vtables.Select(v => v.Offset));
         Assert.All(method.Vtables.SelectMany(v => v.SlotRvas), s => Assert.True(image.SectionAt(s) is { IsExecutable: true }));
         Assert.True(r.Stats.Vtables >= 15, $"{r.Stats.Vtables} vtables");
-        // a base class in the C++ runtime (another library) keeps its name
+        // A base class in the C++ runtime (another library) keeps its name.
         Assert.Contains(r.Classes, c => c.Bases.Any(b => b is { Name: "std::exception", TypeDescriptorRva: 0 }));
     }
 
@@ -225,7 +225,7 @@ public class ItaniumRttiTests
         // ARM32 Thumb targets: the slot is the function start, bit 0 cleared
         Assert.All(node.Vtables.Single().SlotRvas, s => Assert.True(s % 2 == 0 && image.SectionAt(s) is { IsExecutable: true }));
 
-        // the demangler's nodes print themselves through their own virtual methods: calls through this resolve
+        // The demangler's nodes print themselves through their own virtual methods: calls through this resolve.
         var index = NativeCodeIndex.Build(image);
         var stats = index.VirtualCalls.Stats;
         Assert.True(stats.Sites > 100, $"{stats.Sites} sites");

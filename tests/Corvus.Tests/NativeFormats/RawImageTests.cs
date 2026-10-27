@@ -90,7 +90,7 @@ public sealed class RawImageTests : IDisposable
         await using var server = await InProcessServer.StartAsync();
         var load = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "thumb", ["base"] = "0x8000000" });
         Assert.Contains("entry 0x8000100", load.Text);
-        // the same bytes as ARM state are not a vector table
+        // The same bytes as ARM state are not a vector table.
         Assert.Equal(0u, Corvus.Native.RawLayout.Parse("arm", "0x8000000", null, 0x200, File.ReadAllBytes(path).AsSpan(0, 8)).EntryOffset);
     }
 

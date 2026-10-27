@@ -8,7 +8,7 @@ public sealed class MetadataDetailTests
     private static string BouncyCastle => RealPackages.Lib("BouncyCastle.Cryptography", "2.6.2", "net6.0", "BouncyCastle.Cryptography.dll");
 
     [Fact]
-    public async Task FieldRvaData_ShowsBytesReadersAndTypedElements()
+    public async Task Field_RVA_data_shows_bytes_readers_and_typed_elements()
     {
         using var env = new Env(BouncyCastle);
         const string table = "<PrivateImplementationDetails>::74EF7306E7452D6859B6463CE496B8DF30925F69E1B2969E1F3F34BBC9C6AF04";
@@ -22,7 +22,7 @@ public sealed class MetadataDetailTests
     }
 
     [Fact]
-    public async Task AttributeArguments_SplitFlagsEnums()
+    public async Task Attribute_arguments_split_flags_enums()
     {
         using var env = new Env(RealPackages.Lib("NLog", "6.1.4", "netstandard2.0", "NLog.dll"));
         var text = await new BrowseTools(env.Workspace, env.References, env.Pager).GetAttributes("JetBrains.Annotations.MeansImplicitUseAttribute");
@@ -30,7 +30,7 @@ public sealed class MetadataDetailTests
     }
 
     [Fact]
-    public async Task GetIlSource_PlacesPdbLinesAtIlOffsets()
+    public async Task Get_IL_source_places_PDB_lines_at_IL_offsets()
     {
         using var env = new Env(RealPackages.Lib("Mono.Cecil", "0.11.3", "netstandard2.0", "Mono.Cecil.dll"));
         var text = await new DecompileTools(env.Workspace, env.Decompiler, env.Pager).GetIL("Mono.Cecil.ModuleDefinition::ReadModule(string, ReaderParameters)", source: true);

@@ -4,14 +4,12 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// Java decompiler output kept on disk by the input's SHA-256, the decompiler build and the request, so a later server answers
-/// without starting a JVM. The content hash of a path is remembered by its length and write time: a warm read hashes nothing.
-/// </summary>
+/// <summary>Java decompiler output on disk, keyed by input SHA-256, decompiler build and request; a warm read starts no JVM and hashes nothing.</summary>
 public sealed class JavaSourceCache(string root)
 {
     public const string FolderVariable = "CORVUS_JAVA_CACHE";
-    private const int Format = 1; // bump when the decompile_java text around the decompiler's output changes
+    // Bump when the decompile_java text around the decompiler's output changes.
+    private const int Format = 1;
 
     public string Root { get; } = root;
 

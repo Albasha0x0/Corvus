@@ -3,10 +3,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// One address as an engine sees it (see <see cref="INativeDecompilerSession.InspectAsync"/>). <see cref="Head"/> is the start of the
-/// item covering the address; <see cref="References"/> are the engine's references from the instruction (target RVA and kind).
-/// </summary>
+/// <summary>One address as an engine sees it: <see cref="Head"/> starts the covering item; <see cref="References"/> are (target RVA, kind).</summary>
 public sealed record EngineInstructionItem(uint Rva, AddressStatus Status, uint? Head, uint? End, uint? Function, DataItem? Item,
     InspectedInstruction? Instruction, IReadOnlyList<(uint To, string Kind)> References, string? Note);
 

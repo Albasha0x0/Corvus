@@ -5,12 +5,8 @@ using dnlib.DotNet.Writer;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Synthesizes a stub for a missing referenced assembly from its usage in loaded assemblies: referenced types (kind
-/// inferred from signatures, IL, interface lists, catch clauses and attribute use), referenced members with exact
-/// signatures, accessor pairs as properties/events, and overridden virtuals. Bodies throw. Gives the decompiler real
-/// types to resolve against and lets exported projects build; never presented as the real assembly.
-/// </summary>
+/// <summary>Builds a stub for a missing referenced assembly from its usage; bodies throw, never presented as the real assembly.</summary>
+/// <remarks>Gives the decompiler real types to resolve against and lets exported projects build.</remarks>
 internal static class ReferenceStubs
 {
     /// <summary>False for core library and framework assemblies, which are never stubbed.</summary>
@@ -48,7 +44,8 @@ internal static class ReferenceStubs
     public static (byte[] Image, int Types, int Members)? Build(string assemblyName, Version? version, IReadOnlyList<LoadedAssembly> loaded, CancellationToken ct = default)
     {
         var types = new Dictionary<string, StubType>(StringComparer.Ordinal);
-        var fieldStatic = new HashSet<string>(StringComparer.Ordinal); // "Type::field" accessed via ldsfld/stsfld/ldsflda
+        // "Type::field" accessed via ldsfld, stsfld or ldsflda.
+        var fieldStatic = new HashSet<string>(StringComparer.Ordinal);
         ModuleDef? corlibSource = null;
 
         bool IsMissing(ITypeDefOrRef? t) => t is TypeRef tr && string.Equals(tr.DefinitionAssembly?.Name, assemblyName, StringComparison.OrdinalIgnoreCase);
@@ -141,8 +138,7 @@ internal static class ReferenceStubs
             }
         }
 
-        // From the table rows: CustomAttributes would parse the blobs, resolving enum argument types (another stub) while
-        // dnlib holds the list's lock, and the caller may hold it already.
+        // From the table rows: CustomAttributes would resolve enum types under a dnlib lock the caller may hold.
         void Attributes(ModuleDefMD m)
         {
             for (uint rid = 1; rid <= m.TablesStream.CustomAttributeTable.Rows; rid++)
@@ -234,8 +230,7 @@ internal static class ReferenceStubs
                         if (o.MethodDeclaration is MemberRef { Class: ITypeDefOrRef decl } omr && Of(decl) is { } overridden
                             && overridden.Members.TryGetValue($"M:{omr.Name}:{omr.MethodSig}", out var om))
                             om.Virtual = true;
-                    // Not dnlib's lazy Body: a stub is built while dnlib resolves a reference, possibly in the middle of
-                    // reading this very method's body, whose lock would then be taken recursively.
+                    // Not dnlib's lazy Body: a stub may be built mid-read of this body, taking its lock recursively.
                     if (FastIlReader.Read(asm, md) is not { } body) continue;
                     try
                     {

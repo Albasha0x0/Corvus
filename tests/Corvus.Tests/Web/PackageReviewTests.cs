@@ -8,11 +8,7 @@ using Corvus.Services.Web.Packages;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Packages reviewed before installing. The noteworthy fixtures are inert models of publicly reported package incidents
-/// (dependency-confusion recon, install-time downloaders, environment exfiltration, decoded setup.py payloads, .pth
-/// start-up hooks, cookie-reading and remote-code extensions); the ordinary ones carry the same features used plainly.
-/// </summary>
+/// <summary>Package review on inert models of reported package incidents and ordinary packages with the same features.</summary>
 public sealed class PackageReviewTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -41,7 +37,6 @@ public sealed class PackageReviewTests : IDisposable
 
     private static PackageReport Review(string path) => PackageReview.Review(path, default) ?? throw new InvalidOperationException("not a package");
 
-    // --- npm ---
 
     [Fact]
     public void A_dependency_confusion_preinstall_that_sends_host_details_is_noteworthy()
@@ -223,7 +218,6 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("none", Review(Tgz("left-pad-1.3.0.tgz", ("package/package.json", """{"name":"left-pad","version":"1.3.0","main":"index.js"}"""),
             ("package/index.js", "module.exports = (s, n, c) => String(s).padStart(n, c);"))).Review);
 
-    // --- PyPI ---
 
     [Fact]
     public void A_setup_py_that_replaces_install_and_runs_decoded_code_is_noteworthy()
@@ -305,7 +299,6 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Scripts, s => s is { Name: "tool_hook.pth", AtInstall: true });
     }
 
-    // --- extensions ---
 
     [Fact]
     public void A_browser_extension_that_sends_cookies_and_runs_fetched_code_is_noteworthy()
@@ -444,7 +437,6 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(view.Highlights, h => h.StartsWith("Noteworthy exfiltration:", StringComparison.Ordinal));
     }
 
-    // --- agent configuration ---
 
     private string Repository(string name, params (string Path, string Text)[] files)
     {
@@ -568,10 +560,9 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(view.Highlights, h => h == "Agent configuration: 1 instruction file, 1 hook.");
         Assert.Contains(view.Highlights, h => h.EndsWith("(.claude/settings.json:1)", StringComparison.Ordinal));
         Assert.DoesNotContain(report.Findings, f => f.Path == "src/deep/CLAUDE.md");
-        Assert.Contains(report.Notes, n => n.Contains("instruction files in other subfolders are not read", StringComparison.Ordinal));
+        Assert.Contains(report.Notes, n => n.EndsWith("; other subfolders not read", StringComparison.Ordinal));
     }
 
-    // --- what a source folder runs on open, checkout or build ---
 
     // Commands are inert: each echoes or names a script the folder does not hold.
     private string ClonedRepository() => Repository("cloned",

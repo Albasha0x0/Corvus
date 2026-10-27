@@ -1,9 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// When a call must have answered (STANDARDS S9.1): the smaller of the server deadline (<see cref="ServerFactor"/> x
-/// --timeout; none for long-running tools) and the client's own per-call limit minus <see cref="ClientMargin"/>.
-/// </summary>
+/// <summary>A call's deadline: the smaller of <see cref="ServerFactor"/> x --timeout and the client's limit minus <see cref="ClientMargin"/>.</summary>
 public static class Deadlines
 {
     /// <summary>Multiple of --timeout after which a call not marked long-running ends.</summary>
@@ -15,10 +12,7 @@ public static class Deadlines
     /// <summary>The shortest deadline handed out; a client limit under margin + this still gets a short answer window.</summary>
     public static TimeSpan Minimum { get; } = TimeSpan.FromSeconds(1);
 
-    /// <summary>
-    /// The time from the call's start by which it answers, or null when neither the server nor the client bounds it;
-    /// <paramref name="longRunning"/> is the tool's contract flag (no server deadline).
-    /// </summary>
+    /// <summary>The time from the call's start by which it answers; null when unbounded; long-running tools get no server deadline.</summary>
     public static TimeSpan? Effective(bool longRunning, ServerOptions options, ClientLimits client)
     {
         TimeSpan? server = longRunning ? null : Server(options);

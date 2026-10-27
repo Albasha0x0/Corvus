@@ -41,7 +41,7 @@ internal sealed class BudgetStatus : IStatusSection
     }
 }
 
-/// <summary>The kept-result store (S3.5).</summary>
+/// <summary>The kept-result store.</summary>
 internal sealed class ResultsStatus : IStatusSection
 {
     public string Name => "results";
@@ -106,10 +106,7 @@ internal sealed class CallsStatus : IStatusSection
 
     private const int LockUsersShown = 4;
 
-    /// <summary>
-    /// One field, kept small for the status budget: the calls running, oldest first, with their time so far, then the
-    /// finished ones, newest first, with outcome and time; "none" before any call. Status calls are not running calls here.
-    /// </summary>
+    /// <summary>Running calls oldest first, then finished ones newest first, in one field; "none" before any call; status calls left out.</summary>
     internal static StatusField Activity(CallActivity activity, DateTimeOffset now)
     {
         var (all, finished) = activity.Snapshot();

@@ -12,7 +12,7 @@ public class NativeAotDispatchTests
     [InlineData((ushort)9, false)]
     [InlineData((ushort)16, false)]
     [InlineData((ushort)16, true)]
-    public void Cells_InterfaceSlotAndMethod(ushort major, bool is32)
+    public void Dispatch_cells_name_their_interface_slot_and_method(ushort major, bool is32)
     {
         var w = T.Build(major, is32, dispatchCells: true);
         var dispatch = w.Aot.Dispatch;
@@ -28,7 +28,7 @@ public class NativeAotDispatchTests
     }
 
     [Fact]
-    public void Cells_NamedAndResolvedAsCallTargets()
+    public void Dispatch_cells_are_named_and_resolved_as_call_targets()
     {
         var w = T.Build(16, dispatchCells: true);
         var built = NativeAotNames.Build(w.Aot);

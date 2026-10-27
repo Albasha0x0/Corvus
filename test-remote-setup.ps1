@@ -1,13 +1,11 @@
-# Prepares a Windows machine as a test host, from this machine over OpenSSH: the tools pinned in
-# tests/Corvus.Tests/Support/remote-tools-assets.json (PowerShell 7, MinGit, Python, the JDK, Ghidra and the reference
-# tools the real-data classes compare against) under
-# ~/corvus-test-host/tools, Frida's pinned release in that Python, a clone of the repository, the .NET SDK global.json
-# names with the runtimes the tests start programs on, and the Visual C++ build tools. Each step keeps what is already
-# there, so a second run only fills gaps; -Check changes nothing and names what is missing (exit 1 when anything is).
-# The .NET Framework 4.8 Developer Pack and a Microsoft Defender exclusion for the host folder are only named, with the
-# command that adds them.
-# The host needs OpenSSH Server and this machine's key authorized for an administrator account (the SDK, runtimes and
-# build tools install machine-wide). Engine and live permits are the host's own (its temporary folder).
+# Prepares a Windows test host over OpenSSH: the tools pinned in remote-tools-assets.json under
+# ~/corvus-test-host/tools, pinned Frida in that Python, a repository clone, the global.json SDK with the test
+# runtimes, and the Visual C++ build tools.
+# Each step keeps what is there; -Check changes nothing and names what is missing (exit 1 when anything is).
+# The .NET Framework 4.8 Developer Pack and a Defender exclusion are only named, with the command that adds them.
+# The host needs OpenSSH Server and this machine's key authorized for an administrator account (the SDK, runtimes
+# and build tools install machine-wide).
+# Engine and live permits are the host's own (its temporary folder).
 # Usage:  ./test-remote-setup.ps1 -Target user@host [-Check]
 #         ./test-remote-setup.ps1 -Target user@host -Data [-Check]  # the real data, under ~/corvus-data there
 #         ./test-remote-setup.ps1 -Target user@host -IdaDirectory <folder on the host>  # an IDA Pro 9+ install there
@@ -35,8 +33,7 @@ $sshOptions = @('-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new',
 # The .NET runtimes the tests start programs on, beside the SDK's own: x64 and x86 majors.
 $runtimesX64 = @(6, 7, 8, 9)
 $runtimesX86 = @(8, 9, 10)
-# The Visual C++ build tools: the release channel's bootstrapper (signed by Microsoft, checked before it runs) and the
-# workload the session tests and NativeAOT builds use.
+# Visual C++ build tools bootstrapper (Microsoft signature checked before it runs) and the workload tests use.
 $buildToolsUrl = 'https://aka.ms/vs/17/release/vs_buildtools.exe'
 $buildToolsArguments = @('--quiet', '--wait', '--norestart', '--nocache', '--add', 'Microsoft.VisualStudio.Workload.VCTools', '--includeRecommended')
 $buildToolsComponent = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
@@ -59,17 +56,16 @@ function Invoke-HostScript([string]$target, [string]$script) {
     Invoke-Transport 'CORVUS_TEST_SSH' 'ssh' ($sshOptions + @($target, "powershell -NoProfile -NonInteractive -EncodedCommand $encoded"))
 }
 
-# Copies what each real-data variable the host group needs names here (one existing folder or file of inputs, links
-# followed; variables that name a program are left out) to ~/corvus-data/<variable>/ on $target and sets the variable there as a user variable. A copy whose recorded size and
-# name still match is kept. Refuses when the host's drive would keep under $dataMarginGB free. Returns 0, or 1 when it
-# refuses, a copy fails or (with -Check, which changes nothing) anything is left to copy.
+# Copies each real-data input to ~/corvus-data/<variable>/ on $target and sets the user variable there.
+# Keeps a copy whose recorded size and name match; refuses when under $dataMarginGB GB would stay free.
+# Returns 1 when it refuses, a copy fails, or (with -Check) anything is left to copy; else 0.
 function Copy-RealData([string]$target) {
     Import-Module (Join-Path $PSScriptRoot 'test-remote.psm1') -Force
     $items = @(foreach ($name in Get-RealDataVariables (Join-Path $PSScriptRoot 'tests/Corvus.Tests')) {
         $value = [Environment]::GetEnvironmentVariable($name)
         $item = if ($value -and $value -notmatch '[|;]') { Get-Item -LiteralPath $value -Force -ErrorAction SilentlyContinue }
         if (-not $item) { Write-Host "  not copied: $name ($(if ($value) { 'not one existing path here' } else { 'not set here' }))"; continue }
-        # A DummyDll folder is read with the script.json and string files beside it: its parent travels.
+        # A dummy-assembly folder is read with the script.json and string files beside it: copy its parent.
         $from = if ($item.PSIsContainer -and (Test-Path -LiteralPath (Join-Path $item.Parent.FullName 'script.json'))) { $item.Parent } else { $item }
         $leaf = if ($from -ne $item) { "$($from.Name)\$($item.Name)" } else { $item.Name }
         $bytes = if ($from -is [IO.DirectoryInfo]) { [long](Get-ChildItem -LiteralPath $from.FullName -Recurse -File -Force -FollowSymlink | Measure-Object Length -Sum).Sum } else { $from.Length }
@@ -138,8 +134,7 @@ $support = if (Test-Path (Join-Path $PSScriptRoot 'fetch-remote-tools.ps1')) { $
 $fetch = Join-Path $support 'fetch-remote-tools.ps1'
 $table = (Get-Content (Join-Path $support 'remote-tools-assets.json') -Raw | ConvertFrom-Json).tools
 
-# Runs $block with native commands' standard error as plain output: under Stop, Windows PowerShell 5.1 turns any line
-# a native command writes there into a terminating error. Callers check $LASTEXITCODE.
+# Windows PowerShell 5.1 under Stop turns native stderr into a terminating error; callers check $LASTEXITCODE.
 function Invoke-Native([scriptblock]$block) {
     $ErrorActionPreference = 'Continue'
     & $block
@@ -217,7 +212,7 @@ else {
 }
 
 Step 'Frida'
-# The release and wheel hash the server pins (FridaVersions.cs), so the host runs what the live tests are written against.
+# The release and wheel hash the server pins, so the host runs what the live tests expect.
 $versions = Join-Path $clone 'src\Corvus\Native\Providers\Live\FridaVersions.cs'
 if (-not (Test-Path $versions)) { if ($Check) { Need 'frida (its pinned release comes with the clone)' } else { throw "The clone has no $versions." } }
 else {
@@ -265,9 +260,7 @@ foreach ($pair in @(@($x64, 'win-x64', $runtimesX64), @($x86, 'win-x86', $runtim
         }
     }
 }
-# An apphost finds the runtime through DOTNET_ROOT (DOTNET_ROOT(x86) in a 32-bit one), then the installer's
-# InstallLocation key (32-bit registry view); a zip install writes neither, and a program started with a reduced
-# environment then has no fallback.
+# An apphost reads DOTNET_ROOT, then the installer's InstallLocation key; a zip install writes neither.
 foreach ($pair in @(@($x64, 'x64', 'DOTNET_ROOT'), @($x86, 'x86', 'DOTNET_ROOT(x86)'))) {
     $root, $arch, $variable = $pair
     if ([Environment]::GetEnvironmentVariable($variable, 'User') -ne $root) {
@@ -285,8 +278,7 @@ if (-not $Check -and $admin) {
 }
 
 Step 'IDA'
-# The folder given, else the one CORVUS_IDA_DIR or IDA's own ida-config.json names; a host without IDA leaves the IDA
-# classes to the machine that has it.
+# -IdaDirectory, else CORVUS_IDA_DIR, else IDA's ida-config.json; without IDA its classes run elsewhere.
 $ida = if ($IdaDirectory) { $IdaDirectory } else { [Environment]::GetEnvironmentVariable('CORVUS_IDA_DIR', 'User') }
 if (-not $ida) {
     $config = Join-Path $env:APPDATA 'Hex-Rays\IDA Pro\ida-config.json'

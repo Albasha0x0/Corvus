@@ -3,7 +3,7 @@
   "arguments": {},
   "isError": false,
   "content": [
-    "Search directories: <fixtures>; <fixtures>/samples\nBackground indexing: idle\n7 images (showing 1-7):\n  TestFixture  1.0.0.0, 24 types, Il2Cpp dummy  <fixtures>/TestFixture.dll\n  edit.dll  native AMD64 exe, 4,112 bytes  <fixtures>/samples/edit.dll\n  sample-build-a.dll  native AMD64 exe, 4,098 bytes  <fixtures>/sample-build-a.dll\n  il2cpp.dll  native AMD64 exe, 4,112 bytes  <fixtures>/samples/il2cpp.dll\n  sample-build-b.dll  native AMD64 exe, 4,099 bytes  <fixtures>/sample-build-b.dll\n  typed.dll  native AMD64 exe, 3,088 bytes  <fixtures>/samples/typed.dll\n  aot.dll  native AMD64 exe, 3,072 bytes  <fixtures>/samples/aot.dll\n[End: 7 images]\n"
+    "Search directories: <fixtures>; <fixtures>/samples\nBackground indexing: idle\n7 images (showing 1-7):\n  TestFixture  1.0.0.0, 24 types, dummy  <fixtures>/TestFixture.dll\n  edit.dll  native AMD64 exe, 4,112 bytes  <fixtures>/samples/edit.dll\n  sample-build-a.dll  native AMD64 exe, 4,098 bytes  <fixtures>/sample-build-a.dll\n  metadata.dll  native AMD64 exe, 4,112 bytes  <fixtures>/samples/metadata.dll\n  sample-build-b.dll  native AMD64 exe, 4,099 bytes  <fixtures>/sample-build-b.dll\n  typed.dll  native AMD64 exe, 3,088 bytes  <fixtures>/samples/typed.dll\n  aot.dll  native AMD64 exe, 3,072 bytes  <fixtures>/samples/aot.dll\n[End: 7 images]\n"
   ],
   "structuredContent": {
     "items": [
@@ -14,7 +14,7 @@
         "name": "TestFixture, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
         "version": "1.0.0.0",
         "types": 24,
-        "il2CppDummy": true
+        "dummy": true
       },
       {
         "kind": "native",
@@ -36,8 +36,8 @@
       },
       {
         "kind": "native",
-        "id": "il2cpp.dll",
-        "path": "<fixtures>/samples/il2cpp.dll",
+        "id": "metadata.dll",
+        "path": "<fixtures>/samples/metadata.dll",
         "machine": "AMD64",
         "fileKind": "exe",
         "size": 4112,

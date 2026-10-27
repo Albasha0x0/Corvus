@@ -1,10 +1,6 @@
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>
-/// The world of a WebAssembly component as its top-level imports and exports declare it: each interface's named types
-/// and functions in WIT syntax, world-level functions and types, the canonical definitions and the section inventory.
-/// Index spaces follow the component model's binary format; nested components are counted, not decoded.
-/// </summary>
+/// <summary>A WebAssembly component's world in WIT syntax from its top-level imports and exports; nested components are counted.</summary>
 public sealed class WasmWorld
 {
     private const int MaxDepth = 32, MaxItems = 100_000;

@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Native.Pdb;
 
-/// <summary>
-/// x86 frame data of one code block, from a PDB's FRAMEDATA (new FPO) or FPO_DATA records: sizes in bytes, and the
-/// postfix program that recovers the caller's registers (null for FPO_DATA, which has none). FPO_DATA only:
-/// <paramref name="SavesFramePointer"/>, EBP is the first saved register; <paramref name="StandardFrame"/>, the block
-/// keeps a standard EBP frame.
-/// </summary>
+/// <summary>x86 frame data of a code block from FRAMEDATA or FPO_DATA: sizes in bytes and the caller-recovery program (null for FPO_DATA). FPO_DATA only: <paramref name="SavesFramePointer"/> means EBP is the first saved register.</summary>
 public sealed record PdbFrameRecord(uint Rva, uint Size, uint Locals, uint Params, uint SavedRegs, ushort Prolog, string? Program,
     bool SavesFramePointer, bool StandardFrame, bool HasSeh);
 
@@ -46,11 +41,7 @@ public sealed class PdbFrameTable
         return null;
     }
 
-    /// <summary>
-    /// Reads the FRAMEDATA stream (programs from the /names table) and the FPO_DATA stream; a block both describe keeps its
-    /// FRAMEDATA record. <paramref name="map"/> maps an RVA of the original layout (OMAP); null drops the record.
-    /// Null when the PDB has neither stream.
-    /// </summary>
+    /// <summary>Reads FRAMEDATA (preferred) and FPO_DATA; <paramref name="map"/> maps OMAP RVAs, a null result drops the record; null when the PDB has neither stream.</summary>
     internal static PdbFrameTable? Read(MsfFile msf, int frameDataStream, int fpoStream, byte[] names, Func<uint, uint?> map)
     {
         bool hasNames = names.Length >= 12 && BinaryPrimitives.ReadUInt32LittleEndian(names) == 0xEFFEEFFE;
@@ -82,8 +73,7 @@ public sealed class PdbFrameTable
                 uint locals = Le32(r, 8) * 4, saved = (uint)((bits >> 8) & 7) * 4;
                 if (covered.TryGetValue(rva, out int known))
                 {
-                    // The return address search is sized from FPO_DATA, as the debuggers do: the FRAMEDATA of an exception
-                    // filter block carries its enclosing function's locals, while the filter runs on a stack of its own.
+                    // Sized from FPO_DATA as debuggers do: an exception filter's FRAMEDATA carries its enclosing function's locals.
                     if (frameType == 0) records[known] = records[known] with { Locals = locals, SavedRegs = saved };
                     continue;
                 }

@@ -9,11 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real .NET Framework dumps: a program compiled here against the .NET Framework 4.8 reference assemblies writes a dump of
-/// itself (dbghelp) inside a catch block, as a 64-bit and as a 32-bit process. The DAC (mscordacwks) is the installed
-/// Framework's. Windows only.
-/// </summary>
+/// <summary>Real .NET Framework 4.8 dumps a program writes of itself, 64- and 32-bit. Windows only.</summary>
 [Trait("Speed", "Slow")]
 public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
 {
@@ -121,7 +117,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
         Assert.Equal(("System.InvalidOperationException", "sample-probe"), (inner.Type, inner.Message));
         foreach (var x in new[] { e, inner })
             foreach (var f in x.Stack) output.WriteLine($"{x.Type} {f.Address} {f.Function} {f.Token} il={f.IlOffset}");
-        // the caller's IP in the trace is a return address on x64: the frame is the call (IL 2), not the statement after it
+        // The caller's IP in the trace is a return address on x64: the frame is the call (IL 2), not the statement after it.
         Assert.Equal(2, inner.Stack.Single(f => f.Function.Contains("Main", StringComparison.Ordinal)).IlOffset);
         var thrower = inner.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal));
         Assert.Equal($"0x{MethodToken(exe, "Inner"):X8}", thrower.Token);
@@ -140,8 +136,8 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public Task X64FrameworkDumpIsDecodedWithMscordacwks() => Decode(Platform.X64, "x64");
+    public Task An_x64_framework_dump_is_decoded_with_mscordacwks() => Decode(Platform.X64, "x64");
 
     [Fact]
-    public Task X86FrameworkDumpIsDecodedOutOfProcess() => Decode(Platform.X86, "x86");
+    public Task An_x86_framework_dump_is_decoded_out_of_process() => Decode(Platform.X86, "x86");
 }

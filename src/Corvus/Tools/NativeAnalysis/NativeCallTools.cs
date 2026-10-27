@@ -59,9 +59,8 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true, OutputSchemaType = typeof(CallArgumentsReport))]
-    [Description("Call sites (x86, x64, ARM) with argument values by constant propagation under the calling convention: immediates, strings, named " +
-                 "addresses, earlier call results, globals (differing merges are unknown). Known Win32, CRT and libc APIs name parameters and decode " +
-                 "constants. Pass address and/or callee.")]
+    [Description("Call sites with recovered argument values: constants, strings, addresses, earlier call results. Known Win32, CRT and " +
+                 "libc APIs name parameters and decode flags. Pass address, callee or both.")]
     public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call, or an address in a function (all its calls): " + NativeTools.AddressDescription)] string? address = null,
@@ -78,7 +77,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return await Task.Run(() => Report(index, address, callee, offset, limit, cancellationToken), cancellationToken);
     });
 
-    /// <summary>The call sites of an index: the x86 / x64 analysis or the ARM64 one; null for other instruction sets.</summary>
+    /// <summary>The call sites of an index (x86, x64, ARM64, ARM32); null for other instruction sets.</summary>
     internal static ICallSites? Sites(NativeCodeIndex index) =>
         CallAnalysis.Supports(index) ? new X86Sites(CallAnalysis.For(index)) : Arm64CallSites.Supports(index) ? Arm64CallSites.For(index)
             : Arm32CallSites.Supports(index) ? Arm32CallSites.For(index) : null;
@@ -120,7 +119,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         else
         {
-            // Mach-O symbols carry the C underscore: dlsym is _dlsym
+            // Mach-O symbols carry the C underscore: dlsym is _dlsym.
             if (index.Image.Format == ImageFormat.MachO && !callee!.Trim().StartsWith('_') && !callee.Contains('!') && !KnownCallee(index, callee.Trim())
                 && KnownCallee(index, "_" + callee.Trim()))
                 callee = "_" + callee.Trim();
@@ -186,10 +185,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private const int MaxAnalyzedRows = 3000;
 
-    /// <summary>
-    /// find_xrefs rows for an import: calls through its slot and thunks, and (x86) calls through a register loaded from the
-    /// slot, each with its arguments.
-    /// </summary>
+    /// <summary>find_xrefs rows for an import: calls through its slot, thunks and (x86) registers loaded from it, with arguments.</summary>
     internal static List<string> ImportRows(NativeCodeIndex index, NativeImport import, Func<uint, string> where, CancellationToken ct)
     {
         string Va(uint r) => NativeAddress.Va(index.Image, r);
@@ -205,10 +201,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return rows.OrderBy(r => r.From).Select(r => r.Text).ToList();
     }
 
-    /// <summary>
-    /// Rows "address  kind  where", with the call's arguments for calls among <paramref name="count"/> rows from <paramref name="first"/>
-    /// (the rows a page shows, as each call's analysis costs; at most <see cref="MaxAnalyzedRows"/>).
-    /// </summary>
+    /// <summary>Rows "address  kind  where"; only the page's calls (at most <see cref="MaxAnalyzedRows"/>) get arguments, as each costs an analysis.</summary>
     internal static List<string> WithArguments(NativeCodeIndex index, IEnumerable<(uint From, string Kind, bool IsCall)> refs, Func<uint, string> where, CancellationToken ct,
         int first = 0, int count = MaxAnalyzedRows)
     {

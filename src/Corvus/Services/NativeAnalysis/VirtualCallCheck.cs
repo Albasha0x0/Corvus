@@ -8,14 +8,10 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Compares the virtual call resolution of a code index with what IDA makes of the same call instructions. A sample of
-/// functions with virtual call sites is decompiled after the RTTI class types are pushed (their methods' this typed as
-/// the class): a call Hex-Rays shows through a member of a &lt;class&gt;_vftable struct names a static class and slot, whose
-/// vftable entry is IDA's target; calls it resolved to a function and IDA's own code references from the call instruction
-/// count too. Per site: agree (IDA's target is among ours), compatible (IDA's class is a base of our receiver class: its
-/// target is the implementation ours overrides), disagree, ida_only (we have no target), ours_only (IDA has none), both_none.
-/// </summary>
+// IDA's target comes from a call through a <class>_vftable member after the RTTI types are pushed, a direct call, or
+// a code reference. Compatible: IDA names a base class's slot that our receiver's implementation overrides.
+/// <summary>Compares a code index's virtual call targets with IDA's for a sample of functions; one verdict per
+/// site: agree, compatible, disagree, ida_only, ours_only or both_none.</summary>
 public static class VirtualCallCheck
 {
     [Description("A site where IDA's target is not among ours.")]
@@ -59,26 +55,26 @@ public static class VirtualCallCheck
         if (types != null) await types.EnsureAsync(native, session, ct).ConfigureAwait(false);
         else notes.Add("no type push: IDA sees the methods untyped");
 
-        // vftable struct names as the type push defines them -> (class, vftable)
+        // Vftable struct names as the type push defines them, mapped to (class, vftable).
         var batch = NativeTypePush.Build(native, null, rtti, ct);
         var structs = new Dictionary<string, (string Class, NativeVftableType Vftable)>(StringComparer.Ordinal);
         foreach (var c in batch.Classes)
             foreach (var v in c.Vftables)
                 structs.TryAdd(v.Offset == 0 ? c.Name + "_vftable" : $"{c.Name}_vftable_{v.Offset:X}", (c.Name, v));
-        // the class identifiers the push gave (NativeTypePush.Build: by base count, then name; a repeated identifier gets a suffix)
+        // The class identifiers NativeTypePush.Build gave: by base count, then name; a repeated one gets a suffix.
         var classByIdent = new Dictionary<string, MsvcRttiClass>(StringComparer.Ordinal);
         var polymorphic = rtti.Classes.Where(c => c.Vtables.Count > 0).ToList();
         var named = new HashSet<string>(StringComparer.Ordinal);
         foreach (var c in polymorphic.OrderBy(c => c.Bases.Count).ThenBy(c => c.Name, StringComparer.Ordinal).Take(NativeTypePush.MaxClasses))
         {
             if (!named.Add(c.Name)) continue;
-            var id = Il2CppLayout.Identifier(c.Name.Replace("::", "__"));
-            for (int i = 2; classByIdent.ContainsKey(id); i++) id = $"{Il2CppLayout.Identifier(c.Name.Replace("::", "__"))}_{i}";
+            var id = AotLayout.Identifier(c.Name.Replace("::", "__"));
+            for (int i = 2; classByIdent.ContainsKey(id); i++) id = $"{AotLayout.Identifier(c.Name.Replace("::", "__"))}_{i}";
             classByIdent[id] = c;
         }
         var byTd = polymorphic.GroupBy(c => c.TypeDescriptorRva).ToDictionary(g => g.Key, g => g.First());
 
-        // the sample: functions with resolved sites, then half as many with only unresolved ones, evenly spaced
+        // The sample: functions with resolved sites, then half as many with only unresolved ones, evenly spaced.
         var sitesByFunction = index.VirtualCalls.Sites.GroupBy(s => s.Function).ToDictionary(g => g.Key, g => g.ToList());
         var resolved = sitesByFunction.Where(kv => kv.Value.Any(s => s.Status != VirtualCallStatus.Unresolved)).Select(kv => kv.Key).Order().ToList();
         var unresolved = sitesByFunction.Where(kv => kv.Value.All(s => s.Status == VirtualCallStatus.Unresolved)).Select(kv => kv.Key).Order().ToList();
@@ -104,7 +100,7 @@ public static class VirtualCallCheck
             decompiled += r.Decompiled;
             failed += r.Failed.Count;
             skipped += r.Skipped;
-            // the functions the decompiler finished: the chunk without the failed ones and the tail it had no time for
+            // Finished functions: the chunk without the failed ones and the tail it had no time for.
             var failedHere = r.Failed.Select(x => x.Function).ToHashSet();
             foreach (var f in chunk.Take(Math.Max(0, chunk.Count - r.Skipped)))
                 if (!failedHere.Contains(f) || !r.DecompilerAvailable) done.Add(f);
@@ -116,8 +112,7 @@ public static class VirtualCallCheck
         }
         if (!decompiler) notes.Add($"the {session.ProviderId} decompiler is not available: only IDA's code references are compared");
 
-        // IDA follows a call through the CFG dispatch or check pointer to the function the pointer holds in the file (the
-        // no-op dispatcher): not a target of the call
+        // IDA follows a call through the CFG dispatch or check pointer to the no-op dispatcher in the file: not a target.
         var dispatchers = new HashSet<uint>();
         if (native.Image is Native.Pe.PeFile { LoadConfig: { } lc })
         {
@@ -164,7 +159,7 @@ public static class VirtualCallCheck
                     else if (t.Kind == "vftable" && t.TypeName != null && structs.TryGetValue(t.TypeName, out var st) && t.MemberOffset is int m
                              && m >= 0 && m % ptr == 0 && m / ptr < st.Vftable.Slots.Count)
                     {
-                        // the slot is what the instruction reads: a member at another offset means IDA's types do not model it
+                        // The slot is what the instruction reads: another offset means IDA's types do not model it.
                         if (m != s.Slot * ptr) { mismatch = true; continue; }
                         idaTargets.Add(st.Vftable.Slots[m / ptr]);
                         evidence.Add($"{t.TypeName}+0x{m:X}");
@@ -187,7 +182,7 @@ public static class VirtualCallCheck
                     continue;
                 }
                 if (ours.Any(idaTargets.Contains)) { agree++; continue; }
-                // IDA names the slot of a less derived class: a pure virtual stub, or an implementation that our receiver's class overrides
+                // IDA names a less derived class's slot: a pure virtual stub, or an implementation our receiver overrides.
                 var receiver = byTd.GetValueOrDefault(s.ClassTypeDescriptor);
                 if (idaTargets.All(IsPure) || idaClass != null && receiver != null && !ReferenceEquals(idaClass, receiver)
                     && receiver.Bases.Any(b => b.TypeDescriptorRva == idaClass.TypeDescriptorRva))

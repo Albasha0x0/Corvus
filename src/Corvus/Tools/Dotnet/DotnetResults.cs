@@ -3,8 +3,7 @@ using Corvus.Native;
 
 namespace Corvus.Tools;
 
-// Records of the dotnet read tools (browse, decompile, search, navigate, resources, ReadyToRun). Lists carry items, offset and
-// total; the call filter adds limit, totalExact, hasMore and nextOffset. Optional fields are left out when empty.
+// Records of the .NET read tools; the call filter adds limit, totalExact, hasMore and nextOffset to lists.
 
 internal static class DotnetDoc
 {
@@ -36,7 +35,7 @@ public sealed record MemberEntry(
     [property: Description("Declaration as C#.")] string Signature)
 {
     [Description("nested, field, property, event or method (section summary and all).")] public string? Kind { get; init; }
-    [Description("Il2Cpp RVA / offset from the dummy assembly's attributes.")] public string? Il2Cpp { get; init; }
+    [Description("RVA / offset from the dummy assembly's attributes.")] public string? Address { get; init; }
     [Description("Methods: IL instruction count; absent without a body.")] public int? Il { get; init; }
 }
 
@@ -110,7 +109,7 @@ public sealed record SymbolList(IReadOnlyList<SymbolMatch> Items, int Offset, in
     public bool? TotalExact { get; init; }
 }
 
-/// <summary>A code page (D3): decompiled C#, IL or native code from offset, with the symbols it shows.</summary>
+/// <summary>A code page: decompiled C#, IL or native code from offset, with the symbols it shows.</summary>
 public sealed record CodePage(
     [property: Description("csharp, il or asm.")] string Language,
     string Code,
@@ -127,13 +126,13 @@ public sealed record IlMethodHash(string Token, string? IlHash, string? RawSha25
 
 public sealed record StringEntry(
     [property: Description("The literal (clipped at 200 characters).")] string Value,
-    [property: Description("il (ldstr), constant (const field), il2cpp (stringliteral.json or script.json).")] string Source)
+    [property: Description("il (ldstr), constant (const field), metadata (stringliteral.json or script.json).")] string Source)
 {
     [Description("Method or field using it (il, constant).")] public SymbolRef? Owner { get; init; }
     public int? IlOffset { get; init; }
     [Description("Value was clipped.")] public bool? Clipped { get; init; }
-    [Description("Il2Cpp: RVA of the literal's slot.")] public string? SlotRva { get; init; }
-    [Description("Il2Cpp: functions loading it (method labels, else RVAs), up to usesPerLiteral.")] public IReadOnlyList<string>? LoadedBy { get; init; }
+    [Description("Metadata literals: RVA of the slot.")] public string? SlotRva { get; init; }
+    [Description("Metadata literals: functions loading it, up to usesPerLiteral.")] public IReadOnlyList<string>? LoadedBy { get; init; }
 }
 
 public sealed record StringList(IReadOnlyList<StringEntry> Items, int Offset, int Total)
@@ -294,7 +293,7 @@ public sealed record R2rLookup(
     [Description("An import cell: what it resolves to.")] public string? ImportCell { get; init; }
 }
 
-/// <summary>export_project's outcome (S4.2).</summary>
+/// <summary>export_project's outcome.</summary>
 public sealed record ExportOutcome(
     [property: Description("The export completed and is in outputDirectory.")] bool Applied,
     [property: Description("The assembly id or package file exported.")] string Source,

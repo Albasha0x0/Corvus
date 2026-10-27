@@ -4,13 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Databases;
 
-/// <summary>
-/// A Realm file read without Realm Core: the header and its two top refs, the tables of the current commit with their
-/// columns, and the objects of a table's cluster tree with typed values (integers, booleans, strings, binary data,
-/// timestamps, floats, decimals, object ids, UUIDs, links, mixed values, lists, sets and dictionaries). Recover lists
-/// objects the previous commit still holds that the current one deleted or changed, and cluster leaves found in free
-/// space. Reads are bounded; damaged nodes are skipped and noted.
-/// </summary>
+/// <summary>A Realm file read without Realm Core: tables and typed objects of the current commit; damaged nodes are noted.</summary>
 public sealed class Realm : IDisposable
 {
     private const int HeaderSize = 24, MaxDepth = 24, MaxCached = 8192, MaxNotes = 100;
@@ -319,8 +313,7 @@ public sealed class Realm : IDisposable
         return new Map([.. keys.Select((k, i) => new KeyValuePair<string, object?>(k as string ?? "", values[i]))]);
     }
 
-    // Values of one leaf array of a column type. A link column (column true) stores key + 1 with 0 for null; link
-    // lists store keys as they are.
+    // A link column stores key + 1 with 0 for null; link lists store keys as they are.
     private List<object?>? LeafValues(int type, bool nullable, string? target, Node n, HashSet<long>? reached, IReadOnlyList<string?>? enums, bool column)
     {
         switch (type)
@@ -394,8 +387,7 @@ public sealed class Realm : IDisposable
         }
     }
 
-    // Strings of an array of any string layout: short (fixed width, last byte counts padding), enumerated (indexes into
-    // the column's enum keys), medium (offsets, bytes and null flags) and long (one blob per string).
+    // String layouts: short (fixed width, last byte counts padding), enumerated, medium (offsets, bytes, nulls), long (blobs).
     private List<string?>? Strings(long r, IReadOnlyList<string?>? enums)
     {
         if (Read(r) is not { } n) return null;
@@ -424,8 +416,7 @@ public sealed class Realm : IDisposable
         return list;
     }
 
-    // Byte strings of a medium (offsets, bytes, null flags) or long (one blob per value, 0 for null) array; strings end
-    // in a zero byte that is not part of the value.
+    // Medium or long (0 for null) byte arrays; strings end in a zero byte that is not part of the value.
     private List<object?>? Blobs(Node n, bool strings, HashSet<long>? reached)
     {
         int term = strings ? 1 : 0;
@@ -481,9 +472,8 @@ public sealed class Realm : IDisposable
         return list;
     }
 
-    // Mixed values: a composite array of value << 8 | payload index << 5 | (data type + 1), with payload arrays for
-    // large integers, floats and doubles (slot 1), timestamp and decimal pairs (slot 2), strings and bytes (slot 3)
-    // and nested collections (slot 4).
+    // Mixed: value << 8 | payload index << 5 | (type + 1); payload slots 1 numbers, 2 timestamp and decimal pairs,
+    // 3 strings and bytes, 4 nested collections.
     private List<object?>? Mixed(Node n, HashSet<long>? reached)
     {
         if (!n.HasRefs || n.Size < 1 || Read(Ref(Int(n, 0))) is not { } composite) return null;
@@ -522,8 +512,7 @@ public sealed class Realm : IDisposable
         return list;
     }
 
-    // Decimal128 values stored at the leaf width: 0 (all null, or all zero when the context flag is set), 4 (BID32),
-    // 8 (BID64) or 16 (BID128) bytes.
+    // Decimal128 at the leaf width: 0 (all null or zero), 4 (BID32), 8 (BID64) or 16 (BID128) bytes.
     private static object? DecimalAt(Node n, int i)
     {
         if (n.WType != 1) return new Unread("decimal layout");
@@ -597,11 +586,7 @@ public sealed class Realm : IDisposable
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Objects the previous commit holds that the current one deleted or changed, then the objects of cluster leaves in
-    /// free space and past the logical end of the file that match a table's columns and no object already listed; at
-    /// most <paramref name="max"/>.
-    /// </summary>
+    /// <summary>Objects the previous commit holds that changed, then matching cluster leaves in free space; at most <paramref name="max"/>.</summary>
     public List<Recovered> Recover(int max, CancellationToken ct)
     {
         var found = new List<Recovered>();
@@ -664,8 +649,7 @@ public sealed class Realm : IDisposable
     private static bool SameColumns(Table a, Table b) =>
         a.Columns.Count == b.Columns.Count && a.Columns.Zip(b.Columns).All(p => p.First.Name == p.Second.Name && p.First.Type == p.Second.Type && p.First.Attributes == p.Second.Attributes && p.First.Index == p.Second.Index);
 
-    // Free blocks of the current commit (positions and sizes at top slots 3 and 4), and the bytes past its logical
-    // file size (slot 2), sorted and merged.
+    // Free blocks (top slots 3 and 4) and bytes past the logical size (slot 2), sorted and merged.
     private List<(long Start, long End)> FreeSpace()
     {
         var blocks = new List<(long, long)>();

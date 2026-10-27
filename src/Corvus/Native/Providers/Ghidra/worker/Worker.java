@@ -1,6 +1,5 @@
-// Ghidra worker: one program per process, requests as JSON lines on stdio.
-// fd 1 is kept for the protocol and System.out goes to stderr; a BundleHost is acquired before analysis and the
-// program is saved before project disposal on shutdown.
+// Ghidra worker: one program per process, JSON lines on stdio; System.out goes to stderr.
+// A BundleHost is acquired before analysis; shutdown saves the program before disposing the project.
 package corvus.ghidra;
 
 import java.io.BufferedReader;
@@ -230,10 +229,7 @@ public class Worker implements GhidraLaunchable {
         }
     }
 
-    /**
-     * One stderr line per step of a request, which the server keeps per pending request: a timeout then names whether
-     * the worker received, ran or answered it.
-     */
+    /** One stderr line per request step, so a timeout names whether the worker received, ran or answered it. */
     private static void log(Request r, String what) {
         System.err.println("corvus request " + r.id + " " + r.op + ": " + what);
     }
@@ -289,7 +285,7 @@ public class Worker implements GhidraLaunchable {
             case "gpr_pack": return GzfOps.packProject(this, r);
             case "completion": return completionStatus();
             case "rebase": return rebase(r);
-            // the program's change counter and this worker's identity: a caller's cached tables stay valid while both match
+            // Change counter and worker identity: a caller's cached tables stay valid while both match.
             case "stamp": return read(() -> {
                 JsonObject o = new JsonObject();
                 o.addProperty("modification", program.getModificationNumber());
@@ -442,9 +438,8 @@ public class Worker implements GhidraLaunchable {
     }
 
     /**
-     * Opens the saved program of the project, or imports the input into a new project, analyzes it within the budget
-     * and saves. Args: input, project_dir, project_name, program_name, loader_args [[k,v]], options [[k,v]],
-     * budget_seconds, pdb, decompilers, decompile_timeout, decompile_payload_mb, analysis ("none": load only).
+     * Opens the saved program, or imports and analyzes it within the budget and saves. Args: input, project_dir, project_name,
+     * program_name, loader_args, options, budget_seconds, pdb, decompilers, decompile_timeout, decompile_payload_mb, analysis.
      */
     // Migration only: a project saved before the rename keeps its stamps under these names and its types under /ndm.
     private static final String INSTANCE = java.util.UUID.randomUUID().toString();
@@ -508,7 +503,7 @@ public class Worker implements GhidraLaunchable {
                 for (JsonElement e : array(a, "loader_args"))
                     loaderArgs.add(new Pair<>(e.getAsJsonArray().get(0).getAsString(), e.getAsJsonArray().get(1).getAsString()));
                 MessageLog log = new MessageLog();
-                // a Ghidra archive given for the image is imported in its place: its analysis is the database
+                // A Ghidra archive given for the image is imported in its place.
                 boolean packed = a.has("gzf");
                 var builder = ProgramLoader.builder()
                         .source(new File(a.get(packed ? "gzf" : "input").getAsString()))
@@ -518,7 +513,7 @@ public class Worker implements GhidraLaunchable {
                         .loaderArgs(loaderArgs)
                         .log(log)
                         .monitor(r.monitor);
-                // a headerless image: the caller names the loader and the language
+                // A headerless image: the caller names the loader and the language.
                 try {
                     if (packed) builder = builder.loaders(GzfOps.LOADER);
                     else if (a.has("loader")) builder = builder.loaders(a.get("loader").getAsString());
@@ -527,7 +522,7 @@ public class Worker implements GhidraLaunchable {
                     throw new WorkerError("invalid_argument", "unknown Ghidra loader: " + e.getMessage());
                 }
                 if (a.has("language")) builder = builder.language(a.get("language").getAsString());
-                // a compiler spec alone keeps the language Ghidra prefers for the file
+                // A compiler spec alone keeps the language Ghidra prefers for the file.
                 if (a.has("compiler") && !packed) {
                     String language = a.has("language") ? a.get("language").getAsString() : preferredLanguage(new File(a.get("input").getAsString()), r.monitor);
                     checkCompiler(language, a.get("compiler").getAsString());
@@ -569,19 +564,12 @@ public class Worker implements GhidraLaunchable {
         }
     }
 
-    /**
-     * The function pass: every function's row with its reference count, read in the background in chunks under the read lock
-     * (the first listing of a large program loads every function record). A change to the program while it runs drops it;
-     * the live listing serves until a table exists.
-     */
-    /**
-     * A raw image loaded at 0: moved to its base (memory moves with the image base, so image base and block agree), then
-     * an entry point with its function at the entry offset, where analysis starts.
-     */
+    /** Background function pass: rows with reference counts, in read-locked chunks; a program change drops it. */
+    /** Moves a raw image loaded at 0 to its base, then makes the entry point and its function. */
     private void markEntry(long base, long offset) {
         int tx = program.startTransaction("raw image entry");
         try {
-            // real mode: a segment start (segment = linear / 16, offset 0), as the image base must be
+            // Real mode: the image base must be a segment start (segment = linear / 16, offset 0).
             Address start = program.getImageBase().getAddressSpace() instanceof ghidra.program.model.address.SegmentedAddressSpace s
                 ? s.getAddress((int)(base >> 4), 0)
                 : program.getImageBase().getNewAddress(base);
@@ -599,7 +587,7 @@ public class Worker implements GhidraLaunchable {
                 program.getSymbolTable().createLabel(entry, "entry", ghidra.program.model.symbol.SourceType.IMPORTED);
             }
             catch (ghidra.util.exception.InvalidInputException e) {
-                // the name is fixed and valid
+                // The name is fixed and valid.
             }
             new ghidra.app.cmd.disassemble.DisassembleCommand(entry, null, true).applyTo(program, TaskMonitor.DUMMY);
             new ghidra.app.cmd.function.CreateFunctionCmd(entry).applyTo(program, TaskMonitor.DUMMY);
@@ -634,10 +622,7 @@ public class Worker implements GhidraLaunchable {
         }
     }
 
-    /**
-     * Seeds before the first analysis: [kind, rva, name?] with kind function (disassembled and made a function), code
-     * (disassembled) or label. What does not take is a warning.
-     */
+    /** Seeds before the first analysis: [kind (function, code, label), rva, name?]; a failure is a warning. */
     private void applySeeds(JsonArray seeds, List<String> warnings) {
         if (seeds.isEmpty()) return;
         int tx = program.startTransaction("import seeds");
@@ -716,7 +701,7 @@ public class Worker implements GhidraLaunchable {
                 }
             }
             catch (RuntimeException e) {
-                // the live listing serves
+                // The live listing serves.
             }
         }, "worker function pass");
         t.setDaemon(true);
@@ -734,9 +719,9 @@ public class Worker implements GhidraLaunchable {
     }
 
     /**
-     * HeadlessAnalyzer's sequence. GhidraProject.analyze skips the transaction and analyzes almost nothing on a fresh
-     * import; analyzer options exist only after initializeOptions. A budget that ends cancels the analysis, and what
-     * exists is saved as partial.
+     * HeadlessAnalyzer's sequence: GhidraProject.analyze skips the transaction and does little on a fresh import, and
+     * analyzer options exist only after initializeOptions.
+     * The budget cancels the analysis; the result is saved as partial.
      */
     private boolean analyze(Request r, JsonObject a, List<String> warnings) throws Exception {
         r.monitor.setMessage("analysis");
@@ -752,7 +737,7 @@ public class Worker implements GhidraLaunchable {
                     m.cancel();
                 }
                 catch (InterruptedException e) {
-                    // finished in time
+                    // Finished in time.
                 }
             }, "worker analysis budget");
             timer.setDaemon(true);
@@ -979,7 +964,7 @@ public class Worker implements GhidraLaunchable {
 
     /** Analysis options of the program: {options: [[name, type, value, description]]} by name. */
     private JsonElement analyzers() {
-        // a program reopened from its project registers its analyzer options only once a manager initializes them
+        // A reopened program registers its analyzer options only once a manager initializes them.
         AutoAnalysisManager.getAnalysisManager(program).initializeOptions();
         Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
         List<String> names = new ArrayList<>(options.getOptionNames());
@@ -1007,8 +992,8 @@ public class Worker implements GhidraLaunchable {
     }
 
     /**
-     * Runs auto-analysis again over the program, or [start, end), within budget_seconds; options [[k, v]] apply to this run
-     * and are restored after it. A full run that finishes marks the analysis complete (it resumes a partial one). Saved.
+     * Reanalyzes the program or [start, end) within budget_seconds and saves; options [[k, v]] apply to this run only.
+     * A finished full run marks the analysis complete.
      */
     private JsonElement reanalyze(Request r) throws Exception {
         long started = System.nanoTime();
@@ -1039,7 +1024,7 @@ public class Worker implements GhidraLaunchable {
                     m.cancel();
                 }
                 catch (InterruptedException e) {
-                    // finished in time
+                    // Finished in time.
                 }
             }, "worker reanalysis budget");
             timer.setDaemon(true);

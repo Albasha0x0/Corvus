@@ -3,10 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Mutation testing of the core readers (E10): `./test.ps1 -Mutation` runs Stryker.NET over the targets of
-/// tests/mutation.json and sets CORVUS_MUTATION_REPORT; the surviving mutants per target (survived or not covered) only fall.
-/// </summary>
+/// <summary>Surviving mutants per target of tests/mutation.json (./test.ps1 -Mutation sets CORVUS_MUTATION_REPORT) only fall.</summary>
 public class MutationTests
 {
     public const string ReportVariable = "CORVUS_MUTATION_REPORT";
@@ -15,7 +12,7 @@ public class MutationTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void SurvivingMutantsOnlyFall()
+    public void Surviving_mutants_only_fall()
     {
         if (Environment.GetEnvironmentVariable(ReportVariable) is not { Length: > 0 } folder) return; // only after a mutation run
         var report = Directory.EnumerateFiles(folder, "mutation-report.json", SearchOption.AllDirectories).Single();
@@ -28,7 +25,7 @@ public class MutationTests
     }
 
     [Fact]
-    public void TargetsNameFilesThatExist()
+    public void Targets_name_files_that_exist()
     {
         var targets = Targets();
         Assert.NotEmpty(targets);
@@ -44,7 +41,7 @@ public class MutationTests
     }
 
     [Fact]
-    public void ReportIsSplitPerTarget()
+    public void Report_is_split_per_target()
     {
         var report = JsonNode.Parse("""
             {"schemaVersion":"2","files":{

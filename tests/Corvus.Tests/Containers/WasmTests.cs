@@ -25,7 +25,7 @@ public sealed class WasmTests
     ];
 
     [Fact]
-    public void Imports_exports_memories_and_producers()
+    public void A_module_lists_its_imports_exports_memories_and_producers()
     {
         var m = WasmModule.Read(Sample());
         Assert.Empty(m.Issues);

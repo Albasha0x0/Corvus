@@ -11,10 +11,7 @@ public sealed record Location(string Where, string? Api = null)
     public override string ToString() => Api == null ? Where : $"{Where} -> {Api}";
 }
 
-/// <summary>
-/// Single pass over a module collecting API calls, strings with their consuming APIs, P/Invoke imports, static field
-/// data and resources. Unreadable types and resources are skipped with a note.
-/// </summary>
+/// <summary>One pass over a module: calls, strings with consuming APIs, P/Invoke imports, field data, resources; unreadable items become notes.</summary>
 public sealed class ModuleScan
 {
     /// <summary>A method reference: Api is "Ns.Type::Name", <see cref="Signature"/> adds parameter types; Index is its place in <see cref="Calls"/>.</summary>
@@ -155,7 +152,7 @@ public sealed class ModuleScan
     {
         var type = method.DeclaringType;
         if (type == null) return null;
-        var scope = type.ScopeType ?? type; // generic instance -> its definition
+        var scope = type.ScopeType ?? type;
         return $"{scope.FullName}::{method.Name}";
     }
 

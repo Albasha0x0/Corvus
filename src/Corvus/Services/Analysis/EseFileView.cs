@@ -5,11 +5,7 @@ using Corvus.Core.Databases;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=ese: an Extensible Storage Engine database (.edb): page size, format, shutdown state, the catalog's tables with
-/// their columns and indexes, a page of one table's records (table= names it; offset=, limit=), and when asked for, the
-/// records deleted nodes and pages no tree reaches still hold.
-/// </summary>
+/// <summary>view=ese: an ESE database's format, state, tables, a page of one table's records (table=, offset=, limit=), and on request recoverable records.</summary>
 internal sealed class EseFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxRecovered = 200, MaxText = 200;
@@ -63,7 +59,7 @@ internal sealed class EseFileView : IFileSummaryView
             var notes = new List<string>(db.Notes.Distinct().Take(20));
             if (next != null) notes.Add($"offset={next} lists the next records of {table!.Name}");
             if (found > MaxRecovered) notes.Add($"recovered: the first {MaxRecovered}; more remain");
-            if (!asked) notes.Add("view=ese adds the records deleted nodes and pages no tree reaches still hold");
+            if (!asked) notes.Add("view=ese also recovers deleted and unreachable records");
 
             string state = db.State switch { 1 => "just created", 2 => "dirty shutdown", 3 => "clean shutdown", 4 => "being converted", 5 => "force detach", var s => $"state {s}" };
             string format = $"0x{db.Version:x} revision 0x{db.Revision:x}";
@@ -73,7 +69,7 @@ internal sealed class EseFileView : IFileSummaryView
                 $"ESE database: {db.PageSize:N0}-byte pages, format {format}, {state}; {user.Count} tables" +
                 (user.Count > 0 ? $": {string.Join(", ", user.Take(8).Select(t => t.Name))}{(user.Count > 8 ? ", ..." : "")}" : "") + ".",
             };
-            if (found > 0) highlights.Add($"Recoverable: {found:N0}{(found > MaxRecovered ? "+" : "")} records of {table!.Name} that deleted nodes or unreachable pages hold.");
+            if (found > 0) highlights.Add($"Recoverable: {found:N0}{(found > MaxRecovered ? "+" : "")} deleted or unreachable records of {table!.Name}.");
             var tables = db.Tables.Select(t => new TableEntry(t.Name, t.Columns.Count, [.. t.Indexes.Select(i => i.Name)], t.Template)).ToList();
             var columns = table?.Columns.Select(c => $"{c.Name} {TypeName(c.Type)}{(c.MultiValued ? " multi-valued" : "")}{(c.Compressed ? " compressed" : "")}").ToList() ?? [];
             return new FileView(new Facts(db.PageSize, format, state, db.LastPage, tables, table?.Name ?? "", columns, offset, next, page, recovered, notes), highlights);

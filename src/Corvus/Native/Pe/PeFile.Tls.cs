@@ -16,11 +16,7 @@ public sealed partial class PeFile
         public static readonly TlsInfo Empty = new(null, []);
     }
 
-    /// <summary>
-    /// The TLS directory and its callback array: VAs up to a zero entry, converted to RVAs against the preferred image
-    /// base. In a relocatable image a callback slot without a base relocation keeps its on-disk value after rebasing,
-    /// so it no longer points into the image; that is recorded.
-    /// </summary>
+    /// <summary>The TLS directory and callbacks as RVAs; a callback slot without a base relocation keeps its on-disk value after rebasing, which is recorded.</summary>
     private TlsInfo ParseTls(IssueLog log)
     {
         var dir = Directory(PeDirectory.Tls);

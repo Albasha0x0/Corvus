@@ -36,16 +36,15 @@ public sealed record ExceptionReport(string Image,
     IReadOnlyList<EhHandler> Handlers, IReadOnlyList<EhRange> Ranges,
     [property: Description("Image summary: frames, FDEs and the like by kind.")] IReadOnlyDictionary<string, int>? Counts);
 
-/// <summary>MSVC exception handling metadata of native functions (x86 / x64 / ARM64).</summary>
+/// <summary>Exception handling metadata of native functions: MSVC on PE, Itanium on ELF and Mach-O.</summary>
 [McpServerToolType]
 public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
 {
     private const int MaxIpStates = 64;
 
     [McpServerTool(Name = "get_exception_info", Title = "Native exception handling", UseStructuredContent = true, OutputSchemaType = typeof(ExceptionReport))]
-    [Description("Exception handling of the native function at an address. ELF, Mach-O: FDE, compact unwind or EHABI entry, personality, LSDA call " +
-                 "sites, landing pads, caught types. MSVC: handler, try blocks, caught types, unwind map, SEH scopes, IP-to-state, funclets, filters. " +
-                 "No address: image counts, failed metadata checks.")]
+    [Description("Exception handling of a native function: handlers, try blocks or call sites, landing pads, caught types. " +
+                 "Without address: the image's counts and rejected metadata.")]
     public Task<string> GetExceptionInfo(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Omit for an image summary.")] string? address = null,

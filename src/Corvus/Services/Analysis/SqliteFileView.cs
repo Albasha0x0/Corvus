@@ -3,11 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=sqlite: a SQLite 3 database read by its own B-tree reader, with the committed frames of a -wal file beside it
-/// applied: header facts, the schema as stored, row counts and the first rows of each table (values clipped), the WAL's
-/// frames per page; with table=, a page of that table's rows (columns=, offset=, limit=). No SQL is run.
-/// </summary>
+/// <summary>view=sqlite: a SQLite database with its -wal applied: schema, row counts and previews, or a page of table= (columns=, offset=, limit=); no SQL runs.</summary>
 internal sealed class SqliteFileView : IFileSummaryView
 {
     private const int MaxTables = 20, PreviewRows = 5, MaxValue = 80, PageValue = 200, MaxSchema = 500, DefaultLimit = 50, MaxLimit = 1000, MaxWalPages = 100, MaxPageFrames = 20;
@@ -143,10 +139,7 @@ internal sealed class SqliteFileView : IFileSummaryView
         _ => v.ToString() ?? "",
     };
 
-    /// <summary>
-    /// A summarize_file input opened as a database: from its bytes, or mapped read-only when it was streamed, with the
-    /// -wal file beside it (mapped) when there is one.
-    /// </summary>
+    /// <summary>A summarize_file input opened as a database, with the -wal file beside it when there is one.</summary>
     internal sealed class Database : IDisposable
     {
         private SqliteSource? _source, _wal;

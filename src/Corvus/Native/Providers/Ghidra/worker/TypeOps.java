@@ -1,5 +1,4 @@
-// Type creation: C declarations through CParser resolved into the program's data type manager with the replace
-// handler, prototypes through Ghidra's signature parsing, and types parsed against the program's manager so pointer
+// C declarations go through CParser with the replace handler; types parse against the program's manager so pointer
 // sizes follow its data organization.
 package corvus.ghidra;
 
@@ -77,16 +76,13 @@ final class TypeOps {
         final List<String> names = new ArrayList<>();
     }
 
-    /**
-     * Parses C declarations into the program's data type manager, one top-level declaration at a time so an error
-     * costs that declaration only; a type of the same name is replaced.
-     */
+    /** Parses C declarations one top-level declaration at a time, so an error costs only that one; same-named types are replaced. */
     static Parsed parseDeclarations(Worker w, String text) {
         Parsed result = new Parsed();
         CParser parser = new CParser(w.program.getDataTypeManager(), true, null);
         for (String statement : statements(text)) {
             Set<String> before = known(parser);
-            // C++ enum bases (enum E : unsigned char { ... }), which DWARF records, are not C: parsed without, then sized to the base
+            // C++ enum bases (enum E : unsigned char) are not C: parsed without, then sized to the base.
             java.util.regex.Matcher based = ENUM_BASE.matcher(statement);
             String enumName = null, enumBase = null;
             if (based.lookingAt()) {
@@ -225,7 +221,7 @@ final class TypeOps {
     static FunctionDefinitionDataType prototype(Program program, String text) {
         String t = text.trim();
         while (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
-        // IDA's __noreturn (or C's noreturn spellings) marks the function; Ghidra's parser takes no such keyword
+        // __noreturn and C's noreturn spellings mark the function; Ghidra's parser takes no such keyword.
         java.util.regex.Matcher noReturn = NO_RETURN.matcher(t);
         boolean exits = noReturn.find();
         if (exits) t = noReturn.replaceAll(" ").replaceAll("\\s+", " ").trim();
@@ -247,10 +243,7 @@ final class TypeOps {
     private static final java.util.regex.Pattern CONVENTION =
         java.util.regex.Pattern.compile("\\b__(cdecl|stdcall|fastcall|thiscall|vectorcall|pascal|regcall|swiftcall|usercall|userpurge)\\b");
 
-    /**
-     * Why a prototype was refused: a calling convention the compiler spec lacks (with the ones it has), else the parser's
-     * message from the last prototype() on this thread, else null.
-     */
+    /** Why a prototype was refused: a convention the compiler spec lacks, else the parser's last message on this thread, else null. */
     static String prototypeError(Program program, String text) {
         var names = new java.util.TreeSet<String>();
         for (var model : program.getCompilerSpec().getCallingConventions()) names.add(model.getName());
@@ -277,8 +270,7 @@ final class TypeOps {
             FunctionRenameOption.NO_CHANGE);
         if (!cmd.applyTo(w.program, r.monitor)) return cmd.getStatusMsg() == null ? "Ghidra did not apply the prototype" : cmd.getStatusMsg();
         Function f = fm.getFunctionAt(a);
-        // a prototype without a convention (DWARF, a plain C declaration) gets the compiler spec's default, not "unknown"
-        // with locked storage, which the decompiler warns about in every function
+        // A prototype without a convention gets the compiler spec's default; "unknown" with locked storage warns everywhere.
         if (Function.UNKNOWN_CALLING_CONVENTION_STRING.equals(f.getCallingConventionName())) {
             try { f.setCallingConvention(Function.DEFAULT_CALLING_CONVENTION_STRING); }
             catch (ghidra.util.exception.InvalidInputException e) { }
@@ -300,11 +292,9 @@ final class TypeOps {
     }
 
     /**
-     * Recovered types (PDB, RTTI classes, Il2Cpp). Args: decls (C text), prototypes [[rva, declaration]], classes
-     * {ptr, classes [{name, vftables [[offset, rva, [slots]]], bases [[name, offset]]}], methods [[rva, class]]},
-     * stamp_key, stamp. Builds a &lt;class&gt;_vftable struct per vftable (slots typed from their targets' signatures),
-     * a &lt;class&gt; struct (vftable pointers and base subobjects at their offsets), types the vftables and gives the
-     * methods a first argument this of the class's pointer type. Addresses the user typed are left alone.
+     * Recovered types (PDB, RTTI, metadata). Args: decls, prototypes [[rva, declaration]], classes {ptr, classes [{name,
+     * vftables [[offset, rva, [slots]]], bases [[name, offset]]}], methods [[rva, class]]}, stamp_key, stamp. Builds
+     * &lt;class&gt;_vftable and &lt;class&gt; structs and gives methods a this argument; user-typed addresses are left alone.
      */
     static JsonObject applyTypes(Worker w, Worker.Request r) {
         long start = System.nanoTime();
@@ -365,7 +355,7 @@ final class TypeOps {
         int ptr = model.has("ptr") ? model.get("ptr").getAsInt() : w.program.getDefaultPointerSize();
         List<JsonObject> classes = new ArrayList<>();
         for (JsonElement e : Worker.array(model, "classes")) classes.add(e.getAsJsonObject());
-        // empty structs first, so pointers to every class and vftable resolve
+        // Empty structs first, so pointers to every class and vftable resolve.
         Map<String, DataType> byName = new HashMap<>();
         for (JsonObject c : classes) {
             String name = c.get("name").getAsString();
@@ -385,7 +375,7 @@ final class TypeOps {
                 counts.skip("not_own_function");
                 continue;
             }
-            // a type set on purpose (PDB, user, a pushed prototype) is kept
+            // A type set on purpose (PDB, user, pushed prototype) is kept.
             if (user.contains(rva) || f.getSignatureSource() == SourceType.USER_DEFINED || f.getSignatureSource() == SourceType.IMPORTED) {
                 counts.skip("typed");
                 continue;
@@ -424,11 +414,11 @@ final class TypeOps {
                         counts.vftables++;
                     }
                     catch (Exception ex) {
-                        // code or other data in the way: the struct still describes the class
+                        // Code or other data in the way: the struct still describes the class.
                     }
                 }
             }
-            // vftable pointers, then base subobjects at their offsets (a base holds its own vftable pointer)
+            // Vftable pointers, then base subobjects at their offsets (a base holds its own vftable pointer).
             TreeMap<Integer, Object[]> members = new TreeMap<>();
             for (Map.Entry<Integer, DataType> v : vftables.entrySet())
                 members.put(v.getKey(), new Object[] { v.getKey() == 0 ? "__vftable" : "__vftable_" + Integer.toHexString(v.getKey()).toUpperCase(),
@@ -495,9 +485,8 @@ final class TypeOps {
     }
 
     /**
-     * A C type ("int[4]", "struct Packet *", "Handler *[8]") parsed against the program's types; null when it does not parse.
-     * Names Ghidra's parser rejects are looked up as C and Windows spellings (unsigned __int64, DWORD_PTR, LPCWSTR), as
-     * P/LP/LPC pointer typedefs of a known type, without the tag's leading underscore, and case-insensitively.
+     * A C type ("int[4]", "Handler *[8]") parsed against the program's types; null when it does not parse.
+     * Rejected names fall back to C and Windows spellings, P/LP/LPC typedefs, the tag without '_', and any case.
      */
     static DataType parseType(Worker w, String text) {
         String t = strip(text);
@@ -612,9 +601,8 @@ final class TypeOps {
     }
 
     /**
-     * The user's types. Args: decls [C text], types [[rva, prototype or type; "" clears]], stack [[function, offset,
-     * name, type]], locals [[function, local, stack offset or null, name, type]], stamp_key, stamp. Declarations
-     * without errors are kept and applied again after recovered types; typed addresses are left alone by them.
+     * The user's types. Args: decls, types [[rva, type; "" clears]], stack [[function, offset, name, type]], locals
+     * [[function, local, stack offset or null, name, type]], stamp_key, stamp. Clean declarations win over recovered types.
      */
     static JsonObject applyUserTypes(Worker w, Worker.Request r) throws Exception {
         long start = System.nanoTime();
@@ -691,7 +679,7 @@ final class TypeOps {
         if (function) {
             FunctionDefinitionDataType sig = prototype(w.program, decl);
             String why = prototypeError(w.program, decl);
-            // Ghidra applies a convention its compiler spec lacks as an unknown one: refused instead
+            // Ghidra applies a convention its compiler spec lacks as unknown: refused instead.
             if (why != null && why.startsWith("unknown calling convention")) return FrameOps.item("type", rva, decl, false, why, null, null, null);
             if (sig == null)
                 return FrameOps.item("type", rva, decl, false, why != null ? "the prototype does not parse: " + why
@@ -833,9 +821,8 @@ final class TypeOps {
     }
 
     /**
-     * Loads a PDB through Ghidra's PDB applicator (types, symbols, then function internals), unless trust_analysis and
-     * the auto-analysis loaded one already. On success the names and user-types stamps are dropped (the PDB's names and
-     * prototypes replace pushed ones), the stamp is recorded and the program saved by the caller.
+     * Loads a PDB through Ghidra's applicator unless trust_analysis and the analysis loaded one. On success the name and
+     * user-type stamps are dropped (the PDB replaces pushed ones) and the stamp recorded; the caller saves.
      */
     static JsonObject loadPdb(Worker w, Worker.Request r) throws Exception {
         long start = System.nanoTime();
@@ -854,7 +841,7 @@ final class TypeOps {
             loaded = fromAnalysis = true;
         }
         else {
-            // the analyzer runs inside an analysis session (the applicator keeps its state there) and skips a program marked loaded
+            // The analyzer needs an analysis session for its state and skips a program marked loaded.
             info.setBoolean(PdbParserConstants.PDB_LOADED, false);
             PdbUniversalAnalyzer.setPdbFileOption(w.program, file);
             AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(w.program);

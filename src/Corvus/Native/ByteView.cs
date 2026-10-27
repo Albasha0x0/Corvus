@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// Bounds-checked, endian-aware reads from a window of a file snapshot (offsets are relative to the window):
-/// out-of-range reads return 0 (or empty), never throw.
-/// </summary>
+/// <summary>Bounds-checked, endian-aware reads from a window of a file; out-of-range reads return 0 or empty.</summary>
 internal readonly struct ByteView
 {
     private readonly byte[] data;

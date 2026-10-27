@@ -3,11 +3,7 @@ using Corvus.Core.Pri;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=pri: a package resource index (resources.pri) read without the MRT API: format, resource maps, the qualifiers
-/// in use, then a page of named resources (table= keeps names containing the text; offset=, limit=) with each
-/// candidate's qualifiers, type and value: a string, a path in the package, or embedded data with its size and kind.
-/// </summary>
+/// <summary>view=pri: a package resource index's maps and qualifiers, then a page of resources with their candidates; table= filters names; offset=, limit= page.</summary>
 internal sealed class PriFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxValueChars = 500;

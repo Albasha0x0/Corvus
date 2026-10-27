@@ -42,7 +42,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>A bare record (the SDK puts its JSON in the text block): readable text from the same rows, the list envelope, no truncated.</summary>
     [Fact]
-    public async Task BareListRecordIsRenderedAndFitted()
+    public async Task A_bare_list_record_is_rendered_and_fitted()
     {
         using var services = Services();
         var record = Types(0, 2_000, 5_000);
@@ -71,7 +71,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>PageRows text with a record: both parts keep the same rows, the text re-rendered with the record's count.</summary>
     [Fact]
-    public async Task PagedTextAndRecordKeepTheSameRows()
+    public async Task Paged_text_and_record_keep_the_same_rows()
     {
         var options = new ServerOptions();
         using var services = Services(options);
@@ -94,7 +94,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>A tool whose text cannot be cut by rows is asked again for fewer rows, so both parts agree.</summary>
     [Fact]
-    public async Task ToolTextThatCannotBeCutIsAskedForFewerRows()
+    public async Task Tool_text_that_cannot_be_cut_is_asked_for_fewer_rows()
     {
         using var services = Services();
         var limits = new List<int>();
@@ -115,7 +115,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task LimitsAreCheckedAndClamped()
+    public async Task Limits_are_checked_and_clamped()
     {
         using var services = Services();
         var schema = Schema("limit", "offset");
@@ -140,7 +140,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>D2: a read-only report over its budget keeps its head and names the whole result; never an error.</summary>
     [Fact]
-    public async Task OversizedReportKeepsItsHeadAndAResultId()
+    public async Task An_oversized_report_keeps_its_head_and_a_result_ID()
     {
         using var services = Services();
         var big = string.Concat(Enumerable.Range(0, 5_000).Select(i => $"line {i} of the report with words\n"));
@@ -153,12 +153,9 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.Equal(big, services.GetRequiredService<ResultStore>().Read(id).Text);
     }
 
-    /// <summary>
-    /// A text page that fits beside a record that does not: the kept result is the record, not the page (whose own footer would
-    /// read as read_result's continuation), and the page is not shortened for a record it cannot fit.
-    /// </summary>
+    /// <summary>A page beside a record that does not fit: the kept result is the record, and the page is not shortened for it.</summary>
     [Fact]
-    public async Task OversizedRecordBesideAPageKeepsTheRecord()
+    public async Task An_oversized_record_beside_a_page_keeps_the_record()
     {
         var options = new ServerOptions();
         using var services = Services(options);
@@ -182,7 +179,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>A record cut by shortening a long string (a read_result page) names that string in its warning.</summary>
     [Fact]
-    public async Task ShortenedStringIsNamedInTheWarning()
+    public async Task A_shortened_string_is_named_in_the_warning()
     {
         using var services = Services();
         var code = string.Concat(Enumerable.Range(0, 2_000).Select(i => $"line {i}\n"));
@@ -197,7 +194,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     /// <summary>N9: a 20,000-node record is cut to its budget in a few passes (one pass per dropped row took 87 s).</summary>
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task HugeRecordIsCutQuickly()
+    public async Task A_huge_record_is_cut_within_its_time_budget()
     {
         using var services = Services();
         var nodes = Enumerable.Range(0, 20_000).Select(i => new { address = $"0x{i:X8}", name = $"sub_{i:X8}", depth = i % 7, callees = new[] { $"0x{i + 1:X8}", $"0x{i + 2:X8}" } }).ToList();
@@ -220,7 +217,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>S2: a report record cut to its budget names every array that lost entries; the tool's own warnings stay first.</summary>
     [Fact]
-    public async Task CutReportRecordNamesWhatItDropped()
+    public async Task A_cut_report_record_names_what_it_dropped()
     {
         using var services = Services();
         var sections = Enumerable.Range(0, 6).Select(i => new { name = $"s{i}", fields = Enumerable.Range(0, 40).Select(j => $"field {j} of section {i} with some words").ToArray() }).ToArray();
@@ -241,7 +238,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>An error over the error budget (160 compiler diagnostics) sends its head and keeps the full error (S1.3, G1).</summary>
     [Fact]
-    public async Task LongErrorKeepsItsHeadWithinTheErrorBudget()
+    public async Task A_long_error_keeps_its_head_within_the_error_budget()
     {
         using var services = Services();
         var message = "C# compilation failed (160 error(s)). Nothing was changed.\n" +
@@ -262,7 +259,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>maxTokens raises the page up to the client ceiling; below 500 it is an argument error.</summary>
     [Fact]
-    public async Task MaxTokensSetsTheBudget()
+    public async Task Max_tokens_sets_the_budget()
     {
         Assert.Equal(6_000, CallFilter.Budget("list_types", null, null));
         Assert.Equal(8_000, CallFilter.Budget("decompile_member", null, null));
@@ -276,7 +273,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task TextPagesCarryTheirPositionAndBody()
+    public async Task Text_pages_carry_their_position_and_body()
     {
         var options = new ServerOptions();
         using var services = Services(options);
@@ -299,7 +296,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task NoticesComeLastInBothParts()
+    public async Task Notices_come_last_in_both_parts()
     {
         var options = new ServerOptions();
         var workspace = new AssemblyWorkspace(options);
@@ -317,7 +314,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>S4.1 (c): an "Incomplete:" line of the tool's text reaches the record as a warning.</summary>
     [Fact]
-    public async Task IncompleteTextBecomesAWarning()
+    public async Task Incomplete_text_becomes_a_warning()
     {
         using var services = Services();
         var r = await Call(services, "search_strings", _ => new CallToolResult
@@ -329,7 +326,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task JsonModeSendsTheRecordAsText()
+    public async Task JSON_mode_sends_the_record_as_text()
     {
         using var services = Services();
         Environment.SetEnvironmentVariable(CallFilter.ResultModeVariable, "json");
@@ -345,7 +342,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task ProvenanceNamesInputsAndRecomputes()
+    public async Task Provenance_names_inputs_and_recomputes()
     {
         using var services = Services();
         var r = await Call(services, "get_pe_info", _ => new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.With("summary\n", new { name = "x" }) }] },
@@ -409,7 +406,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>An error carries provenance too (inputs, tool, arguments, version), without a result hash or coverage.</summary>
     [Fact]
-    public async Task ErrorsCarryProvenance()
+    public async Task Errors_carry_provenance()
     {
         using var services = Services();
         var r = await Call(services, "get_pe_info", _ => throw new ToolError(ErrorCode.Unsupported, "not a PE"), new() { ["path"] = Env.FixturePath });
@@ -429,7 +426,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     [InlineData("get_pe_info", true, true)]
     [InlineData("a_tool_added_later", false, true)]
     [InlineData("server_status", false, false)]
-    public async Task FileDerivedResultsAreMarkedUntrusted(string tool, bool error, bool marked)
+    public async Task File_derived_results_are_marked_untrusted(string tool, bool error, bool marked)
     {
         using var services = Services();
         var r = await Call(services, tool, _ => error ? throw new ToolError(ErrorCode.Unsupported, "not a PE")
@@ -440,7 +437,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void SchemasGetTheEnvelope()
+    public void Schemas_get_the_envelope()
     {
         var root = JsonNode.Parse("""
             {"type":"object","properties":{"items":{"type":"array"},"offset":{"type":"integer"},"total":{"type":"integer"},"truncated":{"type":"boolean"},
@@ -455,7 +452,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>Rows under another name (get_call_arguments's calls) get the list envelope and the text shows the same rows.</summary>
     [Fact]
-    public async Task NamedRowArraysAreLists()
+    public async Task Named_row_arrays_are_lists()
     {
         using var services = Services();
         var entries = Enumerable.Range(0, 3_000).Select(i => new { path = $"lib/Module{i}.dll", status = "changed", detail = $"0x{i:X8} bytes differ" }).ToArray();
@@ -471,7 +468,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>A list without a row offset (get_call_tree) drops truncated and continues through a kept result.</summary>
     [Fact]
-    public async Task ListsWithoutARowOffsetContinueThroughAResultId()
+    public async Task Lists_without_a_row_offset_continue_through_a_result_ID()
     {
         using var services = Services();
         var record = new { root = "A::B", items = Enumerable.Range(0, 5).Select(i => new { label = $"n{i}" }).ToArray(), total = 9, truncated = true };
@@ -487,7 +484,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>A text tool declaring TextPageRecord gets its page, offset, nextOffset and totalChars as the record.</summary>
     [Fact]
-    public async Task TextToolsGetAPageRecord()
+    public async Task Text_tools_get_a_page_record()
     {
         var options = new ServerOptions();
         using var services = Services(options);
@@ -508,7 +505,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>A missing input path reads the same in every tool: the shared file text, or its directory twin for folder parameters.</summary>
     [Fact]
-    public async Task MissingPathsShareOneText()
+    public async Task Missing_paths_share_one_text()
     {
         using var dir = new TempDir();
         var missing = dir.File("no-such");
@@ -524,7 +521,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>Timings (compare_folders' seconds) leave the record for _meta, so equal calls give equal records.</summary>
     [Fact]
-    public async Task TimingsMoveToMeta()
+    public async Task Timings_move_to_meta()
     {
         using var services = Services();
         var record = JsonSerializer.SerializeToElement(new { view = "changed", seconds = 1.25 });
@@ -535,7 +532,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>Every list-shaped output schema has its rows where the filter looks for them.</summary>
     [Fact]
-    public void EveryPagedSchemaNamesItsRows()
+    public void Every_paged_schema_names_its_rows()
     {
         var missing = Catalog.OfThisBuild(Corvus.Core.Toolsets.All).Tools
             .Where(t => t["outputSchema"]?["properties"] is JsonObject props && props["offset"] is not null && props["total"] is not null && !ToolOutput.IsListSchema(props, (string)t["name"]!))
@@ -544,7 +541,7 @@ public class ToolOutputTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void RendererAlignsRowsAndEscapesMarkers()
+    public void The_renderer_aligns_rows_and_escapes_markers()
     {
         var record = JsonNode.Parse("""{"image":"a.dll","items":[{"name":"x","size":1},{"name":"Error (oops)","size":22}],"offset":0,"total":2}""")!.AsObject();
         var text = RecordText.Render(record, (0, 2, 2, false, 2));
@@ -555,7 +552,7 @@ public class ToolOutputTests(ITestOutputHelper output)
 
     /// <summary>Fields past the column cap (dump_stack's token, ilOffset) stay in the text as one key=value cell.</summary>
     [Fact]
-    public void RendererKeepsFieldsPastTheColumnCap()
+    public void The_renderer_keeps_fields_past_the_column_cap()
     {
         var row = new JsonObject();
         for (int i = 0; i < 12; i++) row[$"c{i}"] = i;

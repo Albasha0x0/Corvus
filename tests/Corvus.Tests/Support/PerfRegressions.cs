@@ -4,12 +4,7 @@ using System.Xml.Linq;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The perf run's comparison with Ratchets/perf-baseline.txt: the <c>perf:</c> lines of each sample (a TRX file), the worst
-/// value of a name within a sample (the largest for a <c>&lt;=</c> budget, the smallest for a <c>&gt;=</c> rate), the median
-/// over the samples, and a regression when that median is more than <see cref="Factor"/> times past the baseline.
-/// test.ps1 -Perf runs it as <c>dotnet exec Corvus.Tests.dll --perf-regressions trx...</c>.
-/// </summary>
+/// <summary>Compares the perf: lines of TRX samples with Ratchets/perf-baseline.txt: a median past <see cref="Factor"/> times the baseline regresses (<c>--perf-regressions trx...</c>).</summary>
 internal static partial class PerfRegressions
 {
     public const string Flag = "--perf-regressions";

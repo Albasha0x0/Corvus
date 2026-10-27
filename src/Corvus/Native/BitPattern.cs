@@ -1,10 +1,6 @@
 namespace Corvus.Native;
 
-/// <summary>
-/// A byte pattern with a bit mask per byte (0xFF fixed, 0x00 any, else only the set bits must match). Candidates come
-/// from a vectorized search for the longest run of fixed bytes, else for a byte whose fixed bits are its high bits (a value
-/// range), else every position is tried.
-/// </summary>
+/// <summary>A byte pattern with a bit mask per byte: 0xFF fixed, 0x00 any, else only the set bits must match.</summary>
 public sealed class BitPattern
 {
     private readonly byte[] _bytes, _mask;
@@ -26,7 +22,7 @@ public sealed class BitPattern
         for (int i = 0, best = 0; i < mask.Length; i++)
         {
             int fixedBits = byte.PopCount(mask[i]);
-            // high bits only: the matching values are one range
+            // High bits only, so the matching values form one range.
             if (fixedBits > best && (byte)(0xFF << (8 - fixedBits)) == mask[i]) (_rangeAt, best) = (i, fixedBits);
         }
     }

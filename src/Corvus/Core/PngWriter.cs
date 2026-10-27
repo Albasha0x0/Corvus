@@ -34,10 +34,7 @@ internal static class PngWriter
         return output.ToArray();
     }
 
-    /// <summary>
-    /// Straight-alpha RGBA from premultiplied RGBA, in place: a transparent pixel becomes zero, and each color of a
-    /// translucent one is scaled to (color * 0xFFFF / alpha) >> 8, as Go's image/png writes premultiplied pixels.
-    /// </summary>
+    /// <summary>Converts premultiplied RGBA to straight alpha in place, as Go's image/png does.</summary>
     public static void Unpremultiply(Span<byte> rgba)
     {
         for (int i = 0; i + 3 < rgba.Length; i += 4)

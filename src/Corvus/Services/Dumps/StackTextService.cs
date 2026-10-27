@@ -8,13 +8,9 @@ using Corvus.Native.Dump;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Crash text without a dump: Unity Player.log / error.log backtraces, Mono and Il2Cpp managed lines, .NET exception
-/// text, WER Report.wer, Event Log 1000/1026 text and debugger stacks. Each frame is resolved against the loaded build
-/// (native images through their code index and Il2Cpp names, managed frames by MVID or name) and checked for being
-/// that build: time stamps, MVIDs, and the names the text gives against ours.
-/// </summary>
-public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeService? code = null, Il2CppNavigator? navigator = null, DecompilerService? decompiler = null)
+/// <summary>Symbolizes crash text (runtime logs, .NET exception text, WER, Event Log, debugger stacks) against the loaded
+/// build, checking each frame's build by time stamp, build id, MVID or name.</summary>
+public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeService? code = null, AotNavigator? navigator = null, DecompilerService? decompiler = null)
 {
     /// <summary>Managed frames per call whose IL offset is mapped to a C# statement (each decompiles its method once).</summary>
     public const int MaxStatements = 30;
@@ -36,10 +32,10 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         int Index,
         [property: Description("Line of the text (0 for a frame built from WER or Event Log fields).")] int Line,
         string Raw,
-        [property: Description("native, managed or il2cpp.")] string Kind,
+        [property: Description("native, managed or aot.")] string Kind,
         string? Module, string? Offset, string? Address,
         [property: Description("Our name for the frame: function+0xoffset, or the managed method.")] string? Resolved,
-        [property: Description("user, pdb, il2cpp, export, discovered, nearest_export, metadata, or none.")] string? Source,
+        [property: Description("user, pdb, metadata, export, discovered, nearest_export or none.")] string? Source,
         [property: Description("Id of the loaded native image the frame resolved in.")] string? Image,
         [property: Description("Id of the loaded assembly the method resolved in.")] string? Assembly,
         string? Token, int? IlOffset,
@@ -56,7 +52,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("Frames in that module.")] int Frames);
 
     public sealed record SymbolizedStack(
-        [property: Description("The format recognized (unity, dotnet, wer, eventlog, windbg, android), or the one requested.")] string Format,
+        [property: Description("The format recognized (mono, dotnet, wer, eventlog, windbg, android), or the one requested.")] string Format,
         SymbolizedException? Exception,
         [property: Description("Frames in the text; rows (total) are fewer when compact folds frames.")] int Frames,
         IReadOnlyList<SymbolizedFrame> Items, int Offset, int Total,
@@ -204,7 +200,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             var value = eq > 0 ? item[(eq + 1)..].Trim() : "";
             if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) value = value[2..];
             if (eq <= 0 || !ulong.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
-                throw new ToolError(ErrorCode.InvalidArgument, $"moduleBases: '{item}' is not name=0xBASE.", "for example GameAssembly.dll=0x7FFB0C3F0000;UnityPlayer.dll=0x7FFB0A000000");
+                throw new ToolError(ErrorCode.InvalidArgument, $"moduleBases: '{item}' is not name=0xBASE.", "for example app.exe=0x7FF6A0000000;core.dll=0x7FFB0A000000");
             bases[item[..eq].Trim()] = b;
         }
         return bases;
@@ -260,7 +256,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
 
         var index0 = await Index(native, ct);
         uint size = native.Image.SizeOfImage;
-        // module!function+0x.. : the function by name, then the offset inside it
+        // module!function+0x..: the function by name, then the offset inside it.
         if (rva == null && f.Symbol != null)
         {
             var start = index0?.AddressesOfName(f.Symbol) is [var one] ? one.Rva
@@ -338,7 +334,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         catch (ToolError) { return null; }
     }
 
-    /// <summary>Our name at an RVA: user, PDB, Il2Cpp and discovered names, then the nearest export below.</summary>
+    /// <summary>Our name at an RVA: user, PDB, metadata and discovered names, then the nearest export below.</summary>
     private (string? Name, string? Source) Name(LoadedNative native, NativeCodeIndex? index, uint rva)
     {
         (string Name, string Source, uint Start)? found = null;
@@ -347,9 +343,9 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             var sourced = index.Sourced.NameAt(f.Start);
             found = (index.NameAt(f.Start) ?? f.Name, sourced is { } sn ? sn.Source.ToString().ToLowerInvariant() : f.KnownName != null ? "export" : "discovered", f.Start);
         }
-        // a method's range runs to the next method, over the runtime's own code between: the index's function bounds it
-        if (found is not { Source: "user" } && navigator?.FrameName(rva, Path.GetFileName(native.FilePath), native) is { } il2cpp && (found == null || found.Value.Start == il2cpp.Start))
-            found = il2cpp;
+        // A metadata method's range runs to the next method; the index's function bounds it.
+        if (found is not { Source: "user" } && navigator?.FrameName(rva, Path.GetFileName(native.FilePath), native) is { } aot && (found == null || found.Value.Start == aot.Start))
+            found = aot;
         if (found == null && native.Image.Exports.Where(e => e.ForwardedTo == null && e.Rva <= rva && e.Name != null).MaxBy(e => e.Rva) is { } export)
             found = (export.Name!, "nearest_export", export.Rva);
         if (found is not { } n) return (null, "none");
@@ -367,7 +363,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         {
             var match = Resolve(f, missing);
             string? s = null;
-            // a statement only where the IL is the one that ran (the same build) or no build check is possible
+            // Map a statement only where the IL is the one that ran, or no build check is possible.
             if (statement && decompiler != null && f.IlOffset is { } il && match is { Target: { } t, Kind: "managed", Check: not "mismatch" })
             {
                 try { s = decompiler.StatementAt(t.Assembly, t.Method, il, ct)?.Text; }
@@ -419,9 +415,9 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         if (pick.Count > 1) detail = (detail == null ? "" : detail + "; ") + $"{pick.Count} overloads with {arity} parameters: the first is shown";
         var method = pick[0];
         var token = $"0x{method.MDToken.Raw:X8}";
-        bool il2cpp = navigator?.ImageOf(asm) != null;
-        return new(il2cpp ? "il2cpp" : "managed", Format.MemberLabel(method), asm.Id, token, check, detail,
-            il2cpp ? $"get_il2cpp_info assembly={asm.Id} symbol={token}" : $"decompile_member assembly={asm.Id} member={token}") { Target = (asm, method) };
+        bool aot = navigator?.ImageOf(asm) != null;
+        return new(aot ? "aot" : "managed", Format.MemberLabel(method), asm.Id, token, check, detail,
+            aot ? $"get_method_addresses assembly={asm.Id} symbol={token}" : $"decompile_member assembly={asm.Id} member={token}") { Target = (asm, method) };
     }
 
     private static TypeDef? Find(LoadedAssembly asm, string typeName) =>

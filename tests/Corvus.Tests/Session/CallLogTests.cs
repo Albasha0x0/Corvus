@@ -26,7 +26,7 @@ public class CallLogTests
     }
 
     [Fact]
-    public async Task EachCallLogsToolOutcomeAndTime()
+    public async Task Each_call_logs_its_tool_outcome_and_time()
     {
         var capture = new Capture();
         // The server's default level: the line is always on.
@@ -53,7 +53,7 @@ public class CallLogTests
 
     /// <summary>The fields a JSON log (CORVUS_LOG_FORMAT=json) writes per call: these and no argument value.</summary>
     [Fact]
-    public async Task LogLineFieldsAreFixed()
+    public async Task Log_line_fields_are_fixed()
     {
         var capture = new Capture();
         using var services = new ServiceCollection().AddLogging(b => b.AddProvider(capture)).BuildServiceProvider();
@@ -85,13 +85,13 @@ public class CallLogTests
     [InlineData("code", "key AKIAABCDEFGHIJKLMNOP; jwt eyJhbGciOiJI.eyJzdWIiOiIx.c2lnbmF0dXJl", "key [redacted]; jwt [redacted]")]
     [InlineData("member", "Ns.TokenReader::Read(string)", "Ns.TokenReader::Read(string)")]
     [InlineData("query", "password", "password")]
-    public void TraceMasksSecretsInArguments(string name, string value, string expected)
+    public void Trace_masks_secrets_in_arguments(string name, string value, string expected)
     {
         var buffer = new MemoryStream();
         using (var w = new System.Text.Json.Utf8JsonWriter(buffer))
             Redaction.Write(w, System.Text.Json.JsonSerializer.SerializeToElement(new[] { value }), null);
         var array = System.Text.Json.JsonDocument.Parse(buffer.ToArray()).RootElement;
-        // by name only when the name says so, in text always
+        // By name only when the name says so, in text always.
         var named = new MemoryStream();
         using (var w = new System.Text.Json.Utf8JsonWriter(named))
         {
@@ -108,8 +108,7 @@ public class CallLogTests
     [Fact]
     public void A_text_of_a_million_letters_is_masked_within_seconds()
     {
-        // Each URL scheme candidate scanned to the end of the run before: about 4 s for 400,000 letters, quadratic.
-        // Thread CPU time, so a busy machine that deschedules the test does not count.
+        // The scan was quadratic: about 4 s for 400,000 letters. Thread CPU time, so descheduling does not count.
         var cpu = ThreadCpuClock.Now();
         Assert.Equal(1_000_000, Redaction.Text(new string('F', 1_000_000)).Length);
         var took = ThreadCpuClock.Now() - cpu;
@@ -118,7 +117,7 @@ public class CallLogTests
     }
 
     [Fact]
-    public async Task TraceWritesOneJsonLinePerCall_WhenAsked()
+    public async Task Trace_writes_one_JSON_line_per_call_when_asked()
     {
         using var dir = new TempDir();
         var path = dir.File("calls.jsonl");
@@ -135,7 +134,7 @@ public class CallLogTests
         var lines = File.ReadAllLines(path).Select(l => System.Text.Json.JsonDocument.Parse(l).RootElement).ToList();
         Assert.Equal(2, lines.Count);
         Assert.Equal("decompile_member", lines[0].GetProperty("tool").GetString());
-        // names only without --trace-args
+        // Names only without --trace-args.
         Assert.False(lines[0].TryGetProperty("args", out _));
         Assert.Equal("type", lines[0].GetProperty("argNames")[0].GetString());
         Assert.DoesNotContain("Ns.Type", File.ReadAllText(path));
@@ -153,14 +152,14 @@ public class CallLogTests
         var last = System.Text.Json.JsonDocument.Parse(File.ReadAllLines(path)[^1]).RootElement;
         Assert.Equal("Ns.Type", last.GetProperty("args").GetProperty("type").GetString());
 
-        // off by default; never an engine database
+        // Off by default; never an engine database.
         Assert.Null(ServerOptions.Parse([]).TracePath);
         Assert.False(ServerOptions.Parse([]).TraceArguments);
         Assert.Throws<ArgumentException>(() => ServerOptions.Parse([ServerOptions.TraceOption, dir.File("app.i64")]));
     }
 
     [Fact]
-    public void LogLevelOption()
+    public void The_log_level_option_parses_and_rejects_unknown_levels()
     {
         Assert.Equal(LogLevel.Information, ServerOptions.Parse([]).LogLevel);
         Assert.Equal(LogLevel.Debug, ServerOptions.Parse(["--log-level", "Debug"]).LogLevel);

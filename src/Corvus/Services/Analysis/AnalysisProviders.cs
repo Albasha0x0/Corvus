@@ -3,7 +3,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Services.Analysis;
 
-// Provider interfaces of the containers family, found by Core.Providers (type scan): a new view, search kind or rule set is a class in its own file.
+// Core.Providers finds these by type scan: a new view, search kind or rule set is one class in its own file.
 
 /// <summary>A view's facts: <see cref="Detail"/> is its record (serialized as the view's detail), highlights feed the overview.</summary>
 public sealed record FileView(object Detail, IReadOnlyList<string> Highlights);
@@ -66,7 +66,7 @@ public interface IContainerSearchKind
     /// <summary>Matches of <paramref name="kind"/>; <paramref name="matches"/> tests a name against the query.</summary>
     IEnumerable<ContainerMatch> Search(ContainerScope scope, string kind, Func<string, bool> matches, CancellationToken ct);
 
-    /// <summary>A kind that reads the file itself, streamed at any size, and pages its own rows in file order; null searches the container's files.</summary>
+    /// <summary>Streams and pages the file itself, in file order; null searches the container's files instead.</summary>
     UnpackService.ContainerSearch? SearchFile(string path, string query, int offset, int limit, ContainerSearchArgs args, CancellationToken ct) => null;
 }
 
@@ -77,10 +77,7 @@ public sealed record SurveySubject(ModuleScan? Managed, NativeCodeIndex? Native)
     public MobileSubject? Mobile { get; init; }
 }
 
-/// <summary>
-/// survey_features rules beyond the built-in set (<see cref="Features.Rules"/>), in the same feature syntax; a provider may
-/// add feature kinds ("kind:pattern") and evaluate them itself.
-/// </summary>
+/// <summary>survey_features rules beyond <see cref="Features.Rules"/>; a provider may add and evaluate its own feature kinds.</summary>
 public interface ISurveyRuleProvider
 {
     IEnumerable<Features.Rule> Rules { get; }

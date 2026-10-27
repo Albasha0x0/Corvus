@@ -68,7 +68,7 @@ public sealed class FunctionDossierTests : IDisposable
             text = LinkedImages.Text;
             return stream.ToArray();
         }
-        // a first pass learns the function offsets for the export table
+        // A first pass learns the function offsets for the export table.
         LinkedImages.Build("dossier.dll", [], [("KERNEL32.dll", ["CreateFileW"])], Code, Strings);
         var path = dir.File("dossier.dll");
         File.WriteAllBytes(path, LinkedImages.Build("dossier.dll", [("Main", (int)(at!["Main"] - text!.Value)), ("Helper", (int)(at["Helper"] - text.Value))],
@@ -161,7 +161,7 @@ public sealed class FunctionDossierTests : IDisposable
             a.sub(rsp, 0x28);
             a.xor(ecx, ecx);
             a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base + exit), 8)));
-            // the body goes on: a no-return guess would cut it here
+            // The body goes on: a no-return guess would cut it here.
             a.mov(eax, 1);
             a.add(rsp, 0x28);
             a.ret();
@@ -175,7 +175,7 @@ public sealed class FunctionDossierTests : IDisposable
         NativeLinkTests.Has(first, "the body may be cut at 0x");
         NativeLinkTests.Has(first, "by the call to KERNEL32!ExitProcess");
         Assert.Contains("warning: the body may be cut", first);
-        // a repeat answered from the cache carries the same warning (G2-B1)
+        // A repeat answered from the cache carries the same warning (G2-B1).
         Assert.Equal(first, await Answer(() => tools.AnalyzeNativeFunction(path, "Main", sections: "flow")));
     }
 
@@ -247,7 +247,7 @@ public sealed class FunctionDossierTests : IDisposable
         var flow = await tools.AnalyzeNativeFunction(path, "Helper", sections: "flow");
         Assert.Contains("== flow", flow);
         Assert.DoesNotContain("== identity", flow);
-        // no engine in this server: pseudocode reports why, the rest is there
+        // No engine in this server: pseudocode reports why, the rest is there.
         var both = await tools.AnalyzeNativeFunction(path, "Helper", sections: "identity,callers", pseudocode: true);
         NativeLinkTests.Has(both, "== pseudocode ==\n  error: no decompiler engine is set up in this server");
         NativeLinkTests.Has(both, "== callers (");
@@ -255,7 +255,7 @@ public sealed class FunctionDossierTests : IDisposable
         NativeLinkTests.Has(params_, "parameter 1 (rcx): L\"config.ini\"");
         var e = await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeNativeFunction(path, "Helper", sections: "identity,nonsense"));
         Assert.Equal(ErrorCode.InvalidArgument, e.Code);
-        // a second call (a later page) is served from the cache, text and record alike
+        // A second call (a later page) is served from the cache, text and record alike.
         var first = ToolOutput.Collect();
         await tools.AnalyzeNativeFunction(path, "Helper", sections: "flow,callers");
         var second = ToolOutput.Collect();
@@ -404,9 +404,9 @@ public sealed class FunctionDossierTests : IDisposable
         File.WriteAllBytes(path, SyntheticCrashX86.Pe32("frame32.dll", 0x10000000, _ =>
         {
             var text = new byte[0x40];
-            // Local: push ebp; mov ebp, esp; push ecx; mov dword [ebp-4], 5; mov eax, [ebp-4]; mov esp, ebp; pop ebp; ret
+            // Local: push ebp; mov ebp, esp; push ecx; mov dword [ebp-4], 5; mov eax, [ebp-4]; mov esp, ebp; pop ebp; ret.
             new byte[] { 0x55, 0x8B, 0xEC, 0x51, 0xC7, 0x45, 0xFC, 5, 0, 0, 0, 0x8B, 0x45, 0xFC, 0x8B, 0xE5, 0x5D, 0xC3 }.CopyTo(text, 0);
-            // Method: push ebp; mov ebp, esp; push ecx; mov [ebp-4], ecx; mov eax, [ebp-4]; mov eax, [eax]; mov esp, ebp; pop ebp; ret
+            // Method: push ebp; mov ebp, esp; push ecx; mov [ebp-4], ecx; mov eax, [ebp-4]; mov eax, [eax]; mov esp, ebp; pop ebp; ret.
             new byte[] { 0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x8B, 0x45, 0xFC, 0x8B, 0x00, 0x8B, 0xE5, 0x5D, 0xC3 }.CopyTo(text, 0x20);
             return text;
         }, [("Local", 0x1000), ("Method", 0x1020)], null));

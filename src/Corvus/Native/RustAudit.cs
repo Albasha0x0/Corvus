@@ -7,10 +7,7 @@ namespace Corvus.Native;
 /// <summary>A crate of a cargo-auditable dependency list: kind is "runtime" or "build"; dependencies index the package list.</summary>
 public sealed record RustPackage(string Name, string Version, string Source, string Kind, bool Root, IReadOnlyList<int> Dependencies);
 
-/// <summary>
-/// The dependency list cargo-auditable embeds in a Rust binary: section .dep-v0 (ELF, PE) or __DATA,.dep-v0 (Mach-O),
-/// zlib-compressed JSON {"packages":[{name, version, source, kind, dependencies, root}]}. Decompression is bounded.
-/// </summary>
+/// <summary>The cargo-auditable dependency list (zlib JSON in section .dep-v0) of a Rust binary; decompression is bounded.</summary>
 public sealed class RustAudit
 {
     public const int MaxCompressed = 4 << 20, MaxJson = 16 << 20, MaxPackages = 20_000;

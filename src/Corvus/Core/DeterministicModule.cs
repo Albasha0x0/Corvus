@@ -8,11 +8,8 @@ using dnlib.DotNet.Writer;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Writes a generated module so that the same content gives the same bytes: the MVID and the PE timestamp come from a
-/// hash of the image written with both zeroed, as a deterministic compiler build sets them. Saves of an edited assembly
-/// do not use it: they keep the original's MVID and timestamp, so the result stays bound to the build it came from.
-/// </summary>
+/// <summary>Writes a generated module deterministically: MVID and timestamp come from a hash, as a deterministic build sets them.</summary>
+/// <remarks>Edited assemblies keep the original's MVID and timestamp instead, so they stay bound to their build.</remarks>
 public static class DeterministicModule
 {
     public static byte[] Write(ModuleDef module, ILogger logger)
@@ -28,7 +25,7 @@ public static class DeterministicModule
         }
         var hash = SHA256.HashData(image);
         var mvid = new Guid(hash.AsSpan(0, 16));
-        // high bit set, as Roslyn marks a deterministic timestamp that is not a time
+        // High bit set, as Roslyn marks a deterministic timestamp that is not a time.
         uint stamp = BinaryPrimitives.ReadUInt32LittleEndian(hash.AsSpan(16)) | 0x8000_0000;
         int mvidOffset, stampOffset;
         using (var pe = new PEReader(new MemoryStream(image)))

@@ -8,10 +8,7 @@ using OperandType = dnlib.DotNet.Emit.OperandType;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Method bodies and signature blobs of an image exactly as stored, read with System.Reflection.Metadata. Used to keep
-/// what an edit did not touch byte-for-byte when the module is written again, and to check that it was.
-/// </summary>
+/// <summary>Method bodies and signature blobs exactly as stored, to keep untouched bytes on write and verify them.</summary>
 internal sealed class RawImage : IDisposable
 {
     /// <summary>A method body as stored: header and IL, and the exception sections that follow (padding excluded).</summary>
@@ -63,7 +60,8 @@ internal sealed class RawImage : IDisposable
         var def = Metadata.GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(rid));
         int rva;
         try { rva = def.RelativeVirtualAddress; }
-        catch (BadImageFormatException) { rva = -1; } // above 2 GB: no image is that large
+        // Above 2 GB: no image is that large.
+        catch (BadImageFormatException) { rva = -1; }
         return new MethodRow(rva, def.ImplAttributes);
     }
 

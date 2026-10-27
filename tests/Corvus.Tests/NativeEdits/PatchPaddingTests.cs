@@ -15,16 +15,16 @@ public class PatchPaddingTests
     }
 
     [Fact]
-    public void X86PadsWith0x90() => Assert.Equal([0, 0x90, 0x90], Pad(NativeArch.X64, 1, 3));
+    public void X86_pads_with_0x90() => Assert.Equal([0, 0x90, 0x90], Pad(NativeArch.X64, 1, 3));
 
     [Fact]
-    public void Arm64PadsWithWholeNops() => Assert.Equal([0, 0, 0, 0, 0x1F, 0x20, 0x03, 0xD5], Pad(NativeArch.Arm64, 4, 8));
+    public void ARM64_pads_with_whole_nops() => Assert.Equal([0, 0, 0, 0, 0x1F, 0x20, 0x03, 0xD5], Pad(NativeArch.Arm64, 4, 8));
 
     [Fact]
-    public void Arm64RefusesPartialInstructions() =>
+    public void ARM64_refuses_partial_instructions() =>
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => Pad(NativeArch.Arm64, 2, 8)).Code);
 
     [Fact]
-    public void OtherArchitecturesRefusePadding() =>
+    public void Other_architectures_refuse_padding() =>
         Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Pad(NativeArch.Arm, 2, 4)).Code);
 }

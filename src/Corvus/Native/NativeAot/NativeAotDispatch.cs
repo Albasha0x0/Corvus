@@ -11,12 +11,7 @@ public sealed record NativeAotDispatchCell(uint Rva, uint Interface, string Inte
 /// <summary>A type's code for an interface slot, from its dispatch map.</summary>
 public sealed record NativeAotImplementation(uint Type, string TypeName, uint Code);
 
-/// <summary>
-/// Interface dispatch in a NativeAOT module. Cells (InterfaceDispatchCellNode.cs, InterfaceDispatchCellSectionNode.cs,
-/// .NET 7–10): two pointers each, the initial dispatch stub and a 32-bit relative pointer to the interface MethodTable
-/// with flags in its low bits (3: direct, 2: through an indirection cell); runs of cells of one slot end with a null
-/// pointer and the slot number. Interface method names come from the named implementations in the dispatch maps.
-/// </summary>
+/// <summary>Interface dispatch cells of a NativeAOT module (.NET 7-10), named from the dispatch maps.</summary>
 public sealed class NativeAotDispatch
 {
     private const int MaxRun = 64;
@@ -59,7 +54,8 @@ public sealed class NativeAotDispatch
                 list.Add(new NativeAotImplementation(t.Rva, t.Name, impl.Code));
                 if (!aot.Names.MethodAt.TryGetValue(impl.Code, out var named)) continue;
                 var vote = (Definition(Name(impl.Interface)), impl.InterfaceSlot);
-                var method = named.Name.Name[(named.Name.Name.LastIndexOf('.') + 1)..]; // explicit implementations: "Ns.IFoo.Bar" -> "Bar"
+                // Explicit implementations: "Ns.IFoo.Bar" -> "Bar".
+                var method = named.Name.Name[(named.Name.Name.LastIndexOf('.') + 1)..];
                 if (!votes.TryGetValue(vote, out var counts)) votes[vote] = counts = new(StringComparer.Ordinal);
                 counts[method] = counts.GetValueOrDefault(method) + 1;
             }
@@ -105,10 +101,7 @@ public sealed class NativeAotDispatch
         return dispatch;
     }
 
-    /// <summary>
-    /// Pointer-aligned data addresses followed by a tagged relative pointer (low bits 2 or 3); the stub pointer is not
-    /// required, ELF images bind it by symbol.
-    /// </summary>
+    /// <summary>Pointer-aligned cells with a tagged relative pointer; the stub pointer is optional since ELF binds it by symbol.</summary>
     private static IEnumerable<uint> Candidates(NativeAotImage aot, CancellationToken ct)
     {
         var image = aot.Hydrated;
@@ -128,12 +121,7 @@ public sealed class NativeAotDispatch
         }
     }
 
-    /// <summary>
-    /// The runs of the cell section: the cluster of runs with the most cells, a run joining the cluster when it starts
-    /// within <c>MaxGap</c> bytes of the previous run's terminator. ILC emits every cell into one section, so a run
-    /// outside it is data that reads as a cell (seen in the embedded metadata of a .NET 10.0.14 win-x86 build). Empty
-    /// when there are no runs.
-    /// </summary>
+    /// <summary>The largest cluster of cell runs (gaps up to <c>MaxGap</c>); ILC emits one cell section, so others are data; empty when none.</summary>
     private static List<(List<(uint Cell, uint Iface)> Cells, int Slot)> Section(List<(List<(uint Cell, uint Iface)> Cells, int Slot)> runs, uint ptr)
     {
         // Room for padding and for a run the reader could not resolve, far below the distance to other data.

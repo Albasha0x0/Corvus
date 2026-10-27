@@ -22,14 +22,12 @@ internal static class ClientCatalog
     public static string MigratedEnvKey(string key) =>
         key.StartsWith("NDM_", StringComparison.Ordinal) ? "CORVUS_" + key[4..] : key == "NETDECOMP_LOAD" ? "CORVUS_LOAD" : key;
 
-    /// <summary>
-    /// Claude Code's local entry list of one folder (projects.&lt;folder&gt;.mcpServers): an existing key spelling the same
-    /// folder (case-insensitive on Windows), else the full path with forward slashes, as the CLI writes it.
-    /// </summary>
+    /// <summary>One folder's Claude Code local entry list: an existing key for the folder, else its full path with forward slashes.</summary>
     public static (string Key, JsonTarget Target) ProjectTarget(McpClient claudeCode, string folder, HostOs os)
     {
         var full = Path.GetFullPath(folder).TrimEnd('\\', '/');
-        if (full.EndsWith(':')) full += "/"; // a drive root
+        // A drive root.
+        if (full.EndsWith(':')) full += "/";
         var key = os == HostOs.Windows ? full.Replace('\\', '/') : full;
         var comparison = os == HostOs.Windows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         foreach (var (existing, _) in Projects(claudeCode) ?? [])
@@ -48,10 +46,7 @@ internal static class ClientCatalog
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { return null; }
     }
 
-    /// <summary>
-    /// Migration only: the lists of <paramref name="client"/> holding an entry under the old name: its own, and for Claude
-    /// Code each project's (local scope, edited in the file: the CLI keys a project by its working folder's spelling).
-    /// </summary>
+    /// <summary>Migration only: the lists of <paramref name="client"/> holding an entry under the old name, Claude Code projects included.</summary>
     public static IEnumerable<(string? Project, ConfigTarget Target)> LegacyTargets(McpClient client)
     {
         if (client.Target.Current(LegacyServerName) != null) yield return (null, client.Target);
@@ -61,10 +56,7 @@ internal static class ClientCatalog
                 yield return (project, new JsonTarget(client.Target.Path, ["projects", project, "mcpServers"], ClaudeCode));
     }
 
-    /// <summary>
-    /// <paramref name="launch"/> for one client: --client &lt;id&gt;, --toolsets lean for clients that cap the tool count, and
-    /// --client-timeout when the client's entry sets a per-call limit other than its default (Codex tool_timeout_sec).
-    /// </summary>
+    /// <summary><paramref name="launch"/> for one client: --client, --toolsets lean for tool-capped clients, --client-timeout when set.</summary>
     public static ServerLaunch LaunchFor(McpClient client, ServerLaunch launch)
     {
         var profile = Core.ClientProfiles.Find(client.Id) ?? Core.ClientProfiles.Unknown;
@@ -213,10 +205,7 @@ internal static class ClientCatalog
     private static readonly System.Text.RegularExpressions.Regex OmpProfile = new("^[a-z0-9][a-z0-9._-]{0,63}$");
     private static readonly System.Text.RegularExpressions.Regex ReservedDevice = new("^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\\..*)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    /// <summary>
-    /// OMP's root (PI_CONFIG_DIR joined to the home folder, default .omp) and agent folder: profiles/&lt;p&gt;/agent for
-    /// OMP_PROFILE (or PI_PROFILE), else PI_CODING_AGENT_DIR, else agent; an invalid profile name is an error.
-    /// </summary>
+    /// <summary>OMP's root and agent folder from PI_CONFIG_DIR, OMP_PROFILE / PI_PROFILE and PI_CODING_AGENT_DIR; an invalid profile is an error.</summary>
     private static (string Root, string Agent, string? Error) OmpAgentDir(SetupEnvironment env)
     {
         var root = Path.Join(env.Home, env.Set("PI_CONFIG_DIR") ?? ".omp");
@@ -230,10 +219,7 @@ internal static class ClientCatalog
         return (root, env.Set("PI_CODING_AGENT_DIR") is { } dir ? Path.GetFullPath(dir) : Path.Combine(root, "agent"), null);
     }
 
-    /// <summary>
-    /// OpenCode's folder and the file it loads last (so ours wins): OPENCODE_CONFIG_DIR, else the OPENCODE_CONFIG file,
-    /// else $XDG_CONFIG_HOME/opencode; in a folder opencode.jsonc is loaded after opencode.json.
-    /// </summary>
+    /// <summary>OpenCode's folder and the file it loads last, so ours wins: OPENCODE_CONFIG_DIR, OPENCODE_CONFIG, else XDG.</summary>
     private static (string Dir, string File) OpenCodeFile(SetupEnvironment env)
     {
         if (env.Set("OPENCODE_CONFIG_DIR") is null && env.Set("OPENCODE_CONFIG") is { } file)

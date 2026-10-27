@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Native.Itanium;
 
-/// <summary>
-/// Demangles Itanium C++ ABI names (GCC and Clang on ELF and Mach-O) into the text llvm-cxxfilt prints: templates,
-/// substitutions, template parameters and packs, lambdas and unnamed types, ABI tags, special names (vtables,
-/// typeinfo, thunks, guard variables), local names, literals and the common expressions, and clone suffixes
-/// (".cold"). Names it cannot parse yield null; no input throws.
-/// </summary>
+/// <summary>Demangles Itanium C++ ABI names into the text llvm-cxxfilt prints; names it cannot parse yield null, no input throws.</summary>
 public static class ItaniumDemangler
 {
     /// <summary>Longest name accepted; longer input is returned as not demangled.</summary>
@@ -16,10 +11,7 @@ public static class ItaniumDemangler
 
     internal sealed class TooDeep : Exception;
 
-    /// <summary>
-    /// The demangled form of <paramref name="name"/>, or null when it is not an Itanium mangled name.
-    /// <paramref name="stripUnderscore"/> removes the extra leading underscore Mach-O symbol names carry.
-    /// </summary>
+    /// <summary>The demangled <paramref name="name"/>, or null when not Itanium-mangled; <paramref name="stripUnderscore"/> drops the Mach-O leading underscore.</summary>
     public static string? Demangle(string? name, bool stripUnderscore = false)
     {
         if (string.IsNullOrEmpty(name) || name.Length > MaxLength) return null;

@@ -3,17 +3,11 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Native.Diff;
 
-/// <summary>
-/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, type_edit, enum_member, field, analysis, operand, type, local or stack_var;
-/// <see cref="Apply"/> adds it to a layer of the new build (null when skipped).
-/// </summary>
+/// <summary>One user type of the old build and its outcome; <see cref="Apply"/> adds it to the new layer (null when skipped).</summary>
 public sealed record UserTypeStep(string Kind, uint? OldRva, uint? NewRva, string Value, bool Set, string Reason, int? Tier, double Confidence, string Detail,
     Func<UserTypeLayer, UserTypeLayer>? Apply);
 
-/// <summary>
-/// Plans carrying the user's engine types to a new build: declarations as they are, types by mapped address, and a
-/// function's locals and stack members by its matched start. Never replaces a user type of the new build.
-/// </summary>
+/// <summary>Plans carrying the user's engine types to a new build; never replaces a user type there.</summary>
 public static class UserTypeMigration
 {
     public static List<UserTypeStep> Plan(AddressMapper mapper, UserTypeLayer old, UserTypeLayer target, MigrationOptions options, CancellationToken ct)
@@ -54,7 +48,7 @@ public static class UserTypeMigration
                 : new("field", null, null, value, true, "copied", null, 1, "struct members have no address", l => l.WithField(f)));
         }
 
-        // a mapped address passes the tier and score limits, else the reason it does not
+        // A mapped address passes the tier and score limits, else the reason it does not.
         (uint? At, MappedAddress Mapped, string? Skip, string Detail) Map(uint rva, bool functionStart)
         {
             ct.ThrowIfCancellationRequested();
@@ -70,7 +64,7 @@ public static class UserTypeMigration
             Func<UserTypeLayer, UserTypeLayer>? apply) =>
             new(kind, oldRva, map.Mapped.NewRva, value, skip == null, skip ?? map.Mapped.Reason, map.Mapped.Pair?.Tier, map.Mapped.Confidence, detail, skip == null ? apply : null);
 
-        // analysis edits keep their order and length
+        // Analysis edits keep their order and length.
         foreach (var a in old.Analysis)
         {
             var value = $"{a.Kind}{(a.Type != null ? " " + a.Type : "")}{(a.End is { } e ? $" ({e - a.Rva} bytes)" : "")}";

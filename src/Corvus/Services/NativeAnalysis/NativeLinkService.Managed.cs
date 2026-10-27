@@ -22,11 +22,7 @@ public sealed partial class NativeLinkService
     /// <summary>A P/Invoke declaration (or other managed method with a native implementation) bound to native code.</summary>
     public sealed record ManagedLink(LoadedAssembly Assembly, MethodDef Method, Binding Binding, string Kind);
 
-    /// <summary>
-    /// The binding of a [DllImport] method with the runtime's lookup rules (as verify_native_imports checks them:
-    /// search order, API sets, A/W suffixes, stdcall decoration, ordinals, forwarders), thunks followed; null when
-    /// the method has no ImplMap.
-    /// </summary>
+    /// <summary>A [DllImport] method's binding under the runtime's lookup rules, thunks followed; null without an ImplMap.</summary>
     public Binding? BindPInvoke(LoadedAssembly asm, MethodDef method)
     {
         if (method.ImplMap is not { } map) return null;
@@ -62,7 +58,7 @@ public sealed partial class NativeLinkService
             link = linker.BindFirst(module, asm.FilePath, x86, candidates, "pinvoke", runtimeFolder: true).Result;
         }
         if (link.Status == NativeLinker.DllNotFound && NativeImportVerifier.IsRuntimeLibrary(module))
-            return NotChecked("a .NET runtime native library that the runtime links in on this platform (no separate DLL)");
+            return NotChecked("a .NET runtime native library linked into the runtime here (no separate DLL)");
         return Classify(link);
     }
 
@@ -75,10 +71,7 @@ public sealed partial class NativeLinkService
                     yield return b;
     }
 
-    /// <summary>
-    /// The native code a managed method runs instead of IL: its P/Invoke binding, or its native body in a mixed-mode
-    /// image (see <see cref="NativeBody"/>); null for ordinary methods.
-    /// </summary>
+    /// <summary>The native code a managed method runs instead of IL (P/Invoke binding or mixed-mode body); null for ordinary methods.</summary>
     public ManagedLink? NativeOf(MethodDef method)
     {
         var asm = workspace.FindByModule(method.Module);
@@ -143,10 +136,7 @@ public sealed partial class NativeLinkService
         return result;
     }
 
-    /// <summary>
-    /// Calls through the imports that name <paramref name="symbol"/> (module!name) in every loaded, indexed image, whether or not
-    /// the providing library is loaded: the image, the import, the calling function and the call site.
-    /// </summary>
+    /// <summary>Calls through imports naming <paramref name="symbol"/> in every indexed image, loaded provider or not.</summary>
     public List<(LoadedNative Image, NativeImport Import, NativeFunction Caller, uint Site)> ImportCallers(NativeSymbol symbol, CancellationToken ct)
     {
         var result = new List<(LoadedNative, NativeImport, NativeFunction, uint)>();
@@ -162,10 +152,7 @@ public sealed partial class NativeLinkService
         return result;
     }
 
-    /// <summary>
-    /// Native call sites of what <paramref name="target"/> names, in every loaded image: calls inside the image of
-    /// each hop that has code (the export, and the code a thunk leads to) and calls through imports bound to it.
-    /// </summary>
+    /// <summary>Native call sites of <paramref name="target"/> in every loaded image: direct calls to each hop with code, and calls through bound imports.</summary>
     public List<string> NativeCallSites(NativeTarget target, CancellationToken ct)
     {
         var rows = new List<string>();
@@ -187,11 +174,7 @@ public sealed partial class NativeLinkService
         b is { Status: Bound, Target: { } t, Rva: { } rva } && code.Ready(t) is { } index && (index.FunctionByStart(rva) ?? index.FunctionAt(rva)) is { } fn
             ? (t, fn) : null;
 
-    /// <summary>
-    /// Lines for a managed method with a native implementation in a callee tree: "native: binding" at
-    /// <paramref name="indent"/>, then the native function's callees for the remaining levels. Empty for other methods.
-    /// <paramref name="rows"/>, when given, receives the same lines as <see cref="NativeTreeNode"/> rows under <paramref name="parent"/>.
-    /// </summary>
+    /// <summary>Callee-tree lines for a method with native code: "native: binding", then its native callees; empty for other methods.</summary>
     public string NativeCallees(MethodDef method, int levels, int indent, int maxNodes, CancellationToken ct, List<NativeTreeNode>? rows = null, int? parent = null)
     {
         if (levels < 1 || NativeOf(method) is not { } link) return "";
@@ -201,7 +184,7 @@ public sealed partial class NativeLinkService
         var fn = FunctionOf(link.Binding);
         string? state = link.Binding.Status switch { Bound => fn == null ? "unresolved" : null, NotLoaded => "not-loaded", _ => "unresolved" };
         if (link.Binding.Status == Bound && fn == null)
-            sb.Append(code.Ready(link.Binding.Target!) == null ? "  (its code index is still being built: repeat for its callees)" : "  (no function there)");
+            sb.Append(code.Ready(link.Binding.Target!) == null ? "  (code index still building: repeat for its callees)" : "  (no function there)");
         sb.AppendLine();
         int? id = null;
         if (rows != null)

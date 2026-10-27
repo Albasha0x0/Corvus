@@ -10,7 +10,7 @@ public sealed partial class MinidumpService
     /// <summary>Open CLR decoders (each holds a loaded DAC and its own dump handle); the least recently used is closed beyond this.</summary>
     private const int MaxDecoders = 4;
 
-    // RuntimeFound: a core's libcoreclr.so was matched on disk when the decoder was opened
+    // RuntimeFound: a core's libcoreclr.so was matched on disk when the decoder was opened.
     private readonly List<(string Path, ClrDecoder Decoder, bool RuntimeFound)> _decoders = [];
     private readonly SemaphoreSlim _decoderGate = new(1, 1);
     private bool _disposed;
@@ -66,7 +66,7 @@ public sealed partial class MinidumpService
             if (at >= 0)
             {
                 var cached = _decoders[at];
-                // a core opened before its runtime file was found is reopened once imageDirectories find it
+                // Reopen a core once imageDirectories find its runtime file.
                 bool retry = !cached.Decoder.Loaded && (request.Path != null || request.Download) || !cached.RuntimeFound && runtimeFile != null;
                 _decoders.RemoveAt(at);
                 if (!retry)
@@ -175,13 +175,11 @@ public sealed partial class MinidumpService
         });
     }
 
-    /// <summary>Crash reports Unity's Mono runtime writes beside its dump, most detailed first for managed exceptions.</summary>
+    /// <summary>Mono runtime logs beside a dump, most detailed first.</summary>
     private static readonly string[] MonoLogs = ["Player.log", "output_log.txt", "error.log"];
 
-    /// <summary>
-    /// The Mono runtime's own reports beside the dump (Unity's crash folder): managed exception lines with module MVID and
-    /// IL offset, and its crash backtrace naming JIT code addresses. Read once per session.
-    /// </summary>
+    /// <summary>The Mono runtime's logs beside the dump that name managed frames by module MVID and IL offset; read once per
+    /// session.</summary>
     private async Task<IReadOnlyList<(string Log, StackTextService.SymbolizedStack Stack)>> MonoReports(Session s, CancellationToken ct)
     {
         if (s.MonoReports != null) return s.MonoReports;
@@ -209,13 +207,13 @@ public sealed partial class MinidumpService
         if (withIl.Log == null)
             return new ManagedSummary("Mono", null, dac, null, null, null, null,
                 [reports.Count > 0 ? $"{Path.GetFileName(reports[0].Log)} beside the dump names the JIT code frames in dump_stack."
-                    : "For Unity Mono titles, symbolize_stack_text on Player.log resolves the managed frames (with their module MVIDs); Unity's crash folder keeps it beside the dump."]);
+                    : "symbolize_stack_text on Player.log resolves the managed frames by module MVID."]);
         var x = withIl.Stack.Exception;
         var frames = withIl.Stack.Items.Where(f => f.Kind == "managed").Take(ClrDecoder.MaxExceptionFrames)
             .Select(f => new ManagedFrameSummary(f.Resolved ?? f.Raw.Trim(), f.Token, f.IlOffset, null, f.Assembly, f.BuildCheck, f.Address, f.Statement)).ToList();
         return new ManagedSummary("Mono", null, dac, null, null, null,
             new ManagedExceptionSummary(x?.Type ?? "(not named)", x?.Message, "", "", null, frames, []),
-            [$"The managed exception and frames are from {Path.GetFileName(withIl.Log)} beside the dump (the Mono runtime's report), resolved by module MVID with the C# statement at each IL offset."]);
+            [$"The managed exception and frames are from {Path.GetFileName(withIl.Log)} beside the dump, resolved by module MVID to C# statements."]);
     }
 
     private static string? ModuleFile(string? path) => string.IsNullOrEmpty(path) ? null : Path.GetFileName(path.Replace('/', '\\').Split('\\')[^1]);
@@ -307,8 +305,7 @@ public sealed partial class MinidumpService
             used[k] = true;
             merged[i] = (f, managed[k]);
         }
-        // a scan from JIT code finds return addresses the runtime keeps on the stack (an inlined P/Invoke's frame record):
-        // a scanned frame at a return address of a managed frame named elsewhere is that copy, not another call
+        // Drop scanned copies of a named managed frame's return address, such as an inlined P/Invoke's frame record.
         var named = managed.Where((m, j) => used[j]).Select(m => m.Ip).ToHashSet();
         merged.RemoveAll(x => x.Item2 == null && x.Item1!.Heuristic && named.Contains(x.Item1.Ip));
         for (int j = 0; j < managed.Count; j++)

@@ -5,10 +5,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Firmware filesystems read in process: images built by the Linux tools that write each format (FirmwareFixtures/build.sh)
-/// list the same files as the source tree (and as unsquashfs -lls), with the same bytes; streamed reads equal in-memory ones.
-/// </summary>
+/// <summary>Firmware filesystems built by their Linux tools list the source tree's files and bytes, streamed or in memory.</summary>
 public sealed class FirmwareFilesystemTests
 {
     internal static string FixtureDir => Path.Combine(AppContext.BaseDirectory, "Containers", "FirmwareFixtures");
@@ -59,19 +56,19 @@ public sealed class FirmwareFilesystemTests
         var c = Containers.Open(image, "rootfs.squashfs", AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal("squashfs", c.Kind);
         AssertTree(c);
-        // unsquashfs -lls: every file and link, by path and size
+        // unsquashfs -lls: every file and link, by path and size.
         var reference = File.ReadAllLines(Path.Combine(FixtureDir, $"squashfs-{compressor}.img.list"))
             .Where(l => l[0] is '-' or 'l')
             .Select(l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             .Select(f => $"{f[5]["squashfs-root/".Length..]} {(f[0][0] == 'l' ? "-> " + f[7] : f[2])}").Order(StringComparer.Ordinal);
         var ours = c.Entries!.Select(e => $"{e.Path} {(e.Detail is { } d ? "-> " + d["symbolic link to ".Length..] : e.Size.ToString())}").Order(StringComparer.Ordinal);
         Assert.Equal(reference, ours);
-        // the permission bits unsquashfs prints (rwx triplets)
+        // The permission bits unsquashfs prints (rwx triplets).
         var modes = File.ReadAllLines(Path.Combine(FixtureDir, $"squashfs-{compressor}.img.list")).Where(l => l[0] is '-' or 'l')
             .Select(l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             .ToDictionary(f => f[5]["squashfs-root/".Length..], f => Convert.ToString(f[0][1..10].Select((ch, i) => ch == '-' ? 0 : 1 << (8 - i)).Sum(), 8));
         Assert.All(c.Entries!, e => Assert.Equal(modes[e.Path], e.Mode));
-        // read from a stream, the same listing and bytes
+        // Read from a stream, the same listing and bytes.
         var streamed = new SquashfsReader().Open(new MemoryStream(image), "rootfs.squashfs", true, AnalysisLimits.Default, default)!;
         Assert.Equal(c.Entries!.Select(e => e.Path), streamed.Entries!.Select(e => e.Path));
         Assert.Equal(c.Items.Select(i => Blob.Sha256(i.Bytes)), streamed.Items.Select(i => Blob.Sha256(i.Bytes)));
@@ -102,7 +99,7 @@ public sealed class FirmwareFilesystemTests
         BitConverter.TryWriteBytes(inodes.AsSpan(fileAt + 20), uint.MaxValue);
         BitConverter.TryWriteBytes(inodes.AsSpan(fileAt + 28), content.Length);
         BitConverter.TryWriteBytes(inodes.AsSpan(fileAt + 32), content.Length | 0x1000000);
-        // the directory listing: one header per inode block, then its entries
+        // The directory listing: one header per inode block, then its entries.
         var dir = new MemoryStream();
         void Entry(int block, int offset, int type, string name)
         {

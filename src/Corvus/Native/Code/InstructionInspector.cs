@@ -2,12 +2,8 @@ using Iced.Intel;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// One operand. Fields an engine does not supply are null. <see cref="Target"/> is the RVA of a branch target or of a
-/// memory operand's effective address when it is absolute or RIP-relative and inside the image.
-/// </summary>
-/// <param name="Kind">register, immediate, memory, near_branch or far_branch; ARM64 also pc_relative (adr / adrp / literal address), shift, extend,
-/// condition, enum, system_register and register_list.</param>
+/// <summary>One decoded operand; fields an engine does not supply are null.</summary>
+/// <param name="Kind">register, immediate, memory, near_branch or far_branch; ARM64 adds pc_relative, shift, extend, condition, enum, system_register, register_list.</param>
 public sealed record InspectedOperand(int Index, string Kind, string Text)
 {
     /// <summary>Bytes the operand reads or writes (register width, memory access size, immediate size).</summary>
@@ -25,6 +21,7 @@ public sealed record InspectedOperand(int Index, string Kind, string Text)
     public int? Scale { get; init; }
     public long? Displacement { get; init; }
     public bool RipRelative { get; init; }
+    /// <summary>RVA of a branch target or of an absolute or RIP-relative effective address inside the image.</summary>
     public uint? Target { get; init; }
     /// <summary>ARM64 memory index extend or shift (lsl #3, uxtw #2, sxtw).</summary>
     public string? Extend { get; init; }
@@ -65,7 +62,7 @@ public sealed record InspectedInstruction(uint Rva, int Length, string Bytes, st
     public uint? FormedAddress { get; init; }
 }
 
-/// <summary>Decodes one x86 / x64 instruction with Iced (ARM64: <see cref="Arm64Inspector"/>) into <see cref="InspectedInstruction"/>: operands, register and memory use, flags, flow.</summary>
+/// <summary>Decodes one instruction into <see cref="InspectedInstruction"/>: operands, register and memory use, flags, flow.</summary>
 public static class InstructionInspector
 {
     // Iced formatters are not thread-safe: one per thread.
@@ -84,10 +81,8 @@ public static class InstructionInspector
         return f;
     }
 
-    /// <summary>
-    /// The instruction at <paramref name="rva"/> (any mapped address), text and comment named through the index; null
-    /// when nothing is mapped there. ARM64 decodes from <paramref name="runStart"/> (the block start) so ADRP pairs resolve.
-    /// </summary>
+    /// <summary>The instruction at <paramref name="rva"/>, or null when nothing is mapped there.</summary>
+    /// <param name="runStart">ARM: the block start to decode from, so ADRP pairs resolve.</param>
     public static InspectedInstruction? Inspect(NativeCodeIndex index, uint rva, NativeDisassembler? disassembler = null, uint? runStart = null)
     {
         if (index.Image.Arch == NativeArch.Arm64) return Arm64Inspector.Inspect(index, rva, disassembler, runStart);
@@ -119,7 +114,7 @@ public static class InstructionInspector
         if (insn.HasRepnePrefix) prefixes.Add("repne");
         if (insn.HasXacquirePrefix) prefixes.Add("xacquire");
         if (insn.HasXreleasePrefix) prefixes.Add("xrelease");
-        // CET: a ds prefix on an indirect call or jump is notrack
+        // CET: a ds prefix on an indirect call or jump is notrack.
         if (insn.SegmentPrefix == Register.DS && insn.FlowControl is FlowControl.IndirectBranch or FlowControl.IndirectCall) prefixes.Add("notrack");
         else if (insn.SegmentPrefix != Register.None) prefixes.Add(Name(insn.SegmentPrefix) + ":");
         return new InspectedInstruction(rva, insn.Length, line.Bytes, line.Text, line.Comment, insn.Mnemonic.ToString().ToLowerInvariant(), operands)
@@ -214,7 +209,7 @@ public static class InstructionInspector
                 return new InspectedOperand(i, "immediate", text) { Access = access, Size = size, Value = value, SignedValue = signed };
             }
             default:
-                // string instruction operands ([rsi], es:[rdi]) and other implicit memory
+                // String instruction operands ([rsi], es:[rdi]) and other implicit memory.
                 return new InspectedOperand(i, "memory", text) { Access = access, Size = insn.MemorySize.GetSize() };
         }
     }

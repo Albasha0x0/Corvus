@@ -2,12 +2,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=sqlite-recover: deleted rows carved from a SQLite database (freed cells in live pages of rowid and WITHOUT ROWID
-/// tables, freelist pages, -wal frames that are not the applied copy of their page, overflow chains), each validated by its record header against a table's columns and
-/// marked as a recovered candidate with its source. table= keeps one table's rows; offset= and limit= page them. The carving
-/// runs only when this view is asked for; otherwise the view says where deleted rows may be.
-/// </summary>
+/// <summary>view=sqlite-recover: deleted rows carved from free space and unapplied -wal frames; carving runs only when asked for; table=, offset=, limit= page the rows.</summary>
 internal sealed class SqliteRecoverFileView : IFileSummaryView
 {
     private const int DefaultLimit = 100, MaxLimit = 1000, MaxValue = 200;
@@ -45,7 +40,7 @@ internal sealed class SqliteRecoverFileView : IFileSummaryView
         var page = rows.Skip((int)Math.Min(offset, int.MaxValue)).Take(limit)
             .Select(r => new Candidate(r.Table, r.RowId, [.. r.Values.Select(v => SqliteFileView.Show(v, MaxValue))], r.Source, r.Method)).ToList();
         notes.AddRange(db.Issues.Distinct().Take(20));
-        notes.Add("candidates are what free space still holds: values can be partial or from an older version of a row; a rowid is shown only when its cell header survived.");
+        notes.Add("candidates can be partial or an older row version; a rowid is shown only when its cell header survived.");
         var byTable = all.GroupBy(r => r.Table ?? "(unsure)").ToDictionary(g => g.Key, g => g.Count());
         long next = offset + page.Count;
         var facts = new Facts(db.FreelistPages, walFrames, rows.Count, offset, limit, page, next < rows.Count ? next : null, byTable, notes);

@@ -64,11 +64,7 @@ public sealed record DexClass(int Index, string Descriptor, uint Access, string?
 public sealed record DexClassAnnotations(IReadOnlyList<DexAnnotation> Class, IReadOnlyDictionary<int, IReadOnlyList<DexAnnotation>> Fields,
     IReadOnlyDictionary<int, IReadOnlyList<DexAnnotation>> Methods, IReadOnlyDictionary<int, IReadOnlyList<IReadOnlyList<DexAnnotation>>> Parameters);
 
-/// <summary>
-/// A DEX file (versions 035-041): pools, class definitions, class data, code items, annotations, encoded values and debug line
-/// numbers. Reads a copy of the bytes, bounds-checks every offset and never throws after construction: what cannot be read is
-/// reported in <see cref="Issues"/> and comes back empty.
-/// </summary>
+/// <summary>A DEX file (versions 035-041); never throws after construction, problems go to <see cref="Issues"/>.</summary>
 public sealed class DexFile
 {
     public const int HeaderSize = 0x70;
@@ -418,7 +414,8 @@ public sealed class DexFile
             case 0x1f: return new("boolean", arg != 0);
             default:
                 _issues.Add(new("dex", $"unknown encoded value type 0x{type:x2}", at - 1));
-                at = _d.Length; // the rest of this value cannot be sized
+                // The rest of this value cannot be sized.
+                at = _d.Length;
                 return new("null", null);
         }
     }

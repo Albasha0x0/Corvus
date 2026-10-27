@@ -75,7 +75,7 @@ public sealed class AppleSwiftTests
     }
 
     [Fact]
-    public void ReadsTypesFieldsVtablesAndConformances()
+    public void Types_fields_vtables_and_conformances_are_read()
     {
         var (bytes, layout) = Sample();
         var image = MachOFile.FromBytes(bytes);
@@ -97,7 +97,7 @@ public sealed class AppleSwiftTests
     }
 
     [Fact]
-    public void Header_ListsSwiftTypesAsComments()
+    public void The_header_lists_Swift_types_as_comments()
     {
         var header = ObjcHeader.Render(null, AppleSwiftMetadata.Read(MachOFile.FromBytes(Sample().Bytes)), "Zoo");
         Assert.Contains("// struct Zoo.Animal : Swift.Hashable {\n//     var age: Swift.Int\n//     let keeper: Zoo.Keeper\n// }\n", header);
@@ -106,7 +106,7 @@ public sealed class AppleSwiftTests
     }
 
     [Fact]
-    public void NameLayer_UsesMangledSymbols()
+    public void The_name_layer_uses_mangled_symbols()
     {
         var (bytes, layout) = Sample();
         var image = MachOFile.FromBytes(bytes);

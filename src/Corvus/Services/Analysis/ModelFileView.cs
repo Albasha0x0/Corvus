@@ -5,11 +5,9 @@ using Corvus.Core.Models;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=model: a safetensors, GGUF, ONNX, PyTorch checkpoint or pickle file: its metadata, a page of tensors (name, type,
-/// shape, place, size; offset=, limit=) and the parameter count; for ONNX the graph's inputs, outputs and operators; for a
-/// pickle the globals it imports and calls, checked against torch.load(weights_only=True). Nothing is unpickled or run.
-/// </summary>
+/// <summary>view=model: a safetensors, GGUF, ONNX, PyTorch or pickle file's metadata, tensors (offset=, limit=) and parameter count; nothing is unpickled or run.</summary>
+// ONNX adds graph inputs, outputs and operators; a pickle adds its imports and calls, checked against
+// torch.load(weights_only=True).
 internal sealed class ModelFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxMetadata = 200;

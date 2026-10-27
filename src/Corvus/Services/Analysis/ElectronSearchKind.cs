@@ -4,11 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=electron: the surface rows (<see cref="ElectronRow"/>) of the app's own scripts (node_modules
-/// skipped); the query matches the value (channel, key, module) or the row kind (ipc-main, sink-shell...). An Electron
-/// executable or .asar is read as summarize_file reads it; a zip of scripts is read directly; a required .node add-on is named with its N-API registrations.
-/// </summary>
+/// <summary>search_container kind=electron: surface rows of the app's own scripts, matched by value, kind or call; add-ons name their N-API registrations.</summary>
 internal sealed class ElectronSearchKind : IContainerSearchKind
 {
     private const long MaxScriptBytes = 16 * 1024 * 1024;
@@ -45,10 +41,7 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
         }
     }
 
-    /// <summary>
-    /// The add-on a require names, beside the requiring script under the app's unpacked files (app.asar.unpacked, the
-    /// or resources/app.asar.unpacked beside an executable), with the JavaScript names its N-API registrations expose.
-    /// </summary>
+    /// <summary>The add-on a require names under the app's app.asar.unpacked folder, with its N-API registrations; null when not found.</summary>
     internal static Addon? Find(string source, string script, string request, Dictionary<string, Addon?> seen, CancellationToken ct)
     {
         var root = source.EndsWith(".asar", StringComparison.OrdinalIgnoreCase) ? source + ".unpacked"
@@ -70,10 +63,7 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
         return result;
     }
 
-    /// <summary>
-    /// The .node file a request names: a relative path from the requiring script, bindings('name') (build/Release, any
-    /// folder, first match), or a package under node_modules holding an add-on (the one built for this OS when several).
-    /// </summary>
+    /// <summary>The .node file of a relative path, bindings('name') (Release first) or node_modules package (this OS first); null when none.</summary>
     private static string? Locate(string root, string script, string request)
     {
         if (request.StartsWith('.')) return Path.GetFullPath(Path.Combine(root, Path.GetDirectoryName(script) ?? "", request));
@@ -122,7 +112,7 @@ internal sealed class ElectronSearchKind : IContainerSearchKind
             }
             return graph.Finish();
         }
-        // an Electron executable or .asar: the facts summarize_file reports
+        // An Electron executable or .asar is read as summarize_file reads it.
         try
         {
             if (new FileInfo(source).Length <= AnalysisLimits.Default.MaxItemBytes

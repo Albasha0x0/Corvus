@@ -3,13 +3,10 @@ using System.Text.Json.Nodes;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// The strictest schema subset model gateways accept (Anthropic-compatible gateways, OpenAI strict tools, Gemini function
-/// declarations): one unsupported keyword in one tool rejects the whole request, so every tool must stay inside it.
-/// Input schemas: no references or combinators anywhere, one declared type per schema, arrays with typed items, enums typed
-/// and without null, nesting at most <see cref="MaxDepth"/>, at most <see cref="MaxInputBytes"/>. Output schemas: no
-/// references or combinators, no type unions, the same depth.
-/// </summary>
+/// <summary>The strictest schema subset model gateways accept; every tool's schemas stay inside it.</summary>
+// One unsupported keyword in one tool rejects the whole request at some gateways.
+// Input: no references or combinators, one type per schema, typed array items, typed enums without null, bounded depth and size.
+// Output: no references, combinators or type unions, the same depth.
 public static class SchemaGate
 {
     public const int MaxDepth = 10, MaxInputBytes = 13_312;

@@ -48,7 +48,7 @@
             "type": "string"
           },
           "symbolSource": {
-            "description": "user, pdb, il2cpp, discovered, export, nearest_export (a guess) or none.",
+            "description": "user, pdb, metadata, discovered, export, nearest_export (a guess) or none.",
             "type": "string"
           },
           "functionAddress": {

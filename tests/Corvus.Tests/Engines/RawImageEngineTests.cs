@@ -88,7 +88,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         var after = await Call(server, "get_cfg", new() { ["image"] = image, ["address"] = "0x0", ["engine"] = engine });
         output.WriteLine(after.Text);
         Assert.Matches(@"0x0-0xB\s+3 insn", before.Text);
-        // the call ends the caller's first block, with no edge on to the code after it
+        // The call ends the caller's first block, with no edge on to the code after it.
         Assert.Matches(@"0x0-0x5\s+1 insn", after.Text);
     }
 
@@ -97,7 +97,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
     public async Task Mips_in_Ghidra()
     {
         var path = _dir.File("mips.bin");
-        // li v0, 42; jr ra; nop (little endian)
+        // Li v0, 42; jr ra; nop (little endian).
         File.WriteAllBytes(path, [0x2A, 0x00, 0x02, 0x24, 0x08, 0x00, 0xE0, 0x03, 0x00, 0x00, 0x00, 0x00, .. Guid.NewGuid().ToByteArray()]);
         await using var server = await InProcessServer.StartAsync();
         Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "mipsel", ["base"] = "0x80000000" })).IsError);
@@ -125,7 +125,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
             starts.UnionWith(items);
             offset += items.Count;
         }
-        // the entry is at module offset 0, the lowest function
+        // The entry is at module offset 0, the lowest function.
         ulong entry = starts.Min();
         var missing = handlers.Where(h => !starts.Contains(entry + h)).ToList();
         output.WriteLine($"{starts.Count} functions; {missing.Count} of {handlers.Length} handlers missing");
@@ -169,7 +169,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
 
     private async Task Engine(string engine)
     {
-        // bytes of their own: the engines' databases are cached by content
+        // Bytes of their own: the engines' databases are cached by content.
         var path = _dir.File("rawcode.bin");
         File.WriteAllBytes(path, [.. RawCode, .. Guid.NewGuid().ToByteArray()]);
         await using var server = await InProcessServer.StartAsync();

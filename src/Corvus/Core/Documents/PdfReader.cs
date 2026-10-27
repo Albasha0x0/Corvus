@@ -3,10 +3,7 @@ using Corvus.Core.Archives;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// PDF files as containers: embedded files under their names, JavaScript actions as .js and XFA forms as .xml; with
-/// allFiles every stream decoded through its filters (or as stored, when a filter is an image or crypt filter).
-/// </summary>
+/// <summary>PDF files as containers: embedded files, JavaScript as .js, XFA as .xml; with allFiles every stream decoded.</summary>
 internal sealed class PdfReader : IContainerReader
 {
     public string Kind => "pdf";

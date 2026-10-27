@@ -4,10 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A Dart snapshot header: file offset, kind, total length, the 32-character version hash the VM checks and the features
-/// string (build mode, target architecture and OS, VM flags) it was compiled with.
-/// </summary>
+/// <summary>A Dart snapshot header: offset, kind, length, the VM's version hash and the features string.</summary>
 public sealed record DartSnapshot(long Offset, string Kind, long Length, string Hash, string Features)
 {
     /// <summary>Set when a symbol (_kDartSnapshotData, _kDartVmSnapshotData, _kDartIsolateSnapshotData) names the header's address.</summary>
@@ -23,17 +20,13 @@ public sealed record DartSnapshot(long Offset, string Kind, long Length, string 
     private string[] Tokens => Features.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 }
 
-/// <summary>
-/// Dart and Flutter identification from bytes: AOT snapshot headers (libapp.so, App.framework/App) and the Dart VM version
-/// string of an engine (libflutter.so, Flutter.framework). Scans only; nothing is decoded past the header.
-/// </summary>
+/// <summary>Finds Dart AOT snapshot headers and the Dart VM version string; nothing past the header is decoded.</summary>
 public static class DartScan
 {
     private const int MaxSnapshots = 8, MaxFeatures = 1024;
     // kMagicValue 0xdcdcf5f5, little-endian on every target the AOT compiler emits.
     private static ReadOnlySpan<byte> Magic => [0xF5, 0xF5, 0xDC, 0xDC];
-    // Snapshot::Kind as Dart 2.13+ numbers it, and from dart-lang/sdk d36adbacaf (Dart 3.13), which dropped the VM
-    // isolate and kFullCore; images of that layout name one program snapshot, kDartSnapshotData.
+    // Snapshot::Kind from Dart 2.13; dart-lang/sdk d36adbacaf (Dart 3.13) dropped kFullCore and the VM snapshot.
     private static readonly string[] Kinds = ["full", "full-core", "full-jit", "full-aot", "none", "invalid"];
     private static readonly string[] ProgramKinds = ["full", "full-jit", "full-aot", "module", "invalid"];
 
@@ -98,7 +91,7 @@ public static class DartScan
         return null;
     }
 
-    /// <summary>The engine flavor: Flutter's embedder strings, else a plain Dart VM.</summary>
+    /// <summary>True when Flutter's embedder strings are present, else a plain Dart VM.</summary>
     public static bool IsFlutterEngine(ReadOnlySpan<byte> data) =>
         data.IndexOf("io/flutter/embedding/engine/FlutterJNI"u8) >= 0 || data.IndexOf("FlutterEngine"u8) >= 0 || data.IndexOf("flutter/shell/"u8) >= 0;
 

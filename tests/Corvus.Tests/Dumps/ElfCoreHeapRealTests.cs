@@ -6,11 +6,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The .NET heap of a real Linux core: a program compiled here runs in WSL under the .NET runtime installed there and
-/// crashes, the runtime's own dump writer writes an ELF core with the heap, and dump_heap reads it with the
-/// Windows-hosted DAC for Linux targets downloaded from Microsoft's symbol server (CORVUS_NETWORK_TESTS=1).
-/// </summary>
+/// <summary>The .NET heap of a real Linux core written in WSL, read with the Linux DAC from the symbol server.</summary>
 [Trait("Speed", "Slow")]
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class ElfCoreHeapRealTests
@@ -52,10 +48,10 @@ public sealed class ElfCoreHeapRealTests
     private static string Quote(string s) => "'" + s.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
 
     [OptInFact("CORVUS_NETWORK_TESTS")]
-    public async Task DumpHeapReadsTheHeapOfALinuxCore()
+    public async Task Dump_heap_reads_the_heap_of_a_Linux_core()
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe"))) return;
-        // the runtime of the test's own major version installed in WSL: its dotnet and its folder
+        // The runtime of the test's own major version installed in WSL: its dotnet and its folder.
         var (found, listing) = Wsl($"d=$(command -v dotnet || echo $HOME/.dotnet/dotnet); [ -x \"$d\" ] && $d --list-runtimes | grep '^Microsoft.NETCore.App {Environment.Version.Major}\\.' | tail -1 && echo $d");
         var lines = listing.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (found != 0 || lines.Length < 2) return;
@@ -70,7 +66,7 @@ public sealed class ElfCoreHeapRealTests
         }));
         var (_, mounted) = Wsl($"wslpath -a {Quote(dir.Path.Replace('\\', '/'))}");
         var here = mounted.Trim();
-        // type 2: a dump with the heap; libcoreclr.so is copied beside it under its own path for the version check
+        // Type 2: a dump with the heap; libcoreclr.so is copied beside it under its own path for the version check.
         var (code, log) = Wsl($"cd {Quote(here)} && DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=2 DOTNET_DbgMiniDumpName={Quote(here + "/probe.core")} {Quote(dotnet)} Probe.dll; " +
                               $"mkdir -p libs && cp --parents {Quote(folder + "/libcoreclr.so")} libs/");
         var core = dir.File("probe.core");

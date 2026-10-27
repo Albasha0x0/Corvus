@@ -11,10 +11,7 @@ public sealed record PeRichEntry(ushort ProductId, ushort Build, uint Count)
     public uint CompId => (uint)ProductId << 16 | Build;
 }
 
-/// <summary>
-/// The linker's rich header between the DOS stub and the PE header: XOR-masked records from "DanS" to "Rich" + key.
-/// <see cref="ChecksumValid"/> is whether the key equals the checksum over the DOS header and the records.
-/// </summary>
+/// <summary>The linker's rich header; <see cref="ChecksumValid"/> is whether its key matches the checksum.</summary>
 public sealed record PeRichHeader(long Offset, long EndOffset, uint Key, bool ChecksumValid, IReadOnlyList<PeRichEntry> Entries);
 
 /// <summary>Optional header CheckSum and the value computed over the file (the ImageHlp CheckSumMappedFile algorithm).</summary>
@@ -93,10 +90,7 @@ public sealed partial class PeFile
         return new PeRichHeader(dans, rich + 8, key, valid, entries);
     }
 
-    /// <summary>
-    /// 16-bit one's complement sum of the file (an odd last byte padded with zero), minus the two words of the CheckSum
-    /// field, plus the file length; as ImageHlp's CheckSumMappedFile.
-    /// </summary>
+    /// <summary>The PE checksum as ImageHlp's CheckSumMappedFile computes it.</summary>
     private PeChecksum ComputeChecksum()
     {
         // Summed as 32-bit words: modulo 0xFFFF a word equals the sum of its two halves. 1 GB of words fits in 64 bits.

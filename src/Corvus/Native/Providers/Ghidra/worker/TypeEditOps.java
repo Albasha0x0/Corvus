@@ -1,5 +1,4 @@
-// The user's type renames and deletions and struct and union member edits as apply_user_types items, kept in the
-// program and applied again after declarations.
+// The user's type renames, deletions and member edits from apply_user_types, kept and applied again after declarations.
 package corvus.ghidra;
 
 import java.util.ArrayList;
@@ -60,10 +59,7 @@ final class TypeEditOps {
         return found;
     }
 
-    /**
-     * Renames or (newName null) deletes the types called name; a type already gone is no change, and a rename onto an
-     * existing type deletes the old one (a declaration made it again).
-     */
+    /** Renames or (newName null) deletes the types called name; a type already gone is no change, and a rename onto an existing type deletes the old one. */
     static JsonArray edit(Worker w, String name, String newName) {
         List<DataType> types = named(w, name);
         if (types.isEmpty()) return FrameOps.item("type_edit", 0, name, true, null, null, null, "no type " + name);
@@ -77,7 +73,7 @@ final class TypeEditOps {
                     continue;
                 }
                 catch (DuplicateNameException e) {
-                    // the new name exists in this category: drop the old type below
+                    // The new name exists in this category: drop the old type below.
                 }
                 catch (ghidra.util.InvalidNameException e) {
                     return FrameOps.item("type_edit", 0, name, false, "Ghidra refused the name " + newName + ": " + e.getMessage(), null, null, null);
@@ -120,9 +116,8 @@ final class TypeEditOps {
     }
 
     /**
-     * fields [[type, member name or null, offset or null, type or null, op or null]]; the applied ones are kept. op insert
-     * moves later members down (no type: the member is cut and they move back), resize sets the size to offset, gaps names
-     * the unnamed gaps (no type: removes those names).
+     * fields [[type, member or null, offset or null, type or null, op or null]]; applied ones are kept. op insert moves
+     * later members down (no type: back), resize sets the size to offset, gaps names the gaps (no type: removes the names).
      */
     static void fields(Worker w, Worker.Request r, JsonArray items) {
         for (JsonElement e : Worker.array(r.args, "fields")) {
@@ -167,9 +162,8 @@ final class TypeEditOps {
     }
 
     /**
-     * A member by name, else by offset: a null type removes it; else it is retyped in place (and renamed), or placed at
-     * offset (moving a named member there; overlapped members are replaced), or appended. A packed structure edited at an
-     * offset, or losing a member, keeps its current layout unpacked.
+     * A member by name, else offset: a null type removes it; else retyped in place, placed at offset (replacing overlaps),
+     * or appended. A packed structure edited at an offset or losing a member keeps its layout unpacked.
      */
     static JsonArray field(Worker w, String typeName, String name, Integer offset, String type) {
         String target = typeName + "." + (name != null ? name : "+0x" + Integer.toHexString(offset).toUpperCase());
@@ -191,7 +185,7 @@ final class TypeEditOps {
                 if (at == null) return fieldItem(target, offset, true, null, "no member " + target);
                 String old = at.getFieldName() != null ? at.getFieldName() : at.getDefaultFieldName();
                 if (c instanceof Structure s) {
-                    // the other members keep their offsets, as in IDA
+                    // The other members keep their offsets, as in IDA.
                     if (s.isPackingEnabled()) s.setPackingEnabled(false);
                     s.clearComponent(at.getOrdinal());
                 }

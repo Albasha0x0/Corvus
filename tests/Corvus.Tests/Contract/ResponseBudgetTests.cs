@@ -12,7 +12,7 @@ public class ResponseBudgetTests
     private static CallToolResult TextResult(int chars) => new() { Content = [new TextContentBlock { Text = new string('x', chars) }] };
 
     [Fact]
-    public void ResultWithinTheFramePassesUnchanged()
+    public void Result_within_the_frame_passes_unchanged()
     {
         var result = TextResult((int)ResponseBudget.Frame(1_000));
         Assert.Same(result, ResponseBudget.Enforce(result, "t", 1_000, new ResultStore(ResultCacheOptions.MemoryOnly)));
@@ -20,7 +20,7 @@ public class ResponseBudgetTests
 
     /// <summary>D2: a read-only result over the frame keeps its head and names the whole result; it is never an error.</summary>
     [Fact]
-    public void OversizedSuccessKeepsItsHead()
+    public void An_oversized_success_keeps_its_head()
     {
         var store = new ResultStore(ResultCacheOptions.MemoryOnly);
         var limited = ResponseBudget.Enforce(TextResult(100_000), "decompile_member", 1_000, store);
@@ -33,7 +33,7 @@ public class ResponseBudgetTests
     }
 
     [Fact]
-    public void EachPartHasItsOwnFrame()
+    public void Each_part_has_its_own_frame()
     {
         var items = JsonSerializer.SerializeToElement(new { items = Enumerable.Range(0, 900).Select(i => $"item {i}").ToArray() });
         long structured = items.GetRawText().Length;
@@ -43,14 +43,14 @@ public class ResponseBudgetTests
     }
 
     [Fact]
-    public void SizeCountsTextAndStructuredContent()
+    public void Size_counts_text_and_structured_content()
     {
         var result = new CallToolResult { Content = [new TextContentBlock { Text = new string('x', 100) }], StructuredContent = JsonSerializer.SerializeToElement(new string('y', 48)) };
         Assert.Equal(150, ResponseBudget.Size(result));
     }
 
     [Fact]
-    public void OversizedErrorKeepsItsCodeAndIsKept()
+    public void An_oversized_error_keeps_its_code()
     {
         var store = new ResultStore(ResultCacheOptions.MemoryOnly);
         var huge = new ToolError(ErrorCode.Conflict, "compilation failed: " + string.Concat(Enumerable.Range(0, 5_000).Select(i => $"error {i}; ")), "fix the code")
@@ -72,7 +72,7 @@ public class ResponseBudgetTests
     }
 
     [Fact]
-    public async Task FilterBoundsThrownErrorsAndStripsStructuredContentFromErrors()
+    public async Task The_filter_bounds_thrown_errors_and_strips_their_structured_content()
     {
         var services = new ServiceCollection().AddSingleton(new ServerOptions()).AddSingleton(new ResultStore(ResultCacheOptions.MemoryOnly));
         using var provider = services.BuildServiceProvider();

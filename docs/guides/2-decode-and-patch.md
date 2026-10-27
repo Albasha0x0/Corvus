@@ -11,7 +11,8 @@ sample first ([guide 1](1-first-session.md#build-the-sample)).
 > accept any code, name the string decoder Decode, and save a copy to samples/Notes/v1/bin/patched/Notes.dll.
 
 The calls, as a batch. `simplify_methods` runs each decoder call in an IL interpreter; no code from the file runs
-natively. It replaces the call with the returned string, then straightens the switch. The two `decompile_member` calls show the method before and after.
+natively. It replaces the call with the returned string, then straightens the switch. The two `decompile_member` calls
+show the method before and after.
 
 <!-- check: batch -->
 ```json

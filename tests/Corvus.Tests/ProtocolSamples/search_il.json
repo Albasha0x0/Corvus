@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "1 match (showing 1-1):\n  Fixture.Model.Account::CheckPreview() @IL_0000  [TestFixture] 0x0600001C\n      IL_0000: ldstr \"PREVIEW-CODE-42\"\n      IL_0005: call Fixture.Model.Secret::Validate(string)\n[End: 1 match]\n"
+    "1 match (showing 1-1):\n  Fixture.Model.Account::CheckPreview() @IL_0000  [TestFixture] 0x06000015\n      IL_0000: ldstr \"PREVIEW-CODE-42\"\n      IL_0005: call Fixture.Model.Secret::Validate(string)\n[End: 1 match]\n"
   ],
   "structuredContent": {
     "items": [
@@ -15,7 +15,7 @@
           "kind": "method",
           "label": "Fixture.Model.Account::CheckPreview()",
           "assembly": "TestFixture",
-          "token": "0x0600001C"
+          "token": "0x06000015"
         },
         "ilOffset": 0,
         "instructions": [

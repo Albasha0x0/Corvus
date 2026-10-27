@@ -51,7 +51,7 @@ public class UpdateProvenanceTests
         Assert.Equal(ProvenanceState.Refused, Check(Answers(1, "Error: expected SourceRepositoryRef to be refs/tags/v2.0.0, got refs/tags/v1.0.0")).State);
     }
 
-    // gh 2.83.1's output when signed out (exit 4), offline, and too old for --signer-workflow.
+    // Gh 2.83.1's output when signed out (exit 4), offline, and too old for --signer-workflow.
     [Fact]
     public void Gh_signed_out_offline_or_too_old_leaves_the_build_unchecked()
     {

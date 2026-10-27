@@ -10,9 +10,8 @@ using Corvus.Core;
 namespace Corvus.Services;
 
 /// <summary>
-/// Normalized IL hash of a method body: SHA-256 over a canonical text form of the body that does not depend on metadata
-/// tokens, byte offsets or short/long instruction forms, so a rebuild that does not change the code keeps the hash.
-/// The encoding is documented in docs/il-hash.md; change <see cref="Version"/> with any change to it.
+/// Normalized IL hash: SHA-256 of a canonical body text independent of tokens, offsets and short forms (docs/il-hash.md).
+/// Change <see cref="Version"/> with any change to the encoding.
 /// </summary>
 public static class IlHash
 {
@@ -22,10 +21,7 @@ public static class IlHash
 
     private static readonly ConditionalWeakTable<MethodDef, Entry> Cache = new();
 
-    /// <summary>
-    /// Hex SHA-256 of the method's canonical body, or null when it has no body or its body is not valid IL.
-    /// Cached per method until the assembly is edited.
-    /// </summary>
+    /// <summary>Hex SHA-256 of the canonical body; null with no body or invalid IL; cached until the assembly is edited.</summary>
     public static string? Of(LoadedAssembly asm, MethodDef method, FastIlReader.Body? decoded = null)
     {
         int version = asm.Version;
@@ -44,10 +40,7 @@ public static class IlHash
         return Hex(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical(body))));
     }
 
-    /// <summary>
-    /// Hex SHA-256 of the method's IL code bytes as stored in <paramref name="pe"/>: exactly the header's code size,
-    /// header, padding and exception sections excluded (docs/il-hash.md). Null when the method has no IL body.
-    /// </summary>
+    /// <summary>Hex SHA-256 of the method's stored IL code bytes, without header or sections; null with no IL body.</summary>
     public static string? RawSha256(PEReader pe, MethodDef method)
     {
         if (method.RVA == 0 || method.CodeType != MethodImplAttributes.IL) return null;
@@ -170,10 +163,7 @@ public static class IlHash
 
     private static string TypeName(ITypeDefOrRef? t) => t is TypeSpec spec ? TypeName(spec.TypeSig) : t?.FullName ?? "?";
 
-    /// <summary>
-    /// A type in signature notation with generic parameters as !n / !!n: dnlib names them only when it knows the generic
-    /// context, which depends on how the body was read.
-    /// </summary>
+    /// <summary>A type in signature notation with generic parameters as !n / !!n, independent of the reader's generic context.</summary>
     public static string TypeName(TypeSig? sig, Func<TypeDef, string>? name = null)
     {
         var sb = new StringBuilder();

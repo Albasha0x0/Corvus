@@ -210,7 +210,7 @@ public class InspectionTests : IDisposable
     /// every call, the locations the first in scan order, and a parameter list still tells overloads apart.
     /// </summary>
     [Fact]
-    public void Features_CountEveryCallAndListTheFirstInScanOrder()
+    public void Features_count_every_call_and_list_the_first_in_scan_order()
     {
         var source = "using System.Diagnostics; using System.Net.Sockets; public static class Calls {\n" +
                      string.Concat(Enumerable.Range(0, 7).Select(i => $"public static void M{i}() {{ Process.Start(\"a{i}\"); }}\n")) +
@@ -225,7 +225,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Features_OfEverydayFrameworkApis()
+    public void Everyday_framework_APIs_match_their_features_and_not_stronger_ones()
     {
         var report = Inspection.SurveyFeatures(null, Save("EverydayApis.dll", EverydayApis()), null, default);
         var byName = report.Features.ToDictionary(c => c.Name);
@@ -235,7 +235,8 @@ public class InspectionTests : IDisposable
         Assert.Equal("registry", byName["query the registry"].Category);
         Assert.Equal("registry", byName["modify the registry"].Category);
         Assert.Contains(byName["create processes"].Evidence, e => e.Feature == "api:System.Diagnostics.Process::Start" && e.Locations.Any(l => l.Contains("Everyday::OpenEditor")));
-        Assert.Equal("system changes", byName["change file timestamps"].Category); // File.SetCreationTime
+        // File.SetCreationTime.
+        Assert.Equal("system changes", byName["change file timestamps"].Category);
 
         // Benign file, process and registry use must not match the stronger features.
         Assert.DoesNotContain("run the Windows command shell", byName.Keys);
@@ -248,7 +249,7 @@ public class InspectionTests : IDisposable
 
     /// <summary>extract_strings pages its rows and keeps every value: read_result text is the CSV, json the records.</summary>
     [Fact]
-    public async Task Values_PageAndKeepEveryValueForReadResult()
+    public async Task Values_page_and_keep_every_value_for_read_result()
     {
         var path = Save("EverydayApis.dll", EverydayApis());
         var all = Inspection.ExtractStrings(null, path, null, default);
@@ -276,7 +277,7 @@ public class InspectionTests : IDisposable
 
     /// <summary>The default page counts matches per feature; category= (or all) adds the evidence, a string's marked derived.</summary>
     [Fact]
-    public async Task Features_DefaultPageCountsAndCategoryAddsEvidenceWithBasis()
+    public async Task Features_default_page_counts_and_category_adds_evidence_with_basis()
     {
         var path = Save("Bot.dll", Compile("Bot", "public static class Bot { public static string Url = \"https://api.telegram.org/bot1/send\"; " +
                                                   "public static void Run() { System.Diagnostics.Process.Start(\"x\"); System.Diagnostics.Process.Start(\"y\"); } }"));
@@ -303,7 +304,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public async Task Features_TakeANativeImageAsImage()
+    public async Task Features_take_a_native_image_as_image()
     {
         var path = McpProtocolTests.NativeSample(_dir);
         var native = _workspace.LoadAny(path).Native!;
@@ -313,7 +314,7 @@ public class InspectionTests : IDisposable
         var byImage = await tools.SurveyFeatures(image: native.Id);
         var byAssembly = await tools.SurveyFeatures(assembly: native.Id);
         Assert.Equal(byAssembly, byImage);
-        // an image path that is not loaded is read as a file
+        // An image path that is not loaded is read as a file.
         var copy = _dir.File("unloaded-copy.bin");
         File.Copy(path, copy);
         static string Rows(string text) => text[text.IndexOf('\n')..];
@@ -322,7 +323,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Features_OfALoadedAssemblyMatchTheFile()
+    public void Features_of_a_loaded_assembly_match_the_file()
     {
         var path = Save("EverydayApis.dll", EverydayApis());
         var loaded = _workspace.Load(path);
@@ -332,7 +333,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Embedded_EncodedCopiesOfATextFile_AreDecodedWithTheirChain()
+    public void Embedded_encoded_copies_of_a_text_file_are_decoded_with_their_chain()
     {
         var report = Inspection.ExtractEmbedded(null, Save("Encoded.dll", EncodedFixture()), false, null, false, default);
         var original = Encoding.UTF8.GetBytes(SecretText);
@@ -365,7 +366,7 @@ public class InspectionTests : IDisposable
 
     /// <summary>A container path searches every assembly inside; rows page with the list envelope and save writes them all.</summary>
     [Fact]
-    public async Task Embedded_OfAContainerSearchesItsAssembliesAndPages()
+    public async Task Extract_embedded_on_a_container_searches_its_assemblies_and_pages()
     {
         var single = Inspection.ExtractEmbedded(null, Save("Encoded.dll", EncodedFixture()), false, null, false, default);
         var zip = Save("app.zip", ContainerFixtures.Zip(("lib/Encoded.dll", File.ReadAllBytes(_dir.File("Encoded.dll"))), ("readme.txt", "x"u8.ToArray())));
@@ -385,7 +386,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Embedded_SaveWritesDefangedFiles_AndValuesComeFromDecodedText()
+    public void Embedded_save_writes_defanged_files_and_values_come_from_decoded_text()
     {
         var path = Save("Encoded.dll", EncodedFixture());
         var saved = Inspection.ExtractEmbedded(null, path, true, _dir.File("embedded"), false, default);
@@ -415,11 +416,12 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Embedded_XorText_RecoversSingleByteKeys_WhenAskedTo()
+    public void Embedded_XOR_text_recovers_single_byte_keys_when_asked_to()
     {
         var path = Save("Encoded.dll", EncodedFixture());
         Assert.DoesNotContain(Inspection.ExtractEmbedded(null, path, false, null, false, default).Contents,
-            p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal)); // off by default
+            // Off by default.
+            p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal));
 
         var on = Inspection.ExtractEmbedded(null, path, false, null, false, default, xorText: true);
         var recovered = Assert.Single(on.Contents, p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal));
@@ -436,7 +438,7 @@ public class InspectionTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void Embedded_XorText_RejectsReadableAndRandomData()
+    public void Embedded_XOR_text_rejects_readable_and_random_data()
     {
         var random = new byte[2048];
         new Random(7).NextBytes(random);
@@ -463,7 +465,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Embedded_XorText_RecoversStructuredConfiguration()
+    public void Embedded_XOR_text_recovers_structured_configuration()
     {
         const string Json = "{\"servers\":[\"https://update.example-cdn.net/api/v2/status\",\"https://backup.example.org/sync.php\"],\"interval\":300,\"jitter\":0.2,\"channel\":\"q3-rollout\",\"install\":{\"path\":\"%APPDATA%\\\\svc\",\"autorun\":true}}";
         const string Urls = "https://a.example.net/x.bin\nhttps://b.example.org/files/build2.dat\nhttp://10.20.30.40:8080/up\n";
@@ -488,7 +490,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Embedded_XorText_RecoversMultiByteKeys_Utf16_AndOtherScripts()
+    public void Embedded_XOR_text_recovers_multi_byte_keys_UTF16_and_other_scripts()
     {
         const string Arabic = "ملاحظات ربع سنوية، ليست للمشاركة. خادم التجهيز جاهز الآن والنهاية قريبة.\n";
         var text = SecretText + SecretText;
@@ -512,7 +514,8 @@ public class InspectionTests : IDisposable
 
         var utf16 = Found("utf16.bin");
         Assert.Equal(["xor key 5aa53c (brute-forced, UTF-16 text)"], utf16.Encoding);
-        Assert.Equal(text, Encoding.UTF8.GetString(utf16.Bytes)); // returned as UTF-8
+        // Returned as UTF-8.
+        Assert.Equal(text, Encoding.UTF8.GetString(utf16.Bytes));
 
         var arabic = Found("arabic.bin");
         Assert.Equal(["xor key 21426384a5 (brute-forced)"], arabic.Encoding);
@@ -520,7 +523,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Values_ClassifiedByType_AndLookalikesLeftOut()
+    public void Values_classified_by_type_and_lookalikes_left_out()
     {
         var report = Inspection.ExtractStrings(null, Save("Strings.dll", StringsFixture()), null, default);
         var found = report.Values.Select(i => (i.Type, i.Value)).ToList();
@@ -602,7 +605,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Values_OfEverydayApis_KnowWhereTheyGo_AndExport()
+    public void Values_of_everyday_APIs_know_where_they_go_and_export()
     {
         var path = Save("EverydayApis.dll", EverydayApis());
         var report = Inspection.ExtractStrings(null, path, null, default);
@@ -618,7 +621,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Certificates_MicrosoftSignedRoslyn_AndUnsignedDnlib()
+    public void Microsoft_signed_assemblies_verify_and_an_unsigned_one_has_no_certificate()
     {
         foreach (var (package, dll) in new[] { ("Microsoft.CodeAnalysis.CSharp", "Microsoft.CodeAnalysis.CSharp.dll"), ("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll") })
         {
@@ -629,7 +632,8 @@ public class InspectionTests : IDisposable
             Assert.True(sig.DigestMatches, dll);
             Assert.True(sig.SignatureValid, dll);
             Assert.Equal("SHA256", sig.DigestAlgorithm);
-            Assert.NotNull(sig.Chain); // trusted or not depends on the machine's root store
+            // Trusted or not depends on the machine's root store.
+            Assert.NotNull(sig.Chain);
         }
 
         var dnlib = Certificates.Read(File.ReadAllBytes(CachedDll("dnlib", "dnlib.dll")));
@@ -639,7 +643,7 @@ public class InspectionTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void Certificates_InSummary_WithStrongNames_AndModifiedCopies()
+    public void Summary_shows_strong_names_and_signatures_and_a_changed_byte_breaks_the_digest()
     {
         var roslyn = File.ReadAllBytes(CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"));
         var signed = Inspection.Summarize(null, Save("Microsoft.CodeAnalysis.dll", roslyn), default);
@@ -668,7 +672,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Markers_AreNamed_PlainAssembliesGiveNothing()
+    public void Protector_markers_are_named_and_plain_assemblies_have_none()
     {
         var marked = Assert.Single(Inspection.Summarize(null, Save("Marked.dll", MarkedFixture()), default).Assemblies).Markers;
         Assert.Equal(["Confuser / ConfuserEx", "SmartAssembly", "Goliath.NET", "Xenocode"], marked.Tools);
@@ -683,7 +687,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Summary_OfAnAssemblyAndOfAContainer()
+    public void Summary_reads_an_assembly_and_a_container()
     {
         var path = Save("EverydayApis.dll", EverydayApis());
         var report = Inspection.Summarize(null, path, default);
@@ -704,13 +708,14 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Summary_Messages()
+    public void Summary_notes_name_the_cap_an_empty_input_and_embedded_counts()
     {
         var many = Save("many.zip", ContainerFixtures.Zip([.. Enumerable.Range(0, 26).Select(i => ($"lib/A{i}.dll", ContainerFixtures.Module($"A{i}")))]));
         var capped = Inspection.Summarize(null, many, default);
         Assert.Equal(8, capped.Assemblies.Count);
-        Assert.Contains(capped.Notes, n => n.StartsWith("Summarized 8 of 26 assemblies (the app's own first, framework libraries last; the first in full, the others in brief)"));
-        Assert.All(capped.Assemblies.Skip(1), a => Assert.Empty(a.Highlights)); // brief entries: highlights only at file level
+        Assert.Contains(capped.Notes, n => n.StartsWith("Summarized 8 of 26 assemblies (own first, framework last; the first in full, the others in brief)"));
+        // Brief entries: highlights only at file level.
+        Assert.All(capped.Assemblies.Skip(1), a => Assert.Empty(a.Highlights));
 
         var empty = Inspection.Summarize(null, Save("notes.txt", "just some text"u8.ToArray()), default);
         Assert.Contains("No managed assemblies inside: nothing to summarize beyond the file facts.", empty.Notes);
@@ -724,7 +729,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void BadArguments()
+    public void Summarize_and_survey_refuse_missing_and_non_assembly_inputs()
     {
         var path = Save("EverydayApis.dll", EverydayApis());
         Assert.Contains("Pass either", Assert.Throws<ToolError>(() => Inspection.Summarize(null, null, default)).Message);
@@ -738,7 +743,7 @@ public class InspectionTests : IDisposable
     /// <summary>Fixtures cut short and with random bytes changed: every analysis either works or throws ToolError.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void TruncatedAndFuzzedAssemblies_FailCleanly()
+    public void Truncated_and_fuzzed_assemblies_fail_cleanly()
     {
         var inputs = new Dictionary<string, byte[]>
         {
@@ -788,7 +793,7 @@ public class InspectionTests : IDisposable
     /// <summary>Fuzzes the security directory, WIN_CERTIFICATE header and PKCS#7 blob of a signed file.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void DamagedSignatures_AreReportedNotThrown()
+    public void Damaged_signatures_are_reported_not_thrown()
     {
         var signed = File.ReadAllBytes(CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"));
         var pe = PeImage.TryParse(signed)!;
@@ -818,13 +823,14 @@ public class InspectionTests : IDisposable
     /// <summary>Corrupt inputs give tool errors and the server keeps serving.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task CorruptInputs_GiveClearErrorsOverMcp()
+    public async Task Corrupt_inputs_give_clear_errors_over_MCP()
     {
         await using var client = await McpProtocolTests.StartServerAsync("--no-index");
         var good = File.ReadAllBytes(Env.FixturePath);
         var corruptMetadata = good.ToArray();
         int bsjb = corruptMetadata.AsSpan().IndexOf("BSJB"u8);
-        corruptMetadata.AsSpan(bsjb, 4).Clear(); // the metadata root signature
+        // The metadata root signature.
+        corruptMetadata.AsSpan(bsjb, 4).Clear();
         var inputs = new Dictionary<string, (string Path, string Error)>
         {
             ["missing"] = (_dir.File("missing.dll"), "File not found"),

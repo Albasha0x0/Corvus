@@ -15,8 +15,7 @@ internal sealed partial class Arm64CallSites
     private int _wrapperSlices;
     private readonly object _dynamicGate = new();
     private bool _computingDynamic;
-    // the call sites of each function analyzed while the late-bound imports are being found; Final: no site could name one,
-    // so they are kept after the search
+    // Call sites analyzed during the late-bound import search; Final ones named none and are kept afterwards.
     private Dictionary<uint, (List<CallSiteInfo> Sites, bool Final)>? _building;
 
     /// <summary>Forward slices taken to find resolver wrappers while the set was built.</summary>
@@ -103,10 +102,10 @@ internal sealed partial class Arm64CallSites
     private List<(uint Site, NativeFunction Caller, string Name)> Wrapped(CallSiteInfo s, CancellationToken ct)
     {
         var result = new List<(uint, NativeFunction, string)>();
-        // without direct callers there is no constant to find: skip the slices (functions with hundreds of resolver calls)
+        // Without direct callers there is no constant to find, so skip the slices.
         if (!_index.Callers(s.Caller).Any(c => c.Kind == XrefKind.Call && c.Caller != null)) return result;
         var trace = Arm64Trace.For(_index);
-        // the name must be a parameter of the caller: a budgeted value, not a whole slice (minutes over large functions)
+        // The name must be a caller parameter; a budgeted value checks it, a whole slice takes minutes.
         var own = trace.Code(s.Caller, ct);
         var (sb, si) = own.Position(s.Rva);
         if (sb < 0) return result;
@@ -173,10 +172,7 @@ internal sealed partial class Arm64CallSites
 
     private static bool IsVector(Arm64RegisterAny r) => A64Function.IsVector(r);
 
-    /// <summary>
-    /// Without a signature: the v registers set before the call, up to the highest one, with the width last written: in
-    /// the call's block, then while no call intervenes in the blocks that alone lead to it.
-    /// </summary>
+    /// <summary>Without a signature: the v registers set before the call, up to the highest one, with the width last written.</summary>
     private List<(int Register, string Width)> GuessedFloats(NativeFunction caller, List<Step> steps, int k, CancellationToken ct)
     {
         var widths = new string?[Arguments];

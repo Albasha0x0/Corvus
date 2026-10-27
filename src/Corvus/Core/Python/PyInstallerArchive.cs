@@ -5,12 +5,8 @@ using Corvus.Core.Installers;
 
 namespace Corvus.Core.Python;
 
-/// <summary>
-/// A PyInstaller program: the CArchive (PKG) after the bootloader, found by its cookie ("MEI\x0c\x0b\x0a\x0b\x0e", the
-/// package length, table of contents position and length, the Python version and, from 2.1, the runtime library name),
-/// and the PYZ archive in it, whose modules are zlib-compressed code objects and, in builds made with --key (3.x to 5.x),
-/// AES-encrypted with the key kept in pyimod00_crypto_key. Extracted .pyc files get the header PyInstaller strips (5.3+).
-/// </summary>
+/// <summary>A PyInstaller program's CArchive and PYZ archive; --key builds (3.x to 5.x) decrypt with the stored key.</summary>
+/// <remarks>Extracted .pyc files get back the header PyInstaller 5.3+ strips.</remarks>
 public static class PyInstallerArchive
 {
     public const string Kind = "PyInstaller executable";
@@ -91,7 +87,7 @@ public static class PyInstallerArchive
             return e.Compressed ? Blob.TryDecompress(stored, "zlib", limits.MaxItemBytes) : stored;
         }
 
-        // the .pyc magic: the PYZ header's, or an intact module header (before 5.3), or the version's final release
+        // The .pyc magic: the PYZ header's, an intact module header (before 5.3), or the version's final release.
         byte[]? magic = null;
         var pyzEntries = entries.Where(e => e.Type is 'z').ToList();
         var pyzData = new Dictionary<string, byte[]?>();
@@ -108,7 +104,8 @@ public static class PyInstallerArchive
         magic ??= PyVersion.MagicOf(version);
 
         byte[]? Pyc(byte[]? code) => code == null ? null
-            : code.Length >= 4 && code[2] == '\r' && code[3] == '\n' ? code // the header is still there (before 5.3)
+            // The header is still there before 5.3.
+            : code.Length >= 4 && code[2] == '\r' && code[3] == '\n' ? code
             : magic == null ? code : PyVersion.WithHeader(magic, version, code);
 
         string? key = Key(entries.Where(e => e.Name == "pyimod00_crypto_key" && e.Type is 'm' or 'M').Select(e => Raw(e)).FirstOrDefault(), version);

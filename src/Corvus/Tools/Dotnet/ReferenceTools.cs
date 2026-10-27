@@ -14,9 +14,8 @@ namespace Corvus.Tools;
 public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, NativeLinkService? link = null)
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
-    [Description("Every use of a symbol across loaded assemblies: call sites of a method (also via base or interface methods), reads, writes and " +
-                 "address uses of a field, every use of a type (bases, signatures, locals, casts, attributes). A native export: P/Invoke callers and " +
-                 "native call sites.")]
+    [Description("Every use of a symbol across loaded assemblies: method call sites (also via base or interface), field reads, writes " +
+                 "and address uses, type uses. A native export gives P/Invoke callers and native call sites.")]
     public async Task<string> FindReferences(
         [Description(SymbolOrNativeDescription)] string symbol,
         [Description("Assembly defining the symbol, to disambiguate; all loaded are searched.")] string? assembly = null,
@@ -44,7 +43,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             var header = $"References to {target.Kind} {target.Label} [{target.Assembly.Id}]: ";
             if (total == 0)
                 header += workspace.Assemblies.Count == 1
-                    ? "none found. Only loaded assemblies are searched: load the assemblies that might use it (e.g. the whole Managed folder).\n"
+                    ? "none found. Only loaded assemblies are searched: load the assemblies that might use it.\n"
                     : "none found in loaded assemblies.\n";
             return ToolOutput.List(page, offset, limit, total, Row, rows => new ReferenceList($"{target.Label} [{target.Assembly.Id}]", Runs(rows), offset, total), "reference",
                 SkippedBodiesNote(workspace.Assemblies) + header);
@@ -127,8 +126,8 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
     }
 
     [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)", UseStructuredContent = true, OutputSchemaType = typeof(CalleeList))]
-    [Description("What a method uses: calls, field reads / writes, types instantiated or cast, strings, in IL order with offsets. P/Invoke calls show " +
-                 "the native code they bind to; a P/Invoke or native export gives its native callees as call-tree rows.")]
+    [Description("What a method uses, in IL order with offsets: calls, field reads and writes, types, strings. " +
+                 "A P/Invoke or native export gives its native callees as call-tree rows.")]
     public async Task<string> FindCallees(
         [Description(SymbolOrNativeDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,

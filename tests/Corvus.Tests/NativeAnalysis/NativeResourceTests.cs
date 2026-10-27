@@ -24,7 +24,7 @@ public sealed class NativeResourceTests
 
         var entries = resources.EntryPoints("sink.dll");
         var first = native.Image.Exports.First(e => e.Name == "First");
-        // the address is the export's VA and the ordinal is its own column
+        // The address is the export's VA and the ordinal is its own column.
         Assert.Contains($"0x{native.Image.ImageBase + first.Rva:X}\texport\tFirst\t#{first.Ordinal}", entries);
         if (native.Image.EntryPointRva != 0) Assert.StartsWith($"0x{native.Image.ImageBase + native.Image.EntryPointRva:X}\tentry", entries);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => resources.Type("sink.dll", "NoSuchType", default))).Code);

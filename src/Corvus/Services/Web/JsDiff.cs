@@ -6,10 +6,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Web;
 
-/// <summary>
-/// One module of a bundle diff: Change is identical, changed, added or removed; Tier says how the pair was made (path:
-/// the bundler key or source-map path, shape: the normalized syntax hash, strings: the string literals).
-/// </summary>
+/// <summary>One module of a bundle diff: Change is identical, changed, added or removed; Tier names how the pair was made.</summary>
 public sealed record JsModuleChange(string Change, string? OldId, string? NewId, string? Name, string? Tier, int OldBytes, int NewBytes, string? Detail);
 
 /// <summary>analyze_js view=diff: counts and the module rows (identical ones only when asked for by query).</summary>
@@ -17,11 +14,7 @@ public sealed record JsDiffResult(int OldModules, int NewModules, int Identical,
     [property: System.ComponentModel.Description("Pairs whose module id differs (webpack renumbering).")] int Renumbered,
     IReadOnlyList<JsModuleChange> Rows, string? TokenDiff);
 
-/// <summary>
-/// Two builds of a bundle compared module by module: pairs by original path (bundler key or source map), then by a
-/// normalized syntax hash (identifiers by first use, module ids at require calls folded, property names and literals
-/// kept), then by the string literals they share; webpack id renumbering pairs as identical.
-/// </summary>
+/// <summary>Compares two bundle builds module by module, pairing by path, normalized syntax hash, then shared strings; renumbered ids pair as identical.</summary>
 internal static partial class JsDiff
 {
     private const int MaxTokenDiffBytes = 256 * 1024;
@@ -36,7 +29,7 @@ internal static partial class JsDiff
 
     public static JsDiffResult Compare(string oldPath, string newPath, string? query, CancellationToken ct)
     {
-        // the two sides parse and hash at once
+        // The two sides parse and hash in parallel.
         var oldTask = Task.Run(() => Read(oldPath, ct), ct);
         var (newText, newFacts) = Read(newPath, ct);
         var (oldText, oldFacts) = oldTask.GetAwaiter().GetResult();
@@ -44,7 +37,7 @@ internal static partial class JsDiff
         var oldLeft = oldFacts.ToHashSet();
         var newLeft = newFacts.ToHashSet();
 
-        // a key shared by one module on each side pairs them; k modules on each side (copies of one code) pair in file order
+        // A key shared by one module on each side pairs them; k copies on each side pair in file order.
         void Unique(Func<Facts, string?> key, string tier)
         {
             var olds = oldLeft.Where(f => key(f) != null).GroupBy(f => key(f)!).ToDictionary(g => g.Key, g => g.OrderBy(f => f.Module.Start).ToList());
@@ -147,7 +140,8 @@ internal static partial class JsDiff
             {
                 case Identifier id:
                     hash.Append(Encoding.UTF8.GetBytes(isName ? id.Name : "$" + (names.TryGetValue(id.Name, out var n) ? n : names[id.Name] = names.Count)));
-                    if (isName && id.Name.Length >= 3) f.Strings.Add("." + id.Name); // property names survive minification
+                    // Property names survive minification.
+                    if (isName && id.Name.Length >= 3) f.Strings.Add("." + id.Name);
                     continue;
                 case StringLiteral s:
                     if (!folded.Contains(s)) { hash.Append(Encoding.UTF8.GetBytes(s.Value)); if (s.Value.Length >= 3) f.Strings.Add(s.Value); }
@@ -176,7 +170,8 @@ internal static partial class JsDiff
                     }));
             for (int i = children.Count - 1; i >= 0; i--) stack.Push(children[i]);
         }
-        f.Hash = hash.GetCurrentHashAsUInt64() | 1; // never 0: 0 marks "not fingerprinted"
+        // Never 0, which marks "not fingerprinted".
+        f.Hash = hash.GetCurrentHashAsUInt64() | 1;
         f.Skeleton = skeleton.GetCurrentHashAsUInt64();
     }
 
@@ -212,10 +207,7 @@ internal static partial class JsDiff
             if (oldLeft.Remove(o) && newLeft.Remove(n)) pairs.Add((o, n, "strings"));
     }
 
-    /// <summary>
-    /// Pairs spread along the require graph: when two paired modules require the same number of modules, the unpaired ones
-    /// at the same position pair (tier requires), if their sizes are within a factor of two; repeated until nothing changes.
-    /// </summary>
+    /// <summary>Pairs unpaired requires at the same position of paired modules with equal require counts, sizes within 2x, until stable.</summary>
     private static void Requires(List<Facts> oldFacts, List<Facts> newFacts, HashSet<Facts> oldLeft, HashSet<Facts> newLeft, List<(Facts Old, Facts New, string Tier)> pairs)
     {
         var oldById = oldFacts.GroupBy(f => f.Module.Id).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -263,9 +255,7 @@ internal static partial class JsDiff
     internal static string Tokens(string code)
     {
         var tokens = new List<string>();
-        // Where a string opened by each quote kind stopped unclosed: a later
-        // quote of that kind before it is an escaped one, whose scan would stop
-        // there too, so each stretch is scanned once.
+        // Where an unclosed string of each quote kind stopped, so each stretch is scanned once.
         var failsBefore = new Dictionary<char, int>();
         for (int at = 0; at < code.Length && Token.Match(code, at) is { Success: true } m; )
         {
@@ -283,10 +273,7 @@ internal static partial class JsDiff
         return string.Join('\n', tokens);
     }
 
-    /// <summary>
-    /// The end of the string literal opening at <paramref name="start"/>, or minus the position where its scan stopped
-    /// unclosed: a line end (not in a template), a backslash before a line end, or the end of the code.
-    /// </summary>
+    /// <summary>The end of the string literal at <paramref name="start"/>, or minus the position where an unclosed scan stopped.</summary>
     private static int StringEnd(string code, int start)
     {
         char q = code[start];

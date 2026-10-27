@@ -6,11 +6,7 @@ using Xunit.Sdk;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Starts the longest test classes first, by their recorded times (test.ps1's history, CORVUS_TEST_HISTORY), so they
-/// overlap the many short ones instead of ending the run alone. Collections shared by several classes go first, as
-/// their classes run one after another; classes without a record go last, in the default order.
-/// </summary>
+/// <summary>Starts the longest test classes first by recorded times (CORVUS_TEST_HISTORY); shared collections first, unrecorded classes last.</summary>
 public sealed class LongCollectionsFirst : ITestCollectionOrderer
 {
     private readonly DefaultTestCollectionOrderer _default = new();

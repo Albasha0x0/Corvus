@@ -1,9 +1,6 @@
 namespace Corvus.Native.Providers.Live.Inspector;
 
-/// <summary>
-/// The IPC recorder evaluated in an Electron main process: it counts each message by direction, kind, channel and value
-/// shape (types and keys, never values) and returns the ledger. Installing twice keeps the first recorder.
-/// </summary>
+/// <summary>IPC recorder for an Electron main process: counts messages by direction, kind, channel and shape, never values.</summary>
 internal static class ElectronIpc
 {
     // Keys kept; later new keys are counted as dropped.

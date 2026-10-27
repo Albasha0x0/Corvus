@@ -5,11 +5,7 @@ namespace Corvus.Core.Pcap;
 /// <summary>HTTP/2 frames that end in one TCP segment: frame types, stream ids and the headers of the blocks they complete.</summary>
 internal sealed record Http2Facts(List<long> Types, List<long> Streams, List<(string Name, string Value)> Headers);
 
-/// <summary>
-/// Cleartext HTTP/2 (h2c with the connection preface): each direction's byte stream joined over in-order segments, frames
-/// split out, header blocks (HEADERS, PUSH_PROMISE, CONTINUATION) decoded with that direction's HPACK table. A gap or an
-/// undecodable block stops the connection's decoding, since the table state is then unknown.
-/// </summary>
+/// <summary>Cleartext HTTP/2 header blocks per direction; a gap or undecodable block stops the connection's decoding.</summary>
 internal sealed class Http2Tracker
 {
     private const int MaxConnections = 10_000, MaxBuffer = 1 << 20;
@@ -76,10 +72,7 @@ internal sealed class Http2Tracker
         v.Http2 = facts;
     }
 
-    /// <summary>
-    /// A header block fragment decoded as far as it goes, as Wireshark's streaming decoder does: each header belongs to the
-    /// frame whose fragment completes it. False when the block is malformed.
-    /// </summary>
+    /// <summary>Decodes a header block fragment as Wireshark does; false when the block is malformed.</summary>
     private static bool Frame(Direction d, byte type, byte flags, ReadOnlySpan<byte> body, Http2Facts facts)
     {
         if (type is not (1 or 5 or 9)) return true;

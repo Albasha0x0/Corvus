@@ -4,27 +4,35 @@
 
 | Command | Runs |
 |---|---|
-| `dotnet test` | Quick set: every test not marked `[Trait("Speed", "Slow")]`. |
-| `CORVUS_ALL_TESTS=1 dotnet test` (or `-p:CORVUS_ALL_TESTS=1`) | Full set: adds real-library builds, whole-server stdio runs, sweeps, fuzzing and the large runtime packs. |
-| `./test.ps1` | Commit gate: quick tests of the families changed since `origin/main` (uncommitted and untracked files included; by the coverage map where it knows a file), plus the contract tests. Shared code runs the whole quick set. |
-| `./test.ps1 -All` | The whole quick set. |
-| `./test.ps1 -Affected` | Quick set plus the slow tests of the changed families, in the foreground; shared code (`Core`, `Mcp`, test `Support`) runs everything. |
-| `./test.ps1 -Full` | Full set, routine strength: an evenly spread quarter of the real-image sweeps, without `[Trait("Tier", "Release")]` tests (measurements, IDA accuracy oracles, the largest inputs). Names the engines whose tests skip (set `CORVUS_GHIDRA_DIR`, `CORVUS_IDA_DIR`). |
-| `./test.ps1 -Full -Exhaustive` | Release strength (`CORVUS_SWEEP=exhaustive`): every sweep input and the `Tier=Release` tests. |
-| `./test.ps1 -Full -IfChanged` | Skips when a full run already passed on this clean tree (`release.ps1` uses the same stamp). |
-| `./test.ps1 -Full -Reuse` | Only the families whose input key changed, plus the contract tests and the classes flaky under load; its stamp is marked `reused`. |
-| `./test.ps1 -Full -Background [-Commit <sha>]` | `-Full -Reuse` on the committed HEAD (or `<sha>`) in a worktree of its own; returns at once. `-Exhaustive`: release strength with reuse; `-Whole`: release strength without reuse. |
-| `./test.ps1 -Status` | The last background run and the offload, host tier, nightly and perf state. |
-| `./test.ps1 -Wait` | Returns when the background run and any run queued behind it end; exit 0 on a pass. Wait on this, not on `-Status`. |
-| `./test.ps1 -Stamp` | Records the last full run's passes when its recording step failed (same tree only). |
-| `./test.ps1 -Filter <expr>` | Any `dotnet test` filter; a filter given on the command line keeps the `Tier=Release` tests. |
-| `./test.ps1 -CoverageMap` | One instrumented run per family recording the source files its tests run. |
-| `./test.ps1 -SecondGhidra` | The `Engines` tests on `CORVUS_SECOND_GHIDRA_DIR`. |
-| `./test.ps1 -Perf` | The timing budgets, enforced, alone on the machine. |
-| `./test.ps1 -Mutation [-Target sqlite,pe]`, `-Full -Coverage` | See [Mutation testing](#mutation-testing-client-checks-and-the-token-benchmark) and [Guard tests](#guard-tests). |
-| `./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` | One shard of an offload group, as CI runs it. |
-| `./test.ps1 -Remote -Filter <filter> -Repeat <n>` | A filter `n` times on the test host. |
-| `./test.ps1 -HostTier` | The host tier's classes on the test host. |
+| `dotnet test` | quick set: every test not marked `[Trait("Speed", "Slow")]` |
+| `CORVUS_ALL_TESTS=1 dotnet test` (or `-p:CORVUS_ALL_TESTS=1`) | full set: adds real-library builds, stdio runs, sweeps, fuzzing, large packs |
+| `./test.ps1` | commit gate: quick tests of families changed since `origin/main`, plus contract tests |
+| `./test.ps1 -All` | the whole quick set |
+| `./test.ps1 -Affected` | quick set plus the changed families' slow tests, in the foreground |
+| `./test.ps1 -Full` | full set, routine strength: a quarter of the sweeps, no `[Trait("Tier", "Release")]` tests |
+| `./test.ps1 -Full -Exhaustive` | release strength (`CORVUS_SWEEP=exhaustive`): every sweep input and `Tier=Release` |
+| `./test.ps1 -Full -IfChanged` | skips when a full run already passed on this clean tree |
+| `./test.ps1 -Full -Reuse` | only families whose input key changed, plus contract and load-flaky classes |
+| `./test.ps1 -Full -Background [-Commit <sha>]` | `-Full -Reuse` on HEAD (or `<sha>`) in its own worktree; returns at once |
+| `./test.ps1 -Status` | last background run; offload, host tier, nightly and perf state |
+| `./test.ps1 -Wait` | returns when the background run and its queue end; exit 0 on a pass |
+| `./test.ps1 -Stamp` | records the last full run's passes when recording failed (same tree only) |
+| `./test.ps1 -Filter <expr>` | any `dotnet test` filter; keeps the `Tier=Release` tests |
+| `./test.ps1 -CoverageMap` | one instrumented run per family, recording the source files it runs |
+| `./test.ps1 -SecondGhidra` | the `Engines` tests on `CORVUS_SECOND_GHIDRA_DIR` |
+| `./test.ps1 -Perf` | timing budgets, enforced, alone on the machine |
+| `./test.ps1 -Mutation [-Target sqlite,pe]`, `-Full -Coverage` | [Mutation testing](#mutation-testing-client-checks-and-the-token-benchmark), [Guard tests](#guard-tests) |
+| `./test.ps1 -RemoteRun -Group <group> -Shard <i>/<n>` | one shard of an offload group, as CI runs it |
+| `./test.ps1 -Remote -Filter <filter> -Repeat <n>` | a filter `n` times on the test host |
+| `./test.ps1 -HostTier` | the host tier's classes on the test host |
+
+- The commit gate includes uncommitted and untracked files and follows the coverage map where it knows a file. Shared
+  code (`Core`, `Mcp`, test `Support`) runs the whole quick set.
+- `-Full` names the engines whose tests skip (set `CORVUS_GHIDRA_DIR`, `CORVUS_IDA_DIR`). `Tier=Release` holds
+  measurements, IDA accuracy oracles and the largest inputs.
+- `-Full -IfChanged` uses the same stamp as `release.ps1`; a `-Reuse` stamp is marked `reused`.
+- `-Background -Exhaustive`: release strength with reuse; `-Whole`: release strength without reuse.
+- Wait on `-Wait`, not on `-Status`.
 
 - **Quick set.** Run while iterating. It stays under 50 s on an idle machine (about 30 s of parallel work, then the
   timing and process-wide tests that run alone), so a quick test uses the small fixtures in `tests/TestFixture` and
@@ -178,7 +186,7 @@
   - the run fails only on an over-budget test or regressed measurement that was also so in the previous perf run
     (`.git/corvus-perf-verdicts.json`); `-Status` shows the last verdict. Baselines start at the budgets and change
     only by a commit that tightens them.
-- **Host tier.** The stable families in `test-remote.psm1`: Accuracy, Builds, Containers, DotnetEdits, Dumps, Il2Cpp,
+- **Host tier.** The stable families in `test-remote.psm1`: Accuracy, AotMetadata, Builds, Containers, DotnetEdits, Dumps,
   Mobile, NativeAot, NativeEdits, NativeFormats, Support and Web. A push run leaves their classes out (here and on the
   test host) and runs only their smoke tests (trait `Smoke=push`: one or two fast tests per family; Accuracy has
   none); it records no pass for these families.
@@ -203,22 +211,24 @@
   analysis (`CORVUS_SEED_VALIDATE=3`, left out of reuse keys so a push run's pass still counts). Logs:
   `.git/corvus-nightly.log` (test output in `.log.run`); `-Status` shows the last step.
 
-CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane plus the offload job; `release.yml` builds the
-release archives; `codeql.yml` and `scorecard.yml` scan the code and the repository weekly and on each push, and
-Dependabot proposes weekly package and action updates. Every workflow is read-only by default and pins actions by
-commit SHA (`ReleaseProvenanceTests`). The shipped projects (`src/Corvus`, `src/Corvus.Clr32`) restore from committed
-`packages.lock.json` files: a local restore rewrites them after a package change (commit them with it), and on CI
-runners (`CI=true`) every restore is locked, so a package version or hash the lock file does not name fails the
-build (`LockFileTests`). The full set and real-application runs are local. To run the Live family (slow tests included) on
-macOS and Windows ARM64, start ci.yml by hand: `gh workflow run ci.yml --ref <branch> -f live=true`. That job installs
-64-bit Python and the tested Frida release on macos-latest, windows-11-arm, ubuntu-latest and windows-latest and
-uploads one TRX per machine (`live-results-<os>`).
+CI:
+
+- `ci.yml`: the quick set as a smoke lane, plus the offload job.
+- `release.yml`: the release archives.
+- `codeql.yml`, `scorecard.yml`: weekly and on each push. Dependabot: weekly package and action updates.
+- Every workflow is read-only by default and pins actions by commit SHA (`ReleaseProvenanceTests`).
+- `src/Corvus` and `src/Corvus.Clr32` restore from committed `packages.lock.json` files. A local restore rewrites them
+  after a package change (commit them with it); on CI (`CI=true`) restores are locked (`LockFileTests`).
+- The full set and real-application runs are local.
+- Live family on macOS and Windows ARM64: `gh workflow run ci.yml --ref <branch> -f live=true`. It runs on
+  macos-latest, windows-11-arm, ubuntu-latest and windows-latest and uploads one TRX per machine
+  (`live-results-<os>`).
 
 ## Layout
 
 `tests/Corvus.Tests` has one folder per tool family, so a change's tests are found by folder: `Dotnet`, `DotnetEdits`,
 `NativeAnalysis`, `NativeFormats`, `Engines` (IDA and Ghidra), `NativeEdits`, `Builds`, `Containers`, `Mobile`, `Dumps`,
-`Live`, `Il2Cpp`, `NativeAot`, `Web`, `Accuracy`, `Session` (workspace, notes, server, setup), `Contract` (catalog,
+`Live`, `AotMetadata`, `NativeAot`, `Web`, `Accuracy`, `Session` (workspace, notes, server, setup), `Contract` (catalog,
 ratchets, protocol, output-contract sweeps) and `Support` (builders, fixtures, shared harnesses). Namespaces do not
 follow folders. Long engine classes are split into nested classes (by engine and topic), since xUnit runs one class's
 tests in sequence.
@@ -227,7 +237,7 @@ tests in sequence.
 
 - Real libraries come from `<PackageDownload>` items in the test project, read through `RealPackages.Lib`; tests never
   read paths of one machine.
-- Data that cannot be redistributed (application folders, Il2Cpp builds, external tools) is found through `CORVUS_*`
+- Data that cannot be redistributed (application folders, AOT builds, external tools) is found through `CORVUS_*`
   variables (below); a test without its data is skipped.
 - A new external tool is wired through a variable with a neutral name, its command-line options kept in one table.
 
@@ -311,12 +321,12 @@ describe.
 | `CORVUS_HEAVY_LOCK` | A script that takes and reports a machine-wide lock (`heavy <name> -OwnerPid <pid>`), held by whole-suite runs. | nightly.ps1, test-reuse.psm1 |
 | `CORVUS_HOSTAPI_PROJECT_DIR` | The root of a C/C++ project with a host function table, for `generate_cpp_binding style=hostapi`. | CppBindingTests |
 | `CORVUS_IDA_ORACLE_FILES` | Images (separated by `;`) whose functions are compared with IDA's (default: a fixed set of system DLLs). | NativeCodeOracleTests |
-| `CORVUS_IL2CPP_BUILD` | An Il2Cpp build folder or its global-metadata.dat. | Il2CppRawTests, ImportedNamesTests, LiveCompiledNamesRealTests, OutputBudgetTests, SessionFileTests, UnityAssetStringsTests |
-| `CORVUS_IL2CPP_BUILD_DUMP` | Reference output for `CORVUS_IL2CPP_BUILD` (dummy assemblies, script.json, stringliteral.json), compared with the built-in reader. | Il2CppRawTests |
-| `CORVUS_IL2CPP_DUMMY_DIR` | A folder of dummy assemblies with `[Address]` attributes. | Il2CppExportTests, RealAssemblyTests |
-| `CORVUS_IL2CPP_GENERICS_BUILD` | A Windows Il2Cpp build whose code registration is filled at run time. | Il2CppRawTests |
-| `CORVUS_IL2CPP_MOBILE` | A folder of Android packages of Il2Cpp builds. | Il2CppMobileTests, NativeIdaFormatsTests |
-| `CORVUS_IL2CPP_STRINGS_DIR` | A folder of dummy assemblies with stringliteral.json and script.json (and optionally GameAssembly.dll) beside it. | DumpRealDataTests, Il2CppNavigationTests, Il2CppStringTests |
+| `CORVUS_AOT_BUILD` | An AOT build folder or its global-metadata.dat. | AotBuildTests, AssetFileStringsTests, ImportedNamesTests, LiveCompiledNamesRealTests, OutputBudgetTests, SessionFileTests |
+| `CORVUS_AOT_BUILD_DUMP` | Reference output for `CORVUS_AOT_BUILD` (dummy assemblies, script.json, stringliteral.json), compared with the built-in reader. | AotBuildTests |
+| `CORVUS_AOT_DUMMY_DIR` | A folder of dummy assemblies with `[Address]` attributes. | AotExportTests, RealAssemblyTests |
+| `CORVUS_AOT_GENERICS_BUILD` | A Windows AOT build whose code registration is filled at run time. | AotBuildTests |
+| `CORVUS_AOT_MOBILE` | A folder of Android packages of AOT builds. | AotMobileTests, NativeIdaFormatsTests |
+| `CORVUS_AOT_STRINGS_DIR` | A folder of dummy assemblies with stringliteral.json and script.json (and optionally GameAssembly.dll) beside it. | AotNavigationTests, AotStringTests, DumpRealDataTests |
 | `CORVUS_INSTALLERS` | A folder of installers (NSIS, Inno Setup, MSI, WiX Burn) compared by file name and size with the reference listers. | InstallerComparisonTests |
 | `CORVUS_JAVA_JARS` | A folder of jars (searched three levels deep) disassembled and compared with javap. | JvmClassTests |
 | `CORVUS_JS_FILES` | A folder searched for `.js`, `.mjs` and `.cjs` files: each is laid out by analyze_js view=beautify with its tokens unchanged, and renamed with names from evidence to the same bindings with the same site counts. | JsBeautifyTests |
@@ -402,7 +412,7 @@ describe.
 | `CORVUS_TEST_OFFLOAD` | `0` keeps the offloaded classes in the local run. | test-remote.psm1 |
 | `CORVUS_TEST_PRIORITY` | `normal` keeps a test run at normal priority. | test-reuse.psm1 |
 | `CORVUS_TEST_YARA_X` | The folder fetch-yara-x.ps1 fills with the YARA-X builds the tests use. | YaraTestTools, tests/Corvus.Tests/Support/fetch-yara-x.ps1 |
-| `CORVUS_UNITY_BUILDS` | `;`-separated Unity build folders and packages (player folders, .app, .apk, WebGL builds), overviewed and their MonoBehaviour assets read by view=unity. | UnityFieldTests, UnityOverviewTests |
+| `CORVUS_ASSET_BUILDS` | `;`-separated build folders and packages (player folders, .app, .apk, WebGL builds), summarized and their MonoBehaviour assets read by view=assets. | AssetFieldTests, BuildSummaryTests |
 | `CORVUS_UPDATE_DOCS` | `1` rewrites the generated documents instead of failing on a difference. | DocsTests, ErrorContractTests, MigrationReasonTests, ProtocolSampleTests, SampleDocsTests, SaveFidelityTests, SchemaDocsTests, SimplifyContractTests, SkillTests, release.ps1, test-reuse.psm1 |
 | `CORVUS_UPDATE_RATCHETS` | `1` drops ratchet entries that now comply and writes a missing list from the current state. | CountRatchet, Ratchet |
 | `CORVUS_VCALL_IMAGE` | A real C++ image for the virtual call acceptance run. | VirtualCallTests |
@@ -493,8 +503,8 @@ missing.
   app (application, window, a page of resources, styles, templates, visual states, conditional XAML) is built; each
   `.xbf` read with `view=xbf` must be complete, declare the source's elements in order and resolve every event handler
   the source names.
-- **Il2Cpp capabilities against capa** (`Il2CppCapaTests`, `CORVUS_CAPA` naming standalone capa 10.0.0): the freeze
-  file for a built x64 Il2Cpp binary whose functions call methods named as `File.WriteAllText`, `RegistryKey.GetValue`
+- **AOT capabilities against capa** (`AotCapaTests`, `CORVUS_CAPA` naming standalone capa 10.0.0): the freeze
+  file for a built x64 AOT binary whose functions call methods named as `File.WriteAllText`, `RegistryKey.GetValue`
   and `HttpClient.GetAsync` must load in capa and match "write file in .NET", "query or enumerate registry value" and
   "send HTTP request" at the calling functions. Rerun for each capa release: the freeze format changes between them.
 - **Behaviour labels against capa** (`NativeCapaTests`, `CORVUS_CAPA` naming standalone capa 10.0.0): a built x64

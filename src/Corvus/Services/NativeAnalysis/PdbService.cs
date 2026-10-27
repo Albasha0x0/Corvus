@@ -24,17 +24,10 @@ public sealed record PdbState(
     public IReadOnlyCollection<uint> FunctionStarts { get; } = Names.Where(n => n.IsFunction).Select(n => n.Rva).ToArray();
 }
 
-/// <summary>
-/// Debug symbols for native images. The matching local PDB (no network) is read on the code index build thread, before
-/// discovery, so its functions become function starts and its names apply when the index is ready; load_pdb loads one
-/// explicitly (a path, or a download when asked) and rebuilds the index in the background when it adds function starts.
-/// PDB names form the "pdb" layer of <see cref="NativeNameLayers"/>: they rank above discovered and Il2Cpp names and
-/// below the user's names, which they never replace. State is kept per loaded image (it survives patching). The names of
-/// an explicit load_pdb are saved beside the image's annotations (with the PDB's path, GUID and age, and its function
-/// starts) and restored when the same file is loaded again, the PDB read again when it is still there. ELF and Mach-O
-/// images get their DWARF the same way (<see cref="DwarfLocator"/>: the image's own sections, a separate debug file,
-/// a dSYM; debuginfod on request), read into the same model (<see cref="DwarfDebugInfo"/>).
-/// </summary>
+// The local file is read on the index build thread before discovery, so its functions become starts. PDB names rank
+// above discovered names and below the user's. An explicit load is saved with the annotations and restored on reload.
+/// <summary>Debug symbols (PDB, DWARF) for native images: a matching local file read automatically (no network) or one
+/// loaded by load_pdb, applied as the "pdb" name layer. State is kept per loaded image and survives patching.</summary>
 public sealed class PdbService
 {
     /// <summary>Set to 0 to turn off reading local PDBs automatically.</summary>
@@ -70,10 +63,7 @@ public sealed class PdbService
     /// <summary>Whether the automatic local search (and read) for <paramref name="native"/> has started and not finished.</summary>
     public static bool AutoSearchPending(LoadedNative native) => States.TryGetValue(native, out var s) && s.Auto is { Task.IsCompleted: false };
 
-    /// <summary>
-    /// Runs the automatic local search for <paramref name="native"/> when no index build has, or joins the one running,
-    /// for up to <paramref name="wait"/>; false when it is still running then.
-    /// </summary>
+    /// <summary>Runs or joins the automatic local search for up to <paramref name="wait"/>; false when it is still running.</summary>
     public bool SettleAutoSearch(LoadedNative native, TimeSpan wait, CancellationToken ct)
     {
         if (Environment.GetEnvironmentVariable(AutoVariable) == "0") return true;
@@ -81,10 +71,8 @@ public sealed class PdbService
         return Task.Run(() => AutoLoad(native, CancellationToken.None), CancellationToken.None).Wait(wait, ct);
     }
 
-    /// <summary>
-    /// The PDB an engine (IDA) should use for <paramref name="native"/>: the loaded one, else a matching local one (no
-    /// network); null when none. Engines work on a copy of the image, so they cannot find a PDB next to it themselves.
-    /// </summary>
+    // Engines work on a copy of the image, so they cannot find a PDB next to it themselves.
+    /// <summary>The PDB an engine should use: the loaded one, else a matching local one (no network); null when none.</summary>
     public static string? PathForEngines(LoadedNative native)
     {
         if (StateOf(native) is { } s) return s.Path;
@@ -93,10 +81,7 @@ public sealed class PdbService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError) { return null; }
     }
 
-    /// <summary>
-    /// On the index build thread (or for get_pe_info): the PDB's function starts, reading the matching local PDB on the
-    /// first call. A call while another runs waits for it and returns its result.
-    /// </summary>
+    /// <summary>The PDB's function starts, reading the matching local PDB on the first call; concurrent calls share one read.</summary>
     private IReadOnlyCollection<uint>? AutoLoad(LoadedNative native, CancellationToken ct)
     {
         var slot = States.GetValue(native, _ => new Slot());
@@ -148,20 +133,18 @@ public sealed class PdbService
         }
         lock (slot.Gate)
         {
-            if (slot.State != null) return slot.State.FunctionStarts; // load_pdb won meanwhile
+            // load_pdb won meanwhile.
+            if (slot.State != null) return slot.State.FunctionStarts;
             slot.State = state;
         }
-        // the index is not built yet: the layer is replayed onto it when it is
+        // The index is not built yet: the layer is replayed onto it when it is.
         NativeNameLayers.Of(native).Set(Layer(state), null);
         _logger?.LogInformation("Read {Path} for {Id}: {Names} names in {Seconds:0.0} s", state.Path, native.Id, state.Names.Count, state.Elapsed.TotalSeconds);
         return state.FunctionStarts;
     }
 
-    /// <summary>
-    /// A PDB layer restored from disk: reads its PDB again when the file is still where it was and has the same identity
-    /// (so search_pdb_symbols works); otherwise the saved names and function starts stand alone. No local search: the
-    /// saved PDB was the user's choice.
-    /// </summary>
+    // No local search: the saved PDB was the user's choice.
+    /// <summary>Reads a restored layer's PDB again when it is unchanged on disk; otherwise the saved names stand alone.</summary>
     private IReadOnlyCollection<uint>? Reopen(LoadedNative native, Slot slot, ImportInfo saved, CancellationToken ct)
     {
         if (saved.SourcePath is not { } path || !File.Exists(path)) return null;
@@ -206,17 +189,14 @@ public sealed class PdbService
     public sealed record LoadResult(PdbState? State, PdbLocation Location, string? DownloadError, int NamesApplied, int UserNamesKept, int NewFunctionStarts, bool Rebuilding,
         string? SaveProblem = null);
 
-    /// <summary>
-    /// Locates (or takes <paramref name="path"/>), optionally downloads, reads and applies the image's PDB. A PDB whose
-    /// GUID or age does not match is refused unless <paramref name="force"/>.
-    /// </summary>
+    /// <summary>Locates, optionally downloads, reads and applies the image's PDB; refuses a GUID or age mismatch unless <paramref name="force"/>.</summary>
     public async Task<LoadResult> Load(LoadedNative native, string? path, bool download, string? server, bool force, TimeSpan downloadTimeout,
         long maxDownloadBytes, CancellationToken ct)
     {
         if (native.Image.Format is ImageFormat.Elf or ImageFormat.MachO)
             return await LoadDwarf(native, path, download, server, force, downloadTimeout, maxDownloadBytes, ct).ConfigureAwait(false);
         var pe = native.RequirePe("load_pdb");
-        // a symbol server (srv*, URL) is not a local path
+        // A symbol server (srv*, URL) is not a local path.
         if (path != null && Targets.LooksLikePath(path) && !path.Contains('*') && !path.Contains("://", StringComparison.Ordinal)
             && !File.Exists(path) && !Directory.Exists(path))
             throw Targets.FileNotFound(path);
@@ -267,11 +247,7 @@ public sealed class PdbService
         return Apply(native, state, location with { Probes = probes, Path = found }, downloadError);
     }
 
-    /// <summary>
-    /// load_pdb for an ELF or Mach-O image: its DWARF from the image itself, a separate debug file or a dSYM (located, or
-    /// <paramref name="path"/>), or downloaded from a debuginfod server when asked. A file whose build-id or UUID differs
-    /// is refused unless <paramref name="force"/>.
-    /// </summary>
+    /// <summary>load_pdb for ELF and Mach-O: local or debuginfod DWARF; refuses a build-id or UUID mismatch unless <paramref name="force"/>.</summary>
     private async Task<LoadResult> LoadDwarf(LoadedNative native, string? path, bool download, string? server, bool force, TimeSpan downloadTimeout,
         long maxDownloadBytes, CancellationToken ct)
     {
@@ -350,11 +326,8 @@ public sealed class PdbService
         return DwarfDebugInfo.Read(container, image, open, ct);
     }
 
-    /// <summary>
-    /// Removes the PDB names of <paramref name="native"/> (loaded, found automatically or restored) and the saved copy;
-    /// returns how many names the layer had (null when none) and whether a saved copy was deleted. A matching local PDB
-    /// is not read automatically again in this session.
-    /// </summary>
+    // A matching local PDB is not read automatically again in this session.
+    /// <summary>Removes the PDB names and saved copy; returns the name count (null when none) and whether a saved copy was deleted.</summary>
     public (int? Removed, bool SavedDeleted) Clear(LoadedNative native)
     {
         _code.RestoreImported(native);

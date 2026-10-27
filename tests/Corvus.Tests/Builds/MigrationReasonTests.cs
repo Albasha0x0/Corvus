@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 public class MigrationReasonTests
 {
     [Fact]
-    public void ReasonDocumentIsCurrent()
+    public void Reason_document_is_current()
     {
         var path = Path.Combine(DocsTests.RepoRoot(), "docs", "migration-reasons.md");
         var expected = MigrationReasons.Markdown();

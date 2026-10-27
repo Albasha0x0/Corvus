@@ -30,7 +30,7 @@ public class BatchContractTests
     }
 
     [Fact]
-    public async Task ResolveAddressSearchBytesAndFindXrefsReportEachFailedItem()
+    public async Task Resolve_address_search_bytes_and_find_xrefs_report_each_failed_item()
     {
         var (dir, path, va) = Image();
         using var _ = dir;
@@ -58,7 +58,7 @@ public class BatchContractTests
     }
 
     [Fact]
-    public void AnItemErrorIsCutAt8000Characters()
+    public void An_item_error_is_cut_at_8000_characters()
     {
         var error = BatchError.From(new ToolError(ErrorCode.InvalidArgument, new string('x', 20_000), "fix it"));
         Assert.True(error.Message.Length <= BatchError.MaxMessageChars);

@@ -33,7 +33,7 @@ public static class ObjcTypeEncoding
     private static string? Parse(string s, ref int at, int depth)
     {
         if (depth > 16 || at >= s.Length) return null;
-        // qualifiers: const, in, inout, out, bycopy, byref, oneway, atomic
+        // Qualifiers: const, in, inout, out, bycopy, byref, oneway, atomic.
         while (at < s.Length && s[at] is 'r' or 'n' or 'N' or 'o' or 'O' or 'R' or 'V' or 'A') at++;
         if (at >= s.Length) return null;
         char c = s[at++];

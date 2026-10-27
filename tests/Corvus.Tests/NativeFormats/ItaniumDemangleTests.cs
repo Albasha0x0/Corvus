@@ -74,7 +74,7 @@ public sealed class ItaniumDemangleTests(ITestOutputHelper output)
     [InlineData("_Z5helloPKwPKDsPKDiPKDu", "hello(wchar_t const*, char16_t const*, char32_t const*, char8_t const*)")]
     [InlineData("_ZN3FooC1IiEET_", "Foo::Foo<int>(int)")]
     [InlineData("_Z1fSi", "f(std::istream)")]
-    public void MatchesLlvm(string mangled, string expected) => Assert.Equal(expected, ItaniumDemangler.Demangle(mangled));
+    public void Demangled_names_match_LLVM(string mangled, string expected) => Assert.Equal(expected, ItaniumDemangler.Demangle(mangled));
 
     [Theory]
     [InlineData("")]
@@ -87,7 +87,7 @@ public sealed class ItaniumDemangleTests(ITestOutputHelper output)
     public void NotMangled_IsNull(string name) => Assert.Null(ItaniumDemangler.Demangle(name));
 
     [Fact]
-    public void MachOUnderscore_IsStrippedOnRequest()
+    public void The_MachO_underscore_is_stripped_on_request()
     {
         Assert.Null(ItaniumDemangler.Demangle("__Z3foov"));
         Assert.Equal("foo()", ItaniumDemangler.Demangle("__Z3foov", stripUnderscore: true));
@@ -145,7 +145,7 @@ public sealed class ItaniumDemangleTests(ITestOutputHelper output)
     [Fact]
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
-    public void RuntimePackSymbols_MatchLlvm()
+    public void Runtime_pack_symbols_match_LLVM()
     {
         if (LlvmOracle.Bin == null) { output.WriteLine($"{LlvmOracle.Variable} is not set"); return; }
         var names = RuntimePackNames().Distinct().Order(StringComparer.Ordinal).ToList();

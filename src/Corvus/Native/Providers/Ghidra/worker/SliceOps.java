@@ -223,10 +223,8 @@ final class SliceOps {
         }
 
         /**
-         * True when call is a CALLIND whose signature does not declare every input it passes: no call-site
-         * override, and no function type on the target, or one with fewer parameters (FARPROC has none). The
-         * decompiler then infers the argument registers, and that choice can differ between decompiler processes
-         * (NationalSecurityAgency/ghidra#10018, 12.0.4-12.1.4); the call is recorded for the note.
+         * True when a CALLIND's signature does not declare every input it passes; the inferred argument registers can
+         * differ between decompiler processes (NationalSecurityAgency/ghidra#10018, 12.0.4-12.1.4), so it is noted.
          */
         boolean inferred(PcodeOp call) {
             if (call.getOpcode() != PcodeOp.CALLIND) return false;

@@ -12,25 +12,33 @@ public static partial class ToolEffects
         // Android packages (read natively; nothing executed)
         ["get_android_manifest"] = Reads(),
         ["list_android_resources"] = Reads(),
-        ["get_android_resource"] = Changes(destructive: true, idempotent: true), // outputPath; overwrite=true replaces a file
+        // outputPath; overwrite=true replaces a file.
+        ["get_android_resource"] = Changes(destructive: true, idempotent: true),
         ["list_dex_classes"] = Reads(),
         ["get_dex_class"] = Reads(),
         ["disassemble_dex"] = Reads(),
         ["map_java_dotnet"] = Reads(),
-        ["decompile_java"] = Reads(longRunning: true, openWorld: true), // runs the JADX server (java -jar); its first call loads the package
-        ["search_dex"] = Reads(longRunning: true), // the first call builds the package's code index
+        // Runs the JADX server (java -jar); its first call loads the package.
+        ["decompile_java"] = Reads(longRunning: true, openWorld: true),
+        // The first call builds the package's code index.
+        ["search_dex"] = Reads(longRunning: true),
         ["find_dex_references"] = Reads(longRunning: true),
-        ["list_jni_bindings"] = Reads(longRunning: true), // indexes the DEX code, and a library's code when a table's class needs it
+        // Indexes the DEX code, and a library's code when a table's class needs it.
+        ["list_jni_bindings"] = Reads(longRunning: true),
 
         // Android devices through adb (open-world: they reach a device); install and uninstall need --allow-device-changes
         ["list_android_devices"] = Reads(openWorld: true),
-        ["get_android_device_info"] = Changes(destructive: false, idempotent: false, longRunning: true, openWorld: true), // view=screen and bugreport write a new local file
+        // view=screen and bugreport write a new local file.
+        ["get_android_device_info"] = Changes(destructive: false, idempotent: false, longRunning: true, openWorld: true),
         ["list_android_packages"] = Reads(openWorld: true),
         ["get_android_package_info"] = Reads(openWorld: true),
         ["read_android_log"] = Reads(openWorld: true),
-        ["pull_android_package"] = Changes(destructive: false, idempotent: true, longRunning: true, openWorld: true), // writes into a new or empty directory
-        ["pull_android_file"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // overwrite=true replaces a file
-        ["install_android_package"] = Changes(destructive: true, idempotent: false, longRunning: true, openWorld: true), // replaces an installed app
+        // Writes into a new or empty directory.
+        ["pull_android_package"] = Changes(destructive: false, idempotent: true, longRunning: true, openWorld: true),
+        // overwrite=true replaces a file.
+        ["pull_android_file"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
+        // Replaces an installed app.
+        ["install_android_package"] = Changes(destructive: true, idempotent: false, longRunning: true, openWorld: true),
         ["uninstall_android_package"] = Changes(destructive: true, idempotent: true, openWorld: true),
     };
 }
@@ -75,7 +83,7 @@ public sealed partial record ToolContract
         ["pull_android_package"] = Row(O.Edit, L.Long, noDryRun: "writes only into a new or empty directory"),
         ["pull_android_file"] = Row(O.Edit, L.Long, noDryRun: "writes only to the path it is given; overwrite=false refuses an existing file"),
         ["read_android_log"] = Row(O.Report, L.Interactive),
-        ["install_android_package"] = Row(O.Edit, L.Long, noDryRun: "N14: gated by --allow-device-changes"),
-        ["uninstall_android_package"] = Row(O.Edit, L.Interactive, noDryRun: "N14: gated by --allow-device-changes"),
+        ["install_android_package"] = Row(O.Edit, L.Long, noDryRun: "gated by --allow-device-changes"),
+        ["uninstall_android_package"] = Row(O.Edit, L.Interactive, noDryRun: "gated by --allow-device-changes"),
     };
 }

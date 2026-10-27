@@ -9,11 +9,7 @@ internal sealed record CompoundEntry(int Id, string Path, string Name, bool IsSt
     internal uint Start { get; init; }
 }
 
-/// <summary>
-/// Compound File Binary (MS-CFB, the OLE container of .doc, .xls, .ppt, .msi, .msg and vbaProject.bin), version 3 and 4:
-/// the FAT and DIFAT, the mini stream, and the directory tree walked from the root. Chains and the tree are bounded, so a
-/// cycle in damaged tables ends the walk with a note.
-/// </summary>
+/// <summary>Compound File Binary (MS-CFB) versions 3 and 4; walks are bounded, so a cycle in damaged tables ends with a note.</summary>
 internal sealed class CompoundFile
 {
     private const uint EndOfChain = 0xFFFFFFFE, FreeSect = 0xFFFFFFFF, MaxRegSect = 0xFFFFFFFA;
@@ -63,7 +59,7 @@ internal sealed class CompoundFile
             uint s = BinaryPrimitives.ReadUInt32LittleEndian(h[(76 + i * 4)..]);
             if (s <= MaxRegSect) fatList.Add(s);
         }
-        // DIFAT sectors: each holds sector numbers and, last, the next DIFAT sector
+        // DIFAT sectors: each holds sector numbers and, last, the next DIFAT sector.
         uint d = difatStart;
         int perSector = _sectorSize / 4 - 1;
         for (uint n = 0; n < difatCount && d <= MaxRegSect && fatList.Count < fatSectors; n++)
@@ -108,7 +104,8 @@ internal sealed class CompoundFile
     /// <summary>One sector; the last sector of a truncated file is padded with zeros.</summary>
     private ReadOnlySpan<byte> Sector(uint s)
     {
-        long at = ((long)s + 1) * _sectorSize; // the header fills the first sector (512 or 4096 bytes)
+        // The header fills the first sector (512 or 4096 bytes).
+        long at = ((long)s + 1) * _sectorSize;
         if (at + _sectorSize <= _data.Length) return _data.AsSpan((int)at, _sectorSize);
         var pad = new byte[_sectorSize];
         _data.AsSpan((int)at).CopyTo(pad);
@@ -182,7 +179,7 @@ internal sealed class CompoundFile
         var stack = new Stack<(uint Id, string Prefix, int Depth)>();
         void Siblings(uint child, string prefix, int depth)
         {
-            // in-order walk of one storage's red-black tree, iterative so a deep or looping tree cannot overflow
+            // Iterative in-order walk, so a deep or looping red-black tree cannot overflow the stack.
             var pending = new Stack<uint>();
             if (child < count) pending.Push(child);
             var found = new List<uint>();
@@ -194,7 +191,7 @@ internal sealed class CompoundFile
                 if (r.Left < count) pending.Push(r.Left);
                 if (r.Right < count) pending.Push(r.Right);
             }
-            // pushed in reverse so names pop in order
+            // Pushed in reverse so names pop in order.
             foreach (var id in found.OrderByDescending(i => raw[i]!.Name, StringComparer.OrdinalIgnoreCase)) stack.Push((id, prefix, depth));
         }
         Siblings(root.Child, "", 0);

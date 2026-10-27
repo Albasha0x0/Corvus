@@ -15,13 +15,13 @@ public sealed class ShellLinkTests
     internal static byte[] Shortcut(string arguments, byte[]? overlay = null)
     {
         var o = new MemoryStream();
-        // header: size, link CLSID, flags (ID list, link info, name, working dir, arguments, icon, unicode), attributes, times, size, icon index, show minimized
+        // Header: size, link CLSID, flags (ID list, link info, name, working dir, arguments, icon, unicode), attributes, times, size, icon index, show minimized.
         o.Write(U32(0x4C)); o.Write(new Guid("00021401-0000-0000-C000-000000000046").ToByteArray());
         o.Write(U32(0x01 | 0x02 | 0x04 | 0x10 | 0x20 | 0x40 | 0x80)); o.Write(U32(0x20));
         var time = BitConverter.GetBytes(new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc).ToFileTimeUtc());
         o.Write(time); o.Write(time); o.Write(time);
         o.Write(U32(289792)); o.Write(BitConverter.GetBytes(13)); o.Write(U32(7)); o.Write(U16(0x0641)); o.Write(new byte[10]);
-        // ID list: This PC, C:\, Windows, System32, cmd.exe (long names in 0xBEEF0004 blocks)
+        // ID list: This PC, C:\, Windows, System32, cmd.exe (long names in 0xBEEF0004 blocks).
         var ids = new MemoryStream();
         void Item(byte[] body) { ids.Write(U16(body.Length + 2)); ids.Write(body); }
         Item([0x1F, 0x50, .. new Guid("20D04FE0-3AEA-1069-A2D8-08002B30309D").ToByteArray()]);
@@ -36,7 +36,7 @@ public sealed class ShellLinkTests
         }
         ids.Write(U16(0));
         o.Write(U16((int)ids.Length)); o.Write(ids.ToArray());
-        // link info: volume id (fixed, serial, label) and the local base path
+        // Link info: volume id (fixed, serial, label) and the local base path.
         var label = Encoding.ASCII.GetBytes("OS\0");
         var volume = new MemoryStream();
         volume.Write(U32((uint)(16 + label.Length))); volume.Write(U32(3)); volume.Write(U32(0x1234ABCD)); volume.Write(U32(16)); volume.Write(label);
@@ -48,7 +48,7 @@ public sealed class ShellLinkTests
         o.Write(info.ToArray());
         void Str(string s) { o.Write(U16(s.Length)); o.Write(Encoding.Unicode.GetBytes(s)); }
         Str("Invoice"); Str(@"C:\Users\Public"); Str(arguments); Str(@"C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe");
-        // extra data: tracker (machine id, droids; the file droid a version 1 GUID ending in the MAC) and the terminal block
+        // Extra data: tracker (machine id, droids; the file droid a version 1 GUID ending in the MAC) and the terminal block.
         o.Write(U32(0x60)); o.Write(U32(0xA0000003)); o.Write(U32(0x58)); o.Write(U32(0));
         var machine = new byte[16]; Encoding.ASCII.GetBytes("desktop-7q1").CopyTo(machine, 0); o.Write(machine);
         var droid = new Guid("11111111-2222-3333-4444-555555555555").ToByteArray();

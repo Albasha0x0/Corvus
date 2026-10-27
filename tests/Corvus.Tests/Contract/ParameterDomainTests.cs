@@ -18,7 +18,7 @@ public class ParameterDomainTests
 
     /// <summary>D6: simplify_methods' passes lists the passes and names no default outside them (omitted means all three).</summary>
     [Fact]
-    public void SimplifyPassesDescriptionMatchesItsValues()
+    public void Simplify_passes_description_matches_its_values()
     {
         var passes = Schemas["simplify_methods"]["properties"]!["passes"]!;
         Assert.Equal(["fold", "cfg", "inline"], passes["items"]!["enum"]!.AsArray().Select(v => (string?)v));
@@ -26,7 +26,7 @@ public class ParameterDomainTests
     }
 
     [Fact]
-    public void EveryDomainIsAdvertisedOnAStringParameter()
+    public void Every_domain_is_advertised_on_a_string_parameter()
     {
         foreach (var (tool, parameters) in ParameterDomains.Table)
             foreach (var (name, domain) in parameters)
@@ -67,7 +67,7 @@ public class ParameterDomainTests
     }
 
     [Fact]
-    public void EveryEngineParameterHasADomain()
+    public void Every_engine_parameter_has_a_domain()
     {
         foreach (var (tool, schema) in Schemas)
             if (schema["properties"]?["engine"] != null)
@@ -75,7 +75,7 @@ public class ParameterDomainTests
     }
 
     [Fact]
-    public void OutOfSetValuesAreRejectedWithSuggestions()
+    public void Out_of_set_values_are_rejected_with_suggestions()
     {
         var error = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("list_functions"), Args(("image", "x"), ("sort", "calers")), "list_functions"));
         Assert.Equal(ErrorCode.InvalidArgument, error.Code);
@@ -99,16 +99,23 @@ public class ParameterDomainTests
     [InlineData("patch_method_il", "mode", "prefix")]
     [InlineData("search_symbols", "kind", "methods")]
     [InlineData("list_functions", "sort", "")]
-    public void ListedValuesAliasesCaseAndEmptyPass(string tool, string parameter, string value) =>
+    public void Listed_values_aliases_case_and_empty_pass(string tool, string parameter, string value) =>
         ArgumentCheck.Apply(Schema(tool), Args((parameter, value)), tool);
 
     [Fact]
-    public void NullForAnOptionalParameterPassesAsOmitted()
+    public void Define_native_takes_every_kind_the_tool_accepts()
+    {
+        foreach (var kind in new[] { "code", "function", "undefine", "data", "flow" })
+            ArgumentCheck.Apply(Schema("define_native"), Args(("kind", kind)), "define_native");
+    }
+
+    [Fact]
+    public void Null_for_an_optional_parameter_passes_as_omitted()
     {
         var args = Args(("engine", null));
         ArgumentCheck.Apply(Schema("find_xrefs"), args, "find_xrefs");
         Assert.False(args.ContainsKey("engine"));
-        // the catalog advertises no null: an optional parameter is left out
+        // The catalog advertises no null: an optional parameter is left out.
         Assert.DoesNotContain(null, Schemas["find_xrefs"]["properties"]!["engine"]!["enum"]!.AsArray());
         Assert.Equal("string", (string?)Schemas["find_xrefs"]["properties"]!["engine"]!["type"]);
     }

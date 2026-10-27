@@ -16,7 +16,7 @@ public class EditTests : IDisposable
 
     [Trait("Smoke", "push")]
     [Fact]
-    public void RenamesAreVisibleImmediately()
+    public void Renames_are_visible_immediately()
     {
         _env.Edit(() => _env.Edits.Rename(_env.One("Secret", SymbolKind.Type), "TokenValidator"));
         Assert.Contains("TokenValidator.Validate", _env.Decompile("Account::CheckPreview"));
@@ -25,7 +25,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void RenamePropertyAndEventKeepsAccessorsConsistent()
+    public void Rename_property_and_event_keeps_accessors_consistent()
     {
         _env.Edit(() => _env.Edits.Rename(_env.One("Account::Balance"), "Amount"));
         _env.Edit(() => _env.Edits.Rename(_env.One("Account::Closed", SymbolKind.Event), "Ended"));
@@ -38,7 +38,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void RenameKeepsTheGenericAritySuffix()
+    public void Rename_keeps_the_generic_arity_suffix()
     {
         Assert.Contains("-> Box`1", _env.Edit(() => _env.Edits.Rename(_env.One("Container", SymbolKind.Type), "Box")));
         Assert.Equal("Box`1", _env.Def<TypeDef>("Box", SymbolKind.Type).Name);
@@ -48,7 +48,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void StubWithoutBodyNamesWhereTheCodeIs()
+    public void Stub_without_body_names_where_the_code_is()
     {
         var abstractError = Assert.Throws<ToolError>(() => _env.Edits.StubMethod(_env.One("Entity::Tick"), null));
         Assert.Equal(ErrorCode.Unsupported, abstractError.Code);
@@ -67,7 +67,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void StubsEveryReturnKind()
+    public void Stubs_return_every_kind_of_value()
     {
         _env.Edit(() => _env.Edits.StubMethod(_env.One("Secret::Validate"), "true"));
         _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::Score"), "0x2A"));
@@ -92,7 +92,7 @@ public class EditTests : IDisposable
     [InlineData("Shop::Pick", "5", "Only 'default'")]
     [InlineData("Entity::Tick", null, "no IL body")]
     [InlineData("Account::Balance", "1", "not a method")]
-    public void StubErrors(string symbol, string? value, string expected)
+    public void Stubs_of_invalid_targets_are_errors_that_change_nothing(string symbol, string? value, string expected)
     {
         var ex = Assert.Throws<ToolError>(() => _env.Edit(() => _env.Edits.StubMethod(_env.One(symbol), value)));
         Assert.Contains(expected, ex.Message);
@@ -100,7 +100,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void RenameNamespaceWithAndWithoutSubNamespaces()
+    public void Namespaces_rename_with_and_without_sub_namespaces()
     {
         Assert.Throws<ToolError>(() => _env.Edit(() => _env.Edits.RenameNamespace(_env.Fixture, "Nope", "X", false)));
         _env.Edit(() => _env.Edits.RenameNamespace(_env.Fixture, "Fixture", "Renamed", includeSubNamespaces: true));
@@ -109,7 +109,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void DryRunsChangeNothing()
+    public void Dry_runs_change_nothing()
     {
         Assert.StartsWith("Dry run", _env.Edits.Rename(_env.One("Account", SymbolKind.Type), "Customer", dryRun: true));
         Assert.StartsWith("Dry run", _env.Edits.StubMethod(_env.One("Secret::Validate"), "true", dryRun: true));
@@ -120,7 +120,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void SaveWritesNewFileThatReloadsWithEdits()
+    public void Save_writes_new_file_that_reloads_with_edits()
     {
         _env.Edit(() => _env.Edits.StubMethod(_env.One("Secret::Validate"), "true"));
         var output = _dir.File("Patched.dll");
@@ -134,7 +134,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void WriterFaultIsInternalNotIoError()
+    public void Writer_fault_is_internal_not_IO_error()
     {
         // An operand the writer cannot encode: a fault of this server, not of the disk.
         var body = _env.Def<MethodDef>("Secret::Validate").Body;
@@ -151,7 +151,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void DefaultSavePathIsPatchedSibling()
+    public void The_default_save_path_is_a_patched_sibling()
     {
         var copy = _dir.File("App.dll");
         File.Copy(Env.FixturePath, copy);
@@ -162,7 +162,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void OverwritingOriginalKeepsBackupAndReloadDiscardsEdits()
+    public void Overwriting_original_keeps_backup_and_reload_discards_edits()
     {
         var copy = _dir.File("Copy.dll");
         File.Copy(Env.FixturePath, copy);
@@ -179,7 +179,7 @@ public class EditTests : IDisposable
     }
 
     [Fact]
-    public void TokensStayStableAcrossEditsAndSave()
+    public void Tokens_stay_stable_across_edits_and_save()
     {
         var token = _env.One("Account::Charge(int)").Member.MDToken.Raw;
         _env.Edit(() => _env.Edits.Rename(_env.One("Secret", SymbolKind.Type), "S2"));

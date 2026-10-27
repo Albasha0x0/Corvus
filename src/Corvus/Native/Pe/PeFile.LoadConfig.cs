@@ -1,15 +1,9 @@
 namespace Corvus.Native.Pe;
 
-/// <summary>
-/// An entry of a guard table: a target RVA and, when the table stride is above 4 bytes, the first metadata byte
-/// (0x1 suppressed call, 0x2 export suppressed, 0x4 language exception handler, 0x8 XFG hash present).
-/// </summary>
+/// <summary>A guard table entry: target RVA and, when the stride is above 4, its first metadata byte.</summary>
 public sealed record PeGuardEntry(uint Rva, byte Flags);
 
-/// <summary>
-/// IMAGE_LOAD_CONFIG_DIRECTORY32 / 64. Fields past the structure's Size are 0. Pointer fields are VAs as stored; the
-/// tables they point at are decoded into RVAs.
-/// </summary>
+/// <summary>IMAGE_LOAD_CONFIG_DIRECTORY; fields past Size are 0, pointers are stored VAs, tables are decoded to RVAs.</summary>
 public sealed record PeLoadConfig(
     uint Size,
     uint TimeDateStamp,

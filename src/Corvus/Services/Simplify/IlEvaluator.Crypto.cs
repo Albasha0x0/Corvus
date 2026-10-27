@@ -2,10 +2,7 @@ using System.Security.Cryptography;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// A DES or AES (Rijndael with 128-bit blocks) algorithm object: the key, IV, mode and padding set on it. A key or IV the
-/// object generated itself (random) is never read.
-/// </summary>
+/// <summary>A DES or AES algorithm object with the key, IV, mode and padding set on it; a generated key or IV is never read.</summary>
 internal sealed class CipherObject(bool des) : HeapObject
 {
     public bool Des { get; } = des;
@@ -38,11 +35,8 @@ internal sealed partial class IlEvaluator
         ("Rijndael", false), ("RijndaelManaged", false),
     ];
 
-    /// <summary>
-    /// DES and AES: given the same key, IV, mode, padding and input they produce the same bytes on every run, so
-    /// TransformFinalBlock is a pure function of what the code set. CBC and ECB modes; Rijndael only with AES's 128-bit
-    /// blocks. Encrypting with ISO 10126 padding (random fill) is not modelled.
-    /// </summary>
+    /// <summary>DES and AES in CBC or ECB mode, deterministic given key, IV, padding and input; Rijndael with 128-bit blocks only;
+    /// encryption with ISO 10126 padding (random fill) is not modelled.</summary>
     private static void AddCrypto(Action<string, string, string, string, Func<IlEvaluator, object?[], object?>> add)
     {
         const string I = "System.Int32", BA = "System.Byte[]", SA = Crypto + ".SymmetricAlgorithm", V = "System.Void";
@@ -87,10 +81,7 @@ internal sealed partial class IlEvaluator
             : throw Bail(FallbackReason.UnsupportedCall, "calls System.IDisposable::Dispose() on an object the interpreter does not model"));
     }
 
-    /// <summary>
-    /// A type test of an algorithm object: its base types answer; its concrete class differs between frameworks
-    /// (DES.Create gives a DESCryptoServiceProvider on .NET Framework only), so any other type is not modelled.
-    /// </summary>
+    /// <summary>A type test of an algorithm object; only base types answer, since the concrete class differs between frameworks.</summary>
     private static bool IsAlgorithmType(dnlib.DotNet.TypeSig type) => type.FullName is $"{Crypto}.SymmetricAlgorithm" or "System.IDisposable" or "System.Object"
         ? true
         : throw Bail(FallbackReason.UnsupportedValue, $"type test of an algorithm object against {type.FullName}");
@@ -133,7 +124,8 @@ internal sealed partial class IlEvaluator
             using SymmetricAlgorithm algorithm = t.Des ? DES.Create() : Aes.Create();
             algorithm.Mode = t.Mode;
             algorithm.Padding = t.Padding;
-            var iv = t.IV ?? new byte[algorithm.BlockSize / 8]; // ECB ignores it
+            // ECB ignores the IV.
+            var iv = t.IV ?? new byte[algorithm.BlockSize / 8];
             using var transform = t.Encrypt ? algorithm.CreateEncryptor(t.Key, iv) : algorithm.CreateDecryptor(t.Key, iv);
             return transform.TransformFinalBlock(input, offset, count);
         }

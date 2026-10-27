@@ -156,13 +156,13 @@ public sealed class LiveTimelineTests : IDisposable
     [Fact]
     public void Own_files_match_the_workers_folder_in_its_full_and_final_form()
     {
-        // the temp folder's final path: on macOS /var is itself a link to /private/var
+        // The temp folder's final path: on macOS /var is itself a link to /private/var.
         var dir = LiveProgramScope.Canonical(Directory.CreateTempSubdirectory("corvus-own-").FullName);
         try
         {
             var real = Directory.CreateDirectory(Path.Combine(dir, "real", "workers")).FullName;
             var link = Path.Combine(dir, "link");
-            // a junction needs no privilege on Windows, unlike a symbolic link
+            // A junction needs no privilege on Windows, unlike a symbolic link.
             if (OperatingSystem.IsWindows())
             {
                 using var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", ["/c", "mklink", "/J", link, Path.Combine(dir, "real")])
@@ -179,7 +179,7 @@ public sealed class LiveTimelineTests : IDisposable
         }
         finally
         {
-            // the link first: a recursive delete does not remove a junction
+            // The link first: a recursive delete does not remove a junction.
             if (Directory.Exists(Path.Combine(dir, "link"))) Directory.Delete(Path.Combine(dir, "link"));
             Directory.Delete(dir, recursive: true);
         }
@@ -205,7 +205,7 @@ public sealed class LiveTimelineTests : IDisposable
         Assert.Matches(@"only in tl-1:\r?\n\s+file\s+C:\\data\\old\.cfg\r?\n\s+network\s+tcp 127\.0\.0\.1:8080\r?\n\s+only in tl-2:\r?\n\s+file\s+C:\\data\\new\.cfg\r?\n\s+process\s+C:\\tools\\child\.exe\r?\n", text);
         Assert.DoesNotContain("orders.txt", text);
         Assert.DoesNotContain(@"Orders\Path", text);
-        // every entry at one column, under its heading or not
+        // Every entry at one column, under its heading or not.
         Assert.Single(text.Split('\n').Where(l => l.TrimStart().StartsWith("file ") || l.TrimStart().StartsWith("network ") || l.TrimStart().StartsWith("process "))
             .Select(l => l.Length - l.TrimStart().Length).Distinct());
 
@@ -225,7 +225,7 @@ public sealed class LiveTimelineTests : IDisposable
         Assert.DoesNotContain("child.exe", first);
         var rest = await _tools.LiveTimeline(action: "diff", a: "tl-1", b: "tl-2", offset: 3, limit: 3);
         Assert.Contains("4 names (showing 4-4)", rest);
-        // a page that starts inside a side repeats that side's heading
+        // A page that starts inside a side repeats that side's heading.
         Assert.Matches(@"only in tl-2:\r?\n\s+process\s+C:\\tools\\child\.exe", rest);
         Assert.DoesNotContain("old.cfg", rest);
     }
@@ -272,7 +272,7 @@ public sealed class LiveTimelineTests : IDisposable
         Assert.Equal("HKLM", d.Key(at, 0, 0xA, 0xB, null, @"\REGISTRY\MACHINE")!.Name);
         Assert.Equal(@"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion", d.Key(at, 0, 0xB, 0xC, null, @"SOFTWARE\Microsoft\Windows NT\CurrentVersion")!.Name);
         Assert.Equal(@"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProductName", d.Value(at, 0, 0xC, null, "ProductName")!.Name);
-        // a failed open, and the first of a value read's two calls (buffer too small), are left out
+        // A failed open, and the first of a value read's two calls (buffer too small), are left out.
         Assert.Null(d.Key(at, unchecked((int)0xC0000034), 0xB, 0, null, "Missing"));
         Assert.Null(d.Value(at, unchecked((int)0x80000005), 0xC, null, "ProductName"));
         Assert.Equal(@"HKCU\Software\Orders", ActivityDecoder.RegistryName(@"\REGISTRY\USER\S-1-5-21-1\Software\Orders", "S-1-5-21-1"));
@@ -295,7 +295,7 @@ public sealed class LiveTimelineTests : IDisposable
         using var held = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft")!;
         var keys = OpenKeys.Read(Environment.ProcessId);
         var key = keys.First(k => k.Path.Equals(@"\REGISTRY\MACHINE\SOFTWARE\Microsoft", StringComparison.OrdinalIgnoreCase));
-        // the handle table shows object addresses to elevated processes only, as event tracing needs anyway
+        // The handle table shows object addresses to elevated processes only, as event tracing needs anyway.
         ulong keyObject = key.Object != 0 ? key.Object : 0xA;
         var d = new ActivityDecoder(Environment.ProcessId, new DeviceMap([]), null);
         d.Known(keyObject, key.Path);

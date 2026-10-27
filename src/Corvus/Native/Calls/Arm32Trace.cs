@@ -6,11 +6,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// Value tracing and call-target facts for 32-bit ARM code under the AAPCS (r0-r3 and 4-byte stack slots for arguments,
-/// r0 for results, r0-r3, r12 and lr caller-saved): decoded functions, the backward resolver and the per-function slices
-/// the <see cref="ValueTrace"/> driver composes. One instance per code index, thread-safe.
-/// </summary>
+/// <summary>AAPCS value tracing for 32-bit ARM: decoded functions, the backward resolver and the slices <see cref="ValueTrace"/> composes; thread-safe.</summary>
 internal sealed class Arm32Trace : ITraceHost
 {
     private const int MaxCachedFunctions = 512;
@@ -215,7 +211,7 @@ internal sealed class Arm32SliceProvider(Arm32Trace host) : IFunctionSliceProvid
             {
                 var (block, index) = code.Position(seed.Address);
                 var loc = block >= 0 ? code.Parse(seed.Location, seed.Kind == SliceSeedKind.Argument ? null : code.Blocks[block][index]) : null;
-                // an argument's entry slot is the slot at the call, where sp is the caller's sp there
+                // An argument's entry slot is its slot at the call, relative to the caller's sp.
                 if (seed.Kind == SliceSeedKind.Argument && loc is { IsSlot: true } entry && block >= 0)
                     loc = code.Blocks[block][index].Sp is { } sp ? A32Loc.Slot(sp + entry.Value) : null;
                 b.Add(block < 0 || loc == null ? A32Val.Unknown(block < 0 ? "not an instruction of the function" : $"unknown location '{seed.Location}'") : r.Before(loc.Value, block, index));
@@ -349,12 +345,7 @@ internal sealed class Arm32SliceProvider(Arm32Trace host) : IFunctionSliceProvid
     }
 }
 
-/// <summary>
-/// Forward slice in a 32-bit ARM function: the registers and stack slots holding the value are followed over the blocks
-/// through copies and arithmetic until overwritten; each use is a node: call argument (r0-r3, stack slots at the call),
-/// call target, store to a global or through a pointer, compare (cmp, tst, cbz, vcmp), switch index, dereference, return in
-/// r0 (s0 / d0 for a float). VFP registers follow vmov, vldr / vstr of locals and arithmetic.
-/// </summary>
+/// <summary>Forward slice in a 32-bit ARM function: follows the value's registers and slots until overwritten, one node per use.</summary>
 internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
 {
     private const int MaxSteps = 20_000;
@@ -516,7 +507,7 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
         var mem = A32Function.Memory(i);
         int? slot = code.Slot(s);
         Live? source = null;
-        // core registers read (a store's first operand is its value)
+        // Core registers read; a store's first operand is its value.
         for (int k = i.Stores ? 0 : 1; k < i.OperandCount; k++)
         {
             var op = i.Op(k);
@@ -529,7 +520,7 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
         }
         if (i.OperandCount == 2 && !i.Stores && i.Op(0).Kind == ArmOperandKind.Register && live.TryGetValue(A32Loc.Reg(i.Op(0).Reg), out var self) && i.Mnemonic is not ("mov" or "mvn"))
             source ??= self;
-        // a live base or index register: the value is a pointer used here
+        // A live base or index register: the value is used as a pointer.
         if (mem is { } m && slot == null && m.Reg != A32Function.Pc && !s.Facts.HasMem)
         {
             Live? pointer = live.TryGetValue(A32Loc.Reg(m.Reg), out var bl) ? bl : m.Index != ArmOperand.NoReg && live.TryGetValue(A32Loc.Reg(m.Index), out var il) ? il : null;
@@ -551,7 +542,7 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
         else if (i.Stores && slot is { } over) live.Remove(A32Loc.Slot(over));
         if (i.Mnemonic == "push" && s.Sp is { } sp)
         {
-            // pushed registers land in the slots below sp
+            // Pushed registers land in the slots below sp.
             long mask = i.Op(0).Value;
             int n = System.Numerics.BitOperations.PopCount((ulong)mask), rank = 0;
             for (int r = 0; r < 16; r++)
@@ -562,7 +553,7 @@ internal sealed class Arm32Forward(Arm32Trace host, A32Function code)
                 }
         }
 
-        // destinations: written registers get the value (derived unless a copy) or lose it
+        // Written registers get the value (derived unless a copy) or lose it.
         bool copy = i.Mnemonic is "mov" or "uxtb" or "uxth" or "sxtb" or "sxth" or "vmov" || i.Loads && slot != null;
         foreach (var gone in live.Keys.Where(l => l.IsVfp && (A32Function.ListCovers(i, l) || A32Function.VfpDest(i) is { } d && d != l && A32Function.Overlaps(d, l))).ToList())
             live.Remove(gone);

@@ -51,15 +51,9 @@ public enum FunctionSource : uint
     TlsCallback = 8,
     /// <summary>Target of a direct call.</summary>
     Call = 16,
-    /// <summary>
-    /// Target of a jump that is a tail call: x64 out of the caller's .pdata ranges, the only instruction of a
-    /// jump thunk, a jump to an import thunk, an x86 jump to a standard prologue.
-    /// </summary>
+    /// <summary>Target of a jump that is a tail call: out of the caller's ranges, a thunk, or to a standard prologue.</summary>
     TailJump = 32,
-    /// <summary>
-    /// Code in a gap between known code that nothing references (x86: at a standard prologue; x64: after int3
-    /// padding), verified by decoding.
-    /// </summary>
+    /// <summary>Unreferenced code in a gap between known code, verified by decoding.</summary>
     CodeGap = 64,
     /// <summary>A relocated pointer in data (vtable, function table), verified by decoding.</summary>
     DataPointer = 128,
@@ -69,7 +63,7 @@ public enum FunctionSource : uint
     GuardCf = 512,
     /// <summary>x64: language-specific exception handler named by unwind information.</summary>
     ExceptionHandler = 1024,
-    /// <summary>A function a loaded PDB names (<see cref="CodeIndexOptions.SymbolStarts"/>), or a function symbol of the image (ELF, Mach-O).</summary>
+    /// <summary>A function a loaded PDB or the image's own symbol table names.</summary>
     Symbol = 2048,
     /// <summary>Unwind tables of ELF and Mach-O images (.eh_frame, .ARM.exidx, compact unwind).</summary>
     Unwind = 4096,
@@ -96,10 +90,7 @@ public enum FunctionFlags : byte
     Truncated = 16,
     /// <summary>Some instructions are decoded at two overlapping offsets.</summary>
     OverlappingCode = 32,
-    /// <summary>
-    /// x86: runs in another function's frame (uses ebp before setting it): an exception filter, handler or catch
-    /// block reached only through exception metadata.
-    /// </summary>
+    /// <summary>x86: runs in another function's frame, reached only through exception metadata.</summary>
     Funclet = 64,
     /// <summary>32-bit ARM: the ARM / Thumb state is a guess between two plausible readings.</summary>
     StateGuessed = 128,
@@ -121,15 +112,9 @@ public sealed class NativeFunction
     public uint Size { get; internal set; }
     public int BlockCount { get; internal set; }
     public int InstructionCount { get; internal set; }
-    /// <summary>
-    /// Code reached only through exception metadata that belongs to this function (catch blocks, unwind funclets,
-    /// filters, handlers); their code is part of the function's ranges, and they are not functions of their own.
-    /// </summary>
+    /// <summary>Code reached only through this function's exception metadata; part of its ranges, not functions of their own.</summary>
     public IReadOnlyList<FunctionChunk> Chunks { get; internal set; } = [];
-    /// <summary>
-    /// x64 C++ funclet (a catch block or unwind funclet with its own .pdata entry, kept a function): the function whose
-    /// exception metadata names it, the first when the linker folded it for several; null otherwise.
-    /// </summary>
+    /// <summary>x64 C++ funclet: the first function whose exception metadata names it; null otherwise.</summary>
     public NativeFunction? Parent { get; internal set; }
     internal int Index { get; set; }
     internal int FirstRange { get; set; }
@@ -168,10 +153,7 @@ public enum XrefKind : byte
     JumpTable,
     /// <summary>A relocated pointer stored in data points at the target.</summary>
     Pointer,
-    /// <summary>
-    /// A virtual call (through a vftable slot) whose only implementation is the target (<see cref="NativeCodeIndex.VirtualCalls"/>);
-    /// kept apart from the other cross-references (RefsFrom / RefsTo do not list it).
-    /// </summary>
+    /// <summary>A virtual call whose only implementation is the target; not listed by RefsFrom / RefsTo.</summary>
     VirtualExact,
     /// <summary>A virtual call one of whose possible implementations is the target.</summary>
     VirtualPossible,
@@ -195,10 +177,7 @@ public enum StringEncoding : byte
     Inline,
 }
 
-/// <summary>
-/// A string at an address referenced by code or data: NUL-terminated (ASCII, UTF-16), or of a known byte length (UTF-8,
-/// inline). <see cref="Length"/> counts characters for ASCII and UTF-16, bytes for UTF-8 and inline strings.
-/// </summary>
+/// <summary>A referenced string; <see cref="Length"/> counts characters for ASCII and UTF-16, bytes for UTF-8 and inline.</summary>
 public readonly record struct StringLiteral(uint Rva, int Length, StringEncoding Encoding);
 
 /// <summary>Kind of a control-flow edge between basic blocks.</summary>
@@ -270,10 +249,7 @@ public enum SwitchTableKind : byte
     Indexed,
 }
 
-/// <summary>
-/// A resolved switch: the indirect jump, its table, and the distinct case targets. <see cref="Cases"/> map switched values
-/// (table index + <see cref="Bias"/>) to targets; values whose entry is the default target are in <see cref="DefaultValues"/>.
-/// </summary>
+/// <summary>A resolved switch; <see cref="Cases"/> map values (index + <see cref="Bias"/>) to targets, default-target values in <see cref="DefaultValues"/>.</summary>
 public sealed record SwitchTable(uint JumpRva, uint TableRva, int EntryCount, int EntrySize, uint? IndexTableRva, int IndexEntryCount, IReadOnlyList<uint> Targets)
 {
     public IReadOnlyList<SwitchCase> Cases { get; init; } = [];
@@ -282,7 +258,7 @@ public sealed record SwitchTable(uint JumpRva, uint TableRva, int EntryCount, in
     public IReadOnlyList<long> DefaultValues { get; init; } = [];
     public long Bias { get; init; }
     public SwitchTableKind Kind { get; init; }
-    /// <summary>False when the values are table indexes whose bound is not a compare (an and-mask, or an assumed image base).</summary>
+    /// <summary>False when the values are table indexes not bounded by a compare.</summary>
     public bool ValuesExact { get; init; } = true;
     /// <summary><see cref="SwitchTableKind.BaseRelative"/>: target = Base + (entry &lt;&lt; Shift).</summary>
     public uint? Base { get; init; }

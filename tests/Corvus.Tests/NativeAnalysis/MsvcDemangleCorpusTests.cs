@@ -10,7 +10,7 @@ public class MsvcDemangleCorpusTests(ITestOutputHelper output)
 {
     [Fact]
     [Trait("Speed", "Slow")]
-    public void AgreesWithDbgHelpOnTheMachineCorpus()
+    public void Undecorated_names_agree_with_DbgHelp_on_the_machine_corpus()
     {
         if (!DbgHelp.IsAvailable) return;
         var sw = Stopwatch.StartNew();
@@ -33,14 +33,14 @@ public class MsvcDemangleCorpusTests(ITestOutputHelper output)
         Assert.Equal(0, full.Internal);
         Assert.True(full.Agreement >= 0.995, $"full agreement {full.Agreement:P3}, see {path}");
         Assert.True(nameOnly.Agreement >= 0.995, $"name-only agreement {nameOnly.Agreement:P3}, see {path}");
-        // differences outside the known (DbgHelp-side) categories stay rare on any machine
+        // Differences outside the known (DbgHelp-side) categories stay rare on any machine.
         Assert.True(full.Uncategorized + nameOnly.Uncategorized <= names.Count / 2000, $"uncategorized differences: full {full.Uncategorized}, name-only {nameOnly.Uncategorized}; see {path}");
     }
 
     /// <summary>Every corpus name with a few random edits: no internal error, bounded time.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void MutatedCorpusNeverFailsInternally()
+    public void Mutated_corpus_never_fails_internally()
     {
         var names = MsvcCorpus.DecoratedNames().Order(StringComparer.Ordinal).ToList();
         var rng = new Random(42);
@@ -115,10 +115,7 @@ public class MsvcDemangleCorpusTests(ITestOutputHelper output)
         return o;
     }
 
-    /// <summary>
-    /// Known, justified differences get their own category (prefixed "known:"); the rest is "other". Every known
-    /// category is a case where DbgHelp's output is wrong or malformed, or where it accepts input it cannot decode.
-    /// </summary>
+    /// <summary>Known differences, where DbgHelp's output is wrong or it accepts input it cannot decode, are "known:" categories; the rest is "other".</summary>
     private static string Categorize(string name, MsvcDemangleResult ours, string? theirs, bool dbghelpFailed)
     {
         bool cli = name.Contains("$$F", StringComparison.Ordinal) || name.Contains("$$H", StringComparison.Ordinal) || name.Contains(".cctor", StringComparison.Ordinal)

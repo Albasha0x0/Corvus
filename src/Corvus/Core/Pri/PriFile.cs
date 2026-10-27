@@ -3,22 +3,13 @@ using System.Text;
 
 namespace Corvus.Core.Pri;
 
-/// <summary>
-/// A package resource index (resources.pri, the file MakePri.exe writes for a UWP, WinUI or MSIX package), read without
-/// the MRT API: the header and table of contents, then its sections. The decision info section holds the qualifiers
-/// (language, scale, contrast and the rest) grouped into qualifier sets and decisions; the hierarchical schema holds the
-/// resource names as a tree of scopes and items; a resource map gives each item a decision and one candidate per
-/// qualifier set; data item sections hold the candidates' strings, paths and embedded files.
-/// </summary>
+/// <summary>A package resource index (resources.pri) read without the MRT API: qualifiers, names and candidates.</summary>
 internal sealed class PriFile
 {
     /// <summary>A qualifier of a candidate: name (Language, Scale, ...), value, priority and the score it has as the default.</summary>
     public sealed record Qualifier(string Name, string Value, int Priority, double ScoreAsDefault);
 
-    /// <summary>
-    /// One candidate value: its qualifiers (none for the neutral one), type (String, Path, EmbeddedData), the text of a
-    /// string or path, the size and bytes of embedded data, and a note when its value is in a referenced file not read.
-    /// </summary>
+    /// <summary>One candidate value; no qualifiers for the neutral one, a note when its value is in an unread file.</summary>
     public sealed record Candidate(IReadOnlyList<Qualifier> Qualifiers, string Type, string? Text, byte[]? Data, string? Note);
 
     /// <summary>A named resource: its path under the map ("Resources/AppName", "Files/Assets/Logo.png") and candidates.</summary>
@@ -163,8 +154,7 @@ internal sealed class PriFile
         at += uniqueChars * 2;
         string name = Chars(b.Slice(at, nameChars * 2), 0);
         at += nameChars * 2;
-        // A reserved ushort, the longest full path and a reserved ushort; then entry, scope and item counts, the unicode
-        // name length in characters and a reserved uint (two in the extended form).
+        // Reserved, longest path, reserved; then counts, name length and one reserved uint (two in the extended form).
         at += 6;
         int entries = (int)U32(b, at), scopes = (int)U32(b, at + 4), items = (int)U32(b, at + 8), unicodeChars = (int)U32(b, at + 12);
         at += 20 + (extended ? 4 : 0);

@@ -53,10 +53,7 @@ public sealed record AndroidLogPage(string Serial, IReadOnlyList<AndroidLogLine>
 public sealed record PulledPackage(string Serial, string Package, IReadOnlyList<PulledFile> Files,
     [property: Description("The base APK read with the package reader: manifest facts, runtimes, signature.")] AndroidPackageFacts? Summary);
 
-/// <summary>
-/// Android devices through adb (CORVUS_ADB, else PATH, else the SDK's platform-tools), one short-lived call per operation with the
-/// device serial pinned. Reading is always allowed; installing and uninstalling need the server option --allow-device-changes.
-/// </summary>
+/// <summary>Runs adb (CORVUS_ADB, PATH, or SDK platform-tools) per operation with the serial pinned; installs and uninstalls need --allow-device-changes.</summary>
 public sealed partial class DeviceService(ServerOptions options, DexService? dex = null)
 {
     private static readonly TimeSpan Long = TimeSpan.FromMinutes(10);
@@ -109,11 +106,11 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         return rows;
     }
 
-    // "12 activity: [android.app.IActivityManager]" (a tab after the index)
+    // Matches "12 activity: [android.app.IActivityManager]", with a tab after the index.
     [GeneratedRegex(@"^\d+\s+([^:]+):\s*\[(.*)\]")]
     private static partial Regex ServiceLine();
 
-    // "drwxrwx--x 2 shell shell 4096 2024-01-01 12:00 name"
+    // Matches "drwxrwx--x 2 shell shell 4096 2024-01-01 12:00 name".
     [GeneratedRegex(@"^([-dlcbps][-rwxsStT]{9}\S*)\s+\d+\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+(.+)$")]
     private static partial Regex LsLine();
 
@@ -170,12 +167,8 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         };
     }
 
-    /// <summary>
-    /// Waits up to <paramref name="wait"/> for device <paramref name="serial"/> to be ready: adb state "device" and a shell
-    /// that reads sys.boot_completed 1. A device is offline for a few seconds after the adb server starts, and an emulator
-    /// that stops answering stays listed as "device". Throws not_found when adb does not list it, access_denied when it is
-    /// unauthorized, provider_unavailable when it stays in another state or its shell does not answer.
-    /// </summary>
+    /// <summary>Waits up to <paramref name="wait"/> for state "device" and sys.boot_completed 1, since a listed emulator can stop
+    /// answering; throws not_found, access_denied, or provider_unavailable (other state, silent shell).</summary>
     public void WaitReady(string serial, TimeSpan wait, CancellationToken ct)
     {
         var until = DateTime.UtcNow + wait;
@@ -241,7 +234,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
             "bugreport" => Bugreport(s, outputPath, ct),
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{view}'.", $"view is one of {string.Join(", ", DeviceViews)}"),
         };
-        // files: query names the directory; window: a package to resolve against
+        // For files, query names the directory; for window, a package to resolve against.
         var filtered = view is not ("files" or "window") && query is { Length: > 0 } q
             ? rows.Where(p => p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || p.Value.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList()
             : rows;
@@ -272,7 +265,8 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
                 if (token.StartsWith("uid:", StringComparison.Ordinal) && int.TryParse(token[4..].Split(',')[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)) uid = id;
                 else if (token.StartsWith("installer=", StringComparison.Ordinal)) installer = token[10..] is "null" ? null : token[10..];
             var head = rest.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
-            int eq = head.LastIndexOf('='); // the path itself may contain '='
+            // The path itself may contain '='.
+            int eq = head.LastIndexOf('=');
             var (path, name) = eq > 0 ? (head[..eq], head[(eq + 1)..]) : (null, head);
             items.Add(new AndroidInstalledPackage(name, path, uid, installer));
         }
@@ -446,10 +440,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         return new PulledFile(remotePath, full, bytes.Length, Blob.Sha256(bytes));
     }
 
-    /// <summary>
-    /// The entries of a device directory as ls -l prints them (mode, owner, size, time, name; the "total" line left out);
-    /// throws as adb calls do when it is missing or unreadable.
-    /// </summary>
+    /// <summary>A device directory's ls -l lines without the "total" line; throws when it is missing or unreadable.</summary>
     public IReadOnlyList<string> Listing(string serial, string directory, CancellationToken ct) =>
         [.. Lines(serial, "listing", $"listing {directory}", ("remote", directory)).Where(l => !l.StartsWith("total ", StringComparison.Ordinal))];
 

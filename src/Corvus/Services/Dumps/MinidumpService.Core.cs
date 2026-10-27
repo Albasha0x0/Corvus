@@ -9,11 +9,8 @@ using Corvus.Native.MachO;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The dump tools on a Linux or Android ELF core: threads and registers from NT_PRSTATUS, the signal from
-/// NT_SIGINFO, modules from NT_FILE (matched to files on disk by GNU build id), stacks unwound by .eh_frame CFI.
-/// A macOS Mach-O core reads the same way: modules from its image list, matched by UUID, walked by the frame chain.
-/// </summary>
+/// <summary>Dump tools on ELF cores (modules matched by GNU build id, unwound by .eh_frame) and Mach-O cores (matched
+/// by UUID, walked by the frame chain).</summary>
 public sealed partial class MinidumpService
 {
     private const int MaxCachedElfFiles = 64;
@@ -124,7 +121,7 @@ public sealed partial class MinidumpService
             var n = m.Module.FileName;
             if (n == "libcoreclr.so") return ".NET (CoreCLR)";
             if (n.StartsWith("libmonosgen", StringComparison.Ordinal) || n.StartsWith("libmono-", StringComparison.Ordinal)) return "Mono";
-            if (n == "libil2cpp.so") return "Il2Cpp (Unity)";
+            if (n == "libil2cpp.so") return "AOT";
         }
         return null;
     }
@@ -167,8 +164,8 @@ public sealed partial class MinidumpService
         if (core.Registers is { Unwinds: false }) notes.Add($"unwinding not supported for {core.ArchName}: threads and registers only.");
         if (core.CoreModules.Any(m => core.ReadableExtent(m.Module.Base, m.Module.Size) < m.Module.Size / 2))
             notes.Add(core.IsMachO
-                ? "The core holds little of the modules' code (only modified memory): code and symbols come from matching files on disk (imageDirectories), matched by UUID."
-                : "The core holds little of the modules' code (by default only their first page): code, unwind data and symbols come from matching files on disk (imageDirectories), matched by GNU build id.");
+                ? "The core holds little module code; code and symbols come from files in imageDirectories matched by UUID."
+                : "The core holds little module code; code, unwind data and symbols come from files in imageDirectories matched by GNU build id.");
         if (runtime == "Mono") notes.Add("The process hosts Mono, which has no DAC: native frames are walked.");
         var managed = await ManagedSection(s, dac, ct);
         return new DumpReport(s.Id, "summary")

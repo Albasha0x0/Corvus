@@ -11,11 +11,7 @@ internal sealed record WorkbookSheet(string Name, string Type, string State);
 /// <summary>A formula cell of an Excel 4.0 macro sheet.</summary>
 internal sealed record XlmCell(string Sheet, string Cell, string Formula);
 
-/// <summary>
-/// Excel 4.0 (XLM) macros of a workbook: sheets with their kind and visibility, defined names (Auto_Open and the other
-/// built-in names) and the formulas of the macro sheets. Reads the BIFF8 / BIFF5 Workbook stream of an .xls and the
-/// macrosheets parts of an .xlsm; formulas are decoded from their parsed tokens to text.
-/// </summary>
+/// <summary>Excel 4.0 (XLM) macros of an .xls or .xlsm: sheets, defined names and macro formulas decoded to text.</summary>
 internal sealed class XlmMacros
 {
     public List<WorkbookSheet> Sheets { get; } = [];
@@ -72,7 +68,8 @@ internal sealed class XlmMacros
                     x.ReadName(d, biff8);
                     break;
                 case 0x000A:
-                    pos = stream.Length; // end of the globals substream
+                    // End of the globals substream.
+                    pos = stream.Length;
                     break;
             }
         }

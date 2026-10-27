@@ -5,15 +5,10 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// Framing between a provider and its worker process: one JSON object per line, UTF-8, '\n' terminated.
-/// Request <c>{"id":n,"op":"...","args":{...}}</c>; response <c>{"id":n,"ok":true,"result":...}</c> or
-/// <c>{"id":n,"ok":false,"error":{"code":"...","message":"..."}}</c>; events <c>{"event":"...",...}</c> carry no id.
-/// Lines that are not JSON objects are noise (an engine printing to stdout) and are kept with stderr.
-/// A worker answers in any order and takes <see cref="CancelOp"/> with <c>{"id":n}</c>, after which request n ends
-/// early (with an error, or a result marked partial). A request may carry <c>"timeout"</c> (seconds): the worker
-/// stops it a little before then so that a partial result arrives in time.
-/// </summary>
+/// <summary>Worker framing: one UTF-8 JSON object per line (request {id, op, args, timeout?}, response {id, ok, result|error}, event {event}); other lines are noise, kept with stderr.</summary>
+/// <remarks>A worker answers in any order. <see cref="CancelOp"/> with <c>{"id":n}</c> ends request n early, with an error
+/// or a partial result. <c>timeout</c> is in seconds: the worker stops a little before it so a partial result arrives in
+/// time.</remarks>
 public static class WorkerProtocol
 {
     public const string CancelOp = "cancel";

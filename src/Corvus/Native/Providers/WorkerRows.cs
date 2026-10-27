@@ -23,10 +23,7 @@ internal static class WorkerRows
         return list;
     }
 
-    /// <summary>
-    /// Every function: a worker that reaches its deadline answers {rows, partial, next}, and the list continues from next
-    /// in another request (each with its own time limit).
-    /// </summary>
+    /// <summary>Every function, continuing from "next" while the worker answers {rows, partial, next} at its deadline.</summary>
     public static async Task<List<NativeFunctionInfo>> FunctionsPaged(Func<uint?, Task<JsonElement>> request)
     {
         var all = new List<NativeFunctionInfo>();
@@ -261,11 +258,7 @@ internal static class WorkerRows
             { Partial = partial, Next = next };
     }
 
-    /// <summary>
-    /// apply_user_types arguments: decls, types [[rva, declaration]], stack [[function, offset, name, type]], locals [[function,
-    /// local, stack, name, type]]; only when there are any: enums [[enum, member, value]], fields [[type, name, offset, type]], analysis [[rva, kind, end, type]],
-    /// stack_deletes [[function, offset]], operands [[rva, operand, display, detail]]; type_edits [[name, new name or null]] when set.
-    /// </summary>
+    /// <summary>apply_user_types arguments: decls, types, stack and locals always; enums, fields, analysis, stack_deletes, operands and type_edits when present.</summary>
     public static JsonObject UserTypeArgs(NativeUserTypeBatch batch, string? stampKey, string? stamp, bool save)
     {
         var types = new JsonArray();
@@ -337,10 +330,7 @@ internal static class WorkerRows
         new(r.GetProperty("loaded").GetBoolean(), r.GetProperty("from_analysis").GetBoolean(), r.GetProperty("plugin").GetBoolean(),
             r.GetProperty("types_before").GetInt32(), r.GetProperty("types_after").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
 
-    /// <summary>
-    /// image_info: version, processor, language, compiler, format, pointer_size, endian, functions, external_functions, entry_points
-    /// [rva], md5, sha256, blocks [[name, start VA, size, permissions, initialized]], changed (or null), analysis.
-    /// </summary>
+    /// <summary>image_info reply; blocks are [name, start VA, size, permissions, initialized], changed may be null.</summary>
     public static EngineImageInfo ImageInfo(JsonElement r)
     {
         static string? S(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
@@ -359,10 +349,7 @@ internal static class WorkerRows
         new(r.GetProperty("total").GetInt32(), r.GetProperty("rows").EnumerateArray()
             .Select(x => new EngineDataItem(x[0].GetUInt32(), x[1].GetInt64(), x[2].GetString() ?? "", Text(x[3]), Text(x[4]), x[5].GetBoolean())).ToList());
 
-    /// <summary>
-    /// function_info: start, name, namespace, prototype, convention, signature_source, ranges [[start, end]], thunk_target, thunk_name,
-    /// external, noreturn, library, stack_purge, params [[name, type, storage]], return_type, return_storage, varargs.
-    /// </summary>
+    /// <summary>function_info reply; ranges are [start, end], params [name, type, storage].</summary>
     public static EngineFunctionRecord FunctionRecord(JsonElement r)
     {
         static string? S(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

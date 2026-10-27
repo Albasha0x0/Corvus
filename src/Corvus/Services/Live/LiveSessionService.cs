@@ -38,10 +38,7 @@ public sealed record LiveStopPointState(string Id, string Where, ulong Address, 
     internal (ulong Address, ulong Value)? Slot { get; init; }
 }
 
-/// <summary>
-/// A stop point or watch on a module the program has not loaded yet, set when the module loads; or, with
-/// <see cref="UntilCompiled"/>, on a managed method (<see cref="Module"/> names it) set when the runtime compiles it.
-/// </summary>
+/// <summary>A stop point or watch set when its module loads or, with <see cref="UntilCompiled"/>, when its managed method compiles.</summary>
 public sealed record LiveDeferred(string Id, string Where, string Module, bool Watch, int PerSecond, int RawArguments)
 {
     public bool UntilCompiled { get; init; }
@@ -70,16 +67,10 @@ public sealed record LiveHeldStop(long Sequence, long Thread, string Point, IRea
     public IReadOnlyList<LiveScriptFrame>? ScriptFrames { get; init; }
 }
 
-/// <summary>
-/// An event; <see cref="Time"/> is when the server recorded it (UTC), later than the program reached it by the worker and
-/// pipe latency. <see cref="Source"/> is the watch or user script it came from.
-/// </summary>
+/// <summary>An event; <see cref="Time"/> is the server's UTC record time, after worker latency; <see cref="Source"/> is its watch or script.</summary>
 public sealed record LiveRingEvent(long Sequence, DateTime Time, string Kind, long? Thread, ulong? Address, string Text, string? Source = null);
 
-/// <summary>
-/// An address joined to the static model: its module, the loaded image and RVA, the containing function's name and offset,
-/// the PDB source line, and the function start a saved record names (null when the image gives no name).
-/// </summary>
+/// <summary>An address joined to the static model: module, image and RVA, function and offset, source line; null parts are unknown.</summary>
 public sealed record LiveFrameName(ulong Address, string? Module, LoadedNative? Image, uint Rva, string? Function, long Offset, string? Source,
     EvidenceName? Named)
 {
@@ -95,13 +86,11 @@ public sealed record LiveFrameName(ulong Address, string? Module, LoadedNative? 
 /// <summary>A function start by image, SHA-256 and RVA with the name it had, for read_result format=verify.</summary>
 public sealed record EvidenceName(string Image, string Sha256, uint Rva, string Name);
 
-/// <summary>
-/// One session on a local program: the worker holding it, its modules, stop points, held threads and a bounded event ring.
-/// Ends on close, on its deadline, and with the server; the server never leaves a thread held or a started program behind.
-/// </summary>
+// Ends on close, deadline or server exit, never leaving a thread held or a started program behind.
+/// <summary>One session on a program: worker, modules, stop points, held threads and bounded event rings.</summary>
 public sealed class LiveSession
 {
-    /// <summary>Events other than calls kept; calls have a ring of their own, so a call flood never evicts an output line, a stop or the exit.</summary>
+    /// <summary>Non-call events kept; calls have their own ring so a call flood never evicts output, a stop or the exit.</summary>
     public const int RingCapacity = 10_000;
     public const int CallRingCapacity = 10_000;
     private readonly object _gate = new();
@@ -164,7 +153,7 @@ public sealed class LiveSession
     internal Timer? CompileCheck { get; set; }
     /// <summary>A runtime DAC found nowhere on this machine is downloaded from a symbol server (opted in at open).</summary>
     public bool DownloadDac { get; init; }
-    // methods the backend saw the JIT compile, by their code: the runtime reads them only once the thread that compiled them goes on
+    // Methods the backend saw compiled, by code; the runtime reports them only after the compiling thread continues.
     private readonly Dictionary<ulong, LiveFrameName> _compiled = [];
 
     internal void AddCompiled(LiveFrameName name)
@@ -269,10 +258,7 @@ public sealed class LiveSession
         }
     }
 
-    /// <summary>
-    /// Records the exit event for <see cref="Ended"/>; the state reads exited or failed only from here on, so a caller that
-    /// waits for the state finds the event.
-    /// </summary>
+    /// <summary>Records the exit event; the state reads exited or failed only after it, so a waiter on the state finds the event.</summary>
     internal void AddExit()
     {
         lock (_gate)
@@ -282,10 +268,7 @@ public sealed class LiveSession
         }
     }
 
-    /// <summary>
-    /// Records the close event and marks the session closed in one step, so the state reads closed only with the event
-    /// recorded; false when the session was closed already.
-    /// </summary>
+    /// <summary>Records the close event and marks the session closed atomically; false when already closed.</summary>
     internal bool AddClose(string reason)
     {
         lock (_gate)
@@ -351,10 +334,7 @@ public sealed class LiveSession
         }
     }
 
-    /// <summary>
-    /// Events from <paramref name="from"/> (a sequence) on, filtered, in sequence order; Gaps names the evicted events from
-    /// <paramref name="from"/> to Last, More whether events past the limit match too.
-    /// </summary>
+    /// <summary>Filtered events from sequence <paramref name="from"/> on; Gaps names evicted ranges, More whether more match past the limit.</summary>
     internal (IReadOnlyList<LiveRingEvent> Events, LiveRingGaps Gaps, long Last, bool More) Page(long from, string? kind, long? thread, int limit, string? source = null)
     {
         lock (_gate)
@@ -433,18 +413,15 @@ public sealed record LiveRingGaps(IReadOnlyList<LiveRingRange> Calls, IReadOnlyL
     }
 }
 
-/// <summary>
-/// The sessions of this server (ids live-1, live-2, ...), each held by one backend worker. Joins what a session reports to
-/// the static model: modules to loaded images by path, addresses to function names, offsets and source lines; stop
-/// points accept names, module!export, file:line and addresses.
-/// </summary>
+/// <summary>The server's sessions (live-1, live-2, ...), one backend worker each, joined to the static model by path and address.</summary>
 public sealed partial class LiveSessionService(AssemblyWorkspace workspace, NativeCodeService code, ServerOptions? options = null) : IDisposable
 {
     public const string MaxMinutesVariable = "CORVUS_LIVE_MAX_MINUTES";
     public const int MaxSessions = 8;
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
-    private const int MaxScriptText = 4096; // characters of one script message kept in its event
+    // Characters of one script message kept in its event.
+    private const int MaxScriptText = 4096;
     private readonly ConcurrentDictionary<string, LiveSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private int _next;
 
@@ -463,10 +440,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     /// <summary>Whether <paramref name="text"/> is a session id (live-1) rather than a path, process name or dump id.</summary>
     public static bool IsSessionId(string? text) => System.Text.RegularExpressions.Regex.IsMatch(text?.Trim() ?? "", @"^live-\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    /// <summary>
-    /// The session <paramref name="id"/> while its program runs; after its exit the process id may name another process,
-    /// so an ended program is not_found.
-    /// </summary>
+    /// <summary>The session while its program runs; not_found once it ended, since the process id may then name another process.</summary>
     public LiveSession Running(string id)
     {
         var session = Get(id);
@@ -490,7 +464,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (backend.Unavailable() is { } missing)
             throw new ToolError(ErrorCode.ProviderUnavailable, missing.Reason, missing.Remediation);
         if (childNames != null && OperatingSystem.IsMacOS() && backend is FridaBackend)
-            throw new ToolError(ErrorCode.Unsupported, "Following child processes is not supported on macOS: Frida's child gating misses a fork there intermittently, so a child can run unobserved.",
+            throw new ToolError(ErrorCode.Unsupported, "Following child processes is not supported on macOS: Frida's child gating misses some forks there, so a child can run unobserved.",
                 "open a session on the child once it runs (action=attach program=<process id or name>)");
         if (device != null && childNames != null)
             throw new ToolError(ErrorCode.Unsupported, "Following child processes is not supported in a device session.",
@@ -538,9 +512,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 ? new JsonObject
                 {
                     ["spawn"] = target, ["arguments"] = new JsonArray(arguments.Select(a => (JsonNode)a).ToArray()),
-                    // a started program runs in its own folder, as a debugger starts it, not in the worker's
+                    // A started program runs in its own folder, as a debugger starts it.
                     ["cwd"] = Path.GetDirectoryName(target),
-                    // the worker's own TEMP is private (see FridaBackend); a started program gets the user's
+                    // The worker's TEMP is private (see FridaBackend); a started program gets the user's.
                     ["temp"] = Environment.GetEnvironmentVariable("TEMP"), ["tmp"] = Environment.GetEnvironmentVariable("TMP"),
                     ["environment"] = ProgramEnvironment(environment ?? []),
                 }
@@ -555,7 +529,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             // A recording's process id names the recorded process, long gone; another process may hold it now.
             if (device == null && !recording && OperatingSystem.IsWindows())
             {
-                // full query rights let stop frames be checked against page protection; the limited right still reads the exit code
+                // Full query rights allow page protection checks on frames; the limited right still reads the exit code.
                 foreach (var access in new[] { Native.Live.LiveNative.PROCESS_QUERY_INFORMATION, Native.Live.LiveNative.PROCESS_QUERY_LIMITED_INFORMATION })
                 {
                     var h = Native.Live.LiveNative.OpenProcess(Native.Live.LiveNative.SYNCHRONIZE | access, false, session.ProcessId);
@@ -566,7 +540,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     break;
                 }
             }
-            // two sessions in one process place their hooks independently, at the same functions
+            // Two sessions in one process would hook the same functions independently.
             if (!recording && _sessions.Values.FirstOrDefault(o => o.ProcessId == session.ProcessId && o.State is not ("closed" or "exited" or "failed")) is { } other)
                 throw new ToolError(ErrorCode.Conflict, $"Process {session.ProcessId} is already in session {other.Id}.", $"use {other.Id}, or close it first (live_session action=close session={other.Id})");
             session.Arch = info.GetProperty("arch").GetString() ?? "";
@@ -578,10 +552,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 device == null ? null : m => DeviceFile(session, m));
             lock (session.Modules)
             {
+                // A load event may have come first.
                 foreach (var m in info.GetProperty("modules").EnumerateArray().Select(Module))
-                    if (!session.Modules.Any(x => x.Base == m.Base)) session.Modules.Add(m); // a load event may have come first
-                // Frida lists modules in no fixed order (and names a system DLL as the main module of a program started
-                // suspended): the program's own module, by the path the OS reports, leads, as the rest of the session expects
+                    if (!session.Modules.Any(x => x.Base == m.Base)) session.Modules.Add(m);
+                // Frida lists modules in no fixed order and may name a system DLL as main: the program's own module leads.
                 var mainPath = spawn ? target : device == null ? LiveProgramScope.ImagePath(session.ProcessId) : null;
                 if (mainPath != null && session.Modules.FindIndex(x => SamePath(x.Path, mainPath)) is > 0 and var at)
                 {
@@ -596,27 +570,28 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             worker.Kill("open failed");
             worker.Dispose();
             if (device != null) throw;
-            // the backend sees only that tracing failed (a started program exits with status 1); the setting says why
+            // The backend sees only that tracing failed; the ptrace scope setting says why.
             if (e is ToolError { Code: ErrorCode.Failed or ErrorCode.AccessDenied } t && Native.Live.PtraceScope.Refusing(started: spawn) is { } scope)
                 throw Native.Live.PtraceScope.Refusal(scope, t.Message);
-            // a program attached by name is checked once the injection failed
+            // A program attached by name is checked for static linking once the injection failed.
             if (!spawn && OperatingSystem.IsLinux() && e is ToolError { Code: ErrorCode.Failed } && !int.TryParse(target, out _)
                 && System.Diagnostics.Process.GetProcessesByName(target).Select(p => LiveProgramScope.ImagePath(p.Id)).FirstOrDefault(i => i != null && Native.Live.StaticProgram.Is(i)) is { } named)
                 throw Native.Live.StaticProgram.Refusal(named);
-            // the agent refused on Windows: a sandbox token (a Chromium child) is the usual cause, read from the target
+            // On Windows a refused agent usually means a sandbox token (a Chromium child), read from the target.
             if (!spawn && e is ToolError { Code: ErrorCode.Failed } f && f.Message.Contains("refused to load", StringComparison.Ordinal)
                 && int.TryParse(target, out var pid) && Native.Providers.Live.ProcessSandbox.Describe(pid) is { } sandbox)
                 throw Native.Providers.Live.ProcessSandbox.Refusal(sandbox, f.Message);
             throw;
         }
-        // The program's own image joins the static model: loaded (it is the file being analyzed) and indexed in the background.
+        // The program's own image is loaded and indexed in the background.
         if (device == null && session.Modules.FirstOrDefault() is { } main && File.Exists(main.Path))
         {
             try
             {
                 if (workspace.LoadAny(main.Path).Native is { } native) Index(session, native);
             }
-            catch (ToolError) { /* an image the loader refuses stays unnamed */ }
+            // An image the loader refuses stays unnamed.
+            catch (ToolError) { }
         }
         lock (session.Modules)
             foreach (var m in session.Modules) Match(m);
@@ -652,10 +627,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return new(m.GetProperty("name").GetString() ?? "", Hex(m.GetProperty("base").GetString()), size, ModuleFile(m.GetProperty("path").GetString() ?? "", size));
     }
 
-    /// <summary>
-    /// The file behind a module. A 32-bit program on 64-bit Windows names its system DLLs by their System32 path, which
-    /// this 64-bit server opens as the 64-bit copy; the SysWOW64 copy is used when its image size matches the module's.
-    /// </summary>
+    /// <summary>The file behind a module; a System32 path of a 32-bit module maps to the SysWOW64 copy when its image size matches.</summary>
     internal static string ModuleFile(string path, ulong size, string? system = null, string? wow64 = null)
     {
         system ??= Environment.GetFolderPath(Environment.SpecialFolder.System);
@@ -692,7 +664,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         lock (session.Indexing) session.Indexing.Add(code.Index(native, null, CancellationToken.None));
     }
 
-    /// <summary>The loaded image at the module's path (looked up again each time, so images loaded later join too).</summary>
+    /// <summary>The loaded image at the module's path, looked up each time so later loads join; null when none.</summary>
     private LoadedNative? Match(LiveModuleState m)
     {
         if (m.Image is { } image && workspace.Natives.Contains(image)) return image;
@@ -731,11 +703,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return native;
     }
 
-    /// <summary>
-    /// While a thread is held, a DLL the loader mapped through a delay-load import can have no load event yet (it comes
-    /// with the next load, often after the resume): the backend's module list, read now, adds it. Its event, and the
-    /// deferred points it sets, still come with the load event.
-    /// </summary>
+    // A delay-loaded DLL's load event can arrive after the resume; its deferred points still wait for that event.
+    /// <summary>Reads the backend's module list while a thread is held, adding modules whose load event has not come yet.</summary>
     public async Task RefreshModulesAsync(LiveSession session, CancellationToken ct)
     {
         if (session.ScriptRuntime != null)
@@ -782,9 +751,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     CoverageStop(session, run, point, Thread(), body.TryGetProperty("counted", out var c) && c.ValueKind == JsonValueKind.True);
                     break;
                 }
-                // A thread already inside a point's hook when the point was cleared
-                // stops after the clear; it is released, so a continue that came
-                // before its stop does not leave it held.
+                // A thread inside a hook when its point was cleared stops after the clear; release it so it is not left held.
                 bool cleared;
                 lock (session.StopPoints) cleared = !session.StopPoints.ContainsKey(point) && session.ClearedPoints.Contains(point);
                 if (cleared && Thread() is { } late)
@@ -803,8 +770,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     if (r.Value.ValueKind == JsonValueKind.String) registers[r.Name] = r.Value.GetString()!;
                 var reported = body.GetProperty("frames").EnumerateArray().Select(f => Hex(f.GetString())).ToList();
                 var frames = Unwound(session, registers, body, reported) ?? [.. reported.Where((f, i) => i == 0 || CouldBeCode(session, f))];
-                // a call returns past its call instruction, so the stopped address further down is the hook's saved copy (x86),
-                // and the return address beside that copy repeats frame #1
+                // Drop the hook's saved copy of the stopped address (x86) and the repeat of frame #1 beside it.
                 var at = frames[0];
                 frames = [.. frames.Where((f, i) => i == 0 || f != at && !(i > 1 && f == frames[1] && frames[i - 1] == at))];
                 int hits = body.TryGetProperty("hits", out var h) ? h.GetInt32() : 0;
@@ -821,7 +787,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 LiveWatchState? w;
                 lock (session.Watches) session.Watches.TryGetValue(body.GetProperty("watch").GetString() ?? "", out w);
                 if (w == null) break;
-                // each row: thread, program clock (ms), return address, argument values, return value
+                // Row: thread, program clock (ms), return address, argument values, return value.
                 foreach (var row in body.GetProperty("rows").EnumerateArray())
                 {
                     var values = row[3].EnumerateArray().Select(v => v.ValueKind == JsonValueKind.String ? v.GetString() : null).ToList();
@@ -878,7 +844,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                         ? $" ({mem.GetProperty("operation").GetString()} of 0x{Hex(mem.GetProperty("address").GetString()):X})" : ""));
                 break;
             case "exit_status":
-                // Windows keeps all 32 bits; elsewhere the low 8, as waitpid reports them
+                // Windows keeps all 32 bits; elsewhere the low 8, as waitpid reports them.
                 var status = body.GetProperty("code").GetInt32();
                 session.ExitCode = session.Platform == "windows" ? (uint)status : (uint)(status & 0xFF);
                 break;
@@ -893,8 +859,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 break;
             case "exit":
                 var exitReason = body.GetProperty("reason").GetString() ?? "";
-                // Frida can report process-terminated once the exit has begun while the process stays
-                // in its exit: the report waits for the process to end, so the stuck exit check can still end it.
+                // Frida can report process-terminated while the process is still in its exit; wait for it to end so the
+                // stuck exit check can still end it.
                 if (exitReason == "process-terminated" && session.CloseReason == null && InExit(session))
                 {
                     session.PendingExit = exitReason;
@@ -907,8 +873,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private const uint WaitTimeout = 0x102;
 
-    // Whether a process Frida reports terminated is still in its exit: process object not yet signaled; false where no
-    // handle is held.
+    // Whether a process Frida reports terminated is still in its exit; false without a handle.
     private static bool InExit(LiveSession session)
     {
         try
@@ -919,10 +884,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         catch (ObjectDisposedException) { return false; }
     }
 
-    /// <summary>
-    /// Records the pending exit once the process ends, or after twice <see cref="StuckExit"/> (the stuck exit check
-    /// ends it before then); a close meanwhile records the session's end itself.
-    /// </summary>
+    /// <summary>Records the pending exit once the process ends or after twice <see cref="StuckExit"/>; a close meanwhile records the end itself.</summary>
     private async Task ExitWhenEnded(LiveSession session)
     {
         var deadline = DateTime.UtcNow + 2 * StuckExit + TimeSpan.FromSeconds(5);
@@ -934,23 +896,20 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private void Exited(LiveSession session, string reason)
     {
-        // after close, the exit is the session's doing (Frida ends a started program with its own code): say so instead
+        // After close the exit is the session's doing (Frida ends a started program with its own code).
         session.Ended = session.CloseReason is { } why
             ? $"{(session.Spawned ? "ended" : "detached")} when the session closed ({why})"
             : "exited: " + reason + ExitText(session);
-        // the worker's exception event can be lost when the process dies at once; the exit code still names it
+        // The exception event can be lost when the process dies at once; the exit code still names it.
         if (session is { Exceptions: 0, ExitCode: >= 0xC000_0000 and not StatusControlCExit and { } code } && Native.Dump.ExceptionCodes.Name(code) is { } exception)
-            session.Add("exception", null, null, $"{exception} (0x{code:X8}), from the exit code: the program ended before the exception's address was reported");
+            session.Add("exception", null, null, $"{exception} (0x{code:X8}), from the exit code: the program ended before its address was reported");
         session.ReleaseAll();
         EndCoverage(session);
         EndTimeline(session);
         session.AddExit();
     }
 
-    /// <summary>
-    /// The stop's frames unwound from the stack bytes it carries; where the walk ends before the end of the stack, the backend's
-    /// frames past the last one reached follow. Null when the stop has no stack or the walk finds no caller.
-    /// </summary>
+    /// <summary>The stop's frames unwound from its stack bytes, then the backend's frames past the walk's end; null without stack or caller.</summary>
     private List<ulong>? Unwound(LiveSession session, Dictionary<string, string> registers, JsonElement body, List<ulong> reported)
     {
         if (session.Stacks is not { } stacks || !body.TryGetProperty("stack", out var st) || st.GetString() is not { Length: > 0 } hex) return null;
@@ -961,10 +920,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return frames;
     }
 
-    /// <summary>
-    /// False for a frame a stack scan picked up that cannot be a return address: below 64 KiB, past user space, or in a
-    /// loaded image outside its executable sections (code outside every module, such as JIT code, stays).
-    /// </summary>
+    // Code outside every module, such as JIT code, is kept.
+    /// <summary>False for a scanned frame that cannot be a return address: below 64 KiB, past user space, or outside an image's code sections.</summary>
     private bool CouldBeCode(LiveSession session, ulong address)
     {
         if (address < 0x10000 || address >= (session.Arch is "ia32" or "arm" ? 0xFFFF_0000UL : 0x8000_0000_0000UL)) return false;
@@ -985,11 +942,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private readonly ConcurrentDictionary<string, (Native.Dump.ModuleNames? Pe, (uint Rva, uint Size, string Name)[] Symbols)> _exports = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// The function symbol holding <paramref name="rva"/> in a module no image is loaded for (system libraries), as dump_stack names
-    /// a core's frames: a PE's exports and COFF symbols within its unwind data, an ELF's .symtab and .dynsym functions (exports
-    /// where it has no sized symbols), the nearest below when a symbol has no size; null past a sized symbol's end.
-    /// </summary>
+    // PE: exports and COFF symbols within unwind data. ELF: .symtab and .dynsym functions; unsized symbols take the nearest below.
+    /// <summary>The symbol holding <paramref name="rva"/> in an unloaded module's file, as dump_stack names frames; null past a sized symbol's end.</summary>
     private (uint Rva, string Name)? NearestSymbol(string path, uint rva)
     {
         var (pe, table) = _exports.GetOrAdd(path, p =>
@@ -1044,17 +998,15 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private static readonly TimeSpan ExitCodeWait = TimeSpan.FromSeconds(1);
 
-    // bound here, not in Native.Live: the process inspector there binds no API that changes a process
+    // Bound here, not in Native.Live: the process inspector there binds no API that changes a process.
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool TerminateProcess(Native.Live.SafeKernelHandle process, uint exitCode);
 
     /// <summary>How long a program may stay in its exit (exit code set, process not ended) before it is ended.</summary>
     internal static TimeSpan StuckExit { get; set; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// Ends a program that called ExitProcess but whose exit does not finish (a module's DLL shutdown waits forever: Frida's
-    /// agent can, after a watch on x86), with the exit code it chose; the backend then reports the exit as usual.
-    /// </summary>
+    // A module's DLL shutdown can wait forever; Frida's agent can, after a watch on x86.
+    /// <summary>Ends, with its chosen exit code, a program whose ExitProcess does not finish within <see cref="StuckExit"/>.</summary>
     private void CheckExit(LiveSession session)
     {
         try
@@ -1075,14 +1027,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             using var end = Native.Live.LiveNative.OpenProcess(ProcessTerminate, false, session.ProcessId);
             if (!end.IsInvalid) TerminateProcess(end, code);
         }
-        catch (ObjectDisposedException) { } // closed meanwhile
+        // Closed meanwhile.
+        catch (ObjectDisposedException) { }
     }
 
-    /// <summary>
-    /// After a close, a program that is in its exit still gets <see cref="StuckExit"/> to finish it, then is ended with its
-    /// exit code: an unload that meets the start of an exit (seen on x86) can leave the exit unable to finish. The watch
-    /// lasts twice that long; a program still running then goes on unobserved, as a detached program does.
-    /// </summary>
+    // An unload that meets the start of an exit (seen on x86) can leave the exit unable to finish.
+    /// <summary>After a close, ends a program stuck in its exit for <see cref="StuckExit"/>; watches for twice that, then lets it run.</summary>
     private async Task WatchExitAfterClose(LiveSession session, Native.Live.SafeKernelHandle handle)
     {
         using (handle)
@@ -1094,8 +1044,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 if (code == Native.Live.LiveNative.STILL_ACTIVE) session.ExitingSince = null;
                 else if ((session.ExitingSince ??= DateTime.UtcNow) <= DateTime.UtcNow - StuckExit)
                 {
-                    session.Add("error", null, null, $"the program's exit (code {(code < 0x10000 ? code : $"0x{code:X8}")}) did not finish within {StuckExit.TotalSeconds:0} s " +
-                        "of the session's close: ended with that exit code");
+                    session.Add("error", null, null, $"the program's exit (code {(code < 0x10000 ? code : $"0x{code:X8}")}) did not finish {StuckExit.TotalSeconds:0} s " +
+                        "after the close: ended with that exit code");
                     const uint ProcessTerminate = 0x0001;
                     using var end = Native.Live.LiveNative.OpenProcess(ProcessTerminate, false, session.ProcessId);
                     if (!end.IsInvalid) TerminateProcess(end, code);
@@ -1108,13 +1058,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private const uint StatusControlCExit = 0xC000_013A;
 
-    /// <summary>
-    /// ", exit code N" from the program's handle once it has ended (crash codes named), else from the worker's exit_status
-    /// event; empty when neither gives one.
-    /// </summary>
+    /// <summary>", exit code N" from the process handle, else the worker's exit_status, crash codes named; empty when neither has one.</summary>
     private static string ExitText(LiveSession session)
     {
-        // the exit event can come just before the process object is signaled
+        // The exit event can come just before the process object is signaled.
         const uint WaitObject0 = 0;
         if (session.ProcessHandle is { IsInvalid: false, IsClosed: false } h
             && Native.Live.LiveNative.WaitForSingleObject(h, (uint)ExitCodeWait.TotalMilliseconds) == WaitObject0
@@ -1132,14 +1079,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         lock (session.Modules) module = session.Modules.FirstOrDefault(m => m.Contains(address));
         if (module == null)
         {
-            // until the runtime has recorded a just-compiled method, it names the code after the method before it
+            // Until the runtime records a just-compiled method, it names the code after the method before it.
             var managed = ManagedName(session, address, null);
             return managed is not { Offset: 0 } && session.CompiledName(address) is { } compiled ? compiled : managed ?? new(address, null, null, 0, null, 0, null, null);
         }
         if (session.Device != null) DeviceFile(session, module);
         var rva = (uint)(address - module.Base);
-        // A return address can be the first byte past a noreturn call at a
-        // function's end, so the call before it names the frame.
+        // A return address can be the first byte past a noreturn call at a function's end, so the call names the frame.
         var call = returnAddress && rva > 0 ? rva - 1 : rva;
         var native = Match(module);
         if (native == null)
@@ -1152,10 +1098,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             var name = index.NameAt(f.Start);
             function = name ?? $"sub_{native.Image.ImageBase + f.Start:X}";
-            offset = (long)rva - f.Start; // negative in a chunk placed before the entry
+            // Negative in a chunk placed before the entry.
+            offset = (long)rva - f.Start;
             if (name != null) named = new(native.Id, native.OriginalSha256, f.Start, name);
         }
-        // code the module writes at run time (a packed DLL) has no file bytes to index: its exports name it
+        // Code written at run time (a packed DLL) has no file bytes to index; its exports name it.
         else if (native.Image.Sections.FirstOrDefault(s => s.Contains(rva)) is { IsExecutable: true } s && rva - s.Rva >= s.RawSize
                  && NearestSymbol(module.LocalPath, call) is { } e)
             (function, offset) = (e.Name, rva - e.Rva);
@@ -1175,11 +1122,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
     private static readonly Regex NameOffset = new(@"^(?<name>.+?)\+0x(?<offset>[0-9A-Fa-f]{1,8})$", RegexOptions.CultureInvariant);
     private static readonly Regex FileLine = new(@"^(?<file>.+\.[A-Za-z0-9+]{1,8}):(?<line>\d+)$", RegexOptions.CultureInvariant);
 
-    /// <summary>
-    /// The live address of a name (in the program's image, then any matched image), module!export, file:line (PDB or DWARF line
-    /// tables), an image VA (translated to where the module is loaded) or a live address. With <paramref name="data"/>, a
-    /// module name is its base and an address outside every module (stack, heap) is taken as is.
-    /// </summary>
+    // With data, a module name is its base and an address outside every module (stack, heap) is taken as is.
+    /// <summary>The live address of a name, module!export, file:line, image VA or live address; throws not_found when unresolved.</summary>
     public async Task<ulong> ResolveAsync(LiveSession session, string where, CancellationToken ct, bool data = false)
     {
         ToolError failed;
@@ -1234,10 +1178,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             var export = t[(bang + 1)..];
             if (session.Device != null) DeviceFile(session, m);
             var native = ImageOf(m);
-            // An emulated program calls a hybrid DLL's x64 or x86 view (ARM64X,
-            // CHPE), whose exports the file's own table does not hold. Other
-            // files answer for themselves, since the program's lookup waits on
-            // a loader lock a held load keeps.
+            // An emulated program calls a hybrid DLL's x64 or x86 view (ARM64X, CHPE), absent from the file's export table.
+            // Other files answer from disk, since the program's lookup waits on a loader lock a held load keeps.
             if (session.Emulated && native?.Image is Native.Pe.PeFile { LoadConfig.ChpeMetadataPointer: not 0 }
                 && await ExportAsync(session, m.Name, export, ct).ConfigureAwait(false) is { } emulated) return emulated;
             ToolError missing;
@@ -1245,8 +1187,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             else
                 try { return m.Base + await RvaOf(native, export, ct).ConfigureAwait(false); }
                 catch (ToolError e) when (e.Code == ErrorCode.NotFound) { missing = e; }
-            // The loader's own view answers for a module whose file is not on
-            // disk (the dyld shared cache).
+            // The loader's view answers for a module whose file is not on disk (the dyld shared cache).
             if (await ExportAsync(session, m.Name, export, ct).ConfigureAwait(false) is { } loaded) return loaded;
             throw native != null && missing.Code == ErrorCode.NotFound ? await WithLayerNameAsync(missing, m, native, export, ct).ConfigureAwait(false) : missing;
         }
@@ -1256,9 +1197,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             foreach (var m in modules)
                 if (Match(m) is { } native && value >= native.Image.ImageBase && value - native.Image.ImageBase < native.Image.SizeOfImage)
                 {
-                    // A readable data address is live even inside an image's
-                    // file range: an x86 stack can lie below the image's
-                    // preferred base.
+                    // A readable data address is live even in an image's range: an x86 stack can lie below its preferred base.
                     if (data && await ReadAsync(session, value, 1, ct).ConfigureAwait(false) != null) return value;
                     return m.Base + (value - native.Image.ImageBase);
                 }
@@ -1280,10 +1219,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         throw first ?? new ToolError(ErrorCode.NotFound, $"No loaded image of the program names '{t}'.", "use module!export, file:line or an address");
     }
 
-    /// <summary>
-    /// <paramref name="e"/> with a next step naming the Il2Cpp or NativeAOT layer's C identifier for a managed name
-    /// ("Ns.Type::Method(int)" as "Ns_Type__Method"), when that layer of <paramref name="native"/> names a function so.
-    /// </summary>
+    /// <summary><paramref name="e"/> with a next step naming the metadata or NativeAOT layer's C identifier for a managed name; else <paramref name="e"/>.</summary>
     private async Task<ToolError> WithLayerNameAsync(ToolError e, LiveModuleState m, LoadedNative native, string name, CancellationToken ct)
     {
         var t = name.Trim();
@@ -1291,7 +1227,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         if (!t.Contains("::", StringComparison.Ordinal)) return e;
         var index = code.Ready(native) ?? await code.Index(native, null, ct).ConfigureAwait(false);
         var identifier = NativeName.Identifier(t.Replace("::", "$$", StringComparison.Ordinal));
-        return index.AddressesOfName(identifier).Select(c => c.Source).FirstOrDefault(l => l is "il2cpp" or "nativeaot") is { } layer
+        return index.AddressesOfName(identifier).Select(c => c.Source).FirstOrDefault(l => l is "metadata" or "nativeaot") is { } layer
             ? new ToolError(e.Code, e.Message, $"at={m.Name}!{identifier} (the {layer} layer's name for it)")
             : e;
     }
@@ -1302,11 +1238,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return NativeAddress.Parse(native.Image, name, index.AddressesOfName);
     }
 
-    /// <summary>
-    /// Where code at <paramref name="address"/> really starts: the backend places a stop point on a jump (direct or through
-    /// memory) at the jump's target, so the server follows it first and says so; a jump through a CFG dispatch or check
-    /// pointer is refused, since its target runs for every indirect call of the program.
-    /// </summary>
+    /// <summary>Follows jumps from <paramref name="address"/> to the code a point lands on, naming the hop; refuses a jump through a CFG pointer.</summary>
     internal async Task<(ulong Address, string? Followed)> FollowJumpsAsync(LiveSession session, ulong address, CancellationToken ct)
     {
         var (a, followed, _) = await FollowJumpsThroughAsync(session, address, ct).ConfigureAwait(false);
@@ -1323,8 +1255,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             LiveModuleState? m;
             lock (session.Modules) m = session.Modules.FirstOrDefault(x => x.Contains(address));
             if (m == null || Match(m) is not { } native) break;
-            // In an ARM64X module of an emulated x64 program, the file's code
-            // is not the code the program runs.
+            // In an ARM64X module of an emulated x64 program, the file's code is not the code the program runs.
             if (session.Emulated && native.Image.Arch == NativeArch.Arm64) break;
             var index = code.Ready(native) ?? await code.Index(native, null, ct).ConfigureAwait(false);
             var rva = (uint)(address - m.Base);
@@ -1335,7 +1266,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             {
                 if (GuardPointerSlots(native).Contains(slot))
                     throw new ToolError(ErrorCode.Unsupported,
-                        $"{Name(session, address, ct: ct).Display} jumps through the Control Flow Guard dispatch pointer: a stop point or watch there would run for every indirect call of the program.",
+                        $"{Name(session, address, ct: ct).Display} jumps through the Control Flow Guard dispatch pointer: a point there would fire on every indirect call.",
                         "set it at the function the indirect call reaches");
                 int size = native.Image.Is64Bit ? 8 : 4;
                 if (await ReadAsync(session, m.Base + slot, size, ct).ConfigureAwait(false) is not { } b || b.Length < size) break;
@@ -1344,7 +1275,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             }
             else break;
             if (next == 0 || next == address) break;
-            lock (session.Modules) if (!session.Modules.Any(x => x.Contains(next))) break; // a target outside every module is no code to set a point on
+            // A target outside every module is no code to set a point on.
+            lock (session.Modules) if (!session.Modules.Any(x => x.Contains(next))) break;
             address = next;
         }
         return address == start ? (start, null, null) : (address, $"{Name(session, start, ct: ct).Display} jumps to {Name(session, address, ct: ct).Display}, so it is set there", writable);
@@ -1352,11 +1284,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     private static readonly TimeSpan RebindPoll = TimeSpan.FromMilliseconds(100);
 
-    /// <summary>
-    /// Moves a stop point set through a writable pointer when the program rewrites the pointer (a delay-load import is bound,
-    /// a first-call stub fills its table): the code it pointed to at set time runs once or never. Calls between the rewrite
-    /// and the move are not seen.
-    /// </summary>
+    // Calls between the rewrite and the move are not seen.
+    /// <summary>Moves a stop point set through a writable pointer when the program rebinds it (delay-load, first-call stubs).</summary>
     private async Task FollowRebindAsync(LiveSession session, string id, (ulong Address, ulong Value) slot)
     {
         int size = session.Arch is "ia32" or "arm" ? 4 : 8;
@@ -1375,7 +1304,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 {
                     bool code;
                     lock (session.Modules) code = session.Modules.Any(x => x.Contains(value));
-                    // cleared or pointed outside every module (a sentinel while it binds): keep waiting for a code address
+                    // Cleared or a sentinel outside every module while it binds: wait for a code address.
                     if (!code) { await Task.Delay(RebindPoll).ConfigureAwait(false); continue; }
                     var (address, _, again) = await FollowJumpsThroughAsync(session, value, CancellationToken.None).ConfigureAwait(false);
                     seen = value;
@@ -1443,20 +1372,13 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             : $"the instructions there{listing} cannot be moved aside for the hook's jump.";
     }
 
-    /// <summary>
-    /// Bytes of a leading endbr64 or endbr32: Frida keeps that landing pad in place
-    /// and writes a hook's jump after it, so they do not count toward the jump.
-    /// </summary>
+    /// <summary>Bytes of a leading endbr64 or endbr32, which Frida keeps in place and writes the hook's jump after.</summary>
     internal static uint LandingPad(IReadOnlyList<DisasmLine> lines) => lines.Count > 0 && lines[0].Bytes is "F30F1EFA" or "F30F1EFB" ? 4u : 0;
 
     /// <summary>Instructions as one line: "endbr64; xor eax, eax; ret".</summary>
     internal static string Listing(IEnumerable<DisasmLine> lines) => string.Join("; ", lines.Select(l => Regex.Replace(l.Text.Trim(), @"\s+", " ")));
 
-    /// <summary>
-    /// Defers a module!name whose module the program has not loaded (a plug-in loaded later): the point or watch is set
-    /// when the module loads. Held is true when the worker holds the loading thread until then, so no call is missed.
-    /// Null when the module is loaded.
-    /// </summary>
+    /// <summary>Defers a module!name point until its module loads; Held when the loading thread is held so no call is missed; null when loaded.</summary>
     public async Task<(LiveDeferred Point, bool Held)?> DeferAsync(LiveSession session, string where, bool watch, int perSecond = 0, int rawArguments = 0,
         CancellationToken ct = default, string? id = null)
     {
@@ -1470,12 +1392,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         bool loaded;
         lock (session.Modules) loaded = session.Modules.Any(m => ModuleNamed(m, module));
         if (loaded) return await DeferManagedAsync(session, t, watch, perSecond, rawArguments, id, ct).ConfigureAwait(false);
-        // a managed name that is ambiguous or unknown fails now, not at the load
+        // An ambiguous or unknown managed name fails now, not at the load.
         if (await ManagedTargetAsync(session, t, ct).ConfigureAwait(false) is { } managed && IsBundled(managed.Path))
             return await DeferManagedAsync(session, t, watch, perSecond, rawArguments, id, ct).ConfigureAwait(false);
         var d = new LiveDeferred(id ?? (watch ? session.NextWatchId() : session.NextPointId()), where.Trim(), module, watch, perSecond, rawArguments);
         lock (session.Deferred) session.Deferred.Add(d);
-        // a worker without the op still sets the point on the load event, after the module's first calls
+        // A worker without the op sets the point on the load event, after the module's first calls.
         try { await session.Worker.RequestAsync("defer_module", new JsonObject { ["name"] = module }, RequestTimeout, ct).ConfigureAwait(false); }
         catch (ToolError) { return (d, false); }
         return (d, true);
@@ -1497,10 +1419,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         : file.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase) ? file[..^7] + ".exe"
         : null;
 
-    /// <summary>
-    /// Sets the points deferred to <paramref name="module"/>, then lets its loading thread (held by the worker) go on;
-    /// <paramref name="unobserved"/> names why a point in the module would not be seen, and fails them instead.
-    /// </summary>
+    /// <summary>Sets the points deferred to <paramref name="module"/>, or fails them with <paramref name="unobserved"/>, then releases the loading thread.</summary>
     private async Task SetDeferredAsync(LiveSession session, LiveModuleState module, long? holder, bool afterEntry, string? unobserved)
     {
         List<LiveDeferred> due;
@@ -1517,7 +1436,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                 foreach (var d in due)
                     FailDeferred(session, d, $"{module.Name} loaded", unobserved, "run the program on an x64 machine, where it is not emulated");
             else
-                await SetDueAsync(session, afterEntry ? $"{module.Name} loaded; its entry point writes its code, so set once that returned" : $"{module.Name} loaded", due).ConfigureAwait(false);
+                await SetDueAsync(session, afterEntry ? $"{module.Name} loaded; set after its entry point, which writes its code" : $"{module.Name} loaded", due).ConfigureAwait(false);
             var placed = await PlaceCoverageAsync(session, module).ConfigureAwait(false);
             if (!rest)
                 foreach (var name in due.Select(d => d.Module).Concat(placed).Distinct(StringComparer.OrdinalIgnoreCase))
@@ -1539,10 +1458,10 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         {
             try
             {
-                // a managed method that is compiled at its first call waits for that
+                // A managed method compiled at its first call waits for that.
                 if (await DeferManagedAsync(session, d.Where, d.Watch, d.PerSecond, d.RawArguments, d.Id, CancellationToken.None).ConfigureAwait(false) is { } later)
                 {
-                    session.Add("module", null, null, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id}: {later.Point.Module} has no code yet ({because}); it is set when the runtime compiles it");
+                    session.Add("module", null, null, $"deferred {(d.Watch ? "watch" : "stop point")} {d.Id}: {later.Point.Module} has no code yet ({because}); set when compiled");
                     continue;
                 }
                 var (at, plan) = d.Watch
@@ -1632,7 +1551,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         var (address, followed) = await FollowJumpsAsync(session, await ResolveAsync(session, where, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         await CheckInstructionStartAsync(session, address, ct).ConfigureAwait(false);
         CheckCoverageOverlap(session, address, "This watch", ct);
-        // a watch reads the return value through the return address, which only a function's start has on the stack top
+        // A watch reads the return value through the return address, on the stack top only at a function's start.
         if (Name(session, address, ct: ct) is { Image: not null, Function: not null, Offset: > 0 } inside)
             throw new ToolError(ErrorCode.InvalidArgument, $"{inside.Display} is inside {inside.Function}: a watch records calls, from a function's start.",
                 $"watch {inside.Function}, or set a stop point here (live_break action=set)");
@@ -1642,7 +1561,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             CheckOverlap(session, p.Address, address, $"Stop point {p.Id}", $"clear stop point {p.Id} first (live_break action=clear), or move it to the function's start", ct);
         var at = Name(session, address, ct: ct);
         var bare = where.Trim();
-        // a known API is found by the name given (module!export) or the function's own name
+        // A known API is found by the name given (module!export) or the function's own name.
         var function = at.Function != null && at.Offset == 0 ? at.Function : bare.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? at.Display : bare;
         if (ApiSignatures.Find(bare) is not null && !bare.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) function = ApiSignatures.BareName(bare);
         var os = session.Platform switch { "windows" => ApiOs.Windows, "linux" => ApiOs.Linux, "darwin" => ApiOs.Darwin, _ => ApiOs.Unknown };
@@ -1672,15 +1591,12 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         LiveWatchState? w;
         lock (session.Watches) session.Watches.TryGetValue(id, out w);
         if (w == null || w.Cleared) throw new ToolError(ErrorCode.NotFound, $"Session {session.Id} has no watch '{id}'.", "live_watch action=list shows them");
-        // the script sends what it still holds before the watch ends, so the state stays for that last batch
+        // The script flushes its last batch before the watch ends, so the state stays for it.
         await session.Worker.RequestAsync("unwatch", new JsonObject { ["id"] = id }, RequestTimeout, ct).ConfigureAwait(false);
         w.Cleared = true;
     }
 
-    /// <summary>
-    /// Loads a user-supplied script into the session's program; its messages and errors go into the event ring. Error is
-    /// what it reported failing within <see cref="ScriptErrorWait"/> (an exception in its top-level code).
-    /// </summary>
+    /// <summary>Loads a user script into the program, its messages going to the event ring; Error is a top-level exception, else null.</summary>
     public async Task<(string Id, string? Error)> LoadScriptAsync(LiveSession session, string source, string origin, CancellationToken ct)
     {
         Live(session);
@@ -1692,7 +1608,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             return (id, thrown.ValueKind == JsonValueKind.String ? "error: " + thrown.GetString() : null);
         // A worker without that field posts a top-level exception only as an event.
         var prefix = id + ": error: ";
-        // checked once more after the wait ends: a delay overrunning it on a busy machine skips no event
+        // Checked once more after the wait, so a delay overrun on a busy machine skips no event.
         for (var waited = Stopwatch.StartNew(); ; await Task.Delay(25, ct).ConfigureAwait(false))
         {
             if (session.Page(0, "script", null, 10, id).Events.FirstOrDefault(e => e.Text.StartsWith(prefix, StringComparison.Ordinal)) is { } failed)
@@ -1740,7 +1656,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         Live(session);
         var args = new JsonObject();
         if (thread != null) args["thread"] = thread;
-        // a resumed thread can stop again before the reply arrives
+        // A resumed thread can stop again before the reply arrives.
         var upTo = session.Sequence;
         var r = await session.Worker.RequestAsync("resume", args, RequestTimeout, ct).ConfigureAwait(false);
         var resumed = r.GetProperty("resumed").EnumerateArray().Select(x => x.GetInt64()).ToList();
@@ -1767,10 +1683,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         return r.GetProperty("bytes").GetString() is { } hex ? Convert.FromHexString(hex) : null;
     }
 
-    /// <summary>
-    /// Variables a started program gets beyond the worker's minimal set: the .NET runtime location an apphost needs, then
-    /// the caller's NAME=value entries. The rest of the server's environment (tokens, keys) never reaches the program.
-    /// </summary>
+    // The rest of the server's environment (tokens, keys) never reaches the program.
+    /// <summary>A started program's extra variables: DOTNET_ROOT*, then the caller's NAME=value entries; throws on a malformed entry.</summary>
     internal static JsonObject ProgramEnvironment(IReadOnlyList<string> entries, System.Collections.IDictionary? server = null)
     {
         var env = new JsonObject();
@@ -1810,8 +1724,8 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         session.ExitCheck?.Dispose();
         await CloseChildrenAsync(session).ConfigureAwait(false);
         session.CompileCheck?.Dispose();
-        // A gate whose session sits in a started child's program outlives that child's session: an agent that leaves
-        // before one that came later stops the later agent's hooks (see live_worker.py drop_child).
+        // A gate in a started child outlives the child's session: an earlier agent leaving first stops the later
+        // agent's hooks (see live_worker.py drop_child).
         var kept = false;
         if (session.Worker.IsAlive && KeepsHanded(session))
         {

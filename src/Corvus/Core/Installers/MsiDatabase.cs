@@ -21,11 +21,7 @@ internal sealed record MsiTable(string Name, IReadOnlyList<string> Columns, IRea
     }
 }
 
-/// <summary>
-/// A Windows Installer database (.msi, .msp, .mst): a compound file whose stream names are packed two characters per UTF-16
-/// unit; the string pool (with its code page and 2- or 3-byte references), _Tables and _Columns read first, then every table
-/// stored column by column (integers offset by 0x8000 / 0x80000000, zero for null). Binary columns name a stream.
-/// </summary>
+/// <summary>A Windows Installer database (.msi, .msp, .mst): string pool, system tables, then every table; binary columns name a stream.</summary>
 internal sealed class MsiDatabase
 {
     private static readonly Guid Package = new("000C1084-0000-0000-C000-000000000046");
@@ -119,7 +115,7 @@ internal sealed class MsiDatabase
             int refs = BinaryPrimitives.ReadUInt16LittleEndian(pool.AsSpan(i + 2));
             if (len == 0 && refs != 0 && i + 8 <= pool.Length)
             {
-                // a long string: its length in the next entry
+                // A long string: its length in the next entry.
                 i += 4;
                 len = BinaryPrimitives.ReadUInt16LittleEndian(pool.AsSpan(i)) | ((long)BinaryPrimitives.ReadUInt16LittleEndian(pool.AsSpan(i + 2)) << 16);
             }

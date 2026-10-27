@@ -2,119 +2,85 @@
 
 **English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-**Reverse engineering and security analysis for AI agents.** Corvus is an MCP server that reads, traces, compares and patches compiled
-programs: .NET assemblies and native PE, ELF and Mach-O binaries. One self-contained binary, no runtime to install,
-nothing uploaded; by default nothing it reads is executed.
+MCP server for reverse engineering and security analysis of compiled programs: .NET assemblies and native PE, ELF and
+Mach-O binaries.
 
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/stargazers)
 
-> [!NOTE]
-> Corvus is under active development. Tools, parameters and output can change between releases; breaking changes are
-> listed in the [release notes](docs/release-notes.md). Report bugs in [issues](https://github.com/Albasha0x0/Corvus/issues).
-
-[Quick start](#quick-start) · [How it works](#how-it-works) · [What you can analyze](#what-you-can-analyze) ·
-[Showcases](#showcases) · [Why Corvus](#why-corvus) · [Documentation](#documentation)
+- One self-contained binary. Nothing is uploaded; nothing it reads is executed by default.
+- Tools and output can change between releases; see the [release notes](docs/release-notes.md).
 
 ## Quick start
 
-**Windows** (PowerShell):
+Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
 ```
 
-**Linux / macOS:**
+Linux and macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
 ```
 
-The installer checks the download against the release's `SHA256SUMS` and, when `gh` is signed in, its signed build
-provenance (without `gh` it says "provenance not checked"), then registers Corvus with the MCP clients it finds. As a plugin (server and skill; needs the .NET 10 SDK): `/plugin install corvus --marketplace Albasha0x0/Corvus`
-in Claude Code, `codex plugin marketplace add Albasha0x0/Corvus` then `corvus` in `/plugins` in Codex
-([installation](docs/installation.md#claude-code-and-codex-plugins)). As a container with a read-only root:
-`docker run -i --rm --read-only --tmpfs /tmp -v "$PWD:/work:ro" ghcr.io/albasha0x0/corvus`
-([installation](docs/installation.md#container-image)). Restart your client and ask:
+The installer verifies the download and registers Corvus with the MCP clients it finds. Restart the client and ask:
 
 > Load app.dll with Corvus and explain how it builds its export file. Cite the methods you read.
 
-From a terminal: `corvus decompile_member --load app.dll member=Ns.Type::Method` ([command line](docs/cli.md)).
+- Plugin, container image and other clients: [installation](docs/installation.md).
+- From a terminal: `corvus decompile_member --load app.dll member=Ns.Type::Method` ([command line](docs/cli.md)).
+- Builds: win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64, osx-x64, osx-arm64.
 
 ## How it works
 
-Your agent calls Corvus over MCP. Results are bounded and structured: every list pages, every error names the next
-step, and long results are kept for `read_result`. The agent follows calls and references and can patch and save a
-copy.
+- The agent calls Corvus over MCP; every result is bounded, every list pages, every error names the next step.
+- Corvus's own engine reads native code (x86, x64, ARM32, ARM64); IDA or Ghidra, when installed, add pseudocode.
+- Edits happen in memory; the agent reviews the diff and saves a patched copy.
 
-Corvus's own engine analyzes native code (x86, x64, ARM32, ARM64); IDA or Ghidra, when installed, are optional
-decompilers. Their databases and output are kept, so later calls on the same binary are fast.
+## What it reads
 
-## What you can analyze
-
-| Target | What you get | Needs |
+| Input | Shows | Needs |
 |---|---|---|
-| .NET assemblies | C# decompilation, IL, references, call graphs, build comparison, C# and IL patching, saving | nothing |
-| Native binaries (PE, ELF, Mach-O) | functions, disassembly, CFG, cross-references, values, RTTI, PDB types, similar functions | nothing |
-| Native pseudocode | decompilation, engine types, frames, scripting, emulation, pseudocode search | IDA 9 (idalib) or Ghidra 12 |
-| WebAssembly | modules and components, disassembly, decompiled code | nothing |
-| NativeAOT and ReadyToRun | method names, MethodTables, strings, precompiled code | nothing |
-| Unity Il2Cpp builds | method names and addresses from the metadata, string literals, serialized asset fields, IDA / Ghidra scripts, C++ bindings | nothing |
-| Native patching | names, comments, byte patches, assembly patches (x86 and x64), patched copies, carried to new builds | nothing |
-| Containers | single-file bundles, NuGet, APK, IPA, ASAR, Unity WebGL, archives, installers (MSI, NSIS, Inno Setup, WiX Burn), frozen Python (PyInstaller, py2exe, cx_Freeze, Nuitka onefile; Nuitka standalone is described, not extracted), firmware images and filesystems, disk images (ISO/UDF, VHD/VHDX, Apple .dmg, NTFS, FAT, ext, HFS+, APFS), compiled asset catalogs (Assets.car), Unreal pak and IoStore containers, GameMaker data files, Lua and LuaJIT bytecode, compiled AutoIt scripts; CycloneDX SBOM, YARA-X matches | nothing |
-| Documents and scripts | Office VBA and Excel 4.0 macros, encrypted OOXML, PDF actions and JavaScript, OneNote, LNK; PowerShell, batch, VBScript and JavaScript deobfuscated without running them | nothing |
-| Packages before install | npm, PyPI, VS Code extensions, browser extensions (CRX, XPI): install scripts, native files, suspicious patterns | nothing |
-| Network captures | pcap and pcapng, TCP streams, HTTP/1 and HTTP/2 objects, TLS 1.2/1.3 decrypted with a key log, JA3/JA4, DNS and beaconing hints | nothing (TShark only for other Wireshark fields) |
-| Languages and data | Go, Swift, Delphi and Free Pascal metadata; Hermes and Ark bytecode; HarmonyOS packages; JavaScript bundles with source maps; saved web pages with their scripts' integrity hashes, import maps and meta CSP checked; protobuf definitions recovered from embedded descriptors; SQLite with deleted rows recovered | nothing |
-| Android packages | manifest, resources, DEX, smali, Java (JADX), JNI bindings, devices over adb | JADX for Java, adb for devices |
-| Crash dumps | Windows minidumps, Linux and macOS core dumps, .NET exceptions, stacks, heap; crash text | nothing |
-| Running programs | read-only process inspection; sessions with stop points, call recording, code coverage, snapshots and child processes on Windows, Linux and macOS; activity traces (ETW) and console runs on Windows | Frida 17.24.3 or newer 17.x for sessions, which are off by default |
+| .NET assemblies | C#, IL, references, call graphs, patches | nothing |
+| Native PE, ELF, Mach-O | functions, disassembly, cross-references, types, patches | nothing |
+| Native pseudocode | decompiled functions, engine types, scripts | IDA 9 or Ghidra 12 |
+| NativeAOT, ReadyToRun, Il2Cpp | method names and addresses, strings | nothing |
+| WebAssembly | modules, components, disassembly | nothing |
+| Containers | single-file bundles, APK, IPA, installers, disk images, firmware | nothing |
+| Documents and scripts | Office macros, PDF actions, deobfuscated scripts | nothing |
+| Packages before install | npm, PyPI and extension packages | nothing |
+| Network captures | pcap streams, HTTP objects, TLS with a key log | nothing |
+| Android | manifest, resources, DEX, Java | JADX for Java, adb for devices |
+| Crash dumps | minidumps, core dumps, stacks, .NET heap | nothing |
+| Running programs | stop points, call recording, code coverage | Frida 17.24.3 or newer 17.x; off by default |
 
-Full list: [features](docs/features.md) and the [tool reference](docs/tools.md) (165 tools, 15 prompts).
+All 165 tools and 15 prompts: [features](docs/features.md), [tool reference](docs/tools.md).
 
 ## Showcases
 
-- **[Decompile, rebuild, run](docs/showcase/round-trip.md):** an assembly exported as a C# project that builds with
-  warnings as errors, runs with the same output, and is measured against the original.
-- **[Inside a single-file app](docs/showcase/single-file.md):** a .NET single-file executable unpacked without running
-  it, its assemblies extracted byte for byte.
-- **[Where SQLite makes its random numbers](docs/showcase/sqlite-random.md):** a crypto constant in a native SQLite
-  build traced to `sqlite3_randomness` and its callers, recorded as an evidence bundle and re-verified.
-- **[A Json.NET error traced to its code](docs/showcase/json-reference-loop.md):** "Self referencing loop detected"
-  followed from the message to the deciding setting and every caller, with the evidence re-verified.
+- [Decompile, rebuild, run](docs/showcase/round-trip.md): an assembly exported as a C# project that builds and runs.
+- [Inside a single-file app](docs/showcase/single-file.md): a .NET single-file executable unpacked without running it.
+- [Where SQLite makes its random numbers](docs/showcase/sqlite-random.md): a crypto constant traced to its callers.
+- [A Json.NET error traced to its code](docs/showcase/json-reference-loop.md): an error message traced to its setting.
 
-Each step in the showcases and [guides](docs/guides/1-first-session.md) is checked by a test.
-
-## Why Corvus
-
-- **Nothing to install.** Native analysis, .NET decompilation, containers and dumps are built in.
-- **Fast.** Results come from saved indexes and engine databases; warm calls answer in milliseconds.
-- **Sized for agents.** Every result fits a token budget, with paging and kept results.
-- **Edits, not just reads.** Patch .NET and native code in memory, review the diff, save a verified copy, and carry
-  names and patches to the next build.
-- **Cross-platform.** Windows, Linux (glibc and musl) and macOS, x64 and arm64: win-x64, win-arm64, linux-x64,
-  linux-arm64, linux-musl-x64, linux-musl-arm64, osx-x64 and osx-arm64.
-
-Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,
-Kilo Code, Visual Studio, Codex, Gemini CLI, Qwen Code, GitHub Copilot CLI, OpenCode, Crush, Zed, LM Studio,
-Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP, Pi, Kimi Code, Qoder, Factory Droid, Trae,
-CodeBuddy, Hermes and DeepSeek Harness. Any other client: `corvus config`.
+Guides: [first session](docs/guides/1-first-session.md) · [decode and patch](docs/guides/2-decode-and-patch.md) ·
+[new build](docs/guides/3-new-build.md). A test runs every step.
 
 ## Documentation
 
-[Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [Features](docs/features.md) · [Tool reference](docs/tools.md) ·
-[Command line](docs/cli.md) · [Errors](docs/errors.md) · [Troubleshooting](docs/troubleshooting.md) ·
-[FAQ](docs/faq.md) · [Release notes](docs/release-notes.md) · [All pages](docs/README.md)
-
-Guides: [first session](docs/guides/1-first-session.md) · [decode and patch](docs/guides/2-decode-and-patch.md) ·
-[new build](docs/guides/3-new-build.md).
+[Installation](docs/installation.md) · [Configuration](docs/configuration.md) · [Features](docs/features.md) ·
+[Tool reference](docs/tools.md) · [Command line](docs/cli.md) · [Errors](docs/errors.md) ·
+[Troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md) · [Release notes](docs/release-notes.md) ·
+[All pages](docs/README.md)
 
 ## Responsible use
 
-Analyze software you own or are permitted to analyze. Decompiling, patching or redistributing third-party code can be
-restricted by its license and by law where you live.
+Analyze only software you own or may analyze. Licenses and local law can restrict decompiling, patching and
+redistribution.
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)
 

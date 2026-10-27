@@ -79,67 +79,67 @@ public sealed class DependencyInventoryTests : IDisposable
     }
 
     [Fact]
-    public void An_il2cpp_build_names_Unity_with_its_class_libraries_and_leaves_package_versions_unknown()
+    public void An_AOT_build_names_the_runtime_with_its_class_libraries_and_leaves_package_versions_unknown()
     {
-        Il2CppMetadataOnly.AssemblyIdentity Id(string name, string version) => new(name, new Version(version), null);
-        var facts = DependencyInventory.OfIl2Cpp(
+        AotMetadataOnly.AssemblyIdentity Id(string name, string version) => new(name, new Version(version), null);
+        var facts = DependencyInventory.OfAotMetadata(
             [Id("mscorlib", "4.0.0.0"), Id("UnityEngine.CoreModule", "0.0.0.0"), Id("System.Core", "4.0.0.0"), Id("Assembly-CSharp", "0.0.0.0"),
-             Id("Newtonsoft.Json", "13.0.0.0"), Id("Unity.TextMeshPro", "0.0.0.0")], "2022.3.62f1", "Il2Cpp metadata", "Cell App")!;
+             Id("Newtonsoft.Json", "13.0.0.0"), Id("Unity.TextMeshPro", "0.0.0.0")], "2022.3.62f1", "AOT metadata", "Cell App")!;
         Assert.Equal("Cell App", facts.Subject!.Name);
         Assert.Equal(["Assembly-CSharp.dll"], facts.Subject.Locations);
-        var unity = facts.All[0];
-        Assert.Equal(("Unity", "2022.3.62f1", "pkg:generic/unity@2022.3.62f1"), (unity.Name, unity.Version, unity.Purl));
-        Assert.Equal(["mscorlib.dll", "UnityEngine.CoreModule.dll", "System.Core.dll"], unity.Locations);
+        var engine = facts.All[0];
+        Assert.Equal(("Unity", "2022.3.62f1", "pkg:generic/unity@2022.3.62f1"), (engine.Name, engine.Version, engine.Purl));
+        Assert.Equal(["mscorlib.dll", "UnityEngine.CoreModule.dll", "System.Core.dll"], engine.Locations);
         Assert.Equal([("Newtonsoft.Json", "13.0.0.0"), ("Unity.TextMeshPro", null)], facts.All.Skip(1).Select(c => (c.Name, c.AssemblyVersion)));
         Assert.All(facts.All.Skip(1), c => Assert.Equal((null, false, null), (c.Version, c.VersionKnown, c.Purl)));
         AssertValid(CycloneDx.Write(facts, "global-metadata.dat", new string('0', 64), "1.0.0", DateTimeOffset.UnixEpoch, Guid.Empty));
     }
 
     [Fact]
-    public void An_il2cpp_build_without_a_Unity_version_reports_it_unknown()
+    public void An_AOT_build_without_a_runtime_version_reports_it_unknown()
     {
-        var unity = DependencyInventory.OfIl2Cpp([new("UnityEngine", new Version(0, 0, 0, 0), null)], null, "Il2Cpp metadata", null)!.All[0];
-        Assert.Equal(("Unity", null, null), (unity.Name, unity.Version, unity.Purl));
+        var engine = DependencyInventory.OfAotMetadata([new("UnityEngine", new Version(0, 0, 0, 0), null)], null, "AOT metadata", null)!.All[0];
+        Assert.Equal(("Unity", null, null), (engine.Name, engine.Version, engine.Purl));
     }
 
-    /// <summary>A Windows Il2Cpp build folder, without its binary; null leaves a file out.</summary>
-    private string Il2CppBuild(string name, string? unityVersion, string? product)
+    /// <summary>A Windows AOT build folder, without its binary; null leaves a file out.</summary>
+    private string AotBuild(string name, string? engineVersion, string? product)
     {
         var data = Path.Combine(_dir.File(name), "App_Data");
         var metadata = Path.Combine(data, "il2cpp_data", "Metadata", "global-metadata.dat");
         Directory.CreateDirectory(Path.GetDirectoryName(metadata)!);
-        File.WriteAllBytes(metadata, new Il2CppMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0", [0xB7, 0x7A, 0x5C, 0x56, 0x19, 0x34, 0xE0, 0x89])
+        File.WriteAllBytes(metadata, new AotMetadataWriter().Assembly("Assembly-CSharp", "0.0.0.0").Assembly("mscorlib", "4.0.0.0", [0xB7, 0x7A, 0x5C, 0x56, 0x19, 0x34, 0xE0, 0x89])
             .Assembly("UnityEngine.CoreModule", "0.0.0.0").Assembly("Newtonsoft.Json", "13.0.0.0", [0x30, 0xAD, 0x4F, 0xE6, 0xB2, 0xA6, 0xAE, 0xED]).Build());
-        // globalgamemanagers keeps the Unity version as a NUL-terminated string at offset 20.
-        if (unityVersion != null) File.WriteAllBytes(Path.Combine(data, "globalgamemanagers"), [.. new byte[20], .. Encoding.ASCII.GetBytes(unityVersion), 0, .. new byte[64]]);
+        // globalgamemanagers keeps the runtime version as a NUL-terminated string at offset 20.
+        if (engineVersion != null) File.WriteAllBytes(Path.Combine(data, "globalgamemanagers"), [.. new byte[20], .. Encoding.ASCII.GetBytes(engineVersion), 0, .. new byte[64]]);
         if (product != null) File.WriteAllText(Path.Combine(data, "app.info"), $"Example Company\n{product}");
         return metadata;
     }
 
     [Fact]
-    public void An_il2cpp_builds_metadata_lists_Unity_its_assemblies_and_the_product()
+    public void An_AOT_builds_metadata_lists_the_runtime_its_assemblies_and_the_product()
     {
-        var path = Il2CppBuild("app", "2021.3.45f1", "Cell App");
+        var path = AotBuild("app", "2021.3.45f1", "Cell App");
         var facts = Facts(new InspectionService(_workspace).Summarize(null, path, default, new FileViewOptions("dependencies")));
         Assert.Equal("Cell App", facts.Subject!.Name);
         Assert.Equal(["Assembly-CSharp.dll"], facts.Subject.Locations);
-        var unity = facts.All[0];
-        Assert.Equal(("Unity", "2021.3.45f1", "pkg:generic/unity@2021.3.45f1"), (unity.Name, unity.Version, unity.Purl));
-        Assert.Equal(["mscorlib.dll", "UnityEngine.CoreModule.dll"], unity.Locations);
+        var engine = facts.All[0];
+        Assert.Equal(("Unity", "2021.3.45f1", "pkg:generic/unity@2021.3.45f1"), (engine.Name, engine.Version, engine.Purl));
+        Assert.Equal(["mscorlib.dll", "UnityEngine.CoreModule.dll"], engine.Locations);
         var json = Assert.Single(facts.All.Skip(1));
         Assert.Equal(("Newtonsoft.Json", "13.0.0.0", null, null), (json.Name, json.AssemblyVersion, json.Version, json.Purl));
-        Assert.Contains(facts.Sources, s => s.StartsWith("Il2Cpp metadata", StringComparison.Ordinal) && s.Contains("metadata v29", StringComparison.Ordinal));
+        Assert.Contains(facts.Sources, s => s.StartsWith("AOT metadata", StringComparison.Ordinal) && s.Contains("metadata v29", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void An_il2cpp_build_without_globalgamemanagers_reads_with_the_Unity_version_unknown()
+    public void An_AOT_build_without_globalgamemanagers_reads_with_the_runtime_version_unknown()
     {
-        var path = Il2CppBuild("bare", null, null);
+        var path = AotBuild("bare", null, null);
         var facts = Facts(new InspectionService(_workspace).Summarize(null, path, default, new FileViewOptions("dependencies")));
-        var unity = facts.All[0];
-        Assert.Equal(("Unity", null, null), (unity.Name, unity.Version, unity.Purl));
+        var engine = facts.All[0];
+        Assert.Equal(("Unity", null, null), (engine.Name, engine.Version, engine.Purl));
         Assert.Equal("Assembly-CSharp", facts.Subject!.Name);
-        Assert.Contains(facts.Notes, n => n.Contains("Unity version is unknown", StringComparison.Ordinal));
+        Assert.Contains(facts.Notes, n => n.Contains("engine version is unknown", StringComparison.Ordinal));
     }
 
     [Fact]

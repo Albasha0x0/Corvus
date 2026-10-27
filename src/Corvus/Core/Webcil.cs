@@ -2,11 +2,8 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Webcil: how Blazor WebAssembly (.NET 8+) ships assemblies in its _framework folder. The PE headers are replaced by a
-/// small "WbIL" header and section table, and the result is wrapped as a data segment of a WebAssembly module (.wasm).
-/// The sections are the original PE sections, so a PE is rebuilt around them for every reader of .NET images.
-/// </summary>
+/// <summary>Webcil, Blazor WebAssembly's (.NET 8+) assembly format; a PE is rebuilt around its original sections.</summary>
+/// <remarks>Webcil replaces the PE headers with a "WbIL" header and wraps the result as a data segment of a .wasm module.</remarks>
 public static class Webcil
 {
     private const int HeaderSize = 28, SectionSize = 16, FileAlignment = 0x200, SectionAlignment = 0x2000;
@@ -114,10 +111,7 @@ public static class Webcil
         return pe;
     }
 
-    /// <summary>
-    /// The module the Blazor SDK wraps every Webcil payload in, up to its data section: it imports the loader's memory and
-    /// exports webcilVersion, webcilSize, getWebcilSize and getWebcilPayload, which copy the two data segments out.
-    /// </summary>
+    /// <summary>The Blazor SDK's wrapper module for a Webcil payload, up to its data section.</summary>
     private static ReadOnlySpan<byte> WasmPrefix =>
     [
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0a, 0x02, 0x60, 0x01, 0x7f, 0x00, 0x60, 0x02, 0x7f, 0x7f, 0x00,
@@ -222,10 +216,7 @@ public static class Webcil
             $"unpack_container path=\"{Path.GetDirectoryName(Path.GetFullPath(file))}\" converts the folder's Webcil assemblies to PEs that load (path=\"{file}\" only this one); summarize_file and list_assemblies with path read it as it is");
     }
 
-    /// <summary>
-    /// The note a folder load adds when the folder (or its _framework subfolder) holds Webcil assemblies, which are not
-    /// loaded directly.
-    /// </summary>
+    /// <summary>The note for a folder or its _framework subfolder holding Webcil assemblies, which are not loaded directly.</summary>
     public static string? FolderHint(string folder)
     {
         var found = FolderFiles(folder);
@@ -257,10 +248,8 @@ public static class Webcil
         return [];
     }
 
-    /// <summary>
-    /// The .wasm file names and "sha256-..." integrity values the boot manifests of a _framework folder list: blazor.boot.json
-    /// (.NET 8, 9), dotnet.boot.js or the config embedded in dotnet.js (.NET 10). Null when the folder has none.
-    /// </summary>
+    /// <summary>The .wasm names and integrity values a _framework folder's boot manifests list; null when it has none.</summary>
+    /// <remarks>Manifests: blazor.boot.json (.NET 8, 9), dotnet.boot.js or the config in dotnet.js (.NET 10).</remarks>
     public static HashSet<string>? BootManifestEntries(string folder)
     {
         HashSet<string>? entries = null;

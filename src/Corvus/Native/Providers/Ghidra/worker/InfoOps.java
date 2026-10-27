@@ -221,10 +221,7 @@ final class InfoOps {
         return o;
     }
 
-    /**
-     * The analysis's Error and Warning bookmarks (bookmarks): counts per type, then up to max rows [type, rva, category, comment]
-     * in address order, errors first.
-     */
+    /** Error and Warning bookmarks: counts per type, then up to max rows [type, rva, category, comment], errors first. */
     static JsonElement bookmarks(Worker w, Worker.Request r) {
         int max = r.args.has("max") ? r.args.get("max").getAsInt() : 5;
         var manager = w.program.getBookmarkManager();
@@ -247,10 +244,7 @@ final class InfoOps {
         return o;
     }
 
-    /**
-     * Saves the program and packs it into path as a Ghidra archive (.gzf) the GUI opens (export_gzf): the project itself is
-     * not touched. Holds the write lock so no change lands between the save and the pack. Result: path, size.
-     */
+    /** export_gzf: saves and packs the program into path under the write lock, so no change lands between; the project is untouched. Result: path, size. */
     static JsonElement exportPacked(Worker w, Worker.Request r) throws Exception {
         java.io.File out = new java.io.File(r.args.get("path").getAsString());
         w.lock.writeLock().lock();
@@ -269,11 +263,7 @@ final class InfoOps {
         return o;
     }
 
-    /**
-     * The program's own data types (declared, pushed, from the PDB or the analysis; not those of type archives or built in)
-     * written to path as a C header (format h) or a data type archive (format gdt) the GUI opens (export_types). Result:
-     * path, size, types.
-     */
+    /** export_types: the program's own data types (not archive or built-in ones) as a C header (h) or data type archive (gdt). Result: path, size, types. */
     static JsonElement exportTypes(Worker w, Worker.Request r) throws Exception {
         java.io.File out = new java.io.File(r.args.get("path").getAsString());
         boolean archive = "gdt".equals(r.args.get("format").getAsString());

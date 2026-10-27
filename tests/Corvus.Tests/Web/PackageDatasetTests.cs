@@ -6,11 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Package review measured on folders of real packages: CORVUS_PACKAGES_BAD holds known-bad packages and
-/// CORVUS_PACKAGES_GOOD ordinary ones, each grouped in subfolders (per ecosystem or source). Prints the noteworthy share
-/// per subfolder; CORVUS_PACKAGES_REPORT names a file for one line per package (folder, file, review, findings; noteworthy ones marked !).
-/// </summary>
+/// <summary>Package review on real package folders (CORVUS_PACKAGES_BAD, CORVUS_PACKAGES_GOOD): noteworthy share per subfolder.</summary>
 public sealed class PackageDatasetTests(ITestOutputHelper output)
 {
     /// <summary>Floors: known-bad noteworthy at least this often (measured 604 of 846; the goal is 0.90), ordinary ones at most this often.</summary>

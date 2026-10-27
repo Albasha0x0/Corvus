@@ -5,10 +5,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// batch --file: a fixed set of read-only steps over one file, written as one corvus.batch/1 document. Steps go through
-/// the same tool calls as an agent's, so they keep the server's checks, limits and isolation.
-/// </summary>
+/// <summary>batch --file: fixed read-only steps over one file, through the server's own tool calls, as one corvus.batch/1 document.</summary>
 internal static partial class ToolCli
 {
     /// <summary>The document's schema: a new field keeps it, a renamed or removed field moves it to corvus.batch/2.</summary>
@@ -32,7 +29,7 @@ internal static partial class ToolCli
         ["containerFiles"] = 500,
         ["strings"] = 500,
         ["yaraMatches"] = 500,
-        // Unity asset files read by the strings step; a direct extract_strings call reads up to 4 GiB.
+        // Asset files read by the strings step; a direct extract_strings call reads up to 4 GiB.
         ["assetBytes"] = 1 << 30,
         ["summaryHighlights"] = Corvus.Tools.ContainerText.MaxHighlights,
     };
@@ -45,13 +42,10 @@ internal static partial class ToolCli
         new("container", "search_container", "containerFiles"),
         new("strings", "extract_strings", "strings"),
         new("yara", "search_container", "yaraMatches"),
-        new("unity", "unity_overview", null),
+        new("build", "summarize_build", null),
     ];
 
-    /// <summary>
-    /// Writes the document and returns 0, or 124 when the time limit ended the run (finished sections kept, the rest
-    /// marked timeout). A missing file or a bad option is a usage error with nothing on stdout.
-    /// </summary>
+    /// <summary>Writes the document and returns 0, or 124 when the time limit ended the run; bad input is a usage error with empty stdout.</summary>
     private static async Task<int> FileBatchAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.Positionals.Count > 0) throw new UsageException("batch takes a steps file or --file, not both.");
@@ -140,14 +134,14 @@ internal static partial class ToolCli
     {
         if (step.Name == "summary") return (new() { ["path"] = path }, null);
         if (step.Name == "yara") return (new() { ["path"] = path, ["kind"] = "yara", ["query"] = rules, ["limit"] = (int)limits["yaraMatches"] }, null);
-        // A Unity build spans a folder: a single file holds a whole one only as a package or zip, and its neighbours are not read.
-        if (step.Name == "unity")
-            return Directory.Exists(path) || PackageFiles.IsUnityPackage(path)
+        // A build with asset files spans a folder: a single file holds one only as a package or zip; neighbours are not read.
+        if (step.Name == "build")
+            return Directory.Exists(path) || PackageFiles.IsPlayerPackage(path)
                 ? (new() { ["path"] = path }, null)
-                : (null, Section(step, SectionStatus.NotApplicable, "A Unity build is read from a folder, package or zip that holds it."));
-        // Unity data needs no summary; extract_strings refuses a folder without a build as not_a_unity_build.
+                : (null, Section(step, SectionStatus.NotApplicable, "A build with asset files is read from a folder, package or zip that holds it."));
+        // Asset data needs no summary; extract_strings refuses a folder without a build as not_a_build.
         // The asset read gets half the time left, so the steps after it still run, and stops with the rows read.
-        if (step.Name == "strings" && (Directory.Exists(path) || PackageFiles.HoldsUnityData(path) || Core.Unity.SerializedFile.IsAssetFile(path)))
+        if (step.Name == "strings" && (Directory.Exists(path) || PackageFiles.HoldsPlayerData(path) || Core.Assets.SerializedFile.IsAssetFile(path)))
             return (new()
             {
                 ["path"] = path, ["limit"] = (int)limits["strings"], ["maxAssetBytes"] = (long)limits["assetBytes"],
@@ -163,7 +157,7 @@ internal static partial class ToolCli
                            && summary["assemblies"] is JsonArray { Count: > 0 });
         return managed
             ? (new() { ["path"] = path, ["limit"] = (int)limits["strings"] }, null)
-            : (null, Section(step, SectionStatus.NotApplicable, "Typed strings are read from .NET assemblies, the files that hold them, and Unity builds and asset files."));
+            : (null, Section(step, SectionStatus.NotApplicable, "Typed strings are read from .NET assemblies, files that hold them, and serialized asset files."));
     }
 
     private static JsonObject Section(FileBatchStep step, string status, string reason)
@@ -174,11 +168,7 @@ internal static partial class ToolCli
         return section;
     }
 
-    /// <summary>
-    /// Runs one step. A paged tool is called again from its nextOffset until the step's limit or the last row, and the
-    /// rows of every page join one result. Throws OperationCanceledException when the time limit ends the first call; when
-    /// it ends a later page, the section keeps the rows read and TimedOut is true.
-    /// </summary>
+    /// <summary>Runs one step, paging until its limit or the last row; a time limit on a later page keeps the rows read.</summary>
     private static async Task<(JsonObject Section, bool TimedOut)> Step(ToolSession session, FileBatchStep step, Dictionary<string, object?> arguments,
         CliIo io, CancellationToken deadline, CancellationToken cancellationToken)
     {
@@ -232,10 +222,7 @@ internal static partial class ToolCli
 
     private static JsonNode? Structured(CallToolResult result) => result.StructuredContent is { } s ? JsonNode.Parse(s.GetRawText()) : null;
 
-    /// <summary>
-    /// Why a record the tool returned says it is not whole: its coverage is partial or unknown, a facet is unavailable,
-    /// or the response cut rows to fit. Empty for a whole record or null.
-    /// </summary>
+    /// <summary>Why a record is not whole: partial or unknown coverage, an unavailable facet, or cut rows; empty for a whole record.</summary>
     private static IEnumerable<string> Gaps(JsonNode? record)
     {
         if (record?["coverage"] is JsonObject coverage)
@@ -251,10 +238,7 @@ internal static partial class ToolCli
                 if ((string?)warning is { } text && text.StartsWith("Cut to fit", StringComparison.Ordinal)) yield return text;
     }
 
-    /// <summary>
-    /// Sets a successful step's status: partial with the limit it reached or with what else left rows unread, complete
-    /// otherwise. Every row read is kept.
-    /// </summary>
+    /// <summary>Sets a successful step's status: partial with the reason rows went unread, else complete; every row read is kept.</summary>
     private static void Finish(JsonObject section, FileBatchStep step, JsonNode? record, bool reached, IReadOnlyCollection<string> gaps)
     {
         section["status"] = reached || gaps.Count > 0 ? SectionStatus.Partial : SectionStatus.Complete;
@@ -273,8 +257,8 @@ internal static partial class ToolCli
         {
             var (text, _, error) = Split(result);
             var code = (string?)error?["code"];
-            // An input that holds no Unity build is not one this step applies to.
-            if (code == "unsupported" && ((string?)error?["details"]?["reason"] == "not_a_unity_build" || text.Contains("reason not_a_unity_build", StringComparison.Ordinal)))
+            // The step does not apply to an input without a build.
+            if (code == "unsupported" && ((string?)error?["details"]?["reason"] == "not_a_build" || text.Contains("reason not_a_build", StringComparison.Ordinal)))
                 return Section(step, SectionStatus.NotApplicable, (string?)error?["message"] ?? text);
             section["status"] = code switch
             {

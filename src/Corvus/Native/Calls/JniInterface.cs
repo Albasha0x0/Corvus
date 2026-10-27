@@ -1,9 +1,6 @@
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// The JNI function tables: JNIEnv (JNINativeInterface) and JavaVM (JNIInvokeInterface) slots by index, with signatures
-/// for the common functions. A call through [[env] + slot * pointer size] names the slot.
-/// </summary>
+/// <summary>The JNIEnv and JavaVM function tables by slot, with signatures for the common functions.</summary>
 internal static class JniInterface
 {
     public enum Table : byte { Env, Vm }
@@ -102,7 +99,7 @@ internal static class JniInterface
         {
             foreach (var suffix in new[] { "", "V", "A" })
             {
-                // the method's own arguments follow (varargs, a va_list or a jvalue array)
+                // The method's own arguments follow as varargs, a va_list or a jvalue array.
                 Env($"Call{t}Method{suffix}", P("obj"), P("methodID"));
                 Env($"CallStatic{t}Method{suffix}", P("clazz"), P("methodID"));
                 Env($"CallNonvirtual{t}Method{suffix}", P("obj"), P("clazz"), P("methodID"));
@@ -124,10 +121,7 @@ internal static class JniInterface
         return s;
     }
 
-    /// <summary>
-    /// The table a function's first parameter points to: JNIEnv for a native method (Java_* export), JavaVM for
-    /// JNI_OnLoad / JNI_OnUnload; null otherwise.
-    /// </summary>
+    /// <summary>The table a function's first parameter points to: JNIEnv for Java_* exports, JavaVM for JNI_OnLoad / JNI_OnUnload; else null.</summary>
     public static Table? FirstParameter(string? function) => function switch
     {
         null => null,

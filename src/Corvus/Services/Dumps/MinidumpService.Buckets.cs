@@ -78,7 +78,7 @@ public sealed partial class MinidumpService
             foreach (var p in patterns)
             {
                 var found = new DirectoryInfo(root).EnumerateFiles(p, options);
-                // the default core patterns also match other files (core.c, app.core.json): only ELF cores are kept
+                // The default core patterns also match files such as core.c, so only ELF cores are kept.
                 files.AddRange(string.IsNullOrWhiteSpace(pattern) && p is "*.core" or "core.*" ? found.Where(f => CoreFile.IsCore(f.FullName)) : found);
             }
         }
@@ -147,7 +147,7 @@ public sealed partial class MinidumpService
     private string Settings(int topFrames, List<string> skip, bool managed, string? imageDirectories)
     {
         var images = workspace?.Read(() => string.Join(",", workspace.Natives.Select(n => $"{Path.GetFileName(n.FilePath)}:{n.Pe?.Coff.TimeDateStamp:X}").Order(StringComparer.Ordinal))) ?? "";
-        // the leading number: bump when signatures change (stack walks, frame names), so older entries are read again
+        // Bump the leading number when signatures change, so older cache entries are read again.
         return Hash($"3|{topFrames}|{string.Join(";", skip)}|{managed}|{imageDirectories}|{images}");
     }
 
@@ -185,12 +185,8 @@ public sealed partial class MinidumpService
         }
     }
 
-    /// <summary>
-    /// A dump's signature. Exception: code | the first frame that is not raising machinery (module!function, or
-    /// module+function start) | the next frames. CLR exception (with a local DAC): clr | exception type | top managed
-    /// frames. No exception: hang | the first thread's top frames. Function names, not addresses, so rebases and
-    /// offsets inside one function do not split a bucket; the offset is kept apart.
-    /// </summary>
+    /// <summary>A dump's signature by function names, so rebases do not split a bucket: code | fault frame | next frames,
+    /// clr | exception type | managed frames, or hang | first thread's frames.</summary>
     internal async Task<DumpSignature> Signature(string path, string? imageDirectories, int topFrames, IReadOnlyList<string> skip, bool managed, CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
@@ -211,7 +207,7 @@ public sealed partial class MinidumpService
             return new DumpSignature("exception", $"{code} | {fault.Label} | {string.Join(" > ", frames.Skip(1).Take(topFrames).Select(f => f.Label))}",
                 fault.Version, fault.Offset, d.Time);
         }
-        // the runtime's own dump writer records no exception stream: the exception in flight is the signature
+        // The runtime's own dump writer records no exception stream; use the exception in flight.
         if (managed && ClrDecoder.RuntimeModule(d) != null && await ManagedSignature(s, null, topFrames, ct) is { } inFlight) return inFlight;
         if (d.Threads.Count == 0) throw new ToolError(ErrorCode.MalformedInput, "the dump has no threads and no exception.");
         var first = d.Threads[0];
@@ -232,7 +228,7 @@ public sealed partial class MinidumpService
             var frames = ex.Stack.Where(f => f.IsMethod).Select(f => MethodOnly(f.Name)).ToList();
             if (frames.Count == 0 && (threadId ?? ex.ThreadId) is { } thread)
             {
-                // an exception trace the DAC does not resolve (32-bit runtimes): the thread's own walk from the raise down
+                // The DAC does not resolve this trace (32-bit runtimes): walk the thread from the raise down.
                 ulong raisedAt = s.Dump.Exception is { } e && e.ThreadId == thread && s.Dump.ReadContext(e.Context) is { } c ? c.Sp : 0;
                 using (AssemblyWorkspace.Lock(decoder.Gate))
                     frames = decoder.Frames(thread, BucketWalkFrames).Where(f => f.IsMethod && f.Sp >= raisedAt).Select(f => MethodOnly(f.Name)).ToList();
@@ -252,7 +248,7 @@ public sealed partial class MinidumpService
 
     private async Task<List<(string Label, string? Version, string? Offset)>> SignatureFrames(Session s, DumpThread thread, DumpContext ctx, IReadOnlyList<string> skip, CancellationToken ct)
     {
-        // a WoW64 thread's own code is its 32-bit side
+        // A WoW64 thread's own code is its 32-bit side.
         var walk = Wow64.Thread(s.Dump, thread.Teb) is { } wow
             ? s.Walker(Wow64.View(s.Dump)).Walk(wow.Context, wow.StackLow, wow.StackHigh, BucketWalkFrames, ct)
             : s.Walker().Walk(ctx, thread.StackStart, thread.StackStart + thread.StackSize, BucketWalkFrames, ct);
@@ -268,7 +264,7 @@ public sealed partial class MinidumpService
             var at = await Locate(s, f.Ip, f.IsReturnAddress, ct);
             var label = Label(at, f.Ip);
             if (skip.Any(p => Noise(label, p))) continue;
-            // below the fault, a place without a name (JIT code, unknown memory) depends on what memory the dump holds
+            // Below the fault, unnamed places depend on what memory the dump holds, so they are skipped.
             if (frames.Count > 0 && label.StartsWith('<')) continue;
             frames.Add((label, at.Module?.FileVersion, Offset(at, f.Ip)));
         }

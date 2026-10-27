@@ -15,10 +15,10 @@ public class JudgementTests : IDisposable
         var bytes = ReferenceResolutionTests.Compile("Order", """
             public class Base { public Base() { Init(); } protected virtual void Init() { } }
             public class Plain { public Plain() { } }
-            // fields: the engine shows these as a primary constructor with field initializers
+            // Fields: the engine shows these as a primary constructor with field initializers.
             public class FieldUnsafe : Base { public int Seen; private int f; public FieldUnsafe(int x) { f = x; } protected override void Init() { Seen = f; } }
             public class FieldSafe : Plain { private int f; public FieldSafe(int x) { f = x; } public int F => f; }
-            // property setters: the engine writes base._002Ector(...) after them
+            // Property setters: the engine writes base._002Ector(...) after them.
             public class SetterUnsafe : Base { public int Seen; public int P { get; set; } public SetterUnsafe(int x) { P = x; } protected override void Init() { Seen = P; } }
             public class SetterSafe : Plain { public int P { get; set; } public SetterSafe(int x) { P = x; } }
             """);
@@ -39,7 +39,7 @@ public class JudgementTests : IDisposable
     }
 
     [Fact]
-    public void ConstructorView_ShowsWhatRunsBeforeTheBaseConstructor()
+    public void The_constructor_view_shows_what_runs_before_the_base_constructor()
     {
         using var env = new Env(StoreBeforeBase());
         var view = env.Decompile("FieldSafe::.ctor");
@@ -50,7 +50,7 @@ public class JudgementTests : IDisposable
     }
 
     [Fact]
-    public void BaseConstructorReorder_OnlyWhenTheBaseCannotObserveIt()
+    public void The_base_constructor_moves_only_when_the_base_cannot_observe_it()
     {
         using var env = new Env(StoreBeforeBase());
         // Plain's constructor calls nothing overridable: the store can move after it.

@@ -3,11 +3,7 @@ using Corvus.Core.Documents;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=office: the active content of an OLE, OOXML, SYLK or OneNote Office document (<see cref="OfficeDocument"/>): VBA projects and
-/// modules, Excel 4.0 macro sheets with their visibility, OLE Package objects, external relationships, and findings over the
-/// macro text with the module and line of each (autorun entry points, noteworthy calls, URLs, decoded hex and base64).
-/// </summary>
+/// <summary>view=office: active content of an OLE, OOXML, SYLK or OneNote document: VBA, Excel 4.0 macros, OLE objects, links, findings.</summary>
 internal sealed class OfficeFileView : IFileSummaryView
 {
     public sealed record Module(string Name, string Type, string Stream, int Lines, bool SourceMissing);
@@ -33,7 +29,8 @@ internal sealed class OfficeFileView : IFileSummaryView
         var doc = OfficeDocument.Read(file.Bytes, System.IO.Path.GetFileName(file.Path), ct);
         if (doc == null) return null;
         bool active = doc.Projects.Count > 0 || doc.Xlm != null || doc.Objects.Count > 0 || doc.Links.Count > 0 || doc.Encrypted;
-        if (!active && file.Options.View != Name) return null; // a document without active content is listed only when asked for
+        // A document without active content is listed only when asked for.
+        if (!active && file.Options.View != Name) return null;
         var facts = new Facts(doc.Format, doc.Encrypted,
             [.. doc.Projects.Select(p => new Project(p.Storage, p.ProjectName, p.CodePage,
                 [.. p.Modules.Select(m => new Module(m.Name, m.Type, m.Stream, m.Source.Length == 0 ? 0 : m.Source.Count(c => c == '\n') + 1, m.SourceMissing))], p.References))],

@@ -6,10 +6,7 @@ using System.Text;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// An APK signed with a JAR (v1) signature by a new self-signed RSA key: what Android installs for targetSdkVersion 29
-/// and below, where no v2 signature is required.
-/// </summary>
+/// <summary>An APK with a v1 (JAR) signature by a new self-signed RSA key, installable up to targetSdkVersion 29.</summary>
 internal static class SignedApk
 {
     public static byte[] Build(params (string Name, byte[] Data)[] entries)

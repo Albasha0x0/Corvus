@@ -3,11 +3,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Elf;
 
-/// <summary>
-/// A dynamic relocation, after RELR and Android packed tables are expanded. <see cref="Offset"/> is the location's
-/// virtual address; <see cref="Addend"/> is explicit for RELA entries, otherwise the value stored at the location.
-/// <see cref="Table"/> names where it came from (DT_RELA, DT_REL, DT_JMPREL, DT_RELR, APS2).
-/// </summary>
+/// <summary>A dynamic relocation after RELR and APS2 expansion; <see cref="Addend"/> is the stored value for REL entries.</summary>
 public sealed record ElfRelocation(ulong Offset, uint Type, int SymbolIndex, string? Symbol, long Addend, bool ExplicitAddend, ElfRelocationKind Kind, string Table);
 
 public sealed partial class ElfFile
@@ -93,7 +89,7 @@ public sealed partial class ElfFile
             if (import && r.Kind is ElfRelocationKind.Absolute or ElfRelocationKind.GlobalData or ElfRelocationKind.JumpSlot && importSlots.Add(rva))
                 imports.Add(new NativeImport(sym!.VersionLibrary ?? "*", sym.Name, null, 0, rva, r.Kind == ElfRelocationKind.JumpSlot && lazy));
         }
-        // MIPS binds imports through the global GOT, not relocations: entry i follows DT_MIPS_LOCAL_GOTNO local ones, from DT_MIPS_GOTSYM
+        // MIPS binds imports through the global GOT: entry i follows DT_MIPS_LOCAL_GOTNO local ones, from DT_MIPS_GOTSYM.
         if (Machine is ElfNames.EmMips or ElfNames.EmMipsLe && Tag(3) is { } got && Tag(0x7000000A) is { } localGot && Tag(0x70000013) is { } gotSym)
             for (ulong i = gotSym; i < (ulong)d.Symbols.Count; i++)
             {
@@ -185,10 +181,7 @@ public sealed partial class ElfFile
         _ => 8,
     };
 
-    /// <summary>
-    /// Android packed relocations ("APS2", SLEB128): groups sharing an offset delta, info or addend. Offsets and
-    /// addends are running sums; a group without addends resets the addend to 0.
-    /// </summary>
+    /// <summary>Android packed relocations (APS2): offsets and addends are running sums; a group without addends resets the addend to 0.</summary>
     private void ReadPacked(ulong va, ulong size, bool rela, List<ElfRelocation> all, IssueLog log, WorkBudget budget)
     {
         string name = rela ? "DT_ANDROID_RELA" : "DT_ANDROID_REL";

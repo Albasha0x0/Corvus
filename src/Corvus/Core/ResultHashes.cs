@@ -31,7 +31,8 @@ public static class ResultHashes
     /// <summary>Records a successful call: <paramref name="argsSha256"/> is the SHA-256 of its canonical arguments.</summary>
     public static void Remember(string tool, string argsSha256, string resultSha256)
     {
-        if (Recent.Count >= MaxRecent) Recent.Clear(); // a bounded memory of this process's calls, not a cache that must hold everything
+        // A bounded memory of this process's calls, not a cache that must hold everything.
+        if (Recent.Count >= MaxRecent) Recent.Clear();
         Recent[(tool, argsSha256)] = resultSha256;
     }
 

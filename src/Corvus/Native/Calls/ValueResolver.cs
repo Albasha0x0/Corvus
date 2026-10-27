@@ -27,10 +27,7 @@ internal enum VKind : byte
     Field,
 }
 
-/// <summary>
-/// A resolved value and how it was derived (instructions from the use back to the definition). An Unknown from a merge
-/// of different values keeps them in <see cref="Alternatives"/>.
-/// </summary>
+/// <summary>A resolved value and its derivation; an Unknown from a merge keeps the differing values in <see cref="Alternatives"/>.</summary>
 internal readonly record struct Val(VKind Kind, ulong Num, uint Rva, uint Site, string Why, Val[]? Alternatives = null)
 {
     /// <summary>The instruction that defines the value (the innermost of the derivation), 0 when none.</summary>
@@ -58,12 +55,7 @@ internal readonly record struct Loc(Register Reg, int Slot, LocKind Kind)
     public static Loc Frame(int offset) => new(Register.None, offset, LocKind.Frame);
 }
 
-/// <summary>
-/// Backward constant propagation inside one function: the value a register, stack slot or frame slot holds before an
-/// instruction, following copies, immediates, lea of data addresses, xor-zeroing and constant arithmetic back through the
-/// block and its predecessors. Paths that merge with different values, loops and anything not modelled give Unknown with
-/// the reason. Bounded by a step budget and a recursion depth.
-/// </summary>
+/// <summary>Backward constant propagation in one function, bounded by a step budget and depth; anything not modelled is Unknown with the reason.</summary>
 internal sealed class ValueResolver
 {
     private const int MaxDepth = 40;
@@ -95,11 +87,7 @@ internal sealed class ValueResolver
     /// <summary>Instruction steps allowed per top-level query.</summary>
     public int Budget { get; set; } = 6000;
 
-    /// <summary>
-    /// Slice mode (value tracing): merges keep every path, loops are <see cref="VKind.Cycle"/>, the function entry gives
-    /// <see cref="VKind.Incoming"/>, [reg+n] loads give <see cref="VKind.Field"/> and a frame slot continues as the stack
-    /// slot the frame pointer was set from.
-    /// </summary>
+    /// <summary>Slice mode: merges keep every path and loops, entry values and [reg+n] loads get their own kinds.</summary>
     public bool Slice { get; init; }
 
     /// <summary>Instruction steps the last query took.</summary>
@@ -168,7 +156,7 @@ internal sealed class ValueResolver
                                     : Val.Unknown($"{Name(loc.Reg)} is clobbered by the call at {Va(d.Rva)}");
                             continue;
                         case LocKind.Frame:
-                            // x86 [ebp+8...] are the parameters: a callee cannot reach them unless their address is taken (checked)
+                            // x86 [ebp+8...] are parameters, which a callee reaches only when their address is taken.
                             if (!_is64 && loc.Slot >= 8) continue;
                             return Val.Unknown($"local may be changed by the call at {Va(d.Rva)}");
                     }
@@ -177,7 +165,7 @@ internal sealed class ValueResolver
                         if (_code.StackAddressTaken(loc.Slot)) return new Val(VKind.TakenLocal, (ulong)(long)loc.Slot, 0, 0, $"local may be changed by the call at {Va(d.Rva)}");
                         continue;
                     }
-                    // x86: the callee may remove its stack arguments (stdcall)
+                    // x86: a stdcall callee removes its stack arguments.
                     var pops = _owner.CalleePops(_code, block, i);
                     if (pops == null) return Val.Unknown($"stack effect of the call at {Va(d.Rva)} is unknown");
                     loc = Loc.Stack(loc.Slot + pops.Value);
@@ -208,7 +196,6 @@ internal sealed class ValueResolver
 
                 if (loc.Kind == LocKind.Stack)
                 {
-                    // a write to the slot
                     if (x.Op0Kind == OpKind.Memory && x.MemoryBase.GetFullRegister() == _sp && x.MemoryIndex == Register.None && !IsImmediateOrNothing(in x))
                     {
                         int at = (int)(long)x.MemoryDisplacement64;
@@ -244,7 +231,7 @@ internal sealed class ValueResolver
                 return Why(RegisterValue(d, loc.Reg, block, i), d);
             }
 
-            // start of the block: the predecessors
+            // Start of the block: continue into the predecessors.
             var b = _code.Graph.Blocks[block];
             if (b.Start == _code.Function.Start && b.Predecessors.Count == 0)
             {
@@ -298,7 +285,7 @@ internal sealed class ValueResolver
         }
         if (values.Count == 0) return new Val(VKind.Cycle, 0, 0, 0, "loop");
         if (values.Count == 1 && !loop) return values[0] with { Why = values[0].Why + $" (same on {b.Predecessors.Count} paths)" };
-        // the join's block start locates the merge and the loop (a value of their own has no defining instruction)
+        // The join's block start locates the merge and the loop, which have no defining instruction.
         if (loop) values.Add(new Val(VKind.Cycle, 0, 0, 0, $"carried around the loop at {Va(b.Start)}") { At = b.Start });
         return new Val(VKind.Merge, (ulong)b.Predecessors.Count, cut ? 1u : 0, 0, $"{b.Predecessors.Count} paths join at {Va(b.Start)}", [.. values]) { At = b.Start };
     }
@@ -313,7 +300,7 @@ internal sealed class ValueResolver
             if (p < 0) return Val.Unknown("predecessor not decoded");
             var v = Walk(loc, p, int.MaxValue);
             if (v.Kind == VKind.Cycle) continue;
-            // one unknown path decides (and keeps the search linear in the common case)
+            // One unknown path decides, which keeps the search linear in the common case.
             if (v.Kind == VKind.Unknown) return v;
             if (!values.Any(o => o.SameAs(in v))) values.Add(v);
         }
@@ -396,7 +383,7 @@ internal sealed class ValueResolver
             case OpKind.Register:
                 return Walk(Loc.Of(x.Op0Register), block, index);
             case OpKind.Memory:
-                // push [esp+n] reads relative to the stack pointer before the push
+                // push [esp+n] reads relative to the stack pointer before the push.
                 return MemoryRead(in d, _slot, block, index);
             default:
                 return IsImmediate(x.Op0Kind) ? Immediate(in d, 0, _slot) : Val.Unknown("push");
@@ -442,7 +429,7 @@ internal sealed class ValueResolver
         var dest = x.Op0Register;
         int bytes = dest.GetSize();
         bool vector = full >= Register.ZMM0 && full <= Register.ZMM31;
-        // 8 / 16-bit writes keep the upper bits: not modelled (32-bit writes zero-extend on x64)
+        // 8 / 16-bit writes keep the upper bits, which is not modelled; 32-bit writes zero-extend on x64.
         if (!vector && bytes < 4 && x.Mnemonic is not (Mnemonic.Movzx or Mnemonic.Movsx))
             return Val.Unknown($"partial write by {x.Mnemonic.ToString().ToLowerInvariant()}");
         if (vector) return VectorValue(in d, block, index);

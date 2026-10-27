@@ -2,10 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Snappy raw (block) decompression, as LevelDB, Chromium and Hadoop store it: the decompressed length as a varint, then
-/// literals and back-references. Throws <see cref="InvalidDataException"/> on damaged data or a length over the limit.
-/// </summary>
+/// <summary>Snappy raw block decompression; throws <see cref="InvalidDataException"/> on damaged data or a length over the limit.</summary>
 internal static class Snappy
 {
     public static byte[] Decompress(ReadOnlySpan<byte> src, long maxBytes)

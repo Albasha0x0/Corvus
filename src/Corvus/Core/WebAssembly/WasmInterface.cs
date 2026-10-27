@@ -13,12 +13,8 @@ public sealed record WasmFunctionPair(uint Old, uint New, string Name, string Ba
 public sealed record WasmComparison(IReadOnlyList<WasmInterfaceChange> Interface, IReadOnlyList<WasmFunctionPair> Pairs, IReadOnlyList<uint> OnlyOld,
     IReadOnlyList<uint> OnlyNew, int Imports, int Exports);
 
-/// <summary>
-/// Compares two builds of a module: imports by module and name, exports by name (with the signature of an exported
-/// function), and every function paired by a unique name (name section, export, symbol map), then by a unique body
-/// hash. A body hash covers the instructions with function, global and type indexes replaced by the callee's name or
-/// the type's signature, so a body that only moved, or calls functions that moved, keeps its hash.
-/// </summary>
+/// <summary>Compares two builds of a module: imports, exports, and functions paired by unique name, then unique body hash.</summary>
+/// <remarks>Body hashes replace indexes with names and signatures, so moved code keeps its hash.</remarks>
 public static class WasmInterface
 {
     public static WasmComparison Compare(WasmBinary a, IReadOnlyList<string> aNames, IReadOnlyList<string> aSources, WasmBinary b, IReadOnlyList<string> bNames,
@@ -58,12 +54,12 @@ public static class WasmInterface
             bool body = !oldHashes[o].AsSpan().SequenceEqual(newHashes[n]);
             pairs.Add(new WasmFunctionPair(o, n, aNames[(int)o], basis, signature, body, Size(a, o), Size(b, n)));
         }
-        // by a name the module gives (not an index name), unique on both sides
+        // By a name the module gives (not an index name), unique on both sides.
         var oldByName = Unique(Enumerable.Range(0, a.FunctionCount).Where(i => aSources[i] != "index").Select(i => ((uint)i, aNames[i])));
         var newByName = Unique(Enumerable.Range(0, b.FunctionCount).Where(i => bSources[i] != "index").Select(i => ((uint)i, bNames[i])));
         foreach (var (name, o) in oldByName)
             if (newByName.TryGetValue(name, out var n)) Pair(o, n, "name");
-        // then by a unique identical body among the rest
+        // Then by a unique identical body among the rest.
         var oldByHash = Unique(Enumerable.Range(0, a.FunctionCount).Where(i => !usedOld.Contains((uint)i) && i >= a.ImportedFunctions).Select(i => ((uint)i, Convert.ToHexString(oldHashes[i]))));
         var newByHash = Unique(Enumerable.Range(0, b.FunctionCount).Where(i => !usedNew.Contains((uint)i) && i >= b.ImportedFunctions).Select(i => ((uint)i, Convert.ToHexString(newHashes[i]))));
         foreach (var (hash, o) in oldByHash)
@@ -126,7 +122,8 @@ public static class WasmInterface
                     case WasmImm.CallIndirect: sb.Append(Signature(ins.A < m.Types.Count ? m.Types[(int)ins.A] : null)).Append(ins.B); break;
                     case WasmImm.TypeIndex: sb.Append(Signature(ins.A < m.Types.Count ? m.Types[(int)ins.A] : null)); break;
                     case WasmImm.BlockType: sb.Append(ins.BlockType >= 0 && ins.BlockType < m.Types.Count ? Signature(m.Types[(int)ins.BlockType]) : ins.BlockType.ToString(System.Globalization.CultureInfo.InvariantCulture)); break;
-                    case WasmImm.Data or WasmImm.Elem or WasmImm.DataMemory or WasmImm.ElemTable: break; // segment indexes move between builds
+                    // Segment indexes move between builds.
+                    case WasmImm.Data or WasmImm.Elem or WasmImm.DataMemory or WasmImm.ElemTable: break;
                     default:
                         sb.Append(Convert.ToHexString(m.Bytes, ins.Offset, ins.Length));
                         break;

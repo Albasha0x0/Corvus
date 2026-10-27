@@ -23,7 +23,7 @@ public class SaveIdentityTests : IDisposable
     private static void Rename(Env env) => env.Edit(() => env.Edits.Rename(env.One("Account::CheckPreview"), "HasPreview"));
 
     [DirectoryLinkFact]
-    public void OriginalThroughADirectoryLink_IsBackedUpBeforeItIsReplaced()
+    public void Original_through_a_directory_link_is_backed_up_before_it_is_replaced()
     {
         var original = CopyFixture();
         var before = File.ReadAllBytes(original);
@@ -38,7 +38,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [HardLinkFact]
-    public void OriginalThroughAHardLink_IsRecognized()
+    public void Original_through_a_hard_link_is_recognized()
     {
         var original = CopyFixture();
         var before = File.ReadAllBytes(original);
@@ -55,7 +55,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public void ShortAndRelativeSpellings_AreTheSameFile()
+    public void Short_and_relative_spellings_are_the_same_file()
     {
         var original = CopyFixture();
         var dotted = Path.Combine(_dir.Path, "real", ".", "..", "real", "App.dll");
@@ -65,7 +65,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public void Original_IsReplacedOnlyWithReplaceOriginal()
+    public void Original_is_replaced_only_with_replace_original()
     {
         var original = CopyFixture();
         var loaded = File.ReadAllBytes(original);
@@ -80,7 +80,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public async Task ReplaceOriginal_NeedsTheServerSwitch()
+    public async Task Replace_original_needs_the_server_switch()
     {
         var original = CopyFixture();
         var loaded = File.ReadAllBytes(original);
@@ -99,7 +99,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public void Versioned_WritesTheNextFreeNumberedCopy()
+    public void Versioned_writes_the_next_free_numbered_copy()
     {
         var original = CopyFixture();
         var loaded = File.ReadAllBytes(original);
@@ -117,7 +117,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public void OriginalSavedOverBefore_IsReplacedAgain()
+    public void Original_saved_over_before_is_replaced_again()
     {
         var original = CopyFixture();
         var loaded = File.ReadAllBytes(original);
@@ -133,7 +133,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public void OriginalChangedOnDiskSinceLoad_IsNotReplaced()
+    public void Original_changed_on_disk_since_load_is_not_replaced()
     {
         var original = CopyFixture();
         using var env = new Env(original);
@@ -149,7 +149,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public void FailedCheckBeforeReplace_LeavesTheTargetUntouched()
+    public void Failed_check_before_replace_leaves_the_target_untouched()
     {
         var path = _dir.File("target.bin");
         File.WriteAllText(path, "old");
@@ -200,7 +200,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [DirectoryLinkFact]
-    public async Task Native_OriginalThroughALink_IsVerifiedAndBackedUp()
+    public async Task Native_original_through_a_link_is_verified_and_backed_up()
     {
         var real = Directory.CreateDirectory(_dir.File("nreal")).FullName;
         var original = Path.Combine(real, "tiny.dll");
@@ -219,7 +219,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public async Task Native_OriginalIsReplacedOnlyWithReplaceOriginal_AndVersionedSkipsIt()
+    public async Task Native_original_is_replaced_only_with_replace_original_and_versioned_skips_it()
     {
         var original = _dir.File("tiny.dll");
         File.WriteAllBytes(original, TinyImage());
@@ -234,7 +234,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public async Task Native_OriginalSavedOverBefore_IsReplacedAgain()
+    public async Task Native_original_saved_over_before_is_replaced_again()
     {
         var original = _dir.File("tiny.dll");
         File.WriteAllBytes(original, TinyImage());
@@ -248,7 +248,7 @@ public class SaveIdentityTests : IDisposable
     }
 
     [Fact]
-    public async Task Native_OriginalChangedOnDiskSinceLoad_IsNotReplaced()
+    public async Task Native_original_changed_on_disk_since_load_is_not_replaced()
     {
         var original = _dir.File("tiny.dll");
         File.WriteAllBytes(original, TinyImage());

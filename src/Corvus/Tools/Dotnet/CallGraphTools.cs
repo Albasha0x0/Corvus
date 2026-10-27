@@ -18,8 +18,8 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     private const int MaxNodes = 20_000;
 
     [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", UseStructuredContent = true, OutputSchemaType = typeof(CallTree))]
-    [Description("Multi-level callers or callees of a method across loaded assemblies, one row per node in tree order; calls via base / interface " +
-                 "methods, repeats and recursion marked. Continues through P/Invokes and C++/CLI into loaded native code; takes a native export too.")]
+    [Description("Callers or callees of a method across loaded assemblies, several levels deep, one row per node in tree order. " +
+                 "Continues through P/Invokes into loaded native code; takes a native export too.")]
     public async Task<string> GetCallTree(
         [Description(SymbolOrNativeDescription)] string method,
         [Description("callers or callees.")] string direction = "callers",
@@ -158,8 +158,8 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     }
 
     [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
-    [Description("How execution reaches a method: call chains from from= or from entry points (methods nothing loaded calls), shortest first, direct " +
-                 "calls preferred. A native to= follows native callers across loaded images and P/Invokes back to managed code.")]
+    [Description("Call chains that reach a method, from from= or from entry points, shortest first. " +
+                 "A native to= follows native callers and P/Invokes back to managed code.")]
     public async Task<string> FindCallPaths(
         [Description(ToolSupport.SymbolOrNativeDescription)] string to,
         [Description("Start method, same forms as to (native only when to is native).")] string? from = null,
@@ -197,8 +197,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 catch (ToolError e) when (e.Code == ErrorCode.NotFound) { unresolved = e; }
                 if (resolved != null && link!.FunctionOf(resolved.Binding) is { } goal)
                     return NativePaths(native, new NativeNode(goal.Image, goal.Function.Start), null, nativeFrom, from, deepest, offset, limit, includeVirtual, cancellationToken);
-                // the provider is not loaded (or not found, as an ELF or Mach-O library on Windows): the calls through its imports in loaded images
-                // an import slot named by address in a loaded image: the calls through that import
+                // An unloaded provider, or an import slot named by address: the calls through its imports in loaded images.
                 var symbol = native;
                 if (resolved?.Binding is { Target: { } owner, Rva: { } slotRva } && owner.Image.Imports.FirstOrDefault(i => i.SlotRva == slotRva) is { Name: { } importName } slotImport)
                     symbol = new NativeSymbol(slotImport.Module, importName);
@@ -208,7 +207,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                     var (image, import, _, _) = through[0];
                     var goalNode = new NativeNode(image, import.SlotRva);
                     var hops = through.Select(t => new NativeHop(new NativeNode(t.Image, t.Caller.Start), goalNode, "import", t.Site)).ToList();
-                    // each importer's own slot, for the last step of its chains
+                    // Each importer's own slot, for the last step of its chains.
                     var slots = through.GroupBy(t => t.Image).ToDictionary(g => g.Key, g => g.First().Import.SlotRva);
                     return NativePaths(symbol, goalNode, hops, nativeFrom, from, deepest, offset, limit, includeVirtual, cancellationToken, resolved, slots);
                 }
@@ -301,10 +300,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         public int Uncertain => Managed.Count(s => s.Via != null) + Native.Uncertain;
     }
 
-    /// <summary>
-    /// Native goal: chains through native callers (bounded backward search, then bounded enumeration), from 'from', or from
-    /// native roots and from managed methods bound to the code on the way.
-    /// </summary>
+    /// <summary>Chains to a native goal from 'from', or from native roots and managed methods bound to the code on the way.</summary>
     /// <param name="goalCallers">For an import goal (the slot in one importer): the calls through the imports that name it, in every importer.</param>
     /// <param name="direct">For an import goal: the export it resolves to, whose P/Invoke declarations also reach it.</param>
     private string NativePaths(NativeSymbol symbol, NativeNode goalNode, IReadOnlyList<NativeHop>? goalCallers, NativeSymbol? nativeFrom, string? from, int deepest,

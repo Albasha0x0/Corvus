@@ -3,11 +3,7 @@ using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=flight: a React Server Components payload, from a raw response (Next.js .rsc, text/x-component) or the
-/// self.__next_f pushes of a page: rows by tag, client module references with their chunk files, server action ids,
-/// hints, errors and the element tree (<see cref="FlightData"/>). Nothing is fetched or run.
-/// </summary>
+/// <summary>view=flight: rows, client modules, server actions and elements of a React Server Components payload; nothing is fetched or run.</summary>
 internal sealed class FlightFileView : IFileSummaryView
 {
     private const long MaxPayload = 32L << 20;

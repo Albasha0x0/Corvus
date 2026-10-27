@@ -7,10 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The native edit surface through the tools on a real system DLL, with IDA and with Ghidra: clearing local and stack
-/// edits, pseudocode comments, batch renames and comments, before/after pseudocode, type guesses.
-/// </summary>
+/// <summary>The native edit tools on a real system DLL with IDA and with Ghidra.</summary>
 [Trait("Speed", "Slow")]
 public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposable
 {
@@ -82,7 +79,7 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
         var text = await rig.Analysis.DecompileNative(path, Function, engine: engine);
         output.WriteLine(text);
         Assert.Contains("test pseudo note", text);
-        // appended and deduped in the sidecar, then shown as two lines
+        // Appended and deduped in the sidecar, then shown as two lines.
         await rig.Edits.CommentNative(path, Rva(at), "test second line", scope: "pseudocode", append: true, engine: engine, dryRun: false);
         Assert.Contains("already has this line", await rig.Edits.CommentNative(path, Rva(at), "test second line", scope: "pseudocode", append: true, engine: engine, dryRun: false));
         Assert.Contains("test second line", await rig.Analysis.DecompileNative(path, Function, engine: engine));
@@ -91,7 +88,7 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
         await rig.Edits.CommentNative(path, Rva(at), "", scope: "pseudocode", engine: engine, dryRun: false);
         Assert.DoesNotContain("test pseudo note", await rig.Analysis.DecompileNative(path, Function, engine: engine));
 
-        // an address inside an instruction lands on the statement made from it; a new database gets it from the sidecar
+        // An address inside an instruction lands on the statement made from it; a new database gets it from the sidecar.
         await rig.Edits.CommentNative(path, Rva(at + 1), "test inside", scope: "pseudocode", engine: engine, dryRun: false);
         Assert.Contains("test inside", await rig.Analysis.DecompileNative(path, Function, engine: engine));
         Restart();
@@ -145,14 +142,14 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
         Assert.Contains("after the edit", after);
         Assert.DoesNotContain("sample_diffed;", after);
 
-        // a callee renamed: the caller's pseudocode is the one shown
+        // A callee renamed: the caller's pseudocode is the one shown.
         var callee = (await session.GetXrefsFromAsync(rig.Start, wholeFunction: true)).First(x => x.Kind == NativeXrefKind.Call
             && rig.Native.Image.SectionAt(x.ToRva) is { IsExecutable: true }).ToRva;
         var renamed = await rig.Edits.RenameNative(path, Rva(callee), "sample_target", showDecompile: "diff", engine: engine, dryRun: false);
         output.WriteLine(renamed);
         Assert.Matches(@"(?m)^\+.*sample_target", renamed);
 
-        // the prototype's name becomes the function's name in our layer and the engine; rename=false keeps it
+        // The prototype's name becomes the function's name in our layer and the engine; rename=false keeps it.
         var proto = await rig.Types.SetNativeType(path, Rva(callee), "int __fastcall sample_proto_name(void *a, void *b, unsigned int n)", rename: true, engine: engine);
         output.WriteLine(proto);
         Assert.Contains("now named sample_proto_name", proto);
@@ -188,7 +185,7 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
         var local = frame.Locals.First(l => l.Name.Length > 0 && !l.IsArgument && !l.UserName && l.Stack == null).Name;
         var layer = () => rig.Code.Annotations(rig.Native).UserTypes;
 
-        // renamed, then given its first name back: no edit is left
+        // Renamed, then given its first name back: no edit is left.
         output.WriteLine(await rig.Types.SetNativeLocal(path, Function, local, newName: "sample_a", engine: engine));
         Assert.Single(layer().Locals);
         output.WriteLine(await rig.Types.SetNativeLocal(path, Function, "sample_a", newName: local, engine: engine));
@@ -197,7 +194,7 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
         Assert.DoesNotContain("sample_a", text);
         Assert.Contains(local, text);
 
-        // renamed and retyped, then cleared
+        // Renamed and retyped, then cleared.
         output.WriteLine(await rig.Types.SetNativeLocal(path, Function, local, newName: "sample_b", type: "unsigned int", engine: engine));
         Assert.Contains("sample_b", await rig.Analysis.DecompileNative(path, Function, engine: engine));
         var cleared = await rig.Types.SetNativeLocal(path, Function, "sample_b", clear: true, engine: engine);
@@ -207,7 +204,7 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
         Assert.DoesNotContain("sample_b", await rig.Analysis.DecompileNative(path, Function, engine: engine));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(path, Function, local, newName: "x", clear: true, engine: engine))).Code);
 
-        // a stack member renamed and retyped, then cleared: the engine's member is back
+        // A stack member renamed and retyped, then cleared: the engine's member is back.
         var member = frame.Members.First(m => m.Kind == "local" && m.Size >= 4);
         output.WriteLine(await rig.Types.SetNativeStackVar(path, Function, $"0x{member.Offset:X}", newName: "sample_slot", type: "int", engine: engine));
         Assert.Single(layer().StackVars);
@@ -234,7 +231,7 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
             var at = lines[lines.Count / 2].Rva;
             await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "pre", engine: "ghidra", dryRun: false);
             Assert.Contains("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
-            // another kind: the pre comment is removed (the decompiler does not print end-of-line comments)
+            // Another kind: the pre comment is removed (the decompiler does not print end-of-line comments).
             await rig.Edits.CommentNative(path, Rva(at), "test kind note", scope: "eol", engine: "ghidra", dryRun: false);
             Assert.DoesNotContain("test kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
         }
@@ -270,7 +267,7 @@ public abstract class NativeEditParityTests(ITestOutputHelper output) : IDisposa
             var ghidraBefore = await (await rig.Session("ghidra")).GetFrameAsync(rig.Start, false);
             var ida = await (await rig.Session("ida")).GetFrameAsync(rig.Start, false);
             bool Free(NativeFrame f, int at) => !f.Members.Any(m => at < m.Offset + Math.Max(1, m.Size) && m.Offset < at + 4);
-            // a slot free in both frames, by its offset from the return address
+            // A slot free in both frames, by its offset from the return address.
             int slot = Enumerable.Range(1, (ida.ReturnAddressOffset - 8) / 4).Select(i => ida.ReturnAddressOffset - 8 - 4 * (i - 1)).Where(at => at >= 0)
                 .First(at => Free(ida, at) && Free(ghidraBefore, at - ida.ReturnAddressOffset + ghidraBefore.ReturnAddressOffset));
             int fromReturn = slot - ida.ReturnAddressOffset;

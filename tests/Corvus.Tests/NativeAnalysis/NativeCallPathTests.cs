@@ -72,7 +72,7 @@ public sealed class NativeCallPathTests : IDisposable
         var text = await tools.FindCallPaths("native:lattice.dll!Goal", limit: 10);
         NativeLinkTests.Has(text, "Paths to native lattice.dll!Goal ([lattice.dll] Goal at ");
         NativeLinkTests.Has(text, "≥10 paths (showing 1-10)");
-        // one call: from the export Short and from the uncalled Lonely; Mid is reached through Short, not a root
+        // One call: from the export Short and from the uncalled Lonely; Mid is reached through Short, not a root.
         var first = text.Split("\n  #")[1..3];
         Assert.Contains("(1 native call; root: export)", first[0]);
         Assert.Contains("[lattice.dll] Short at", first[0]);
@@ -80,7 +80,7 @@ public sealed class NativeCallPathTests : IDisposable
         Assert.Contains("  -> [lattice.dll] Goal at 0x18000", first[0]);
         Assert.Contains("(call at 0x18000", first[0]);
         Assert.DoesNotContain("root: no callers)\n  [lattice.dll] Mid", text);
-        // the lattice has 64 chains of 7 calls from the entry point: 8 fit, and the cut is said
+        // The lattice has 64 chains of 7 calls from the entry point: 8 fit, and the cut is said.
         Assert.Equal(8, text.Split("(7 native calls; root: entry point)").Length - 1);
         NativeLinkTests.Has(text, "[More: offset=10]");
     }

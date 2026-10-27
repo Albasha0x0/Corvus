@@ -1,9 +1,6 @@
 namespace Corvus.Services;
 
-/// <summary>
-/// Progress of the tool call running on this async flow (done, total, message), for services deep below a tool: C# edits
-/// (decompile, compile, merge), edit replays, simplify and compare. A tool sets the receiver; without one, reports are dropped.
-/// </summary>
+/// <summary>Progress of the tool call on this async flow; reports are dropped when no tool set a receiver.</summary>
 public static class CallProgress
 {
     private static readonly AsyncLocal<Action<int, int, string>?> Current = new();

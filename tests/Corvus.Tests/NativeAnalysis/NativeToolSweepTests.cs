@@ -5,13 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Every native tool on real Windows images, in process: System32, SysWOW64, Program Files and the largest native images
-/// found. Each call must succeed or fail with a typed error that fits the input, within its time limit, with a bounded
-/// result; memory must return to the baseline after the images are unloaded.
-/// CORVUS_NATIVE_TOOL_SWEEP_LIMIT caps the files per directory (default 120; 0 = all); CORVUS_NATIVE_TOOL_SWEEP_IDA the number of
-/// images also decompiled through IDA (default 2, when IDA is installed). Images of 64 MB and more run one at a time with their memory sampled.
-/// </summary>
+/// <summary>Every native tool on real Windows images: typed results and memory back to baseline (CORVUS_NATIVE_TOOL_SWEEP_*).</summary>
 [Trait("Speed", "Slow")]
 public class NativeToolSweepTests(ITestOutputHelper output)
 {
@@ -34,16 +28,16 @@ public class NativeToolSweepTests(ITestOutputHelper output)
     }
 
     [WindowsFact]
-    public Task System32() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("System32", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32")), Limit), IdaSample);
+    public Task Every_native_tool_handles_System32_images() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("System32", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32")), Limit), IdaSample);
 
     [WindowsFact]
-    public Task System32_Drivers() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("System32\\drivers", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32", "drivers")), Limit / 3), 0);
+    public Task Every_native_tool_handles_System32_driver_images() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("System32\\drivers", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "System32", "drivers")), Limit / 3), 0);
 
     [WindowsFact]
-    public Task SysWow64() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("SysWOW64", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "SysWOW64")), Limit), IdaSample > 0 ? 1 : 0);
+    public Task Every_native_tool_handles_SysWOW64_images() => ChildTest.Rerun(this, output) ? Task.CompletedTask : Sweep("SysWOW64", Sample(NativeToolHarness.NativeFiles(Path.Combine(Windows, "SysWOW64")), Limit), IdaSample > 0 ? 1 : 0);
 
     [WindowsFact]
-    public Task ProgramFiles()
+    public Task Every_native_tool_handles_Program_Files_images()
     {
         if (ChildTest.Rerun(this, output)) return Task.CompletedTask;
         var files = new List<string>();
@@ -55,7 +49,7 @@ public class NativeToolSweepTests(ITestOutputHelper output)
     /// <summary>The three largest native images under Program Files and System32 (up to the parser's file size limit).</summary>
     [Trait("Tier", "Release")]
     [WindowsFact]
-    public Task Largest()
+    public Task Every_native_tool_handles_the_largest_native_images()
     {
         if (ChildTest.Rerun(this, output)) return Task.CompletedTask;
         var roots = new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
@@ -125,11 +119,10 @@ public class NativeToolSweepTests(ITestOutputHelper output)
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
-            // what earlier tests in the process keep alive is not this image's: the budget counts the growth over it
+            // What earlier tests in the process keep alive is not this image's: the budget counts the growth over it.
             long before = GC.GetTotalMemory(true);
             using var harness = new NativeToolHarness();
-            // Live data, not the heap: garbage awaiting collection grows with how late the GC runs on a busy machine.
-            // Each full collection's survivors are a lower bound of the peak, so a reading never exceeds what the image kept alive.
+            // Live data after a full collection, not the heap, so late GC on a busy machine does not count.
             long fileHeap = 0, filePrivate = 0;
             void Survivors(GCKind kind)
             {

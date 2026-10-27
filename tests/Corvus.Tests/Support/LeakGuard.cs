@@ -9,10 +9,7 @@ using Xunit.Sdk;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Fails the run when tests leave child processes running or files in the temporary folder. The folder is private to the
-/// run (TMP, TEMP and TMPDIR point into it, for the servers the tests start too), so other runs on the machine do not count.
-/// </summary>
+/// <summary>Fails the run when tests leave child processes or temporary files; the run's temporary folder is private.</summary>
 internal static class LeakGuard
 {
     /// <summary>The machine's temporary folder, for files meant to outlive the run.</summary>
@@ -23,11 +20,7 @@ internal static class LeakGuard
     /// <summary>This run's annotations folder (sidecars and edit journals), beside its temporary folder and named alike.</summary>
     public static readonly string RunAnnotations = Path.Combine(SharedTemp, $"corvus-test-annotations-{Environment.ProcessId}-{Guid.NewGuid().ToString("N")[..8]}");
 
-    /// <summary>
-    /// Files runtimes and SDKs keep in the temporary folder by design: .NET's diagnostic endpoints (left by a killed child),
-    /// the JVM's performance data, the log of Oracle's java.exe launcher stub on Windows, the dotnet CLI's workload logs and
-    /// NuGet's scratch folder.
-    /// </summary>
+    /// <summary>Files runtimes and SDKs keep in the temporary folder by design (.NET diagnostic endpoints, JVM perf data, java.exe launcher logs, dotnet workload logs, NuGet scratch).</summary>
     private static readonly string[] RuntimeFiles = ["dotnet-diagnostic-", "clr-debug-pipe-", "hsperfdata_", "JavaLauncher.log", "Microsoft.NET.Workload_", "NuGetScratch"];
 
     /// <summary>IDA's default symbol-server store (IdaProvider: SRV*%TEMP%\ida*...), a cache by design; matched by its exact name.</summary>
@@ -81,10 +74,7 @@ internal static class LeakGuard
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
-    /// <summary>
-    /// Ends programs still running from an ended run's folder. Off Windows no job ends them with their run, so a crashed run's
-    /// programs end here, at the next run's start; on Windows it does nothing.
-    /// </summary>
+    /// <summary>Off Windows, ends programs left from an ended run's folder; on Windows a job already ends them.</summary>
     private static void EndPrograms(string dir)
     {
         if (OperatingSystem.IsWindows()) return;
@@ -126,10 +116,7 @@ internal static class LeakGuard
         return problems.Count == 0 ? null : string.Join("; ", problems);
     }
 
-    /// <summary>
-    /// A folder whose files all lie in VBCSCompiler folders: the shadow copies of the C# compiler server, which a test build
-    /// starts with that build's temporary folder and which stays running (and holding them) after the build.
-    /// </summary>
+    /// <summary>A folder holding only VBCSCompiler shadow copies, kept by the compiler server after a test build.</summary>
     private static bool OnlyCompilerServerCache(string path)
     {
         try
@@ -177,7 +164,7 @@ internal static class LeakGuard
             try
             {
                 using var p = Process.GetProcessById(pid);
-                // conhost serves this process's own console.
+                // Conhost serves this process's own console.
                 if (p.HasExited || p.StartTime < started || p.ProcessName.Equals("conhost", StringComparison.OrdinalIgnoreCase)) continue;
                 found.Add(new Child(pid, p.ProcessName));
             }
@@ -231,7 +218,7 @@ internal static class LeakGuard
             if (!int.TryParse(Path.GetFileName(dir), out var pid)) continue;
             try
             {
-                // pid (comm) state ppid ...: comm may hold spaces and parentheses, so read after the last ')'.
+                // Pid (comm) state ppid ...: comm may hold spaces and parentheses, so read after the last ')'.
                 var stat = File.ReadAllText(Path.Combine(dir, "stat"));
                 var fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
                 if (fields[0] != "Z" && int.TryParse(fields[1], out var parent)) links.Add((pid, parent));
@@ -315,8 +302,7 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
         IMessageSink executionMessageSink, ITestFrameworkExecutionOptions executionOptions)
         : XunitTestAssemblyRunner(testAssembly, testCases, diagnosticMessageSink, executionMessageSink, executionOptions)
     {
-        // Permits are taken before the collection waits for a parallel slot, so a collection waiting for an engine
-        // holds no slot, and the wait stays out of its tests' times.
+        // Permits are taken before the parallel slot, so a collection waiting for an engine holds no slot.
         protected override async Task<RunSummary> RunTestCollectionAsync(IMessageBus messageBus, ITestCollection testCollection,
             IEnumerable<IXunitTestCase> testCases, CancellationTokenSource cancellationTokenSource)
         {

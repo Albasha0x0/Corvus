@@ -5,10 +5,7 @@ using static Corvus.Tests.AndroidSamples;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Patterns of 100k characters: wildcard and substring queries match without a regex, and a user regex too large for
-/// NonBacktracking falls back to a time-limited one, so none of them fails as internal.
-/// </summary>
+/// <summary>Patterns of 100k characters match without an internal error; a regex too large for NonBacktracking falls back to a time-limited one.</summary>
 public sealed class LongPatternTests : IDisposable
 {
     private static readonly string Long = new('a', 100_000);

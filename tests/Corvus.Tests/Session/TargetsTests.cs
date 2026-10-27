@@ -17,7 +17,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void AnUnloadedPathLoadsWithANotice()
+    public void An_unloaded_path_loads_with_a_notice()
     {
         var (dir, managed, native) = Files();
         using var _ = dir;
@@ -25,7 +25,7 @@ public class TargetsTests
         var target = Targets.Resolve(ws, managed, TargetKind.Assembly);
         Assert.Equal("TestFixture", target.Assembly!.Id);
         Assert.Equal($"loaded TestFixture from {managed}", target.Notice);
-        // loaded now: by path, file name or id, no second notice
+        // Loaded now: by path, file name or id, no second notice.
         Assert.Null(Targets.Resolve(ws, managed, TargetKind.Assembly).Notice);
         Assert.Same(target.Assembly, Targets.Resolve(ws, "TestFixture.dll", TargetKind.Any).Assembly);
 
@@ -35,7 +35,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void ARelativePathResolvesAgainstTheServerDirectory()
+    public void A_relative_path_resolves_against_the_server_directory()
     {
         var (dir, managed, _) = Files();
         using var _d = dir;
@@ -46,7 +46,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void AMissingPathIsTheSameNotFoundForEveryKind()
+    public void A_missing_path_is_the_same_not_found_for_every_kind()
     {
         using var dir = new TempDir();
         using var ws = new AssemblyWorkspace();
@@ -66,7 +66,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void TheOtherKindIsUnsupportedNamingTheFamily()
+    public void The_other_kind_is_unsupported_naming_the_family()
     {
         var (dir, managed, native) = Files();
         using var _ = dir;
@@ -80,7 +80,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void ANameWithNothingLoadedIsNotLoadedWithALoadNext()
+    public void A_name_with_nothing_loaded_is_not_loaded_with_a_load_next()
     {
         using var ws = new AssemblyWorkspace();
         var e = Assert.Throws<ToolError>(() => Targets.Assembly(ws, "Contoso.Core"));
@@ -92,7 +92,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void PreResolveLoadsTargetParametersOnly()
+    public void Pre_resolution_loads_target_parameters_only()
     {
         var (dir, managed, native) = Files();
         using var _ = dir;
@@ -107,11 +107,11 @@ public class TargetsTests
         Targets.PreResolve(ws, "list_types", Args(("images", new[] { managed })));
         Assert.Equal(2, ws.Read(() => ws.Assemblies.Count + ws.Natives.Count(n => n.ManagedView == null)));
         Assert.Throws<ToolError>(() => Targets.PreResolve(ws, "list_types", Args(("assembly", dir.File("gone/x.dll")))));
-        // a package path is left to the tool (export_project writes a Gradle project from an .apk)
+        // A package path is left to the tool (export_project writes a Gradle project from an .apk).
         var apk = dir.File("app.apk");
         File.WriteAllBytes(apk, [0x50, 0x4B, 0x05, 0x06, .. new byte[18]]);
         Targets.PreResolve(ws, "export_project", Args(("assembly", apk)));
-        // images as a list in one string, ';' or ',' separated
+        // Images as a list in one string, ';' or ',' separated.
         var second = dir.File("second.dll");
         File.WriteAllBytes(second, NativePeTests.KitchenSink(is64: false));
         Targets.PreResolve(ws, "symbolize_stack_text", Args(("images", $"native.dll; {second}")));
@@ -119,7 +119,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void AFileOfTheOtherKindNamesTheToolsThatReadIt()
+    public void A_file_of_the_other_kind_names_the_tools_that_read_it()
     {
         var (dir, _, native) = Files();
         using var _d = dir;
@@ -136,7 +136,7 @@ public class TargetsTests
     }
 
     [Fact]
-    public void AnAssemblyOverTheCapIsRefusedBeforeItIsRead()
+    public void An_assembly_over_the_cap_is_refused_before_it_is_read()
     {
         var e = Assert.Throws<ToolError>(() => AssemblyWorkspace.CheckSize("big.dll", AssemblyWorkspace.MaxAssemblyBytes + 1));
         Assert.Equal(ErrorCode.LimitExceeded, e.Code);

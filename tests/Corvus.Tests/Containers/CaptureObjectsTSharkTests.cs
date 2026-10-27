@@ -11,11 +11,7 @@ using static Corvus.Tests.PcapTests;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// HTTP objects exported from a capture compared with TShark's <c>--export-objects http</c> (CORVUS_TSHARK), file by file:
-/// count, name and SHA-256. Synthetic captures cover body framings; CORVUS_CAPTURES adds a folder of real captures, each
-/// (plain or gzip-compressed) with an optional key log beside it (&lt;name&gt;*.keys or &lt;name&gt;*keylog*).
-/// </summary>
+/// <summary>HTTP objects from captures compared with TShark --export-objects (CORVUS_TSHARK); CORVUS_CAPTURES adds real captures.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class CaptureObjectsTSharkTests(ITestOutputHelper output) : IDisposable
 {

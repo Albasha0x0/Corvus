@@ -2,10 +2,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.Elf;
 
-/// <summary>
-/// DWARF call frame information as the unwinder reads it: .eh_frame CIE/FDE records (ELF .eh_frame, Mach-O __eh_frame)
-/// and the .eh_frame_hdr binary search table. Only what locates functions is decoded: FDE address ranges.
-/// </summary>
+/// <summary>FDE address ranges from DWARF call frame information (.eh_frame / __eh_frame records and the .eh_frame_hdr table).</summary>
 internal static partial class EhFrame
 {
     public const byte Omit = 0xFF;
@@ -16,10 +13,7 @@ internal static partial class EhFrame
     /// <summary>What an FDE needs from its CIE.</summary>
     public readonly record struct Cie(byte FdeEncoding, bool HasAugmentationData);
 
-    /// <summary>
-    /// Decodes a DW_EH_PE-encoded pointer at <paramref name="pos"/> of <paramref name="data"/>, whose first byte is at
-    /// virtual address <paramref name="dataVa"/>. Indirect pointers and unknown formats fail.
-    /// </summary>
+    /// <summary>Decodes a DW_EH_PE pointer at <paramref name="pos"/>, the data starting at <paramref name="dataVa"/>; indirect and unknown formats fail.</summary>
     public static bool TryReadPointer(ByteView data, ref long pos, byte encoding, ulong dataVa, ulong dataRelBase, bool is64, out ulong value)
     {
         value = 0;
@@ -58,10 +52,7 @@ internal static partial class EhFrame
         return (encoding & 0x80) == 0;
     }
 
-    /// <summary>
-    /// Every FDE of an .eh_frame image (<paramref name="data"/> at <paramref name="dataVa"/>), in order, until the
-    /// zero terminator or the end. Problems stop the walk with an issue; what was read is kept.
-    /// </summary>
+    /// <summary>Every FDE in order until the terminator or the end; a problem stops the walk with an issue and keeps what was read.</summary>
     public static List<Fde> Walk(ByteView data, ulong dataVa, bool is64, IssueLog log, int max)
     {
         var fdes = new List<Fde>();

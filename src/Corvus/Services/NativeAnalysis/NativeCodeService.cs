@@ -5,11 +5,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Builds each native image's code index (functions, cross-references, strings) once, on a background thread
-/// right after loading when background indexing is on, else on first use. Tools wait for it with progress;
-/// unloading or reloading the image cancels a build in progress.
-/// </summary>
+/// <summary>Builds each native image's code index once, in the background after load or on first use; unload or reload cancels a build.</summary>
 public sealed class NativeCodeService
 {
     private readonly ILogger<NativeCodeService>? _logger;
@@ -33,17 +29,15 @@ public sealed class NativeCodeService
             };
     }
 
-    /// <summary>Saved indexes (null when the cache is off): an image whose bytes and build options were indexed before loads instead of building.</summary>
+    /// <summary>Saved indexes keyed by image bytes and build options; null when the cache is off.</summary>
     public CodeIndexCache? IndexCache { get; }
 
-    /// <summary>
-    /// The saved index of <paramref name="image"/> when the cache has one, else a fresh build (then saved). <paramref name="complete"/>
-    /// adds analysis from outside the build to either, before the save so a later load has it.
-    /// </summary>
+    /// <summary>The saved index of <paramref name="image"/>, else a fresh build that is saved; <paramref name="complete"/> runs before the save.</summary>
     private NativeCodeIndex LoadOrBuild(Native.INativeImage image, CodeIndexOptions? options, Action<CodeIndexProgress>? progress, CancellationToken ct,
         Action<NativeCodeIndex>? complete = null)
     {
-        if (IndexCache is { } cache && image is not Native.WasmImage) // a WebAssembly index is rebuilt: it takes seconds, and has no walker state to save
+        // A WebAssembly index is rebuilt: it takes seconds and has no walker state to save.
+        if (IndexCache is { } cache && image is not Native.WasmImage)
         {
             progress?.Invoke(new CodeIndexProgress("loading saved index", 0, 0));
             if (cache.TryLoad(image, options, ct) is { } loaded)
@@ -65,10 +59,7 @@ public sealed class NativeCodeService
         catch (Exception ex) when (ex is not OperationCanceledException) { _logger?.LogWarning(ex, "Resolving the NativeAOT virtual calls of {Id} failed", native.Id); }
     }
 
-    /// <summary>
-    /// The image's annotations (names and comments), loaded from the sidecar on first use and refreshed with what other
-    /// processes saved since (a file stat when nothing changed).
-    /// </summary>
+    /// <summary>The image's names and comments, loaded from the sidecar once and refreshed with what other processes saved since.</summary>
     public NativeAnnotations Annotations(LoadedNative native)
     {
         var ann = native.Annotations(n =>
@@ -76,7 +67,8 @@ public sealed class NativeCodeService
             var created = new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase, _workspace.Notify);
             created.MergedFromDisk += (names, comments) =>
             {
-                if (Ready(n) is not { } index) return; // a later build reads them in ApplyAnnotations
+                // A later build reads them in ApplyAnnotations.
+                if (Ready(n) is not { } index) return;
                 foreach (var (rva, name) in names) index.SetUserName(rva, name);
                 foreach (var (rva, comment) in comments) index.SetUserComment(rva, comment);
             };
@@ -87,7 +79,7 @@ public sealed class NativeCodeService
     }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, object> RestoreDone = new();
-    private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Il2Cpp, NativeNameSource.NativeAot];
+    private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Metadata, NativeNameSource.NativeAot];
     private int _layersRestored, _namesRestored, _layersSaved;
     private string? _lastSaveProblem;
 
@@ -98,11 +90,8 @@ public sealed class NativeCodeService
     public (int LayersRestored, int NamesRestored, int LayersSaved, string? LastProblem) ImportStats =>
         (Volatile.Read(ref _layersRestored), Volatile.Read(ref _namesRestored), Volatile.Read(ref _layersSaved), Volatile.Read(ref _lastSaveProblem));
 
-    /// <summary>
-    /// Once per loaded image: reads the saved imported layers (PDB, Il2Cpp, NativeAOT names) back into <see cref="NativeNameLayers"/>,
-    /// except a source already imported in this session. Runs before the first index build so restored PDB function starts
-    /// take part in discovery; tools that report layers call it too. Cheap after the first call.
-    /// </summary>
+    // Runs before the first index build so restored PDB function starts take part in discovery.
+    /// <summary>Once per image, restores saved imported name layers not already imported this session; no-op after the first call.</summary>
     public void RestoreImported(LoadedNative native, CancellationToken ct = default)
     {
         if (!RestoreDone.TryAdd(native, new object())) return;
@@ -121,7 +110,8 @@ public sealed class NativeCodeService
     /// <summary>Saves the image's current layer of <paramref name="source"/> when it carries <see cref="ImportInfo"/>; returns the problem, or null.</summary>
     public string? SaveImported(LoadedNative native, NativeNameSource source)
     {
-        RestoreDone.TryAdd(native, new object()); // imported now: an older saved copy is not restored over it
+        // Imported now: an older saved copy is not restored over it.
+        RestoreDone.TryAdd(native, new object());
         if (NativeNameLayers.OfOrNull(native)?.Get(source) is not { Info: not null } layer) return null;
         var problem = _store.SaveLayer(native.OriginalSha256, native.FilePath, layer);
         if (problem == null) Interlocked.Increment(ref _layersSaved);
@@ -153,10 +143,7 @@ public sealed class NativeCodeService
     /// <summary>How often a caller waiting for an index hears its phase again when the build reports nothing new.</summary>
     internal static readonly TimeSpan ProgressHeartbeat = TimeSpan.FromSeconds(5);
 
-    /// <summary>
-    /// Repeats the latest progress every <paramref name="every"/>: a phase that reports rarely, or a build slowed by a busy
-    /// machine, still shows the caller that the server is working.
-    /// </summary>
+    /// <summary>Repeats the latest progress every <paramref name="every"/>, so a slow phase still shows the server is working.</summary>
     internal static IDisposable Heartbeat(Func<CodeIndexProgress?> latest, IProgress<CodeIndexProgress> progress, TimeSpan every) =>
         new ProgressBeat(latest, progress, every);
 
@@ -185,7 +172,8 @@ public sealed class NativeCodeService
     public async Task<NativeCodeIndex> Index(LoadedNative native, IProgress<CodeIndexProgress>? progress, CancellationToken ct)
     {
         var holder = Holder(native);
-        object? last = null; // boxed: written by the build thread
+        // Boxed: written by the build thread.
+        object? last = null;
         Action<CodeIndexProgress> listener = p => { Volatile.Write(ref last, p); progress?.Report(p); };
         holder.Progress += listener;
         var build = holder.Start(_logger, this);
@@ -202,17 +190,14 @@ public sealed class NativeCodeService
         finally { holder.Progress -= listener; }
     }
 
-    /// <summary>
-    /// A one-off index over the image's original (pre-patch) bytes, with the same symbol starts the live index uses.
-    /// Patch migration matches the clean old build so in-memory patches do not hide a function's identity. Not cached.
-    /// </summary>
+    /// <summary>A one-off index over the image's pre-patch bytes, for patch migration; not cached in memory.</summary>
     public NativeCodeIndex IndexOfOriginal(LoadedNative native, CancellationToken ct)
     {
         var original = native.Patches.OriginalImage(native.Image, native.FilePath);
         return LoadOrBuild(original, BuildOptions(native, ct), null, ct);
     }
 
-    /// <summary>The index when it is already built, else null (does not start a build).</summary>
+    /// <summary>The index when built, else null; never starts a build.</summary>
     public NativeCodeIndex? Ready(LoadedNative native) =>
         native.Analysis.TryGetValue(typeof(IndexHolder), out var h) && ((IndexHolder)h).Task is { IsCompletedSuccessfully: true } t ? t.Result : null;
 
@@ -222,10 +207,7 @@ public sealed class NativeCodeService
     private sealed record PriorIndex(NativeCodeIndex Index);
     private sealed record RebasedIndex(NativeCodeIndex Index);
 
-    /// <summary>
-    /// After a patch replaced the image: keeps <paramref name="previous"/> (<see cref="Provisional"/> before the patch) so
-    /// previews need not wait for the rebuild, which starts now when indexing runs in the background.
-    /// </summary>
+    /// <summary>After a patch, keeps <paramref name="previous"/> for previews and starts the rebuild when indexing runs in the background.</summary>
     public void Patched(LoadedNative native, NativeCodeIndex? previous)
     {
         if (previous != null) native.Analysis[typeof(PriorIndex)] = new PriorIndex(previous);
@@ -234,10 +216,7 @@ public sealed class NativeCodeService
         catch (ToolError) when (native.Released.IsCancellationRequested) { }
     }
 
-    /// <summary>
-    /// The index when it is built; else, after a patch, the analysis from before it over the current bytes (functions as
-    /// they were, instructions as they are now) without waiting for the rebuild; else null.
-    /// </summary>
+    /// <summary>The built index; else, after a patch, the prior analysis over the current bytes; else null.</summary>
     public NativeCodeIndex? Provisional(LoadedNative native)
     {
         if (Ready(native) is { } ready) return ready;
@@ -250,8 +229,6 @@ public sealed class NativeCodeService
             return new RebasedIndex(rebased);
         }).Index;
     }
-
-    // ---- debug symbols (PdbService) ----
 
     /// <summary>Function starts from debug symbols for a build of <paramref name="native"/>, asked on the build thread; null when none.</summary>
     public Func<LoadedNative, CancellationToken, IReadOnlyCollection<uint>?>? SymbolStarts { get; set; }
@@ -290,10 +267,7 @@ public sealed class NativeCodeService
         return starts is { Count: > 0 } ? new CodeIndexOptions { SymbolStarts = starts } : null;
     }
 
-    /// <summary>
-    /// Builds the index again in the background (new symbol starts); the current index keeps answering until the new
-    /// one is ready and replaces it. Dropped when the image changed meanwhile.
-    /// </summary>
+    /// <summary>Rebuilds the index in the background, replacing the current one when ready; dropped if the image changed meanwhile.</summary>
     public Task Rebuild(LoadedNative native)
     {
         var image = native.Image;
@@ -328,7 +302,7 @@ public sealed class NativeCodeService
                     {
                         if (done.IsCompletedSuccessfully)
                         {
-                            // the stand-ins for previews are not needed once the real index is there
+                            // Preview stand-ins are dropped once the real index is there.
                             native.Analysis.TryRemove(typeof(PriorIndex), out _);
                             native.Analysis.TryRemove(typeof(RebasedIndex), out _);
                             try { owner.ApplyAnnotations(native, done.Result); }

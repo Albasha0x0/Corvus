@@ -12,7 +12,7 @@ namespace Corvus.Tests;
 public sealed class ExportProjectTests
 {
     [Fact]
-    public async Task ACommitWaitsForAFileHeldOpenForAMoment()
+    public async Task A_commit_waits_for_a_file_held_open_for_a_moment()
     {
         using var dir = new TempDir();
         using var export = ExportDirectory.Begin(dir.File("out"), overwrite: false);
@@ -28,7 +28,7 @@ public sealed class ExportProjectTests
     }
 
     [Fact]
-    public void OverwriteReplacesOnlyAPreviousExport()
+    public void Overwrite_replaces_only_a_previous_export()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -53,7 +53,7 @@ public sealed class ExportProjectTests
     }
 
     [Fact]
-    public void ACancelledExportLeavesNothing()
+    public void A_cancelled_export_leaves_nothing()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -69,7 +69,7 @@ public sealed class ExportProjectTests
     /// <summary>A client that waits 10 s (deadline 5 s): the call answers with a partial and the export finishes in the background.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task AtTheClientDeadlineTheExportAnswersAndFinishesInTheBackground()
+    public async Task At_the_client_deadline_the_export_answers_and_finishes_in_the_background()
     {
         using var env = new Env();
         using var dir = new TempDir();

@@ -1,11 +1,6 @@
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Advanced SIMD (NEON) data processing in the A32 word form (T32 encodings are converted first): three registers of
-/// the same or different lengths, a register and a modified immediate, shifts by an immediate, two-register
-/// miscellaneous operations, scalars, VEXT, VTBL / VTBX, VDUP and the ARMv8 AES / SHA / VMULL.P64 forms. An encoding outside these classes stays "simd"
-/// without operands; every one is valid, flows on and touches no core register.
-/// </summary>
+/// <summary>Decodes NEON data processing in A32 word form; an unknown encoding stays "simd" without operands, valid and flowing on.</summary>
 internal static class Arm32Neon
 {
     private static void Set(ref ArmInstruction i, string mnemonic, string? suffix = null)
@@ -108,7 +103,7 @@ internal static class Arm32Neon
                 break;
         }
         if (name == null) return;
-        // pairwise operations work on D registers only
+        // Pairwise operations work on D registers only.
         if (q && name is "vpadd" or "vpmax" or "vpmin") return;
         Set(ref i, name, suffix);
         Three(ref i, w, q);
@@ -193,7 +188,7 @@ internal static class Arm32Neon
                 return;
             case 8 or 9 when !l:
             {
-                // narrowing: the source elements are twice the size
+                // Narrowing: the source elements are twice the size.
                 string name = (a, u, q) switch
                 {
                     (8, false, false) => "vshrn", (8, false, true) => "vrshrn", (8, true, false) => "vqshrun", (8, true, true) => "vqrshrun",
@@ -309,14 +304,14 @@ internal static class Arm32Neon
                 }
                 if (b == 12)
                 {
-                    // shift left long by the element size
+                    // Shift left long by the element size.
                     Set(ref i, "vshll", ".i" + (8 << size));
                     i.Vec(ArmVector.Q, D(w) >> 1); i.Vec(ArmVector.D, M(w)); i.Imm(8 << size);
                     return;
                 }
                 if (b is 8 or 9 or 10 or 11)
                 {
-                    // narrowing moves: Dd, Qm
+                    // Narrowing moves: Dd, Qm.
                     (name, suffix) = b switch { 8 => ("vmovn", ".i" + (16 << size)), 9 => ("vqmovun", ".s" + (16 << size)), 10 => ("vqmovn", ".s" + (16 << size)), _ => ("vqmovn", ".u" + (16 << size)) };
                     Set(ref i, name, suffix);
                     i.Vec(ArmVector.D, D(w)); i.Vec(ArmVector.Q, M(w) >> 1);

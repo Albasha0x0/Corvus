@@ -2,10 +2,7 @@ using System.Text;
 
 namespace Corvus.Services.Web.Scripts;
 
-/// <summary>
-/// Replacements over one text by span: a span seen with two different replacements is dropped (a value that changes, as
-/// in a loop); rendering keeps the outermost of overlapping spans.
-/// </summary>
+/// <summary>Span replacements over one text; a span given two replacements is dropped; rendering keeps the outermost span.</summary>
 internal class TextEdits(string text)
 {
     private readonly Dictionary<(int Start, int End), string?> _edits = [];
@@ -43,7 +40,7 @@ internal class TextEdits(string text)
         int at = 0;
         foreach (var (start, end, replacement) in spans)
         {
-            if (start < at) continue; // inside one already replaced
+            if (start < at) continue;
             sb.Append(Text, at, start - at).Append(replacement);
             at = end;
         }

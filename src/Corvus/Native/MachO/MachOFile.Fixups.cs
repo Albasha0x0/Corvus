@@ -74,10 +74,7 @@ public sealed partial class MachOFile
         return new FixupInfo(new MachOFixups(list, weak, source, format), new FixupOverlay(overlay, BigEndian), imports, [.. rvas.Distinct()]);
     }
 
-    /// <summary>
-    /// Follows every chain of LC_DYLD_CHAINED_FIXUPS from its page starts (including DYLD_CHAINED_PTR_START_MULTI
-    /// lists). Returns the pointer format of the first segment with fixups.
-    /// </summary>
+    /// <summary>Follows every LC_DYLD_CHAINED_FIXUPS chain; returns the pointer format of the first segment with fixups.</summary>
     private ushort? WalkChains(ByteView blob, List<MachOFixup> list, List<(uint, ulong, byte)> overlay, IssueLog log, WorkBudget budget)
     {
         if (blob.Length < 28)
@@ -288,10 +285,7 @@ public sealed partial class MachOFile
         if (r.Failed) log.Add("the rebase opcodes end inside an operand");
     }
 
-    /// <summary>
-    /// Bind, weak-bind and lazy-bind opcodes. With BIND_OPCODE_THREADED the binds form an ordinal table and
-    /// THREADED_APPLY walks arm64e-style chains (rebases and binds). Returns whether the stream was threaded.
-    /// </summary>
+    /// <summary>Reads bind, weak-bind and lazy-bind opcodes; returns whether the stream used BIND_OPCODE_THREADED.</summary>
     private bool RunBind(ByteView stream, string what, bool lazy, List<MachOFixup> list, List<(uint, ulong, byte)>? overlay, IReadOnlyList<string> dylibs,
         IssueLog log, WorkBudget budget)
     {

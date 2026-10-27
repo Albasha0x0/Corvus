@@ -12,7 +12,7 @@ internal static class DocumentFixtures
     /// <summary>A version 3 compound file of these streams ("Storage/Name" paths), small streams in the mini stream.</summary>
     public static byte[] Compound(IEnumerable<(string Path, byte[] Data)> streams, Guid? rootClsid = null)
     {
-        // directory: root, then every storage and stream; children chained through the right sibling
+        // Directory: root, then every storage and stream; children chained through the right sibling.
         var entries = new List<(string Name, int Type, byte[]? Data, int Parent)> { ("Root Entry", 5, null, -1) };
         int StorageOf(string path)
         {
@@ -164,7 +164,8 @@ internal static class DocumentFixtures
                 b[flagAt] = flags;
             }
             var chunk = body.ToArray();
-            if (chunk.Length > 4096) // incompressible: a raw 4096-byte chunk, padded
+            // Incompressible: a raw 4096-byte chunk, padded.
+            if (chunk.Length > 4096)
             {
                 var raw = new byte[4096];
                 data.AsSpan(chunkStart, chunkEnd - chunkStart).CopyTo(raw);
@@ -250,14 +251,14 @@ internal static class DocumentFixtures
         }
         byte[] Bof(ushort type) => [0x00, 0x06, (byte)type, (byte)(type >> 8), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         byte[] Sheet(uint at, byte hidden, byte kind, string name) => [.. BitConverter.GetBytes(at), hidden, kind, (byte)name.Length, 0, .. Encoding.Latin1.GetBytes(name)];
-        // the sheet offsets are fixed up once the globals' size is known
+        // The sheet offsets are fixed up once the globals' size is known.
         var sheetsAt = new List<long>();
         Rec(globals, 0x0809, Bof(0x0005));
         sheetsAt.Add(globals.Position + 4);
         Rec(globals, 0x0085, Sheet(0, 0, 0, "Sheet1"));
         sheetsAt.Add(globals.Position + 4);
         Rec(globals, 0x0085, Sheet(0, state, 1, macroSheet));
-        // NAME: built-in Auto_Open (0x01) = macroSheet!A1 as ptgRef3d
+        // NAME: built-in Auto_Open (0x01) = macroSheet!A1 as ptgRef3d.
         byte[] rgce = [0x3A, 0, 0, 0, 0, 0, 0];
         Rec(globals, 0x0018, [0x20, 0x00, 0, 1, (byte)rgce.Length, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, .. rgce]);
         Rec(globals, 0x000A, []);

@@ -9,7 +9,7 @@ namespace Corvus.Core;
 /// <summary>A file extracted from a container; Origin describes its location and decoding.</summary>
 public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin);
 
-/// <summary>An entry of an archive container (ASAR, UnityWebData, HAR, flows), listed without extracting it.</summary>
+/// <summary>An entry of an archive container (ASAR, WebPlayerData, HAR, flows), listed without extracting it.</summary>
 public sealed record ContainerEntry(string Path, long Size, string? Detail = null)
 {
     /// <summary>Unix permission bits in octal (setuid, setgid, sticky, rwx), when the format stores them.</summary>
@@ -23,11 +23,7 @@ public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, L
     public List<ContainerEntry>? Entries { get; init; }
 }
 
-/// <summary>
-/// Opens one container level (callers recurse): .NET single-file bundles, Costura.Fody resources, ZIP-based packages
-/// (.nupkg, .apk / .aab, .zip) with XALZ / XAZS assemblies and .NET for Android assembly stores, otherwise carves embedded .NET images.
-/// All offsets are bounds-checked and decompression is bounded by <see cref="AnalysisLimits"/>.
-/// </summary>
+/// <summary>Opens one container level (callers recurse); offsets are bounds-checked, decompression bounded by <see cref="AnalysisLimits"/>.</summary>
 public static class Containers
 {
     /// <summary>SHA-256 of ".net core bundle": marks the bundle header offset slot in an apphost.</summary>
@@ -55,17 +51,13 @@ public static class Containers
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException) { return null; }
     }
 
-    /// <summary>
-    /// Returns Kind "none" with notes when the data is not a known container. <paramref name="location"/> is the file on disk
-    /// (for data kept beside it, like an ASAR's .unpacked folder); <paramref name="allFiles"/> extracts every file of an
-    /// archive container rather than only assemblies and nested packages.
-    /// </summary>
+    /// <summary>One container level; Kind "none" with notes for unknown data, <paramref name="allFiles"/> extracts every archive file.</summary>
     public static ContainerContents Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct, string? location = null, bool allFiles = false)
     {
         ct.ThrowIfCancellationRequested();
         var kind = Blob.Identify(data);
         if (kind == "asar") return AsarContainer.Open(data, location, allFiles, limits, ct);
-        if (kind == "unitywebdata") return UnityWebData.Open(data, name, location, allFiles, limits, ct);
+        if (kind == "webdata") return WebPlayerData.Open(data, name, location, allFiles, limits, ct);
         if (kind == "godotpck") return GodotPack.Open(data, 0, name, allFiles, limits, ct);
         if (kind == "jimage") return JImage.JImageFile.Open(data, name, allFiles, limits, ct);
         if (kind == "unreal pak") return UnrealPak.Open(data, name, allFiles, limits, ct);
@@ -74,12 +66,12 @@ public static class Containers
         if (kind is "lua bytecode" or "luajit bytecode") return Lua.LuaContents.Open(data, name);
         if (kind == "autoit script") return AutoIt.AutoItScript.Open(data, 0, name, allFiles, limits, ct);
         if (kind == "elf" && Archives.LinuxAppPackages.Payload(data) is > 0 and var appImage) return Archives.LinuxAppPackages.OpenAppImage(data, appImage, name, allFiles, limits, ct);
-        // an export with the pack embedded: the engine executable, then the pack, its size and "GDPC"
+        // A Godot export with the pack embedded: the executable, then the pack, its size and "GDPC".
         if (kind is "native PE" or "elf" or "mach-o" && GodotPack.Embedded(data) is { } pack) return GodotPack.Open(data, pack, name, allFiles, limits, ct);
         // An executable from Aut2Exe: the interpreter with the script data in a resource.
         if (kind == "native PE" && AutoIt.AutoItScript.Find(data) is >= 0 and var script) return AutoIt.AutoItScript.Open(data, script, name, allFiles, limits, ct);
-        if ((kind == "gzip" || kind == "data") && UnityWebData.Decompress(data, name, limits.MaxItemBytes) is { } web)
-            return UnityWebData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
+        if ((kind == "gzip" || kind == "data") && WebPlayerData.Decompress(data, name, limits.MaxItemBytes) is { } web)
+            return WebPlayerData.Open(web, name, location, allFiles, limits, ct, kind == "gzip" ? "gzip" : "Brotli");
         if (kind == "text" && Captures.LooksLikeHar(data) && Captures.Open(data, flows: false, allFiles, limits, ct) is { } har) return har;
         if (kind is "text" or "data" && Captures.LooksLikeFlows(data)) return Captures.Open(data, flows: true, allFiles, limits, ct)!;
         if (kind == "pyinstaller pyz") return Python.PyInstallerArchive.OpenPyz(data, name, allFiles, limits, ct);
@@ -127,13 +119,14 @@ public static class Containers
             if (costura != null) return costura;
             return new ContainerContents("none", [], ["A plain .NET assembly: nothing bundled. Load it and use list_resources / get_resource for data hidden in its resources."]);
         }
-        if (pe == null && kind is "elf" or "mach-o") // Linux / macOS apphosts use the same bundle layout
+        // Linux and macOS apphosts use the same bundle layout.
+        if (pe == null && kind is "elf" or "mach-o")
         {
             var bundle = OpenBundle(data, limits, ct);
             if (bundle != null) return bundle;
             if (NativeAotImageOf(data) is { } aot) return new ContainerContents("NativeAOT executable", [], [NativeAotNote(aot.Describe)]);
         }
-        // frozen Python programs read the files beside them, so they open here with the location rather than as a reader
+        // Frozen Python programs read the files beside them, so they open here with the location.
         if (kind is "native PE" or "elf" or "mach-o" or "data" && Python.FrozenPython.Open(data, name, location, allFiles, limits, ct) is { } python) return python;
         if (kind is "native PE" or "elf" or "mach-o" && Archives.QtResources.Embedded(data, ct) is { Count: > 0 } qt) return Archives.QtResources.Open(data, qt, name, allFiles, limits, ct);
         if (ReaderFor(data, name) is { } reader) return reader.Open(data, name, allFiles, limits, ct);
@@ -164,7 +157,8 @@ public static class Containers
     {
         string? found = null;
         try { found = describe(); }
-        catch (ToolError) { } // an unreadable header only loses the version detail
+        // An unreadable header only loses the version detail.
+        catch (ToolError) { }
         return $"NativeAOT{(found != null ? $" ({found})" : "")}: the managed code was compiled to native code, so there is no IL to decompile. " +
                "load_assembly opens it as a native image whose method, MethodTable and string names, recovered from its own metadata, apply " +
                "automatically (list_functions, disassemble, decompile_native); get_nativeaot_info lists the recovered types, methods and strings.";
@@ -173,10 +167,7 @@ public static class Containers
     private static ContainerContents? OpenBundle(byte[] data, AnalysisLimits limits, CancellationToken ct) =>
         OpenBundle(data, data.Length, (at, n) => data.AsSpan((int)at, n).ToArray(), limits, ct);
 
-    /// <summary>
-    /// A single-file bundle: the apphost's bundle marker in <paramref name="image"/>, the manifest and entries read by
-    /// <paramref name="read"/> (offset, count) from a file of <paramref name="length"/> bytes, where they follow the image.
-    /// </summary>
+    /// <summary>A single-file bundle found by its apphost marker; the manifest and entries are read by <paramref name="read"/>.</summary>
     private static ContainerContents? OpenBundle(ReadOnlySpan<byte> image, long length, Func<long, int, byte[]> read, AnalysisLimits limits, CancellationToken ct, Func<string, bool>? only = null)
     {
         int sig = image.IndexOf(BundleSignature);
@@ -187,13 +178,14 @@ public static class Containers
                 ["An apphost launcher without a bundle: the application is the .dll of the same name next to it."]);
         if (headerOffset < 0 || headerOffset >= length) throw new ToolError(ErrorCode.MalformedInput, $"Corrupt single-file bundle: header offset 0x{headerOffset:X} is outside the file.");
 
-        // the manifest: a header and one record per file, read in one range
+        // The manifest: a header and one record per file, read in one range.
         var r = new SpanReader(read(headerOffset, (int)Math.Min(length - headerOffset, MaxManifest)), 0);
         uint major = r.UInt32(), minor = r.UInt32();
         int count = r.Int32();
         string bundleId = r.String();
         if (major is 0 or > 64 || count < 0 || count > limits.MaxItems) throw new ToolError(ErrorCode.MalformedInput, $"Corrupt single-file bundle header (version {major}.{minor}, {count} files).");
-        if (major >= 2) r.Skip(8 * 4 + 8); // deps.json / runtimeconfig.json locations and flags
+        // deps.json and runtimeconfig.json locations and flags.
+        if (major >= 2) r.Skip(8 * 4 + 8);
 
         var items = new List<ExtractedItem>();
         var notes = new List<string> { $"Single-file bundle v{major}.{minor}, id {bundleId}, {count} files." };
@@ -207,7 +199,8 @@ public static class Containers
             string path = r.String();
             if (only != null && !only(path)) continue;
             long stored = compressed > 0 ? compressed : size;
-            if (offset < 0 || size < 0 || stored < 0 || stored > int.MaxValue || offset > length - stored) // avoids overflow of offset + stored
+            // Compared as offset > length - stored to avoid overflow of offset + stored.
+            if (offset < 0 || size < 0 || stored < 0 || stored > int.MaxValue || offset > length - stored)
             {
                 notes.Add($"Skipped {path}: its data lies outside the file (corrupt manifest).");
                 continue;
@@ -230,10 +223,7 @@ public static class Containers
         return new ContainerContents(".NET single-file bundle", items, notes);
     }
 
-    /// <summary>
-    /// The entry at <paramref name="entry"/> (its bundle-relative path, any case) of the single-file app at <paramref name="file"/>;
-    /// null when the file is no bundle or holds no such entry. Only the image and that entry are read.
-    /// </summary>
+    /// <summary>A single-file app's entry by bundle path (any case); null when absent; reads only the image and that entry.</summary>
     public static byte[]? BundleEntry(string file, string entry, AnalysisLimits limits, CancellationToken ct)
     {
         using var s = File.OpenRead(file);
@@ -265,7 +255,8 @@ public static class Containers
             var items = new List<ExtractedItem>();
             var notes = new List<string>();
             List<EmbeddedResource> resources;
-            try { resources = module.Resources.OfType<EmbeddedResource>().ToList(); } // rows are read lazily
+            // Rows are read lazily, so a damaged table throws here.
+            try { resources = module.Resources.OfType<EmbeddedResource>().ToList(); }
             catch (Exception) { return null; }
             foreach (var res in resources)
             {
@@ -290,11 +281,7 @@ public static class Containers
         || entry.EndsWith("libassembly-store.so", StringComparison.Ordinal)
         || entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || entry.EndsWith(".blob", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// One container level read from a stream instead of the whole file: zip (and SAZ, APK, NuGet), HAR, and the archives of an
-    /// <see cref="IContainerReader"/> that streams; a pcap or SQLite file is no container. Null for any other format and for a
-    /// zip without a readable central directory (local-header recovery needs the bytes).
-    /// </summary>
+    /// <summary>One container level read from a stream; null for other formats and a zip without a readable central directory, whose recovery needs the bytes.</summary>
     public static ContainerContents? OpenStream(Func<Stream> open, ReadOnlySpan<byte> head, string name, AnalysisLimits limits, CancellationToken ct)
     {
         var kind = Blob.Identify(head);
@@ -341,12 +328,7 @@ public static class Containers
         return null;
     }
 
-    /// <summary>
-    /// A file too large to read whole that no stream reader took. A native image (<paramref name="image"/>, its bytes without
-    /// the overlay) is opened as <see cref="Open"/> opens it, a single-file bundle's manifest and entries read from the
-    /// stream where they follow the image; embedded .NET images and XALZ chunks are carved from the rest of the file in
-    /// 64 MiB windows, each one read on its own.
-    /// </summary>
+    /// <summary>A file too large to read whole: the image opens as in <see cref="Open"/>, the rest is carved in 64 MiB windows.</summary>
     public static ContainerContents OpenLarge(Func<Stream> open, ReadOnlySpan<byte> head, byte[]? image, long length, string name, AnalysisLimits limits, CancellationToken ct)
     {
         using var s = open();
@@ -386,7 +368,8 @@ public static class Containers
         int native = 0;
         if (from >= to) return (items, 0);
         var buffer = new byte[(int)Math.Min(Window, to - from)];
-        long next = from; // the first offset not inside an image already found
+        // The first offset not inside an image already found.
+        long next = from;
         for (long w = from; w < to && items.Count + native < limits.MaxItems; w += Window - Overlap)
         {
             ct.ThrowIfCancellationRequested();
@@ -395,7 +378,8 @@ public static class Containers
             s.ReadExactly(buffer, 0, n);
             var span = buffer.AsSpan(0, n);
             bool last = w + n >= to;
-            int limit = last ? n : n - Overlap; // a start in the overlap is the next window's, which holds its headers
+            // A start in the overlap belongs to the next window, which holds its headers.
+            int limit = last ? n : n - Overlap;
             for (int i = (int)Math.Clamp(next - w, 0, n); i < limit && items.Count + native < limits.MaxItems;)
             {
                 int at = span[i..limit].IndexOf("MZ"u8);
@@ -444,7 +428,8 @@ public static class Containers
         try
         {
             zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
-            entries = zip.Entries; // central directory is read here, not in the constructor
+            // The central directory is read here, not in the constructor.
+            entries = zip.Entries;
         }
         catch (InvalidDataException ex)
         {
@@ -466,10 +451,10 @@ public static class Containers
         string? android = entries.Any(e => e.FullName == "AndroidManifest.xml") ? "Android package"
             : entries.Any(e => e.FullName is "BundleConfig.pb" or "base/manifest/AndroidManifest.xml") ? "Android App Bundle"
             : null;
-        // Same rules as AndroidRuntime.Detect; Il2Cpp first since its metadata also sits under Managed/.
+        // Same rules as AndroidRuntime.Detect; native-compiled metadata first since it also sits under Managed/.
         string kind = android != null
-                ? entries.Any(e => Mobile.AndroidRuntime.IsIl2CppEntry(e.FullName)) ? android + " (Unity Il2Cpp)"
-                : entries.Any(e => Mobile.AndroidRuntime.IsUnityMonoEntry(e.FullName)) ? android + " (Unity Mono)"
+                ? entries.Any(e => Mobile.AndroidRuntime.IsAotEntry(e.FullName)) ? android + " (AOT)"
+                : entries.Any(e => Mobile.AndroidRuntime.IsMonoEntry(e.FullName)) ? android + " (Mono)"
                 : entries.Any(e => IsAndroidDotNet(e.FullName)) ? android + " (Xamarin / MAUI)"
                 : android + " (no .NET runtime or assemblies)"
             : entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) ? "NuGet package"
@@ -482,7 +467,7 @@ public static class Containers
         foreach (var e in entries)
         {
             ct.ThrowIfCancellationRequested();
-            // a plain zip gives every file when all are asked for; a package (APK, NuGet) its code
+            // A plain zip gives every file when all are asked for; a package (APK, NuGet) its code.
             if (!IsInteresting(e.FullName) && !(allFiles && kind == "zip archive" && !e.FullName.EndsWith('/'))) continue;
             if (items.Count >= limits.MaxItems) { notes.Add("Stopped: too many entries."); break; }
             byte[]? bytes;
@@ -510,7 +495,8 @@ public static class Containers
                 items.Add(new ExtractedItem(e.FullName, bytes, $"{kind} entry"));
             }
         }
-        foreach (var (path, bytes) in stores) // after the loop: assemblies.manifest may come after the stores
+        // After the loop: assemblies.manifest may come after the stores.
+        foreach (var (path, bytes) in stores)
         {
             ct.ThrowIfCancellationRequested();
             var store = Mobile.AssemblyStore.TryRead(bytes, path, limits, v1Names);
@@ -537,11 +523,7 @@ public static class Containers
         return new ContainerContents(kind, items, notes);
     }
 
-    /// <summary>
-    /// Walks local file headers when the central directory is missing. Sizes come from the header, its zip64 extra
-    /// field, or the trailing data descriptor; data is CRC-checked. Complete is true when the walk reached the central
-    /// directory or end of file.
-    /// </summary>
+    /// <summary>Walks CRC-checked local file headers without a central directory; Complete when it reached the directory or the end.</summary>
     private static (List<(string Name, byte[] Bytes)> Entries, List<string> Skipped, bool Complete) RecoverLocalEntries(byte[] data, AnalysisLimits limits, CancellationToken ct)
     {
         var result = new List<(string, byte[])>();
@@ -551,7 +533,8 @@ public static class Containers
         {
             ct.ThrowIfCancellationRequested();
             uint signature = BitConverter.ToUInt32(data, at);
-            if (signature is 0x02014B50 or 0x06054B50 or 0x06064B50) return (result, skipped, true); // central directory / end record
+            // Central directory or end record.
+            if (signature is 0x02014B50 or 0x06054B50 or 0x06064B50) return (result, skipped, true);
             if (signature != 0x04034B50) break;
             ushort flags = BitConverter.ToUInt16(data, at + 6), method = BitConverter.ToUInt16(data, at + 8);
             uint crc = BitConverter.ToUInt32(data, at + 14);
@@ -594,10 +577,7 @@ public static class Containers
         return (result, skipped, at >= data.Length);
     }
 
-    /// <summary>
-    /// Finds the first data descriptor (optional PK\x07\x08 signature, 32- or 64-bit sizes) whose compressed size equals
-    /// its distance from the data start.
-    /// </summary>
+    /// <summary>The first data descriptor whose compressed size equals its distance from the data start.</summary>
     private static bool FindDescriptor(byte[] data, int body, out long compressed, out uint crc, out int next)
     {
         for (int p = body; p + 12 <= data.Length; p++)

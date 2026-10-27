@@ -9,13 +9,7 @@ internal sealed class AppDomainObject : ReflectionObject
     protected override string[] Types => ["System.AppDomain", "System.MarshalByRefObject"];
 }
 
-/// <summary>
-/// The deterministic environment (opt-in, <see cref="SimplifyOptions.DeterministicEnvironment"/>): what initialization
-/// code reads of the machine it runs on - the module's own path, the base and current directories, special folders,
-/// a fixed set of environment variables, the machine and user names - is pinned to the fixed stand-ins below, the way a
-/// test host pins them, and reading the module's own file reads the image as loaded. Path functions use Windows
-/// semantics. Without the option these reads bail with external-io.
-/// </summary>
+/// <summary>Fixed stand-ins for machine reads under <see cref="SimplifyOptions.DeterministicEnvironment"/>; without it these reads bail with external-io.</summary>
 internal static class EnvironmentStandIns
 {
     public const string InstallDirectory = @"C:\Program Files\App";
@@ -68,19 +62,19 @@ internal static class EnvironmentStandIns
         ("Module.Name", file),
         ("AppDomain.CurrentDomain.BaseDirectory, AppContext.BaseDirectory", InstallDirectory + @"\"),
         ("Environment.CurrentDirectory, Directory.GetCurrentDirectory()", InstallDirectory),
-        ("Assembly.GetEntryAssembly()", "the module's own assembly when the module is an executable (it has an entry point)"),
+        ("Assembly.GetEntryAssembly()", "the module's own assembly when it has an entry point"),
         ("Environment.GetFolderPath", string.Join("; ", Folders.Values.Select(f => $"{f.Name}: {f.Path}"))),
         ("Path.GetTempPath()", UserProfile + @"\AppData\Local\Temp\"),
         ("Environment.GetEnvironmentVariable", string.Join("; ", Variables.Select(v => $"{v.Key}: {v.Value}")) + "; any other variable is not modelled"),
         ("Environment.MachineName, Environment.UserDomainName", MachineName),
         ("Environment.UserName", UserName),
         ("Environment.NewLine", "\\r\\n"),
-        ("CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture, and ResourceManager.GetString without a culture",
-            "the invariant culture: the module's own neutral resources (satellite assemblies are not read)"),
-        ("File.Exists, File.ReadAllBytes, File.OpenRead, new FileStream(path, FileMode.Open[, FileAccess.Read[, FileShare]]) of the module's own path",
-            "the module's image as loaded, read-only; any other path is not modelled"),
+        ("CultureInfo.CurrentCulture, CurrentUICulture, ResourceManager.GetString without a culture",
+            "the invariant culture: the module's neutral resources (satellite assemblies are not read)"),
+        ("File.Exists, File.ReadAllBytes, File.OpenRead, read-only new FileStream of the module's own path",
+            "the module's image as loaded; any other path is not modelled"),
         ("Path.GetDirectoryName, GetFileName, GetFileNameWithoutExtension, GetExtension, Combine (2 to 4 parts)",
-            "Windows semantics ('\\' and '/' separators, drive roots); paths with repeated separators, UNC paths or invalid characters are not modelled"),
+            "Windows semantics ('\\' and '/' separators, drive roots); repeated separators, UNC paths and invalid characters are not modelled"),
     ];
 }
 
@@ -102,10 +96,7 @@ internal sealed partial class IlEvaluator
 
     private byte[]? _image;
 
-    /// <summary>
-    /// Reads of the environment; null with <paramref name="handled"/> false when the method is not one. Without
-    /// <see cref="DeterministicEnvironment"/> they bail with external-io.
-    /// </summary>
+    /// <summary>Environment reads; <paramref name="handled"/> false when the method is not one, external-io without <see cref="DeterministicEnvironment"/>.</summary>
     private object? EnvironmentCall(IMethod method, Code op, object?[] args, out bool handled)
     {
         handled = false;
@@ -180,7 +171,7 @@ internal sealed partial class IlEvaluator
                 return OpenImage();
             case ("System.IO.FileStream", ".ctor"):
             {
-                // (path, FileMode.Open), (path, Open, FileAccess.Read), (path, Open, Read, FileShare): read-only opens of the module's own file.
+                // Only (path, Open[, Read[, FileShare]]) of the module's own file.
                 var parameters = method.MethodSig!.Params;
                 bool readOnly = count >= 2 && parameters[0].ElementType == ElementType.String && I4(args[1]) == (int)FileMode.Open &&
                                 (count == 2 || (I4(args[2]) == (int)FileAccess.Read && (count == 3 || parameters[3].FullName == "System.IO.FileShare"))) && count <= 4;
@@ -189,7 +180,6 @@ internal sealed partial class IlEvaluator
                 return OpenImage();
             }
             default:
-                // A FileStream opened on the module's own file reads as any other read-only stream.
                 return StreamCall((StreamObject)Receiver()!, method, name, count, args);
         }
     }
@@ -219,7 +209,7 @@ internal sealed partial class IlEvaluator
                 if (Separator(s[i]) && Separator(s[i - 1])) throw Bail(FallbackReason.UnsupportedValue, $"path syntax of \"{s}\" (repeated separators)");
             return s;
         }
-        // "C:\" or "C:" or "\": the root's length.
+        // Length of a "C:\", "C:" or "\" root.
         static int Root(string s) => s.Length >= 2 && s[1] == ':' && char.IsAsciiLetter(s[0]) ? s.Length >= 3 && Separator(s[2]) ? 3 : 2 : s.Length >= 1 && Separator(s[0]) ? 1 : 0;
         static int FileStart(string s)
         {
@@ -263,7 +253,7 @@ internal sealed partial class IlEvaluator
                 if (path.Length <= root) return null;
                 int end = FileStart(path);
                 if (end <= root) return path[..root];
-                end--; // the separator
+                end--;
                 while (end > root && path[end - 1] == '\\') end--;
                 return path[..end];
             }

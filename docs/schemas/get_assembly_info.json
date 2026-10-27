@@ -54,8 +54,8 @@
     "referenceAssembly": {
       "type": "boolean"
     },
-    "il2CppAddressedMethods": {
-      "description": "Il2Cpp dummy DLL: methods with [Address] attributes.",
+    "addressedMethods": {
+      "description": "Methods with [Address] attributes (dummy assembly).",
       "type": "integer"
     },
     "invalidBodies": {
@@ -63,7 +63,7 @@
       "type": "integer"
     },
     "invalidExceptionClauses": {
-      "description": "Exception clauses of valid bodies with bad flags, ranges outside the code or off instruction boundaries, or a misplaced filter.",
+      "description": "Exception clauses of valid bodies with bad flags or ranges, or a misplaced filter.",
       "type": "integer"
     },
     "unsavedEdits": {
@@ -81,7 +81,7 @@
       "type": "integer"
     },
     "metadataIssueCount": {
-      "description": "Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.",
+      "description": "Structural metadata problems in streams, tables, indexes and P/Invoke rows.",
       "type": "integer"
     },
     "transformers": {
@@ -243,7 +243,7 @@
     "fields",
     "resources",
     "referenceAssembly",
-    "il2CppAddressedMethods",
+    "addressedMethods",
     "invalidBodies",
     "invalidExceptionClauses",
     "unsavedEdits",

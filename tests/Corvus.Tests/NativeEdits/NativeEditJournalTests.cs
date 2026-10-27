@@ -40,7 +40,7 @@ public class NativeEditJournalTests
     }
 
     [Fact]
-    public async Task Annotations_RecordAndUndo_RestoresPreviousName()
+    public async Task Annotations_record_and_undo_restores_previous_name()
     {
         using var h = new Harness();
         var ann = h.Code.Annotations(h.Native);
@@ -56,7 +56,7 @@ public class NativeEditJournalTests
     }
 
     [Fact]
-    public async Task Annotations_LaterEditOfSameAddress_RefusesUndoNamingIt()
+    public async Task Annotations_later_edit_of_same_address_refuses_undo_naming_it()
     {
         using var h = new Harness();
         var ann = h.Code.Annotations(h.Native);
@@ -73,7 +73,7 @@ public class NativeEditJournalTests
     }
 
     [Fact]
-    public async Task Annotations_ACommentAfterARename_DoesNotBlockUndoingTheRename()
+    public async Task Annotations_a_comment_after_a_rename_does_not_block_undoing_the_rename()
     {
         using var h = new Harness();
         var ann = h.Code.Annotations(h.Native);
@@ -84,7 +84,7 @@ public class NativeEditJournalTests
     }
 
     [Fact]
-    public async Task UserTypes_UndoRevertsOnlyThatEdit()
+    public async Task User_types_undo_reverts_only_that_edit()
     {
         using var h = new Harness();
         var ann = h.Code.Annotations(h.Native);
@@ -101,7 +101,7 @@ public class NativeEditJournalTests
     }
 
     [Fact]
-    public void UserTypeDelta_InverseClearsWhatTheEditAdded()
+    public void User_type_delta_inverse_clears_what_the_edit_added()
     {
         var before = UserTypeLayer.Empty.WithOperand(new NativeOperandEdit(0x20, 1, "hex", null));
         var after = before.WithType(0x10, "int x;").WithLocal(new NativeLocalEdit(0x10, "v1", 8, "count", null))
@@ -118,7 +118,7 @@ public class NativeEditJournalTests
     }
 
     [Fact]
-    public void Export_Import_KeepsEditsUndoable()
+    public void Export_import_keeps_edits_undoable()
     {
         using var h = new Harness();
         var ann = h.Code.Annotations(h.Native);
@@ -170,7 +170,7 @@ public class NativeEditToolOutcomeTests
     }
 
     [Fact]
-    public async Task Rename_DefaultsToAPreview_ThenRecordsAnEditIdThatUndoRestores()
+    public async Task Rename_defaults_to_a_preview_then_records_an_edit_ID_that_undo_restores()
     {
         using var r = new Rig();
         var collector = Corvus.Mcp.ToolOutput.Collect();
@@ -194,7 +194,7 @@ public class NativeEditToolOutcomeTests
     }
 
     [Fact]
-    public async Task Digests_MatchFromDryRunToSave_ThePatchesOnly_AndAnUndonePatchLeavesTheSave()
+    public async Task Digests_match_from_dry_run_to_save_the_patches_only_and_an_undone_patch_leaves_the_save()
     {
         using var r = new Rig();
         var collector = Corvus.Mcp.ToolOutput.Collect();
@@ -226,7 +226,7 @@ public class NativeEditToolOutcomeTests
     }
 
     [Fact]
-    public async Task Batch_AllFailed_IsAnError_SomeFailed_IsASuccessWithFailedItems()
+    public async Task Batch_all_failed_is_an_error_some_failed_is_a_success_with_failed_items()
     {
         using var r = new Rig();
         var collector = Corvus.Mcp.ToolOutput.Collect();
@@ -240,7 +240,7 @@ public class NativeEditToolOutcomeTests
     }
 
     [Fact]
-    public async Task Patch_And_Comment_ListedWithIds_UndoneOutOfOrder_ConflictNamesTheEdit()
+    public async Task Patch_and_comment_listed_with_IDs_undone_out_of_order_conflict_names_the_edit()
     {
         using var r = new Rig();
         var collector = Corvus.Mcp.ToolOutput.Collect();

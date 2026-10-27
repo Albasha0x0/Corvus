@@ -8,11 +8,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// Findings bundles (read_result format=evidence / verify): kept results with the call that made them (tool, arguments,
-/// input SHA-256s), their text and record and a content hash; verifying re-runs each call through the server's own call
-/// pipeline and compares the inputs and the content hash, naming each record that differs.
-/// </summary>
+/// <summary>Evidence bundles: kept results with their calls and content hashes; verifying re-runs each call and names each record that differs.</summary>
 public static partial class EvidenceBundle
 {
     public const string FormatName = "corvus-evidence/1";

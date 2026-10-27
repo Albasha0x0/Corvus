@@ -31,7 +31,8 @@ public static class Blob
             if (pe != null) return pe.IsDotNet(b) ? ".NET assembly" : pe.IsNativeAot(b) ? "NativeAOT executable" : "native PE";
         }
         if (StartsWith(b, "PK\x03\x04"u8) || StartsWith(b, "PK\x05\x06"u8)) return "zip";
-        if (StartsWith(b, "JM\x01\x00PK"u8)) return "jmod"; // JDK module: a 4-byte header, then a zip whose offsets start after it
+        // JDK module: a 4-byte header, then a zip whose offsets start after it.
+        if (StartsWith(b, "JM\x01\x00PK"u8)) return "jmod";
         if (StartsWith(b, [0x1F, 0x8B])) return "gzip";
         if (b.Length >= 2 && b[0] == 0x78 && (b[1] is 0x01 or 0x5E or 0x9C or 0xDA)) return "zlib";
         if (StartsWith(b, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return "7z";
@@ -56,7 +57,7 @@ public static class Blob
         if (StartsWith(b, "Microsoft C/C++ MSF 7.00"u8)) return "pdb";
         if (AsarArchive.Looks(b)) return "asar";
         if (Hermes.HermesFile.Looks(b)) return "hermes bytecode";
-        if (UnityWebData.Looks(b)) return "unitywebdata";
+        if (WebPlayerData.Looks(b)) return "webdata";
         if (GodotPack.Looks(b)) return "godotpck";
         if (JImage.JImageFile.Looks(b)) return "jimage";
         if (Firmware.Esp32.Esp32Flash.Find(b) != null) return "esp32 flash";
@@ -89,9 +90,7 @@ public static class Blob
     /// <summary>Image formats: reported but not decoded further.</summary>
     public static bool IsMedia(string kind) => kind is "png" or "jpeg" or "gif" or "ico";
 
-    /// <summary>
-    /// Checks a 4 KB prefix: no NUL, at most 5% control bytes, and either 90%+ printable ASCII or valid UTF-8.
-    /// </summary>
+    /// <summary>Checks a 4 KB prefix: no NUL, at most 5% control bytes, and either 90%+ printable ASCII or valid UTF-8.</summary>
     public static bool LooksLikeText(ReadOnlySpan<byte> b)
     {
         if (b.Length == 0) return false;
@@ -218,7 +217,8 @@ public static class Blob
             if (pe != null && pe.EndOfImage <= data.Length - at && pe.EndOfImage > 0)
             {
                 found.Add(new Carved(at, (int)pe.EndOfImage, pe.IsDotNet(data)));
-                i = at + (int)pe.EndOfImage; // nested images are found by analyzing the container
+                // Nested images are found by analyzing the container.
+                i = at + (int)pe.EndOfImage;
             }
             else
             {
@@ -250,10 +250,7 @@ public static class Blob
         ".hta", ".lnk", ".msi", ".msp", ".cpl", ".jar", ".reg", ".sh", ".py", ".appref-ms", ".application", ".gadget",
     };
 
-    /// <summary>
-    /// Sanitizes a name into a relative path that cannot escape the output directory. Runnable extensions get a ".bin"
-    /// suffix; ".dll" is kept so extracted assemblies resolve by name.
-    /// </summary>
+    /// <summary>A relative path that cannot escape the output directory; runnable extensions get ".bin", ".dll" is kept.</summary>
     public static string SafeRelativePath(string name, string fallback, int maxParts = 8)
     {
         var invalid = Path.GetInvalidFileNameChars().Concat(['<', '>', ':', '"', '|', '?', '*']).ToHashSet();
@@ -275,11 +272,7 @@ public static class Blob
     /// <summary>Full path of <paramref name="relative"/> under <paramref name="root"/>; throws if it would escape it, lexically or through a link.</summary>
     public static string UnderRoot(string root, string relative) => SafeFile.UnderRoot(root, relative);
 
-    /// <summary>
-    /// Whether the file at <paramref name="path"/> holds <paramref name="bytes"/>. Read sharing everything: a concurrent
-    /// writer that just renamed its file into place may still hold a handle on it, and a read that does not share
-    /// write and delete access fails on that handle with a sharing violation.
-    /// </summary>
+    /// <summary>Whether the file holds <paramref name="bytes"/>; reads with full sharing, since a concurrent writer may hold a handle.</summary>
     private static bool SameContent(string path, ReadOnlySpan<byte> bytes)
     {
         try

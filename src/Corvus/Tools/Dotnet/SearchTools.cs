@@ -9,7 +9,7 @@ using static Corvus.Tools.ToolSupport;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class SearchTools(AssemblyWorkspace workspace, SearchService search, Il2CppService il2cpp, Il2CppStringService il2cppStrings)
+public sealed class SearchTools(AssemblyWorkspace workspace, SearchService search, AotMetadataService aot, AotStringService aotStrings)
 {
     [McpServerTool(Name = "search_symbols", Title = "Search symbols by name", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
     [Description("Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . " +
@@ -36,8 +36,8 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     private const int ValueClip = 200;
 
     [McpServerTool(Name = "search_strings", Title = "Search string literals", UseStructuredContent = true, OutputSchemaType = typeof(StringList))]
-    [Description("Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Il2Cpp " +
-                 "dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.")]
+    [Description("Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. " +
+                 "Dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.")]
     public Task<string> SearchStrings(
         [Description("Substring, wildcard or regex.")] string query,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -45,17 +45,17 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description(LimitDescription)] int limit = 100,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(RowOffsetDescription)] int offset = 0,
-        [Description("Il2Cpp: max functions per literal.")] int usesPerLiteral = 10,
+        [Description("Dummy assemblies: max functions per literal.")] int usesPerLiteral = 10,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var scope = workspace.Scope(assembly);
         var timeouts = new RegexTimeouts();
         var r = search.SearchStrings(query, regex, scope, End(offset, limit), cancellationToken, timeouts);
-        var literals = il2cppStrings.Search(SearchService.CreateMatcher(query, regex, timeouts), scope, cancellationToken);
+        var literals = aotStrings.Search(SearchService.CreateMatcher(query, regex, timeouts), scope, cancellationToken);
         int total = r.Total + literals.Count;
         var inScope = scope.ToHashSet();
         int uses = Math.Max(0, usesPerLiteral);
-        // IL and constant hits first, then the Il2Cpp literals: one row sequence.
+        // IL and constant hits first, then the metadata literals: one row sequence.
         var page = new List<(StringEntry Entry, string Text)>();
         for (int i = offset; i < Math.Min(total, End(offset, limit)); i++)
         {
@@ -73,7 +73,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
             var l = literals[i - r.Total];
             var text = new StringBuilder();
             AppendLiteral(text, l, inScope, uses);
-            page.Add((new StringEntry(Format.Clip(l.Value, ValueClip), "il2cpp")
+            page.Add((new StringEntry(Format.Clip(l.Value, ValueClip), "metadata")
             {
                 SlotRva = l.Address != 0 ? $"0x{l.Address:X}" : null,
                 Clipped = l.Value.Length > ValueClip ? true : null,
@@ -84,24 +84,24 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         if (total == 0)
         {
             header.Append($"No string literals match '{query}'.");
-            if (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0))
-                header.Append($" Il2Cpp dummy assemblies have empty bodies: put {Il2CppDumpFiles.StringLiteralFileName} and {Il2CppDumpFiles.ScriptFileName} in their folder or its parent to search the build's literals.");
+            if (aotStrings.DumpsFor(scope).Count == 0 && scope.Any(a => aot.GetIndex(a).Count > 0))
+                header.Append($" Dummy assemblies have empty bodies: put {AotDumpFiles.StringLiteralFileName} and {AotDumpFiles.ScriptFileName} in their folder or its parent to search the build's literals.");
             header.Append('\n');
         }
         else if (literals.Count > 0)
         {
-            header.Append($"{r.Total} in IL and constants, {Plural(literals.Count, "Il2Cpp string literal")}\n");
-            foreach (var dump in literals.Select(x => x.Dump).Distinct()) header.Append($"[Il2Cpp: {dump.Describe()}]\n");
+            header.Append($"{r.Total} in IL and constants, {Plural(literals.Count, "metadata string literal")}\n");
+            foreach (var dump in literals.Select(x => x.Dump).Distinct()) header.Append($"[metadata: {dump.Describe()}]\n");
         }
         return ToolOutput.List(page, offset, limit, total, x => x.Text,
             rows => new StringList(rows.Select(x => x.Entry).ToList(), offset, total) { NotEvaluated = timeouts.Count, TotalExact = timeouts.Count > 0 ? false : null },
             "occurrence", header.Length > 0 ? header.ToString() : null, totalExact: timeouts.Count == 0);
     }, cancellationToken);
 
-    private static void AppendLiteral(StringBuilder sb, Il2CppStringService.LiteralMatch l, HashSet<LoadedAssembly> scope, int maxUses)
+    private static void AppendLiteral(StringBuilder sb, AotStringService.LiteralMatch l, HashSet<LoadedAssembly> scope, int maxUses)
     {
         sb.AppendLine($"  {Format.Literal(Format.Clip(l.Value, 200))}");
-        sb.Append(l.Address != 0 ? $"      Il2Cpp literal, slot RVA 0x{l.Address:X}" : "      Il2Cpp literal (metadata read without the binary: no slot)");
+        sb.Append(l.Address != 0 ? $"      metadata literal, slot RVA 0x{l.Address:X}" : "      metadata literal (read without the binary: no slot)");
         if (l.Uses == null) { sb.AppendLine(); return; }
         if (l.Uses.Count == 0) { sb.AppendLine("; no code loads it"); return; }
         sb.AppendLine($"; loaded by {Plural(l.Uses.Count, "function")}:");
@@ -112,7 +112,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }
 
     /// <summary>One line per method starting at a native function: dummy-DLL methods, else script.json names, else the bare address.</summary>
-    internal static void AppendFunction(StringBuilder sb, Il2CppStringIndex dump, uint function, int sites, IReadOnlyList<Il2CppService.MethodAddress> methods, string prefix)
+    internal static void AppendFunction(StringBuilder sb, AotStringIndex dump, uint function, int sites, IReadOnlyList<AotMetadataService.MethodAddress> methods, string prefix)
     {
         var count = sites > 1 ? $" x{sites}" : "";
         if (methods.Count > 0)

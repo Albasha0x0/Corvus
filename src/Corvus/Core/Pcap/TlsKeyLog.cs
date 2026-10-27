@@ -2,11 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// TLS secrets in the NSS key log format (SSLKEYLOGFILE): "CLIENT_RANDOM &lt;random&gt; &lt;master secret&gt;" for TLS 1.2
-/// and the TLS 1.3 traffic secrets, each keyed by the ClientHello random. Read from a key log file or the decryption
-/// secrets blocks of a pcapng.
-/// </summary>
+/// <summary>TLS secrets in the NSS key log format, keyed by ClientHello random, from a file or pcapng secrets blocks.</summary>
 internal sealed class TlsKeyLog
 {
     private readonly Dictionary<string, Dictionary<string, byte[]>> _byRandom = new(StringComparer.Ordinal);

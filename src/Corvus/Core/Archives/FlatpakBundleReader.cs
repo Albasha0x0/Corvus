@@ -3,16 +3,12 @@ using System.Text;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// Flatpak single-file bundles (.flatpak, as flatpak build-bundle writes them): an OSTree static delta superblock in GVariant
-/// format with its parts inline. The ref, commit and the app's metadata keys are listed; a delta from no earlier commit is
-/// applied to rebuild the commit's tree, every file under its path (metadata, files/, export/).
-/// </summary>
+/// <summary>Flatpak single-file bundles; a delta from no earlier commit is applied to rebuild the commit's tree.</summary>
 internal sealed class FlatpakBundleReader : IContainerReader
 {
     public string Kind => "flatpak bundle";
 
-    // OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT, OSTREE_COMMIT_GVARIANT_FORMAT, OSTREE_TREE_GVARIANT_FORMAT, OSTREE_STATIC_DELTA_PART_PAYLOAD_FORMAT_V0
+    // OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT, OSTREE_COMMIT_GVARIANT_FORMAT, OSTREE_TREE_GVARIANT_FORMAT, OSTREE_STATIC_DELTA_PART_PAYLOAD_FORMAT_V0.
     private const string Superblock = "(a{sv}tayay(a{sv}aya(say)sstayay)aya(uayttay)a(yaytt))";
     private const string CommitFormat = "(a{sv}aya(say)sstayay)";
     private const string TreeFormat = "(a(say)a(sayay))";
@@ -58,7 +54,7 @@ internal sealed class FlatpakBundleReader : IContainerReader
         var parts = GVariant.Array("(uayttay)", sb[6]);
         ulong unpacked = 0;
         foreach (var p in parts) unpacked += GVariant.U64(GVariant.Tuple("(uayttay)", p)[3]);
-        // OSTree writes timestamps big endian
+        // OSTree writes timestamps big endian.
         var built = DateTimeOffset.FromUnixTimeSeconds((long)Math.Min(BinaryPrimitives.ReadUInt64BigEndian(Pad8(commit[5])), 253402300799UL));
         var tree = new Firmware.FsTree("flatpak bundle", allFiles, limits, ct);
         tree.Notes.Add($"flatpak bundle {Text("ref") ?? "(no ref)"}: commit {Convert.ToHexStringLower(sb[3].Span)}, built {built:yyyy-MM-dd HH:mm} UTC" +
@@ -116,7 +112,7 @@ internal sealed class FlatpakBundleReader : IContainerReader
             ReadOnlyMemory<byte> payload = compression switch
             {
                 0 => inline[1],
-                // the header's unpacked size leaves out the payload's own framing: the item limit bounds the decode
+                // The header's unpacked size leaves out the payload's framing, so the item limit bounds the decode.
                 (byte)'x' => Firmware.FsCodec.DecodeStream("xz", inline[1].Span, limits.MaxItemBytes),
                 _ => throw new InvalidDataException($"delta part {i} has compression '{(char)compression}'"),
             };
@@ -205,10 +201,7 @@ internal sealed class FlatpakBundleReader : IContainerReader
         return objects;
     }
 
-    /// <summary>
-    /// An object's OSTree checksum: a metadata object's SHA-256; a file's over its header (uid, gid, mode, rdev, link target,
-    /// no extended attributes, as a GVariant (uuuusa(ayay)) after its big-endian length and 4 zero bytes) and its content.
-    /// </summary>
+    /// <summary>An object's OSTree checksum: SHA-256 of a metadata object, or of a file's GVariant header and content.</summary>
     private static string Checksum(OstreeObject o)
     {
         if (o.Type != 1) return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(o.Data.Span));

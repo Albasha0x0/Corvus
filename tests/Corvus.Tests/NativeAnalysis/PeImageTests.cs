@@ -46,7 +46,7 @@ public class PeImageTests : IDisposable
     }
 
     [Fact]
-    public void LargeLfanewAndManySections_Parse_AndDetectionAgreesWithFullParser()
+    public void Large_lfanew_and_many_sections_parse_and_detection_agrees_with_full_parser()
     {
         var bytes = Managed(readyToRun: true, headerOffset: 0x2400, padSections: 120).Build();
 
@@ -65,7 +65,7 @@ public class PeImageTests : IDisposable
     }
 
     [Fact]
-    public void NativeAot_PastOldLimits_IsDetectedEverywhere()
+    public void NativeAOT_images_past_old_limits_are_detected_everywhere()
     {
         var b = new PeBuilder { HeaderOffset = 0x1800 };
         for (int i = 0; i < 100; i++) b.Add($".p{i}", [0xCC]);
@@ -78,7 +78,7 @@ public class PeImageTests : IDisposable
     }
 
     [Fact]
-    public void Lfanew_OutsideTheFile_IsNotPe()
+    public void Lfanew_outside_the_file_is_not_PE()
     {
         var bytes = Managed(readyToRun: false).Build();
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x3C), bytes.Length - 8);
@@ -88,7 +88,7 @@ public class PeImageTests : IDisposable
     }
 
     [Fact]
-    public void OverlappingSections_AmbiguousRvas_AreReportedNotGuessed()
+    public void Ambiguous_RVAs_of_overlapping_sections_are_reported_not_guessed()
     {
         var b = Managed(readyToRun: false, padSections: 1);
         var cor = b.Sections[1];
@@ -110,7 +110,7 @@ public class PeImageTests : IDisposable
     }
 
     [Fact]
-    public void OverlappingSections_BackedByTheSameBytes_AreNotAmbiguous()
+    public void Overlapping_sections_backed_by_the_same_bytes_are_not_ambiguous()
     {
         var cor = Managed(readyToRun: false).Sections[0];
         // Two headers describing the same RVA range from the same raw data.

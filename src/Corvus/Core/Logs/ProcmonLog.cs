@@ -5,13 +5,7 @@ using System.Text;
 
 namespace Corvus.Core.Logs;
 
-/// <summary>
-/// A Process Monitor log: a backing file (.pml, format 9) or its CSV export. The backing file gives the capture's
-/// computer, Windows version and process table, and each event's time, process, thread, class, operation, path,
-/// result and duration, named as Process Monitor names them; the detail is read for Process Create, Load Image,
-/// Thread Create and network events. The CSV export gives the columns it holds. <see cref="Read"/> throws
-/// <see cref="InvalidDataException"/> when the input is neither; damaged events are notes.
-/// </summary>
+/// <summary>A Process Monitor log (.pml format 9, or CSV export); <see cref="Read"/> throws <see cref="InvalidDataException"/> on neither.</summary>
 public sealed class ProcmonLog
 {
     private const int HeaderSize = 0x3A8, MaxNotes = 200;
@@ -23,10 +17,7 @@ public sealed class ProcmonLog
     public sealed record Process(int Pid, int ParentPid, int Session, DateTime? Started, DateTime? Ended, bool Is64Bit, string Integrity, string User,
         string Name, string ImagePath, string CommandLine, string Company, string Version, string Description, int Modules);
 
-    /// <summary>
-    /// One event, numbered from 0 in file order. Time is UTC from a backing file; a CSV export gives only its own text
-    /// (TimeText, in the exporting machine's time zone). Null fields are columns the input does not hold.
-    /// </summary>
+    /// <summary>One event, numbered from 0; Time is UTC from a .pml, TimeText from CSV; null fields are columns the input lacks.</summary>
     public sealed record Event(long Number, DateTime? Time, string? TimeText, string ProcessName, int? Pid, int? ThreadId, string? Class, string Operation,
         string Path, string Result, TimeSpan? Duration, string? Detail);
 
@@ -386,8 +377,7 @@ public sealed class ProcmonLog
          "CloseFile", "CreateMailSlot", "QuerySecurityFile", "SetSecurityFile", "Power", "SystemControl", "DeviceChange", "QueryFileQuota",
          "SetFileQuota", "PlugAndPlay"];
 
-    // Sub-operations by file system operation number: query and set volume information, query and set information,
-    // directory control, plug and play, lock control.
+    // Sub-operations by file system operation number.
     private static readonly Dictionary<int, Dictionary<int, string>> SubOperations = new()
     {
         [30] = new()

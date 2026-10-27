@@ -2,10 +2,7 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// Structural view of a method body: instruction indexes, branch targets, protected-region membership, reachability
-/// and a stack verifier. A snapshot: rebuild it after the body changes.
-/// </summary>
+/// <summary>Indexes, branch targets, protected regions, reachability and a stack verifier of a body; rebuild after edits.</summary>
 internal sealed class BodyGraph
 {
     public IList<Instruction> Instructions { get; }
@@ -66,10 +63,7 @@ internal sealed class BodyGraph
 
     public bool SameRegions(int a, int b) => Regions(a).AsSpan().SequenceEqual(Regions(b));
 
-    /// <summary>
-    /// Whether a leave at code[from] may go to code[to]: it may exit any of its regions, and enter only trys that start
-    /// at code[to].
-    /// </summary>
+    /// <summary>Whether a leave at code[from] may go to code[to]: it may exit regions and enter only trys starting there.</summary>
     public bool LeavesLegally(int from, int to) =>
         Regions(to).Where(id => !Regions(from).Contains(id)).All(id => id % 3 == 0 && Handlers[id / 3].TryStart == Instructions[to]);
 
@@ -147,12 +141,7 @@ internal sealed class BodyGraph
         return false;
     }
 
-    /// <summary>
-    /// Checks structural validity: operands and boundaries inside the body, consistent stack depths at every merge point,
-    /// no underflow, ret on the right depth outside protected regions, no fall-through off the end or across region
-    /// boundaries, and branches that stay within their regions (leave may exit them). Returns the stack depth before
-    /// each instruction (-1: unreachable) or null with <paramref name="error"/> set.
-    /// </summary>
+    /// <summary>Checks targets, regions and stack depths; returns the depth before each instruction (-1: unreachable), or null with <paramref name="error"/>.</summary>
     public int[]? Verify(bool hasReturnValue, out string? error)
     {
         (var depth, error) = Check(hasReturnValue);
@@ -221,8 +210,6 @@ internal sealed class BodyGraph
                 case Code.Leave: case Code.Leave_S:
                 {
                     int t = IndexOf((Instruction)ins.Operand);
-                    // A leave exits regions; the only region it may enter is a try, at its first instruction (as when
-                    // one try block directly follows another).
                     if (!Regions(t).Where(id => !Regions(i).Contains(id)).All(id => id % 3 == 0 && Handlers[id / 3].TryStart == Instructions[t]))
                     { error = $"leave enters a protected region at {Where(i)}"; return (null, error); }
                     if (!Flow(t, 0, i)) return (null, error);
@@ -254,7 +241,8 @@ internal sealed class BodyGraph
         if (!source.All(target.Contains)) return false;
         foreach (int id in target.Except(source))
         {
-            if (id % 3 != 0) return false; // only try blocks may be entered
+            // Only try blocks may be entered.
+            if (id % 3 != 0) return false;
             if (Handlers[id / 3].TryStart != Instructions[to]) return false;
         }
         return true;

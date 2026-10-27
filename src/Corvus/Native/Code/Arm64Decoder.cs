@@ -3,11 +3,7 @@ using AsmArm64;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// ARM64 decoding (AsmArm64) over the code of an image. A register file per linear run tracks addresses formed by
-/// ADRP / ADR / ADD and what loads from them produce, so ADRP pairs become data references and loads from import slots
-/// (GOT entries, Mach-O pointer slots) make the following BR / BLR an import jump or call. One instance per thread.
-/// </summary>
+/// <summary>Decodes ARM64 image code, tracking ADRP-formed addresses to resolve data references and import calls; one per thread.</summary>
 internal sealed class Arm64Decoder : ICodeDecoder
 {
     /// <summary>Local: the function a GOT slot of an exported function of this image holds.</summary>
@@ -29,23 +25,23 @@ internal sealed class Arm64Decoder : ICodeDecoder
     private readonly ulong[] _value = new ulong[Registers];
     private Arm64Instruction _last;
 
-    // the current linear run, for switch dispatch and bound matching
+    // The current linear run, for switch dispatch and bound matching.
     private const int RingSize = 32;
     private readonly Arm64Instruction[] _ring = new Arm64Instruction[RingSize];
     private readonly uint[] _ringRva = new uint[RingSize];
-    // per ring slot: the address the instruction wrote to its destination register, or 0
+    // Per ring slot: the address the instruction wrote to its destination register, or 0.
     private readonly ulong[] _ringAddress = new ulong[RingSize];
     private int _ringHead, _ringCount;
     private IndexBound _runBound;
 
-    // registers given one address in the whole function (hoisted ADRP + ADD): callee-saved x19-x28 are seeded into every
-    // run; any register serves as a jump table base, which the table read then verifies
+    // Registers holding one address in the whole function; callee-saved x19-x28 seed every run, any register
+    // may be a jump table base, which the table read verifies.
     private const int FirstSaved = 19, LastSaved = 28;
     private readonly ulong[] _saved = new ulong[Registers];
     private readonly byte[] _savedState = new byte[Registers]; // 0 unknown, 1 one address, 2 several
 
-    /// <param name="sortedRelocations">Every relocated pointer location: code words a relocation touches are data, and loads from them yield addresses.</param>
-    /// <param name="dataInCode">Sorted ranges inside code that hold data (literal pools, jump tables): never decoded.</param>
+    /// <param name="sortedRelocations">Relocated pointer locations: such code words are data, and loads from them yield addresses.</param>
+    /// <param name="dataInCode">Sorted ranges inside code that hold data; never decoded.</param>
     public Arm64Decoder(INativeImage image, ImageCode? code, uint[] sortedRelocations, IReadOnlySet<uint>? importSlots = null,
         (uint Start, uint End)[]? dataInCode = null)
     {
@@ -84,19 +80,18 @@ internal sealed class Arm64Decoder : ICodeDecoder
         _runStart = true;
     }
 
-    // what registers and frame slots hold at a block start, from the branch that first reached it (case labels: the last
-    // dispatch); tracked between BeginFunction and the next single-instruction query (ThunkSlot)
+    // Registers and frame slots at a block start, from the branch that first reached it; valid until the next ThunkSlot.
     private bool _walking, _runStart;
     private readonly Dictionary<uint, int> _stateAt = [];
     private readonly List<(int Reg, Known Kind, long Slot, ulong Value)> _statePool = [];
     private int _dispatchState = -1;
-    // frame slots [sp + n] / [x29 + n] holding an address (a jump table base spilled across calls), by base and offset
+    // Frame slots [sp + n] / [x29 + n] holding an address, by base and offset.
     private readonly Dictionary<long, ulong> _slots = [];
 
-    /// <summary>The known registers and slots, as a state index (its first entry in the pool; a sentinel ends it), or -1 for none.</summary>
+    /// <summary>The known registers and slots as a state pool index, or -1 for none.</summary>
     private int SaveState()
     {
-        // nothing known: the empty state (-1), as a block nothing reached by a branch starts with
+        // Nothing known: the empty state.
         if (_slots.Count == 0 && Array.IndexOf(_kind, Known.Address) < 0 && Array.IndexOf(_kind, Known.ImportSlot) < 0 && Array.IndexOf(_kind, Known.Local) < 0) return -1;
         int at = _statePool.Count;
         for (int r = 0; r < Registers; r++)
@@ -106,7 +101,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         return at;
     }
 
-    /// <summary>At the first instruction of a run: the registers and slots the branch to it saw (over the function-wide ones).</summary>
+    /// <summary>At the first instruction of a run: the registers and slots the branch to it saw.</summary>
     private void RestoreState(uint rva)
     {
         _runStart = false;
@@ -169,7 +164,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
     {
         insn = new Insn { Rva = rva, Length = 4 };
         _last = Arm64Instruction.Decode(word);
-        // zero fill, and words a relocation patches (literal pools, pointer tables), are data
+        // Zero fill and words a relocation patches are data.
         if (word == 0 || _last.Id == Arm64InstructionId.Invalid || TouchedByRelocation(rva) || InData(rva))
         {
             insn.Flow = FlowKind.Invalid;
@@ -226,10 +221,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         _ringAddress[(_ringHead - 1 + RingSize) % RingSize] = written >= 0 && _kind[written] == Known.Address ? _value[written] : 0;
     }
 
-    /// <summary>
-    /// A register branch through a register loaded from an import slot reads as a jump or call through that slot; through
-    /// the GOT slot of a function this image exports (its PLT stub), as a direct branch to that function.
-    /// </summary>
+    /// <summary>A register branch through an import slot is an import jump or call; through an exported function's GOT slot, a direct branch.</summary>
     private void ThroughRegister(ref Insn insn)
     {
         if (_last.OperandCount == 0 || _last.GetOperand(0) is not { Kind: Arm64OperandKind.Register } op) return;
@@ -269,7 +261,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
                 {
                     int shift = i.OperandCount > 3 && i.GetOperand(3).Kind == Arm64OperandKind.Shift ? ((Arm64ShiftOperand)i.GetOperand(3)).Amount : 0;
                     ulong value = _value[src] + ((ulong)((Arm64ImmediateOperand)i.GetOperand(2)).Value << shift);
-                    // adrp x, page; add x, x, #lo12 completes one address, it is not a second one
+                    // adrp x, page; add x, x, #lo12 completes one address.
                     if (dest == src && dest >= 0 && _savedState[dest] == 1 && _saved[dest] == _value[src]) _saved[dest] = value;
                     SetAddress(dest, value);
                     Address(ref insn, value);
@@ -277,7 +269,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
                 }
                 break;
             }
-            // add xd, xn, #0 decodes as its mov alias: a page of an adrp completed at offset 0
+            // add xd, xn, #0 decodes as its mov alias: an adrp page completed at offset 0.
             case Arm64InstructionId.MOV_add_64_addsub_imm when i.OperandCount == 2 && i.GetOperand(1).Kind == Arm64OperandKind.Register:
             {
                 int src = Reg(1);
@@ -304,7 +296,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
             }
         }
 
-        // literal loads: pc-relative data
+        // Literal loads: pc-relative data.
         if (label is { } literal && i.Flags.HasFlag(Arm64InstructionFlags.HasLabel))
         {
             ulong at = pc + (ulong)literal;
@@ -346,15 +338,12 @@ internal sealed class Arm64Decoder : ICodeDecoder
         Clobber();
     }
 
-    /// <summary>
-    /// A load or store at frame slot <paramref name="slot"/>: "str xN, [sp, #n]" of a known address keeps it for the slot,
-    /// "ldr xD, [sp, #n]" gets it back; any other store there forgets it, and moving sp forgets every sp slot.
-    /// </summary>
+    /// <summary>Tracks an address stored to and reloaded from frame slot <paramref name="slot"/>; other stores forget it.</summary>
     private void FrameSlot(in Arm64Instruction i, int dest, long slot, bool store, bool writeback)
     {
         bool wide = i.Id is Arm64InstructionId.STR_64_ldst_pos or Arm64InstructionId.STUR_64_ldst_unscaled or Arm64InstructionId.LDR_64_ldst_pos
             or Arm64InstructionId.LDUR_64_ldst_unscaled;
-        // stp / ldp of two x registers: the second one at slot + 8 (gzip: stp xzr, x0, [x29, #112] keeps a table base)
+        // stp / ldp of two x registers: the second one at slot + 8.
         int second = i.Id is Arm64InstructionId.STP_64_ldstpair_off or Arm64InstructionId.LDP_64_ldstpair_off
             && i.GetOperand(1) is { Kind: Arm64OperandKind.Register } r1 ? X((Arm64RegisterOperand)r1) : -2;
         if (store)
@@ -400,10 +389,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         if (target >= _imageBase && target - _imageBase < _sizeOfImage) Set(dest, Known.Address, target);
     }
 
-    /// <summary>
-    /// Registers the last instruction writes lose what they held (W writes clear the X register). Restores from the stack
-    /// (epilogues) do not end a callee-saved register's function-wide value.
-    /// </summary>
+    /// <summary>Registers the last instruction writes lose what they held; stack restores keep function-wide values.</summary>
     private void Clobber()
     {
         ref readonly var i = ref _last;
@@ -414,7 +400,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         {
             var op = i.GetOperand(k);
             if (op.Kind != Arm64OperandKind.Register || (op.Flags & Arm64OperandFlags.Write) == 0) continue;
-            // sp moved: what the sp slots held is at other offsets now
+            // sp moved: the sp slots are at other offsets now.
             if (((Arm64RegisterOperand)op).Value.Kind == Arm64RegisterKind.SP) _slots.Clear();
             int r = XorW((Arm64RegisterOperand)op);
             if (r < 0) continue;
@@ -524,7 +510,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
     private static bool Writes(in Arm64Instruction i, int reg)
     {
         if (Written(in i) == reg) return true;
-        // the second destination of a load pair
+        // The second destination of a load pair.
         return i.Mnemonic is Arm64Mnemonic.LDP or Arm64Mnemonic.LDPSW or Arm64Mnemonic.LDNP or Arm64Mnemonic.LDAXP or Arm64Mnemonic.LDXP && Index(in i, 1) == reg;
     }
 
@@ -545,7 +531,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
     {
         int w = Writer(k, reg);
         if (w < 0 && reg >= 0 && _savedState[reg] == 1) return _saved[reg];
-        // set before the run (or by a load the walk followed): the value it holds now, unless written since step k
+        // Set before the run: the value it holds now, unless written since step k.
         if (w >= 0 && !IsAddressForming(in Back(w))) return _ringAddress[(_ringHead - 1 - w + RingSize * 2) % RingSize] is var a and not 0 ? a : null;
         if (w < 0) return reg >= 0 && _kind[reg] == Known.Address && Unchanged(k, reg) ? _value[reg] : null;
         if (depth > 6) return null;
@@ -561,7 +547,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
                 int shift = x.OperandCount > 3 && x.GetOperand(3).Kind == Arm64OperandKind.Shift ? ((Arm64ShiftOperand)x.GetOperand(3)).Amount : 0;
                 return Constant(w + 1, Index(in x, 1), depth + 1) is { } v ? v + ((ulong)((Arm64ImmediateOperand)x.GetOperand(2)).Value << shift) : null;
             }
-            // add xd, xn, #0 (a page offset of 0, a table at the start of a page) decodes as its mov alias
+            // add xd, xn, #0 decodes as its mov alias.
             case Arm64InstructionId.MOV_add_64_addsub_imm when x.OperandCount == 2 && x.GetOperand(1).Kind == Arm64OperandKind.Register:
                 return Constant(w + 1, Index(in x, 1), depth + 1);
             case Arm64InstructionId.MOV_orr_64_log_shift:
@@ -617,10 +603,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         return reg >= 0;
     }
 
-    /// <summary>
-    /// "ccmp reg, #imm, #nzcv, cond" at step <paramref name="k"/> whose fallback flags also take the out-of-range branch
-    /// <paramref name="branch"/> (b.hi / b.hs): falling through still means reg is in range.
-    /// </summary>
+    /// <summary>A ccmp at step <paramref name="k"/> whose fallback flags also take <paramref name="branch"/>, so fall-through keeps reg in range.</summary>
     private bool ConditionalCompare(int k, uint branch, out int reg, out ulong imm)
     {
         reg = -1;
@@ -678,7 +661,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         uint? target = LabelOffset(in Back(0)) is { } off && TryRva(_imageBase + rva + (ulong)off, out uint t) ? t : null;
         uint? next = rva + 4;
         long bias = BiasBefore(k + 1, reg);
-        // the flags travel with the taken edge: a b.hi in the target block still bounds the compared register
+        // The flags travel with the taken edge: a b.hi in the target block still bounds the register.
         taken = new(0, 0, Bias: bias, FlagsReg: reg + 1, FlagsImm: imm);
         switch (cc)
         {
@@ -689,12 +672,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         }
     }
 
-    /// <summary>
-    /// The jump table dispatch ending at the last instruction (br xT), in any order within the run:
-    /// xT = base + (ext(load) &lt;&lt; s) with load = ldr{b,h,sb,sh,sw} / ldr w [xTab, xIdx{, lsl / uxtw / sxtw #k}] and base an
-    /// adr / adrp+add address or the table itself; or xT = ldr x [xTab, xIdx, lsl #3] (absolute entries). The index is
-    /// bounded by cmp + b.hi / b.hs on the path (with a sub bias), an and-mask, or a bound carried into the run.
-    /// </summary>
+    /// <summary>The jump table dispatch ending at the last br xT, relative or absolute entries, with its index bound.</summary>
     public SwitchMatch? MatchSwitch(out string reason)
     {
         reason = SwitchMatch.NoDispatch;
@@ -726,7 +704,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
                 signed = ext.ExtendKind is Arm64ExtendKind.SXTB or Arm64ExtendKind.SXTH or Arm64ExtendKind.SXTW or Arm64ExtendKind.SXTX;
             }
         }
-        // either operand may be the base; the other is the loaded entry
+        // Either operand may be the base; the other is the loaded entry.
         foreach (var (baseReg, entryReg) in new[] { (Index(in x, 1), Index(in x, 2)), (Index(in x, 2), Index(in x, 1)) })
         {
             int lw = Writer(w + 1, entryReg);
@@ -769,7 +747,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         return new TableLoad(k, tableRva, a.BaseRegister.Index, a.IndexRegister.Index, size, signed);
     }
 
-    /// <summary>The bound of the load's index register, searched back from the load: a SwitchMatch without base, or null with the reason.</summary>
+    /// <summary>The bound of the load's index register searched back from the load; null with the reason when none.</summary>
     private SwitchMatch? Bound(TableLoad load, out string reason)
     {
         reason = "switch index bound not found";
@@ -782,7 +760,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
             if (x.Mnemonic is Arm64Mnemonic.BL or Arm64Mnemonic.BLR) return null;
             if (Condition(in x) is { } cc)
             {
-                // the branch nearest the dispatch bounds it; earlier ones on the same flags leave the run when taken
+                // The branch nearest the dispatch bounds it; earlier ones on the same flags leave the run.
                 if (pending == null) { pending = cc; pendingStep = k; }
                 continue;
             }
@@ -817,10 +795,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         return null;
     }
 
-    /// <summary>
-    /// The index is "and xI, xS, #mask" (step <paramref name="k"/>): an earlier "and wR, wS, #mask; cmp wR, #n; b.hi" of the
-    /// same source bounds it tighter than the mask (clang computes the masked value twice).
-    /// </summary>
+    /// <summary>A masked index bounded tighter by an earlier compare of the same masked source; clang computes it twice.</summary>
     private SwitchMatch? MaskedCompare(int k, int source, long mask, TableLoad load)
     {
         uint? pending = null;
@@ -854,11 +829,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
 
     public bool LastHasImplausibleDisplacement(uint rva) => false;
 
-    /// <summary>
-    /// A few address-forming instructions ending in BR through a register loaded from an import slot: ELF PLT entries
-    /// (adrp x16; ldr x17, [x16, #o]; add x16, x16, #o; br x17), Mach-O stubs (adrp x16; ldr x16, [x16, #o]; br x16) and
-    /// their arm64e forms (braa).
-    /// </summary>
+    /// <summary>A few address-forming instructions ending in BR through an import slot: ELF PLT entries and Mach-O stubs, arm64e included.</summary>
     public uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot)
     {
         _walking = false;

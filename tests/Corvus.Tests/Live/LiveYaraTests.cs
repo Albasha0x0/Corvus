@@ -55,6 +55,6 @@ public sealed class LiveYaraTests : LiveSessionTestBase
         await tools.LiveSession("spawn", program: Sqlite);
         var refused = await Assert.ThrowsAsync<ToolError>(() => tools.LiveRead("live-1", rules: Rule));
         Assert.Equal(ErrorCode.Unsupported, refused.Code);
-        Assert.Equal("the scripted session worker cannot save program memory, so the scan is not checked.", refused.Message);
+        Assert.Equal("the scripted session worker cannot save program memory; the scan is not checked.", refused.Message);
     }
 }

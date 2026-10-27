@@ -201,10 +201,7 @@ internal static class VisualStudio
         return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(Directory.Exists).ToList();
     }
 
-    /// <summary>
-    /// A stand-in for vcvarsall.bat of the newest installation that has one, or null without one: it applies the
-    /// environment vcvarsall set for x64 or x86, read once per run, and calls vcvarsall itself for other targets.
-    /// </summary>
+    /// <summary>A stand-in for the newest vcvarsall.bat, or null: x64 and x86 environments read once per run, other targets call vcvarsall.</summary>
     public static string? VcVarsAll() => SavedVcVars.Value;
 
     /// <summary>True when an installation has vcvarsall.bat; reads vswhere only, so a skip check stays cheap.</summary>
@@ -213,8 +210,7 @@ internal static class VisualStudio
     private static readonly Lazy<string?> FoundVcVars = new(() =>
         Installations().Select(i => Path.Combine(i, "VC", "Auxiliary", "Build", "vcvarsall.bat")).FirstOrDefault(File.Exists));
 
-    // A vcvarsall call took minutes on a loaded machine, and parallel sample builds that each made one passed their
-    // 300 s limit; one call per target per run keeps that cost out of every build.
+    // One vcvarsall call per target per run: parallel builds each calling it passed their 300 s limit under load.
     private static readonly Lazy<string?> SavedVcVars = new(() =>
     {
         if (FoundVcVars.Value is not { } vcvarsall) return null;
@@ -254,11 +250,7 @@ internal static class VisualStudio
     }
 }
 
-/// <summary>
-/// Test-only <see cref="INativeImage"/>: headers and sections through System.Reflection.PortableExecutable, the file
-/// held in memory, base relocations (optional) from the relocation directory. Imports, exports and .pdata are not read.
-/// The RTTI tests use it to read an image without its relocations; real files otherwise go through PeFile.
-/// </summary>
+/// <summary>Test-only <see cref="INativeImage"/> reading headers, sections and optional base relocations, for RTTI tests without relocations.</summary>
 internal sealed class MsvcTestImage : INativeImage
 {
     private readonly byte[] file;
@@ -368,7 +360,7 @@ internal sealed class MsvcTestImage : INativeImage
             }
             uint inSection = at - s.Rva;
             int chunk = (int)Math.Min((uint)(destination.Length - done), s.MappedSize - inSection);
-            // raw bytes, then zero fill past the raw data or the end of the file
+            // Raw bytes, then zero fill past the raw data or the end of the file.
             long rawLeft = Math.Min((long)s.RawSize - inSection, file.Length - (s.RawOffset + (long)inSection));
             int copy = (int)Math.Clamp(rawLeft, 0, chunk);
             file.AsSpan((int)(s.RawOffset + inSection), copy).CopyTo(destination[done..]);

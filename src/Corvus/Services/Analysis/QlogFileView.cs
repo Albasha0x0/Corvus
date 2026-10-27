@@ -3,10 +3,7 @@ using Corvus.Core.Pcap;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=qlog: a qlog file (JSON or JSON-SEQ): its traces with vantage point, connection id, time span, event counts by
-/// name, packets sent and received by type, drops and connection closes, then a page of events (offset=, limit=).
-/// </summary>
+/// <summary>view=qlog: a qlog file's traces with event and packet counts, drops and closes, then a page of events (offset=, limit=).</summary>
 internal sealed class QlogFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxNames = 40;

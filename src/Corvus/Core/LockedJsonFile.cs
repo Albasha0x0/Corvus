@@ -4,16 +4,11 @@ using System.Text.Json;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A JSON record file shared by several server processes. An update takes &lt;file&gt;.lock exclusively, re-reads the file
-/// fresh, lets the caller merge its own changes onto what is there, and writes the result atomically through
-/// <see cref="SafeFile"/>, so concurrent writers never drop each other's records.
-/// </summary>
+/// <summary>A JSON record file shared by server processes; updates lock, re-read, merge and write atomically.</summary>
 public static class LockedJsonFile
 {
     /// <summary>How long an update waits for another writer of the same file before it reports the save as not made.</summary>
-    // A holder only reads, merges and writes one small file, so a wait costs nothing without contention; on a loaded
-    // machine that write took over 2 s, and a save that gives up loses the user's note or name.
+    // On a loaded machine one write took over 2 s, and a save that gives up loses the user's note or name.
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>What an update does with the file: write new bytes, delete it, or leave it untouched with a problem.</summary>
@@ -30,10 +25,7 @@ public static class LockedJsonFile
     private static readonly ConcurrentDictionary<string, object> Gates =
         new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
-    /// <summary>
-    /// Holds the cross-process lock of <paramref name="file"/> until disposed; null with <paramref name="problem"/> when it
-    /// is not acquired within <paramref name="timeout"/>. The OS releases it when the holder dies, so it cannot go stale.
-    /// </summary>
+    /// <summary>Holds the cross-process lock of <paramref name="file"/> until disposed; null with <paramref name="problem"/> on timeout; the OS releases it if the holder dies.</summary>
     public static IDisposable? TryLock(string file, TimeSpan timeout, out string? problem)
     {
         var full = Path.GetFullPath(file);
@@ -53,8 +45,7 @@ public static class LockedJsonFile
     private static FileStream? OpenLockFile(string lockPath, TimeSpan timeout, out string? problem)
     {
         var clock = Stopwatch.StartNew();
-        // Windows refuses to open a delete-pending file, so deleting on close is safe there; on Unix a waiter could lock
-        // an unlinked inode while a third process creates a new one, so the lock file stays.
+        // Delete on close only on Windows: on Unix a waiter could lock an unlinked inode while another creates a new one.
         var options = OperatingSystem.IsWindows() ? FileOptions.DeleteOnClose : FileOptions.None;
         for (int delay = 1; ; delay = Math.Min(delay * 2, 50))
         {
@@ -88,11 +79,8 @@ public static class LockedJsonFile
         }
     }
 
-    /// <summary>
-    /// Under the lock, runs <paramref name="change"/> (which reads the file fresh itself) and applies its result.
-    /// <paramref name="written"/> runs after a successful write, still under the lock.
-    /// Returns null on success, else the problem; the file is never left torn.
-    /// </summary>
+    /// <summary>Runs <paramref name="change"/> under the lock and applies it; null on success, else the problem; never leaves the file torn.</summary>
+    /// <remarks><paramref name="change"/> reads the file fresh; <paramref name="written"/> runs after a successful write, still under the lock.</remarks>
     public static string? Update(string file, Func<Change> change, TimeSpan? timeout = null, Action? written = null)
     {
         using var held = TryLock(file, timeout ?? DefaultTimeout, out var problem);
@@ -117,10 +105,7 @@ public static class LockedJsonFile
         }
     }
 
-    /// <summary>
-    /// Reads <paramref name="file"/> without blocking writers. Null value and no problem when it does not exist; a
-    /// problem when it cannot be read or parsed.
-    /// </summary>
+    /// <summary>Reads <paramref name="file"/> without blocking writers; a null value when absent, a problem when unreadable.</summary>
     public static (T? Value, string? Problem) Read<T>(string file, JsonSerializerOptions? options = null) where T : class
     {
         try
@@ -134,10 +119,7 @@ public static class LockedJsonFile
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return (null, ex.Message); }
     }
 
-    /// <summary>
-    /// Re-reads the record under the lock and writes <paramref name="merge"/>'s result (null deletes the file). A file
-    /// that cannot be read or parsed is left untouched. Returns what was written, or the problem.
-    /// </summary>
+    /// <summary>Writes <paramref name="merge"/>'s result under the lock (null deletes); an unreadable file is left untouched.</summary>
     public static (T? Written, string? Problem) Update<T>(string file, Func<T?, T?> merge, JsonSerializerOptions? options = null, TimeSpan? timeout = null)
         where T : class
     {

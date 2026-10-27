@@ -10,11 +10,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// inspect_process: the read-only guarantee (access masks, no write-capable API bound) and a real inspection of a child
-/// process this test owns (findstr waiting on its input, 64-bit and 32-bit), checked to be unchanged afterwards: the
-/// bytes of its writable image sections, its threads' suspend counts, and that it still answers. Skipped off Windows.
-/// </summary>
+/// <summary>inspect_process is read-only: a child process's sections, suspend counts and responsiveness are unchanged.</summary>
 public sealed class LiveProcessTests(ITestOutputHelper output)
 {
     [Fact]
@@ -53,7 +49,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
         Assert.Equal(ErrorCode.NotFound, (await Fails("no-such-process-" + Guid.NewGuid().ToString("N")[..8])).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Fails(Environment.ProcessId.ToString())).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Fails("1", "bogus")).Code);
-        // the System process (pid 4) exists and is never readable from user mode
+        // The System process (pid 4) exists and is never readable from user mode.
         var system = await Fails("4");
         Assert.True(system.Code is ErrorCode.AccessDenied or ErrorCode.NotFound, system.Code.ToString());
     }
@@ -90,7 +86,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
         {
             await Send(child, "x-before");
             // findstr settles after its first line (its output buffer is first touched then): wait until its writable data is
-            // stable; empty until the loader lists its image (a loaded machine started it later), and two empty reads are not stable
+            // stable; empty until the loader lists its image (a loaded machine started it later), and two empty reads are not stable.
             var before = Snapshot(child.Id);
             for (var settle = Stopwatch.StartNew(); settle.Elapsed < TimeSpan.FromSeconds(30);)
             {
@@ -127,7 +123,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
             Assert.Contains(modules, m => m.Name.Equals("ntdll.dll", StringComparison.OrdinalIgnoreCase));
             Assert.NotEmpty(regions.Items!);
             Assert.All(rows, t => Assert.Equal(0u, t.SuspendCount));
-            // the main thread waits in a read of its input: the stack runs from an ntdll system call stub up into findstr
+            // The main thread waits in a read of its input: the stack runs from an ntdll system call stub up into findstr.
             List<MinidumpService.StackFrame>? main = null;
             foreach (var t in rows)
             {
@@ -146,7 +142,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
             Assert.Equal(before.Suspended, after.Suspended);
             Assert.Equal(0, after.Suspended);
             Assert.False(child.HasExited);
-            // still working after the inspection: it takes more input and, at end of input, writes every matching line and exits normally
+            // Still working after the inspection: it takes more input and, at end of input, writes every matching line and exits normally.
             await child.StandardInput.WriteLineAsync("x-after");
             child.StandardInput.Close();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -211,11 +207,7 @@ public sealed class LiveProcessTests(ITestOutputHelper output)
     }
 }
 
-/// <summary>
-/// Every process of this session inspected with stacks: each call either succeeds with every handle closed or fails
-/// with a typed error (access denied, exited, the time limit); prints the runner numbers (processes, frames, named
-/// frames, time).
-/// </summary>
+/// <summary>Every session process inspected with stacks succeeds with handles closed or fails with a typed error.</summary>
 [Trait("Speed", "Slow")]
 public sealed class LiveProcessSweepTests(ITestOutputHelper output)
 {
@@ -232,8 +224,7 @@ public sealed class LiveProcessSweepTests(ITestOutputHelper output)
         long slowest = 0;
         string slowestName = "";
         var all = Process.GetProcesses();
-        // bounded: the first 40 by id (about 10 s)
-        // Process 0, listed in session 0, is refused by its own test.
+        // Bounded: the first 40 by id (about 10 s); process 0, listed in session 0, is refused by its own test.
         var targets = all.Where(p => p.SessionId == session && p.Id != 0 && p.Id != Environment.ProcessId).Select(p => (p.Id, p.ProcessName)).OrderBy(p => p.Id).Take(40).ToList();
         foreach (var p in all) p.Dispose();
         foreach (var (pid, name) in targets)

@@ -20,11 +20,7 @@ internal sealed record A64Val(A64Kind Kind, uint At, string Why)
     public bool SameAs(A64Val o) => Kind == o.Kind && Num == o.Num && Rva == o.Rva && Loc == o.Loc && Kind is not (A64Kind.Merge or A64Kind.Field or A64Kind.Unknown);
 }
 
-/// <summary>
-/// Backward data flow in an ARM64 function: the value a register or stack slot holds before an instruction, through
-/// copies, constants (mov / movk), address forming (adr, adrp + add), loads (literal pools, globals, GOT slots, stack
-/// slots, fields), call results in x0, csel and the merges of predecessor paths; loops end in a cycle value.
-/// </summary>
+/// <summary>Backward data flow in an ARM64 function: the value a register or stack slot holds before an instruction; loops end in a cycle value.</summary>
 internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
 {
     public const int MaxPaths = 16;
@@ -95,13 +91,12 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
             _ => new A64Val(A64Kind.Merge, code.Blocks[block].FirstOrDefault()?.Rva ?? 0, $"{values.Count} paths meet at {host.Va(code.Graph.Blocks[block].Start)}")
                 { Inputs = [.. values], Truncated = truncated },
         };
-        // a value that depends on an unfinished loop head is not final: do not keep it
+        // A value that depends on an unfinished loop head is not final, so it is not cached.
         if (!ContainsCycle(result, _acyclic)) _atStart[key] = result;
         return result;
     }
 
-    /// <summary>Whether a cycle value is among <paramref name="v"/>'s inputs. Merges share inputs, so each value is walked once
-    /// (<paramref name="acyclic"/> holds the ones already found free of cycles); a plain walk is exponential in the merge depth.</summary>
+    /// <summary>Whether a cycle value is among <paramref name="v"/>'s inputs; <paramref name="acyclic"/> keeps the walk linear in shared merges.</summary>
     internal static bool ContainsCycle(A64Val v, HashSet<A64Val> acyclic)
     {
         if (v.Kind == A64Kind.Cycle) return true;
@@ -125,7 +120,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
     {
         var s = code.Blocks[block][k];
         var i = s.I;
-        // formatted only when a value is found: most steps leave the location alone
+        // Formatted only when a value is found; most steps leave the location alone.
         string? atText = null;
         string At() => atText ??= $"{s.Text} @{host.Va(s.Rva)}";
         if (loc.IsSlot)
@@ -145,7 +140,6 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
         }
 
         int r = loc.Value;
-        // writeback changes the base register
         if (A64Function.Memory(s) is { } mem && (mem.Accessor.IsPreIncrement || mem.Post)
             && mem.Accessor.BaseRegister is { Kind: Arm64RegisterKind.X } b && b.Index == r)
             return A64Val.Unknown($"advanced by the writeback of {At()}", s.Rva);
@@ -241,10 +235,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
         return A64Val.Unknown($"set by {At()}", s.Rva);
     }
 
-    /// <summary>
-    /// A v register written by step <paramref name="k"/>: fmov of an immediate (its bits) or of a register, movi #0, scvtf / ucvtf
-    /// of a constant; null for loads and stores, which the general path reads.
-    /// </summary>
+    /// <summary>The value fmov, movi #0 or scvtf / ucvtf at step <paramref name="k"/> gives a v register; null for loads, stores and other writes.</summary>
     private A64Val? Vector(A64Loc loc, int block, int k, int depth, string at)
     {
         var s = code.Blocks[block][k];
@@ -300,11 +291,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
         return new A64Val(A64Kind.Addr, at, why) { Rva = (uint)(va - Image.ImageBase) };
     }
 
-    /// <summary>
-    /// A load from a known address: an import slot, a GOT slot of a function this image exports, a writable global (its
-    /// writers), or the image's contents (literal pools and read-only data: relocated pointers become addresses, other
-    /// words constants).
-    /// </summary>
+    /// <summary>A load from a known address: import or GOT slot, writable global (its writers), or the image's contents.</summary>
     private A64Val Loaded(uint rva, int size, uint at, string why, bool constant)
     {
         if (host.ImportAt(rva) != null) return new A64Val(A64Kind.Import, at, why) { Rva = rva };
@@ -317,7 +304,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
         ulong value = BinaryPrimitives.ReadUInt64LittleEndian(b);
         if (size == 8 && host.IsRelocated(rva) && value >= Image.ImageBase && value - Image.ImageBase < Image.SizeOfImage)
             return new A64Val(A64Kind.Addr, at, $"{why} (pointer at 0x{Image.ImageBase + rva:X})") { Rva = (uint)(value - Image.ImageBase) };
-        // zero in a data section is filled at run time (read-only after load, e.g. CFG-protected pointers)
+        // Zero in a data section is filled at run time, as with CFG-protected pointers.
         if (value == 0 && !constant && Image.SectionAt(rva) is { IsExecutable: false }) return new A64Val(A64Kind.Global, at, why) { Rva = rva };
         return new A64Val(A64Kind.Const, at, $"{why} (contents of 0x{Image.ImageBase + rva:X})") { Num = value };
     }

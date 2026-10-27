@@ -8,33 +8,20 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// One certificate of a certificate file: names, validity, key, SHA-256 and SHA-1 fingerprints (hex), the SHA-256 SPKI
-/// pin (sha256/base64, the form of Android pin-set digests and OkHttp pins) and the extensions that place it in a chain.
-/// Ca is null without a basic constraints extension; empty lists mean the extension is absent.
-/// </summary>
+/// <summary>One certificate of a file; Ca is null without basic constraints, an empty list means the extension is absent.</summary>
 public sealed record CertificateEntry(int Index, string Source, string Subject, string Issuer, string Serial, DateTime NotBefore, DateTime NotAfter,
     string Key, string SignatureAlgorithm, string Sha256, string Sha1, string Pin, IReadOnlyList<string> Names, bool? Ca, int? PathLength,
     IReadOnlyList<string> KeyUsage, IReadOnlyList<string> ExtendedKeyUsage, string? SubjectKeyId, string? AuthorityKeyId, IReadOnlyList<string> Urls,
     bool SelfIssued);
 
-/// <summary>
-/// A chain from a certificate that issues no other certificate of the file, leaf first, as far as the file's certificates
-/// reach (indexes into the certificates). End names where it stops; Problems name links whose signature or constraints fail
-/// or could not be checked. ThisMachine is the platform's verdict with its trust store, or null when not asked.
-/// </summary>
+/// <summary>A leaf-first chain of certificate indexes; End names where it stops, ThisMachine is null when not asked.</summary>
 public sealed record CertificateChain(IReadOnlyList<int> Path, string End, IReadOnlyList<string> Problems, string? ThisMachine);
 
 /// <summary>A block that is not a certificate: a key (its type and pin, never its bytes), a request, a CRL, a signer, protected PKCS #12 contents.</summary>
 public sealed record CertificateFileItem(string Kind, string Source, string? Detail);
 
-/// <summary>
-/// A certificate file read without the platform store: PEM (any number of blocks), DER X.509, PKCS #7 (.p7b, .p7c, a
-/// signature block), PKCS #12 (.p12, .pfx; contents protected by a password other than the empty one are reported, not
-/// read), certificate requests, CRLs and keys. Chains are built from the file's certificates by issuer name, key
-/// identifier and verified signature. Damaged blocks are notes; nothing throws past <see cref="Read"/> except
-/// <see cref="InvalidDataException"/> when no block could be read at all.
-/// </summary>
+/// <summary>A PEM, DER, PKCS #7 or PKCS #12 certificate file; damaged blocks are notes, no readable block throws <see cref="InvalidDataException"/>.</summary>
+/// <remarks>Read without the platform store; PKCS #12 contents under a non-empty password are reported, not read.</remarks>
 public sealed class CertificateFile
 {
     public const int MaxCertificates = 10_000, MaxMachineChecks = 20;

@@ -8,13 +8,7 @@ using Corvus.Native.Providers.Worker.Yara;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=yara: the query is a YARA rule file, a folder of them, an installed rule pack
-/// (pack:&lt;name&gt;, <see cref="RulePacks"/>), or else rule text, compiled and run by YARA-X in a
-/// <c>corvus worker</c> process over the file and each container member; rows are the rules that matched, with the file
-/// or member path, tags, metadata and pattern offsets. Rules that do not compile are named with their file, line and
-/// rule, and the rest still run.
-/// </summary>
+/// <summary>search_container kind=yara: rules from a file, folder, pack or text run by YARA-X in a worker; rules that do not compile are named and the rest still run.</summary>
 internal sealed class YaraSearchKind : IContainerSearchKind
 {
     /// <summary>A scan's hard limit; YARA-X's own timeout is whole seconds and best effort.</summary>
@@ -40,10 +34,7 @@ internal sealed class YaraSearchKind : IContainerSearchKind
             Notes(result, fromQuery));
     }
 
-    /// <summary>
-    /// <paramref name="request"/> with the rules <paramref name="query"/> names: an installed pack or an existing file or
-    /// folder is read, anything else is compiled as rule text (then true).
-    /// </summary>
+    /// <summary>Sets the rules <paramref name="query"/> names on <paramref name="request"/>; true when it is compiled as rule text.</summary>
     internal static bool WithRules(JsonObject request, string query)
     {
         var rules = RulePacks.ResolveQuery(query, RulePacks.Root) ?? RulePath(query);

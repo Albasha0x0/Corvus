@@ -16,7 +16,7 @@ public sealed class AndroidPackageTests : IDisposable
     private string Apk(int targetSdk = 30, params (string, byte[])[] extra) => AndroidSamples.Save(_dir, $"app{targetSdk}-{extra.Length}.apk", AndroidSamples.Apk(targetSdk, extra));
 
     [Fact]
-    public void Manifest_Summary_ResolvesReferences_AndAppliesTheExportedRules()
+    public void Manifest_summary_resolves_references_and_applies_the_exported_rules()
     {
         var m = _service.Manifest(Apk());
         Assert.Equal(("com.example.app", "42", "1.2", 24, 30, 34), (m.Package, m.VersionCode, m.VersionName, m.MinSdk, m.TargetSdk, m.CompileSdk));
@@ -54,7 +54,7 @@ public sealed class AndroidPackageTests : IDisposable
     }
 
     [Fact]
-    public void Manifest_Api31_FlagsAFilterWithoutExported()
+    public void Manifest_for_API_31_flags_a_filter_without_exported()
     {
         var m = _service.Manifest(Apk(targetSdk: 33));
         var link = m.Components.Single(c => c.Name.EndsWith("LinkActivity", StringComparison.Ordinal));
@@ -63,7 +63,7 @@ public sealed class AndroidPackageTests : IDisposable
     }
 
     [Fact]
-    public void Resources_FilterByTypeNameAndConfig_WithBagsAndFiles()
+    public void Resources_filter_by_type_name_and_config_with_bags_and_files()
     {
         var path = Apk();
         var all = _service.Resources(path, null, null, null, 0, 500);
@@ -82,7 +82,7 @@ public sealed class AndroidPackageTests : IDisposable
     }
 
     [Fact]
-    public void Resource_ByPathOrName_DecodesBinaryXml_AndSaves()
+    public void Resource_by_path_or_name_decodes_binary_XML_and_saves()
     {
         var path = Apk();
         var manifest = _service.Resource(path, "AndroidManifest.xml", null, false).Text;
@@ -106,7 +106,7 @@ public sealed class AndroidPackageTests : IDisposable
     }
 
     [Fact]
-    public void SplitSets_AreReadThroughTheirBaseApk_AndOtherZipsAreRefused()
+    public void Split_sets_are_read_through_their_base_APK_and_other_zips_are_refused()
     {
         var set = AndroidSamples.Save(_dir, "app.apks", ContainerFixtures.Zip(("splits/config.arm64_v8a.apk", ContainerFixtures.Zip(("lib/arm64-v8a/libx.so", [1]))),
             ("splits/base-master.apk", AndroidSamples.Apk()), ("toc.pb", [0])));
@@ -123,7 +123,7 @@ public sealed class AndroidPackageTests : IDisposable
     }
 
     [Fact]
-    public void Summarize_ReportsRuntimesWithEvidence_AbisDexAndSignature()
+    public void Summarize_reports_runtimes_with_evidence_ABIs_DEX_and_signature()
     {
         byte[] metadata = [0xAF, 0x1B, 0xB1, 0xFA, 31, 0, 0, 0];
         var path = Apk(30,
@@ -135,8 +135,8 @@ public sealed class AndroidPackageTests : IDisposable
         var summary = new InspectionService(workspace).Summarize(null, path, default);
         var a = summary.Android!;
         Assert.Equal(("apk", "com.example.app", "1.2", 24, 30), (a.Kind, a.Package, a.VersionName, a.MinSdk, a.TargetSdk));
-        Assert.Equal(["dotnet-android", "unity-il2cpp", "flutter", "react-native", "kotlin"], a.Runtimes.Select(r => r.Family));
-        Assert.Equal("Unity Il2Cpp: metadata header readable", a.Runtimes[1].Note);
+        Assert.Equal(["dotnet-android", "aot", "flutter", "react-native", "kotlin"], a.Runtimes.Select(r => r.Family));
+        Assert.Equal("AOT: metadata header readable", a.Runtimes[1].Note);
         Assert.Contains("assets/bin/Data/Managed/Metadata/global-metadata.dat", a.Runtimes[1].Evidence);
         Assert.StartsWith("React Native: Hermes bytecode bundle;", a.Runtimes[3].Note);
         Assert.Equal(["arm64-v8a", "armeabi-v7a"], a.Abis);
@@ -147,7 +147,7 @@ public sealed class AndroidPackageTests : IDisposable
         Assert.Contains(summary.Highlights, h => h.StartsWith("APK signature: unsigned", StringComparison.Ordinal));
 
         var tampered = Apk(31, ("lib/arm64-v8a/libil2cpp.so", [0x7F]), ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [1, 2, 3, 4]));
-        var il2cpp = new InspectionService(workspace).Summarize(null, tampered, default).Android!.Runtimes.Single();
-        Assert.Contains("encrypted or tampered", il2cpp.Note);
+        var aot = new InspectionService(workspace).Summarize(null, tampered, default).Android!.Runtimes.Single();
+        Assert.Contains("encrypted or tampered", aot.Note);
     }
 }

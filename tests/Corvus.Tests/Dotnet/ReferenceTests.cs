@@ -13,7 +13,7 @@ public class ReferenceTests : IDisposable
         _env.References.FindReferences(_env.One(symbol, kind), virtualCalls, 1000, default).Items;
 
     [Fact]
-    public void MethodCallSites()
+    public void Method_references_name_the_call_site()
     {
         var r = Assert.Single(Refs("Secret::Validate"));
         Assert.Equal("CheckPreview", r.Where.Name);
@@ -22,7 +22,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void CrossAssemblyReferences()
+    public void References_are_found_across_assemblies()
     {
         Assert.Contains(Refs("Account::.ctor"), r => r.Where.Name == "Open" && r.Assembly.Id == "TestFixture.Consumer");
         Assert.Contains(Refs("Shop::Buy"), r => r.Where.Name == "TryBuy");
@@ -32,7 +32,7 @@ public class ReferenceTests : IDisposable
     [Fact]
     public void Rows_of_one_owner_are_distinct()
     {
-        // a comparer over the target implements two generic interfaces, and carries an attribute twice
+        // A comparer over the target implements two generic interfaces, and carries an attribute twice.
         var module = _env.Fixture.Module;
         var account = _env.Def<TypeDef>("Account", SymbolKind.Type);
         var accountSig = new ClassSig(account);
@@ -57,7 +57,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void VirtualAndInterfaceDispatch()
+    public void References_follow_virtual_and_interface_dispatch()
     {
         // Branch.Bill calls IChargeable.Charge, Branch.Total calls Entity.Score: both dispatch to Account.
         var charge = Refs("Account::Charge(int)");
@@ -71,7 +71,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void CrossAssemblyFieldReferencesAreFieldsNotMethods()
+    public void Cross_assembly_field_references_are_fields_not_methods()
     {
         // A MemberRef to a field in another assembly is both IMethod and IField in dnlib; it must be treated as a field.
         Assert.Contains(Refs("Entity::Name"), r => r.Where.Name == "NameOf" && r.Kind == "read");
@@ -83,7 +83,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void FieldReadsWritesAndAddresses()
+    public void Field_references_distinguish_reads_and_writes()
     {
         var r = Refs("Account::_balance");
         Assert.Contains(r, i => i.Kind == "write" && i.Where.Name == "set_Balance");
@@ -93,14 +93,14 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void PropertyAndEventAccessors()
+    public void Property_references_reach_accessors_in_state_machines()
     {
         Assert.Contains(Refs("Account::Balance"), i => i.Kind == "get" && i.Where.Name == "MoveNext"); // inside LoadAsync's state machine
         Assert.Empty(Refs("Fixture.Model.Account::Closed", kind: SymbolKind.Event)); // raised through the backing field
     }
 
     [Fact]
-    public void TypeUsagesInEveryPosition()
+    public void Type_references_are_found_in_every_position()
     {
         var chargeable = Refs("IChargeable", kind: SymbolKind.Type);
         Assert.Contains(chargeable, i => i.Kind == "implements" && i.Where.Name == "Account");
@@ -114,7 +114,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void LimitKeepsTotal()
+    public void Limit_keeps_total()
     {
         var r = _env.References.FindReferences(_env.One("Account::_balance"), true, 2, default);
         Assert.Equal(2, r.Items.Count);
@@ -122,7 +122,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void Callees()
+    public void Callees_list_calls_and_strings()
     {
         var list = _env.References.FindCallees(_env.Def<MethodDef>("Account::Charge(int, string)"));
         Assert.Contains(list, c => c.Target.Contains("::Log("));
@@ -132,7 +132,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void OverridesAndImplementationsAcrossAssemblies()
+    public void Overrides_and_implementations_across_assemblies()
     {
         var tick = _env.References.FindOverrides(_env.Def<MethodDef>("Entity::Tick"), default);
         Assert.Contains(tick, s => ((MethodDef)s.Member).DeclaringType.Name == "Archive");
@@ -144,7 +144,7 @@ public class ReferenceTests : IDisposable
     }
 
     [Fact]
-    public void Hierarchy()
+    public void The_hierarchy_lists_bases_interfaces_and_derived_types()
     {
         var h = _env.References.GetHierarchy(_env.Def<TypeDef>("Account", SymbolKind.Type), 100, default);
         Assert.StartsWith("Fixture.Model.Entity", h.BaseChain[0]);

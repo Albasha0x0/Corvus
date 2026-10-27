@@ -91,7 +91,8 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(["Lcom/example/app/Web;->setup(Landroid/webkit/WebView;)V +0xe: Landroid/webkit/WebView;->addJavascriptInterface(\"Android\")"], Locations(Rule(r, "android-webview-bridge")));
         Assert.Equal("MASVS-PLATFORM-2", Rule(r, "android-webview-bridge").Rule!.Masvs);
         Assert.Equal(["Lcom/example/app/Web;->setup(Landroid/webkit/WebView;)V +0x5: Landroid/webkit/WebSettings;->setJavaScriptEnabled(1)"], Locations(Rule(r, "android-webview-javascript")));
-        Assert.DoesNotContain(r.Features, f => f.Rule?.Id == "android-webview-file-access"); // set to false
+        // Set to false.
+        Assert.DoesNotContain(r.Features, f => f.Rule?.Id == "android-webview-file-access");
         Assert.Equal("high", Rule(r, "android-webview-ssl-proceed").Rule!.Severity);
     }
 
@@ -128,7 +129,8 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
         var r = Survey(path);
         Assert.DoesNotContain(r.Features, f => f.Rule?.Id == "android-weak-hash");
         Assert.Contains(r.Notes, n => n.Contains("left out: android-weak-hash (1)", StringComparison.Ordinal));
-        Assert.All(r.Features, f => Assert.Equal("android", f.Rule?.Platform)); // the .NET and native rules do not run on DEX
+        // The .NET and native rules do not run on DEX.
+        Assert.All(r.Features, f => Assert.Equal("android", f.Rule?.Platform));
     }
 
     [Fact]
@@ -353,12 +355,13 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
     [RequiresRealDataFact(RealData.MobileApps)]
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void Real_apps_per_rule_counts_and_time()
+    public void Real_apps_report_counts_and_time_per_rule()
     {
         var root = RealData.Path(RealData.MobileApps);
         var apps = Directory.EnumerateFiles(root, "*.*", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2 })
             .Where(f => f.EndsWith(".apk", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".ipa", StringComparison.OrdinalIgnoreCase))
-            .Where(f => { using var s = File.OpenRead(f); return s.ReadByte() == 'P' && s.ReadByte() == 'K'; }) // not Alpine packages
+            // Not Alpine packages.
+            .Where(f => { using var s = File.OpenRead(f); return s.ReadByte() == 'P' && s.ReadByte() == 'K'; })
             .Concat(Directory.EnumerateDirectories(root, "*.app", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 4 })
                 .Select(AppleFileView.MainExecutable).OfType<string>())
             .OrderBy(f => new FileInfo(f).Length).ToList();

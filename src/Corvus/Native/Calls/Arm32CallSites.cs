@@ -6,13 +6,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// 32-bit ARM call sites under the AAPCS: arguments in r0-r3, then 4-byte stack slots at the call's sp, each recovered by
-/// the backward resolver (constants, MOVW / MOVT, literal pools, PC-relative addresses and the strings there, loads from
-/// known addresses, stack buffers, earlier call results). Known APIs (<see cref="ApiSignatures"/>) give names, counts and
-/// constant decoding; other callees get the registers set before the call. Floating-point arguments are not recovered.
-/// One instance per code index, thread-safe.
-/// </summary>
+/// <summary>AAPCS call-site arguments (r0-r3, then stack slots) recovered by the backward resolver; no floating point; thread-safe.</summary>
 internal sealed class Arm32CallSites : ICallSites
 {
     private static readonly ConditionalWeakTable<NativeCodeIndex, Arm32CallSites> Table = new();
@@ -108,7 +102,7 @@ internal sealed class Arm32CallSites : ICallSites
             }
             if (p is { Type: ApiParamType.Int64 } or { IsPair: true })
             {
-                // a register pair or a struct: where the later arguments go depends on alignment this does not model
+                // Placement after a register pair or struct depends on alignment, which is not modelled.
                 args.Add(new CallArgument(i, p.Name, p.TypeName, location, ArgKind.Unknown, null, null, "?", $"{(p.IsPair ? "struct" : "64-bit")} arguments are not recovered"));
                 break;
             }
@@ -121,11 +115,7 @@ internal sealed class Arm32CallSites : ICallSites
         return new CallSiteInfo(s.Rva, code.Function, callee, kind, import, target, null, signature, signature == null, args, s.Facts.Flow == FlowKind.Jump);
     }
 
-    /// <summary>
-    /// A blx / bx through [[receiver] + slot] where the receiver is a JNIEnv (a native method's first parameter, or the
-    /// environment JavaVM::GetEnv / AttachCurrentThread stored in a local) or a JavaVM (JNI_OnLoad's first parameter):
-    /// the function of that table, "JNIEnv::FindClass"; null otherwise.
-    /// </summary>
+    /// <summary>The JNIEnv or JavaVM function a blx / bx through [[receiver] + slot] calls ("JNIEnv::FindClass"), or null.</summary>
     private string? JniCall(Arm32Trace trace, A32Function code, int b, int k, bool viaLocal = true)
     {
         var s = code.Blocks[b][k];
@@ -138,10 +128,7 @@ internal sealed class Arm32CallSites : ICallSites
         return kind is { } t ? JniInterface.Name(t, (int)(target.Num / 4)) : null;
     }
 
-    /// <summary>
-    /// The value is the first parameter on every path the resolver finished (reloads and loops included; a path cut at
-    /// the step budget neither confirms nor denies it).
-    /// </summary>
+    /// <summary>Whether the value is the first parameter on every finished path; paths cut at the budget do not count.</summary>
     private static bool FirstParameter(A32Val v) => v.Kind switch
     {
         A64Kind.Incoming => v.Loc is { IsSlot: false, Value: 0 },
@@ -151,10 +138,7 @@ internal sealed class Arm32CallSites : ICallSites
 
     private static bool Open(A32Val v) => v.Kind == A64Kind.Cycle || v is { Kind: A64Kind.Unknown, Truncated: true } || v is { Kind: A64Kind.Merge, Inputs: { } inputs } && inputs.All(Open);
 
-    /// <summary>
-    /// The receiver of the table load at <paramref name="tableLoad"/> was read from a stack slot whose address an earlier
-    /// JavaVM::GetEnv / AttachCurrentThread call took as its environment out parameter.
-    /// </summary>
+    /// <summary>Whether the table load's receiver comes from a slot an earlier GetEnv / AttachCurrentThread call filled.</summary>
     private bool EnvLocal(Arm32Trace trace, A32Function code, uint tableLoad)
     {
         var (b, k) = code.Position(tableLoad);

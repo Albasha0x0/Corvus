@@ -26,10 +26,7 @@ public sealed record PySlice(object Start, object Stop, object Step);
 /// <summary>A complex constant.</summary>
 public sealed record PyComplex(double Real, double Imaginary);
 
-/// <summary>
-/// A code object with the fields of every layout from 2.7 to 3.14: 3.11 and later keep locals, cells and free variables
-/// in <see cref="LocalsPlusNames"/> with their <see cref="LocalsPlusKinds"/>; the earlier layouts fill the separate lists.
-/// </summary>
+/// <summary>A code object of any layout from 2.7 to 3.14; 3.11+ fills <see cref="LocalsPlusNames"/> instead of separate lists.</summary>
 public sealed class PyCode
 {
     public int ArgCount { get; set; }
@@ -55,10 +52,7 @@ public sealed class PyCode
     public byte[] ExceptionTable { get; set; } = [];
 }
 
-/// <summary>
-/// The marshal format of Python 2.7 to 3.14, read without running anything: every count is checked against the bytes
-/// left, nesting is bounded, and back references (3.4+) resolve only to objects already read.
-/// </summary>
+/// <summary>The marshal format of Python 2.7 to 3.14, read with checked counts, bounded nesting and back references to read objects only.</summary>
 public sealed class PyMarshal
 {
     private const int MaxDepth = 400;
@@ -67,7 +61,8 @@ public sealed class PyMarshal
     private readonly byte[] _data;
     private int _pos, _depth;
     private readonly List<object?> _refs = [];
-    private readonly List<PyBytes> _interned = []; // Python 2 'R' references
+    // Python 2 'R' references.
+    private readonly List<PyBytes> _interned = [];
     private readonly (int Major, int Minor) _version;
 
     private PyMarshal(byte[] data, int start, (int, int) version)
@@ -225,8 +220,7 @@ public sealed class PyMarshal
         int count = n == int.MinValue ? -1 : Math.Abs(n);
         if (count < 0 || count > MaxLongDigits || count > (_data.Length - _pos) / 2) throw Bad($"long of {n} digits");
         var digits = Take(count * 2);
-        // Packed into little-endian bytes: building by shifts is quadratic in the
-        // digit count.
+        // Packed into little-endian bytes: building by shifts is quadratic in the digit count.
         var bits = new byte[(count * 15 + 7) / 8 + 1];
         for (int i = 0; i < count; i++)
         {
@@ -238,7 +232,7 @@ public sealed class PyMarshal
         }
         var v = new BigInteger(bits, isUnsigned: true);
         if (n < 0) v = -v;
-        // a Python 2 long stays a BigInteger: its repr carries an L
+        // A Python 2 long stays a BigInteger: its repr carries an L.
         return _version.Major >= 3 && v >= long.MinValue && v <= long.MaxValue ? (long)v : v;
     }
 

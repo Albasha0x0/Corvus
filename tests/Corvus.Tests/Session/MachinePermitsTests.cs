@@ -151,8 +151,7 @@ public class MachinePermitsTests
                 var waiter = steps.Wait();
                 for (int i = 0; i < 4; i++)
                 {
-                    // Read the record after the clock moves: a heartbeat written before it may already be seen at
-                    // the old time, and a delayed timer then leaves the step without progress.
+                    // Read after the clock moves: a heartbeat written before may show the old time.
                     await steps.Advance(TimeSpan.FromMilliseconds(500), () =>
                     {
                         var before = steps.Record();
@@ -183,10 +182,7 @@ public class MachinePermitsTests
             MachinePermits.TakeAsync(["one"], Folder, Counts, default, TimeSpan.FromMilliseconds(600), clock: () => _now, polled: () => _polls.Release(),
                 holderLookupLimit: TimeSpan.FromSeconds(5));
 
-        /// <summary>
-        /// Moves the clock on, runs <paramref name="act"/>, then waits for two of the waiter's polls, so one checked the
-        /// records after the act whatever the machine's load.
-        /// </summary>
+        /// <summary>Moves the clock, runs <paramref name="act"/>, then waits two polls so one checked the records after the act.</summary>
         public async Task Advance(TimeSpan by, Action act)
         {
             _now += by;

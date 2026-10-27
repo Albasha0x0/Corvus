@@ -5,10 +5,7 @@ namespace Corvus.Services.Simplify;
 /// <summary>Generic method instantiations: method type parameters (!!n) replaced by the arguments of the instantiation.</summary>
 internal static class Generics
 {
-    /// <summary>
-    /// <paramref name="sig"/> with !!n replaced by <paramref name="methodArgs"/>[n] (custom modifiers and pinned dropped);
-    /// unchanged when there are no arguments. A type parameter of a type (!n) stays as it is.
-    /// </summary>
+    /// <summary><paramref name="sig"/> with !!n replaced by <paramref name="methodArgs"/>[n], modifiers dropped; !n and no arguments leave it unchanged.</summary>
     public static TypeSig? Substitute(TypeSig? sig, IList<TypeSig>? methodArgs)
     {
         if (sig == null || methodArgs == null || methodArgs.Count == 0) return sig;

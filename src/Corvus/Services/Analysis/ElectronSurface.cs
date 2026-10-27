@@ -1,11 +1,6 @@
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// One place where an Electron app's JavaScript crosses a boundary: a window and its preload script, a key or method exposed
-/// through contextBridge, an IPC channel handled in main or used from a renderer, a sink (child_process, fs, shell), or a
-/// native add-on loaded or called. <see cref="Value"/> is the channel, key or function when it resolves to a string, else
-/// the expression; <see cref="Site"/> is file:line:column.
-/// </summary>
+/// <summary>A boundary crossing in an Electron app's JavaScript; Value is the resolved string or else the expression, Site is file:line:column.</summary>
 public sealed record ElectronRow(string Kind, string Value, string Site)
 {
     [System.ComponentModel.Description("ipcMain.handle, ipcRenderer.invoke via a wrapper, new BrowserWindow...")]
@@ -23,7 +18,7 @@ internal static class ElectronSurface
 {
     public const int MaxRows = 2000;
 
-    // call shape -> row kind; the first argument is the value
+    // Call shape to row kind; the first argument is the value.
     private static readonly (string Call, string Kind)[] Calls =
     [
         ("exposeInMainWorld(", "bridge-key"),
@@ -44,7 +39,7 @@ internal static class ElectronSurface
                 if (text[counted] == '\n') { line++; lineStart = counted + 1; }
             return $"{path}:{line}:{at - lineStart + 1}";
         }
-        // sites in text order, so the line counter only moves forward
+        // Sites in text order, so the line counter only moves forward.
         var found = new List<(int At, string Kind, string Value)>();
         foreach (var (call, kind) in Calls)
             for (int at = 0; (at = text.IndexOf(call, at, StringComparison.Ordinal)) >= 0; at += call.Length)
@@ -52,7 +47,7 @@ internal static class ElectronSurface
                 if (at > 0 && IsIdentifier(text[at - 1]) && call[0] != 'r') continue;
                 found.Add((at, kind, call.EndsWith('(') ? Argument(text, at + call.Length) : call));
             }
-        // native add-ons: a require of a .node file
+        // Native add-ons: a require of a .node file.
         for (int at = 0; (at = text.IndexOf(".node", at, StringComparison.Ordinal)) >= 0; at += 5)
             if (at + 5 < text.Length && text[at + 5] is '"' or '\'' or '`' && Literal(text, at + 5) is { } module)
                 found.Add((at, "native-require", module));

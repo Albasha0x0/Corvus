@@ -6,11 +6,7 @@ public static partial class MsvcEh
     {
         private const uint XdataX = 1u << 20, XdataE = 1u << 21;
 
-        /// <summary>
-        /// ARM64 .pdata: an entry with .xdata (flag 0) whose X bit is set has a language-specific handler after the
-        /// header, its extension word, the epilog scopes (none when E is set) and the unwind code words; its data
-        /// follows the handler RVA. Packed unwind data has no handler.
-        /// </summary>
+        /// <summary>ARM64: the handler and data of each .xdata entry with the X bit set; packed unwind data has no handler.</summary>
         public void Arm64()
         {
             var uses = new List<HandlerUse>();

@@ -2,10 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Corvus.Native.Providers.Live;
 
-/// <summary>
-/// The private Python environment of --live-install-frida: a venv under the data folder holding Frida
-/// <see cref="FridaVersions.Pinned"/>, installed by pip from hash-checked wheels only.
-/// </summary>
+/// <summary>The --live-install-frida venv holding Frida <see cref="FridaVersions.Pinned"/>, installed from hash-checked wheels only.</summary>
 public sealed class FridaEnvironment(string folder)
 {
     public const string Source = "private environment";
@@ -31,15 +28,12 @@ public sealed class FridaEnvironment(string folder)
     /// <summary>Whether a finished install is there (the marker is written last).</summary>
     public bool Complete => File.Exists(Path.Combine(Folder, CompleteMarker)) && File.Exists(Python);
 
-    /// <summary>
-    /// Creates the environment from <paramref name="basePython"/> unless it is complete: Python's venv module, then pip with
-    /// --require-hashes and wheels only. Returns its python, or null with <paramref name="problem"/> set.
-    /// </summary>
+    /// <summary>Creates the environment from <paramref name="basePython"/> unless complete; returns its python, or null with <paramref name="problem"/>.</summary>
     public string? Create(PythonInterpreter? basePython, out string? problem)
     {
         problem = null;
         if (Complete) return Python;
-        if (Offline) { problem = $"CORVUS_OFFLINE is set: the private Frida environment ({Folder}) is not created, since that downloads Frida {FridaVersions.Pinned}."; return null; }
+        if (Offline) { problem = $"CORVUS_OFFLINE is set: the private Frida environment ({Folder}) is not created, as it needs a download of Frida {FridaVersions.Pinned}."; return null; }
         if (FridaVersions.Requirements(Platform) is not { } requirements) { problem = $"No Frida {FridaVersions.Pinned} wheel is pinned for {Platform}."; return null; }
         if (basePython == null) { problem = "No 64-bit Python 3 was found to create the private Frida environment with."; return null; }
         lock (Gate)
@@ -47,14 +41,12 @@ public sealed class FridaEnvironment(string folder)
             try
             {
                 using var held = Hold();
-                if (Complete) return Python; // another server made it meanwhile
-                // an unfinished environment (no marker) is made again from scratch
+                // Another server made it meanwhile.
+                if (Complete) return Python;
+                // An unfinished environment (no marker) is made again from scratch.
                 if (Directory.Exists(Folder)) Directory.Delete(Folder, recursive: true);
                 Directory.CreateDirectory(Folder);
-                // Copying pip into the venv (ensurepip, about 1,000 files) took
-                // over the 2 min bound on a loaded machine, so a base pip that
-                // can install into another interpreter (--python) does the
-                // install, and the venv starts without pip.
+                // ensurepip overran the 2 min bound on a loaded machine: a base pip with --python installs instead.
                 bool basePip = PipTargetsOtherPython(basePython.Executable);
                 if (Step(basePython.Executable, basePip ? ["-I", "-m", "venv", "--without-pip", Folder] : ["-I", "-m", "venv", Folder], VenvTimeout, "python -m venv", out problem))
                     return null;

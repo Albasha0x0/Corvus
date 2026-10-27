@@ -78,7 +78,8 @@ public sealed class InstallerStubTests
         w.Write(0x00F14300); w.Write(2); w.Write(Guid.Parse("11111111-2222-3333-4444-555555555555").ToByteArray());
         w.Write(stub); w.Write(0); w.Write(0); w.Write(0); w.Write(1); w.Write(cabinets.Length);
         foreach (var c in cabinets) w.Write(c.Length);
-        var raw = (int)BitConverter.ToUInt32(image, pe.SectionTableOffset + 40 + 20); // the second section's PointerToRawData
+        // The second section's PointerToRawData.
+        var raw = (int)BitConverter.ToUInt32(image, pe.SectionTableOffset + 40 + 20);
         header.CopyTo(image, raw);
         return image;
     }
@@ -232,7 +233,7 @@ public sealed class InstallerStubTests
             w.Write(fixedPart);
         }
         var first = new BinaryWriter(new MemoryStream());
-        // field offsets per format: header (file counts, strings), file entry (size, strings, location, type)
+        // Field offsets per format: header (file counts, strings), file entry (size, strings, location, type).
         var (headerSize, files, strings, fileSize, fileStrings, fileAnsi, locationAt, typeAt) = older ? (157, 28, 28, 43, 10, 0, 20, 42) : (162, 32, 39, 80, 15, 1, 53, 79);
         var header = new byte[headerSize];
         BitConverter.TryWriteBytes(header.AsSpan(files), 2); // file entries

@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Registry;
 
-/// <summary>
-/// A Windows registry hive file (regf), read without the registry API: the 4,096-byte base block, then hive bins
-/// ("hbin") of cells. A cell starts with its size, negative while allocated; offsets count from the first bin. Keys are
-/// nk cells, values vk cells; subkeys are reached through li, lf, lh and ri lists, large data through db cells. Free
-/// cells keep the keys and values deleted from the hive until the space is reused; those are recovered by signature.
-/// </summary>
+/// <summary>A registry hive file (regf) read without the registry API; deleted keys and values in free cells are recovered.</summary>
 internal sealed class RegistryHive
 {
     /// <summary>The base block: stored file name, last write, format version, hive type, the two sequence numbers and whether its checksum holds.</summary>
@@ -216,10 +211,7 @@ internal sealed class RegistryHive
 
     private static string Shown(string name) => name.Length == 0 ? "(Default)" : name;
 
-    /// <summary>
-    /// The key at <paramref name="path"/> (names separated by '\', case-insensitive as the registry compares them; a leading
-    /// root key name may be given or left out); null when a step is not found.
-    /// </summary>
+    /// <summary>The key at a case-insensitive '\'-separated <paramref name="path"/>, root name optional; null when not found.</summary>
     public Key? Find(string path)
     {
         var key = Root;
@@ -255,10 +247,7 @@ internal sealed class RegistryHive
         }
     }
 
-    /// <summary>
-    /// Keys and values left in free cells: each free cell, and each 8-byte-aligned position inside one that holds an old
-    /// allocated cell (negative size, nk or vk signature). Their data is read where the cells it names are still intact.
-    /// </summary>
+    /// <summary>Keys and values left in free cells, found by signature at 8-byte alignment.</summary>
     public (List<Key> Keys, List<Value> Values) Recover(CancellationToken ct)
     {
         var keys = new List<Key>();
@@ -298,10 +287,7 @@ internal sealed class RegistryHive
         _ => $"type 0x{type:X}",
     };
 
-    /// <summary>
-    /// Data as its type reads: a string up to its terminator, a string list, a number, otherwise hex of the first
-    /// <paramref name="maxBytes"/> bytes; data too short for its type is shown as hex.
-    /// </summary>
+    /// <summary>Value data as its type reads, else hex of the first <paramref name="maxBytes"/> bytes.</summary>
     public static object Render(int type, byte[] data, int maxBytes = 256)
     {
         switch (type)

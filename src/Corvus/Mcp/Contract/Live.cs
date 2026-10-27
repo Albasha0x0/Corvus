@@ -9,20 +9,21 @@ public static partial class ToolEffects
 {
     private static Dictionary<string, Effects> LiveTools() => new(StringComparer.Ordinal)
     {
-        ["inspect_process"] = Reads(openWorld: true), // query and read handles to a running process only (docs/live-inspection.md); idempotent for the target
-        // the session tools change the session (opened, closed, stop points), never the observed program; gated by --allow-live
+        // Query and read handles to a running process only (docs/live-inspection.md).
+        ["inspect_process"] = Reads(openWorld: true),
+        // Session tools change the session, never the observed program; gated by --allow-live.
         ["live_session"] = Changes(destructive: false, idempotent: false, openWorld: true),
         ["live_break"] = Changes(destructive: false, idempotent: false, openWorld: true),
         ["live_watch"] = Changes(destructive: false, idempotent: false, openWorld: true),
         ["live_read"] = Reads(openWorld: true),
         ["live_events"] = Reads(openWorld: true),
-        // a user script runs inside the observed program and may change it; gated by --live-scripting as well
+        // A user script runs inside the observed program and may change it; also gated by --live-scripting.
         ["live_script"] = Changes(destructive: true, idempotent: false, openWorld: true),
-        // coverage stop points are resumed at once; the program runs as before
+        // Coverage stop points resume at once; the program runs as before.
         ["live_coverage"] = Changes(destructive: false, idempotent: false, openWorld: true),
-        // an event tracing session reads what the OS reports; the program is not touched
+        // An event tracing session reads what the OS reports; the program is not touched.
         ["live_timeline"] = Changes(destructive: false, idempotent: false, openWorld: true),
-        // starts a program under a console and types the script's input into it; gated by --allow-live-spawn as well
+        // Starts a program under a console and types the script's input; also gated by --allow-live-spawn.
         ["live_console"] = Changes(destructive: false, idempotent: false, openWorld: true),
     };
 }
@@ -54,14 +55,14 @@ public sealed partial record ToolContract
     private static Dictionary<string, ToolContract> LiveTools() => new(StringComparer.Ordinal)
     {
         ["inspect_process"] = Row(O.Report, L.Interactive),
-        ["live_session"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
-        ["live_break"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
-        ["live_watch"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
+        ["live_session"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
+        ["live_break"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
+        ["live_watch"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
         ["live_read"] = Row(O.Bytes, L.Interactive),
         ["live_events"] = Row(O.List, L.Instant, sort: "event sequence"),
-        ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --live-scripting"),
-        ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
-        ["live_timeline"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live"),
-        ["live_console"] = Row(O.Report, L.Interactive, noDryRun: "N14: gated by --allow-live and --allow-live-spawn"),
+        ["live_script"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live and --live-scripting"),
+        ["live_coverage"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
+        ["live_timeline"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live"),
+        ["live_console"] = Row(O.Report, L.Interactive, noDryRun: "gated by --allow-live and --allow-live-spawn"),
     };
 }

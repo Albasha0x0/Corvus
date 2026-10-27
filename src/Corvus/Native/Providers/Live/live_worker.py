@@ -5,19 +5,16 @@ perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_lo
 unload_script {id}; art_dump (Android: ART writes its thread dump; catcher: the Signal Catcher thread, or null); read {address, length}; capture_memory {path, protection, limit}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
 close {end, keep_handed}.
 Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
-With device (an adb serial), the program runs on that Android device, reached through the frida-server running there
-and the adb server; spawn takes a program path on the device or a package name, attach a pid or a process name.
-A program started here stays suspended until the first resume; close resumes every held thread, and ends the
-program only when this worker started it. A module named by defer_module holds its loading thread (module event with
-held) until release_load; a fatal exception event, and exit_status {code}, hold their thread until the
-worker has read them.
-With children {names} on open, a program the process starts is held at its start (Frida's child gating) and reported
-as a child event; one whose image name is not in names (when given) is resumed at once. resume_child lets a held child
-run, or with stopped (Linux) leaves it stopped for open {attach, stopped} in another worker; with hold (Linux) it
-runs with its first thread held at the main module's code (held: whether it got there) for an open {attach} in another
-worker, until resume_child for that pid again; with keep, the hold's session then stays attached until drop_child, so
-that the other worker's agent leaves first. close resumes every child still held; with keep_handed the worker keeps those
-sessions and serves drop_child until a close keeps none (kept: how many it keeps).
+- device (an adb serial): the program runs on that Android device through its frida-server; spawn takes a path or package, attach a pid or name.
+- A program started here stays suspended until the first resume; close resumes held threads and ends only programs started here.
+- defer_module holds the loading thread (module event with held) until release_load.
+- A fatal exception event and exit_status {code} hold their thread until the worker has read them.
+- children {names}: a started child is held (Frida's child gating) and reported; one not in names is resumed at once.
+- resume_child runs a held child; stopped (Linux) leaves it stopped for open {attach, stopped} in another worker.
+- resume_child hold (Linux): its first thread waits at the main module's code (held: reached) for open {attach} in
+  another worker, until resume_child again.
+- resume_child keep: the hold's session stays attached until drop_child, so the other worker's agent leaves first.
+- close resumes held children; keep_handed keeps those sessions and serves drop_child until a close keeps none (kept: count).
 """
 import json
 import os
@@ -29,14 +26,13 @@ import time
 
 _out = threading.Lock()
 OUTPUT_CHUNK = 4096  # bytes of one program output chunk kept in its event
-# Seconds a close waits for a thread it just let go from a stop to begin the
-# program's exit.
+# Seconds a close waits for a thread it just let go from a stop to begin the program's exit.
 EXIT_GRACE = 1.0
 
 # Holds the first thread that runs the main module's code until release. The exec gate resumes a child past its entry
-# point and past __libc_start_main, so a hook there never runs; a page access always does. A disable inside onAccess
-# ended the child with SIGSEGV in this worker (not reproduced in a standalone script), so the held thread gives every
-# page back its protection instead: no later access faults into another session's exception handler.
+# point and __libc_start_main, so a hook there never runs; a page access always does. A disable inside onAccess ended
+# the child with SIGSEGV here, so the held thread restores every page's protection itself and no later access faults
+# into another session's exception handler.
 HOLD_AT_CODE = """
 const release = recv('release', () => {});
 let held = false;
@@ -189,7 +185,7 @@ class Session:
         payload["event"] = kind
         emit(payload)
         with self.lock:
-            # once a close begins it answers what is awaited itself, so it knows whether an exit was let through
+            # Once a close begins it answers what is awaited itself, so it knows whether an exit was let through.
             if not ack or self.closing or self.script is None:
                 return
             if kind == "exit_status":
@@ -202,7 +198,7 @@ class Session:
             emit({"event": "output", "stream": "stdout" if fd == 1 else "stderr", "text": text, "bytes": len(data)})
 
     def on_child_added(self, child):
-        # Frida's signal thread must not wait on a call that needs it: the attach and resume run on a thread of their own
+        # Frida's signal thread must not wait on a call that needs it: the attach and resume run on their own thread.
         threading.Thread(target=self.child_added, args=(child,), daemon=True).start()
 
     def child_added(self, child):
@@ -215,7 +211,7 @@ class Session:
             return
         parent = child.parent_pid
         if origin == "exec" and fork is None and parent == child.pid:
-            # posix_spawn and vfork run the program with no fork event: the exec names the child as its own parent
+            # posix_spawn and vfork run the program with no fork event: the exec names the child as its own parent.
             parent = parent_of(child.pid)
         if fork is not None:
             self.detach_quietly(fork)
@@ -224,7 +220,7 @@ class Session:
                 self.resume_quietly(child.pid)  # an exec in another process's tree is not followed, nor left held
             return
         elif origin == "fork":
-            # a fork names no program until its exec: it is followed there, and held (or not) as the program it runs
+            # A fork names no program until its exec: it is followed there and held (or not) as that program.
             session = None
             try:
                 session = self.device.attach(child.pid)
@@ -238,7 +234,7 @@ class Session:
                 self.detach_quietly(session)
             self.resume_quietly(child.pid)
             return
-        # a program that starts a copy of itself runs /proc/self/exe: the image the link names is the program's own
+        # A program that starts a copy of itself runs /proc/self/exe, whose link names its own image.
         path = image_of(child.pid) or child.path or (child.argv[0] if child.argv else child.identifier) or ""
         name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
         held = self.child_names is None or name in self.child_names or name.rsplit(".", 1)[0] in self.child_names
@@ -293,8 +289,7 @@ class Session:
         if held:
             if args.get("stopped"):
                 # The gate's ptrace hold keeps another worker from attaching, and a child held at its exec has no libc
-                # to load an agent with: an attach here runs it until its libraries are loaded, and it leaves the gate
-                # stopped by SIGSTOP for the next worker's attach.
+                # for an agent: attaching runs it until its libraries load, then leaves it stopped by SIGSTOP.
                 self.device.attach(pid).detach()
                 os.kill(pid, signal.SIGSTOP)
             self.device.resume(pid)
@@ -302,8 +297,8 @@ class Session:
 
     def hold_at_code(self, pid):
         """Lets a gated child run held at its first instruction in the main module; returns (session, reached)."""
-        # The gate's ptrace hold keeps another worker from attaching, and a SIGSTOP hold is lost when an attach to it
-        # fails under load; a thread held by a script leaves the child attachable while it waits.
+        # The gate's ptrace hold keeps another worker from attaching, and a SIGSTOP hold is lost when an attach fails
+        # under load; a script-held thread keeps the child attachable.
         # Workaround for frida/frida-core#1270, tested on Frida 17.24.3.
         session = self.device.attach(pid)
         try:
@@ -333,8 +328,7 @@ class Session:
         if not keep:
             self.detach_quietly(session)
             return
-        # Every Frida agent patches exit, abort, sigaction and the loader's notification point, and one that leaves
-        # before an agent that came later stops the later agent's hooks there: the session stays until drop_child.
+        # An agent leaving before a later one stops the later agent's exit and loader hooks: the session stays until drop_child.
         # Workaround for frida/frida-core#1271, tested on Frida 17.24.3.
         with self.lock:
             self.handed[pid] = session
@@ -414,9 +408,9 @@ class Session:
                 except frida.ProcessNotFoundError as e:
                     raise Failure("not_found", str(e))
             self.pid = int(target)
-            # a child another worker's gate let go stopped (resume_child stopped): the first resume continues it
+            # A child another worker's gate left stopped (resume_child stopped): the first resume continues it.
             self.suspended = bool(args.get("stopped"))
-        # a program started here is ended on any failure from here on: nothing else would end it
+        # A program started here is ended on any failure from here on: nothing else would end it.
         try:
             try:
                 self.session = self.device.attach(self.pid)
@@ -458,9 +452,8 @@ class Session:
             return self.device.spawn(argv, stdio="pipe", env=env or None, cwd=cwd or None)
         except frida.ExecutableNotFoundError as e:
             raise Failure("not_found", str(e))
-        # Frida 17.24.3 gives a macOS start 10 s (frida-core darwin helper,
-        # prepare_target; source-derived). Seen in CI runs; not reproduced
-        # standalone in 400 starts on macos-latest, so no upstream report.
+        # Frida 17.24.3 gives a macOS start 10 s (darwin helper prepare_target; source-derived). Seen in CI; not
+        # reproduced standalone in 400 starts, so no upstream report.
         except frida.TimedOutError as e:
             after = descendants(os.getpid())
             if before is None or after is None:
@@ -480,7 +473,7 @@ class Session:
             raise Failure("not_found", str(e))
 
     def load_script(self, args):
-        # a script the user supplied (the server allows it only with --live-scripting); its messages become events
+        # A user script (only with --live-scripting); its messages become events.
         self.require()
         sid = args["id"]
         if sid in self.user_scripts:
@@ -501,8 +494,7 @@ class Session:
 
         script.on("message", on_message)
         script.load()
-        # A top-level exception arrives as a message, before the reply of a round
-        # trip through the script's own channel, so the load reply can name it.
+        # A top-level exception arrives before a round trip's reply, so the load reply can name it.
         script.list_exports_sync()
         self.user_scripts[sid] = script
         return {"loaded": sid, "error": thrown[0] if thrown else None}
@@ -523,11 +515,7 @@ class Session:
         return self.script.exports_sync
 
     def capture_memory(self, args):
-        """Saves the ranges with args protection to args path, at most args limit bytes, while the program runs.
-
-        Returns each stretch saved (base, size, offset in the file), the ranges listed and left out past the limit, the
-        bytes saved and the bytes that could not be read. The file is readable by this user only.
-        """
+        """Saves ranges with args protection to args path (user-only), up to args limit bytes; returns stretches, skipped ranges, byte counts."""
         agent = self.require()
         limit = int(args["limit"])
         listed = agent.ranges(args.get("protection", "rw-"))
@@ -598,8 +586,7 @@ class Session:
             self.closing = True
             released = self.exit_released
         if self.script is not None and released:
-            # the process is exiting past the last hook: a call into the script or its unload would block on the
-            # process's shutdown, which waits on Frida; the exit finishes on its own
+            # The process is exiting past the last hook: a script call or unload would deadlock with its shutdown.
             self.ended.wait(10)
             self.script = self.session = None
         if self.script is not None:
@@ -613,15 +600,11 @@ class Session:
                     self.script.post({"type": "resume-%d" % tid})
                 for tid in loading:
                     self.script.post({"type": "load-%d" % tid})
-                # A teardown racing the exit of a thread let go from its stop just
-                # now hangs or faults the program: give the exit a moment to
-                # begin, so closeBegin reports it exiting. A start or a resume
-                # that let no thread go closes at once. Workaround for
-                # frida/frida-gum#1192 (17.24.0 to 17.24.3) and #1194 (17.23.3
-                # to 17.24.3).
+                # A teardown racing the exit of a thread just let go hangs or faults the program: wait for the exit to begin.
+                # Workaround for frida/frida-gum#1192 (17.24.0 to 17.24.3) and #1194 (17.23.3 to 17.24.3).
                 if held or loading or time.monotonic() - self.released_at < EXIT_GRACE:
                     self.exit_begun.wait(EXIT_GRACE)
-                # replies still in flight (a stop, an exit or a fault the worker has not read yet) never come after the unload
+                # Replies still in flight never come after the unload.
                 exiting = False
                 try:
                     state = self.script.exports_sync.close_begin()
@@ -630,7 +613,7 @@ class Session:
                     exiting = state["exiting"]
                 except (frida.InvalidOperationError, frida.core.RPCException):
                     pass
-                # an exit finishes on its own; an unload during it blocks the process's exit and itself
+                # An exit finishes on its own; an unload during it blocks both.
                 if exiting:
                     self.ended.wait(10)
                     self.script = self.session = None
@@ -638,7 +621,7 @@ class Session:
                     self.script.unload()
             except frida.InvalidOperationError:
                 pass
-        # a held child never stays suspended: it runs on, unobserved unless a session of its own holds it
+        # A held child never stays suspended: it runs on, unobserved unless a session of its own holds it.
         self.resume_children(bool(args.get("keep_handed")))
         if self.session is not None:
             try:

@@ -10,11 +10,7 @@ public sealed partial class ElfFile
 {
     private ImageArea<List<ElfPltEntry>> plt = null!;
 
-    /// <summary>
-    /// PLT stubs matched to their JUMP_SLOT slots by decoding the stub patterns (AArch64 ADRP/LDR/BR, x86-64 and x86
-    /// indirect JMP, ARM ADD/ADD/LDR), sorted by stub address. Stubs are looked for in .plt* sections, or in the
-    /// executable segments when there are no section headers.
-    /// </summary>
+    /// <summary>PLT stubs matched to their JUMP_SLOT slots by decoding stub patterns, sorted by stub address.</summary>
     public IReadOnlyList<ElfPltEntry> PltEntries => plt.Value;
 
     private void InitAreas()

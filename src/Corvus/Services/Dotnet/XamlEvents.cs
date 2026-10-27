@@ -8,10 +8,7 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Event handlers named in decompiled XAML (Click="OnSave", EventSetter Handler="...") joined to the methods of the
-/// x:Class code-behind type and its base types, with tokens for decompile_member.
-/// </summary>
+/// <summary>Joins event handlers named in decompiled XAML to the x:Class code-behind methods, with their tokens.</summary>
 public static partial class XamlEvents
 {
     private const string XamlNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
@@ -56,8 +53,7 @@ public static partial class XamlEvents
     }
 
     /// <summary>
-    /// The event handlers the generated Connect(int, object) methods of <paramref name="className"/> and its nested
-    /// types hook up, by connection id: event name and handler method name. Empty when the class is not in the module.
+    /// The handlers the generated Connect(int, object) methods hook up, by connection id; empty when the class is not in the module.
     /// </summary>
     public static Dictionary<int, IReadOnlyList<(string Event, string Method)>> ConnectedHandlers(ModuleDef module, string className)
     {

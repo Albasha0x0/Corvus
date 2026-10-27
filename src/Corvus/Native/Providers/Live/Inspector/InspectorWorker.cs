@@ -5,11 +5,8 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Inspector;
 
-/// <summary>
-/// The <c>corvus inspector-worker</c> process: the session worker protocol answered over one V8 inspector connection
-/// (Chrome DevTools Protocol). Ops: hello, open, scripts, source, set, clear, resume, ipc, close. Events: stop (a pause, with
-/// its frames by script position), output (console calls) and exit (the connection ended). Positions are 0-based.
-/// </summary>
+// Ops: hello, open, scripts, source, set, clear, resume, ipc, close. Events: stop, output, exit. Positions are 0-based.
+/// <summary>The <c>corvus inspector-worker</c> process: the session worker protocol over one V8 inspector connection.</summary>
 internal static class InspectorWorker
 {
     public const string Command = "inspector-worker";

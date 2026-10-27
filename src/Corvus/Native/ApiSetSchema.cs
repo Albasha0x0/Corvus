@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// The Windows API set map (version 6, Windows 10 and later) read from the ".apiset" section of apisetschema.dll:
-/// virtual DLL names such as api-ms-win-core-file-l1-1-0.dll and the host DLLs the loader redirects them to.
-/// </summary>
+/// <summary>The Windows API set map (version 6) from apisetschema.dll: virtual DLL names and their host DLLs.</summary>
 public sealed class ApiSetSchema
 {
     private const int MaxEntries = 20_000;
@@ -23,10 +20,7 @@ public sealed class ApiSetSchema
         return m.StartsWith("api-", StringComparison.OrdinalIgnoreCase) || m.StartsWith("ext-", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// The host DLL for <paramref name="module"/> as imported by <paramref name="importer"/> (a file name, or null);
-    /// null when the name is not in the map or maps to no host (an absent extension).
-    /// </summary>
+    /// <summary>The host DLL for <paramref name="module"/> as imported by <paramref name="importer"/>; null when unmapped or hostless.</summary>
     public string? Resolve(string module, string? importer = null)
     {
         var key = Key(module);

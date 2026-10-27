@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The user's types in IDA through the tools, on a real system DLL: applied, shown in pseudocode, replayed after a worker
-/// restart, pushed into a new database from the sidecar, and kept over recovered types.
-/// </summary>
+/// <summary>User types in IDA on a real system DLL: applied, shown, replayed after a restart, pushed into a new database, kept over recovered types.</summary>
 [Trait("Speed", "Slow")]
 public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
 {
@@ -71,13 +68,13 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, bad.Code);
         Assert.Equal(2, rig.Code.Annotations(rig.Native).UserTypes.Types.Count);
 
-        // the edits are journaled: a worker killed before any save replays them
+        // The edits are journaled: a worker killed before any save replays them.
         var session = await rig.Session();
         await WorkerKill.KillAsync(session);
         var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         Assert.Contains("headerSum", (await session.DecompileAsync(rva)).Text);
 
-        // another database (another IDA cache) gets them from the sidecar
+        // Another database (another IDA cache) gets them from the sidecar.
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
         var fresh = Setup("cache-b");
@@ -85,7 +82,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("user types: pushed 2 item(s)", again);
         Assert.Contains("unsigned int *headerSum", again);
 
-        // clearing restores IDA's own type
+        // Clearing restores IDA's own type.
         await fresh.Types.SetNativeType(Image, Function, "");
         Assert.DoesNotContain("headerSum", await fresh.Analysis.DecompileNative(Image, Function));
         Assert.Single(fresh.Code.Annotations(fresh.Native).UserTypes.Types);
@@ -105,7 +102,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         var text = await rig.Analysis.DecompileNative(Image, Function);
         output.WriteLine(text);
         Assert.Contains("unsigned __int64 sample_count", text);
-        // named by its new name: the same edit
+        // Named by its new name: the same edit.
         await rig.Types.SetNativeLocal(Image, Function, "sample_count", newName: "sample_total");
         var edit = Assert.Single(Assert.Single(rig.Code.Annotations(rig.Native).UserTypes.Locals).Value);
         Assert.Equal((local, "sample_total", "unsigned __int64"), (edit.Local, edit.Name, edit.Type));
@@ -114,7 +111,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "sample_total", newName: "bad name"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "sample_total"))).Code);
 
-        // journaled: a killed worker replays the edits
+        // Journaled: a killed worker replays the edits.
         var session = await rig.Session();
         await WorkerKill.KillAsync(session);
         var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
@@ -149,7 +146,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         var special = await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeStackVar(Image, Function, "__return_address", newName: "ret"));
         Assert.Equal(ErrorCode.InvalidArgument, special.Code);
 
-        // a decompiler local addressed by its stack offset
+        // A decompiler local addressed by its stack offset.
         if (frame.Locals.FirstOrDefault(l => l.Stack != null) is { } stackLocal)
         {
             await rig.Types.SetNativeLocal(Image, Function, $"stack:0x{stackLocal.Stack:X}", newName: "sample_onstack");
@@ -185,14 +182,14 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         output.WriteLine(detail);
         Assert.Contains("+0x4  data  char[16]  16", detail);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(Image, name: "NoSuchSampleType"))).Code);
-        // declared with the database's packing, as a replay declares it: the pointer is 8-aligned
+        // Declared with the database's packing, as a replay declares it: the pointer is 8-aligned.
         await rig.Types.DeclareNativeTypes(Image, "struct SampleAligned { short tag; void *next; };");
         var aligned = await rig.Types.ListNativeTypes(Image, name: "SampleAligned");
         output.WriteLine(aligned);
         Assert.Contains("struct SampleAligned, 16 bytes", aligned);
         Assert.Contains("+0x8  next  void *  8", aligned);
 
-        // the declared type is usable, and a recovered type of the same name does not replace it
+        // The declared type is usable, and a recovered type of the same name does not replace it.
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data");
         Assert.Contains("SamplePacket", await rig.Types.SetNativeType(Image, $"rva:0x{data.Rva:X}", "SamplePacket"));
         var session = await rig.Session();
@@ -236,9 +233,9 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         output.WriteLine(text);
         Assert.Contains("References to member _IMAGE_NT_HEADERS64::OptionalHeader (+0x18", text);
         Assert.Matches(@"0x[0-9A-F]+  (read|address|write)  CheckSumMappedFile\+0x[0-9A-F]+", text);
-        // by offset: the member covering it
+        // By offset: the member covering it.
         Assert.Contains("_IMAGE_NT_HEADERS64::OptionalHeader", await rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64+0x20", engine: "ida"));
-        // a miss points at the engine's types, not at the function list
+        // A miss points at the engine's types, not at the function list.
         var member = await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::NoSuchMember", engine: "ida"));
         Assert.Equal(ErrorCode.NotFound, member.Code);
         Assert.Contains("OptionalHeader", member.Message);
@@ -257,7 +254,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         static HashSet<string> Rows(string t) => t.Split('\n').Where(l => l.StartsWith("0x", StringComparison.Ordinal)).Select(l => l.Trim()).ToHashSet();
         Assert.Subset(Rows(all), Rows(text));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::OptionalHeader", engine: "ida", scope: "some"))).Code);
-        // an ordinary name still resolves as an address
+        // An ordinary name still resolves as an address.
         Assert.Contains("References to", await rig.CodeTools.FindXrefs(Image, Function));
     }
 
@@ -281,7 +278,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("NameError", await rig.Scripts.IdaPython(Image, "x", reset: true, allowError: true));
         var printed = await rig.Scripts.IdaPython(Image, "print('hello from ida')");
         Assert.Contains("stdout:\nhello from ida", printed);
-        // a script file, the database saved afterwards
+        // A script file, the database saved afterwards.
         var script = _dir.File("script.py");
         File.WriteAllText(script, "print('y' * 500)\n7 * 6");
         var printedFile = await rig.Scripts.IdaPython(Image, scriptPath: script);
@@ -293,7 +290,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("Database saved.", await rig.Scripts.IdaPython(Image, "1", persist: true));
         Assert.True(File.GetLastWriteTimeUtc(database) > before);
 
-        // a script's change shows in the next decompilation (the cached text is made again)
+        // A script's change shows in the next decompilation (the cached text is made again).
         Assert.DoesNotContain("scriptedBase", await rig.Analysis.DecompileNative(Image, Function));
         var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         await rig.Scripts.IdaPython(Image, $"idc.SetType(base + 0x{rva:X}, 'int __fastcall f(void *scriptedBase, unsigned int n, unsigned int *a, unsigned int *b)')");
@@ -316,7 +313,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, _dir.File("x.idb")))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, _dir.File("y.i64"), engine: "ghidra"))).Code); // Ghidra writes .gzf
 
-        // the worker still saves to its own database, not to the copy
+        // The worker still saves to its own database, not to the copy.
         var session = await rig.Session();
         var own = session.DatabasePath;
         var copyTime = File.GetLastWriteTimeUtc(r.Path);
@@ -327,7 +324,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains(r.Path, await export.ExportEngineDatabase(Image, r.Path, overwrite: true));
         Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(r.Path)!, "*.tmp"));
 
-        // a path past IDA's 259 characters is written through a short one and moved, or refused before IDA works
+        // A path past IDA's 259 characters is written through a short one and moved, or refused before IDA works.
         var deep = Path.Combine(_dir.File("long"), new string('d', 120), new string('e', 120), "copy.i64");
         Assert.True(deep.Length > 300);
         try
@@ -359,7 +356,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
 
-        // another database without the sidecar: the script alone brings the edits
+        // Another database without the sidecar: the script alone brings the edits.
         var other = Setup("cache-y", scripting: true, annotations: "other-annotations");
         var run = await other.Scripts.IdaPython(Image, $"exec(open({System.Text.Json.JsonSerializer.Serialize(script)}).read())");
         output.WriteLine(run);

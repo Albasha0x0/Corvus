@@ -10,7 +10,7 @@ public class ComparerTests(ITestOutputHelper output)
     /// <summary>Compares the fixture with an edited copy of itself.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void DetectsRenamesBodyChangesAndAdditions()
+    public void Renames_body_changes_and_additions_are_detected()
     {
         using var dir = new TempDir();
         var v2 = dir.File("TestFixture.dll");
@@ -51,7 +51,7 @@ public class ComparerTests(ITestOutputHelper output)
     /// <summary>Compares CORVUS_COMPARE_ASSEMBLY (default: largest shared app assembly) between two real builds.</summary>
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
-    public void RealBuildUpdate()
+    public void A_real_build_update_is_compared()
     {
         using var ws = new AssemblyWorkspace();
         var older = ws.LoadDirectory(RealData.Path(RealData.CompareOldDir), false).Loaded;

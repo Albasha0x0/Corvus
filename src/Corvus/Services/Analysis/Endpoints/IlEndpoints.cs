@@ -9,11 +9,8 @@ using dnlib.DotNet.Emit;
 namespace Corvus.Services.Analysis.Endpoints;
 
 /// <summary>
-/// Endpoints and protobuf descriptors in a .NET module: Refit interface attributes (with RestService.For base URLs and the
-/// query names unannotated parameters become), HttpClient / HttpRequestMessage / WebClient calls, generated gRPC client
-/// methods (Grpc.Core.Method), absolute URL literals, and base64 descriptorData strings decoded to FileDescriptorProto.
-/// String values are followed through one method body in IL order: ldstr, locals, string.Concat / Format and interpolated
-/// string handlers fold to templates; arguments and fields become {name}, anything else {}.
+/// Endpoints and protobuf descriptors in a .NET module: Refit attributes, HTTP client calls, gRPC methods, URL literals
+/// and base64 descriptors; strings fold to templates within one method, arguments and fields as {name}, the rest {}.
 /// </summary>
 internal static partial class IlEndpoints
 {
@@ -21,12 +18,14 @@ internal static partial class IlEndpoints
     private sealed class Val
     {
         public string? Text;
-        public bool Literal; // Text holds code-given characters, not only placeholders
+        // Text holds code-given characters, not only placeholders.
+        public bool Literal;
         public int? Int;
         public string? Verb;
         public Val?[]? Array;
         public int Local = -1;
-        public int Ldstr = -1; // instruction index of a plain ldstr
+        // Instruction index of a plain ldstr.
+        public int Ldstr = -1;
         public static readonly Val Unknown = new() { Text = "{}" };
         public static Val Of(string text, bool literal) => new() { Text = text, Literal = literal };
     }
@@ -50,9 +49,10 @@ internal static partial class IlEndpoints
     public static void Scan(ModuleDef module, string file, List<CodeEndpoint> endpoints, List<FoundDescriptor> descriptors, CancellationToken ct)
     {
         var statics = new Dictionary<string, Val>(StringComparer.Ordinal);
-        var bases = new Dictionary<string, string>(StringComparer.Ordinal); // Refit interface -> base URL
+        // Refit interface to base URL.
+        var bases = new Dictionary<string, string>(StringComparer.Ordinal);
         var types = module.GetTypes().ToList();
-        // static constructors first: their stsfld values feed the other methods
+        // Static constructors first: their stsfld values feed the other methods.
         var methods = types.SelectMany(t => t.Methods).Where(m => m.HasBody).OrderBy(m => m.IsStaticConstructor ? 0 : 1).ToList();
         var found = new List<CodeEndpoint>();
         foreach (var m in methods)
@@ -64,7 +64,8 @@ internal static partial class IlEndpoints
                 body = m.Body.Instructions;
                 if (!body.Any(i => i.OpCode.Code == Code.Ldstr)) continue;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException) { continue; } // a body dnlib cannot read
+            // A body dnlib cannot read.
+            catch (Exception ex) when (ex is not OperationCanceledException) { continue; }
             Method(m, body, file, statics, bases, found, descriptors);
         }
         foreach (var t in types.Where(t => t.IsInterface))
@@ -301,7 +302,7 @@ internal static partial class IlEndpoints
                     return true;
                 }
             }
-            // generated gRPC clients: new Method<TRequest, TResponse>(type, serviceName, name, marshaller, marshaller)
+            // Generated gRPC clients: new Method<TRequest, TResponse>(type, serviceName, name, marshaller, marshaller).
             if (ins.OpCode.Code == Code.Newobj && name == ".ctor" && callee.DeclaringType is { } dt && dt.Namespace == "Grpc.Core" && dt.Name.String.StartsWith("Method`", StringComparison.Ordinal)
                 && sig.Params.Count == 5)
             {
@@ -313,7 +314,7 @@ internal static partial class IlEndpoints
                 stack.Add(Val.Unknown);
                 return true;
             }
-            // Refit: RestService.For<TApi>("https://host/")
+            // Refit: RestService.For<TApi>("https://host/").
             if (type == "Refit.RestService" && name == "For" && callee is MethodSpec spec && spec.GenericInstMethodSig?.GenericArguments.FirstOrDefault() is { } api)
             {
                 var parts = PopN(args);

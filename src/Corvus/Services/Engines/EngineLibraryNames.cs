@@ -4,20 +4,14 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The library functions IDA recognized (FLIRT signatures and other library matching: FUNC_LIB) as the
-/// <see cref="NativeNameSource.Ida"/> name layer of an image: below user, PDB and Il2Cpp names, above discovered ones.
-/// Imported from an engine session once it is open; never starts one.
-/// </summary>
+/// <summary>IDA's recognized library functions (FUNC_LIB) as the <see cref="NativeNameSource.Ida"/> name layer, above
+/// discovered names; imported from an open session, never starts one.</summary>
 public static class EngineLibraryNames
 {
     public const string Origin = "IDA library recognition";
 
-    /// <summary>
-    /// Reads the session's library functions into the ida layer (replacing it) and applies it to the built index.
-    /// Returns the number of names. IDA's placeholder names (unknown_libname_N, sub_, nullsub_, j_) are skipped, and so
-    /// are addresses with a user name (this server pushed those into the database).
-    /// </summary>
+    /// <summary>Replaces the ida layer with the session's library functions, skipping placeholder and user names; returns the
+    /// number of names.</summary>
     public static async Task<int> ImportAsync(LoadedNative native, INativeDecompilerSession session, NativeCodeService? code, CancellationToken ct)
     {
         var functions = await session.ListFunctionsAsync(ct).ConfigureAwait(false);

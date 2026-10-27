@@ -2,10 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// An HPACK decoder (RFC 7541) for one direction of an HTTP/2 connection: static and dynamic tables, integer and string
-/// literals, Huffman-coded strings. A malformed block ends the decode of that block, never with an exception.
-/// </summary>
+/// <summary>An HPACK decoder (RFC 7541) for one HTTP/2 direction; a malformed block ends its decode without an exception.</summary>
 internal sealed class Hpack
 {
     private const int MaxHeaders = 200, MaxString = 64 * 1024;
@@ -13,11 +10,8 @@ internal sealed class Hpack
     private readonly LinkedList<(string Name, string Value)> _dynamic = new();
     private int _size, _max = 4096;
 
-    /// <summary>
-    /// The headers of the complete representations at the start of <paramref name="b"/>, in order, as a streaming decoder
-    /// emits them fragment by fragment; <paramref name="consumed"/> stops before a representation cut by the fragment's end.
-    /// Null when a representation is malformed (the table state is then unknown).
-    /// </summary>
+    /// <summary>The headers of the complete representations in <paramref name="b"/>; null when one is malformed, as the table state is then unknown.</summary>
+    /// <remarks><paramref name="consumed"/> stops before a representation the fragment's end cuts.</remarks>
     public List<(string Name, string Value)>? Decode(ReadOnlySpan<byte> b, out int consumed)
     {
         var headers = new List<(string, string)>();

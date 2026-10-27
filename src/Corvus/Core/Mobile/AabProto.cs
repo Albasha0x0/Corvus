@@ -63,10 +63,7 @@ internal sealed class ProtoMessage(byte[] data, int start, int end)
     public string String(Field f) => Encoding.UTF8.GetString(data, f.Start, f.Length);
 }
 
-/// <summary>
-/// Android App Bundle protobuf formats (aapt2 Resources.proto / Configuration.proto): the manifest and compiled XML files
-/// (XmlNode), converted to the binary-XML tree the manifest reader uses, and the resource table (resources.pb).
-/// </summary>
+/// <summary>Android App Bundle protobuf formats: XML files as binary-XML trees, and the resource table.</summary>
 public static class AabProto
 {
     private const int MaxDepth = 1_000, MaxElements = 1_000_000;
@@ -162,7 +159,8 @@ public static class AabProto
                         else if (g.Number == 2) id = (uint)g.Varint;
                         else if (g.Number == 3 && g.WireType == 2) refName = inner.String(g);
                     return (new ResValue(attribute ? ResValue.Attribute : ResValue.Reference, id), refName);
-                case 2 or 3 or 4: // String, RawString, StyledString
+                // String, RawString, StyledString.
+                case 2 or 3 or 4:
                 case 5: // FileReference
                     foreach (var g in inner.Fields())
                         if (g.Number == 1 && g.WireType == 2) return (new ResValue(ResValue.String, uint.MaxValue), inner.String(g));

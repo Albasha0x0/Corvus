@@ -17,12 +17,13 @@ public sealed class DexTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     [Fact]
-    public void Reader_PoolsClassDataCodeAnnotationsAndDebugInfo()
+    public void Reader_pools_class_data_code_annotations_and_debug_info()
     {
         var f = DexFile.Read(Dex(), "classes.dex");
         Assert.Empty(f.Issues);
         Assert.Equal(35, f.Version);
-        Assert.Equal([Helper, "Lcom/example/app/Main$Inner;", Main, Link], f.Classes.Select(c => c.Descriptor)); // sorted by type index
+        // Sorted by type index.
+        Assert.Equal([Helper, "Lcom/example/app/Main$Inner;", Main, Link], f.Classes.Select(c => c.Descriptor));
         var main = f.Classes.Single(c => c.Descriptor == Main);
         Assert.Equal(("Landroid/app/Activity;", "Main.java"), (main.SuperClass, main.SourceFile));
         var (fields, methods) = f.ClassData(main);
@@ -44,7 +45,7 @@ public sealed class DexTests : IDisposable
     }
 
     [Fact]
-    public void Decoder_EveryFormat_ReadsOperandsAndLengths()
+    public void Decoder_every_format_reads_operands_and_lengths()
     {
         DalvikInstruction One(params ushort[] u) => Dalvik.DecodeOne(u, 0)!;
         Assert.Equal((-1L, 1), (One(0xF012).Literal, One(0xF012).Length));                                   // const/4 v0, -1
@@ -69,7 +70,7 @@ public sealed class DexTests : IDisposable
     }
 
     [Fact]
-    public void ListAndGetClass_ExactMethodIds_KotlinInnerClassesAndValues()
+    public void List_and_get_class_give_exact_method_ids_inner_classes_and_values()
     {
         var list = _dex.ListClasses(_apk, null, null, 0, 100, default);
         Assert.Equal(4, list.Total);
@@ -93,7 +94,7 @@ public sealed class DexTests : IDisposable
     }
 
     [Fact]
-    public void Search_StringsTypesMembersConstantsAndOpcodes()
+    public void Search_finds_strings_types_members_constants_and_opcodes()
     {
         var s = _dex.Search(_apk, "string", "api.example", 0, 10, default).Items.Single();
         Assert.Equal(("https://api.example.com/v1", Main + "->onCreate(Landroid/os/Bundle;)V", 3, "const-string"), (s.Value, s.Method, s.Offset, s.Opcode));
@@ -110,7 +111,7 @@ public sealed class DexTests : IDisposable
     }
 
     [Fact]
-    public void References_OverloadsStayApart_FieldsReadAndWritten_Callees()
+    public void References_keep_overloads_apart_and_name_field_reads_writes_and_callees()
     {
         var callers = _dex.References(_apk, Log, null, null, 0, 10, default);
         Assert.Equal(("method", Log), (callers.TargetKind, callers.Target));
@@ -132,12 +133,13 @@ public sealed class DexTests : IDisposable
         Assert.Equal(Log, framework.Items.Single().Method);
         Assert.Equal(Log, _dex.References(_apk, "\"Example\"", null, null, 0, 10, default).Items.Single().Method);
         var cls = _dex.References(_apk, Helper, null, null, 0, 10, default);
-        Assert.Equal(("class", 3), (cls.TargetKind, cls.Total)); // two calls to Helper.log and the write of Helper.level
+        // Two calls to Helper.log and the write of Helper.level.
+        Assert.Equal(("class", 3), (cls.TargetKind, cls.Total));
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => _dex.References(_apk, "com.example.app.Main::nope", null, null, 0, 10, default)).Code);
     }
 
     [Fact]
-    public void References_DottedFrameworkClassEqualsItsDescriptor()
+    public void References_to_a_dotted_framework_class_equal_its_descriptor()
     {
         var byDescriptor = _dex.References(_apk, "Landroid/util/Log;", null, null, 0, 10, default);
         var dotted = _dex.References(_apk, "android.util.Log", null, null, 0, 10, default);
@@ -148,7 +150,7 @@ public sealed class DexTests : IDisposable
     }
 
     [Fact]
-    public void Inputs_DexFileJarAndBundle_AndBadFiles()
+    public void DEX_files_jars_and_bundles_read_and_other_files_are_refused()
     {
         var dex = Save(_dir, "classes.dex", Dex());
         Assert.Equal(4, _dex.ListClasses(dex, null, null, 0, 10, default).Total);
@@ -165,7 +167,7 @@ public sealed class DexTests : IDisposable
 
     /// <summary>A caller waiting for the code index stops at its cancellation; the build goes on for the next caller.</summary>
     [Fact]
-    public void CodeIndexWait_IsCancellable()
+    public void Code_index_wait_is_cancellable()
     {
         var b = new DexBuilder();
         for (int c = 0; c < 400; c++)
@@ -182,7 +184,7 @@ public sealed class DexTests : IDisposable
 
     [Fact]
     [FuzzEntry(typeof(Core.Mobile.DexFile))]
-    public void DamagedDex_NeverThrows()
+    public void Damaged_DEX_never_throws()
     {
         var good = Dex();
         var random = new Random(11);

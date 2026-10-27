@@ -14,10 +14,10 @@ public sealed partial class MinidumpService
         ? "write the core with the heap (createdump --withheap, dotnet-dump collect --type Heap, DOTNET_DbgMiniDumpType=2) to inspect the heap"
         : "write the dump with full memory (procdump -ma, DOTNET_DbgMiniDumpType=4, MiniDumpWithFullMemory) to inspect the heap";
 
-    /// <summary>mode=stats: a type with its object count and total size; mode=objects: one object.</summary>
     /// <summary>A TypeDef token, or null when there is none: arrays and generic instances carry 0 or a nil row (0x02000000).</summary>
     internal static string? TypeDefToken(long token) => (token & 0xFFFFFF) == 0 ? null : $"0x{token:X8}";
 
+    /// <summary>mode=stats: a type with its object count and total size; mode=objects: one object.</summary>
     public sealed record HeapRow(string Type,
         [property: Description("stats: bytes of all its objects; objects: the object's size.")] ulong Size)
     {
@@ -78,9 +78,8 @@ public sealed partial class MinidumpService
         return decoder;
     }
 
-
-    /// <summary>A running program's heap changes during a read: said in every live heap and object report.</summary>
-    internal const string LiveHeapNote = "The program runs during the read: objects allocated, moved or freed meanwhile can be missing or counted twice; " +
+    /// <summary>The note on every live heap and object report.</summary>
+    internal const string LiveHeapNote = "The program runs during the read, so objects can be missing or counted twice; " +
                                          "a snapshot (live_session action=snapshot, then open_minidump) holds one state.";
 
     private static bool HeapStats(string? mode) => (mode?.Trim().ToLowerInvariant() ?? "stats") switch
@@ -108,7 +107,7 @@ public sealed partial class MinidumpService
         {
             if (decoder.Facts().Heap is { Walkable: false } state)
                 throw new ToolError(ErrorCode.Conflict, $"{state.Reason}: a garbage collection is in progress.", "call again");
-            // cancelling ends the 32-bit decoder process, which the session keeps for its stops: that walk runs to its end
+            // Cancelling would end the session's 32-bit decoder process, so that walk runs to its end.
             return HeapOf(session.Id, decoder, a => LiveHex(session, a), "call again", stats, type, minSize, offset, limit, maxObjects, [LiveHeapNote],
                 decoder.OutOfProcess ? CancellationToken.None : ct);
         });

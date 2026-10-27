@@ -194,7 +194,8 @@ public sealed class StreamedSummaryTests : IDisposable
         var whole = Summary(path, streamed: false).File.Certificate;
         Assert.True(whole.Present && whole.DigestMatches == true, whole.ToString());
         Assert.Equal(whole, Summary(path, streamed: true).File.Certificate);
-        var grafted = _dir.File("grafted.dll"); // a signature over other bytes
+        // A signature over other bytes.
+        var grafted = _dir.File("grafted.dll");
         File.WriteAllBytes(grafted, ContainerFuzzTests.SignedFixture());
         Assert.Equal((true, false), (Summary(grafted, streamed: true).File.Certificate.Present, Summary(grafted, streamed: true).File.Certificate.DigestMatches));
     }

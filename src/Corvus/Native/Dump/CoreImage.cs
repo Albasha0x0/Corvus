@@ -93,12 +93,7 @@ internal sealed class ElfMemoryHeader
 /// <summary>A named function of a module, at its runtime address.</summary>
 public readonly record struct CoreSymbol(ulong Start, ulong Size, string Name, string Source);
 
-/// <summary>
-/// A module of a core as the unwinder and the namer read it: its .eh_frame (found through PT_GNU_EH_FRAME, or the
-/// .eh_frame section of a file), and function symbols (.symtab and .dynsym of a file; .dynsym through PT_DYNAMIC in
-/// memory). Bytes come from the matched file on disk, else from the core's memory. Built once per module and session.
-/// A module of a Mach-O core holds only its function symbols (<see cref="FromSymbols"/>): the frame chain walks it.
-/// </summary>
+/// <summary>A core module's .eh_frame and function symbols, read from the matched file on disk, else from the core's memory.</summary>
 public sealed class CoreImage
 {
     private const int MaxEhFrameBytes = 32 << 20;
@@ -324,7 +319,7 @@ public sealed class CoreImage
         ulong symtab = 0, strtab = 0, strsz = 0, hash = 0, syment = is64 ? 24u : 16u;
         ulong linkLow = segments.Where(s => s.IsLoad).Select(s => s.VirtualAddress).DefaultIfEmpty(0UL).Min();
         ulong linkHigh = segments.Where(s => s.IsLoad).Select(s => s.VirtualAddress + s.MemorySize).DefaultIfEmpty(0UL).Max();
-        // glibc relocates d_ptr entries in place; Android's linker does not
+        // glibc relocates d_ptr entries in place; Android's linker does not.
         ulong Ptr(ulong v) => v >= linkLow && v < linkHigh ? v : v - Bias;
         for (long at = 0; at + 2 * word <= table.Length; at += 2 * word)
         {
@@ -365,11 +360,7 @@ public sealed class CoreImage
         return result;
     }
 
-    /// <summary>
-    /// The module's file on disk: its recorded path, then each folder by file name and as a sysroot (folder + path).
-    /// A file whose GNU build id equals the core's matches; without a build id in the core, the first ELF file of the
-    /// core's machine matches by name. Path is the match, else the first file found (a mismatch), else null.
-    /// </summary>
+    /// <summary>The module's file on disk, matched by GNU build id (by name when the core has none); else the first file found, or null.</summary>
     public static (string? Path, bool Matches, string Detail) Find(CoreModule module, IReadOnlyList<string> directories, ushort machine,
         Func<string, (ushort Machine, string? BuildId)?> probe)
     {

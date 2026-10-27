@@ -13,12 +13,9 @@ public interface ILiveBackend
     WorkerConnection Start();
 }
 
-/// <summary>
-/// Sessions through Frida's Python bindings, run by live_worker.py with the session script beside it. The interpreter, in
-/// order: CORVUS_FRIDA_PYTHON; with <see cref="InstallPinned"/>, the private environment once made; the first user
-/// Python (the launcher, then PATH) with a tested Frida; with <see cref="InstallPinned"/>, a new private environment;
-/// else the first user Python with any Frida.
-/// </summary>
+/// <summary>Sessions through Frida's Python bindings (live_worker.py).</summary>
+/// <remarks>Interpreter order: CORVUS_FRIDA_PYTHON; with <see cref="InstallPinned"/>, the private venv once made; a user
+/// Python with a tested Frida; with <see cref="InstallPinned"/>, a new private venv; else a user Python with any Frida.</remarks>
 public sealed class FridaBackend : ILiveBackend
 {
     public const string PythonVariable = "CORVUS_FRIDA_PYTHON";
@@ -48,7 +45,7 @@ public sealed class FridaBackend : ILiveBackend
     public (string Reason, string Remediation)? Unavailable() => _ready.Value.Problem is { } problem
         ? (problem, InstallPinned && _ready.Value.Pending
             ? "Unset CORVUS_OFFLINE, or install a tested Frida yourself (python -m pip install frida) and restart the server."
-            : $"Install Frida's Python bindings (python -m pip install frida) in a 64-bit Python 3, or set {PythonVariable} to that python, or start the server with {Core.ServerOptions.LiveInstallFridaOption}.")
+            : $"Install Frida (python -m pip install frida) in a 64-bit Python 3, set {PythonVariable}, or start the server with {Core.ServerOptions.LiveInstallFridaOption}.")
         : FridaVersions.Refusal(_ready.Value.Frida) is { } old ? (old, Upgrade) : null;
 
     /// <summary>The pip command that installs a Frida in the tested range.</summary>
@@ -181,20 +178,13 @@ public sealed class FridaBackend : ILiveBackend
         }
     }
 
-    /// <summary>
-    /// The next step for a worker failure the default wording does not fit: an open that timed out waits on the program,
-    /// not on its size; a timeout the worker reports (its message, where a request the worker did not answer names its
-    /// op) is a call Frida gave up waiting on. Null for other failures.
-    /// </summary>
+    /// <summary>The next step for an open that timed out or a timeout Frida reported; null for other failures.</summary>
     internal static string? Remediation(ErrorCode code, string op) => code != ErrorCode.Timeout ? null
-        : op == "open" ? "the program did not load the session's agent in time (starting up, exiting, or blocked): try again once it runs"
+        : op == "open" ? "the program did not load the session's agent in time (starting up, exiting or blocked): try again once it runs"
         : op.Contains(' ') ? "Frida gave up waiting on its helper or the program (a busy machine, or a program starting up or blocked): call again"
         : null;
 
-    /// <summary>
-    /// Grants read and execute on <paramref name="folder"/> to RESTRICTED and ALL APPLICATION PACKAGES: a child that
-    /// runs with a restricted token or in an AppContainer (a Chromium sandbox) loads the agent DLL from here.
-    /// </summary>
+    /// <summary>Grants RESTRICTED and ALL APPLICATION PACKAGES read and execute on <paramref name="folder"/>, so sandboxed children load the agent DLL.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     internal static void AllowSandboxedReads(string folder)
     {

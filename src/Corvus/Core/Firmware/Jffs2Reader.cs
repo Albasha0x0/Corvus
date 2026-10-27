@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// JFFS2 images in either byte order: every node found by its magic and header CRC, the newest version of each directory
-/// entry and data range kept (a deleted entry removes its name), file data rebuilt from its nodes (zlib, LZMA, LZO, rtime,
-/// zero and stored); the whole image is scanned in ranges.
-/// </summary>
+/// <summary>JFFS2 images in either byte order, scanned in ranges; the newest version of each entry and data range wins.</summary>
 internal sealed class Jffs2Reader : IContainerReader
 {
     public string Kind => "jffs2";
@@ -53,9 +49,10 @@ internal sealed class Jffs2Reader : IContainerReader
         uint U32(byte[] b, int at) => big ? BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(at)) : BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(at));
         ushort U16(byte[] b, int at) => big ? BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(at)) : BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(at));
 
-        // nodes are 4-byte aligned; the image is scanned a window at a time
+        // Nodes are 4-byte aligned; the image is scanned a window at a time.
         const int Window = 1 << 20;
-        long resume = 0; // the first offset past the last node read
+        // The first offset past the last node read.
+        long resume = 0;
         for (long w = 0; w < src.Length; w += Window)
         {
             ct.ThrowIfCancellationRequested();
@@ -87,7 +84,7 @@ internal sealed class Jffs2Reader : IContainerReader
                     if (!nodes.TryGetValue(ino, out var list)) nodes[ino] = list = [];
                     if (list.Count < 1 << 20) list.Add(data);
                 }
-                // the payload holds no node headers; skip it
+                // The payload holds no node headers, so it is skipped.
                 if (type is Dirent or InodeNode)
                 {
                     resume = at + ((length + 3) & ~3u);
@@ -138,7 +135,8 @@ internal sealed class Jffs2Reader : IContainerReader
             if (d.Size == 0 || d.Offset >= size) continue;
             if (d.Size > 1 << 20) throw new InvalidDataException("a data node larger than 1 MiB");
             var output = new byte[d.Size];
-            if (d.Codec != 1) // 1: a hole of zeros
+            // Codec 1 is a hole of zeros.
+            if (d.Codec != 1)
             {
                 var raw = src.Read(d.At, (int)d.StoredSize);
                 switch (d.Codec)
@@ -182,7 +180,8 @@ internal sealed class Jffs2Reader : IContainerReader
     private static void Lzma(byte[] raw, byte[] output)
     {
         var withHeader = new byte[13 + raw.Length];
-        withHeader[0] = 0; // lc=0, lp=0, pb=0
+        // lc=0, lp=0, pb=0.
+        withHeader[0] = 0;
         BinaryPrimitives.WriteUInt32LittleEndian(withHeader.AsSpan(1), 0x8000);
         BinaryPrimitives.WriteInt64LittleEndian(withHeader.AsSpan(5), output.Length);
         raw.CopyTo(withHeader, 13);

@@ -5,12 +5,7 @@ using dnlib.DotNet;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=xbf: a compiled XAML file (XBF) of a UWP or WinUI app decoded back to XAML. When the x:Class code-behind is in
-/// a .NET assembly in the same folder or up to three folders above, each element its generated Connect method hooks
-/// up gets the event handlers as attributes, resolved to methods with tokens for decompile_member. The XAML pages by
-/// character offset.
-/// </summary>
+/// <summary>view=xbf: compiled XAML decoded to XAML, with event handlers resolved from a code-behind assembly within three folders, with tokens for decompile_member; pages by character offset.</summary>
 internal sealed class XbfFileView : IFileSummaryView
 {
     private const int Window = 24_000, MaxCandidates = 64;
@@ -52,8 +47,8 @@ internal sealed class XbfFileView : IFileSummaryView
                 if (named > handlers.Count) notes.Add($"{named - handlers.Count} of the {named} handlers Connect hooks up are not methods of {className} or its base types");
             }
             else notes.Add(first.ClassName != null
-                ? $"the code-behind {first.ClassName} is in no .NET assembly beside the file or up to three folders above; its event handlers are unknown"
-                : "no .NET assembly beside the file or up to three folders above loads it as a component (an ms-appx:/// URI in InitializeComponent); a code-behind class and its event handlers are unknown");
+                ? $"the code-behind {first.ClassName} is in no .NET assembly within three folders; its event handlers are unknown"
+                : "no .NET assembly within three folders loads it by an ms-appx:/// URI; its code-behind and event handlers are unknown");
         }
         var xaml = result.Xaml ?? "";
         long offset = Math.Clamp(file.Options.Offset, 0, xaml.Length);
@@ -71,10 +66,7 @@ internal sealed class XbfFileView : IFileSummaryView
         return new FileView(facts, [highlight]);
     }
 
-    /// <summary>
-    /// The first .NET assembly near <paramref name="path"/> that defines <paramref name="className"/>, or when that is
-    /// null, whose InitializeComponent loads the file by its ms-appx:/// URI, with the class; null when none.
-    /// </summary>
+    /// <summary>The first nearby .NET assembly defining <paramref name="className"/>, or loading the file by URI when it is null; null when none.</summary>
     private static (string Path, ModuleDefMD Module, string ClassName)? CodeBehind(string path, string? className, CancellationToken ct)
     {
         int seen = 0;

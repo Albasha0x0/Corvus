@@ -51,7 +51,8 @@ public sealed class SqliteTests
     public void The_writer_version_is_read_from_the_header_only_for_sqlite_3(uint version, string? expected)
     {
         var bytes = (byte[])Fixture.Value.Clone();
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(96), version); // SQLITE_VERSION_NUMBER of the last writer
+        // SQLITE_VERSION_NUMBER of the last writer.
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(96), version);
         Assert.Equal(expected, SqliteDatabase.Open(bytes)!.WriterVersion);
     }
 

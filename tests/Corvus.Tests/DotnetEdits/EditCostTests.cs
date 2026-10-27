@@ -23,7 +23,7 @@ public sealed class EditCostTests : IDisposable
         _env.Edit(() => _edits.PatchMethodCSharp(_env.One(method), code, dryRun, default));
 
     [Fact]
-    public void AnEditCompilesOnceForTheScratchCopyAndTheModule()
+    public void An_edit_compiles_once_for_the_scratch_copy_and_the_module()
     {
         Patch("Secret::Validate", "return code.Length > 3;");
         Assert.Equal(1, _patcher.Compiles);
@@ -76,7 +76,7 @@ public sealed class EditCostTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void UndoReplaysCSharpEditsWithoutAScratchPass()
+    public void Undo_replays_CSharp_edits_without_a_scratch_pass()
     {
         Patch("Secret::Validate", "return code.Length > 3;");
         Patch("Account::Score", "return 7;");
@@ -87,7 +87,7 @@ public sealed class EditCostTests : IDisposable
     }
 
     [Fact]
-    public void ACancelledUndoChangesNothing()
+    public void A_cancelled_undo_changes_nothing()
     {
         Patch("Secret::Validate", "return code.Length > 3;");
         Patch("Account::Score", "return 7;");
@@ -100,13 +100,10 @@ public sealed class EditCostTests : IDisposable
         Assert.Contains("return 7;", _env.Decompile("Account::Score"));
     }
 
-    /// <summary>
-    /// A compile error in a generic span method of the core library names the method, not the helper it compiles as, and its
-    /// Next says how to return from a void method (measured: CS0127 named __PatchHelpers__.FormatCustomized__patch0).
-    /// </summary>
+    /// <summary>A compile error in a generic span method names the method, not its helper, and its Next says how to return from a void method.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CompileErrorsInAGenericSpanMethodNameThePatchedMethod()
+    public void Compile_errors_in_a_generic_span_method_name_the_patched_method()
     {
         using var core = new Env(typeof(object).Assembly.Location);
         var target = core.One("System.DateTimeFormat::FormatCustomized");
@@ -120,7 +117,7 @@ public sealed class EditCostTests : IDisposable
     }
 
     [Fact]
-    public async Task AWaitForAnotherThreadsImageStopsWhenCancelled()
+    public async Task A_wait_for_another_threads_image_stops_when_cancelled()
     {
         var images = new CSharpPatcher.DerivedImages();
         var image = new byte[] { 1 };

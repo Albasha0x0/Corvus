@@ -8,10 +8,7 @@ public sealed record ArkBytecodeFacts(string Path, string Version, int Classes, 
 /// <summary>view=harmony: the modules of a HarmonyOS package and its Ark bytecode files; null lists mean none were found.</summary>
 public sealed record HarmonyFacts(IReadOnlyList<HarmonyModule> Modules, IReadOnlyList<ArkBytecodeFacts> Bytecode, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// view=harmony: a HarmonyOS module (.hap, .hsp), application bundle (.app) or Ark bytecode file (.abc): bundle,
-/// version, API levels, abilities and what starts them, requested permissions, native libraries and each bytecode file.
-/// </summary>
+/// <summary>view=harmony: a HarmonyOS .hap, .hsp, .app or .abc file's bundle, API levels, abilities, permissions and bytecode files.</summary>
 internal sealed class HarmonyFileView : IFileSummaryView
 {
     public string Name => "harmony";

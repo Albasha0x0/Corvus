@@ -2,10 +2,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native;
 
-/// <summary>
-/// A part of an image parsed on first use (ELF and Mach-O readers). The parser records problems in its log; an exception
-/// escaping it is a parser bug, recorded as an "internal error" issue with the fallback value returned.
-/// </summary>
+/// <summary>A part of an image parsed on first use; a parser exception becomes an "internal error" issue and the fallback.</summary>
 internal sealed class ImageArea<T>(string name, Func<IssueLog, T> parse, T fallback)
 {
     private readonly Lock gate = new();
@@ -49,7 +46,7 @@ internal sealed class ImageArea<T>(string name, Func<IssueLog, T> parse, T fallb
     }
 }
 
-/// <summary>Values the loader writes into the image (rebased pointers, cleared bind slots), applied over the file bytes when the image is read.</summary>
+/// <summary>Values the loader writes into the image, applied over the file bytes on read.</summary>
 internal sealed class FixupOverlay
 {
     private readonly uint[] rvas;

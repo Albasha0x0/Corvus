@@ -22,12 +22,7 @@ public sealed record NativeAotMethodName(string Owner, string Name, string? Sign
     public string Short => $"{Owner}::{Name}{Instantiation}";
 }
 
-/// <summary>
-/// Reader of the NativeFormat metadata blob of a NativeAOT image (EmbeddedMetadata, header 0xDEADDFFD then the
-/// ScopeDefinition collection). Records are sequences of NativeFormat integers in schema order
-/// (<see cref="NativeAotSchema"/>); the handle encodings follow <see cref="MetadataDialect"/>. Every read is bounds-checked;
-/// malformed data throws <see cref="NativeAotFormatException"/>. Thread-safe.
-/// </summary>
+/// <summary>Reads NativeAOT embedded metadata; malformed data throws <see cref="NativeAotFormatException"/>; thread-safe.</summary>
 public sealed class NativeAotMetadata
 {
     public const uint Signature = 0xDEADDFFD;
@@ -322,10 +317,7 @@ public sealed class NativeAotMetadata
         _ => name,
     };
 
-    /// <summary>
-    /// The name of a method handle: Method (owner found through the type definitions), QualifiedMethod, MemberReference
-    /// or MethodInstantiation.
-    /// </summary>
+    /// <summary>The name of a Method, QualifiedMethod, MemberReference or MethodInstantiation handle.</summary>
     public NativeAotMethodName FormatMethod(MdHandle h, int depth = 0)
     {
         if (depth > MaxDepth) throw new NativeAotFormatException("method handle chain is too deep");

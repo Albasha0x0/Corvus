@@ -99,11 +99,7 @@ public sealed class NativeCapaTests(ITestOutputHelper output) : IDisposable
 
     private static string Va(uint rva) => (CapaFixture.Base + rva).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    /// <summary>
-    /// A result document as capa 10.0.0 writes it for <see cref="CapaFixture"/>: an instruction rule inside Spawn (its block
-    /// in the layout), function rules at Entry and Store; then rules capa's own report leaves out (library, subscope,
-    /// classification) or shows as a limitation, a file rule, and a rule with an ATT&amp;CK entry capa does not give this program.
-    /// </summary>
+    /// <summary>A capa 10.0.0 result document for <see cref="CapaFixture"/>: instruction and function rules, rules capa's report leaves out or limits, a file rule and an unmatched ATT&amp;CK entry.</summary>
     private static string Result() => $$"""
         {"meta":{"version":"10.0.0","analysis":{"format":"pe","arch":"amd64","os":"windows",
           "base_address":{"type":"absolute","value": {{CapaFixture.Base}} },

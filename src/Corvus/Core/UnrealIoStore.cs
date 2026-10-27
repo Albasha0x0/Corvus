@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// An Unreal Engine IoStore container: the table of contents (.utoc) names each chunk's id, offset and length in an
-/// uncompressed stream cut into compression blocks, the blocks' places in the data file (.ucas, or partitions
-/// name_s1.ucas and on), and a directory index that maps file paths to chunks. Chunk data is read from the .ucas files
-/// beside the .utoc; without them the chunks are listed only.
-/// </summary>
+/// <summary>An Unreal Engine IoStore container (.utoc); chunk data is read from the adjacent .ucas files, else only listed.</summary>
 public static class UnrealIoStore
 {
     public const string Kind = "Unreal IoStore container";

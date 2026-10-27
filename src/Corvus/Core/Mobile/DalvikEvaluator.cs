@@ -75,12 +75,8 @@ public sealed class DalvikArray
     }
 }
 
-/// <summary>
-/// A bounded interpreter for static string decoder methods of DEX code: int, long and float arithmetic, arrays, branches,
-/// switches, nested static calls of the program, its classes' static state as their static initializers leave it, and the
-/// framework calls listed in the intrinsics. Anything else stops the evaluation with a reason; it never runs code outside
-/// the program and never throws for malformed code.
-/// </summary>
+/// <summary>A bounded interpreter for DEX string decoder methods; never runs code outside the program, never throws.</summary>
+/// <remarks>Anything beyond arithmetic, arrays, branches, program calls, static state and the intrinsics stops it with a reason.</remarks>
 public sealed partial class DalvikEvaluator(IDexProgram program)
 {
     /// <summary>Instructions per decoder call, nested calls included.</summary>
@@ -126,13 +122,8 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
     private long _steps, _stepLimit = MaxSteps, _elements;
     private bool _stateChanged;
 
-    /// <summary>
-    /// Runs <paramref name="decoder"/> (a method of the program returning a string: static, or an instance method of a class
-    /// whose instances all behave alike, run on a new instance) on constant arguments, twice: the
-    /// string is Simplified only when both runs end within the limits and the second run, on the static state the first one
-    /// left, returns the same string. With <paramref name="wrapper"/>, a String constructor or static String method, the
-    /// decoder returns an array and the wrapper, called with it and <paramref name="wrapperArguments"/>, makes the string.
-    /// </summary>
+    /// <summary>Runs <paramref name="decoder"/> twice on constant arguments; Simplified only when both runs agree within limits.</summary>
+    /// <remarks>The second run starts from the static state the first left. With <paramref name="wrapper"/>, the decoder returns an array the wrapper turns into the string.</remarks>
     public DexFold Fold(string decoder, IReadOnlyList<object?> arguments, DexMethodRef? wrapper = null, IReadOnlyList<object?>? wrapperArguments = null)
     {
         _reads.Clear();
@@ -159,10 +150,7 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
         }
     }
 
-    /// <summary>
-    /// The value of a static field of the program as its class's static initializer leaves it, or of a standard charset
-    /// field; false when that is not known.
-    /// </summary>
+    /// <summary>A static field's value after its static initializer, or a standard charset field; false when unknown.</summary>
     public bool TryReadStatic(string field, out object? value)
     {
         value = null;
@@ -614,10 +602,7 @@ public sealed partial class DalvikEvaluator(IDexProgram program)
         return state.Values[key];
     }
 
-    /// <summary>
-    /// A writer of a static field the evaluation read other than its class's static initializer and the methods the evaluation
-    /// ran ("field is also written by method"); null when there is none, so the value read is the one every run sees.
-    /// </summary>
+    /// <summary>Another writer of a static field the evaluation read; null when none, so every run sees the value read.</summary>
     private string? OtherWriter()
     {
         foreach (var key in _reads)

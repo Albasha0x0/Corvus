@@ -5,20 +5,11 @@ using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// A transformation layer of an assembly. State: restored (a simplify_methods dry run rewrites every site found), partial
-/// (some sites are left, with their reason codes), unknown (no site can be rewritten, or the methods were not read), or
-/// present (the layer is seen and counted; this reader does not restore it).
-/// </summary>
+/// <summary>A transformation layer of an assembly; State is restored, partial, unknown, or present (counted, not restored).</summary>
 public sealed record TransformLayer(string Layer, string State, int Sites, int Restored, IReadOnlyList<string> Reasons, string Evidence);
 
-/// <summary>
-/// The transformation layers of an assembly: constants, proxies and control flow from a dry run of simplify_methods over
-/// every method (in memory, never applied); encoded bodies from the IL health of the image; assemblies loaded from bytes
-/// at run time from the calls that load or resolve them. Reads only; a layer the reader could not see is reported
-/// unknown. A constants site is a call of the module's own helper with a decoder shape, so plain string helpers of a clean
-/// assembly add none.
-/// </summary>
+// A constants site is a call of a module helper with a decoder shape, so plain string helpers add none.
+/// <summary>Reads an assembly's transformation layers from a simplify_methods dry run, IL health and assembly load calls; unseen layers are unknown.</summary>
 public static class TransformLayers
 {
     /// <summary>The time the dry run may take; methods not reached by then make the layers partial and are counted.</summary>
@@ -50,10 +41,7 @@ public static class TransformLayers
         return layers;
     }
 
-    /// <summary>
-    /// The identified transformers whose evidence explains <paramref name="layer"/>, as "name (confidence): evidence", one
-    /// per transformer; empty for a layer no identification evidence speaks to (proxies, control flow).
-    /// </summary>
+    /// <summary>One "name (confidence): evidence" line per transformer explaining <paramref name="layer"/>; empty when none applies.</summary>
     public static List<string> Joined(TransformLayer layer, IEnumerable<Analysis.TransformerFinding> found)
     {
         string[] keys = layer.Layer switch
@@ -67,10 +55,7 @@ public static class TransformLayers
             .Select(e => $"{f.Name} ({f.Confidence}): {e}"))];
     }
 
-    /// <summary>
-    /// Methods that load an assembly from bytes (Assembly.Load and AppDomain.Load with a byte array,
-    /// AssemblyLoadContext.LoadFromStream) or register a resolve handler (AssemblyResolve, Resolving), one per method.
-    /// </summary>
+    /// <summary>Methods that load an assembly from bytes or register a resolve handler, one entry per method.</summary>
     private static List<(MethodDef Method, string Call, bool FromResource)> Loads(List<MethodDef> methods)
     {
         var found = new List<(MethodDef, string, bool)>();
@@ -141,8 +126,7 @@ public static class TransformLayers
         return new[] { constants, proxies, flow }.OfType<TransformLayer>();
     }
 
-    // A decoder XORs, indexes an array or string in a loop, or calls a decoding API, itself or through the module's own
-    // methods it calls, to the given depth.
+    // A decoder XORs, indexes in a loop or calls a decoding API, directly or through module callees to the given depth.
     private static bool DecoderShape(MethodDef m, Dictionary<MethodDef, bool> seen, int depth)
     {
         if (seen.TryGetValue(m, out bool known)) return known;

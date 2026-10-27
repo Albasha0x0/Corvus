@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// Framework methods the evaluator models directly, keyed by dnlib full name. All are deterministic and culture-independent
-/// for the values they accept (number formatting bails out on negative values, whose sign depends on the culture).
-/// Arguments include 'this' first for instance methods.
-/// </summary>
+/// <summary>Deterministic, culture-independent framework methods by dnlib full name; instance arguments start with 'this'.</summary>
 internal sealed partial class IlEvaluator
 {
     private static readonly Dictionary<string, Func<IlEvaluator, object?[], object?>> Intrinsics = BuildIntrinsics();
@@ -39,7 +35,6 @@ internal sealed partial class IlEvaluator
         void Add(string ret, string type, string name, string parameters, Func<IlEvaluator, object?[], object?> f) =>
             t[$"{ret} {type}::{name}({parameters})"] = f;
 
-        // System.String
         Add(S, S, "Concat", $"{S},{S}", (_, a) => string.Concat(NStr(a[0]), NStr(a[1])));
         Add(S, S, "Concat", $"{S},{S},{S}", (_, a) => string.Concat(NStr(a[0]), NStr(a[1]), NStr(a[2])));
         Add(S, S, "Concat", $"{S},{S},{S},{S}", (_, a) => string.Concat(NStr(a[0]), NStr(a[1]), NStr(a[2]), NStr(a[3])));
@@ -66,29 +61,27 @@ internal sealed partial class IlEvaluator
         Add(B, S, "Equals", $"{S},{S}", (_, a) => NullableStr(a[0]) == NullableStr(a[1]) ? 1 : 0);
         Add(B, S, "Equals", S, (_, a) => Str(a[0]) == NullableStr(a[1]) ? 1 : 0);
         Add(B, S, "IsNullOrEmpty", S, (_, a) => string.IsNullOrEmpty(NullableStr(a[0])) ? 1 : 0);
-        // The interned instance: equal strings are the same object, which evaluated code compares by value anyway.
+        // Evaluated code compares strings by value, so interning changes nothing.
         Add(S, S, "Intern", S, (_, a) => Str(a[0]));
         Add("System.Void", S, ".ctor", "System.Char[]", (_, a) => a[0] == null ? "" : new string(Chars(a[0])));
         Add("System.Void", S, ".ctor", $"System.Char[],{I},{I}", (_, a) => Try(() => new string(Chars(a[0]), I4(a[1]), I4(a[2]))));
         Add("System.Void", S, ".ctor", $"{C},{I}", (_, a) => Try(() => new string(Chr(a[0]), I4(a[1]))));
 
-        // System.Object virtuals, dispatched on the modelled receivers (sb.ToString() compiles to callvirt Object::ToString)
+        // sb.ToString() compiles to callvirt Object::ToString.
         Add(S, "System.Object", "ToString", "", (_, a) => a[0] switch
         {
             string s => s,
             BuilderObject b => b.Text.ToString(),
             BoxedValue boxed => BoxedText(boxed),
-            Pointer { } p when p.Get() is int i => NonNegative(i).ToString(System.Globalization.CultureInfo.InvariantCulture), // constrained. int32
+            Pointer { } p when p.Get() is int i => NonNegative(i).ToString(System.Globalization.CultureInfo.InvariantCulture),
             null => throw Bail(FallbackReason.RuntimeError, "null reference"),
             _ => throw Bail(FallbackReason.UnsupportedValue, "ToString of an object the interpreter does not model"),
         });
 
-        // System.Char, System.Int32
         Add(S, C, "ToString", C, (_, a) => Chr(a[0]).ToString());
         Add(S, C, "ToString", "", (_, a) => Chr(Deref(a[0])).ToString());
         Add(S, I, "ToString", "", (_, a) => NonNegative(I4(Deref(a[0]))).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
-        // System.Text.StringBuilder
         Add("System.Void", SB, ".ctor", "", (e, _) => e.NewBuilder());
         Add("System.Void", SB, ".ctor", I, (e, _) => e.NewBuilder());
         Add("System.Void", SB, ".ctor", S, (e, a) => e.NewBuilder(NStr(a[0])));
@@ -116,7 +109,7 @@ internal sealed partial class IlEvaluator
         });
         Add(C, SB, "get_Chars", I, (_, a) => (int)Builder(a[0]).Text[InRange(I4(a[1]), Builder(a[0]).Text.Length)]);
 
-        // System.Text.Encoding: the static properties return immutable instances
+        // The static Encoding properties return immutable instances.
         Add("System.Text.Encoding", "System.Text.Encoding", "get_UTF8", "", (_, _) => Encoding.UTF8);
         Add("System.Text.Encoding", "System.Text.Encoding", "get_ASCII", "", (_, _) => Encoding.ASCII);
         Add("System.Text.Encoding", "System.Text.Encoding", "get_Unicode", "", (_, _) => Encoding.Unicode);
@@ -125,16 +118,15 @@ internal sealed partial class IlEvaluator
         Add(S, "System.Text.Encoding", "GetString", $"System.Byte[],{I},{I}", (_, a) => Try(() => Enc(a[0]).GetString(Bytes(a[1]), I4(a[2]), I4(a[3]))));
         Add("System.Byte[]", "System.Text.Encoding", "GetBytes", S, (e, a) => e.NewArray(Enc(a[0]).GetBytes(Str(a[1]))));
 
-        // System.Convert
         Add("System.Byte[]", "System.Convert", "FromBase64String", S, (e, a) => e.NewArray(Try(() => Convert.FromBase64String(Str(a[0])))));
         Add(S, "System.Convert", "ToBase64String", "System.Byte[]", (_, a) => Convert.ToBase64String(Bytes(a[0])));
-        // Only digits parse the same in every culture (signs and white space are the culture's own).
+        // Only digits parse the same in every culture.
         Add(I, "System.Convert", "ToInt32", S, (_, a) => a[0] == null ? 0
             : Str(a[0]) is { Length: > 0 } digits && digits.All(char.IsAsciiDigit)
                 ? int.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int v) ? v : throw Bail(FallbackReason.RuntimeError, "the number does not fit an int32")
                 : throw Bail(FallbackReason.PlatformDependent, "parsing anything but digits depends on the culture"));
 
-        // Integer conversions: checked, as the CLR's (out of range throws OverflowException).
+        // Convert's integer conversions are checked and throw OverflowException.
         static object Checked(Func<object> f)
         {
             try { return f(); }
@@ -149,7 +141,6 @@ internal sealed partial class IlEvaluator
         Add("System.Byte", "System.Convert", "ToByte", I, (_, a) => Checked(() => (int)checked((byte)I4(a[0]))));
         Add(C, "System.Convert", "ToChar", I, (_, a) => Checked(() => (int)checked((char)I4(a[0]))));
 
-        // System.Array, RuntimeHelpers
         Add(I, "System.Array", "get_Length", "", (_, a) => ArrayOf(a[0]).Data.Length);
         Add("System.Void", "System.Array", "Reverse", "System.Array", (e, a) =>
         {
@@ -186,7 +177,7 @@ internal sealed partial class IlEvaluator
             return null;
         });
 
-        // Buffer.BlockCopy copies bytes between arrays of primitives (native-size elements differ between platforms).
+        // Buffer.BlockCopy over primitive arrays; native-size elements differ between platforms.
         Add("System.Void", "System.Buffer", "BlockCopy", "System.Array,System.Int32,System.Array,System.Int32,System.Int32", (e, a) =>
         {
             var source = ArrayOf(a[0]).Data;
@@ -210,16 +201,14 @@ internal sealed partial class IlEvaluator
 
         Add("System.Array", "System.Enum", "GetValues", "System.Type", (e, a) => e.EnumValues(a[0]));
 
-        // System.Math
         Add(I, "System.Math", "Min", $"{I},{I}", (_, a) => Math.Min(I4(a[0]), I4(a[1])));
         Add(I, "System.Math", "Max", $"{I},{I}", (_, a) => Math.Max(I4(a[0]), I4(a[1])));
         Add(I, "System.Math", "Abs", I, (_, a) => I4(a[0]) == int.MinValue ? throw Bail(FallbackReason.RuntimeError, "Math.Abs overflow") : Math.Abs(I4(a[0])));
 
-        // StringComparer, as dictionary comparers
         Add("System.StringComparer", "System.StringComparer", "get_Ordinal", "", (_, _) => new ComparerObject(false));
         Add("System.StringComparer", "System.StringComparer", "get_OrdinalIgnoreCase", "", (_, _) => new ComparerObject(true));
 
-        // System.Threading.Monitor: evaluation is single-threaded, so lock always succeeds at once.
+        // Evaluation is single-threaded, so Monitor.Enter succeeds at once.
         Add("System.Void", "System.Threading.Monitor", "Enter", "System.Object", (_, a) => a[0] == null ? throw Bail(FallbackReason.RuntimeError, "null reference") : null);
         Add("System.Void", "System.Threading.Monitor", "Enter", "System.Object,System.Boolean&", (_, a) =>
         {
@@ -305,10 +294,7 @@ internal sealed partial class IlEvaluator
         _ => Str(v),
     };
 
-    /// <summary>
-    /// ToString of a boxed integer, char or bool, which is the same in every culture (a negative number's sign is the
-    /// culture's own); anything else is not modelled.
-    /// </summary>
+    /// <summary>ToString of a boxed integer, char or bool; negative numbers and other types bail.</summary>
     private static string BoxedText(BoxedValue b)
     {
         var invariant = System.Globalization.CultureInfo.InvariantCulture;

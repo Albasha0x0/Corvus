@@ -3,11 +3,7 @@ using Corvus.Core.Databases;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=realm: a Realm file: file format, the tables of the current commit with their columns and object counts, a
-/// page of one table's objects (table= names it; offset=, limit=), and when asked for, the objects the previous commit
-/// and free space still hold that the current commit deleted or changed.
-/// </summary>
+/// <summary>view=realm: a Realm file's tables and a page of one table's objects (table=, offset=, limit=); when asked for, objects recovered from older data.</summary>
 internal sealed class RealmFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxRecovered = 200, MaxText = 512;
@@ -61,7 +57,7 @@ internal sealed class RealmFileView : IFileSummaryView
             if (next != null) notes.Add($"offset={next} lists the next objects of {Display(table!.Name)}");
             if (found > MaxRecovered) notes.Add($"recovered: the first {MaxRecovered}; more remain");
             if (realm.Streaming) notes.Add("streaming form (written by a file copy): one commit, no previous one");
-            if (!asked) notes.Add("view=realm adds the objects the previous commit and free space hold that the current commit deleted or changed");
+            if (!asked) notes.Add("view=realm adds objects recovered from the previous commit and free space");
 
             var tables = realm.Tables.Select(t => new TableEntry(Display(t.Name), t.Embedded, t.Objects,
                 [.. Shown(t).Select(c => new ColumnEntry(c.Name, c.Kind))])).ToList();
@@ -71,7 +67,7 @@ internal sealed class RealmFileView : IFileSummaryView
                 $"Realm file: format {realm.FileFormat}, {realm.Length:N0} bytes; {classes.Count} classes" +
                 (classes.Count > 0 ? $": {string.Join(", ", classes.Take(8).Select(t => $"{t.Name} ({t.Objects:N0})"))}{(classes.Count > 8 ? ", ..." : "")}" : "") + ".",
             };
-            if (found > 0) highlights.Add($"Recoverable: {found:N0}{(found > MaxRecovered ? "+" : "")} objects the previous commit or free space hold that the current commit deleted or changed.");
+            if (found > 0) highlights.Add($"Recoverable: {found:N0}{(found > MaxRecovered ? "+" : "")} deleted or changed objects in the previous commit or free space.");
             return new FileView(new Facts(realm.FileFormat, realm.Length, tables, table == null ? "" : Display(table.Name),
                 table == null ? [] : [.. Shown(table).Select(c => c.Name)], offset, next, page, recovered, notes), highlights);
         }

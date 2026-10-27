@@ -6,7 +6,7 @@ using Corvus.Services.Analysis;
 
 namespace Corvus.Tools;
 
-// Records and text renderers of the containers family (SX-3): the text is compact rows, never the record's JSON.
+// Records and text renderers of the container tools: the text is compact rows, never the record's JSON.
 
 /// <summary>survey_features: features with their match counts; evidence only for the category asked for.</summary>
 public sealed record SurveyRecord(string Assembly, int MethodsScanned, IReadOnlyList<SurveyFeature> Features)
@@ -51,10 +51,7 @@ public sealed record UnpackPage(string Source, string Container, string OutputDi
     public IReadOnlyList<string>? Notes { get; init; }
 }
 
-/// <summary>
-/// summarize_file: the overview (identity, hashes, signature, assemblies, highlights, entry points, value counts) and, for
-/// another view, its facts as detail (described in the guide topic containers).
-/// </summary>
+/// <summary>summarize_file: the overview, or for another view its facts as detail (guide topic containers).</summary>
 public sealed record FileSummaryRecord(string Path, long Size, string Type, string Sha256, string Container, string View, IReadOnlyList<string> Views)
 {
     public string? Md5 { get; init; }
@@ -83,18 +80,18 @@ internal static class ContainerText
 {
     private static string Count(int? n) => n is { } v ? v.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) : "unknown";
 
-    public static string Unity(UnityOverview.Report r)
+    public static string Build(BuildSummary.Report r)
     {
-        var sb = new StringBuilder($"{Escape(r.Product ?? Path.GetFileName(r.AppDirectory))}{(r.Company != null ? " by " + Escape(r.Company) : "")}: Unity " +
+        var sb = new StringBuilder($"{Escape(r.Product ?? Path.GetFileName(r.AppDirectory))}{(r.Company != null ? " by " + Escape(r.Company) : "")}: engine " +
                                    $"{r.Engine.Version ?? "version unknown"} ({r.Engine.Agreement}), {r.Platform} {r.Architecture}{(r.ArchitectureSource != null ? $" (from {Escape(r.ArchitectureSource)})" : "")}\n");
         sb.Append($"Folder: {r.AppDirectory}\n");
         if (r.DataDirectory != null) sb.Append($"Data: {r.DataDirectory}\n");
         if (r.Executable != null) sb.Append($"Executable: {r.Executable}\n");
         foreach (var c in r.Engine.Claims) sb.Append($"  version {Escape(c.Version)} from {c.Source}: {Escape(c.File)}\n");
-        if (r.Engine.MetadataRange != null) sb.Append($"  metadata implies Unity {r.Engine.MetadataRange} ({r.Engine.MetadataCheck})\n");
+        if (r.Engine.MetadataRange != null) sb.Append($"  metadata implies engine {r.Engine.MetadataRange} ({r.Engine.MetadataCheck})\n");
         var b = r.Backend;
         sb.Append($"Backend: {b.Kind}");
-        if (b.Kind == "il2cpp") sb.Append($", metadata {b.MetadataState}{(b.MetadataVersion is { } v ? $" v{v}" : "")}{(b.MetadataStateReason != null ? $" ({Escape(b.MetadataStateReason)})" : "")}, {b.Metadata ?? "no metadata"}; binary {b.NativeBinary ?? "not found"}");
+        if (b.Kind == "aot") sb.Append($", metadata {b.MetadataState}{(b.MetadataVersion is { } v ? $" v{v}" : "")}{(b.MetadataStateReason != null ? $" ({Escape(b.MetadataStateReason)})" : "")}, {b.Metadata ?? "no metadata"}; binary {b.NativeBinary ?? "not found"}");
         else if (b.Kind == "mono") sb.Append($", {b.ManagedAssemblies} assemblies ({b.ManagedState}) in {b.ManagedDirectory}{(b.MonoRuntime != null ? ", " + b.MonoRuntime : "")}{(b.DotnetProfile != null ? ", " + b.DotnetProfile : "")}");
         if (b.ScriptingAssemblies is { } s) sb.Append($", {s} scripting assemblies");
         if (b.UnreadableNameRatio is { } ratio) sb.Append($", {Corvus.Core.Format.Percent(ratio)} unreadable names of {b.NamesRead}");
@@ -126,7 +123,7 @@ internal static class ContainerText
         var views = ViewsOf(s, s.Triage != null);
         var name = view.Trim().ToLowerInvariant();
         if (!views.Contains(name))
-            throw new ToolError(ErrorCode.InvalidArgument, $"view '{view}' does not apply to this file.", $"pass view as one of {string.Join(", ", views)}");
+            throw new ToolError(ErrorCode.InvalidArgument, $"View '{view}' does not apply to this file.", $"pass view as one of {string.Join(", ", views)}");
         var record = new FileSummaryRecord(s.File.Path, s.File.Size, s.File.Type, s.File.Sha256, s.Container, name, views);
         if (name != "overview") return record with { Detail = Detail(s, name), Notes = s.Notes.Count > 0 ? s.Notes : null };
         var main = s.Assemblies.FirstOrDefault();

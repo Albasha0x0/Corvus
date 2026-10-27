@@ -150,7 +150,8 @@ internal sealed partial class PsInterpreter
         if (name == null || Resolve(name) is not { } resolved)
         {
             if (name != null && c.Invocation == '\0') Record(name);
-            Bind(c); // folds the arguments
+            // Bind folds the arguments.
+            Bind(c);
             return PsUnknown.Value;
         }
         if (c.Invocation != '\0' && c.Name is not PsLiteral { Raw: false } && Regex.IsMatch(name, @"^[\w\-.]+$"))
@@ -192,7 +193,7 @@ internal sealed partial class PsInterpreter
             {
                 var b = Bind(c);
                 if (_fold || !piped) return PsUnknown.Value;
-                // several positional blocks: the first is Begin, and the last End when there are three or more
+                // With several positional blocks the first is Begin, and the last End when there are three or more.
                 var blocks = b.Positional.ToList();
                 object? begin = b.Get("Begin"), end = b.Get("End");
                 if (blocks.Count >= 2 && blocks.All(x => x is PsBlockValue))
@@ -272,7 +273,7 @@ internal sealed partial class PsInterpreter
                 return _ctx.Clipboard ?? (object)PsUnknown.Value;
             case "Add-Type" when c.Args.All(a => a.Parameter == null || "assemblyname".StartsWith(a.Parameter.ToLowerInvariant(), StringComparison.Ordinal)):
                 Bind(c);
-                return PsVoid.Value; // loading a framework assembly by name
+                return PsVoid.Value;
             case "Write-Host" or "Out-Null" or "Write-Verbose" or "Out-Host" or "Start-Sleep":
                 Bind(c);
                 return PsVoid.Value;
@@ -430,7 +431,7 @@ internal sealed partial class PsInterpreter
                 return RunNested(string.Join(" ", rest), "powershell -Command", siteStart, c.End, null);
             }
         }
-        // no -Command: the first positional argument starts the command
+        // Without -Command, the first positional argument starts the command.
         int first = values.FindIndex(v => v.Param == null);
         if (first < 0 || values.Skip(first).Any(v => v.Param == null && Str(v.Value) == null)) return PsUnknown.Value;
         return RunNested(string.Join(" ", values.Skip(first).Select(v => v.Param != null ? "-" + v.Param : Str(v.Value))), "powershell", siteStart, c.End, null);
@@ -497,7 +498,8 @@ internal sealed partial class PsInterpreter
                 _ctx.Layers.Add(new ScriptLayer(depth, "powershell", chain.Length > 0 ? $"{via} of {chain}" : via, code));
                 var outer = _layer;
                 bool fold = _fold;
-                _fold = true; // the block runs when invoked; read it here for its text only
+                // The block runs when invoked; here it is read for its text only.
+                _fold = true;
                 try { outer.Set(siteStart, siteEnd, "{" + RunLayer(code, depth, out _).TrimEnd() + "}"); }
                 finally { _fold = fold; }
             }
@@ -645,7 +647,8 @@ internal sealed partial class PsInterpreter
             case PsHashValue h: return h.Items.TryGetValue(name, out var hv) ? hv : null;
             case object[] a:
             {
-                var each = a.Select(x => GetMember(x, name, false)).ToArray(); // member enumeration
+                // Member enumeration.
+                var each = a.Select(x => GetMember(x, name, false)).ToArray();
                 return each.All(Known) ? Tag(each, a) : PsUnknown.Value;
             }
             case PsOpaque { Type: "NetworkCredential", Secret: { } secret } when n == "password": return secret;
@@ -668,7 +671,8 @@ internal sealed partial class PsInterpreter
         ("string", "empty") => "",
         ("io.compression.compressionmode", _) => name,
         ("environment", "newline") => "\r\n",
-        _ => new PsMethodGroup(new PsTypeValue(type), name), // a static method named as a member: .Invoke() calls it
+        // A static method named as a member; .Invoke() calls it.
+        _ => new PsMethodGroup(new PsTypeValue(type), name),
     };
 
     private object? Invoke(object? target, string name, List<object?> args, PsInvoke? node)

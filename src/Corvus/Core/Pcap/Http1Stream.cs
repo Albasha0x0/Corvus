@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// HTTP/1.x over one connection's two in-order streams: requests and responses parsed as they arrive (heads up to 64 KiB,
-/// bodies by Content-Length, chunked or until the connection ends), each response paired with the oldest open request and
-/// handed on with its body (still content-encoded), as is each request body. After a gap the side resumes at the next start line.
-/// </summary>
+/// <summary>HTTP/1.x over one connection, heads up to 64 KiB; responses pair with the oldest open request, and a gap resumes at the next start line.</summary>
 internal sealed class Http1Stream(string scheme, string server, Action<CapturedResponse> emit, long maxBody) : ITcpConsumer
 {
     private const int MaxHead = 64 * 1024;
@@ -43,7 +39,7 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
         public bool Truncated, Cut;
         /// <summary>The side resumed at a start line after bytes it could not read (a gap, a capture begun mid-stream).</summary>
         public bool Resumed;
-        // the message being read
+        // The message being read.
         public string Method = "", Target = "", Url = "", Mime = "", Encoding = "";
         public int Status;
         public Dictionary<string, string> Headers = new(StringComparer.OrdinalIgnoreCase);
@@ -114,7 +110,7 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
     /// <summary>Reads the head up to its blank line; returns what follows it.</summary>
     private ReadOnlySpan<byte> Head(Side side, ReadOnlySpan<byte> data)
     {
-        // search from a little before the old end, so a CRLFCRLF split over two calls is found
+        // Search from a little before the old end, so a CRLFCRLF split over two calls is found.
         int before = (int)side.Buffer.Length;
         side.Buffer.Write(data);
         var all = side.Buffer.GetBuffer().AsSpan(0, (int)side.Buffer.Length);
@@ -169,7 +165,7 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
             return false;
         if (side.Resumed)
         {
-            // responses were lost unread: the newest request is the one answered (a client that does not pipeline waits for each answer)
+            // Responses were lost unread: the newest request is the one answered.
             while (_requests.Count > 1) _requests.Dequeue();
             side.Resumed = false;
         }
@@ -177,7 +173,8 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
         side.Body = new MemoryStream();
         if (side.Status is >= 100 and < 200)
         {
-            side.State = State.Head; // an interim response: the final one follows for the same request
+            // An interim response: the final one follows for the same request.
+            side.State = State.Head;
             side.Body = null;
             return true;
         }
@@ -195,13 +192,15 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
     private string Url(string target, string? host)
     {
         if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || target.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return target;
-        if (!target.StartsWith('/')) return target; // CONNECT host:port, OPTIONS *
+        // CONNECT host:port, OPTIONS *.
+        if (!target.StartsWith('/')) return target;
         return $"{scheme}://{host ?? server}{target}";
     }
 
     private void Append(Side side, ReadOnlySpan<byte> data)
     {
-        if (side.Body == null) return; // a request body
+        // A request body.
+        if (side.Body == null) return;
         if (side.Body.Length + data.Length > maxBody) { side.Truncated = true; return; }
         side.Body.Write(data);
     }
@@ -231,7 +230,7 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
         var side = fromClient ? _client : _server;
         if (side.State == State.Body)
         {
-            // a fixed-length body keeps its place: the missing bytes are counted, not invented
+            // A fixed-length body keeps its place: the missing bytes are counted, not invented.
             long skip = Math.Min(bytes, side.Remaining);
             side.Missing += skip;
             side.Remaining -= skip;
@@ -246,7 +245,7 @@ internal sealed class Http1Stream(string scheme, string server, Action<CapturedR
 
     public void End()
     {
-        // a body read until the connection closed is complete now; a cut one is handed on as far as it got
+        // A body read until the connection closed is complete now; a cut one is handed on as far as it got.
         foreach (var side in new[] { _client, _server })
             if (side.Body != null && side.State is State.UntilClose or State.Body or State.ChunkData or State.ChunkSize or State.ChunkEnd or State.Trailer)
             {

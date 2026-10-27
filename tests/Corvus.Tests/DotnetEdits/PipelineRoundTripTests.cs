@@ -11,25 +11,15 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// Ground truth from a real post-build transformation pipeline. .NET Framework programs (PipelineSamples, and the samples
-/// bundled with the tool) are compiled, run through the pipeline under each option and seed, simplified by the engine and
-/// saved by the product's writer; the original, processed and simplified builds are executed and must give the same exit
-/// code and output. A processed build that already misbehaves is the tool's fault and is reported, not counted.
-/// Then, over the whole module, what simplifying took back of what the pipeline added (instructions), checked against a
-/// floor pinned per option and sample, so a regression fails the test. The sample and option pairs are taken one at a
-/// time by the <see cref="Parts"/> classes in the run, side by side within the reference-tool permits.
+/// Programs run through a post-build transformation pipeline, then simplified, behave like the originals, and simplifying
+/// takes back at least the floor pinned per option and sample.
 /// </summary>
 /// <remarks>
-/// The pipeline is a command-line tool that reads a crproj project (CORVUS_PIPELINE_TOOL: its executable; the first
-/// configuration is the pipeline tool's command-line executable). The samples are every PipelineSamples/*.cs (one
-/// program each, named after the file; a new file is a new sample) and, with CORVUS_PIPELINE_SAMPLES, a folder of sample
-/// projects (one Program.cs each, as the tool's UnitTest/Samples). Optional: CORVUS_PIPELINE_PROFILES, a folder of bundled
-/// .crproj profiles (default: Build/Profiles next to the tool); CORVUS_PIPELINE_SEEDS (default 3 in an exhaustive run, else one seed of the three, rotating by day);
-/// CORVUS_PIPELINE_SEED, one seed to run; CORVUS_PIPELINE_ONLY and
-/// CORVUS_PIPELINE_SAMPLE, substrings of the option and sample names to run; CORVUS_PIPELINE_PARALLEL, round trips run at once
-/// (default 1, per part); CORVUS_PIPELINE_BUDGET_MINUTES, a part's total time (default 90 exhaustive, else 45); CORVUS_PIPELINE_REPORT, a file for the
-/// report (each part writes its own, the part number before the extension);
-/// CORVUS_PIPELINE_KEEP, keep the work files.
+/// CORVUS_PIPELINE_TOOL names the pipeline executable. Samples: every PipelineSamples/*.cs, plus CORVUS_PIPELINE_SAMPLES.
+/// Optional: CORVUS_PIPELINE_PROFILES (default Build/Profiles beside the tool), CORVUS_PIPELINE_SEEDS (default 3 exhaustive,
+/// else one by day), CORVUS_PIPELINE_SEED, CORVUS_PIPELINE_ONLY, CORVUS_PIPELINE_SAMPLE, CORVUS_PIPELINE_PARALLEL (default 1),
+/// CORVUS_PIPELINE_BUDGET_MINUTES (default 90 exhaustive, else 45), CORVUS_PIPELINE_REPORT, CORVUS_PIPELINE_KEEP.
+/// A processed build that already misbehaves is reported, not counted.
 /// </remarks>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
@@ -47,10 +37,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
     public sealed class Part5(ITestOutputHelper output) : PipelineRoundTripTests(output, 4);
     public sealed class Part6(ITestOutputHelper output) : PipelineRoundTripTests(output, 5);
 
-    /// <summary>
-    /// The sample and option pairs no part has taken yet, per pair list: a part takes the next one whenever it is free, so
-    /// a part that waited for its permit takes fewer and the parts end together.
-    /// </summary>
+    /// <summary>Pairs no part has taken yet; a free part takes the next, so the parts end together.</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentQueue<int>> Pending = new(StringComparer.Ordinal);
 
     /// <summary>The parts (0-based) whose classes this run executes, always including <paramref name="part"/>.</summary>
@@ -72,10 +59,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         else _dir.Dispose();
     }
 
-    /// <summary>
-    /// Option ids of the external tool, verbatim — do not edit. The tool reads them from the project file; they are its
-    /// own names, not ours. The argument names and values passed with them in <see cref="Options"/> are the tool's too.
-    /// </summary>
+    /// <summary>Option ids of the external tool, verbatim: they are the tool's own names, as are the arguments in <see cref="Options"/>.</summary>
     private static class ToolIds
     {
         public const string ControlFlow = "ctrl flow";
@@ -101,11 +85,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         public const string SigningKeyVariable = "CONFUSER_INTEGRITY_KEY_PATH";
     }
 
-    /// <summary>
-    /// What simplifying must take back of the instructions an option added, per sample (percent; null: not checked, e.g.
-    /// the processed build misbehaves). Pinned from a clean full run (3 seeds, the pipeline tool) at the least any
-    /// seed achieved, rounded down, less one point; 0 still fails when simplifying adds instructions.
-    /// </summary>
+    /// <summary>Percent of an option's added instructions simplifying must take back per sample (null: not checked); pinned from a clean 3-seed run, less one point.</summary>
     public sealed record Floors(double? Workload = null, double? BasicFlow = null, double? Constants = null, double? ExceptionFlow = null)
     {
         public double? For(string sample) => sample switch
@@ -116,17 +96,10 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
 
     private static readonly Floors None = new(0, 0, 0, 0);
 
-    /// <summary>
-    /// One pipeline configuration: the rule's options and, for a packer, the packer element that wraps the processed
-    /// module (<see cref="Packer"/>). Floor null: only the behavior is checked.
-    /// </summary>
+    /// <summary>One pipeline configuration: the rule's options and an optional <see cref="Packer"/>; a null floor checks behaviour only.</summary>
     public sealed record Option(string Name, string Rule, Floors? Floor = null, string? Packer = null);
 
-    /// <summary>
-    /// Pipeline options, every family one at a time in each mode, then combinations, with their floors (<see cref="Floors"/>).
-    /// The Constants sample's own checks fail (exit 2) after any option that encodes its constants, so it has no floor there.
-    /// A new option is one line here.
-    /// </summary>
+    /// <summary>Pipeline options with their floors (<see cref="Floors"/>); the Constants sample fails its own checks after constant encoding, so it has no floor there.</summary>
     public static readonly Option[] Options =
     [
         new("control-flow switch normal", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "normal"), ("intensity", "100")), new Floors(73, 89, 83, 52)),
@@ -164,11 +137,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
                                                    Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI"))),
     ];
 
-    /// <summary>
-    /// Options not run: the tool itself fails on them, its output misbehaves before
-    /// any simplification, or its output is not IL that can be checked. CORVUS_PIPELINE_RECHECK=1 runs them as any other
-    /// option, to see whether a new tool build changed that. A profile's rule comes from its file (null here).
-    /// </summary>
+    /// <summary>Options not run because the tool fails or its output misbehaves; CORVUS_PIPELINE_RECHECK=1 runs them anyway.</summary>
     public static readonly (string Name, string? Rule, string Why)[] Skipped =
     [
         ("self-check", Rule(ToolIds.SelfCheck, ("mode", "normal")),
@@ -222,7 +191,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
 
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact(ToolVariable)]
-    public void ProcessedProgramsSimplifyAndBehaveTheSame()
+    public void Processed_programs_simplify_and_behave_the_same()
     {
         var tool = RealData.Path(ToolVariable);
         var seeds = Seeds();
@@ -249,8 +218,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
 
         // A part takes a sample and option pair with all its seeds, as each floor is the least over the seeds.
         var pairs = (from b in built from o in options select (Built: b, Option: o)).ToList();
-        // The queue holds the pairs dealt to the parts in this run, so a part
-        // run without the others takes only its own share.
+        // The queue holds this run's pairs, so a part run alone takes only its own share.
         var inRun = PartsInRun(part);
         var pending = Pending.GetOrAdd(string.Join("|", pairs.Select(r => $"{r.Built.Name} / {r.Option.Name}").Append(string.Join(",", seeds)).Append(string.Join(",", inRun))),
             _ => new(Enumerable.Range(0, pairs.Count).Where(i => inRun.Contains(i % Parts))));
@@ -258,8 +226,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         var taken = new System.Collections.Concurrent.ConcurrentBag<(int Pair, int Seed, Row Row)>();
         var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
         SigningKey();
-        // Pairs are not started once the budget is spent; the test then
-        // fails naming the slowest.
+        // No pair starts once the budget is spent; the test then fails naming the slowest.
         var budget = TimeSpan.FromMinutes(double.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_BUDGET_MINUTES"), out var minutes) ? minutes : SweepScope.Exhaustive ? 90 : 45);
         var clock = Stopwatch.StartNew();
         Parallel.For(0, parallel, new ParallelOptions { MaxDegreeOfParallelism = parallel }, _ =>
@@ -313,7 +280,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
 
         var psi = new ProcessStartInfo(tool, $"-n \"{project}\"") { WorkingDirectory = work };
         psi.Environment[ToolIds.SigningKeyVariable] = SigningKey(); // the resource-integrity option signs with it
-        // the tool leaves a copy of the module in a folder of its own under TEMP: kept inside work, it goes with it
+        // The tool leaves a copy of the module in a folder of its own under TEMP: kept inside work, it goes with it.
         var temp = Directory.CreateDirectory(Path.Combine(work, "temp")).FullName;
         psi.Environment["TEMP"] = psi.Environment["TMP"] = temp;
         var (code, log) = Tools.Run(psi, 300_000);
@@ -375,10 +342,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         ["Workload"] = "resource text: ünïcödé ✓\n",
     };
 
-    /// <summary>
-    /// Every PipelineSamples/*.cs, in name order, and, with CORVUS_PIPELINE_SAMPLES, the tool's samples listed here that have
-    /// a Program.cs.
-    /// </summary>
+    /// <summary>Every PipelineSamples/*.cs in name order, plus the CORVUS_PIPELINE_SAMPLES projects that have a Program.cs.</summary>
     private static IEnumerable<Sample> Samples()
     {
         foreach (var file in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "PipelineSamples"), "*.cs").Order(StringComparer.Ordinal))
@@ -410,10 +374,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         }
     }
 
-    /// <summary>
-    /// Compiles a sample for .NET Framework 4.8, 32-bit preferred: the tool's native modes need a 32-bit process, and every
-    /// build should run as the same one.
-    /// </summary>
+    /// <summary>Compiles a sample for .NET Framework 4.8, 32-bit preferred, as the tool's native modes need a 32-bit process.</summary>
     private string Compile(Sample sample)
     {
         var refs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Reference Assemblies", "Microsoft", "Framework", ".NETFramework", "v4.8");
@@ -431,10 +392,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         return path;
     }
 
-    /// <summary>
-    /// Why the file cannot be read, when antivirus software blocks it (its heuristics can flag a processed or rewritten
-    /// executable); null when it can be read.
-    /// </summary>
+    /// <summary>Why antivirus software blocks the file; null when it can be read.</summary>
     private static string? Blocked(string path)
     {
         try
@@ -479,10 +437,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         return new Metrics(instructions, switches, moduleCalls, invokes);
     }
 
-    /// <summary>
-    /// The seeds to run: CORVUS_PIPELINE_SEED alone, else 1 to CORVUS_PIPELINE_SEEDS, else all three when exhaustive,
-    /// else one of the three by day, so consecutive routine runs cover them all.
-    /// </summary>
+    /// <summary>The seeds to run: CORVUS_PIPELINE_SEED, else 1 to CORVUS_PIPELINE_SEEDS, else all three when exhaustive, else one by day.</summary>
     private static List<int> Seeds()
     {
         if (int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SEED"), out int one)) return [one];
@@ -517,11 +472,7 @@ public abstract class PipelineRoundTripTests(ITestOutputHelper output, int part)
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Option × sample: how many seeds' simplified builds behaved the same, and the least they took back of the added
-    /// instructions. "tool" / "proc": the tool failed or its output misbehaves on every seed (not counted); "DIFF" /
-    /// "ENGINE": some seed's simplified build behaves differently or the engine reported a problem.
-    /// </summary>
+    /// <summary>Option by sample: seeds whose simplified build behaved the same and the least taken back; "tool"/"proc" not counted, "DIFF"/"ENGINE" failures.</summary>
     private static string Coverage(IReadOnlyList<Row> rows, List<string> samples, List<string> options)
     {
         string Cell(List<Row> runs)

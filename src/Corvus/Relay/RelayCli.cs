@@ -2,10 +2,7 @@ using System.Globalization;
 
 namespace Corvus.Relay;
 
-/// <summary>
-/// "corvus relay --target &lt;publishDir&gt; [--state &lt;dir&gt;] [--poll-ms &lt;n&gt;] [--] [server args]": the development
-/// reload relay. Arguments it does not know go to the server.
-/// </summary>
+/// <summary>"corvus relay --target &lt;publishDir&gt; [--state &lt;dir&gt;] [--poll-ms &lt;n&gt;] [--] [server args]"; unknown arguments go to the server.</summary>
 public static class RelayCli
 {
     public const string Command = "relay";
@@ -22,8 +19,8 @@ public static class RelayCli
             return 2;
         }
         if (RelayBuilds.IsInside(AppContext.BaseDirectory, options.Target))
-            Console.Error.WriteLine($"corvus relay: running from inside {options.Target}; publish.ps1 renames these files aside while they run, " +
-                                    "other publish tools may fail on them. A staged copy avoids that: corvus install --dev-reload <publishDir>.");
+            Console.Error.WriteLine($"corvus relay: running from inside {options.Target}, which other publish tools may fail to overwrite; " +
+                                    "run a staged copy: corvus install --dev-reload <publishDir>.");
         var relay = new DevRelay(options, Console.OpenStandardInput(), Console.OpenStandardOutput(), Console.Error);
         return relay.RunAsync().GetAwaiter().GetResult();
     }
@@ -86,10 +83,7 @@ public static class RelayCli
         return null;
     }
 
-    /// <summary>
-    /// A registration's arguments without the relay command and its own options (what remains is the server's); the
-    /// command may follow the main assembly of a dotnet launch.
-    /// </summary>
+    /// <summary>A registration's arguments without the relay command and its options, which may follow a dotnet launch's main assembly.</summary>
     public static List<string> WithoutRelayPrefix(IEnumerable<string> args)
     {
         var list = args.ToList();

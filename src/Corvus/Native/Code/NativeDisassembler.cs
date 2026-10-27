@@ -14,13 +14,7 @@ public interface ICodeSymbols
 /// <summary>One disassembled instruction.</summary>
 public sealed record DisasmLine(uint Rva, ulong Address, string Bytes, string Text, string? Comment, InstructionFacts Facts);
 
-/// <summary>
-/// Disassembly at any mapped address: MASM syntax (Iced) for x86 / x64, ARM syntax (AsmArm64) for ARM64. Branch, memory
-/// and immediate targets are shown by name when the symbols know one; x86 immediates only when they are confirmed
-/// addresses (relocated, or in a relocation-free x86 image an absolute push / mov into a section). ARM64 addresses formed
-/// by ADRP pairs and loads through import slots are named in the comment. A hybrid PE's ranges of the other instruction set
-/// (x64 in ARM64X, ARM64 in ARM64EC) are decoded as that set.
-/// </summary>
+/// <summary>Disassembles any mapped address in MASM (x86 / x64) or ARM syntax, naming confirmed targets through the symbols.</summary>
 public sealed class NativeDisassembler
 {
     private readonly INativeImage _image;
@@ -34,7 +28,7 @@ public sealed class NativeDisassembler
     private readonly char[] _armText = new char[256];
     private readonly Arm32Decoder? _arm32;
     private readonly (uint Start, uint End)[] _otherRanges;
-    // the last instruction came from the x86 decoder
+    // The last instruction came from the x86 decoder.
     private bool _x86;
 
     private sealed class Resolver(INativeImage image) : ISymbolResolver
@@ -128,10 +122,7 @@ public sealed class NativeDisassembler
         return decoded ? Line(in insn, labels) : null;
     }
 
-    /// <summary>
-    /// Linear disassembly from <paramref name="rva"/>: at most <paramref name="maxInstructions"/>, stopping before
-    /// <paramref name="end"/> and after an invalid instruction.
-    /// </summary>
+    /// <summary>Linear disassembly from <paramref name="rva"/>, stopping before <paramref name="end"/> or after an invalid instruction.</summary>
     public List<DisasmLine> Disassemble(uint rva, int maxInstructions, uint end = uint.MaxValue, IReadOnlyDictionary<uint, string>? labels = null)
     {
         var lines = new List<DisasmLine>();
@@ -172,7 +163,7 @@ public sealed class NativeDisassembler
         }
         if (!_x86 && comment == null && insn.Flow != FlowKind.Invalid && (insn.HasMem || insn.HasImm))
         {
-            // the address an ADRP pair, a PC-relative pair or a load through a slot forms is not in the operand text
+            // An address formed by an ADRP pair, PC-relative pair or slot load is not in the operand text.
             uint at = insn.HasImm && _arm32 != null ? insn.ImmTarget : insn.HasMem ? insn.MemTarget : insn.ImmTarget;
             comment = labels?.GetValueOrDefault(at) ?? _symbols?.NameAt(at) ?? $"0x{_image.ImageBase + at:X}";
         }

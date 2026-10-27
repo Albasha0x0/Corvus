@@ -9,12 +9,7 @@ namespace Corvus.Core.Mobile;
 /// <summary>One assembly of a store: its name, image (decompressed), optional debug symbols and .config, and how it was stored.</summary>
 public sealed record AssemblyStoreEntry(int Index, string Name, string? Abi, byte[] Image, byte[]? Debug, byte[]? Config, string Compression, bool Ignored);
 
-/// <summary>
-/// A .NET for Android assembly store ("XABA"). Version 1 (.NET 6/7: assemblies[.abi].blob, names in assemblies.manifest);
-/// versions 2 and 3 (.NET 8+: one store per ABI with a name table), raw or inside a shared library: libassemblies.&lt;abi&gt;.blob.so
-/// keeps it in its "payload" section, libassembly-store.so at the "_assembly_store" symbol. Entries may be XALZ (LZ4) or
-/// XAZS (Zstandard) compressed. Never throws: problems are <see cref="Issues"/>; an entry that cannot be read is skipped.
-/// </summary>
+/// <summary>A .NET for Android assembly store ("XABA"), versions 1 to 3, raw or in a shared library; never throws.</summary>
 public sealed class AssemblyStore
 {
     public const uint Magic = 0x41424158; // "XABA"
@@ -35,10 +30,7 @@ public sealed class AssemblyStore
 
     private AssemblyStore() { }
 
-    /// <summary>
-    /// Reads a store from a raw store file or a shared library holding one; null when <paramref name="data"/> holds no store.
-    /// <paramref name="v1Names"/> names version 1 entries by (store id, index), from assemblies.manifest.
-    /// </summary>
+    /// <summary>Reads a store from a store file or shared library; null when <paramref name="data"/> holds none.</summary>
     public static AssemblyStore? TryRead(byte[] data, string path, AnalysisLimits limits, IReadOnlyDictionary<(uint StoreId, int Index), string>? v1Names = null)
     {
         var store = new AssemblyStore();
@@ -165,7 +157,8 @@ public sealed class AssemblyStore
             using var module = dnlib.DotNet.ModuleDefMD.Load(image);
             return module.Assembly?.Name is { Length: > 0 } n ? n + (module.Kind == dnlib.DotNet.ModuleKind.Windows || module.Kind == dnlib.DotNet.ModuleKind.Console ? ".exe" : ".dll") : null;
         }
-        catch (Exception) { return null; } // dnlib throws several types on malformed images
+        // dnlib throws several types on malformed images.
+        catch (Exception) { return null; }
     }
 
     /// <summary>The Android ABI named in a store's path: lib/&lt;abi&gt;/... or assemblies.&lt;abi with _&gt;.blob.</summary>
@@ -179,9 +172,7 @@ public sealed class AssemblyStore
 
     public static readonly string[] Abis = ["arm64-v8a", "armeabi-v7a", "x86_64", "x86"];
 
-    /// <summary>
-    /// assemblies.manifest (version 1): a header line, then "hash32 hash64 storeId indexInStore name" rows. Names get ".dll".
-    /// </summary>
+    /// <summary>Entry names from a version 1 assemblies.manifest, with ".dll" added.</summary>
     public static Dictionary<(uint StoreId, int Index), string> ReadV1Manifest(string text)
     {
         var result = new Dictionary<(uint, int), string>();

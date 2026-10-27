@@ -1,11 +1,7 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// A large WebAssembly module read from a stream without its bulk: every section through the code section is kept as it
-/// is, a data section past <see cref="KeepData"/> bytes keeps its segments' headers and offset expressions but not their
-/// bytes, and custom sections past <see cref="KeepCustom"/> bytes (DWARF, source maps) are left out except name and
-/// producers. <see cref="Sections"/> lists every section with its size in the file.
-/// </summary>
+/// <summary>A large WebAssembly module without its bulk: data past <see cref="KeepData"/> and custom sections past <see cref="KeepCustom"/> dropped.</summary>
+/// <remarks>Data segments keep their headers; name and producers sections are always kept.</remarks>
 public sealed class WasmCompact
 {
     /// <summary>A data section up to this size is kept whole.</summary>
@@ -44,7 +40,8 @@ public sealed class WasmCompact
             ct.ThrowIfCancellationRequested();
             long start = s.Position;
             int id = s.ReadByte();
-            if (!Leb(s, out ulong size) || size > (ulong)(length - s.Position)) { Copy(s, o, start, length - start); break; } // the reader reports it
+            // The reader reports it.
+            if (!Leb(s, out ulong size) || size > (ulong)(length - s.Position)) { Copy(s, o, start, length - start); break; }
             long payload = s.Position, end = payload + (long)size;
             string name = id < WasmModule.Names.Length ? WasmModule.Names[id] : $"id {id}";
             long nameBytes = 0;

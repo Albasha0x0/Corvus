@@ -29,19 +29,13 @@ public sealed partial class CSharpPatcher
         var root = CSharpSyntaxTree.ParseText(source, parseOptions, cancellationToken: ct).GetCompilationUnitRoot(ct);
         var typeNode = FindTypeDeclaration(root, type)
                        ?? throw new ToolError(ErrorCode.Unsupported, IsDelegate(type)
-                           ? $"{type.FullName} is a delegate that also declares methods or fields (a code transformer construct); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
+                           ? $"{type.FullName} is a delegate with methods or fields, which C# cannot declare; use patch_method_il."
                            : $"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
         return Reused(CSharpSyntaxTree.Create(UsingsInsideNamespaces((CompilationUnitSyntax)new InternalTypes().Visit(transform(root, typeNode))!), parseOptions));
     }
 
-    /// <summary>
-    /// Moves the file's using directives into a declaration of each namespace's first name segment, so the names they import
-    /// bind before types of the global namespace (references are imported with their internals, and an internal global
-    /// 'Exception' of a .NET Framework assembly took every 'catch (Exception)' of patched code) and still after the types of
-    /// every enclosing namespace, as at file level (inside Microsoft.CodeAnalysis.CSharp.Syntax, CSharpSyntaxNode is
-    /// Microsoft.CodeAnalysis.CSharp's, not that of an imported InternalSyntax). System, which user code may rely on
-    /// without a directive, is always among them.
-    /// </summary>
+    /// <summary>Moves using directives (plus System) into each namespace's first segment, so imports bind before internal
+    /// global types of references (an internal global Exception) but after enclosing namespaces.</summary>
     private static CompilationUnitSyntax UsingsInsideNamespaces(CompilationUnitSyntax root)
     {
         var usings = root.Usings.Where(u => u.GlobalKeyword.IsKind(SyntaxKind.None)).ToList();
@@ -81,12 +75,8 @@ public sealed partial class CSharpPatcher
 
     private static bool IsDelegate(TypeDef type) => type.BaseType?.FullName is "System.MulticastDelegate" or "System.Delegate";
 
-    /// <summary>
-    /// Makes the decompiled types internal. IL allows a member to use a type less accessible than itself; C# reports it
-    /// as an error (CS0050-CS0061) that fails the compilation. Internal is consistent with every type of the declaration
-    /// and with the target's internal types, which the reference copy grants the patch assembly. Access is not checked
-    /// when compiling patches, and only bodies and added members are taken from the result.
-    /// </summary>
+    /// <summary>Makes decompiled types internal: IL lets a member use a less accessible type, C# rejects it
+    /// (CS0050-CS0061).</summary>
     private sealed class InternalTypes : CSharpSyntaxRewriter
     {
         private static SyntaxTokenList Internal(SyntaxTokenList modifiers)
@@ -171,10 +161,8 @@ public sealed partial class CSharpPatcher
         return ms.ToArray();
     }
 
-    /// <summary>
-    /// Compiles <paramref name="tree"/>; <paramref name="targetImage"/>, when given, is the target image to compile against
-    /// (made only when no earlier run of the same edit compiled this tree, see <see cref="ReplayCache"/>).
-    /// </summary>
+    /// <summary>Compiles <paramref name="tree"/>, against <paramref name="targetImage"/> when given; reuses an earlier
+    /// run's image (see <see cref="ReplayCache"/>).</summary>
     private ModuleDefMD Compile(LoadedAssembly asm, SyntaxTree tree, Func<byte[]>? targetImage, CancellationToken ct)
     {
         var cache = Replay.Value;
@@ -209,8 +197,7 @@ public sealed partial class CSharpPatcher
         var emit = withUsings.Emit(pe, cancellationToken: ct);
         if (!emit.Success && UnboundAttributes(emit.Diagnostics, tree) is { Count: > 0 } unbound)
         {
-            // Attributes of the decompiled declaration whose type does not bind (compiler-generated attribute types the
-            // decompiler hides, such as Microsoft.CodeAnalysis.EmbeddedAttribute): irrelevant to the patch, left out.
+            // Drop attributes whose type the decompiler hides (EmbeddedAttribute); the patch does not need them.
             var newRoot = tree.GetRoot(ct).RemoveNodes(unbound.SelectMany(a => a.Parent is AttributeListSyntax { Attributes.Count: 1 } list ? [list] : new SyntaxNode[] { a }),
                 SyntaxRemoveOptions.KeepNoTrivia)!;
             tree = tree.WithRootAndOptions(newRoot, tree.Options);
@@ -228,8 +215,7 @@ public sealed partial class CSharpPatcher
         }
         if (!emit.Success && UnimplementableInterfaces(emit.Diagnostics, tree, withUsings) is { Count: > 0 } interfaces)
         {
-            // A target interface whose members return the target's own type (ImmutableList<T>.GetRange) cannot be implemented
-            // by its decompiled copy; only bodies are taken from the result, so the copy is compiled without those interfaces.
+            // The decompiled copy cannot implement interfaces returning the target's own type; only bodies are used, so drop them.
             using var retry = new MemoryStream();
             var without = tree.WithRootAndOptions(tree.GetRoot(ct).RemoveNodes(interfaces, SyntaxRemoveOptions.KeepNoTrivia)!, tree.Options);
             var compilation = CreateCompilation(asm, without, targetImage, out _, withUsings: true, ct, clashing);
@@ -327,7 +313,7 @@ public sealed partial class CSharpPatcher
     {
         var members = typeNode.Members;
         int paramCount = ParamCount(method);
-        string Unsupported(string what) => $"{Format.MemberLabel(method)} is {what}; C# patching supports methods, constructors and property/indexer/event accessors. Use patch_method_il.";
+        string Unsupported(string what) => $"{Format.MemberLabel(method)} is {what}, which C# patching does not support; use patch_method_il.";
 
         if (method.IsConstructor)
         {
@@ -403,10 +389,8 @@ public sealed partial class CSharpPatcher
         return s.Replace("?", "");
     }
 
-    /// <summary>
-    /// The identifier the decompiler gives a metadata name that is not a valid C# identifier when its output is meant
-    /// to compile (ILSpy's EscapeInvalidIdentifiers: every character other than a letter, digit or '_' becomes _XXXX).
-    /// </summary>
+    /// <summary>The decompiler's compilable identifier for a metadata name (EscapeInvalidIdentifiers: other characters
+    /// become _XXXX).</summary>
     internal static string SourceName(string name)
     {
         var escaped = string.Concat(name.Select(ch => char.IsLetterOrDigit(ch) || ch == '_' ? ch.ToString() : $"_{(int)ch:X4}"));
@@ -439,7 +423,7 @@ public sealed partial class CSharpPatcher
     {
         var text = code.Trim();
         if (text.Length == 0)
-            throw new ToolError(ErrorCode.InvalidArgument, "The C# body is empty. For a void method that does nothing, pass 'return;'.");
+            throw new ToolError(ErrorCode.InvalidArgument, "The C# body is empty; pass 'return;' for a void method that does nothing.");
         if (!text.StartsWith('{'))
             text = "{\n" + text + "\n}";
         var statement = SF.ParseStatement(text, options: new CSharpParseOptions(LanguageVersion.Preview));
@@ -447,7 +431,7 @@ public sealed partial class CSharpPatcher
         {
             var errors = statement.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error)
                 .Select(d => $"  line {d.Location.GetLineSpan().StartLinePosition.Line}: {d.GetMessage()}");
-            throw new ToolError(ErrorCode.InvalidArgument, "The C# body does not parse. Pass statements (the method body), not a whole method or class:\n" + string.Join("\n", errors));
+            throw new ToolError(ErrorCode.InvalidArgument, "The C# body does not parse; pass statements, not a whole method or class:\n" + string.Join("\n", errors));
         }
         return block;
     }
@@ -461,7 +445,7 @@ public sealed partial class CSharpPatcher
         var errors = unit.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         var holder = unit.Members.OfType<ClassDeclarationSyntax>().FirstOrDefault();
         if (errors.Count > 0 || holder == null || unit.Members.Count != 1)
-            throw new ToolError(ErrorCode.InvalidArgument, "The member declarations do not parse. Pass complete member declarations (e.g. 'public int Twice(int x) { return x * 2; }'):\n" +
+            throw new ToolError(ErrorCode.InvalidArgument, "The member declarations do not parse; pass complete declarations such as 'public int Twice(int x) { return x * 2; }':\n" +
                                 string.Join("\n", errors.Take(10).Select(d => $"  line {d.Location.GetLineSpan().StartLinePosition.Line}: {d.GetMessage()}")));
 
         var result = new List<MemberDeclarationSyntax>();
@@ -471,7 +455,7 @@ public sealed partial class CSharpPatcher
             {
                 case FieldDeclarationSyntax f when !f.Modifiers.Any(SyntaxKind.ConstKeyword) && f.Declaration.Variables.Any(v => v.Initializer != null):
                 case PropertyDeclarationSyntax { Initializer: not null }:
-                    throw new ToolError(ErrorCode.Unsupported, "Initializers on added fields/properties are not supported (they would have to run in existing constructors). Initialize them from a method instead.");
+                    throw new ToolError(ErrorCode.Unsupported, "Added fields and properties cannot have initializers, which would have to run in existing constructors; set them from a method.");
             }
             var adjusted = member is ConstructorDeclarationSyntax ctor ? ctor.WithIdentifier(SF.Identifier(typeName)) : member;
             result.Add(adjusted.WithAdditionalAnnotations(UserCode));
@@ -582,11 +566,8 @@ public sealed partial class CSharpPatcher
         return names;
     }
 
-    /// <summary>
-    /// Puts the new body on the target (if any) and "throw null" in every other body; user-added members (annotated)
-    /// are left untouched. Field/property initializers are dropped, except when patching a constructor: C# compiles
-    /// initializers into constructors, so the matching (instance or static) initializers are kept.
-    /// </summary>
+    /// <summary>Puts the new body on the target and "throw null" in other bodies, skipping user members; initializers are
+    /// dropped unless a constructor of the same kind is patched.</summary>
     private sealed class StubRewriter(SyntaxNode? target, BlockSyntax? newBody) : CSharpSyntaxRewriter
     {
         private static readonly BlockSyntax Stub = SF.Block(SF.ParseStatement("throw null;"));

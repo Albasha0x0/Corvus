@@ -12,7 +12,7 @@ public sealed class ClientHomeTests : IDisposable
         ClientCatalog.All(_home.Env(variables: variables, os: os)).Single(c => c.Id == id);
 
     [Fact]
-    public void ClaudeConfigDir_HoldsTheConfigFile_AndMarksDetection()
+    public void CLAUDE_CONFIG_DIR_holds_the_config_file_and_marks_detection()
     {
         var dir = _home.Path("claude-profile");
         var vars = new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = dir };
@@ -28,7 +28,7 @@ public sealed class ClientHomeTests : IDisposable
     }
 
     [Fact]
-    public void GeminiQwenAndCopilotHomes()
+    public void Gemini_Qwen_and_Copilot_homes_follow_their_variables()
     {
         var vars = new Dictionary<string, string>
         {
@@ -46,7 +46,7 @@ public sealed class ClientHomeTests : IDisposable
     }
 
     [Fact]
-    public void OpenCode_FollowsItsOverridePrecedence()
+    public void OpenCode_follows_its_override_precedence()
     {
         var xdg = _home.Path("xdg");
         Assert.Equal(Path.Combine(xdg, "opencode", "opencode.json"), Client("opencode", new() { ["XDG_CONFIG_HOME"] = xdg }).Target.Path);
@@ -64,7 +64,7 @@ public sealed class ClientHomeTests : IDisposable
     }
 
     [Fact]
-    public void XdgConfigHome_MovesCrushZedAndClaudeDesktopOnLinux()
+    public void XDG_CONFIG_HOME_moves_Crush_Zed_and_Claude_Desktop_on_Linux()
     {
         var xdg = _home.Path("xdg");
         var vars = new Dictionary<string, string> { ["XDG_CONFIG_HOME"] = xdg };

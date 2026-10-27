@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// GVariant serialized data (the GLib format OSTree and Flatpak write), read by type string: tuples, arrays, dictionary
-/// entries, variants, strings and fixed-size numbers, each a slice of the container's bytes. Framing offsets are bounds-checked.
-/// </summary>
+/// <summary>GVariant serialized data read by type string into slices of the container's bytes; framing offsets are bounds-checked.</summary>
 internal static class GVariant
 {
     /// <summary>The complete types of a tuple or dictionary entry type, in order.</summary>

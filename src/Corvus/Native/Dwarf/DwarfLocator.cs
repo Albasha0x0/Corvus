@@ -3,15 +3,7 @@ using Corvus.Native.Pdb;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>
-/// Finds the DWARF of an ELF or Mach-O image the way debuggers do, without network access: an explicit file, folder or
-/// dSYM bundle; the image's own sections; beside the image (its .gnu_debuglink name, &lt;name&gt;.debug / .dbg /
-/// .dwarf, .debug/ and .build-id/ folders, &lt;name&gt;.dSYM); the folders in <see cref="DirsVariable"/> (.build-id
-/// trees, debuglink names, the image's folder under them, dSYM bundles); /usr/lib/debug on Linux and macOS hosts; and
-/// this server's download cache; else the object files a Mach-O debug map names. A candidate must carry the image's GNU build-id or Mach-O UUID (or, without one, match
-/// the .gnu_debuglink CRC-32); a file that does not is reported, never used. <see cref="DownloadAsync"/> asks debuginfod
-/// servers and runs only when the user asked for it.
-/// </summary>
+/// <summary>Finds an ELF or Mach-O image's DWARF offline as debuggers do; a candidate must match the build-id, UUID or debuglink CRC-32, else it is reported, never used; <see cref="DownloadAsync"/> runs only on request.</summary>
 public static class DwarfLocator
 {
     /// <summary>Folders searched for separate debug files (the platform's path list separator).</summary>
@@ -33,10 +25,7 @@ public static class DwarfLocator
             .Select(s => s.TrimEnd('/')).Distinct().ToList() ?? [];
     }
 
-    /// <summary>
-    /// Looks for the DWARF of <paramref name="image"/> loaded from <paramref name="imagePath"/>; <paramref name="explicitPath"/>
-    /// (a file, folder or dSYM bundle) is tried first. <see cref="PdbLocation.Path"/> is the image's own path when its sections hold the DWARF.
-    /// </summary>
+    /// <summary>Looks for <paramref name="image"/>'s DWARF, trying <paramref name="explicitPath"/> first; the location is the image's own path when its sections hold it.</summary>
     public static PdbLocation Locate(INativeImage image, string imagePath, string? explicitPath = null)
     {
         var probes = new List<PdbProbe>();
@@ -68,7 +57,7 @@ public static class DwarfLocator
             candidates.AddRange(DsymFiles(System.IO.Path.Combine(root, name + ".dSYM")));
             if (withImageDir && link is { } l2 && dir.Length > 0)
             {
-                // gdb's layout: <debug dir>/<the image's absolute folder>/<debuglink name>
+                // gdb layout: <debug dir>/<image's absolute folder>/<debuglink name>.
                 var relative = dir.Replace('\\', '/').TrimStart('/');
                 if (relative.Length > 1 && relative[1] == ':') relative = relative[2..].TrimStart('/');
                 candidates.Add(System.IO.Path.Combine(root, relative, l2.Name));
@@ -207,10 +196,7 @@ public static class DwarfLocator
         _ => null,
     };
 
-    /// <summary>
-    /// Downloads the debug file of an ELF image by its build-id from a debuginfod server ({server}/buildid/{id}/debuginfo)
-    /// into the download cache, checked by build-id; returns the cached path.
-    /// </summary>
+    /// <summary>Downloads an ELF image's debug file by build-id from a debuginfod server into the download cache, checked by build-id; returns the cached path.</summary>
     public static Task<string> DownloadAsync(INativeImage image, string server, TimeSpan timeout, long maxBytes, HttpMessageHandler? handler = null,
         string? cache = null, CancellationToken ct = default)
     {

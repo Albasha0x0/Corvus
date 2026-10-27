@@ -8,10 +8,7 @@ namespace Corvus.Services;
 /// <summary>An entry of a timeline with its sequence number, the cursor live_timeline pages by.</summary>
 public sealed record LiveTimelineEntry(long Sequence, DateTime Time, string Category, string Name, int? ProcessId = null);
 
-/// <summary>
-/// An activity trace of a session's program from the operating system's diagnostics channel: a bounded ring of entries,
-/// each a time, a category and the name the OS reports.
-/// </summary>
+/// <summary>An activity trace of a session's program from the OS diagnostics channel, as a bounded ring of entries.</summary>
 public sealed class LiveTimelineRun
 {
     public const int Capacity = 100_000;
@@ -23,7 +20,7 @@ public sealed class LiveTimelineRun
     {
         Id = id;
         Session = session.Id;
-        // an attached program is named by its image, not the id it was attached by
+        // An attached program is named by its image, not the id it was attached by.
         lock (session.Modules) Program = session.Modules.FirstOrDefault()?.Path is { Length: > 0 } image ? image : session.Program;
         ProcessId = session.ProcessId;
         Source = source;
@@ -120,7 +117,7 @@ public sealed partial class LiveSessionService
         if (_timelines.Values.Count(r => r.State == "recording") >= MaxSessions)
             throw new ToolError(ErrorCode.LimitExceeded, $"{MaxSessions} timelines are recording.", "stop one with live_timeline action=stop");
         var run = new LiveTimelineRun("tl-" + Interlocked.Increment(ref _nextTimeline), session, ActivitySource.Name);
-        // the session's own helpers (the agent and the DLLs it unpacks) are opened from the server's workers folder, never by the program
+        // The session's own helpers (the agent and its unpacked DLLs) open from the workers folder; filter them out.
         var own = OwnFiles(Path.Combine(Native.Providers.AnalysisCache.DefaultRoot, "workers"));
         run.Trace = ActivitySource.Start(session.ProcessId, e =>
         {
@@ -130,10 +127,7 @@ public sealed partial class LiveSessionService
         return run;
     }
 
-    /// <summary>
-    /// Whether a traced file is under <paramref name="folder"/>: the trace names a file as it was opened, so the folder is
-    /// matched in its full and its final form (a relative root, a junction, a short name), and a short name is expanded.
-    /// </summary>
+    /// <summary>Whether a traced file is under <paramref name="folder"/>, matched in full and final form, short names expanded.</summary>
     internal static Func<string, bool> OwnFiles(string folder)
     {
         var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
@@ -186,6 +180,7 @@ public sealed partial class LiveSessionService
     {
         var stopping = _timelines.Values.Select(StopTimelineAsync).ToArray();
         try { Task.WaitAll(stopping, TimeSpan.FromSeconds(8)); }
-        catch (AggregateException) { /* a trace that failed to stop is removed by the next server's start */ }
+        // A trace that failed to stop is removed at the next server start.
+        catch (AggregateException) { }
     }
 }

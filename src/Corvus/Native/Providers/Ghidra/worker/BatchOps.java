@@ -20,9 +20,8 @@ final class BatchOps {
     }
 
     /**
-     * The function containing each of rvas, in order: each within seconds_per_item, all within budget_seconds, run across
-     * the decompiler pool (items start in order, one per free decompiler). Items: {rva, status ok + the decompile fields}
-     * or {rva, status error, code, message} or {rva, status skipped}.
+     * Decompiles the function at each rva across the pool, each within seconds_per_item, all within budget_seconds.
+     * Items: {rva, status ok + decompile fields}, {rva, status error, code, message} or {rva, status skipped}.
      */
     static JsonElement decompileMany(Worker w, Worker.Request r) throws Exception {
         double perItem = Math.max(1, r.args.has("seconds_per_item") ? r.args.get("seconds_per_item").getAsDouble() : 60);

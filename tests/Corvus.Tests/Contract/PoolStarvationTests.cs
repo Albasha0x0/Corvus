@@ -9,10 +9,7 @@ public class PoolStarvationCollection;
 [Collection(nameof(PoolStarvationTests))]
 public class PoolStarvationTests
 {
-    /// <summary>
-    /// Blocks the pool: more queued blockers than it injects threads during a test. The event is never disposed: blockers
-    /// still queued at the release start later and wait on it.
-    /// </summary>
+    /// <summary>Blocks the pool with more queued blockers than it injects threads; the event is never disposed, as late blockers still wait on it.</summary>
     internal static ManualResetEventSlim Starve()
     {
         var release = new ManualResetEventSlim();
@@ -47,10 +44,7 @@ public class PoolStarvationTests
         Assert.Equal("out", run.Text.Trim());
     }
 
-    /// <summary>
-    /// Visitors of a search that block (waiting on a reference pack download) run on at most one thread per core, so the
-    /// threads the pool injects stay free for the work they wait on.
-    /// </summary>
+    /// <summary>Blocking search visitors run on at most one thread per core, so injected pool threads stay free.</summary>
     [Fact]
     public void Blocked_search_visitors_take_one_thread_per_core()
     {

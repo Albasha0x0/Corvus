@@ -10,10 +10,7 @@ public sealed record ObjcIvar(string Name, string? Type, ulong OffsetVa, uint? O
 
 public sealed record ObjcProperty(string Name, string? Attributes);
 
-/// <summary>
-/// A class from __objc_classlist. <see cref="SwiftName"/> is the demangled name of a Swift class ("_TtC..." runtime
-/// names); <see cref="Superclass"/> is named from the bind when the superclass lives in another image.
-/// </summary>
+/// <summary>A class from __objc_classlist; <see cref="Superclass"/> is named from the bind when it lives in another image.</summary>
 public sealed record ObjcClass(ulong Va, string Name, string? SwiftName, ulong MetaclassVa, string? Superclass, ulong SuperclassVa, bool SuperclassExternal,
     ulong RoVa, ulong MetaRoVa, uint Flags, uint InstanceStart, uint InstanceSize, bool IsSwift,
     IReadOnlyList<ObjcMethod> Methods, IReadOnlyList<ObjcIvar> Ivars, IReadOnlyList<ObjcProperty> Properties, IReadOnlyList<string> Protocols)
@@ -31,12 +28,7 @@ public sealed record ObjcProtocol(ulong Va, string Name, IReadOnlyList<string> P
 /// <summary>A slot of __objc_selrefs, __objc_classrefs, __objc_superrefs or __objc_protorefs and what it names.</summary>
 public sealed record ObjcReference(ulong Va, string Kind, string Name, ulong Target, bool External);
 
-/// <summary>
-/// The Objective-C runtime metadata of a Mach-O image: classes and metaclasses, categories (also on classes of other
-/// images, named through their binds), protocols, methods (classic and relative method lists) with implementation
-/// addresses, ivars with offsets, properties, and the selector, class, superclass and protocol references.
-/// Malformed records are skipped and counted in <see cref="Issues"/>.
-/// </summary>
+/// <summary>The Objective-C runtime metadata of a Mach-O image; malformed records are skipped and counted in <see cref="Issues"/>.</summary>
 public sealed class AppleObjcMetadata
 {
     private const int MaxListCount = 1 << 16;
@@ -250,10 +242,7 @@ public sealed class AppleObjcMetadata
             return result;
         }
 
-        /// <summary>
-        /// method_list_t: classic entries (SEL, types, IMP pointers) or, with the high bit of entsize set, relative
-        /// entries (three 32-bit offsets: selector reference, or the selector itself when flagged direct; types; IMP).
-        /// </summary>
+        /// <summary>method_list_t: classic pointer entries, or relative 32-bit offset entries when entsize has the high bit set.</summary>
         private void ReadMethodList(ulong list, bool classMethods, bool optional, List<ObjcMethod> into)
         {
             if (list == 0) return;

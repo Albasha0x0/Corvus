@@ -3,12 +3,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Calls;
 
-/// <summary>
-/// Forward slice inside one function: from a defining point, the locations holding the value (registers, stack and frame
-/// slots) are followed over the control-flow graph through copies and arithmetic until overwritten; each use is a node:
-/// call argument, call target, store to a global or through a pointer, compare, switch index, dereference, return.
-/// A fixed point over (block, live locations).
-/// </summary>
+/// <summary>Forward slice in one function: a fixed point over blocks following the value's locations until overwritten, one node per use.</summary>
 internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode code)
 {
     private const int MaxSteps = 20_000;
@@ -69,7 +64,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
                 {
                     live[loc] = new Live(false, "");
                     origin = $"{provider.LocationName(loc)} at {_a.Va(seed.Address)}";
-                    // a definition of the location: its uses start after it
+                    // A definition of the location: its uses start after it.
                     ref readonly var d = ref code.Blocks[block][index];
                     if (Defines(in d, loc)) index++;
                 }
@@ -175,7 +170,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
         Live? source = null;
         bool zeroing = x.Mnemonic is Mnemonic.Xor or Mnemonic.Sub or Mnemonic.Pxor or Mnemonic.Xorps or Mnemonic.Xorpd
             && x.OpCount == 2 && x.Op0Kind == OpKind.Register && x.Op1Kind == OpKind.Register && x.Op0Register == x.Op1Register;
-        // reads of live locations, and pointers formed from them
+        // Reads of live locations, and pointers formed from them.
         for (int k = 0; k < x.OpCount && !zeroing; k++)
         {
             var kind = x.GetOpKind(k);
@@ -194,7 +189,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
                 }
                 else if (x.MemoryIndex != Register.None && live.TryGetValue(Loc.Of(x.MemoryIndex), out var ix) && SwitchEnding(insns) is { } table)
                 {
-                    // the table load of a switch: the value is its index
+                    // The table load of a switch: the value is its index.
                     Use(SwitchNode(in d, table, ix));
                 }
                 else if (x.MemoryBase != Register.None && live.TryGetValue(Loc.Of(x.MemoryBase), out var b) || x.MemoryIndex != Register.None && live.TryGetValue(Loc.Of(x.MemoryIndex), out b))
@@ -253,7 +248,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
             }
             else if (dest is { } dl) live.Remove(dl);
         }
-        // implicit register writes (cdq, mul, rep movs) end the value there
+        // Implicit register writes (cdq, mul, rep movs) end the value there.
         foreach (var loc in live.Keys.Where(l => l.Kind == LocKind.Register && !written.Contains(l)).ToList())
             if (FunctionCode.Bit(loc.Reg) is var bit and >= 0 && (d.Writes & (1UL << bit)) != 0) live.Remove(loc);
         if ((d.Writes & (1UL << FunctionCode.Bit(Register.RSP))) != 0)

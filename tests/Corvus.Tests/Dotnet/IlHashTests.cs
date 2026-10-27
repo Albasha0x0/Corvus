@@ -35,10 +35,7 @@ public class IlHashTests : IDisposable
 
     private const string VectorHash = "21807e13787c7f6e0a872a4b4d1741c054fc0de4727a67d8b55ea0dc0b26fffa";
 
-    /// <summary>
-    /// Lab.P::Parse(string): <c>try { V_0 = int.Parse(a0); } catch (FormatException) { V_0 = -1; } ldstr "done\n"; pop; return V_0;</c>
-    /// written with short forms, or with long forms and <paramref name="padding"/> extra members in front (other tokens).
-    /// </summary>
+    /// <summary>Lab.P::Parse(string) in short forms, or in long forms after <paramref name="padding"/> extra members (other tokens).</summary>
     private string Vector(bool longForms = false, int padding = 0, string text = "done\n")
     {
         var lab = new IlLab();
@@ -89,7 +86,7 @@ public class IlHashTests : IDisposable
     });
 
     [Fact]
-    public void TestVector()
+    public void The_test_vector_hashes_to_its_published_value()
     {
         using var env = new Env(Vector());
         var (canonical, hash) = HashOf(env, "Lab.P::Parse");
@@ -98,7 +95,7 @@ public class IlHashTests : IDisposable
     }
 
     [Fact]
-    public void ShortAndLongFormsAndOtherTokens_SameHash_OtherLiteral_OtherHash()
+    public void Instruction_forms_and_tokens_keep_the_hash_and_a_literal_changes_it()
     {
         using var shortForms = new Env(Vector());
         using var longForms = new Env(Vector(longForms: true, padding: 3));
@@ -114,7 +111,7 @@ public class IlHashTests : IDisposable
     /// <summary>The same code compiled with its members in another order (every token differs): the same hashes.</summary>
     [Trait("Speed", "Slow")]
     [Fact]
-    public void RebuildWithOtherTokens_SameHashes()
+    public void A_rebuild_with_other_tokens_keeps_its_hashes()
     {
         string[] members =
         [
@@ -143,7 +140,7 @@ public class IlHashTests : IDisposable
 
     /// <summary>An edited assembly is read through dnlib instead of the fast reader: untouched bodies keep their hash.</summary>
     [Fact]
-    public void EditedAssembly_UntouchedBodiesKeepTheirHash()
+    public void Untouched_bodies_of_an_edited_assembly_keep_their_hash()
     {
         using var env = new Env();
         var methods = env.Workspace.Read(() => env.Fixture.Module.GetTypes().SelectMany(t => t.Methods).ToList());
@@ -158,7 +155,7 @@ public class IlHashTests : IDisposable
     }
 
     [Fact]
-    public async Task GetIL_ShowsTheHashOfEachMethod()
+    public async Task Get_IL_shows_the_hash_of_each_method()
     {
         using var env = new Env(Vector());
         var tools = new DecompileTools(env.Workspace, env.Decompiler, env.Pager);
@@ -170,7 +167,7 @@ public class IlHashTests : IDisposable
 
     /// <summary>The raw IL SHA-256 covers exactly the code bytes after the fat header, and changes with the tokens where the normalized hash does not.</summary>
     [Fact]
-    public async Task RawIlSha256_IsOverTheExactCodeBytes()
+    public async Task Raw_IL_SHA256_is_over_the_exact_code_bytes()
     {
         var path = Vector();
         var bytes = File.ReadAllBytes(path);

@@ -2,10 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Each README.*.md translation keeps the English README's code blocks, links, numbers, headings and table rows, so a
-/// changed command, count or link in README.md fails here until every translation carries it.
-/// </summary>
+/// <summary>Each README.*.md keeps the English README's code blocks, links, numbers, headings and table rows.</summary>
 public sealed partial class TranslatedReadmeTests
 {
     private static readonly string Root = DocsTests.RepoRoot();

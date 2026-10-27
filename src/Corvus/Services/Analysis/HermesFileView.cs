@@ -3,10 +3,7 @@ using Corvus.Services.Web;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=hermes: a React Native Hermes bytecode bundle (the file, or the one an APK, AAB or .ipa carries): bytecode version,
-/// functions, strings and the Metro modules recovered from its global code; analyze_js reads its functions and code.
-/// </summary>
+/// <summary>view=hermes: version, function and string counts and recovered Metro modules of a Hermes bundle, also inside an APK, AAB or .ipa.</summary>
 internal sealed class HermesFileView : IFileSummaryView
 {
     public string Name => "hermes";
@@ -18,14 +15,14 @@ internal sealed class HermesFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         string? inner = null;
-        // a package is read whole only when its directory names a bundle
+        // A package is read whole only when its directory names a bundle.
         byte[]? bytes = file.Kind == "zip" ? file.HasZipEntry(IsBundleName) ? HermesBundles.FromPackage(file.Bytes, out inner) : null
             : HermesFile.Looks(file.Head) ? file.Bytes : null;
         if (bytes == null) return null;
         var hbc = HermesFile.Read(bytes);
         var index = hbc.Opcodes != null ? new HermesIndex(hbc, ct) : null;
         var notes = new List<string>(hbc.Issues);
-        notes.Add("analyze_js path=<this file> lists functions and Metro modules, decompiles and disassembles them, and finds strings with their users.");
+        notes.Add("analyze_js path=<this file> lists, decompiles and disassembles functions and Metro modules, and finds string users.");
         var facts = new HermesFacts(hbc.Version, inner, hbc.Functions.Count, hbc.StringCount, index?.Modules.Count ?? 0, notes);
         var highlights = new List<string>
         {

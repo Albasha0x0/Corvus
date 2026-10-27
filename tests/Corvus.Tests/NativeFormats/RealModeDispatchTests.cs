@@ -61,7 +61,7 @@ public sealed class RealModeDispatchTests
     [Fact]
     public void A_com_file_maps_pointers_from_its_base()
     {
-        // the same code as a .COM at 0x100: pointers are offsets in CS, which starts 0x100 before the file
+        // The same code as a .COM at 0x100: pointers are offsets in CS, which starts 0x100 before the file.
         var (mz, handlers) = Mz(4);
         var module = mz[32..];
         for (int i = 0; i < 4; i++) BinaryPrimitives.WriteUInt16LittleEndian(module.AsSpan(0x16 + 4 * 4 + i * 2), (ushort)(handlers[i] + 0x100));

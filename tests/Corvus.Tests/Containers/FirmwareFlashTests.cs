@@ -7,10 +7,7 @@ using static Corvus.Tests.FirmwareFilesystemTests;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Flash filesystems (JFFS2, UBI, UBIFS) written here node by node from the fixture tree, as the kernel lays them out
-/// (CRCs, versions, sequence numbers): the newest version of each name and block wins, a deletion entry removes a name.
-/// </summary>
+/// <summary>JFFS2, UBI and UBIFS written node by node: the newest version wins and deletion entries remove names.</summary>
 public sealed class FirmwareFlashTests
 {
     /// <summary>The fixture tree as (path, bytes) files and (path, target) links; directories are implied.</summary>
@@ -120,7 +117,7 @@ public sealed class FirmwareFlashTests
             stored.CopyTo(b, 56);
             Node(0xE002, b, 60, 64);
         }
-        // a cleanmarker, as a freshly erased block starts
+        // A cleanmarker, as a freshly erased block starts.
         var marker = new byte[12];
         U16(marker, 0x1985);
         U16(marker.AsSpan(2), 0x2003);
@@ -142,14 +139,14 @@ public sealed class FirmwareFlashTests
                 for (int at = 0; at < file.Bytes.Length; at += 4096)
                 {
                     var page = file.Bytes[at..Math.Min(file.Bytes.Length, at + 4096)];
-                    // pages of the large file alternate zlib and rtime; others stay stored
+                    // Pages of the large file alternate zlib and rtime; others stay stored.
                     bool large = path.EndsWith("large.conf", StringComparison.Ordinal);
                     var (stored, codec) = !large ? (page, (byte)0) : at / 4096 % 2 == 0 ? (Zlib(page), (byte)6) : (Rtime(page), (byte)2);
                     Inode(ino, version++, 0x81ED, (uint)file.Bytes.Length, (uint)at, stored, (uint)page.Length, codec);
                 }
             }
         }
-        // a file written, rewritten (a newer version of its only page), then a file deleted by a newer entry with inode 0
+        // A file written, rewritten (a newer version of its only page), then a file deleted by a newer entry with inode 0.
         var (rootFiles, next) = (1u, 100u);
         Dirent(rootFiles, "version.txt", 1, next, 8);
         Inode(next, 1, 0x81A4, 3, 0, "old"u8.ToArray(), 3, 0);
@@ -157,7 +154,7 @@ public sealed class FirmwareFlashTests
         Dirent(rootFiles, "gone.txt", 1, next + 1, 8);
         Inode(next + 1, 1, 0x81A4, 4, 0, "gone"u8.ToArray(), 4, 0);
         Dirent(rootFiles, "gone.txt", 2, 0, 8);
-        // erased flash after the last node
+        // Erased flash after the last node.
         o.Write(Enumerable.Repeat((byte)0xFF, 4096).ToArray());
         return o.ToArray();
     }
@@ -179,7 +176,7 @@ public sealed class FirmwareFlashTests
     {
         var (files, links) = Source();
         var (_, names) = Number([.. files.Select(f => f.Path), .. links.Select(l => l.Path)]);
-        // block 1 onwards holds the live nodes, block 2 the stale ones
+        // Block 1 onwards holds the live nodes, block 2 the stale ones.
         var lebs = new List<MemoryStream> { new(), new(), new() };
         int live = 1;
         ulong seq = 1;
@@ -235,11 +232,11 @@ public sealed class FirmwareFlashTests
             stored.CopyTo(b, 24);
             Node(leb, 1, b, sequence);
         }
-        // the superblock node: 4096 bytes, the logical block size at offset 36
+        // The superblock node: 4096 bytes, the logical block size at offset 36.
         var sb = new byte[4096 - 24];
         BinaryPrimitives.WriteUInt32LittleEndian(sb.AsSpan(36 - 24), (uint)lebSize);
         Node(0, 6, sb);
-        // stale nodes written first (lower sequence numbers) in block 2
+        // Stale nodes written first (lower sequence numbers) in block 2.
         Ino(2, 1, 0x41ED, 0, []);
         foreach (var (parent, name, inum, path) in names)
         {
@@ -252,12 +249,12 @@ public sealed class FirmwareFlashTests
             else
             {
                 Ino(live, inum, 0x81ED, file.Bytes.Length, []);
-                // pages alternate deflate, Zstandard and stored
+                // Pages alternate deflate, Zstandard and stored.
                 for (int at = 0; at < file.Bytes.Length; at += 4096)
                     DataNode(live, inum, (uint)(at / 4096), file.Bytes[at..Math.Min(file.Bytes.Length, at + 4096)], (ushort)(at / 4096 % 3 == 2 ? 0 : at / 4096 % 3 == 1 ? 3 : 2));
             }
         }
-        // version.txt: an old block in block 2 (lower sequence), the new one later; gone.txt deleted by a later entry with inode 0
+        // version.txt: an old block in block 2 (lower sequence), the new one later; gone.txt deleted by a later entry with inode 0.
         Ino(2, 200, 0x81A4, 3, [], sequence: 0);
         DataNode(2, 200, 0, "old"u8.ToArray(), 0, sequence: 0);
         Dent(2, 1, "version.txt", 200, 0, sequence: 0);
@@ -337,15 +334,17 @@ public sealed class FirmwareFlashTests
         }
         Record(0, "rootfs", 1, (rootfs.Length + LebSize - 1) / LebSize + 2);
         Record(1, "kernel", 2, 1);
-        Record(2, "rootfs_data", 1, 4); // formatted at first boot: no block written
+        // Formatted at first boot: no block written.
+        Record(2, "rootfs_data", 1, 4);
         Leb(0x7FFFEFFF, 0, 1, table);
         Leb(0x7FFFEFFF, 1, 1, table);
         int count = (rootfs.Length + LebSize - 1) / LebSize;
-        // block 0 written once before (stale), then the real copy
+        // Block 0 written once before (stale), then the real copy.
         Leb(0, 0, 1, new byte[LebSize], sequence: 1);
         for (int i = 0; i < count; i++) Leb(0, (uint)i, 1, rootfs.AsSpan(i * LebSize, Math.Min(LebSize, rootfs.Length - i * LebSize)));
         Leb(1, 0, 2, kernel, usedEbs: 1);
-        blocks.Add(Ec()); // erased: no volume header
+        // Erased: no volume header.
+        blocks.Add(Ec());
         return [.. blocks.SelectMany(b => b)];
     }
 

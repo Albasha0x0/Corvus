@@ -11,10 +11,7 @@ public sealed class EmulatorFaultException(ulong address, string message) : Exce
 /// <summary>An instruction or operand the emulator does not model.</summary>
 public sealed class EmulatorUnsupportedException(string message) : Exception(message);
 
-/// <summary>
-/// The memory of one emulation: the image's bytes (copied on first touch, so writes never reach the image), a private
-/// zeroed region, and bytes the caller or the program wrote anywhere else. Reading any other byte faults.
-/// </summary>
+/// <summary>One emulation's memory: the image copied on write, a private zeroed region and written bytes; any other read faults.</summary>
 public sealed class EmulatorMemory
 {
     public const int PageSize = 0x1000;

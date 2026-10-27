@@ -5,19 +5,14 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The byte-fidelity contract over the sweep's libraries (see <see cref="SweepCatalog"/>): saving with no edits writes
-/// the original file, and writing the module again (as any edit makes save_assembly do) gives byte-identical method
-/// bodies and signatures, or lists each one that differs. Compared independently of the writer's own check. Libraries
-/// are checked in parallel, largest first, each in its own workspace; nothing here is timed.
-/// </summary>
+/// <summary>Saving the sweep's libraries (<see cref="SweepCatalog"/>) writes the original file unedited, and a rewrite keeps bodies and signatures byte-identical or lists each difference.</summary>
 [Trait("Speed", "Slow")]
 public sealed class SaveFidelitySweepTests(ITestOutputHelper output)
 {
     private sealed record Row(SweepCatalog.Entry Entry, int Methods, int Kept, int Changed, int Unexplained, bool OriginalSaved, bool SameSurvey, TimeSpan Write, string? Example);
 
     [SweepFact]
-    public void LibrariesSaveByteIdenticallyOrReportEveryDifference()
+    public void Libraries_save_byte_identically_or_report_every_difference()
     {
         using var dir = new TempDir();
         var entries = SweepCatalog.Entries(SweepCatalog.Full).Where(e => e.Path != null).ToList();
@@ -58,8 +53,7 @@ public sealed class SaveFidelitySweepTests(ITestOutputHelper output)
         var differ = SaveFidelity.Differences(original, written);
         var unexplained = differ.Except(SaveFidelity.Listed(report, changesBytes: true)).ToList();
         int methods = asm.Module.GetTypes().Sum(t => t.Methods.Count);
-        // The unmodified save lists the same invalid members that a rewrite keeps (or cannot keep); a dropped ReadyToRun
-        // section is about the module, not a member.
+        // A dropped ReadyToRun section concerns the module, not a member.
         bool sameSurvey = survey.Issues.Select(i => i.Token).ToHashSet()
             .SetEquals(report.Issues.Where(i => i.Reason != SaveIssueReason.PrecompiledCodeDropped).Select(i => i.Token));
         return new Row(entry, methods, report.Kept.Count(), report.Changed.Count(), unexplained.Count, originalSaved, sameSurvey, time,

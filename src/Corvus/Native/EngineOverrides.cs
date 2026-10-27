@@ -13,11 +13,7 @@ public sealed record EngineSeed(SeedKind Kind, uint Rva, string? Name)
     public string Text => $"{Kind.ToString().ToLowerInvariant()}:rva:0x{Rva:X}{(Name != null ? "=" + Name : "")}";
 }
 
-/// <summary>
-/// How the engines import one image, set at load and applied before the first analysis: IDA's processor (-p), Ghidra's
-/// language and compiler spec (the compiler spec also sets IDA's compiler where IDA has one), seeds, and analyzers turned
-/// off. Each set of overrides is its own engine database (<see cref="Key"/>), so the default analysis is kept beside it.
-/// </summary>
+/// <summary>Engine import options set at load; each set gets its own engine database (<see cref="Key"/>), so the default analysis is kept beside it.</summary>
 public sealed partial record EngineOverrides(string? Processor, string? Language, string? CompilerSpec, IReadOnlyList<EngineSeed> Seeds,
     IReadOnlyList<string> DisabledAnalyzers)
 {
@@ -48,10 +44,7 @@ public sealed partial record EngineOverrides(string? Processor, string? Language
     /// <summary>The IDA compiler for <see cref="CompilerSpec"/>, or null.</summary>
     public int? IdaCompiler => CompilerSpec != null && IdaCompilers.TryGetValue(CompilerSpec, out var id) ? id : null;
 
-    /// <summary>
-    /// The overrides load_assembly was given, checked for form (the engines check the names against their own lists when
-    /// they open); null when none was given. Seeds are kind:address[=name] with kind function (default), code or label.
-    /// </summary>
+    /// <summary>The load_assembly overrides checked for form, names checked later by the engines; null when none was given; throws on a malformed value.</summary>
     public static EngineOverrides? Parse(INativeImage image, string? processor, string? language, string? compilerSpec, string[]? seeds, string[]? disableAnalyzers)
     {
         processor = Blank(processor);

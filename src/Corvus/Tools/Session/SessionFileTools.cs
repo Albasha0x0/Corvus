@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 [McpServerToolType]
 public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService sessions, EditHistoryService history, NativeCodeService code,
     NativeEditService nativeEdits, NotesService? notes = null, NativeEngineService? engines = null, EditJournal? journal = null,
-    Il2CppRawLoader? il2cppRaw = null, MinidumpService? dumps = null)
+    AotBuildLoader? aotBuild = null, MinidumpService? dumps = null)
 {
     public const string Loaded = "loaded", AlreadyLoaded = "already_loaded", WouldLoad = "would_load", Applied = "applied", WouldApply = "would_apply",
         AlreadyPresent = "already_present", Refused = "refused", NotFound = "not_found";
@@ -22,11 +22,10 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     public sealed record SessionSaved(string OutputPath, int Files, int EditedAssemblies, int Edits, int PatchedImages, int Patches, int Names, int Comments, int Notes);
 
     public sealed record SessionItem(
-        [property: Description("file, il2cpp, dump, edits, patches, names, comments, journal or notes.")] string Kind,
+        [property: Description("file, aot, dump, edits, patches, names, comments, journal or notes.")] string Kind,
         [property: Description("The id the session recorded.")] string Id,
         [property: Description("loaded, already_loaded, would_load, applied, would_apply, already_present, refused or not_found.")] string Outcome,
-        [property: Description("How or why: recorded_path, relative_path, search_root, same_build, other_build, sha_mismatch, old_build_needed, " +
-                               "user_name_exists, invalid_name, a patch refusal reason, ...")] string Reason,
+        [property: Description("How or why: recorded_path, search_root, same_build, sha_mismatch, old_build_needed, a refusal reason, ...")] string Reason,
         int Count, string Detail);
 
     public sealed record OutcomeCount(string Outcome, int Count);
@@ -35,8 +34,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         int Offset, int Total, IReadOnlyList<SessionItem> Items, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true, OutputSchemaType = typeof(SessionSaved))]
-    [Description("Write session work to one JSON file: loaded files (path, relative path, SHA-256), .NET edits, native patches, names, " +
-                 "comments, notes, Il2Cpp builds, open minidumps; load_session restores it anywhere.")]
+    [Description("Save loaded files, .NET edits, native patches, names, comments, notes and open dumps to one JSON file; load_session restores it anywhere.")]
     public Task<string> SaveSession(
         [Description("Output file path (.json).")] string outputPath,
         [Description("Replace the file if it exists.")] bool overwrite = false,
@@ -56,13 +54,12 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     }, cancellationToken);
 
     [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true, OutputSchemaType = typeof(SessionLoadReport))]
-    [Description("Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots), load it, apply names, " +
-                 "comments (never over a user name), patches, edits and notes; one outcome per item. A changed file is refused unless " +
-                 "targetBuild=other (native work then needs the old build under searchRoots).")]
+    [Description("Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots) and reapply its work. " +
+                 "A changed file is refused unless targetBuild=other.")]
     public Task<string> LoadSession(
         [Description("The session file.")] string path,
         [Description("Report only.")] bool dryRun = true,
-        [Description("Default same.")] string? targetBuild = null,
+        [Description("Default same; other: native work needs the old build under searchRoots.")] string? targetBuild = null,
         [Description(";-separated folders searched recursively for moved files, by SHA-256.")] string? searchRoots = null,
         [Description("Comma-separated: edits, patches, annotations, notes or all (default).")] string? include = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
@@ -79,7 +76,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         Report(progress, 0, 1, $"Reading {Path.GetFileName(path)}");
         var doc = await Task.Run(() => SessionService.Read(path), ct);
         // One step per recorded item: locating a moved file under searchRoots hashes files and can take long.
-        int step = 1, steps = 2 + (doc.Il2Cpp?.Count ?? 0) + (doc.Dumps?.Count ?? 0) + doc.Files.Count + doc.Native.Count + (parts.Contains("edits") ? doc.DotNet.Count : 0);
+        int step = 1, steps = 2 + (doc.AotBuilds?.Count ?? 0) + (doc.Dumps?.Count ?? 0) + doc.Files.Count + doc.Native.Count + (parts.Contains("edits") ? doc.DotNet.Count : 0);
         void Step(string message) => Report(progress, step++, steps, message);
         var sessionDir = Path.GetDirectoryName(Path.GetFullPath(path))!;
         var roots = (searchRoots ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
@@ -90,42 +87,42 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         if (!dryRun)
             foreach (var d in doc.SearchDirectories.Where(Directory.Exists)) workspace.AddSearchDirectory(d);
 
-        // Il2Cpp builds first: reading one loads its binary, which the files below then find loaded.
-        foreach (var g in doc.Il2Cpp ?? [])
+        // AOT builds first: reading one loads its binary, which the files below then find loaded.
+        foreach (var g in doc.AotBuilds ?? [])
         {
             ct.ThrowIfCancellationRequested();
-            Step($"Il2Cpp build {Path.GetFileName(g.Input.Path)}");
+            Step($"AOT build {Path.GetFileName(g.Input.Path)}");
             if (LoadedId(g.BinarySha256) is { } binaryId)
             {
-                Add("il2cpp", g.Input.Path, AlreadyLoaded, "same_build", 1, binaryId);
+                Add("aot", g.Input.Path, AlreadyLoaded, "same_build", 1, binaryId);
                 continue;
             }
             var located = await Task.Run(() => SessionService.Locate(g.Input, sessionDir, roots, ct), ct);
             if (located.Path == null)
             {
-                Add("il2cpp", g.Input.Path, located.Other != null ? Refused : NotFound, located.Other != null ? "sha_mismatch" : "not_found", 0,
+                Add("aot", g.Input.Path, located.Other != null ? Refused : NotFound, located.Other != null ? "sha_mismatch" : "not_found", 0,
                     located.Other != null ? $"{located.Other} has other bytes than the recorded sha256 {g.Input.Sha256}" : "the package or metadata was not found");
                 continue;
             }
             if (dryRun)
             {
-                Add("il2cpp", g.Input.Path, WouldLoad, located.How, 1, located.Path);
+                Add("aot", g.Input.Path, WouldLoad, located.How, 1, located.Path);
                 continue;
             }
             try
             {
                 var result = await Task.Run(() =>
                 {
-                    var build = WorkspaceTools.RawIl2CppBuild(located.Path, g.Slice)
-                               ?? throw new ToolError(ErrorCode.NotFound, $"{located.Path} is no longer an Il2Cpp input.");
-                    return (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(build, loadBinary: true, null, ct);
+                    var build = WorkspaceTools.RawAotBuild(located.Path, g.Slice)
+                               ?? throw new ToolError(ErrorCode.NotFound, $"{located.Path} is no longer an AOT input.");
+                    return (aotBuild ?? new AotBuildLoader(workspace)).Load(build, loadBinary: true, null, ct);
                 }, ct);
                 bool sameBinary = result.Binary?.OriginalSha256.Equals(g.BinarySha256, StringComparison.OrdinalIgnoreCase) == true;
-                Add("il2cpp", g.Input.Path, Loaded, sameBinary ? located.How : "other_binary", result.Load.Loaded.Count,
+                Add("aot", g.Input.Path, Loaded, sameBinary ? located.How : "other_binary", result.Load.Loaded.Count,
                     $"{located.Path}: {result.Load.Loaded.Count} dummy assemblies" + (result.Binary != null ? $", binary {result.Binary.Id}" : "") +
                     (sameBinary ? "" : $"; the binary is not the recorded one (sha256 {g.BinarySha256}): names and patches of the recorded binary are not applied to it"));
             }
-            catch (ToolError ex) { Add("il2cpp", g.Input.Path, Refused, ex.Code.ToString().ToLowerInvariant(), 0, ex.Message); }
+            catch (ToolError ex) { Add("aot", g.Input.Path, Refused, ex.Code.ToString().ToLowerInvariant(), 0, ex.Message); }
         }
 
         // Minidumps: reopened under their file name.
@@ -303,10 +300,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     private bool SameBuildLoaded(string sha256, Dictionary<string, string> current) =>
         current.TryGetValue(sha256, out var id) && LoadedId(sha256) == id;
 
-    /// <summary>
-    /// Loads <paramref name="file"/> (not in a dry run) as <paramref name="recorded"/> was: its raw layout and import overrides;
-    /// returns its id: the native view for an image, else the assembly.
-    /// </summary>
+    /// <summary>Loads a file with its recorded layout and overrides; returns the native view's or assembly's id, null in a dry run.</summary>
     private string? Load(string file, bool dryRun, SessionService.SessionFile recorded)
     {
         if (dryRun) return null;
@@ -364,7 +358,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             else if (existing != null) conflicting++;
             else pseudo.Add((rva, value));
         }
-        // a comment's engine kind goes with it (repeatable when none was recorded)
+        // A comment's engine kind goes with it; repeatable when none was recorded.
         var kinds = comments.Where(c => ann.CommentKinds?.GetValueOrDefault(SessionService.Hex(c.Item1)) != null)
             .Select(c => (c.Item1, (string?)ann.CommentKinds![SessionService.Hex(c.Item1)])).ToList();
         if (!dryRun && pseudo.Count > 0) workspace.Write(() => { annotations.Apply([], [], pseudo, allowDuplicate: true); return 0; });

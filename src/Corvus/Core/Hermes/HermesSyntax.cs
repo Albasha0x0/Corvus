@@ -3,8 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Hermes;
 
-// The decompiler's JavaScript-like syntax tree: expressions over registers, flat statements per instruction, and the
-// structured statements (if, loops, try, switch) the structurer builds from them.
+// The decompiler's JavaScript-like syntax tree: expressions, flat statements and structured statements.
 
 internal abstract class Ex
 {
@@ -189,7 +188,7 @@ internal sealed class CallEx(Ex callee, Ex? self, Ex[] args, bool isNew) : Ex
 
     public override void Write(StringBuilder sb)
     {
-        // template literals: HermesInternal.concat called on the first part
+        // Template literals: HermesInternal.concat called on the first part.
         if (!IsNew && Self != null && Callee is MemberEx { Name: "concat", Obj: MemberEx { Name: "HermesInternal", Obj: GlobalEx } })
         {
             Self.Write(sb, 13);
@@ -228,7 +227,7 @@ internal sealed class CallEx(Ex callee, Ex? self, Ex[] args, bool isNew) : Ex
     public override Ex Map(Func<Ex, Ex> f)
     {
         var callee = Callee.Map(f);
-        // a method receiver read once for both the callee's object and 'this' stays one expression
+        // A method receiver read once for both the callee's object and 'this' stays one expression.
         var self = Self == null ? null : Callee is MemberEx m && Same(m.Obj, Self) && callee is MemberEx m2 ? m2.Obj
             : Callee is IndexEx x && Same(x.Obj, Self) && callee is IndexEx x2 ? x2.Obj : Self.Map(f);
         return f(new CallEx(callee, self, [.. Args.Select(a => a.Map(f))], IsNew));
@@ -346,7 +345,7 @@ internal sealed class SwitchSt(Ex value, HermesSwitch table) : St
     public override St Map(Func<Ex, Ex> f) => new SwitchSt(Value.Map(f), Table);
 }
 
-// structured statements
+// Structured statements.
 internal sealed class IfSt(Ex cond, List<St> then, List<St> otherwise) : St
 {
     public Ex Cond { get; set; } = cond;

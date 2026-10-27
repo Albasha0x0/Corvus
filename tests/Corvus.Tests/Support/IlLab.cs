@@ -4,10 +4,7 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A module built with dnlib for IL-level tests: static methods with hand-written bodies, structs and helper types, then
-/// written to an image that the runtime can execute next to the in-memory module the engine analyses.
-/// </summary>
+/// <summary>A dnlib-built module for IL tests, written to an image the runtime executes beside the analysed module.</summary>
 internal sealed class IlLab
 {
     public ModuleDefUser Module { get; }

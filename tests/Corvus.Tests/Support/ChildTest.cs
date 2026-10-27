@@ -6,11 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Runs a test's body in a process of its own, for measurements that read the whole process (working set, private
-/// memory, GC heap): other tests running beside it in the test process cannot move them. The child runs this assembly
-/// (its entry point is <see cref="Main"/>) and its output lines reach the parent test's output.
-/// </summary>
+/// <summary>Runs a test body in its own process, for whole-process measurements other tests would disturb; the child's output reaches the parent test.</summary>
 public static class ChildTest
 {
     /// <summary>Set in the child, where <see cref="Rerun"/> returns false and the body runs.</summary>
@@ -55,12 +51,7 @@ public static class ChildTest
         return true;
     }
 
-    /// <summary>
-    /// The assembly's entry point: runs the test method the arguments name in a child (exit code 0 when it passes), or the
-    /// perf run's baseline comparison (<see cref="PerfRegressions.Main"/>), the located tools (<see cref="LocatedTools.Main"/>), the
-    /// classes that run alone (<see cref="AloneClasses.Main"/>), or a read of a test process's stacks
-    /// (<see cref="ThreadPoolSnapshot.Main"/>).
-    /// </summary>
+    /// <summary>Entry point: runs a named test method in a child (exit 0 on pass), or the --perf-regressions, --located-tools, --alone-classes or stack-read commands.</summary>
     public static int Main(string[] args)
     {
         int code = args switch

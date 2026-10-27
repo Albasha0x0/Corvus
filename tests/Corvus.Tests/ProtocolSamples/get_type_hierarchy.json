@@ -5,14 +5,14 @@
   },
   "isError": false,
   "content": [
-    "public abstract class Entity   [TestFixture]\nBase types (nearest first):\n  System.Object  [System.Private.CoreLib.dll]\nInterfaces (0):\nDirectly derived types: 1 type (showing 1-1):\n  Fixture.Model.Account  [TestFixture] 0x0200000A\n[End: 1 type]\n"
+    "public abstract class Entity   [TestFixture]\nBase types (nearest first):\n  System.Object  [System.Private.CoreLib.dll]\nInterfaces (0):\nDirectly derived types: 1 type (showing 1-1):\n  Fixture.Model.Account  [TestFixture] 0x02000006\n[End: 1 type]\n"
   ],
   "structuredContent": {
     "type": {
       "kind": "type",
       "label": "Fixture.Model.Entity",
       "assembly": "TestFixture",
-      "token": "0x02000009"
+      "token": "0x02000005"
     },
     "baseChain": [
       "System.Object  [System.Private.CoreLib.dll]"
@@ -21,7 +21,7 @@
     "items": [
       {
         "label": "Fixture.Model.Account",
-        "token": "0x0200000A",
+        "token": "0x02000006",
         "assembly": "TestFixture"
       }
     ],

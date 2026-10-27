@@ -4,11 +4,7 @@ using System.Text;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Builds Windows event log files (format 3.2, one chunk): templated events written as the event log service writes
-/// them (templates and names defined in place on first use, referenced by chunk offset after), an EventData passed as
-/// a nested binary XML value, and events placed in the chunk's free space after its last record.
-/// </summary>
+/// <summary>Builds Windows event log files (format 3.2, one chunk) with templated events as the service writes them, nested binary XML and records in free space.</summary>
 internal static class EvtxSamples
 {
     public const string Namespace = "http://schemas.microsoft.com/win/2004/08/events/event";

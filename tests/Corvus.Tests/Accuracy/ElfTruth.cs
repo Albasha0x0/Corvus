@@ -8,11 +8,7 @@ public enum TruthClass { Function, Chunk, Thunk }
 
 public sealed record TruthFunction(uint Start, uint Size, string Name, TruthClass Class);
 
-/// <summary>
-/// Function truth from an unstripped ELF's .symtab, read here and not with the code under test: FUNC / IFUNC symbols
-/// in executable sections (Thumb bit cleared), GCC <c>.cold</c> parts as chunks, PLT sections as thunk ranges.
-/// Addresses are RVAs: virtual address minus the lowest PT_LOAD address.
-/// </summary>
+/// <summary>Function truth read from an unstripped ELF's .symtab, independent of the code under test; addresses are RVAs.</summary>
 public sealed class ElfTruth
 {
     public required string Arch { get; init; }

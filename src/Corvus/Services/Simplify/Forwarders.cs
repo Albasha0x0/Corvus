@@ -4,17 +4,9 @@ using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// Forwarder methods: bodies that pass their arguments, unchanged and in order, to one call (or newobj) and return its
-/// result. A call site of a forwarder can call the target directly when that keeps the exact semantics:
-/// <list type="bullet">
-/// <item>the forwarder itself is not dispatched virtually (callvirt on an overridable or interface method is skipped);</item>
-/// <item>the null check of callvirt on an instance forwarder is preserved (the target is called with callvirt, or the site is skipped);</item>
-/// <item>a non-virtual call of a virtual target (base call) is never turned into a virtual one;</item>
-/// <item>parameter and return types match, and the target is accessible from the calling type;</item>
-/// <item>a static forwarder whose call runs its type's static constructor (no beforefieldinit) only calls a target of the same type.</item>
-/// </list>
-/// </summary>
+/// <summary>Methods that pass their arguments unchanged to one call or newobj; rewrites call sites to the target when semantics are kept.</summary>
+/// <remarks>Kept: no virtual dispatch of the forwarder, callvirt's null check, base calls stay non-virtual, matching types
+/// and access, and static constructor order.</remarks>
 internal sealed class Forwarders(ModuleDef module)
 {
     private readonly Dictionary<MethodDef, (Code Op, IMethod Target)?> _cache = new();
@@ -29,9 +21,10 @@ internal sealed class Forwarders(ModuleDef module)
 
         var resolved = target.ResolveMethodDef();
         if (resolved == null || !IsAccessible(resolved, caller)) return null;
+        // The direct call would no longer run the wrapper type's static constructor.
         if (wrapper.IsStatic && !wrapper.DeclaringType.IsBeforeFieldInit && wrapper.DeclaringType.FindStaticConstructor() != null &&
             resolved.DeclaringType != wrapper.DeclaringType)
-            return null; // the call would no longer run the wrapper type's static constructor
+            return null;
 
         OpCode result;
         switch (op)
@@ -45,8 +38,9 @@ internal sealed class Forwarders(ModuleDef module)
                 result = OpCodes.Call;
                 break;
             case Code.Call:
+                // A base call of a virtual target must not become a dispatching callvirt.
                 if (!nullCheck) result = OpCodes.Call;
-                else if (resolved.IsVirtual && !resolved.IsFinal) return null; // a base call; callvirt would dispatch
+                else if (resolved.IsVirtual && !resolved.IsFinal) return null;
                 else result = OpCodes.Callvirt;
                 break;
             default:
@@ -72,7 +66,8 @@ internal sealed class Forwarders(ModuleDef module)
         if (body == null || body.HasExceptionHandlers) return null;
         var code = body.Instructions.Where(i => i.OpCode.Code != Code.Nop).ToList();
 
-        int n = w.Parameters.Count; // including 'this'
+        // Includes 'this'.
+        int n = w.Parameters.Count;
         if (code.Count < n + 2) return null;
         for (int i = 0; i < n; i++)
             if (!code[i].IsLdarg() || code[i].GetParameterIndex() != i) return null;
@@ -86,7 +81,8 @@ internal sealed class Forwarders(ModuleDef module)
         if (tsig.CallingConvention == CallingConvention.VarArg || tsig.ExplicitThis) return null;
         if (ReferenceEquals(target, w)) return null;
         bool newobj = call.OpCode.Code == Code.Newobj;
-        if (call.OpCode.Code == Code.Call && target.Name == ".ctor") return null; // base/this constructor call
+        // A base or this constructor call.
+        if (call.OpCode.Code == Code.Call && target.Name == ".ctor") return null;
         int targetCount = tsig.Params.Count + (tsig.HasThis && !newobj ? 1 : 0);
         if (targetCount != n) return null;
 
@@ -94,7 +90,6 @@ internal sealed class Forwarders(ModuleDef module)
         int offset = 0;
         if (tsig.HasThis && !newobj)
         {
-            // The receiver: what the wrapper passes must be the target's declaring type or derived from it.
             if (!IsReceiverCompatible(w.Parameters[0].Type, target.DeclaringType)) return null;
             offset = 1;
         }
@@ -124,10 +119,10 @@ internal sealed class Forwarders(ModuleDef module)
     {
         var comparer = new SigComparer();
         var expected = targetType.ToTypeSig();
-        if (expected.IsValueType) // 'this' of a struct method is a managed pointer to the struct
+        // The 'this' of a struct method is a managed pointer to the struct.
+        if (expected.IsValueType)
             return passed is ByRefSig byRef && comparer.Equals(byRef.Next, expected);
         if (comparer.Equals(passed, expected)) return true;
-        // A class receiver of a derived type.
         var type = passed.ToTypeDefOrRef()?.ResolveTypeDef();
         for (int depth = 0; type != null && depth < 64; depth++)
         {
@@ -147,7 +142,7 @@ internal sealed class Forwarders(ModuleDef module)
         {
             MethodAttributes.Public => true,
             MethodAttributes.Assembly or MethodAttributes.FamORAssem => sameAssembly || IsWithin(from, declaring),
-            _ => IsWithin(from, declaring), // private, family, family-and-assembly, compiler-controlled
+            _ => IsWithin(from, declaring),
         };
     }
 

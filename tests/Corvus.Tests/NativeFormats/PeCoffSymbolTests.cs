@@ -83,7 +83,7 @@ public sealed class PeCoffSymbolTests
         Assert.Equal([("main", 0x1010u, ImageSymbolKind.Function, ImageSymbolBinding.Global), ("compress_block_fast", 0x1020u, ImageSymbolKind.Function, ImageSymbolBinding.Local),
             ("g_level", 0x2008u, ImageSymbolKind.Object, ImageSymbolBinding.Global)], pe.Symbols.Select(s => (s.Name, s.Rva, s.Kind, s.Binding)));
         Assert.Empty(pe.Issues);
-        // the static function is called by nothing: its symbol makes it a function start
+        // The static function is called by nothing: its symbol makes it a function start.
         Assert.Equal([0x1010u, 0x1020u], pe.DeclaredFunctions.Select(d => d.Rva));
         var index = NativeCodeIndex.Build(pe);
         Assert.Equal("compress_block_fast", index.NameAt(0x1020));
@@ -96,7 +96,7 @@ public sealed class PeCoffSymbolTests
         var names = new Corvus.Native.Dump.ModuleNames(pe, null, null);
         Assert.True(names.HasSymbols);
         Assert.Equal(new Corvus.Native.Dump.ModuleSymbol("flush", "symbol", 0x1020), names.Lookup(0x1025));
-        // an exported function keeps its export name
+        // An exported function keeps its export name.
         Assert.Equal(("start", 0x1010u), (names.Lookup(0x1012).Name, names.Lookup(0x1012).Start!.Value));
     }
 

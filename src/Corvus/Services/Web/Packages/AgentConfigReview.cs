@@ -3,15 +3,11 @@ using System.Text.Json;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <summary>
-/// Configuration a package or repository carries that runs or steers code, at its file and line (null when the entry is
-/// the whole file).
-/// </summary>
+/// <summary>Configuration that runs or steers code, at its file and line (null: the whole file).</summary>
 /// <param name="Kind">instruction file, hook, mcp server, folder-open task, git hook, git config, dev container, direnv, or build step.</param>
 public sealed record AgentEntry(string Kind, string Name, string? Command, string Path, int? Line = null);
 
-// Kept apart from PackageReview, whose regex tables every file read would otherwise build: summarize_file asks
-// whether a path is an agent file before it knows the input is a package.
+// Kept apart from PackageReview so summarize_file does not build its regex tables.
 /// <summary>Names agent configuration files by path; no file is read.</summary>
 internal static class AgentFiles
 {
@@ -23,10 +19,7 @@ internal static class AgentFiles
     /// <summary>Folders whose files configure an agent or editor; a path inside one is rooted at the folder's parent.</summary>
     internal static readonly string[] Folders = [".claude", ".cursor", ".vscode", ".github", ".windsurf", ".clinerules"];
 
-    /// <summary>
-    /// What an agent configuration file is (instructions, settings, mcp, tasks, editor settings) by its path with '/'
-    /// separators, or null when it is none of them.
-    /// </summary>
+    /// <summary>The agent configuration kind of a '/'-separated path, or null when it is none.</summary>
     internal static string? Kind(string path)
     {
         var slashed = "/" + path;
@@ -60,10 +53,7 @@ public static partial class PackageReview
 
     private const int MaxHiddenLines = 20, MaxAgentFiles = 500;
 
-    /// <summary>
-    /// The agent configuration in <paramref name="files"/>: hidden characters in instruction files, hooks, MCP servers and
-    /// folder-open tasks. With <paramref name="standalone"/> (no package manifest), null unless an agent file is present.
-    /// </summary>
+    /// <summary>Hooks, MCP servers, folder-open tasks and hidden text in <paramref name="files"/>; null when none, or when <paramref name="standalone"/> and no agent file.</summary>
     internal static AgentReview? AgentConfig(PackageFiles files, bool standalone, CancellationToken ct)
     {
         var agent = files.Paths.Where(p => !p.Contains("node_modules/", StringComparison.Ordinal))
@@ -107,18 +97,17 @@ public static partial class PackageReview
     {
         if (files.Text(path) is not { } text)
         {
-            notes.Add($"{path}: not read ({files.Size(path):N0} bytes, over the per-file limit or unreadable); its agent configuration is unknown");
+            notes.Add($"{path}: not read ({files.Size(path):N0} bytes, over the limit or unreadable); agent configuration unknown");
             return null;
         }
         var tree = JsonTree.Parse(text);
-        if (tree == null) notes.Add($"{path}: not valid JSON (comments and trailing commas allowed); its agent configuration is unknown");
+        if (tree == null) notes.Add($"{path}: not valid JSON (comments and trailing commas allowed); agent configuration unknown");
         return tree;
     }
 
     // --- hidden characters in instruction files ---
 
-    // Right-to-left text in an ordinary README uses bidirectional controls, so outside instruction files they are
-    // only worth reviewing; tag runs have no ordinary use and stay noteworthy everywhere.
+    // READMEs use bidirectional controls for right-to-left text, so outside instruction files they rank review.
     private static void HiddenText(PackageFiles files, string path, AgentReview review, bool instructions)
     {
         if (files.Text(path) is not { } text)

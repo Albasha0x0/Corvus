@@ -6,10 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A Mach-O image linked by ld64.lld without a dSYM (clang from CORVUS_LLVM_BIN): its debug map (N_OSO, N_FUN, N_GSYM)
-/// leads to the object files' DWARF, whose addresses move to the image's.
-/// </summary>
+/// <summary>A Mach-O image without a dSYM: its debug map leads to the object files' DWARF, rebased to the image (clang from CORVUS_LLVM_BIN).</summary>
 [Trait("Speed", "Slow")]
 public sealed class DwarfDebugMapTests(ITestOutputHelper output)
 {

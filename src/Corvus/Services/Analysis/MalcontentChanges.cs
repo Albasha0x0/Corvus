@@ -7,12 +7,9 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// The malcontent behaviours one build matches and the other does not, when the malcontent rule pack is installed
-/// (<c>corvus rules fetch malcontent</c>). A behaviour is a rule file's path in the pack without its extension, as
-/// malcontent names it (net/http/request); its risk is the highest risk tag of its matching rules. Scans run in a yara
-/// worker over each file and its container members, kept per file while its size and write time hold.
-/// </summary>
+/// <summary>Malcontent behaviours one build matches and the other does not; needs the pack (<c>corvus rules fetch malcontent</c>).</summary>
+// A behaviour is a rule file's pack path without extension (net/http/request); its risk is the highest risk tag of its
+// matching rules. Scans run in a yara worker and are kept per file while its size and write time hold.
 internal static partial class MalcontentChanges
 {
     public const string Pack = "malcontent";
@@ -28,10 +25,7 @@ internal static partial class MalcontentChanges
     private static readonly ConcurrentDictionary<(string File, long Length, DateTime Written, string Rules), Dictionary<string, Behaviour>> Kept = new();
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> Ids = new(StringComparer.Ordinal);
 
-    /// <summary>
-    /// Rows keyed "malcontent/&lt;behaviour&gt;", added or removed, with risk, description and rules as evidence; and one
-    /// line for the text. Empty with a null line when the pack is not installed.
-    /// </summary>
+    /// <summary>Added or removed rows keyed "malcontent/&lt;behaviour&gt;" and a text line; empty with null text when the pack is absent.</summary>
     public static (IReadOnlyList<EvidenceChange> Rows, string? Text) Between(string oldFile, string newFile, CancellationToken ct, string? root = null,
         WorkerPool? pool = null)
     {

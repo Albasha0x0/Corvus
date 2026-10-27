@@ -5,11 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real installers listed by each reader against a reference tool, by file name and size. Opt-in: CORVUS_INSTALLERS names a
-/// folder with nsis, inno, msi and burn subfolders; each reference tool's variable names its program, and a format whose
-/// tool is not set is skipped.
-/// </summary>
+/// <summary>Real installers listed against reference tools by name and size (CORVUS_INSTALLERS).</summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
 public sealed class InstallerComparisonTests(ITestOutputHelper output)
@@ -62,7 +58,7 @@ public sealed class InstallerComparisonTests(ITestOutputHelper output)
     /// <summary>The reader's kind and every file it names, extracted or only listed; embedded cabinets are read one level down.</summary>
     private static (string? Kind, List<(string Name, long Size)> Files) Ours(string installer)
     {
-        // the whole file picks the reader: an MSI's tables can lie past the first megabyte
+        // The whole file picks the reader: an MSI's tables can lie past the first megabyte.
         var name = Path.GetFileName(installer);
         if (Containers.ReaderFor(File.ReadAllBytes(installer), name) is not { } reader) return (null, []);
         using var stream = File.OpenRead(installer);
@@ -112,7 +108,7 @@ public sealed class InstallerComparisonTests(ITestOutputHelper output)
         return true;
     }
 
-    // the Inno Setup unpacker writes ':' (from {code:...} names) as '_'
+    // The Inno Setup unpacker writes ':' (from {code:...} names) as '_'.
     private static string BaseName(string path) => path.Replace('\\', '/').Split('/')[^1].Replace(':', '_').ToLowerInvariant();
 
     /// <summary>7-Zip's technical listing: Path and Size (blank for some) of each entry that is not a folder.</summary>

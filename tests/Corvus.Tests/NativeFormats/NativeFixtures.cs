@@ -34,10 +34,7 @@ public static class NativeFixtures
     public static string OsxFatSkia => RealPackages.File("SkiaSharp.NativeAssets.macOS", "2.88.9", "runtimes/osx/native/libSkiaSharp.dylib");
 }
 
-/// <summary>
-/// Optional LLVM tools as oracles: CORVUS_LLVM_BIN names a folder with llvm-readobj, llvm-objdump and llvm-cxxfilt.
-/// Their option strings live only in <see cref="Options"/>.
-/// </summary>
+/// <summary>Optional LLVM reference tools: CORVUS_LLVM_BIN names their folder; their option strings live only in <see cref="Options"/>.</summary>
 public static class LlvmOracle
 {
     public const string Variable = "CORVUS_LLVM_BIN";

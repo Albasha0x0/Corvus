@@ -4,12 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// Sends progress notifications sequentially and awaits them before the tool result. The SDK's IProgress is
-/// fire-and-forget, so notifications can arrive after the response and be dropped by the client.
-/// Progress never goes backwards, and intermediate updates are sent at most every <see cref="MinInterval"/>;
-/// the final update (progress == total) and the latest skipped update are always sent.
-/// </summary>
+/// <summary>Sends progress in order, at most every <see cref="MinInterval"/>, and awaits it before the result; never backwards, and the final and latest skipped updates are always sent.</summary>
 internal sealed class OrderedProgress(RequestContext<CallToolRequestParams> context) : IProgress<ProgressNotificationValue>
 {
     public static readonly TimeSpan MinInterval = TimeSpan.FromMilliseconds(100);
@@ -47,6 +42,7 @@ internal sealed class OrderedProgress(RequestContext<CallToolRequestParams> cont
         return send;
     }
 
+    // The SDK's IProgress is fire-and-forget: a notification can arrive after the response, and the client drops it.
     private void Send(ProgressToken token, ProgressNotificationValue value) =>
         _last = _last.ContinueWith(_ => context.Server.NotifyProgressAsync(token, value), TaskScheduler.Default).Unwrap();
 
@@ -68,7 +64,7 @@ internal sealed class OrderedProgress(RequestContext<CallToolRequestParams> cont
                 last = progress._last;
             }
             try { await last; }
-            catch { /* notification failures do not fail the tool */ }
+            catch { /* A failed notification does not fail the tool. */ }
         }
     }
 }

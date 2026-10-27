@@ -7,12 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Snapshot writes: one the running program disturbs (it changed a list or a region during the read) is written again; a
-/// program still starting is written once its loader has run; a Linux core written at a stop gives the stopped thread the
-/// stop's registers and signal; a program waiting in vfork for a child that has not run its program is refused instead of
-/// holding gcore, and is left running.
-/// </summary>
+/// <summary>Snapshot writes of starting, changing, stopped and vfork-waiting programs.</summary>
 public sealed class ProcessSnapshotTests(ITestOutputHelper output)
 {
     [Fact]
@@ -41,7 +36,7 @@ public sealed class ProcessSnapshotTests(ITestOutputHelper output)
         var path = dir.File("stop.core");
         File.WriteAllBytes(path, SyntheticCore.Core(arm64: false));
         var p = SyntheticCore.Points(arm64: false);
-        // thread 1002 waits elsewhere; the stop saw it at the crash point with thread 1001's stack
+        // Thread 1002 waits elsewhere; the stop saw it at the crash point with thread 1001's stack.
         var registers = new Dictionary<string, ulong> { ["rip"] = SyntheticCore.Base + p.Crash, ["rsp"] = SyntheticCore.X, ["rbp"] = SyntheticCore.X + 48, ["r12"] = 0xC12 };
         ProcessSnapshot.MarkStop(path, new ProcessSnapshot.Stop(1002, "x64", registers));
 

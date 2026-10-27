@@ -4,10 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.JImage;
 
-/// <summary>
-/// A Java runtime image (jimage, the lib/modules file of a JDK or a jlink image), format 1.0 and 1.1: the header, the
-/// resources of each module, and their content with the zip and compact-cp (string sharing) compression undone.
-/// </summary>
+/// <summary>A Java runtime image (jimage, lib/modules), format 1.0 and 1.1, with zip and compact-cp decompression.</summary>
 internal sealed class JImageFile
 {
     public const string Kind = "Java runtime image (jimage)";
@@ -113,10 +110,7 @@ internal sealed class JImageFile
         if (misplaced > 0) Notes.Add($"{misplaced:N0} resources are not found by the hash of their name: the runtime does not load them.");
     }
 
-    /// <summary>
-    /// The bytes of <paramref name="r"/>, decompressed; throws <see cref="InvalidDataException"/> when they lie outside the
-    /// file, are larger than <paramref name="maxBytes"/>, or use a decompressor other than zip and compact-cp.
-    /// </summary>
+    /// <summary>The decompressed bytes of <paramref name="r"/>; throws <see cref="InvalidDataException"/> when out of range, too large or unsupported.</summary>
     public byte[] Content(Resource r, long maxBytes)
     {
         long stored = r.CompressedSize == 0 ? r.Size : r.CompressedSize;
@@ -338,10 +332,7 @@ internal sealed class JImageFile
     private uint U32(int at) => Read32(_data.AsSpan(at));
     private uint Read32(ReadOnlySpan<byte> b) => BigEndian ? BinaryPrimitives.ReadUInt32BigEndian(b) : BinaryPrimitives.ReadUInt32LittleEndian(b);
 
-    /// <summary>
-    /// The container view of a runtime image: every resource listed as module/path (the layout jimage extract writes),
-    /// and the ones <paramref name="allFiles"/> or <see cref="Containers.IsInteresting"/> selects extracted, decompressed.
-    /// </summary>
+    /// <summary>A runtime image as a container: every resource as module/path, the selected ones extracted.</summary>
     public static ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
         Open(() => Read(data, ct), name, allFiles, limits, ct);
 

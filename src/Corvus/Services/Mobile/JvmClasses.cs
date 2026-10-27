@@ -4,10 +4,7 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// Class files of a jar (without classes*.dex) or a single .class, read in-process: listings in javap's layout and the
-/// class bytes the second Java decompiler is given.
-/// </summary>
+/// <summary>Reads class files of a jar without classes*.dex, or one .class: javap-style listings and class bytes for the decompiler.</summary>
 public static class JvmClasses
 {
     private const long MaxClassBytes = 64L << 20;
@@ -104,10 +101,7 @@ public static class JvmClasses
         }
     }
 
-    /// <summary>
-    /// One method by name, descriptor (m(I)V or m(I)) or Java parameter types (m(int, String), simple or full names);
-    /// a name with several overloads is ambiguous.
-    /// </summary>
+    /// <summary>One method by name, descriptor or Java parameter types; throws ambiguous for a bare name with several overloads.</summary>
     internal static JvmMember FindMethod(JvmClass cls, string member)
     {
         int open = member.IndexOf('(');
@@ -164,7 +158,8 @@ public static class JvmClasses
                 if (Blob.ReadBounded(s, MaxClassBytes) is { } b) list.Add((e.FullName, b));
             }
         }
-        catch (InvalidDataException) { } // a single .class file
+        // A single .class file is not a zip.
+        catch (InvalidDataException) { }
         return list;
     }
 }

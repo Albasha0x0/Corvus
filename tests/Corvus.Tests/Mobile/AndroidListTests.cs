@@ -16,7 +16,7 @@ public sealed class AndroidListTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task Pages_AreRowsWithTheListEnvelope()
+    public async Task Pages_are_rows_with_the_list_envelope()
     {
         var apk = Save(_dir, "app.apk", Apk(30, ("classes.dex", Dex())));
         await using var server = await InProcessServer.StartAsync();
@@ -36,14 +36,14 @@ public sealed class AndroidListTests : IDisposable
         var hits = await server.Client.CallToolAsync("search_dex", new Dictionary<string, object?> { ["path"] = apk, ["kind"] = "string", ["query"] = "api.example" });
         Assert.Contains("string https://api.example.com/v1  in", Text(hits));
 
-        // a class's members page; the header stays
+        // A class's members page; the header stays.
         var methods = await server.Client.CallToolAsync("get_dex_class", new Dictionary<string, object?> { ["path"] = apk, ["class"] = Main, ["members"] = "methods", ["limit"] = 3 });
         Assert.Contains("2 fields, 8 methods\n8 members (showing 1-3):", Text(methods));
         Assert.Equal(3, methods.StructuredContent!.Value.GetProperty("nextOffset").GetInt32());
         var compute = await server.Client.CallToolAsync("get_dex_class", new Dictionary<string, object?> { ["path"] = apk, ["class"] = Main, ["query"] = "compute" });
         Assert.Equal([ComputeInt, ComputeString], compute.StructuredContent!.Value.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()));
 
-        // the manifest summary names the exported components; view=components pages them all
+        // The manifest summary names the exported components; view=components pages them all.
         var summary = await server.Client.CallToolAsync("get_android_manifest", new Dictionary<string, object?> { ["path"] = apk });
         Assert.Contains("exported (", Text(summary));
         Assert.True(summary.StructuredContent!.Value.GetProperty("exportedTotal").GetInt32() > 0);
@@ -51,14 +51,14 @@ public sealed class AndroidListTests : IDisposable
         Assert.Contains("components (showing 1-1):", Text(components));
         Assert.Equal(1, components.StructuredContent!.Value.GetProperty("nextOffset").GetInt32());
 
-        // a resource written to outputPath names it, its size and hash
+        // A resource written to outputPath names it, its size and hash.
         var written = await server.Client.CallToolAsync("get_android_resource", new Dictionary<string, object?> { ["path"] = apk, ["name"] = "@layout/main", ["outputPath"] = _dir.File("main.xml") });
         var file = written.StructuredContent!.Value;
         Assert.Equal(("res/layout/main.xml", _dir.File("main.xml"), 64), (file.GetProperty("entry").GetString(), file.GetProperty("outputPath").GetString(), file.GetProperty("sha256").GetString()!.Length));
     }
 
     [Fact]
-    public void ResourceValues_AreCutInTheList()
+    public void Resource_values_are_cut_in_the_list()
     {
         var res = new ArscWriter(0x7f, "com.example.app");
         res.String("string", "short", "Example");

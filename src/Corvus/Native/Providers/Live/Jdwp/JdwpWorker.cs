@@ -7,12 +7,8 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Jdwp;
 
-/// <summary>
-/// The <c>corvus jdwp-worker</c> process: the session worker protocol answered over one JDWP connection to a JVM. Ops:
-/// hello, open, scripts (the program's classes by source path), set (url or urlRegex and line), clear, resume, threads
-/// (every thread with its stack), close. Events: stop (a thread held at a stop point, with its frames) and exit. Lines
-/// are 0-based; a frame without line information has line -1.
-/// </summary>
+// Ops: hello, open, scripts, set, clear, resume, threads, close. Events: stop, exit. Lines are 0-based; -1 without line info.
+/// <summary>The <c>corvus jdwp-worker</c> process: the session worker protocol over one JDWP connection.</summary>
 internal static class JdwpWorker
 {
     public const string Command = "jdwp-worker";

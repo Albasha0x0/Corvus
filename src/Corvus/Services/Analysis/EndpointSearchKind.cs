@@ -5,13 +5,8 @@ using Corvus.Services.Analysis.Endpoints;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=endpoint. On a HAR, mitmproxy, Fiddler .saz or pcap / pcapng capture: each request template once
-/// (method, host, path with numeric and id segments as {n} / {id}, query names), with its request count and statuses; values
-/// are never shown. On code (an APK, DEX, .NET assembly, iOS app or any container of them): the endpoints the code names
-/// (<see cref="ApiSurface"/>), each with its client, method and location. With a capture beside code, both are joined:
-/// every row says whether it was seen in code, in the capture, or both.
-/// </summary>
+/// <summary>search_container kind=endpoint: request templates of a capture (values never shown), endpoints named in code, or both joined.</summary>
+// Captures: HAR, mitmproxy, Fiddler .saz, pcap, pcapng; numeric and id path segments fold to {n} and {id}.
 internal sealed partial class EndpointSearchKind : IContainerSearchKind
 {
     public IReadOnlyList<string> Kinds => ["endpoint"];
@@ -44,10 +39,7 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
                 yield return row;
     }
 
-    /// <summary>
-    /// Code rows marked code+capture where a captured request is an instance of their template (its detail names the
-    /// requests), then the captured templates no code row explains, marked capture.
-    /// </summary>
+    /// <summary>Code rows, marked code+capture where a captured request matches their template, then unexplained captured templates.</summary>
     private static List<ContainerMatch> Join(List<ContainerMatch> code, List<ContainerMatch> captured)
     {
         var http = captured.Where(c => !c.Name.StartsWith("tls://", StringComparison.Ordinal) && !c.Name.StartsWith("dns://", StringComparison.Ordinal)
@@ -69,10 +61,7 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
         return joined;
     }
 
-    /// <summary>
-    /// A capture file searched on its own, streamed at any size: its request templates ranked and paged; null when the file is
-    /// not a capture (code goes through the container's files). With a second capture, the two are compared (<see cref="Diff"/>).
-    /// </summary>
+    /// <summary>A capture's request templates, streamed, ranked and paged, or compared with a second capture; null when not a capture.</summary>
     public UnpackService.ContainerSearch? SearchFile(string path, string query, int offset, int limit, ContainerSearchArgs args, CancellationToken ct)
     {
         string full;
@@ -90,7 +79,7 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
             {
                 $"{full} ({read.Value.Requests:N0} request(s)) compared with {args.Capture} ({other.Requests:N0}): " +
                 string.Join(", ", new[] { "added", "removed", "changed", "same" }.Select(state => $"{diff.Count(r => r.Seen == state)} {state}")) +
-                "; changed compares statuses, request header names, response types, response and message shapes and GraphQL operations.",
+                "; changed compares statuses, header names, response types, message shapes and GraphQL operations.",
             };
             notes.AddRange(read.Value.Notes);
             notes.AddRange(other.Notes);
@@ -119,12 +108,8 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
     /// <summary>Distinct shapes kept per template; past this a template's shapes are not compared further.</summary>
     private const int MaxShapes = 16;
 
-    /// <summary>
-    /// The request templates of a capture file read as a stream (pcap / pcapng, HAR and mitmproxy flows one entry at a time, a
-    /// .saz by its session heads), with the capture's kind, the requests read and the reader's notes; null when the file is not
-    /// a capture. With <paramref name="shapes"/> each template also gathers request header names, response types, response and
-    /// message shapes and GraphQL operations.
-    /// </summary>
+    /// <summary>A streamed capture's request templates, kind, request count and notes; null when not a capture.</summary>
+    // With shapes, each template also gathers header names, response types, message shapes and GraphQL operations.
     private static (Dictionary<(string Host, string Text), TemplateFacts> Facts, string Kind, int Requests, List<string> Notes)? Capture(string path, bool shapes,
         CancellationToken ct)
     {
@@ -172,7 +157,7 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
             kind = k;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
-        // host, then template, ordinal (a pcap keeps its reader's order: requests, server names, DNS names)
+        // Ordinal by host, then template; a pcap keeps its reader's order.
         var ordered = templates.OrderBy(t => t.Key.Host, StringComparer.Ordinal).ThenBy(t => t.Key.Text, StringComparer.Ordinal).ToDictionary();
         return (ordered, kind, requests, notes);
     }
@@ -183,11 +168,7 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
     private static string Describe(TemplateFacts f) =>
         f.Detail ?? $"{f.Count} request(s)" + (f.Statuses.Count > 0 ? $", status {string.Join(", ", f.Statuses)}" : "");
 
-    /// <summary>
-    /// Two captures' templates compared: those only in the second (added), only in the first (removed), in both with a
-    /// difference in statuses, request header names, response types, shapes or GraphQL operations (changed, each difference
-    /// named), and the rest (same), in that order.
-    /// </summary>
+    /// <summary>Two captures' templates as added, removed, changed (each difference named) and same rows, in that order.</summary>
     internal static List<ContainerMatch> Diff(Dictionary<(string Host, string Text), TemplateFacts> before, Dictionary<(string Host, string Text), TemplateFacts> after)
     {
         var added = new List<ContainerMatch>();
@@ -251,7 +232,7 @@ internal sealed partial class EndpointSearchKind : IContainerSearchKind
     [GeneratedRegex("^[0-9]+$")]
     private static partial Regex Numeric();
 
-    // GUIDs and long hex or base64url tokens
+    // GUIDs and long hex or base64url tokens.
     [GeneratedRegex("^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|[A-Za-z0-9_-]{24,})$")]
     private static partial Regex Id();
 }

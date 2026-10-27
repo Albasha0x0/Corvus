@@ -1,11 +1,11 @@
 name: Bug report
-description: A tool gives a wrong result, an error it should not, or the server does not start or connect.
+description: A wrong result or error, or the server does not start or connect.
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Security problems go to the Security tab, not here (see SECURITY.md).
+        Report security problems privately in the Security tab (SECURITY.md).
   - type: input
     id: version
     attributes:
@@ -22,7 +22,7 @@ body:
         - .NET decompile, search or navigation
         - .NET editing or saving
         - Containers or file inspection
-        - Il2Cpp or Unity
+        - Natively compiled .NET code
         - Native analysis
         - Native editing or saving
         - Engine (IDA)
@@ -51,7 +51,7 @@ body:
     id: actual
     attributes:
       label: What happened
-      description: The result or error text (the `error (json):` line helps).
+      description: The result or error text, including the `error (json):` line.
     validations:
       required: true
   - type: textarea
@@ -64,12 +64,12 @@ body:
     id: status
     attributes:
       label: Server status
-      description: For install, start or engine problems, the output of `corvus status`, or the server_status result.
+      description: For install, start or engine problems: `corvus status` or the server_status result.
       render: text
   - type: checkboxes
     id: redaction
     attributes:
       label: Redaction
       options:
-        - label: I removed proprietary code, paths, user names and memory contents I may not share from everything above.
+        - label: I removed proprietary code, paths, user names and memory contents I may not share.
           required: true

@@ -13,7 +13,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     private static ElfFile Parse(ElfWriter w) => ElfFile.FromBytes(w.Build(), "sample.so");
 
     [Fact]
-    public void FixedAddressExecutable_FunctionPointersInMovImmediatesAreFunctions()
+    public void Function_pointers_in_mov_immediates_of_a_fixed_address_executable_are_functions()
     {
         // entry: mov rdi, offset f1 ; mov esi, offset f2 ; ret   (f1 and f2 are reached only through those immediates)
         const ulong Base = 0x400000;
@@ -132,7 +132,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void WithoutSectionHeaders_SegmentsAndDynamicTablesStillServe()
+    public void Without_section_headers_segments_and_dynamic_tables_still_serve()
     {
         var w = SampleElf();
         w.SectionHeaders = false;
@@ -152,7 +152,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     [InlineData("Sysv")]
     [InlineData("Gnu")]
     [InlineData("None")]
-    public void SymbolCount_FromEitherHashTable(string kind)
+    public void The_symbol_count_comes_from_either_hash_table(string kind)
     {
         var hash = Enum.Parse<ElfWriter.HashKind>(kind);
         var w = SampleElf();
@@ -167,7 +167,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void SymbolCount_EmptyGnuHashFallsBackToTheSymbolTable(bool sectionHeaders)
+    public void An_empty_GNU_hash_falls_back_to_the_symbol_table_count(bool sectionHeaders)
     {
         var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Hash = ElfWriter.HashKind.GnuEmpty, SectionHeaders = sectionHeaders, PltImports = ["abort", "malloc", "free"] };
         var elf = Parse(w);
@@ -176,7 +176,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Arm32_RelTablesExidxAndThumb()
+    public void ARM32_REL_tables_exidx_and_Thumb_symbols_are_read()
     {
         var w = SampleElf(is64: false, machine: ElfWriter.EmArm);
         w.Symbols.Add(new("thumb_fn", ElfWriter.TextRva + 1, 2));
@@ -202,7 +202,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void PackedRelocations_RelrAndAps2Expand()
+    public void Packed_RELR_and_APS2_relocations_expand()
     {
         var w = SampleElf();
         w.Relr = [ElfWriter.DataRva + 0x10, ElfWriter.DataRva + 0x18, ElfWriter.DataRva + 0x30, ElfWriter.DataRva + 0x80, ElfWriter.DataRva + 0x400 + 8];
@@ -222,7 +222,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Versions_NameTheImportLibrary()
+    public void Symbol_versions_name_the_import_library()
     {
         var w = SampleElf();
         w.Versions = new() { ["malloc"] = ("libc.so.6", "GLIBC_2.17"), ["free"] = ("libc.so.6", "GLIBC_2.17") };
@@ -234,7 +234,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
 
     /// <summary>A version-definition symbol (V1.0 = 0, SHN_ABS) names no address in the image: no export, no nearest name at the image start.</summary>
     [Fact]
-    public void AbsoluteSymbolsAreNeitherExportsNorImageSymbols()
+    public void Absolute_symbols_are_neither_exports_nor_image_symbols()
     {
         var w = SampleElf();
         w.Symbols.Add(new ElfWriter.Symbol("V1.0", 0, 0, Type: 1, Version: "V1.0", Section: 0xFFF1));
@@ -245,7 +245,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Versions_OfExportsTellTwoDefinitionsOfOneNameApart()
+    public async Task Export_versions_tell_two_definitions_of_one_name_apart()
     {
         var w = SampleElf();
         uint at = ElfWriter.TextRva;
@@ -272,7 +272,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void BigEndian_HeadersAndSymbols()
+    public void Big_endian_headers_and_symbols_are_read()
     {
         var w = SampleElf(machine: ElfNames.EmPpc64);
         w.BigEndian = true;
@@ -288,7 +288,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void MappedDump_IsReadAtAddresses()
+    public void A_mapped_dump_is_read_at_addresses()
     {
         var w = SampleElf();
         var file = Parse(w);
@@ -313,7 +313,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     [Theory]
     [InlineData("linux-arm64")]
     [InlineData("linux-arm")]
-    public void RealSharedObjects_AgreeWithLibObjectFile(string rid)
+    public void Real_shared_objects_agree_with_LibObjectFile(string rid)
     {
         var path = rid == "linux-arm64" ? NativeFixtures.LinuxArm64DbgShim : NativeFixtures.LinuxArmDbgShim;
         var elf = ElfFile.Open(path);
@@ -376,7 +376,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
 
     /// <summary>LLVM's relocation dump and FDE list match ours (needs CORVUS_LLVM_BIN).</summary>
     [Fact]
-    public void RealSharedObject_AgreesWithLlvm()
+    public void Real_shared_object_agrees_with_LLVM()
     {
         var path = NativeFixtures.LinuxArm64DbgShim;
         if (LlvmOracle.Run("llvm-readobj", LlvmOracle.Options.Relocations, path) is not { } relocs) { output.WriteLine($"{LlvmOracle.Variable} is not set"); return; }
@@ -405,14 +405,11 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         __attribute__((constructor)) static void init(void) { puts("init"); }
         """;
 
-    /// <summary>
-    /// Shared objects built by clang and lld for several architectures and relocation packings agree with LLVM's own
-    /// readers: relocations (APS2 and RELR expanded), dynamic symbols, PLT stubs and unwind starts (needs CORVUS_LLVM_BIN with clang).
-    /// </summary>
+    /// <summary>Shared objects built by clang and lld agree with LLVM's readers on relocations, dynamic symbols, PLT stubs and unwind starts (needs CORVUS_LLVM_BIN).</summary>
     [Fact]
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
-    public void ClangBuilds_AgreeWithLlvm()
+    public void Clang_builds_agree_with_LLVM()
     {
         if (LlvmOracle.Bin == null) { output.WriteLine($"{LlvmOracle.Variable} is not set"); return; }
         using var dir = new TempDir();

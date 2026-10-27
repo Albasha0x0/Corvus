@@ -3,12 +3,12 @@
 add_members_csharp # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 add_types_csharp # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 apply_edits # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
-apply_il2cpp_names # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+apply_metadata_names # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 compare_assemblies # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 compare_native_images # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 decompile_java # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 export_engine_database # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
-export_il2cpp_symbols # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
+export_method_symbols # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 export_project # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 ghidra_script # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it
 ida_python # permanent: long-running (LatencyClass.Long); the full-set contract sweep (ContractSweepCoreTests) covers it

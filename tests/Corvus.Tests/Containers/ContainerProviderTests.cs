@@ -61,20 +61,20 @@ public sealed class ContainerProviderTests : IDisposable
     }
 
     [Fact]
-    public void ScanFindsConcreteProvidersWithADefaultConstructorInNameOrder()
+    public void Scan_finds_concrete_providers_with_a_default_constructor_in_name_order()
     {
         var readers = Providers.Scan<IContainerReader>(typeof(ContainerProviderTests).Assembly);
         Assert.Contains(readers, r => r is FakePackReader);
         Assert.DoesNotContain(readers, r => r is AbstractReader or NoDefaultConstructorReader);
         Assert.Equal(readers.Select(r => r.GetType().FullName).Order(StringComparer.Ordinal), readers.Select(r => r.GetType().FullName));
-        // the server's own scan sees only its assembly; tests add theirs for one async flow
+        // The server's own scan sees only its assembly; tests add theirs for one async flow.
         Assert.DoesNotContain(Providers.Of<IContainerReader>(), r => r is FakePackReader);
         using (Providers.With(new FakePackReader())) Assert.Contains(Providers.Of<IContainerReader>(), r => r is FakePackReader);
         Assert.DoesNotContain(Providers.Of<IContainerReader>(), r => r is FakePackReader);
     }
 
     [Fact]
-    public void AReaderOpensDataNoBuiltInReaderTakes()
+    public void A_reader_opens_data_no_built_in_reader_takes()
     {
         var file = _dir.File("app.fake");
         File.WriteAllBytes(file, FakePackReader.Pack("Fixture.dll", File.ReadAllBytes(Env.FixturePath)));
@@ -86,7 +86,7 @@ public sealed class ContainerProviderTests : IDisposable
         var dll = Assert.Single(report.Files);
         Assert.Equal(".NET assembly", dll.Kind);
         Assert.EndsWith("Fixture.dll", dll.Path);
-        // nested: an item in the reader's format (plain data to the built-in kinds) is opened too
+        // Nested: an item in the reader's format (plain data to the built-in kinds) is opened too.
         var outer = _dir.File("outer.fake");
         File.WriteAllBytes(outer, FakePackReader.Pack("inner.fake", File.ReadAllBytes(file)));
         var listing = new UnpackService(_workspace).List(outer, AnalysisLimits.Default, default);
@@ -103,14 +103,15 @@ public sealed class ContainerProviderTests : IDisposable
     }
 
     [Fact]
-    public void SearchKindsFromProvidersAndTheBuiltInFileKind()
+    public void Search_kinds_from_providers_and_the_built_in_file_kind()
     {
         var zip = _dir.File("app.zip");
         File.WriteAllBytes(zip, ContainerFixtures.Zip(("lib/net8.0/Fixture.dll", File.ReadAllBytes(Env.FixturePath)), ("assets/readme.txt", "hello"u8.ToArray()),
             ("assets/fixture-notes.txt", "notes"u8.ToArray())));
         var unpacker = new UnpackService(_workspace);
         var files = unpacker.Search(zip, "fixture", "file", 10, AnalysisLimits.Default, default);
-        Assert.Equal(["lib/net8.0/Fixture.dll", "assets/fixture-notes.txt"], files.Items.Select(m => m.Path)); // prefix before substring
+        // Prefix before substring.
+        Assert.Equal(["lib/net8.0/Fixture.dll", "assets/fixture-notes.txt"], files.Items.Select(m => m.Path));
         Assert.All(files.Items, m => Assert.Equal("file", m.Kind));
         Assert.StartsWith(".NET assembly, ", files.Items[0].Detail);
         Assert.Single(unpacker.Search(zip, "fixture", "file", 1, AnalysisLimits.Default, default, offset: 1).Items);
@@ -132,7 +133,7 @@ public sealed class ContainerProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task SummaryViewsFromProvidersAndTheOverview()
+    public async Task Summary_views_from_providers_and_the_overview()
     {
         var file = _dir.File("app.fake");
         File.WriteAllBytes(file, FakePackReader.Pack("Fixture.dll", File.ReadAllBytes(Env.FixturePath)));
@@ -166,7 +167,7 @@ public sealed class ContainerProviderTests : IDisposable
     }
 
     [Fact]
-    public void SurveyRuleProvidersAddRulesAndFeatureKinds()
+    public void Survey_rule_providers_add_rules_and_feature_kinds()
     {
         using var module = ModuleDefMD.Load(Env.FixturePath);
         var scan = ModuleScan.Of(module, AnalysisLimits.Default, default);

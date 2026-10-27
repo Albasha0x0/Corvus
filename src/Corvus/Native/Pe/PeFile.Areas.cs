@@ -10,10 +10,7 @@ public sealed partial class PeFile
         IReadOnlyList<ParseIssue> Issues { get; }
     }
 
-    /// <summary>
-    /// A directory parsed on first use. The parser records problems in its log; an exception escaping it is a parser
-    /// bug, recorded as an issue with the fallback value returned, so callers never see it.
-    /// </summary>
+    /// <summary>A directory parsed on first use; an escaping exception is recorded as an issue and the fallback returned.</summary>
     private sealed class Area<T>(string name, Func<IssueLog, T> parse, T fallback) : IArea
     {
         private readonly Lock gate = new();

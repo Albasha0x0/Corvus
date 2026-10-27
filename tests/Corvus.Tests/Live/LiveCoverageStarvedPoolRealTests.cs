@@ -43,8 +43,7 @@ public sealed class LiveCoverageStarvedPoolRealTests(ITestOutputHelper output) :
         return text;
     }
 
-    // Regression for the full run's LiveCoverageRealTests failure on fa39d88b:
-    // each first call held its thread for a resume from the busy pool.
+    // Regression (fa39d88b): each first call held its thread for a resume from the busy pool.
     [FridaFact]
     public async Task A_program_runs_to_its_exit_under_coverage_while_the_thread_pool_is_starved()
     {

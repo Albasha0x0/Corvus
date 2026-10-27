@@ -3,10 +3,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>
-/// Real Apple binaries from NuGet: the Xamarin.Mac runtime (ObjC classes, a category on NSObject, local symbols naming
-/// every method: the oracle) and a Swift framework of a Stripe binding package (Swift classes exposed to ObjC, stripped).
-/// </summary>
+/// <summary>Apple binaries from NuGet: the Xamarin.Mac runtime, whose local symbols name every method, and a stripped Swift framework.</summary>
 public sealed class AppleObjcRealTests(ITestOutputHelper output)
 {
     internal static string XamarinDylib => RealPackages.File("Microsoft.macOS.Runtime.osx-arm64", "14.2.8078", "runtimes", "osx-arm64", "native", "libxamarin-dotnet.dylib");
@@ -31,7 +28,7 @@ public sealed class AppleObjcRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void XamarinRuntime_MethodsMatchTheSymbolTable()
+    public void Xamarin_runtime_methods_match_the_symbol_table()
     {
         var image = MachOFile.Open(XamarinDylib);
         var objc = AppleObjcMetadata.Read(image);
@@ -52,19 +49,16 @@ public sealed class AppleObjcRealTests(ITestOutputHelper output)
         Assert.Equal((":", 16u, 8u), (ivar.Type, ivar.Offset!.Value, ivar.Size));
         Assert.Contains(objc.References, r => r is { Kind: "class", Name: "NSThread", External: true });
 
-        // the name layer gives every implementation the name clang gave its local symbol
+        // The name layer gives every implementation the name clang gave its local symbol.
         var names = AppleObjcNames.Build(image, objc);
         Assert.All(image.Symbols.Where(x => x.Name.StartsWith("-[", StringComparison.Ordinal) || x.Name.StartsWith("+[", StringComparison.Ordinal)),
             x => Assert.Equal(x.Name, names.Names[x.Rva]));
         Assert.Equal("_OBJC_CLASS_$_XamarinGCHandle", names.Names[(uint)(objc.Classes.Single(c => c.Name == "XamarinGCHandle").Va - image.ImageBase)]);
     }
 
-    /// <summary>
-    /// IDA 9.3 names 245 functions -[...] / +[...] in this binary: the 244 implementations the metadata lists, plus a
-    /// "-[STP_Internal_OneTimeCodeTextField markedTextStyle]_0" that IDA gives a second function at 0x17C90.
-    /// </summary>
+    /// <summary>IDA 9.3 names 245 -[...] / +[...] functions here: the 244 the metadata lists plus a duplicate it creates at 0x17C90.</summary>
     [Fact]
-    public void StripeSwiftFramework_ClassesAndImplementations()
+    public void A_Swift_framework_reads_classes_and_implementations()
     {
         var objc = AppleObjcMetadata.Read(MachOFile.Open(StripeUICore));
         Assert.Empty(objc.Issues);

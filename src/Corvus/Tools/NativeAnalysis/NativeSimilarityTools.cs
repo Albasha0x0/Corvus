@@ -48,14 +48,13 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true, OutputSchemaType = typeof(SimilarityReport))]
-    [Description("Functions like a given one, ranked by score with evidence: instruction-shape similarity (registers, addresses, constants ignored), " +
-                 "containment, CFG shape, shared strings, constants, imports, callees. scope=all: every loaded image of the architecture. " +
-                 "view=duplicates: same-shape groups; clusters: near-duplicates image-wide.")]
+    [Description("Find functions like a given one, ranked by code shape, control flow and shared strings, constants, imports and callees. " +
+                 "view=duplicates or clusters groups look-alike functions image-wide.")]
     public Task<string> FindSimilarFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("view=similar: an address in the function.")] string? address = null,
-        [Description("similar (default with address), duplicates or clusters (default without).")] string? view = null,
-        [Description("image (default) or all (view=similar).")] string? scope = null,
+        [Description("Default: similar with address, else clusters.")] string? view = null,
+        [Description("all: every loaded image of the same architecture (view=similar; default image).")] string? scope = null,
         [Description("Least score 0-1 (default 0.5; clusters 0.8).")] double? minScore = null,
         [Description("Smallest function compared, in instructions (1-1000).")] int minInstructions = 5,
         [Description(RowOffsetDescription)] int offset = 0,

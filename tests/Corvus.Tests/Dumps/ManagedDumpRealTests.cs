@@ -10,11 +10,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real .NET crash dumps: a console program compiled here throws an exception wrapped in another, unhandled, and the
-/// runtime's own dump writer (createdump, switched on by its documented environment variables) writes the dump. The
-/// DAC is the one of the runtime running the tests, found locally.
-/// </summary>
+/// <summary>Real .NET crash dumps written by createdump for an unhandled nested exception.</summary>
 [Trait("Speed", "Slow")]
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class ManagedDumpRealTests(ITestOutputHelper output)
@@ -79,7 +75,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task UnhandledExceptionIsDecodedWithItsInnerChain()
+    public async Task Unhandled_exception_is_decoded_with_its_inner_chain()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
@@ -95,7 +91,8 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("loaded", m.Dac.Status);
         Assert.True(m.Heap!.Walkable, m.Heap.Reason);
         Assert.Equal("throw new InvalidOperationException(\"sample-probe\");",
-            m.Exception!.Inner.Single().Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement); // the IL offset as a C# statement
+            // The IL offset as a C# statement.
+            m.Exception!.Inner.Single().Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement);
         var e = m.Exception!;
         Assert.Equal("System.ApplicationException", e.Type);
         Assert.Equal("sample-outer", e.Message);
@@ -116,7 +113,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal($"0x{MethodToken(dll, "Main"):X8}", main.Token);
         Assert.Equal(probe.Id, main.Assembly);
         Assert.NotNull(main.IlOffset);
-        // native frames stay: the runtime's exception dispatch below the managed frames
+        // Native frames stay: the runtime's exception dispatch below the managed frames.
         Assert.Contains(stack.Items, f => f.SymbolSource != "clr" && f.Module != null);
         AssertSortedBySp(stack);
 
@@ -138,15 +135,17 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("\"sample-outer\"", outer.Fields.Single(f => f.Path == "_message").Value);
         Assert.Equal(inner.Address, outer.Fields.Single(f => f.Path == "_innerException").Address);
         Assert.Equal("\"sample-probe\"", outer.Fields.Single(f => f.Path == "_innerException._message").Value);
-        Assert.Equal("-2146232832", outer.Fields.Single(f => f.Path == "_HResult").Value); // COR_E_APPLICATION
+        // COR_E_APPLICATION.
+        Assert.Equal("-2146232832", outer.Fields.Single(f => f.Path == "_HResult").Value);
         var message = await service.Object(dump, outer.Fields.Single(f => f.Path == "_message").Address!, 1, 100, 32, default);
         Assert.Equal("sample-outer", message.Value);
         await Assert.ThrowsAsync<ToolError>(() => service.Object(dump, "0x10", 1, 100, 32, default));
-        Assert.DoesNotContain(stack.Items.GroupBy(f => f.StackPointer), g => g.Count() > 1 && g.Any(f => f.SymbolSource == "clr")); // one frame per stack pointer
+        // One frame per stack pointer.
+        Assert.DoesNotContain(stack.Items.GroupBy(f => f.StackPointer), g => g.Count() > 1 && g.Any(f => f.SymbolSource == "clr"));
     }
 
     [Fact]
-    public async Task StacksOnlyDumpDecodesFramesButNotTheHeap()
+    public async Task Stacks_only_dump_decodes_frames_but_not_the_heap()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
@@ -165,7 +164,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task DotNetCrashesBucketByExceptionTypeAndManagedFrames()
+    public async Task Dotnet_crashes_bucket_by_exception_type_and_managed_frames()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
@@ -189,7 +188,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
     /// loaded, and kept in the download cache, where the next call finds it without a request.
     /// </summary>
     [OptInFact("CORVUS_NETWORK_TESTS")]
-    public async Task DacIsDownloadedFromTheSymbolServerAndCached()
+    public async Task DAC_is_downloaded_from_the_symbol_server_and_cached()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
@@ -210,8 +209,9 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var written = File.GetLastWriteTimeUtc(m.Dac.Path!);
         using var second = new MinidumpService();
         var again = (await second.Summarize(dump, null, request, default)).Managed!;
-        Assert.Equal((m.Dac.Path, written), (again.Dac.Path, File.GetLastWriteTimeUtc(again.Dac.Path!))); // from the cache
-        // the cache is a local store: found without a download
+        // From the cache.
+        Assert.Equal((m.Dac.Path, written), (again.Dac.Path, File.GetLastWriteTimeUtc(again.Dac.Path!)));
+        // The cache is a local store: found without a download.
         using var third = new MinidumpService();
         var local = (await third.Summarize(dump, null, new Native.Dump.Managed.DacRequest(), default)).Managed!;
         Assert.Equal("loaded", local.Dac.Status);
@@ -219,7 +219,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
 
     /// <summary>A 32-bit .NET process (the x86 runtime, when installed) is decoded by the 32-bit decoder process with the x86 DAC.</summary>
     [Fact]
-    public async Task X86CoreClrDumpIsDecodedOutOfProcess()
+    public async Task An_x86_CoreCLR_dump_is_decoded_out_of_process()
     {
         if (!OperatingSystem.IsWindows() || !Environment.Is64BitProcess) return;
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "dotnet");
@@ -258,14 +258,14 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("sample-probe", inner.Message);
         foreach (var e in new[] { m.Exception, inner })
             foreach (var f in e.Stack) output.WriteLine($"{e.Type} {f.Address} {f.Function} {f.Token} il={f.IlOffset}");
-        // the trace array's header on x86 (.NET 9+) is not ClrMD's: its frames are read here
+        // The trace array's header on x86 (.NET 9+) is not ClrMD's: its frames are read here.
         Assert.Contains(inner.Stack, f => f.Function.Contains("Inner", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Inner"):X8}");
         var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
         Assert.Equal("decoded", stack.Managed);
         Assert.Contains(stack.Items, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Main"):X8}");
         var heap = await service.Heap(dump, "stats", "System.String", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
         Assert.True(heap.Items.Single().Count > 10);
-        // the bucket names the CLR exception and its managed frames
+        // The bucket names the CLR exception and its managed frames.
         using var bucketing = new MinidumpService { BucketCache = dir.File("cache") };
         var bucket = Assert.Single((await bucketing.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Items);
         output.WriteLine(bucket.Signature);
@@ -344,7 +344,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
     /// of the same moment has them.
     /// </summary>
     [Fact]
-    public async Task SelfWrittenDumps_IlOffsetsOnlyWhereTheDumpHoldsTheIlMap()
+    public async Task Self_written_dumps_IL_offsets_only_where_the_dump_holds_the_IL_map()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
@@ -358,7 +358,8 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains(small.Exception.Stack, f => f.Function.Contains("Probe.Program.Validate", StringComparison.Ordinal));
         Assert.All(small.Exception.Stack, f => Assert.Null(f.IlOffset));
         var thread = await service.Stack(mini, small.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
-        Assert.All(thread.Items.Where(f => f.SymbolSource == "clr" && f.Function!.StartsWith("Probe.", StringComparison.Ordinal)), f => Assert.Null(f.IlOffset)); // CoreLib's precompiled maps are in its image
+        // CoreLib's precompiled maps are in its image.
+        Assert.All(thread.Items.Where(f => f.SymbolSource == "clr" && f.Function!.StartsWith("Probe.", StringComparison.Ordinal)), f => Assert.Null(f.IlOffset));
 
         var whole = (await service.Summarize(full, null, default)).Managed!;
         foreach (var f in whole.Exception!.Stack) output.WriteLine($"full {f.Function} il={f.IlOffset} {f.Statement}");
@@ -371,7 +372,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
 
     /// <summary>The CLR exception code's description names the decoded exception instead of calling it unreadable.</summary>
     [Fact]
-    public async Task SelfWrittenDump_ClrExceptionDescriptionNamesTheDecodedException()
+    public async Task Self_written_dump_CLR_exception_description_names_the_decoded_exception()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();
@@ -386,7 +387,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
 
     /// <summary>A dbghelp dump without memory still lets the DAC list the GC segments; none of their memory is in it, so there is no heap to walk.</summary>
     [Fact]
-    public async Task SelfWrittenDump_WithoutMemoryHasNoHeap()
+    public async Task Self_written_dump_without_memory_has_no_heap()
     {
         if (!OperatingSystem.IsWindows()) return;
         using var dir = new TempDir();

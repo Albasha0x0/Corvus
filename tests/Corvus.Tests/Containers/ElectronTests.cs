@@ -40,7 +40,7 @@ public sealed class ElectronTests : IDisposable
     private InspectionService.FileSummary Summarize(string path) => new InspectionService(_workspace).Summarize(null, path, default);
 
     [Fact]
-    public void BinaryScanReadsFusesAndVersions()
+    public void Binary_scan_reads_fuses_and_versions()
     {
         var facts = Electron.Scan(new MemoryStream(ElectronFixtures.Executable(null, fuses: "01r0")), "app.exe");
         Assert.Equal(("44.2.0", "152.0.7977.76", "24.20.0"), (facts.ElectronVersion, facts.ChromiumVersion, facts.NodeVersion));
@@ -54,11 +54,11 @@ public sealed class ElectronTests : IDisposable
     }
 
     [Fact]
-    public void ScanFindsSentinelsAcrossWindowBoundaries()
+    public void Scan_finds_sentinels_across_window_boundaries()
     {
         var exe = ElectronFixtures.Executable(null, fuses: "1");
         int at = Encoding.Latin1.GetString(exe).IndexOf(ElectronFixtures.Sentinel, StringComparison.Ordinal);
-        // place the sentinel so it straddles the first 4 MiB window
+        // Place the sentinel so it straddles the first 4 MiB window.
         var shifted = new byte[4 * 1024 * 1024 + 512 - 10 - at + exe.Length];
         exe.CopyTo(shifted, shifted.Length - exe.Length);
         var facts = Electron.Scan(new MemoryStream(shifted), "big.exe");
@@ -67,7 +67,7 @@ public sealed class ElectronTests : IDisposable
     }
 
     [Fact]
-    public void ArchiveSummaryNamesVersionsFusesIntegrityEntryAndSettings()
+    public void Archive_summary_names_versions_fuses_integrity_entry_and_settings()
     {
         var (bytes, header) = AsarWriter.Build(App);
         var asar = ElectronFixtures.App(_dir.File("app"), bytes, Convert.ToHexStringLower(SHA256.HashData(header)));
@@ -94,11 +94,12 @@ public sealed class ElectronTests : IDisposable
     }
 
     [Fact]
-    public void ExecutableSummaryReadsTheArchiveBesideIt()
+    public void Executable_summary_reads_the_archive_beside_it()
     {
         var (bytes, header) = AsarWriter.Build(App);
         var damaged = (byte[])bytes.Clone();
-        damaged[^1] ^= 0x20; // last byte of the last packed file
+        // Last byte of the last packed file.
+        damaged[^1] ^= 0x20;
         ElectronFixtures.App(_dir.File("app"), damaged, new string('0', 64));
         var e = Summarize(Path.Combine(_dir.Path, "app", "App.exe")).Electron!;
         Assert.Equal("bad", e.Archive!.HeaderIntegrity);
@@ -107,7 +108,7 @@ public sealed class ElectronTests : IDisposable
     }
 
     [Fact]
-    public void AppFolderWithoutArchive()
+    public void An_app_folder_without_an_archive_reads_its_package_and_settings()
     {
         var root = _dir.File("folderapp");
         Directory.CreateDirectory(Path.Combine(root, "resources", "app"));
@@ -121,7 +122,7 @@ public sealed class ElectronTests : IDisposable
     }
 
     [Fact]
-    public void OtherFilesHaveNoElectronFacts()
+    public void Other_files_have_no_Electron_facts()
     {
         var path = _dir.File("plain.exe");
         File.WriteAllBytes(path, ElectronFixtures.Executable(null, fuses: null, electron: "x"));
@@ -131,7 +132,7 @@ public sealed class ElectronTests : IDisposable
 
     [RequiresRealDataFact(RealData.ElectronApps)]
     [Trait("Speed", "Slow")]
-    public void RealAppsListAndSummarize()
+    public void Real_apps_list_and_summarize()
     {
         var root = RealData.Path(RealData.ElectronApps);
         var archives = Directory.EnumerateFiles(root, "*.asar", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 6, IgnoreInaccessible = true }).ToList();

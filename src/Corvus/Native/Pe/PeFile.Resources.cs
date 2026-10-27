@@ -10,10 +10,7 @@ public sealed record PeResourceKey(uint Id, string? Name)
     public override string ToString() => Name ?? "#" + Id;
 }
 
-/// <summary>
-/// A resource data entry. In the standard three-level tree <see cref="Type"/>, <see cref="Name"/> and
-/// <see cref="Language"/> are the levels; <see cref="Path"/> holds every level when the tree is deeper or shallower.
-/// </summary>
+/// <summary>A resource data entry; <see cref="Path"/> holds every level when the tree is not three levels deep.</summary>
 public sealed record PeResource(PeResourceKey Type, PeResourceKey? Name, uint Language, uint Rva, uint Size, uint CodePage, IReadOnlyList<PeResourceKey> Path)
 {
     /// <summary>RT_* name for a numeric type, else the type key.</summary>
@@ -67,10 +64,7 @@ public sealed partial class PeFile
         return ReadBlock(resource.Rva, size);
     }
 
-    /// <summary>
-    /// Walks the resource tree depth-first in table order. Each directory is visited once (a second reference, from a
-    /// cycle or a shared subtree, is recorded and skipped) and at most <see cref="PeLimits.MaxResourceDepth"/> deep.
-    /// </summary>
+    /// <summary>Walks the resource tree depth-first, each directory once, at most <see cref="PeLimits.MaxResourceDepth"/> deep.</summary>
     private ResourceTable ParseResources(IssueLog log)
     {
         var dir = Directory(PeDirectory.Resource);

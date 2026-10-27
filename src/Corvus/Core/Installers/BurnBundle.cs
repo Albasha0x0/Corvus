@@ -3,11 +3,7 @@ using System.Xml.Linq;
 
 namespace Corvus.Core.Installers;
 
-/// <summary>
-/// WiX Burn bundles: a native stub whose .wixburn section sizes the cabinets after it. The first (user interface)
-/// cabinet holds the manifest (file "0") that names every payload; attached cabinets follow the original signature.
-/// Files are listed under their manifest paths; payloads downloaded at install time are listed, not extracted.
-/// </summary>
+/// <summary>WiX Burn bundles: files listed under their manifest paths; downloaded payloads are listed, not extracted.</summary>
 internal sealed class BurnBundleReader : IContainerReader
 {
     private const uint Magic = 0x00F14300;
@@ -32,7 +28,7 @@ internal sealed class BurnBundleReader : IContainerReader
         for (int i = 0; i < h.Sizes.Count; i++)
         {
             cabinets.Add((at, h.Sizes[i]));
-            // attached cabinets start after the signature the engine carried before the cabinets were appended
+            // Attached cabinets start after the stub's original signature.
             at = i == 0 && h.SignatureOffset > 0 ? (long)h.SignatureOffset + h.SignatureSize : at + h.Sizes[i];
         }
         var notes = new List<string>();
@@ -72,11 +68,12 @@ internal sealed class BurnBundleReader : IContainerReader
     private static Header? Section(ReadOnlySpan<byte> head)
     {
         if (PeImage.TryParse(head) is not { } pe || pe.Sections.FirstOrDefault(s => s.Name == ".wixburn") is not { } s) return null;
-        // the raw data, not the virtual size: a virtual size can end before the cabinet sizes
+        // The raw data, not the virtual size: a virtual size can end before the cabinet sizes.
         if (s.RawPointer + (long)s.RawSize > head.Length || s.RawSize < HeaderBytes) return null;
-        // magic, version, bundle id, stub size, original checksum, signature offset and size, format, count, sizes
+        // Magic, version, bundle id, stub size, checksum, signature offset and size, format, count, sizes.
         var b = head.Slice((int)s.RawPointer, (int)s.RawSize);
-        if (U32(b, 0) != Magic || U32(b, 40) != 1) return null; // format 1: cabinets
+        // Format 1: cabinets.
+        if (U32(b, 0) != Magic || U32(b, 40) != 1) return null;
         uint count = U32(b, 44);
         if (count is 0 or > MaxContainers || HeaderBytes + 4L * count > b.Length) return null;
         var sizes = new uint[count];

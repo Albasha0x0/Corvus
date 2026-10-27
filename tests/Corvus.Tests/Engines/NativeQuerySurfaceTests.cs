@@ -64,7 +64,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         var rig = await Setup();
         rig.Provider.Functions = [(rig.First, rig.Second, "?Run@Widget@@QEAAXXZ"), (rig.Second, rig.Second + 0x10, "Second")];
         var batch = await rig.Analysis.DecompileNative(rig.Native.Id, functions: ["First", "Second"]);
-        // the name in effect (the export) wins over the engine's in pseudocode headers, as in list_functions (DN-4)
+        // The name in effect (the export) wins over the engine's in pseudocode headers, as in list_functions (DN-4).
         Assert.Contains("// [1/2] First at", batch);
         var text = await rig.Analysis.DecompileNative(rig.Native.Id, "First");
         Assert.Matches(@"// First at 0x[0-9A-F]+ \(ida\)", text);
@@ -74,12 +74,12 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.StartsWith("Frame of Second at ", await rig.Types.GetNativeFrame(rig.Native.Id, "Second", locals: true));
     }
 
-    /// <summary>Code tools over a small image whose 0x1000 reads the slot 0x5040 and calls 0x1100 (see <see cref="Il2CppNativeNamesTests.GameAssembly"/>).</summary>
+    /// <summary>Code tools over a small image whose 0x1000 reads the slot 0x5040 and calls 0x1100 (see <see cref="AotNativeNamesTests.GameAssembly"/>).</summary>
     private async Task<(NativeCodeTools Tools, string Image)> CodeImage()
     {
         var rig = await Setup();
         var path = _dir.File("calls.dll");
-        File.WriteAllBytes(path, Il2CppNativeNamesTests.GameAssembly());
+        File.WriteAllBytes(path, AotNativeNamesTests.GameAssembly());
         var id = rig.Workspace.LoadAny(path).Native!.Id;
         return (rig.CodeTools, id);
     }
@@ -107,7 +107,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         var code = (await Structured<XrefList>(() => tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from", kind: "code"))).Items;
         Assert.Equal(["Call"], code.Select(i => i.Kind).Distinct());
 
-        // one instruction: only its own references
+        // One instruction: only its own references.
         var call = await tools.FindXrefs(image, "rva:0x1007", engine: "ours", direction: "from");
         Assert.Contains("-> 0x180001100", call);
         Assert.DoesNotContain("0x180005040", call);
@@ -211,7 +211,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         var refs = report.Items[0].Refs!;
         Assert.Equal(["function", "import"], refs.Select(r => r.Kind));
         Assert.Equal(2, refs[1].Uses);
-        // later pages carry no footer; batches refuse refs
+        // Later pages carry no footer; batches refuse refs.
         Assert.DoesNotContain("// refs:", await rig.Analysis.DecompileNative(rig.Native.Id, "First", refs: true, offset: 5));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Analysis.DecompileNative(rig.Native.Id, functions: ["First"], refs: true))).Code);
     }
@@ -250,7 +250,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Contains("(0x44332211)", (await tools.ReadBytes(path, At(7), type: "u32")));
         Assert.Contains("\"wi\"", (await tools.ReadBytes(path, At(11), type: "wstr")));
         Assert.Contains("  1.5", (await tools.ReadBytes(path, At(17), type: "f64be")).Replace("big-endian", ""));
-        // past the section's file data: uninitialized, not a value
+        // Past the section's file data: uninitialized, not a value.
         var bss = await tools.ReadBytes(path, At(0x1000), length: 2, type: "u64");
         Assert.Contains($"{0x140000000 + section.Rva + 0x1000:X}  ?? uninitialized", bss);
         Assert.DoesNotContain("uninitialized", be);
@@ -320,7 +320,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Equal(["Callback", "Color", "Header", "Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, sort: "name")));
         var members = await rig.Types.ListNativeTypes(rig.Native.Id, kind: "udt", members: true);
         Assert.Contains("      +0x4  data  char[12]  12", members);
-        // related: member types, the aliased type, a function type's parameter types
+        // Related: member types, the aliased type, a function type's parameter types.
         var related = await rig.Types.ListNativeTypes(rig.Native.Id, sort: "name", related: true);
         related = related.ReplaceLineEndings("\n");
         Assert.Contains("  union Header  8 bytes  2 members\n      related: Packet, Color", related);
@@ -329,7 +329,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.DoesNotContain("+0x", related);
         var enums = await rig.Types.ListNativeTypes(rig.Native.Id, kind: "enum", members: true);
         Assert.Contains("      Green = 2", enums);
-        // pointer kinds come from IDA's type info
+        // Pointer kinds come from IDA's type info.
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, kind: "ptr", engine: "ida"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, kind: "class"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, sort: "members"))).Code);

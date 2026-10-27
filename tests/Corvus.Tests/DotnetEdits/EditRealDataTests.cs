@@ -4,10 +4,7 @@ using Corvus.Core;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The .NET edit and build tools end to end on Newtonsoft.Json (13.0.1, carried to 13.0.4): every edit kind for real, review,
-/// undo, revert, script export and replay on the other build, save, and the comparisons; each answer within its class budget.
-/// </summary>
+/// <summary>The .NET edit and build tools end to end on Newtonsoft.Json 13.0.1, carried to 13.0.4, each answer within its class budget.</summary>
 [Trait("Data", "Real")]
 [Trait("Speed", "Slow")]
 public sealed class EditRealDataTests : IDisposable
@@ -40,7 +37,7 @@ public sealed class EditRealDataTests : IDisposable
     }
 
     [Fact]
-    public async Task EditReviewUndoReplayAndCompareOnNewtonsoft()
+    public async Task Edits_review_undo_replay_and_compare_on_Newtonsoft_Json()
     {
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
         options.Preload.Add(Lib("13.0.1"));

@@ -4,11 +4,7 @@ using System.Text;
 
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>
-/// Builds small Mach-O images for reader tests. Offsets are from the Mach header (file offset == VM offset):
-/// __TEXT holds the header, __text, __stubs, __unwind_info and __eh_frame; __DATA_CONST holds __got and __const;
-/// __DATA holds __data, __la_symbol_ptr and __bss; __LINKEDIT the link-edit blobs. Executables get __PAGEZERO.
-/// </summary>
+/// <summary>Writes small Mach-O images; file offsets equal VM offsets.</summary>
 internal sealed class MachOWriter
 {
     public const uint TextOffset = 0x1000;
@@ -198,7 +194,7 @@ internal sealed class MachOWriter
         uint signatureOffset = LinkEditOffset + (uint)le.Length;
         w.BytesAt((int)LinkEditOffset, le.ToArray());
 
-        // Load commands
+        // Load commands.
         var lc = new ByteWriter(BigEndian);
         int ncmds = 0;
         void Cmd(uint cmd, Action<ByteWriter> body, int align)

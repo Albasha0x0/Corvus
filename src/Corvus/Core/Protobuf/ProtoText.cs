@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Protobuf;
 
-/// <summary>
-/// .proto source for a <see cref="ProtoFile"/>: the text protoc compiles back to the same descriptor (type names stay fully
-/// qualified with their leading dot; maps, groups, oneofs and proto3 optional fields in their source forms).
-/// </summary>
+/// <summary>.proto source for a <see cref="ProtoFile"/> that protoc compiles back to the same descriptor.</summary>
 public static class ProtoText
 {
     private static readonly string[] TypeNames =
@@ -62,7 +59,8 @@ public static class ProtoText
         int inner = depth + 1;
         foreach (var o in m.Options) { Indent(w, inner); w.Append("option ").Append(o.Name).Append(" = ").Append(o.Value).Append(";\n"); }
         var nestedByName = m.Nested.ToDictionary(n => n.Name, StringComparer.Ordinal);
-        var inline = new HashSet<string>(StringComparer.Ordinal); // map entries and groups, written with their field
+        // Map entries and groups, written with their field.
+        var inline = new HashSet<string>(StringComparer.Ordinal);
         var oneofsWritten = new HashSet<int>();
         foreach (var f in m.Fields)
         {
@@ -168,7 +166,8 @@ public static class ProtoText
     private static string DefaultText(ProtoField f) => f.Type switch
     {
         9 => Quote(f.DefaultValue!),
-        12 => "\"" + f.DefaultValue + "\"", // bytes defaults are stored C-escaped
+        // Bytes defaults are stored C-escaped.
+        12 => "\"" + f.DefaultValue + "\"",
         _ => f.DefaultValue!,
     };
 

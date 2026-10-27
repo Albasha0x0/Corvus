@@ -2,10 +2,7 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// The one way tools write output files: through a same-directory temp file and an atomic rename, never over an existing
-/// file unless asked, never through a link at the target or under an output root, never to a Windows device name.
-/// </summary>
+/// <summary>Atomic output file writes; never over an existing file unless asked, never through a link or to a device name.</summary>
 public static class SafeFile
 {
     private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -89,21 +86,16 @@ public static class SafeFile
         }
     }
 
-    /// <summary>
-    /// Writes bytes atomically; an existing file is a Conflict unless <paramref name="overwrite"/>. <paramref name="beforeReplace"/>
-    /// gets the flushed temp file before the rename and throws to abort, leaving the target untouched. Returns the full path.
-    /// </summary>
+    /// <summary>Writes bytes atomically and returns the full path; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
+    /// <remarks><paramref name="beforeReplace"/> gets the flushed temp file and throws to abort, leaving the target untouched.</remarks>
     public static string WriteAllBytes(string path, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null) =>
         Write(FullPath(path), null, bytes, overwrite, beforeReplace);
 
     /// <summary>Writes UTF-8 text (no BOM) atomically; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
     public static string WriteAllText(string path, string text, bool overwrite) => WriteAllBytes(path, Encoding.UTF8.GetBytes(text), overwrite);
 
-    /// <summary>
-    /// Writes under <paramref name="root"/>: the target and every directory below the root must not be links. Without
-    /// <paramref name="flush"/> (extracted files, which their source can give again) the file is not forced to disk before
-    /// it is placed: about 15 ms per file less on Windows.
-    /// </summary>
+    /// <summary>Writes under <paramref name="root"/> with no links on the path; without <paramref name="flush"/> it saves ~15 ms per file on Windows.</summary>
+    /// <remarks>Skip the flush only for files the source can give again, such as extracted ones.</remarks>
     public static string WriteUnderRoot(string root, string relative, ReadOnlySpan<byte> bytes, bool overwrite, bool flush = true)
     {
         var full = UnderRoot(root, relative);
@@ -127,8 +119,8 @@ public static class SafeFile
                 stream.Flush(flushToDisk: flush);
             }
             beforeReplace?.Invoke(temp);
-            // Without overwrite the placement itself refuses an existing target, so a file created since the check is never
-            // replaced: on Windows the move does, on Unix a hard link (File.Move there checks, then renames over the target).
+            // Without overwrite the placement refuses an existing target, so a file created since the check is never
+            // replaced: a move on Windows, a hard link on Unix.
             try
             {
                 if (overwrite || OperatingSystem.IsWindows() || !Posix.TryLink(temp, full)) File.Move(temp, full, overwrite);
@@ -146,11 +138,8 @@ public static class SafeFile
     private static ToolError Exists(string full) =>
         new(ErrorCode.Conflict, $"{full} exists: pass overwrite=true to replace it.");
 
-    /// <summary>
-    /// Runs a move or delete of files just written, retrying for up to <paramref name="patience"/> (default 2 s): on Windows
-    /// a virus scanner or the search indexer holds a new file open for a moment and the move fails with "access denied".
-    /// <paramref name="lost"/>: the failure is a lost race (another process put the target in place), so it throws at once.
-    /// </summary>
+    /// <summary>Retries a move or delete for up to <paramref name="patience"/> (default 2 s) while a scanner holds the file; throws at once when <paramref name="lost"/>.</summary>
+    /// <remarks><paramref name="lost"/> reports a lost race: another process put the target in place.</remarks>
     public static void WhenReleased(Action action, TimeSpan? patience = null, Func<bool>? lost = null)
     {
         var until = Environment.TickCount64 + (long)(patience ?? TimeSpan.FromSeconds(2)).TotalMilliseconds;

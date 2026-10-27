@@ -3,17 +3,10 @@ using System.Security.Cryptography.Pkcs;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Windows catalog signatures (files signed through a system security catalog rather than an embedded signature, as
-/// the .NET Framework's own files are): WinVerifyTrust checks the file against its catalog without network access, and
-/// the catalog's signer is checked like an embedded signature.
-/// </summary>
+/// <summary>Checks Windows catalog signatures offline with WinVerifyTrust, then the catalog's signer.</summary>
 public static class CatalogSignature
 {
-    /// <summary>
-    /// Null when <paramref name="path"/> is in a system catalog signed by <paramref name="organization"/>; else why not.
-    /// <paramref name="note"/> names a check of the catalog's signer that could not be made (revocation).
-    /// </summary>
+    /// <summary>Null when the file is in a catalog signed by <paramref name="organization"/>, else why not; <paramref name="note"/> names a skipped check.</summary>
     public static string? Verify(string path, string organization, out string? note)
     {
         note = null;
@@ -79,7 +72,8 @@ public static class CatalogSignature
                 UnionChoice = 2, // WTD_CHOICE_CATALOG
                 Union = memberPtr,
                 StateAction = 1, // WTD_STATEACTION_VERIFY
-                ProvFlags = 0x1000 | 0x10, // cache-only URL retrieval, no revocation check: never the network
+                // Cache-only URL retrieval and no revocation check: never the network.
+                ProvFlags = 0x1000 | 0x10,
             };
             var action = new Guid("00AAC56B-CD44-11d0-8CC2-00C04FC295EE"); // WINTRUST_ACTION_GENERIC_VERIFY_V2
             int result = WinVerifyTrust(new IntPtr(-1), ref action, ref data);

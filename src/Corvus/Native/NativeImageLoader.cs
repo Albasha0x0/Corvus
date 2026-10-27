@@ -17,10 +17,7 @@ public enum NativeFileKind
     Wasm,
 }
 
-/// <summary>
-/// One container format the loader opens by content. A provider claims the first bytes it recognizes and opens the file
-/// or its bytes; <see cref="NativeImageLoader.Providers"/> lists them in detection order.
-/// </summary>
+/// <summary>One container format the loader detects by its first bytes and opens.</summary>
 public interface INativeFormatProvider
 {
     NativeFileKind Kind { get; }
@@ -74,10 +71,7 @@ public static class NativeImageLoader
 
     private static INativeFormatProvider? Of(NativeFileKind kind) => Providers.FirstOrDefault(p => p.Kind == kind);
 
-    /// <summary>
-    /// Opens the image at <paramref name="path"/> by its content: PE, ELF, Mach-O, the <paramref name="slice"/> of a
-    /// universal Mach-O (see <see cref="MachO.MachOFat.Select"/>), or a WebAssembly module. Anything unrecognized fails as "not a PE file".
-    /// </summary>
+    /// <summary>Opens the image at <paramref name="path"/> by content; anything unrecognized fails as "not a PE file".</summary>
     public static INativeImage Open(string path, string? slice = null)
     {
         var kind = DetectFile(path);
@@ -99,9 +93,10 @@ public static class NativeImageLoader
             Span<byte> head = stackalloc byte[16];
             return Detect(head[..stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false)]);
         }
+        // PeFile.Open reports the path problem.
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return NativeFileKind.Unknown; // PeFile.Open reports the path problem
+            return NativeFileKind.Unknown;
         }
     }
 }

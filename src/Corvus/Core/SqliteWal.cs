@@ -2,18 +2,11 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// A frame of a -wal file: its index, the page it holds, the page count it commits (0 for a frame that is not a commit) and
-/// its state: applied (the latest committed copy of its page), superseded (a later committed frame replaced it),
-/// uncommitted (valid, after the last commit) or stale (past a salt or checksum break: left by an earlier WAL generation).
-/// </summary>
+/// <summary>A -wal frame; CommitPages is 0 for a non-commit frame; State is applied, superseded, uncommitted or stale.</summary>
+/// <remarks>Stale frames lie past a salt or checksum break, left by an earlier WAL generation.</remarks>
 public sealed record SqliteWalFrame(int Index, long Page, long CommitPages, string State);
 
-/// <summary>
-/// A SQLite write-ahead log read as SQLite reads it: the header checksum, then frames while their salts match the header and
-/// the cumulative checksum holds; the frames up to the last commit in that chain are the committed ones. Frames past it are
-/// kept, marked, for their older page images.
-/// </summary>
+/// <summary>A SQLite write-ahead log read as SQLite reads it; frames past the last commit are kept, marked.</summary>
 public sealed class SqliteWalLog
 {
     public const int MaxFrames = 1_000_000;

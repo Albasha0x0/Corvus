@@ -17,7 +17,7 @@ public class ToolCliTests
     internal static Task<(int Code, string Out, string Error)> Run(params string[] args) => RunWithInput("", args);
 
     [Fact]
-    public void EveryToolResolvesAndDescribes()
+    public void Every_tool_resolves_and_describes()
     {
         Assert.NotEmpty(ToolCli.CatalogTools);
         foreach (var tool in ToolCli.CatalogTools)
@@ -35,7 +35,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public void CommandWordsAreNotServerStarts()
+    public void Command_words_are_not_server_starts()
     {
         Assert.False(ToolCli.Handles([]));
         Assert.False(ToolCli.Handles(["--load", "app.dll"]));
@@ -47,7 +47,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public void ValuesAreTypedByTheSchema()
+    public void Values_are_typed_by_the_schema()
     {
         var schema = JsonNode.Parse("""
             {"type":"object","properties":{
@@ -84,7 +84,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public void ServerOptionsAreSeparatedFromArguments()
+    public void Server_options_are_separated_from_arguments()
     {
         var a = CliArgs.Parse(["decompile_member", "--load", "app.dll", "member=X", "--no-index", "--json", "--timeout", "30"]);
         Assert.Equal(["decompile_member"], a.Positionals);
@@ -105,7 +105,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public void ErrorCodesMapToExitCodes()
+    public void Error_codes_map_to_exit_codes()
     {
         int Code(string code) => ToolCli.ExitCode(new JsonObject { ["code"] = code });
         Assert.Equal(1, Code("not_found"));
@@ -118,7 +118,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public async Task ToolsAndDescribe_NeedNoServer()
+    public async Task Tools_and_describe_need_no_server()
     {
         var (code, output, _) = await Run("tools");
         Assert.Equal(0, code);
@@ -144,7 +144,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public async Task Call_RunsToolsWithExitCodes()
+    public async Task Call_runs_tools_with_exit_codes()
     {
         string[] server = ["--load", Env.FixturePath, "--no-index"];
 
@@ -177,12 +177,12 @@ public class ToolCliTests
         Assert.Equal(2, code);
         Assert.Contains("member", error);
 
-        // every tool has an output schema (S4), so --structured applies to each
+        // Every tool has an output schema (S4), so --structured applies to each.
         Assert.DoesNotContain(Corvus.Setup.ToolCli.CatalogTools, t => t["outputSchema"] == null);
     }
 
     [Fact]
-    public async Task Batch_KeepsOneSessionAcrossSteps()
+    public async Task Batch_keeps_one_session_across_steps()
     {
         var path = System.Text.Json.JsonSerializer.Serialize(Env.FixturePath);
         var steps = $$$"""
@@ -214,7 +214,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public async Task PromptsAndResources()
+    public async Task Prompts_and_resources_list_from_the_command_line()
     {
         var (code, output, _) = await Run("prompts");
         Assert.Equal(0, code);
@@ -234,7 +234,7 @@ public class ToolCliTests
     }
 
     [Fact]
-    public void CompletionScriptsNameEveryTool()
+    public void Completion_scripts_name_every_tool()
     {
         foreach (var shell in ToolCli.Shells)
         {
@@ -259,7 +259,7 @@ public class ToolCliTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task CtrlCDuringACall_StopsTheToolAndExitsWith130()
+    public async Task Ctrl_C_during_a_call_stops_the_tool_and_exits_with_130()
     {
         using var dir = new TempDir();
         var assembly = Path.Combine(AppContext.BaseDirectory, "corvus.dll");

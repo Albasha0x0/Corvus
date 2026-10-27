@@ -1,11 +1,6 @@
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// One A32 / T32 instruction as <see cref="InspectedInstruction"/>: operands (registers, shifted registers, memory as
-/// base, index with shift, offset and writeback, register lists, vector registers), core register and NZCV use, memory
-/// accesses, stack pointer change, condition (IT blocks included) and flow. The run is decoded from the block start in
-/// the function's state, so literal loads, PC-relative pairs and MOVW / MOVT pairs resolve as in the code index.
-/// </summary>
+/// <summary>One A32 / T32 instruction as <see cref="InspectedInstruction"/>, decoded from its block start so references resolve as in the code index.</summary>
 internal static class Arm32Inspector
 {
     private const int MaxRun = 512;
@@ -32,7 +27,7 @@ internal static class Arm32Inspector
         var step = run[^1];
         var i = step.Instruction;
         var facts = step.Facts;
-        // the text with the run's state (IT conditions, names of formed addresses)
+        // The text with the run's state: IT conditions, names of formed addresses.
         var text = run.Count > 1 ? dis.Disassemble(start | (thumb ? 1u : 0), run.Count, rva + (uint)facts.Length).LastOrDefault() ?? line : line;
 
         uint? formed = facts.HasImm ? facts.ImmTarget : facts.HasMem ? facts.MemTarget : null;
@@ -195,7 +190,7 @@ internal static class Arm32Inspector
         if (i.Mnemonic is "cmp" or "cmn" or "tst" or "teq" || i.Mnemonic.StartsWith("bx", StringComparison.Ordinal)) return false;
         if (i.Stores) return k == 0 && i.Mnemonic is "strex" or "strexb" or "strexh" or "strexd" or "stlex" or "stlexb" or "stlexh" or "stlexd";
         if (k == 0) return true;
-        // second destinations: long multiplies, doubleword loads, two-register moves
+        // Second destinations: long multiplies, doubleword loads, two-register moves.
         return k == 1 && (i.Mnemonic is "umull" or "smull" or "umlal" or "smlal" or "umaal" or "ldrd" or "ldrexd" or "ldaexd" || i.Mnemonic.StartsWith("smlal", StringComparison.Ordinal)
             || i.Mnemonic == "vmov" && i.OperandCount == 3 && i.Op(1).Kind == ArmOperandKind.Register);
     }

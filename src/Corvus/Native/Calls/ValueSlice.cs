@@ -21,17 +21,13 @@ public enum SliceSeedKind : byte
     Loaded,
 }
 
-/// <summary>
-/// The start of a per-function slice. Locations are text so that any engine can take them: a register ("rcx", "ecx",
-/// "xmm1"), a stack slot relative to the stack pointer at that point ("[rsp+28h]", "[esp+4h]") or a frame slot ("[rbp-8h]").
-/// Parameter and argument locations are always as seen at the callee's entry (x64 "[rsp+28h]" is the fifth parameter).
-/// </summary>
+/// <summary>The start of a per-function slice; locations are text ("rcx", "[rsp+28h]", "[rbp-8h]"), parameters as seen at callee entry.</summary>
 public sealed record SliceSeed(SliceSeedKind Kind, uint Address, string? Location = null);
 
 /// <summary>A node of a per-function slice.</summary>
 public enum SliceNodeKind : byte
 {
-    // backward values
+    // Backward values.
     Constant,
     /// <summary>An address in the image (<see cref="SliceNode.Rva"/>): a string, a function, data.</summary>
     Address,
@@ -47,14 +43,14 @@ public enum SliceNodeKind : byte
     Loop,
     /// <summary>A load from [base + <see cref="SliceNode.Value"/>]; the base is the node's input.</summary>
     Field,
-    // boundaries the interprocedural driver continues across
+    // Boundaries the interprocedural driver continues across.
     /// <summary>The incoming parameter at <see cref="SliceNode.Location"/> (callers bind it).</summary>
     Parameter,
     /// <summary>The return value of the call at <see cref="SliceNode.Site"/> (the callee's return values).</summary>
     CallResult,
     /// <summary>The contents of a writable global at <see cref="SliceNode.Rva"/> (its writers).</summary>
     Global,
-    // forward uses
+    // Forward uses.
     /// <summary>The start of a forward slice.</summary>
     Origin,
     /// <summary>Passed as an argument (callee-entry <see cref="SliceNode.Location"/>) to the call at <see cref="SliceNode.Site"/>.</summary>
@@ -91,10 +87,7 @@ public sealed record SliceNode(SliceNodeKind Kind, uint Address, string Text, st
     /// <summary>Forward: the value was changed by arithmetic before this use.</summary>
     public bool Derived { get; init; }
     public bool Truncated { get; init; }
-    /// <summary>
-    /// Forward dereferences and field stores: the displacement of [base + offset] (no index register). Arguments and switch
-    /// indexes: what plain additions added to the traced value on the way (null after other arithmetic).
-    /// </summary>
+    /// <summary>Dereferences and field stores: the [base + offset] displacement; arguments and switch indexes: the added delta, null after other arithmetic.</summary>
     public long? Offset { get; init; }
     /// <summary>Forward "stored to [base + offset]": the base register at the store (its type names the field).</summary>
     public string? Base { get; init; }
@@ -111,10 +104,7 @@ public readonly record struct SliceEdge(int From, int To, SliceEdgeKind Kind);
 public sealed record FunctionSlice(NativeFunction Function, string Engine, int Root, IReadOnlyList<SliceNode> Nodes, IReadOnlyList<SliceEdge> Edges,
     int Steps, bool Truncated, string? Note);
 
-/// <summary>
-/// An engine's per-function value facts. Providers answer one function at a time; callers, callees, globals, budgets,
-/// caching and paging stay in <see cref="ValueTrace"/>, so the trace behaves the same whichever engine supplies the slices.
-/// </summary>
+/// <summary>An engine's per-function value facts; interprocedural work stays in <see cref="ValueTrace"/>, so traces match across engines.</summary>
 public interface IFunctionSliceProvider
 {
     string Engine { get; }

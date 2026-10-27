@@ -9,10 +9,7 @@ using Microsoft.CodeAnalysis;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Real descriptors and clients: Google.Protobuf's base64 descriptors and protoc's own raw ones round-trip through protoc
-/// (CORVUS_PROTO_COMPILER, else the Grpc.Tools package's protoc); a generated gRPC client and a Refit interface by member.
-/// </summary>
+/// <summary>Real protobuf descriptors round-trip through protoc (CORVUS_PROTO_COMPILER); gRPC and Refit clients by member.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("reference-tool")]
@@ -61,14 +58,14 @@ public sealed class ProtobufRealTests : IDisposable
             var (code, log) = Tools.Run(psi, 60_000);
             Assert.True(code == 0, $"protoc rejected {name}:\n{log}\n{text}");
             var set = File.ReadAllBytes(output);
-            // FileDescriptorSet: field 1, length-delimited, once (no --include_imports)
+            // FileDescriptorSet: field 1, length-delimited, once (no --include_imports).
             Assert.Equal(0x0A, set[0]);
             int at = 1, length = 0, shift = 0;
             byte b;
             do { b = set[at++]; length |= (b & 0x7F) << shift; shift += 7; } while ((b & 0x80) != 0);
             var again = ProtoFile.Read(set.AsSpan(at, length));
             Assert.NotNull(again);
-            // the header comment counts custom options, which protoc drops without their extension definitions
+            // The header comment counts custom options, which protoc drops without their extension definitions.
             static string Body(string t) => string.Join("\n", t.Split('\n').Where(l => !l.StartsWith("// ", StringComparison.Ordinal)));
             Assert.Equal(Body(text), Body(ProtoText.Write(again)));
         }
@@ -90,7 +87,8 @@ public sealed class ProtobufRealTests : IDisposable
         var found = Descriptors(Protoc());
         Assert.Contains(found, d => d.File.Name == "google/protobuf/descriptor.proto" && d.Encoding == "raw bytes");
         Assert.Contains(found, d => d.File.Name == "google/protobuf/compiler/plugin.proto");
-        Assert.True(RoundTrip(found) >= 4); // descriptor, plugin, cpp and java features
+        // Descriptor, plugin, cpp and java features.
+        Assert.True(RoundTrip(found) >= 4);
     }
 
     [Fact]

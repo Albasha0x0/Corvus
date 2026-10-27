@@ -16,11 +16,8 @@ public sealed record YaraPatternMatch(string Pattern, long Offset, long Length);
 public sealed record YaraRuleMatch(string Namespace, string Rule, IReadOnlyList<string> Tags, IReadOnlyList<KeyValuePair<string, string>> Meta,
     IReadOnlyList<YaraPatternMatch> Patterns);
 
-/// <summary>
-/// Rules compiled once from source (rule text, a file, or every *.yar and *.yara under a folder) and scanned over buffers or files.
-/// A rule that does not compile is named in <see cref="Errors"/> and left out; the other rules still run. Compiled rules
-/// are never saved or loaded (VirusTotal/yara-x#720: a file saved by another version aborts the loader).
-/// </summary>
+/// <summary>Rules compiled once from text, a file or a folder; failing rules go to <see cref="Errors"/> and the rest still run.</summary>
+// Compiled rules are never saved or loaded: VirusTotal/yara-x#720, a file from another version aborts the loader.
 internal sealed partial class YaraRules : IDisposable
 {
     /// <summary>Rule files read from a folder; past it the rest are named as not read.</summary>
@@ -57,10 +54,7 @@ internal sealed partial class YaraRules : IDisposable
         return Build([.. files.Select(f => (f, File.ReadAllBytes(f)))], notes);
     }
 
-    /// <summary>
-    /// Compiles <paramref name="source"/> as rule text with origin <see cref="QueryOrigin"/>; source that yields no rule is an
-    /// invalid argument naming the first error.
-    /// </summary>
+    /// <summary>Compiles rule text as origin <see cref="QueryOrigin"/>; no resulting rule is an invalid argument naming the first error.</summary>
     public static YaraRules CompileSource(string source)
     {
         YaraX.Load();
@@ -69,7 +63,7 @@ internal sealed partial class YaraRules : IDisposable
         var first = rules.Errors.FirstOrDefault();
         rules.Dispose();
         throw new ToolError(ErrorCode.InvalidArgument,
-            "query names no rule file or folder, so it was compiled as rule source, which gave no rules"
+            "query names no rule file or folder, and as rule source it compiled to no rules"
             + (first != null ? $": {QueryOrigin}:{first.Line}:{first.Column}: {first.Code} {first.Message}" : "."),
             "pass rule text, or the path of an existing .yar file or folder of rules");
     }
@@ -114,7 +108,7 @@ internal sealed partial class YaraRules : IDisposable
             throw new ToolError(ErrorCode.InvalidArgument, $"{path} holds no .yar or .yara files.", "pass a rule file, or a folder that holds them");
         if (all.Count > MaxFiles)
         {
-            notes.Add($"{all.Count:N0} rule files; the first {MaxFiles:N0} in path order were read, the rest were not");
+            notes.Add($"{all.Count:N0} rule files; read the first {MaxFiles:N0} in path order");
             all = all[..MaxFiles];
         }
         return all;
@@ -196,10 +190,7 @@ internal sealed class YaraScanner : IDisposable
     /// <summary>The rules matching the file at <paramref name="path"/> (read by the library, mapped where it can).</summary>
     public List<YaraRuleMatch> ScanFile(string path) => Run(() => YaraX.yrx_scanner_scan_file(_scanner, YaraX.Utf8(path)));
 
-    /// <summary>
-    /// Adds <paramref name="length"/> bytes at <paramref name="address"/> to a block scan; from the first block on, this
-    /// scanner serves block scans only.
-    /// </summary>
+    /// <summary>Adds bytes at <paramref name="address"/> to a block scan; afterwards this scanner serves block scans only.</summary>
     public void ScanBlock(ulong address, byte[] data, int length) => Check(YaraX.yrx_scanner_scan_block(_scanner, (nuint)address, data, (nuint)length));
 
     /// <summary>The rules matching the blocks added since the last finish, their pattern offsets as block addresses.</summary>

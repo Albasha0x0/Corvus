@@ -1,13 +1,9 @@
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// ARM64 Windows: MSVC shrink-wraps a function's early exit before its prologue, and the .pdata entry starts at the
-/// prologue. A function entry that runs straight into such an entry (and branches into its body) is the function's
-/// real start; the .pdata start stops being one unless something else names it.
-/// </summary>
+/// <summary>ARM64 Windows: a shrink-wrapped head that runs into a .pdata entry is the real function start.</summary>
 internal sealed partial class FunctionDiscovery
 {
-    // .pdata start -> the head that runs into it
+    // .pdata start to the head that runs into it.
     private readonly Dictionary<uint, uint> _heads = [];
 
     /// <summary>The .pdata function starting at <paramref name="rva"/> that only .pdata names (ARM64), or null.</summary>

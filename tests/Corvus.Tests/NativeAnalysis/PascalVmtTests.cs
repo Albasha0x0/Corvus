@@ -173,14 +173,14 @@ public class PascalVmtTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void DelphiChain(bool is64)
+    public void A_Delphi_VMT_chain_is_recovered(bool is64)
     {
         var image = Image(is64, w => Delphi(w, Chain));
         CheckChain(image, CppRtti.Analyze(image), "Delphi", firstUser: 0);
     }
 
     [Fact]
-    public void DelphiChainWithCppAbiSlots()
+    public void A_Delphi_VMT_chain_with_CPP_ABI_slots_is_recovered()
     {
         // 64-bit Windows Delphi: CPP_ABI_1..3 follow Destroy, so the header starts three pointers further down
         var image = Image(true, w => Delphi(w, Chain, objectVirtuals: 14));
@@ -191,7 +191,7 @@ public class PascalVmtTests
     }
 
     [Fact]
-    public void FreePascalChain64()
+    public void A_64_bit_Free_Pascal_VMT_chain_is_recovered()
     {
         var image = Image(true, w => FreePascal(w, Chain));
         CheckChain(image, CppRtti.Analyze(image), "Free Pascal", firstUser: 25);
@@ -222,9 +222,9 @@ public class PascalVmtTests
     }
 
     [Fact]
-    public void ChainWithoutTObjectIsRejected()
+    public void A_chain_without_TObject_is_rejected()
     {
-        // a self pointer and a class name, but the parentless class is not TObject
+        // A self pointer and a class name, but the parentless class is not TObject.
         var image = Image(false, w => Delphi(w, [new("TFoo", null, 8, 0), new("TBar", "TFoo", 8, 1)]));
         var result = PascalVmt.Analyze(image);
         Assert.Empty(result.Classes);
@@ -232,7 +232,7 @@ public class PascalVmtTests
     }
 
     [Fact]
-    public void ImagesWithoutVmtsYieldNothing()
+    public void Images_without_VMTs_yield_no_classes()
     {
         Assert.Empty(PascalVmt.Analyze(PeFile.Open(typeof(PascalVmt).Assembly.Location)).Classes);
         var notepad = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "notepad.exe");

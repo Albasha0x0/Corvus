@@ -83,10 +83,7 @@ public sealed partial class ElfFile
         pieces = [.. result];
     }
 
-    /// <summary>
-    /// A memory dump keeps the original program headers, but its bytes sit at address - base. Decided by where the
-    /// dynamic table reads as valid: at its p_offset (a file) or at its address (a dump).
-    /// </summary>
+    /// <summary>True for a memory dump: the dynamic table reads as valid at its address, not at its p_offset.</summary>
     private bool DetectMappedDump(List<ElfSegment> loads)
     {
         if (loads.All(s => s.Offset == s.VirtualAddress - ImageBase)) return false;

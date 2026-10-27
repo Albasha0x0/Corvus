@@ -3,10 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// TokenEstimate against recorded token counts of real responses (TokenCorpus/&lt;class&gt;/*, counts in counts.json; source o200k
-/// until refreshed with Anthropic counts, see its "refresh" note). The estimate may run high, never low.
-/// </summary>
+/// <summary>TokenEstimate against recorded token counts of real responses (TokenCorpus); the estimate may run high, never low.</summary>
 public class TokenEstimateCalibrationTests
 {
     /// <summary>Per output class (all its files together): S1.2's band.</summary>
@@ -28,7 +25,7 @@ public class TokenEstimateCalibrationTests
     }
 
     [Fact]
-    public void EstimatesAreHighWithinTheBand()
+    public void Estimates_are_high_within_the_band()
     {
         var entries = Entries();
         var problems = new List<string>();
@@ -54,7 +51,7 @@ public class TokenEstimateCalibrationTests
     }
 
     [Fact]
-    public void CorpusIsFreeOfMachinePaths()
+    public void The_corpus_is_free_of_machine_paths()
     {
         foreach (var e in Entries())
         {
@@ -81,10 +78,10 @@ public class TokenEstimateCalibrationTests
     [InlineData("strength", 1)]
     [InlineData("uintchanfunccallkind", 10)]
     [InlineData("MakaMdna", 3)]
-    public void CountsByCharacterClass(string text, int expected) => Assert.Equal(expected, TokenEstimate.Of(text));
+    public void Tokens_are_counted_by_character_class(string text, int expected) => Assert.Equal(expected, TokenEstimate.Of(text));
 
     [Fact]
-    public void OnePassWithoutAllocation()
+    public void Estimation_takes_one_pass_without_allocation()
     {
         var text = string.Concat(Enumerable.Repeat("  0x180112F40 GetTypeInfo(\"name\", 42); // é\U0001F600\r\n", 20_000));
         Assert.Equal(TokenEstimate.Of(text), TokenEstimate.Of(text.AsSpan()));

@@ -16,12 +16,7 @@ public enum NativeAotStaticsKind
 /// <summary>A static field from the metadata with its offset in the type's statics block.</summary>
 public sealed record NativeAotStaticField(string Name, string Type, uint Offset);
 
-/// <summary>
-/// A statics base of a type. <see cref="Origin"/> tells how the owner is known: "class constructor context" (the cctor
-/// pointer in front of the non-GC statics), "class constructor" (the type's .cctor references it), "code" (most of the
-/// named methods that reference it belong to the type) or null when unknown. <see cref="Size"/> is the statics object's
-/// field bytes for GC statics and the field extent for non-GC statics (0 when unknown).
-/// </summary>
+/// <summary>A statics base; <see cref="Origin"/> names how the owner is known (null when unknown), <see cref="Size"/> 0 when unknown.</summary>
 public sealed record NativeAotStaticBase(NativeAotStaticsKind Kind, uint Rva, string? Owner, string? Origin, uint Size, IReadOnlyList<NativeAotStaticField> Fields)
 {
     /// <summary>Thread statics: the offset in the module's inlined thread-local block, or the index of a separate block.</summary>
@@ -29,14 +24,7 @@ public sealed record NativeAotStaticBase(NativeAotStaticsKind Kind, uint Rva, st
     public bool Preinitialized { get; init; }
 }
 
-/// <summary>
-/// The statics of a NativeAOT module: GC statics slots from the GCStaticRegion (201; relative pointers from .NET 8,
-/// pointers before), each a pointer to its GCStaticEEType with flag bits (GCStaticsNode.cs); non-GC statics behind
-/// class constructor contexts (a pointer to the type's .cctor, plus a zero pointer on .NET 7, NonGCStaticsNode.cs);
-/// thread statics index cells (TypeManager indirection pointer + natural int, TypeThreadStaticIndexNode.cs). Owners come
-/// from the contexts and from the named methods that reference a slot (x64, ARM64 and x86 code); field names from the
-/// metadata when it keeps the type's static fields (reflection-visible types only).
-/// </summary>
+/// <summary>GC, non-GC and thread statics of a NativeAOT module, with owners from contexts and referencing code.</summary>
 public sealed class NativeAotStatics
 {
     private const int MaxFunctionBytes = 1 << 16, MaxStatics = 1_000_000;
@@ -87,7 +75,8 @@ public sealed class NativeAotStatics
         uint header = aot.Header.Rva, headerEnd = header + 16 + (uint)aot.Header.Sections.Count * (2 * ptr + 8);
         uint? typeManager = aot.Header.Section(204)?.StartRva;
         int threadCells = aot.Header.Section(202) is { HasEnd: true } tls ? (int)(tls.Length / ptr) : 0;
-        var cells = new Dictionary<uint, uint>(); // indirection cells pointing at GC statics slots
+        // Indirection cells pointing at GC statics slots.
+        var cells = new Dictionary<uint, uint>();
         foreach (uint slot in image.PointerSlots)
         {
             if ((slot & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
@@ -108,8 +97,7 @@ public sealed class NativeAotStatics
             }
         }
 
-        // Owners of GC slots and thread cells from the code that references them: a static base helper that also references
-        // a class constructor context of the type, the type's .cctor, else most of the named methods.
+        // Owners from referencing code: a helper that also references the type's context, its .cctor, else a majority.
         var contexts = new Dictionary<uint, string>();
         foreach (var b in bases.Values.Where(b => b.Kind == NativeAotStaticsKind.NonGc))
         {
@@ -137,8 +125,7 @@ public sealed class NativeAotStatics
                 bases[rva] = b with { Owner = helper[0], Origin = "static base helper" };
                 continue;
             }
-            // Votes of the named methods referencing it, a .cctor counting three; the owner needs most of them. Preinitialized
-            // statics have no .cctor and are read inline by their users, so only a .cctor vote counts for them.
+            // A .cctor counts three votes; preinitialized statics are read inline, so only a .cctor vote counts there.
             var votes = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (uint fn in functions.Distinct())
                 if (aot.Names.MethodAt.TryGetValue(fn, out var m) && m.Name.Owner != "?")
@@ -191,11 +178,7 @@ public sealed class NativeAotStatics
         return slot.Length == 8 ? BinaryPrimitives.ReadInt64LittleEndian(slot) : BinaryPrimitives.ReadInt32LittleEndian(slot);
     }
 
-    /// <summary>
-    /// The addresses of <paramref name="wanted"/> each function references (functions from the names and unwind tables):
-    /// RIP-relative operands (x64), ADRP pages completed by ADD or a load/store offset (ARM64), relocated absolute
-    /// operands (x86). Null for other code.
-    /// </summary>
+    /// <summary>The <paramref name="wanted"/> addresses each function references (x64, ARM64, x86); null for other code.</summary>
     private static Dictionary<uint, HashSet<uint>>? References(NativeAotImage aot, HashSet<uint> wanted, CancellationToken ct)
     {
         var image = aot.Image;
@@ -287,10 +270,7 @@ public sealed class NativeAotStatics
         }
     }
 
-    /// <summary>
-    /// Static field offsets from the metadata (declaration order, each aligned to its size up to a pointer; references and
-    /// structs with references in the GC block). A type is described only when every static field's size is known.
-    /// </summary>
+    /// <summary>Static field offsets from the metadata; a type is described only when every static field's size is known.</summary>
     private sealed class FieldLayout(NativeAotImage aot)
     {
         private const int Static = 0x10, Literal = 0x40, HasFieldRva = 0x100;

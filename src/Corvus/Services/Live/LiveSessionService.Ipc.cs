@@ -4,11 +4,7 @@ using Corvus.Services.Analysis;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// An IPC channel as recorded in an Electron main process, joined to the app's code: direction (renderer-to-main or
-/// main-to-renderer), kind (send, sendSync, invoke, invoke-result, invoke-error), value shape, messages counted (0 for a
-/// channel the code names that was not seen) and the code sites on both sides.
-/// </summary>
+/// <summary>An IPC channel recorded in an Electron main process, joined to the app's code sites; Count is 0 for a channel never seen.</summary>
 public sealed record LiveIpcRow(string Channel, string Direction, string Kind, string Shape, int Count, string Code);
 
 /// <summary>A session's IPC ledger: the app path the code was read from, its rows, and keys dropped past the recorder's limit.</summary>
@@ -16,10 +12,7 @@ public sealed record LiveIpcLedger(string? App, IReadOnlyList<LiveIpcRow> Rows, 
 
 public sealed partial class LiveSessionService
 {
-    /// <summary>
-    /// Records IPC in the Electron main process of an inspector session (installed on the first call) and returns the
-    /// messages seen so far, each joined to the static IPC rows of the app at app.getAppPath(). Refuses other sessions.
-    /// </summary>
+    /// <summary>Records IPC in an inspector session's Electron main process; returns the messages so far joined to the app's code; refuses other sessions.</summary>
     public async Task<LiveIpcLedger> IpcAsync(LiveSession session, CancellationToken ct)
     {
         Live(session);

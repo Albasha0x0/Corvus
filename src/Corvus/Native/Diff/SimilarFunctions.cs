@@ -4,10 +4,7 @@ using Corvus.Native.Code;
 
 namespace Corvus.Native.Diff;
 
-/// <summary>
-/// MinHash sketches of a function's instruction-shape 3-grams (<see cref="MaskedInsn.Token"/>: no registers, addresses or
-/// immediates), so renamed registers, moved code and other constants leave the sketch unchanged.
-/// </summary>
+/// <summary>MinHash sketches of instruction-shape 3-grams, unchanged by renamed registers, moved code and other constants.</summary>
 public static class CodeSketch
 {
     public const int Size = 32;
@@ -84,11 +81,7 @@ public sealed record SimilarHit(ImagePrints Image, int Index, double Score, stri
 /// <summary>Functions of one image that are copies (same shape) or near-copies of each other; members are print indexes by address.</summary>
 public sealed record SimilarGroup(string Kind, int[] Members, double[] Scores);
 
-/// <summary>
-/// Similar functions within one image (and across images of one architecture): a query scans every function's sketch and
-/// prints, then rescores the best candidates on exact 3-gram sets; duplicates group identical shapes; clusters link
-/// near-duplicates found through MinHash bands.
-/// </summary>
+/// <summary>Similar functions, duplicates and near-duplicate clusters within one image or across images of one architecture.</summary>
 public static class SimilarFunctions
 {
     /// <summary>A query's exact rescoring covers at most this many candidates.</summary>
@@ -120,17 +113,14 @@ public static class SimilarFunctions
     private static bool Eligible(FunctionPrint p, int minInstructions) =>
         !p.Failed && p.Sketch != null && p.ThunkImport == null && p.Instructions >= minInstructions;
 
-    /// <summary>
-    /// Functions similar to <paramref name="query"/> of <paramref name="home"/> in <paramref name="scope"/> (which includes
-    /// home for same-image results), best first, at least <paramref name="minScore"/>.
-    /// </summary>
+    /// <summary>Functions in <paramref name="scope"/> similar to <paramref name="query"/>, best first, scoring at least <paramref name="minScore"/>.</summary>
     public static List<SimilarHit> Similar(ImagePrints home, int query, IReadOnlyList<ImagePrints> scope, double minScore, int minInstructions, int keep,
         CancellationToken ct, out int compared)
     {
         var q = home.Functions[query];
         if (q.Failed || q.Sketch == null) { compared = 0; return []; }
         keep = Math.Clamp(keep, 1, MaxRescored);
-        // pass 1: every function's sketch estimate and print features
+        // Pass 1: every function's sketch estimate and print features.
         var pre = new ConcurrentBag<(ImagePrints Image, int Index, double Score)>();
         int scanned = 0;
         foreach (var image in scope)
@@ -143,7 +133,7 @@ public static class SimilarFunctions
                 local.Seen++;
                 double j = CodeSketch.Jaccard(q.Sketch, c.Sketch!);
                 double code = Math.Max(j, 0.9 * EstimatedContainment(j, q.Shingles, c.Shingles));
-                // slack for the estimate's noise (about 0.09 at Jaccard 0.5)
+                // Slack for the estimate's noise (about 0.09 at Jaccard 0.5).
                 double s = Score(q, c, code, same);
                 if (s >= minScore - 0.15) local.Hits.Add((image, i, s));
                 return local;
@@ -155,7 +145,7 @@ public static class SimilarFunctions
         for (int k = 0; k < scope.Count; k++) rank.TryAdd(scope[k], k);
         var top = pre.OrderByDescending(x => x.Score).ThenBy(x => rank[x.Image]).ThenBy(x => x.Image.Functions[x.Index].Start).Take(keep).ToList();
 
-        // pass 2: exact 3-gram sets of the best candidates
+        // Pass 2: exact 3-gram sets of the best candidates.
         var mine = ExactShingles(home, q, ct);
         var hits = new SimilarHit?[top.Count];
         Parallel.For(0, top.Count, new ParallelOptions { CancellationToken = ct }, () => new Dictionary<ImagePrints, MaskedDecoder>(), (k, _, decoders) =>
@@ -186,7 +176,7 @@ public static class SimilarFunctions
     /// <summary>Containment of the smaller set in the larger estimated from Jaccard and the set sizes; 0 when the candidate is not larger.</summary>
     private static double EstimatedContainment(double jaccard, int query, int candidate)
     {
-        // a single agreeing slot is noise at this sketch size
+        // A single agreeing slot is noise at this sketch size.
         if (candidate <= query || jaccard < 2.0 / CodeSketch.Size) return 0;
         return Math.Min(1, jaccard * (query + candidate) / ((1 + jaccard) * query));
     }
@@ -225,10 +215,7 @@ public static class SimilarFunctions
         return (double)both / (a.Length + b.Length - both);
     }
 
-    /// <summary>
-    /// Groups of functions with the same control-flow graph and instruction shapes: identical when all have the same
-    /// bytes (addresses masked), else same_shape. Most redundant bytes first.
-    /// </summary>
+    /// <summary>Groups of functions of one graph and instruction shape (identical or same_shape), most redundant bytes first.</summary>
     public static List<SimilarGroup> Duplicates(ImagePrints image, int minInstructions, CancellationToken ct)
     {
         var groups = new Dictionary<ulong, List<int>>();
@@ -252,10 +239,7 @@ public static class SimilarFunctions
         long Redundant(SimilarGroup g) => g.Members.Skip(1).Sum(i => (long)f[i].Size);
     }
 
-    /// <summary>
-    /// Clusters of near-duplicates: functions of one shape are one cluster; shapes are linked when they share a MinHash band
-    /// and score at least <paramref name="minScore"/> (sketch estimate). Largest clusters first; cached per image and settings.
-    /// </summary>
+    /// <summary>Near-duplicate clusters linked through MinHash bands at <paramref name="minScore"/>, largest first; cached per image and settings.</summary>
     public static List<SimilarGroup> Clusters(ImagePrints image, double minScore, int minInstructions, CancellationToken ct, out int compared)
     {
         var cache = ClusterCache.GetValue(image, _ => new());
@@ -266,7 +250,7 @@ public static class SimilarFunctions
         int Find(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
         void Union(int a, int b) { a = Find(a); b = Find(b); if (a != b) parent[Math.Max(a, b)] = Math.Min(a, b); }
 
-        // one representative per shape
+        // One representative per shape.
         var byShape = new Dictionary<ulong, int>();
         var reps = new List<int>();
         for (int i = 0; i < f.Length; i++)
@@ -305,7 +289,7 @@ public static class SimilarFunctions
                         for (int j = i + 1; j < members.Count; j++) Compare(members[i], members[j]);
                     continue;
                 }
-                // a crowded bucket (many small look-alikes): neighbours by size only
+                // A crowded bucket (many small look-alikes) compares neighbours by size only.
                 members.Sort((a, b) => f[a].Instructions.CompareTo(f[b].Instructions));
                 for (int i = 0; i < members.Count; i++)
                     for (int j = i + 1; j < Math.Min(members.Count, i + 1 + BucketWindow); j++) Compare(members[i], members[j]);

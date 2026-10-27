@@ -69,14 +69,11 @@ internal sealed class JsBinding(string name, JsScope scope)
     public int ParamIndex { get; set; } = -1;
     public List<(Node Expr, JsScope Scope, string[] Path)> Sources { get; } = [];
     internal JsValue? Cached;
-    internal byte State; // 0 not evaluated, 1 evaluating, 2 done
+    // 0 not evaluated, 1 evaluating, 2 done.
+    internal byte State;
 }
 
-/// <summary>
-/// One parsed script with its scopes: names resolved to their declarations (var, let, const, function, class, parameters,
-/// imports, destructuring), and a small evaluator that follows them to strings, module members (require, esbuild
-/// __require, webpack module ids, interop wrappers, export getters), functions and object literals. Bounded depth, no execution.
-/// </summary>
+/// <summary>One parsed script with resolved scopes and a bounded evaluator to strings, module members, functions and object literals; nothing executes.</summary>
 internal sealed class JsProgram
 {
     private const int MaxDepth = 16;
@@ -223,7 +220,7 @@ internal sealed class JsProgram
                     if (ae.Left is Identifier li) _assignments.Add((li.Name, scope, ae.Right));
                     else if (ae.Left is MemberExpression me && scope.FunctionScope.Factory is { } module) Export(module, me, ae.Right, scope);
                     break;
-                // webpack's export getters: r.d(exports, { name: () => value })
+                // Webpack export getters: r.d(exports, { name: () => value }).
                 case CallExpression { Callee: MemberExpression { Property: Identifier { Name: "d" }, Computed: false }, Arguments: [Identifier, ObjectExpression getters] }
                     when scope.FunctionScope.Factory is { } module:
                     foreach (var p in getters.Properties.OfType<Property>())
@@ -426,8 +423,9 @@ internal sealed class JsProgram
     {
         if (b.Fixed != null) return b.Fixed;
         if (b.State == 2) return b.Cached;
-        if (b.State == 1) return null; // a cycle
-        // one source, not counting null and undefined (let x; try { x = require(...) } catch { x = null })
+        // A cycle.
+        if (b.State == 1) return null;
+        // One source, not counting null and undefined (let x; try { x = require(...) } catch { x = null }).
         var sources = b.Sources.Count == 1 ? b.Sources : b.Sources.Where(s => s.Expr is not (NullLiteral or Identifier { Name: "undefined" } or UnaryExpression { Operator: Operator.Void })).ToList();
         if (sources.Count != 1) return null;
         b.State = 1;
@@ -472,9 +470,9 @@ internal sealed class JsProgram
             if (callee is Identifier ci)
             {
                 var b = scope.Lookup(ci.Name);
-                // a webpack factory's third parameter (any name): the bundle's require
+                // A webpack factory's third parameter (any name) is the bundle's require.
                 if (b is { ParamIndex: 2 } && b.Scope.Factory != null || RuntimeRequire.Contains(ci.Name) && b?.Fixed is JsFunction) return Bundled(request, depth);
-                // esbuild declares its __require shim; the names are distinctive enough to trust bound or not
+                // Esbuild declares its __require shim; the names are distinctive enough to trust bound or not.
                 if (RequireNames.Contains(ci.Name)) return new JsRef(request, "");
                 if (b != null && Value(b, depth + 1) is JsRef { Module: "", Path: var alias } && RequireNames.Contains(alias)) return new JsRef(request, "");
             }
@@ -494,7 +492,8 @@ internal sealed class JsProgram
             case JsRef r when r.Module.Contains("axios", StringComparison.Ordinal) && r.Path == "create" || r is { Module: "", Path: "axios.create" }:
                 return new JsClient("axios", args.Count > 0 && Eval(args[0], scope, depth + 1) is JsObject cfg && Property(cfg, "baseURL", depth) is JsString b2 ? b2.Text : null);
             case JsRef r when args.Count == 0 && r.Path.Length == 0:
-                return r; // a getter such as webpack's n.n(module)()
+                // A getter such as webpack's n.n(module)().
+                return r;
             case JsModuleValue mv when args.Count == 0:
                 return mv;
             case JsFunction f when Returned((Node)f.Node) is { } returned && f.Node.Params.Count == 0:

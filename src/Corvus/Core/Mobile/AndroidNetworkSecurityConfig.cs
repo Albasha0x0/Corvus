@@ -1,9 +1,6 @@
 namespace Corvus.Core.Mobile;
 
-/// <summary>
-/// One scope of a network security config: base-config, a domain-config (its domains; nested ones inherit unset values)
-/// or debug-overrides. Trust anchors are certificates src values ("system", "user", "@raw/name").
-/// </summary>
+/// <summary>One network security config scope; trust anchors are certificates src values.</summary>
 public sealed record NetworkSecurityScope(string Scope, IReadOnlyList<string> Domains, bool? CleartextPermitted, IReadOnlyList<string> TrustAnchors,
     IReadOnlyList<string> Pins, string? PinExpiration);
 

@@ -8,11 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests.Accuracy;
 
-/// <summary>
-/// Function discovery of our engine scored against symbol truth on stripped copies of unstripped ELF images from NuGet
-/// packages (baseline.json: package, file, IDA / Ghidra scores captured with the research scorer, and our thresholds).
-/// Thresholds only rise: a score above its threshold by more than 0.005 is reported so the baseline can be raised.
-/// </summary>
+/// <summary>Function starts in stripped NuGet ELF images scored against their symbols; baseline.json thresholds only rise.</summary>
 [Trait("Speed", "Slow")]
 public class AccuracyTests(ITestOutputHelper output)
 {
@@ -117,12 +113,9 @@ public class AccuracyTests(ITestOutputHelper output)
         return end ?? f.End;
     }
 
-    /// <summary>
-    /// Research dump (runs only with CORVUS_ACCURACY_DIR): every image of images.json analysed by our engine, its
-    /// functions and the references to the sampled targets written to results/ours/&lt;id&gt;.json for the scorer.
-    /// </summary>
+    /// <summary>Runs only with CORVUS_ACCURACY_DIR; writes results/ours/&lt;id&gt;.json per image of images.json.</summary>
     [Fact]
-    public void Research_dump()
+    public void Each_image_writes_its_functions_and_sampled_references_for_the_scorer()
     {
         if (Environment.GetEnvironmentVariable(ResearchDir) is not { Length: > 0 } dir) { output.WriteLine($"{ResearchDir} not set: skipped"); return; }
         var only = Environment.GetEnvironmentVariable("CORVUS_ACCURACY_IDS")?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
@@ -156,7 +149,7 @@ public class AccuracyTests(ITestOutputHelper output)
             var xrefs = new JsonObject();
             foreach (var t in targets)
             {
-                // a Thumb pointer (odd value) is recorded at the even function start
+                // A Thumb pointer (odd value) is recorded at the even function start.
                 var refs = image.Arch == NativeArch.Arm && (t & 1) != 0 ? index.RefsTo(t).Concat(index.RefsTo(t & ~1u)) : index.RefsTo(t);
                 xrefs[t.ToString()] = new JsonArray(refs.Select(x => (JsonNode)new JsonArray(x.From, x.Kind.ToString())).ToArray());
             }

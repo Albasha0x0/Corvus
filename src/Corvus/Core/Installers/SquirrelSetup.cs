@@ -2,10 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Installers;
 
-/// <summary>
-/// Squirrel.Windows Setup.exe: a native stub carrying the release as a zip in resource DATA/131 (RELEASES, the full
-/// .nupkg and the updater); the zip's files are listed and extracted as the zip reader does, with the releases named.
-/// </summary>
+/// <summary>Squirrel.Windows Setup.exe: the release zip in resource DATA/131, read as the zip reader reads it.</summary>
 internal sealed class SquirrelSetupReader : IContainerReader
 {
     private const string ResourceType = "DATA";

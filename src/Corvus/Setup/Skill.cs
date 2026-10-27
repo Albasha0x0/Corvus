@@ -4,11 +4,7 @@ using Corvus.Mcp;
 
 namespace Corvus.Setup;
 
-/// <summary>
-/// The optional agent skill, generated from the server's own guidance (<see cref="Guide"/>), so it never describes tools
-/// the server lacks. The repository keeps a copy in skills/corvus (checked by a test); install --skill writes it
-/// for clients that read skills, with a marker file, and only marked folders are refreshed or removed.
-/// </summary>
+/// <summary>The optional agent skill, generated from the server's guidance; only folders with its marker are refreshed or removed.</summary>
 internal static class Skill
 {
     public const string Name = "corvus";
@@ -44,7 +40,7 @@ internal static class Skill
     public const string Description =
         "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the Corvus MCP server " +
         "or its corvus command line: decompile, search, follow calls, compare builds, read crash dumps, patch and save a copy. " +
-        "Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp build, a package without " +
+        "Use when an answer depends on what a compiled program does (an .exe or .dll, an ahead-of-time compiled app, a package without " +
         "source, a crash dump, two builds of one app). Skip it when the source code is at hand.";
 
     private static string Body()

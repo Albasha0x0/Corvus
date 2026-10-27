@@ -58,8 +58,7 @@ public sealed partial class EnvironmentCollectionTests
     [Fact]
     public void A_class_in_the_external_tool_collection_sets_only_the_tools_own_variables()
     {
-        // Read through ExternalTools.ReadVariable, so in the test's flow; CORVUS_TEST_* only the tests read. Any other
-        // variable reaches every test running then.
+        // Read through ExternalTools.ReadVariable or named CORVUS_TEST_*; any other variable reaches every concurrent test.
         var tools = Corvus.Native.Providers.ExternalTools.Table.Select(t => t.Variable)
             .Append("CORVUS_DIE").Append(Corvus.Core.ReferencePacks.OfflineVariable).Append(Corvus.Native.Pdb.PdbLocator.CacheVariable)
             .ToHashSet(StringComparer.Ordinal);

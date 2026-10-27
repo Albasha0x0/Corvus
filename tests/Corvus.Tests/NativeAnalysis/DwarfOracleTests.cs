@@ -9,11 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The DWARF reader against llvm-dwarfdump and llvm-symbolizer (CORVUS_LLVM_BIN) on 25 ELF and 5 Mach-O libraries of the
-/// NativeAOT runtime packs; DWARF 2-5, type units, compressed sections, 32-bit and big-endian targets built with clang; and a
-/// debug file of a gigabyte read within the memory budget.
-/// </summary>
+/// <summary>The DWARF reader against llvm-dwarfdump and llvm-symbolizer (CORVUS_LLVM_BIN) on runtime-pack libraries, DWARF 2-5 variants, and a 1 GB debug file within the memory budget.</summary>
 [Trait("Speed", "Slow")]
 [Permit("reference-tool")]
 public sealed partial class DwarfOracleTests(ITestOutputHelper output)
@@ -65,7 +61,7 @@ public sealed partial class DwarfOracleTests(ITestOutputHelper output)
         }
         static string Normalize(string offset) => Convert.ToUInt64(offset, 16).ToString("x");
         static string? Quoted(string? value) => value == null ? null : Regex.Match(value, "\"([^\"]*)\"\\s*\\)?$") is { Success: true } m ? m.Groups[1].Value : null;
-        // the value's last hex number outside quotes: "(0x10)", "(indexed (0049) address = 0x2960)", "(cu + 0x3a => {0x0000003a} ...)"
+        // The value's last hex number outside quotes: "(0x10)", "(indexed (0049) address = 0x2960)", "(cu + 0x3a => {0x0000003a} ...)".
         static ulong? Number(string? value) =>
             value == null ? null : Regex.Matches(Regex.Replace(value, "\"[^\"]*\"", ""), "0x[0-9a-fA-F]+") is { Count: > 0 } m ? Convert.ToUInt64(m[^1].Value, 16) : null;
         string? NameOf(string offset)
@@ -89,7 +85,7 @@ public sealed partial class DwarfOracleTests(ITestOutputHelper output)
                 && Quoted(attrs.GetValueOrDefault("DW_AT_name")) is { } sname && parent != null && dies[parent].Tag is "DW_TAG_compile_unit" or "DW_TAG_namespace")
             {
                 long size = (long)(Number(attrs.GetValueOrDefault("DW_AT_byte_size")) ?? 0);
-                // a bit field by its bit offset (DWARF 4+), else a member by its byte offset
+                // A bit field by its bit offset (DWARF 4+), else a member by its byte offset.
                 var members = order.Where(o => dies[o].Parent == offset && dies[o].Tag == "DW_TAG_member" && !dies[o].Attrs.ContainsKey("DW_AT_declaration"))
                     .Select(o => (Quoted(dies[o].Attrs.GetValueOrDefault("DW_AT_name")) ?? "",
                         dies[o].Attrs.TryGetValue("DW_AT_data_bit_offset", out var bits) ? -1 - (long)(Number(bits) ?? 0)
@@ -182,10 +178,7 @@ public sealed partial class DwarfOracleTests(ITestOutputHelper output)
         geo::Square g_square;
         """;
 
-    /// <summary>
-    /// One C++ source built as DWARF 2, 3, 4 and 5, with type units, for 64- and 32-bit and a big-endian target (clang and lld
-    /// from CORVUS_LLVM_BIN): the same qualified names, layouts, bit fields, enums and inlined calls from each.
-    /// </summary>
+    /// <summary>One C++ source built as DWARF 2 to 5, 64- and 32-bit and big-endian, gives the same names, layouts, enums and inlined calls.</summary>
     [Fact]
     public void Dwarf_versions_type_units_and_targets_read_alike()
     {
@@ -234,7 +227,7 @@ public sealed partial class DwarfOracleTests(ITestOutputHelper output)
             Assert.Equal(pointer, model.Node(Assert.Single(model.Named("geo::Box<long>")))!.Size);
         }
 
-        // a big-endian bit field counted from the storage unit's most significant bit, as the declaration order lays it out
+        // A big-endian bit field counted from the storage unit's most significant bit, as the declaration order lays it out.
         static long Msb(PdbTypeMember m) => (m.BitLength == 40 ? 64 : 32) - m.BitPosition - m.BitLength;
     }
 }

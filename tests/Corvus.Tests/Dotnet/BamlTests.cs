@@ -9,7 +9,7 @@ public class BamlTests
 {
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task BamlEntries_AreDecompiledToXaml()
+    public async Task BAML_entries_are_decompiled_to_XAML()
     {
         // WPF theme assembly from the desktop runtime; its .g.resources holds BAML.
         var aero2 = Frameworks.All.Value.Where(s => s.Name == "Microsoft.WindowsDesktop.App")

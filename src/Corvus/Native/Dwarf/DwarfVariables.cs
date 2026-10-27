@@ -2,11 +2,7 @@ using Corvus.Native.Pdb;
 
 namespace Corvus.Native.Dwarf;
 
-/// <summary>
-/// The parameters and local variables in scope at an address: those of the function, its inlined calls and lexical
-/// blocks that hold the address, each with its location there: a location list's entry for the address, else the
-/// location expression, described in the target's register names ("rdi", "[rbp-0x14]", "[CFA-0x18]").
-/// </summary>
+/// <summary>The parameters and locals in scope at an address, with their location there in register names ("rdi", "[rbp-0x14]").</summary>
 internal static class DwarfVariables
 {
     private const int MaxVariables = 64;

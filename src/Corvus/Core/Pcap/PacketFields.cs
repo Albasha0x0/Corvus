@@ -187,10 +187,7 @@ internal sealed record HelloFacts(string? Sni, List<string> Alpn, string? Ja3 = 
     }
 }
 
-/// <summary>
-/// One frame as the filter reads it: the decoded IP / TCP / UDP headers at once, protocol fields on first use (cached for
-/// the frame). <see cref="PacketDissector"/> reuses one view for every frame.
-/// </summary>
+/// <summary>One frame as the filter reads it, protocol fields decoded on first use; one view is reused for every frame.</summary>
 internal sealed class PacketView
 {
     private readonly Dictionary<PacketField, List<FieldValue>> _values = [];
@@ -205,7 +202,7 @@ internal sealed class PacketView
     public DecodedPacket P;
     /// <summary>A ClientHello completed by this frame: joined over TCP segments, or from QUIC Initial CRYPTO frames.</summary>
     public HelloFacts? JoinedHello;
-    // set by the trackers of the layers the filter names
+    // Set by the trackers of the layers the filter names.
     public Http2Facts? Http2;
     public QuicFacts? Quic;
     public Smb2Facts? Smb2;
@@ -290,10 +287,7 @@ internal sealed class PacketView
         }
     }
 
-    /// <summary>
-    /// A TCP payload that starts with a whole TLS record (content type 20–24, version 3.x), or completes a joined ClientHello:
-    /// as with Wireshark's reassembly, the first segments of a split record are not TLS yet.
-    /// </summary>
+    /// <summary>True for a payload starting a whole TLS record or completing a joined ClientHello, as Wireshark reassembles.</summary>
     public bool TlsRecord => JoinedHello != null
         || Tcp && Payload is { Length: >= 5 } p && p[0] is >= 20 and <= 24 && p[1] == 3 && p[2] <= 4 && 5 + BinaryPrimitives.ReadUInt16BigEndian(p[3..]) <= p.Length;
 

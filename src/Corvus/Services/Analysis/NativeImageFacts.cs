@@ -48,8 +48,8 @@ public sealed record NativeImageFacts(
         {
             case ElfFile elf:
                 if (elf.AndroidIdent is { } a) platform = $"Android API {a.ApiLevel}" + (a.NdkVersion is { Length: > 0 } ndk ? $", NDK {ndk}" : "");
-                if (elf.SectionHeaders.Count == 0) highlights.Add("ELF without section headers (stripped or protected): sections are read from the load segments.");
-                if (elf.IsMappedDump) highlights.Add("A memory image of an ELF (segments at their load addresses): read as mapped.");
+                if (elf.SectionHeaders.Count == 0) highlights.Add("ELF without section headers: sections are read from the load segments.");
+                if (elf.IsMappedDump) highlights.Add("ELF memory image: read as mapped.");
                 break;
             case MachOFile m:
                 if (m.BuildVersion is { } bv) platform = $"{bv.PlatformName} {MachONames.Version(bv.MinOs)} (SDK {MachONames.Version(bv.Sdk)})";

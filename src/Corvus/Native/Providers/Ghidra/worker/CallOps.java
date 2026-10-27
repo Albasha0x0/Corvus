@@ -29,10 +29,8 @@ final class CallOps {
     }
 
     /**
-     * What Ghidra knows about the call instructions at sites (rvas) in functions (rvas), within seconds. Rows:
-     * [site, "xref", target]: a call reference to a function; [site, "vftable", struct, offset]: the decompiler loads
-     * the target from a member of a struct reached through a pointer (a vftable as apply_types defines it);
-     * [site, "direct", target]: the decompiler resolved the call to a function; [site, "other", how]: anything else.
+     * Call targets at sites in functions, within seconds. Rows: [site, "xref", target]; [site, "direct", target];
+     * [site, "vftable", struct, offset]: loaded from a struct member through a pointer; [site, "other", how].
      */
     static JsonElement virtualTargets(Worker w, Worker.Request r) throws Exception {
         long deadline = System.nanoTime() + (long) ((r.args.has("seconds") ? r.args.get("seconds").getAsDouble() : 60) * 1e9);

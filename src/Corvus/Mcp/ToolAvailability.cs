@@ -2,10 +2,8 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Tools, and modes of tools, that cannot work on this machine, with the reason and the fix (server_status unavailableTools).
-/// The catalog itself is the same everywhere, so its digest does not depend on the machine.
-/// </summary>
+/// <summary>Tools and modes that cannot work on this machine, with reason and fix (server_status unavailableTools).</summary>
+// The catalog is the same everywhere, so its digest does not depend on the machine.
 public static class ToolAvailability
 {
     public sealed record Unavailable(string Tool, string? Mode, string Reason, string? Remediation);
@@ -31,18 +29,15 @@ public static class ToolAvailability
 
     public static readonly IReadOnlyList<string> WindowsOnly = ["inspect_process"];
 
-    /// <summary>
-    /// Modes that launch a program found on this machine: (tool, mode, found, reason, fix). The program checks run side
-    /// by side, each waiting at most <paramref name="wait"/> (default <see cref="ExternalTools.StatusWait"/>); a check
-    /// still running then counts as found, its version unknown.
-    /// </summary>
+    /// <summary>Modes that launch a program found here: (tool, mode, found, reason, fix).</summary>
+    // Checks run side by side, each waiting at most wait; one still running counts as found, version unknown.
     private static IEnumerable<(string Tool, string? Mode, bool Found, string Reason, string Remediation)> ExternalPrograms(TimeSpan? wait = null)
     {
         var limit = wait ?? ExternalTools.StatusWait;
         var checks = new[] { ExternalTools.JavaDecompiler, ExternalTools.Java, ExternalTools.Adb, ExternalTools.Emulator }
             .Select(tool => Task.Factory.StartNew(() => ExternalTools.Probe(tool, limit), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default))
             .ToArray();
-        yield return ("unity_overview", "detectItEasy=true", Services.Analysis.UnityOverview.FindDie() != null,
+        yield return ("summarize_build", "detectItEasy=true", Services.Analysis.BuildSummary.FindDie() != null,
             "Detect It Easy (diec) was not found in CORVUS_DIE or on PATH", "set CORVUS_DIE to the Detect It Easy folder (or diec.exe)");
         foreach (var probe in checks[..2].Select(c => c.GetAwaiter().GetResult()))
             yield return ("decompile_java", null, probe.Usable, $"{probe.Name}: {probe.Problem}", probe.Remediation);
@@ -72,10 +67,7 @@ public static class ToolAvailability
     public static IEnumerable<string> NamedTools =>
         EngineOnly.Keys.Concat(EngineModes.Select(m => m.Tool)).Concat(WindowsOnly).Concat(ExternalPrograms().Select(p => p.Tool)).Distinct();
 
-    /// <summary>
-    /// What does not work here among <paramref name="registered"/> tools, given the engines' static availability; each
-    /// program check waits at most <paramref name="wait"/> (default <see cref="ExternalTools.StatusWait"/>).
-    /// </summary>
+    /// <summary>What does not work here among <paramref name="registered"/> tools; each program check waits at most <paramref name="wait"/>.</summary>
     public static List<Unavailable> Of(IReadOnlySet<string> registered, IReadOnlyList<ProviderAvailability> engines, bool idaScripting, bool isWindows,
         bool allowDeviceChanges = false, bool ghidraScripting = false, bool allowLive = false, bool allowLiveSpawn = false,
         bool liveScripting = false, bool allowLiveAttach = false, TimeSpan? wait = null)

@@ -46,10 +46,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return ts;
     }
 
-    /// <summary>
-    /// What a type system depends on: the loaded assemblies with their edit versions (references resolve to them) and the
-    /// search directories. Writes that change none of these (notes, failed edits, other generations) keep the type systems.
-    /// </summary>
+    /// <summary>The type systems' cache key: loaded assemblies with their edit versions, and the search directories.</summary>
     internal string TypeSystemKey()
     {
         var sb = new StringBuilder();
@@ -104,17 +101,15 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }, ct);
 
-    /// <summary>
-    /// A note when the decompiler view is a normalized copy, and a warning when some of the type's method bodies are not
-    /// valid IL; empty otherwise.
-    /// </summary>
+    /// <summary>A note for a normalized view and a warning for invalid method bodies; empty otherwise.</summary>
     private static string InvalidBodiesNote(LoadedAssembly asm, Dn.TypeDef type)
     {
-        asm.GetPEFile(); // decides whether the view is normalized
+        // Decides whether the view is normalized.
+        asm.GetPEFile();
         if (asm.IsDirty || asm.BodyHealth.Invalid == 0) return asm.DecompilerNote;
         var methods = type.Methods.Where(m => m.RVA != 0).ToList();
         int invalid = methods.Count(asm.BodyHealth.IsInvalid);
-        return asm.DecompilerNote + (invalid == 0 ? "" : $"// Warning: {invalid} of {methods.Count} method bodies of this type are not valid IL (encrypted, or dumped from memory before decryption): their code below is meaningless.\n");
+        return asm.DecompilerNote + (invalid == 0 ? "" : $"// Warning: {invalid} of {methods.Count} method bodies of this type are not valid IL (encrypted, or dumped before decryption): their code below is meaningless.\n");
     }
 
     /// <summary>Decompiles each member, falling back to IL for any member that fails.</summary>
@@ -128,9 +123,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }, ct);
 
     /// <summary>
-    /// Shows a constructor within its type, trimmed to the header, the field/property initializers of the same kind
-    /// (instance or static) and the constructors, since the engine moves part of its body into initializers or a
-    /// primary constructor. Null when there are none.
+    /// A constructor shown in its type with the initializers the engine moved out of its body; null when there are none.
     /// </summary>
     private static string? ConstructorInContext(LoadedAssembly asm, Dn.MethodDef ctor, CSharpDecompiler decompiler, Dictionary<Dn.TypeDef, Syn.SyntaxTree> trees)
     {
@@ -164,9 +157,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// Whether the engine can move part of the constructor into initializers or a primary constructor: it stores a field of
-    /// its type before calling the base or another constructor (a static constructor: at all). Otherwise the constructor is
-    /// shown alone, without decompiling its whole type.
+    /// Whether the constructor stores an own field before its base or this(...) call, so the engine may move it to initializers.
     /// </summary>
     private static bool MayHaveInitializers(Dn.MethodDef ctor)
     {
@@ -186,9 +177,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     {
         var header = $"// {Format.MemberLabel(member)}  [token {Format.Token(member)}]";
         if (MetadataUtil.IsReferenceAssembly(asm.Module))
-            header += "\n// Note: reference assembly — bodies are `throw null`, not the implementation (load the runtime's or the package's lib/ assembly).";
+            header += "\n// Note: reference assembly; bodies are `throw null` (load the implementation from lib/).";
         if (member is Dn.MethodDef method && !asm.IsDirty && asm.BodyHealth.IsInvalid(method))
-            header += "\n// Warning: this method body is not valid IL (encrypted, or dumped from memory before decryption): the code below is meaningless.";
+            header += "\n// Warning: this method body is not valid IL (encrypted, or dumped before decryption): the code below is meaningless.";
         try
         {
             if (member is Dn.MethodDef { IsConstructor: true } ctor && ConstructorInContext(asm, ctor, decompiler, trees) is { } inContext)
@@ -354,10 +345,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// Writes a buildable C# project (one file per type, .csproj, resources) to an empty directory, or over a previous export
-    /// with <paramref name="overwrite"/>. Whole or nothing: a failed or cancelled export leaves no output. Call it without the
-    /// workspace lock: what it reads is copied under the shared lock first (<see cref="ExportSnapshot"/>), and the
-    /// decompilation runs on those copies, so edits, reloads and unloads meanwhile neither wait for it nor change it.
+    /// Writes a buildable C# project to an empty directory, or over a previous export with <paramref name="overwrite"/>;
+    /// a failed or cancelled export leaves no output. Call without the workspace lock: it works on a snapshot taken under the shared lock.
     /// </summary>
     public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct,
         bool overwrite = false)
@@ -416,9 +405,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// What an export reads from the workspace, copied under the shared lock: the decompiler's image of the assembly and the
-    /// module facts the project needs. Afterwards the export touches no live module or reader; references resolve to private
-    /// copies (each lookup takes the shared lock briefly) that are disposed with the snapshot.
+    /// What an export reads, copied under the shared lock; references resolve to private copies disposed with the snapshot.
     /// </summary>
     private sealed class ExportSnapshot : IDisposable
     {
@@ -600,8 +587,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             File.WriteAllBytes(Path.Combine(lib, name + ".dll"), bytes);
         if (stubs.Count > 0)
             text = text.Replace("</Project>", "  <!-- " + string.Join(", ", stubs.Keys.Order(StringComparer.OrdinalIgnoreCase)) +
-                                              (stubs.Count == 1 ? " was" : " were") + " not found on the machine that exported this project: lib\\ holds stand-ins " +
-                                              "built from what this code uses (their methods throw). Replace them with the real files to run it. -->\n</Project>");
+                                              (stubs.Count == 1 ? " was" : " were") + " not found at export: lib\\ holds stand-ins whose methods throw; " +
+                                              "replace them with the real files to run it. -->\n</Project>");
         // Rewrite the engine's placeholder paths for embedded references.
         text = System.Text.RegularExpressions.Regex.Replace(text, @"<HintPath>[^<]*!([^<!]+\.dll)</HintPath>",
             m => $"<HintPath>lib\\{m.Groups[1].Value}</HintPath>");
@@ -631,11 +618,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// A .NET Standard project gets its framework assemblies from the SDK, so references into .NET Framework or shared
-    /// framework folders are dropped (their .NET Framework facades forward to mscorlib: CS1069); under .NET Standard 1.x a
-    /// contract outside the standard library (System.Collections.NonGeneric) becomes its package. For .NET Framework, an
-    /// out-of-band library whose installed runtime copy is a facade (System.ValueTuple forwards to the mscorlib of 4.7+) or
-    /// older than the version referenced (System.Numerics.Vectors) is its package's library when one is found.
+    /// .NET Standard: drops framework-folder references (CS1069) and turns 1.x contracts into packages. .NET Framework:
+    /// points an out-of-band library whose installed copy is a facade or older at its package's library.
     /// </summary>
     private static void FixFrameworkFileReferences(string dir, string? framework, bool netFramework, IReadOnlyDictionary<string, Version?> referenced)
     {
@@ -698,9 +682,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     private static bool IsFrameworkFile(string file) => Frameworks.InNetFrameworkDirectory(file) || Frameworks.SharedFrameworkMajor(file) != null;
 
     /// <summary>
-    /// References the dependencies of the referenced libraries (CS0012: a type of System.Numerics.Vectors reached
-    /// through System.Memory). Each is taken from the original application's folder when it ships a copy, else as it
-    /// resolves; framework assemblies are left to the framework (by name for .NET Framework).
+    /// References the dependencies of the referenced libraries (CS0012), preferring the application's own copies.
     /// </summary>
     private static void AddTransitiveReferences(ExportSnapshot asm, string dir, string? framework, bool netFramework, CancellationToken ct)
     {
@@ -895,9 +877,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     private readonly LinkedList<(string Key, List<(int Start, int End, int Line, string Text)> Points)> _statements = new();
 
     /// <summary>
-    /// The statement of <paramref name="method"/> at <paramref name="ilOffset"/> (a frame's IL offset), from the
-    /// decompiler's sequence points; a state machine's MoveNext maps through the method that starts it. Null when no
-    /// statement covers the offset or the assembly has edits (its IL offsets are not the ones that ran).
+    /// The statement at a frame's IL offset, from sequence points; a state machine's MoveNext maps through the method that
+    /// starts it. Null when none covers it or the assembly has edits.
     /// </summary>
     public IlStatement? StatementAt(LoadedAssembly asm, Dn.MethodDef method, int ilOffset, CancellationToken ct)
     {
@@ -986,7 +967,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new ToolError(ErrorCode.Timeout, $"Decompilation timed out after {options.TimeoutSeconds}s. Decompile a smaller unit (one method via decompile_member), use get_il, or restart the server with a larger --timeout.");
+            throw new ToolError(ErrorCode.Timeout, $"Decompilation timed out after {options.TimeoutSeconds}s.",
+                "decompile one method with decompile_member, use get_il, or restart the server with a larger --timeout");
         }
     }
 

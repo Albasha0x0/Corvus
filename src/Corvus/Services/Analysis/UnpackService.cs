@@ -6,10 +6,7 @@ using Corvus.Services;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// Recursively opens nested containers up to <see cref="AnalysisLimits.MaxDepth"/>. Output directories carry a marker
-/// file so a repeat unpack of the same file reuses them and unrelated directories are never written into.
-/// </summary>
+/// <summary>Opens nested containers up to <see cref="AnalysisLimits.MaxDepth"/>; a marker file lets a repeat unpack reuse its output folder and keeps writes out of unrelated folders.</summary>
 public sealed class UnpackService(AssemblyWorkspace workspace)
 {
     private const string Marker = ".corvus-unpack";
@@ -44,7 +41,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         /// <summary>Assemblies in the container that match the filter; Assemblies holds one page.</summary>
         public int Total { get; init; }
 
-        /// <summary>Archive containers (ASAR, UnityWebData, HAR, flows): one page of the entries matching the filter, with size and flags.</summary>
+        /// <summary>Archive containers (ASAR, WebPlayerData, HAR, flows): one page of the entries matching the filter, with size and flags.</summary>
         public List<ContainerEntry>? Files { get; init; }
 
         /// <summary>Entries of an archive container that match the filter.</summary>
@@ -102,8 +99,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             ct.ThrowIfCancellationRequested();
             if (++index % 200 == 0) progress?.Invoke($"{index} of {walked.Items.Count} files written");
             string written;
+            // An archive can hold both "a.dll" and "a.dll/b.dll".
             try { written = Blob.WriteUnique(root, item.Relative, item.Bytes); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) // e.g. "a.dll" and "a.dll/b.dll" in one archive
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 notes.Add($"Could not write {item.Relative}: {ex.Message}");
                 continue;
@@ -135,12 +133,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             { Next = NextOf(extraction.Source, extraction.Container, extraction.Kind, files) };
     }
 
-    /// <summary>
-    /// A pcap / pcapng file read as a stream (<see cref="Core.Pcap.CaptureObjects"/>): its HTTP objects and TCP streams, with
-    /// tls.json listing each TLS connection (version, cipher suite, ALPN, JA3, JA4, JA4S, decrypted or why not); null for another file.
-    /// </summary>
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
+    /// <summary>A capture's HTTP objects and TCP streams, with tls.json listing each TLS connection; null for another file.</summary>
     private static (string Source, string Sha, Walked Walked)? Capture(string path, string? keyLog, AnalysisLimits limits, CancellationToken ct, Action<string>? progress)
     {
         string source;
@@ -194,9 +189,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         : !assembly ? 3
         : Path.GetFileNameWithoutExtension(path).EndsWith(".resources", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
 
-    /// <summary>
-    /// Lists managed assemblies without writing anything. Throws <see cref="ToolError"/> when the container is corrupt.
-    /// </summary>
+    /// <summary>Lists managed assemblies without writing anything; throws <see cref="ToolError"/> when the container is corrupt.</summary>
     public ContainerListing List(string path, AnalysisLimits limits, CancellationToken ct, string? filter = null, int offset = 0, int limit = MaxListed)
     {
         var managed = Managed(path, limits, ct);
@@ -213,13 +206,13 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             fileTotal = matching.Count;
             files = matching.Skip(offset).Take(take).ToList();
             if (offset + files.Count < matching.Count)
-                managed.Notes.Add($"{matching.Count} entries; {files.Count} listed from {offset} (offset and limit page through them, filter matches paths). unpack_container extracts them all.");
+                managed.Notes.Add($"{matching.Count} entries; {files.Count} listed from {offset}; offset and limit page, filter matches paths; unpack_container extracts them all.");
         }
         if (offset > 0 || total > take)
         {
             assemblies = assemblies.Skip(offset).Take(take).ToList();
-            managed.Notes.Add($"{total} assemblies; {assemblies.Count} listed{(offset > 0 ? $" from {offset}" : "")} (the app's first, translations last; " +
-                              "offset and limit page through them). search_container finds types and members in all of them; unpack_container extracts them.");
+            managed.Notes.Add($"{total} assemblies; {assemblies.Count} listed{(offset > 0 ? $" from {offset}" : "")}, the app's first; offset and limit page; " +
+                              "search_container searches all of them, unpack_container extracts them.");
         }
         return new ContainerListing(managed.Source, managed.Container,
             assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes) { Total = total, Files = files, FileTotal = fileTotal };
@@ -322,10 +315,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         catch (InvalidDataException) { return null; }
     }
 
-    /// <summary>
-    /// Searches symbol names in every contained assembly in memory, with search_symbols matching. Results are ranked
-    /// exact, prefix, substring; Total counts all matches.
-    /// </summary>
+    /// <summary>Searches symbol names in every contained assembly, ranked exact, prefix, substring; Total counts all matches.</summary>
     public ContainerSearch Search(string path, string query, SymbolKind kind, int limit, AnalysisLimits limits, CancellationToken ct, int offset = 0)
     {
         offset = Math.Max(0, offset);
@@ -362,7 +352,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                     }
                     searched++;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) // dnlib reads rows lazily
+                // dnlib reads rows lazily, so a corrupt row throws mid-walk.
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     notes.Add($"{a.Path}: corrupt metadata, only partly searched ({ex.Message}).");
                 }
@@ -398,10 +389,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return Managed(source, data, sha, Walk(data, sha, source, limits, ct), limits);
     }
 
-    /// <summary>
-    /// Managed assemblies in a file summarize_file has open (<paramref name="sha"/> is its SHA-256): a streamed file's top level
-    /// is read from a stream when its format allows (zip, HAR, archives; a capture or database is no container), else from its bytes.
-    /// </summary>
+    /// <summary>Managed assemblies in a file summarize_file has open; a streamed file's top level is read as a stream when its format allows.</summary>
     internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
         List<ManagedAssembly> Manifests) Managed(
         FileInput input, string sha, AnalysisLimits limits, CancellationToken ct)
@@ -410,7 +398,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var name = Path.GetFileName(input.Path);
         if (Containers.OpenStream(input.OpenRead, input.Head, name, limits, ct) is { } top)
             return Managed(input.Path, null, sha, Walk(top, sha, limits, ct), limits);
-        // a native image is held without its overlay; anything else is carved in windows
+        // A native image is held without its overlay; anything else is carved in windows.
         bool native = Native.NativeImageLoader.Detect(input.Head) is not (Native.NativeFileKind.Unknown or Native.NativeFileKind.Wasm);
         var large = Containers.OpenLarge(input.OpenRead, input.Head, native ? input.Image : null, input.Length, name, limits, ct);
         return Managed(input.Path, native ? input.Image : null, sha, Walk(large, sha, limits, ct), limits);
@@ -496,10 +484,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
     }
 
-    /// <summary>
-    /// A Blazor WebAssembly folder (_framework, or the app folder above it) as one container: its Webcil assemblies as PEs
-    /// named by assembly, so they unpack into one folder where they resolve each other. Null for anything else.
-    /// </summary>
+    /// <summary>A Blazor WebAssembly folder as one container of its Webcil assemblies as PEs named by assembly; null for anything else.</summary>
     private static (string Source, string Sha, Walked Walked)? WebcilFolder(string path, AnalysisLimits limits, CancellationToken ct)
     {
         string full;
@@ -525,8 +510,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             {
                 var itemSha = Blob.Sha256(item.Bytes);
                 var entry = new Found(item.Name, item.Bytes, DotNet, itemSha, Path.GetFileName(file));
-                // Fingerprinted copies of one assembly (App.abc.wasm, App.def.wasm) left by earlier publishes: the copy the boot
-                // manifest lists is the one the app loads; without a manifest, the first is kept.
+                // Of fingerprinted copies left by earlier publishes, keep the one the boot manifest lists, else the first.
                 if (byName.TryGetValue(item.Name, out var kept))
                 {
                     if (kept.Sha == itemSha) continue;
@@ -556,7 +540,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var top = Core.Installers.ClickOnceDeployment.Open(manifest, limits, ct);
         var sha = Blob.Sha256(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", top.Items.Select(i => i.Name + " " + Blob.Sha256(i.Bytes)))));
         var walked = Walk(top, sha, limits, ct, allFiles);
-        // the manifests' own listings repeat the deployment's
+        // The manifests' own listings repeat the deployment's.
         var manifests = top.Items.Take(2).Select(i => i.Name + ": ").ToList();
         walked.Notes.RemoveAll(n => manifests.Any(m => n.StartsWith(m, StringComparison.Ordinal)));
         return (manifest, sha, walked);
@@ -580,9 +564,10 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     private static (string Source, byte[] Data, string Sha) ReadSource(string path, AnalysisLimits limits)
     {
         if (Directory.Exists(Path.GetFullPath(path)) && BootManifestWithoutAssemblies(Path.GetFullPath(path)) is { } boot)
-            throw new ToolError(ErrorCode.NotFound, $"the boot manifest in {boot.Folder} lists {boot.Listed} assemblies; none is present (an incomplete copy of the app).",
+            throw new ToolError(ErrorCode.NotFound, $"the boot manifest in {boot.Folder} lists {boot.Listed} assemblies; none is present, so the copy is incomplete.",
                 "copy the app's _framework folder with its .wasm (or .dll) files and pass it again");
-        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host), a Blazor _framework folder or a ClickOnce publish folder. To load a folder of assemblies, use load_assembly.");
+        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory.",
+            "pass a container file (single-file app, .nupkg, .apk), a Blazor _framework folder or a ClickOnce publish folder; load_assembly loads a folder of assemblies");
         var source = InputFiles.RequireRegularFile(path, "container file");
         if (!File.Exists(source)) throw Targets.FileNotFound(source);
         var length = new FileInfo(source).Length;
@@ -591,10 +576,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return (source, data, Blob.Sha256(data));
     }
 
-    /// <summary>
-    /// Breadth-first walk of nested containers; duplicate content (same hash) appears once, except files of an archive
-    /// container (ASAR, UnityWebData, HAR, flows), which keep their own paths. allFiles extracts every archive file.
-    /// </summary>
+    /// <summary>Breadth-first walk of nested containers; duplicate content appears once, except archive files, which keep their paths.</summary>
     /// <remarks>A JavaScript bundle opens as one file per module only when every file is asked for (unpack, listing), never nested.</remarks>
     private static Walked Walk(byte[] data, string sha, string source, AnalysisLimits limits, CancellationToken ct, bool allFiles = false, Action<string>? progress = null) =>
         Walk((allFiles && Web.JsBundleFiles.Looks(data, source) ? Web.JsBundleFiles.Open(data, source, ct) : null)
@@ -615,7 +597,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             ct.ThrowIfCancellationRequested();
             var (item, prefix, depth, archived) = queue.Dequeue();
             var itemSha = Blob.Sha256(item.Bytes);
-            if (!seen.Add(itemSha) && !archived) continue; // e.g. identical per-ABI assembly stores
+            // Skips identical content such as per-ABI assembly stores.
+            if (!seen.Add(itemSha) && !archived) continue;
             if (found.Count >= limits.MaxItems || (total += item.Bytes.Length) > limits.MaxTotalBytes)
             {
                 notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
@@ -625,8 +608,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             var kind = Blob.Identify(item.Bytes);
             // String concatenation, not Path.Combine: a rooted item name would drop the prefix.
             var relative = Blob.SafeRelativePath(prefix + "/" + item.Name, $"item_{found.Count}", archived ? MaxArchiveDepth : 8);
+            // Carved assemblies get .dll so they resolve by name.
             if (kind == DotNet && !relative.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !relative.EndsWith(".exe.bin", StringComparison.OrdinalIgnoreCase))
-                relative += ".dll"; // so carved assemblies resolve by name
+                relative += ".dll";
             found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin));
             if (found.Count % 200 == 0) progress?.Invoke($"{found.Count} entries read ({total / (1024 * 1024):N0} MB)");
 
@@ -643,7 +627,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 if (inner.Kind == "none") continue;
                 notes.Add($"{item.Name}: {inner.Kind}.");
                 notes.AddRange(inner.Notes.Select(n => $"{item.Name}: {n}"));
-                var innerPrefix = prefix + "/" + item.Name + "_unpacked"; // sanitized when used
+                // Sanitized when used.
+                var innerPrefix = prefix + "/" + item.Name + "_unpacked";
                 foreach (var i in inner.Items) queue.Enqueue((i, innerPrefix, depth + 1, inner.Entries != null));
             }
             catch (ToolError ex)
@@ -692,8 +677,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             return Ours() ? root : throw new ToolError(ErrorCode.Conflict,
                 $"Output directory {root} is not empty and is not an earlier unpack of this file. Choose an empty or new directory.");
         Directory.CreateDirectory(root);
+        // A conflict from a concurrent unpack of the same file is accepted.
         try { SafeFile.WriteUnderRoot(root, Marker, System.Text.Encoding.UTF8.GetBytes($"{sha}\n{source}\n"), overwrite: false); }
-        catch (ToolError ex) when (ex.Code == ErrorCode.Conflict && Ours()) { } // a concurrent unpack of the same file
+        catch (ToolError ex) when (ex.Code == ErrorCode.Conflict && Ours()) { }
         return root;
     }
 }

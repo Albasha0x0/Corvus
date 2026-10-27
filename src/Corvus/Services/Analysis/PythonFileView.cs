@@ -6,12 +6,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=python: a frozen Python program (PyInstaller, py2exe, cx_Freeze, Nuitka), a PYZ archive or a library zip of .pyc
-/// files: the freezer, the Python version and where it came from, the entry scripts, the modules, the bundled native
-/// modules and runtime, and the data files; unpack_container extracts them with each .pyc's header in place. A .pyc:
-/// its disassembly as that version's dis prints it, paged by offset, and its source when CORVUS_PY_DECOMPILER is set.
-/// </summary>
+/// <summary>view=python: a frozen Python program's freezer, version, scripts and modules; a .pyc's disassembly paged by offset, and source with CORVUS_PY_DECOMPILER.</summary>
 internal sealed class PythonFileView : IFileSummaryView
 {
     public sealed record Facts(string Freezer, string? PythonVersion, string? VersionSource, IReadOnlyList<string> EntryScripts, int Modules, int Packages,
@@ -133,8 +128,7 @@ internal sealed class PythonFileView : IFileSummaryView
             notes.Add($"No source: {name} gave {why[..Math.Min(why.Length, 500)]}.");
             return (null, null, null);
         }
-        // pycdc exits 1 after a partial listing, and reports on stderr what it does
-        // not decompile.
+        // pycdc exits 1 after a partial listing and names on stderr what it does not decompile.
         if (run.ExitCode != 0) notes.Add($"{name} exited with code {run.ExitCode}: the source may be partial.");
         if (run.Stderr.Trim() is { Length: > 0 } stderr)
         {

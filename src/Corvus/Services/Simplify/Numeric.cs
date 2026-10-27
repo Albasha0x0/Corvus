@@ -2,13 +2,8 @@ using dnlib.DotNet.Emit;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// IL numeric semantics on evaluator stack values: int (int32), long (int64), nint (native int), float (F holding a
-/// float32, which the JIT computes in single precision) and double (F). A native int always holds a value in the int32
-/// range: operations whose native int result would differ between 32- and 64-bit platforms bail out. Operations whose
-/// result is undefined or would throw at run time (division by zero, overflow in checked arithmetic, out-of-range float
-/// conversion, oversized shifts) bail out too.
-/// </summary>
+// A native int always holds an int32-range value, so results that differ between 32- and 64-bit platforms bail out.
+/// <summary>IL arithmetic on int, long, nint, float and double stack values; bails out on platform-dependent, undefined or throwing results.</summary>
 internal static class Numeric
 {
     private static EvaluationBailout Bail(FallbackReason reason, string message) => new(reason, message);
@@ -60,10 +55,7 @@ internal static class Numeric
         };
     }
 
-    /// <summary>
-    /// A native int operation: computed with 32- and with 64-bit native ints, which must agree (both values are in the
-    /// int32 range, so they agree unless the result overflows 32 bits or depends on the width, as unsigned division does).
-    /// </summary>
+    /// <summary>A native int operation computed at 32 and 64 bits; bails out unless both agree.</summary>
     private static nint NativeOp(Code op, long x, long y)
     {
         var narrow = Attempt(() => (long)(int)Int32(op, (int)x, (int)y));
@@ -209,11 +201,12 @@ internal static class Numeric
     {
         int i => (object)~i,
         long l => ~l,
-        nint n => ~n, // ~x stays in the int32 range
+        // The complement of an int32-range value stays in range.
+        nint n => ~n,
         _ => throw Bail(FallbackReason.InvalidCode, "not on a non-integer"),
     };
 
-    /// <summary>ckfinite: throws ArithmeticException on NaN and infinities.</summary>
+    /// <summary>Runs ckfinite: bails out on NaN and infinities.</summary>
     public static object CheckFinite(object? value) => value switch
     {
         float f => float.IsFinite(f) ? (object)f : throw Bail(FallbackReason.RuntimeError, "ckfinite on a non-finite value"),
@@ -221,7 +214,7 @@ internal static class Numeric
         _ => throw Bail(FallbackReason.InvalidCode, "ckfinite on a non-float"),
     };
 
-    /// <summary>ceq, cgt, cgt.un, clt, clt.un. References compare only against null or by identity.</summary>
+    /// <summary>Runs ceq, cgt, clt and their .un forms; references compare only against null or by identity.</summary>
     public static bool Compare(Code op, object? a, object? b)
     {
         switch (a, b)
@@ -237,7 +230,7 @@ internal static class Numeric
                 };
             case (long, long) or (nint or int, nint or int):
             {
-                // Native ints hold int32-range values: sign extension keeps signed and unsigned order on both platforms.
+                // Sign-extending int32-range native ints keeps both orders on either platform.
                 long x = Bits(a), y = Bits(b);
                 return op switch
                 {
@@ -264,7 +257,7 @@ internal static class Numeric
         }
         if (IsNumber(a) || IsNumber(b))
             throw Bail(FallbackReason.InvalidCode, "comparison of mismatched operands");
-        // References: equality, and 'x != null' compiled as cgt.un x, null.
+        // References support equality and 'x != null' compiled as cgt.un x, null.
         return op switch
         {
             Code.Ceq when a is string && b is string && !ReferenceEquals(a, b) =>
@@ -282,7 +275,7 @@ internal static class Numeric
 
     public static bool IsNumber(object? v) => v is int or long or nint or double or float;
 
-    /// <summary>A two-operand conditional branch, expressed through the comparisons (ECMA-335 III.3.5-3.11).</summary>
+    /// <summary>Whether a two-operand conditional branch is taken, by the comparisons of ECMA-335 III.3.5-3.11.</summary>
     public static bool Branch(Code op, object? a, object? b)
     {
         bool isFloat = a is double or float || b is double or float;
@@ -326,12 +319,13 @@ internal static class Numeric
                 double x => x,
                 _ => throw Bail(FallbackReason.InvalidCode, "conversion of a non-number"),
             };
+            // Integers round to float32 once, not through double.
             if (op == Code.Conv_R4)
-                return value switch { long l when !unsignedSource => (float)l, int i => (float)i, _ => (float)d }; // single rounding from integers
+                return value switch { long l when !unsignedSource => (float)l, int i => (float)i, _ => (float)d };
             return d;
         }
 
-        // Integer targets: compute the exact source value, then narrow.
+        // Integer targets take the exact source value, then narrow.
         Int128 source;
         switch (value)
         {
@@ -364,16 +358,17 @@ internal static class Numeric
             Code.Conv_I4 or Code.Conv_Ovf_I4 or Code.Conv_Ovf_I4_Un => (int.MinValue, int.MaxValue),
             Code.Conv_U4 or Code.Conv_Ovf_U4 or Code.Conv_Ovf_U4_Un => (0, uint.MaxValue),
             Code.Conv_I8 or Code.Conv_Ovf_I8 or Code.Conv_Ovf_I8_Un => (long.MinValue, long.MaxValue),
-            // Native targets: checked against the 32-bit range, where the conversion overflows on a 32-bit platform.
+            // Native targets check the 32-bit range, where a 32-bit platform overflows.
             Code.Conv_I or Code.Conv_Ovf_I or Code.Conv_Ovf_I_Un => (int.MinValue, int.MaxValue),
             Code.Conv_U or Code.Conv_Ovf_U or Code.Conv_Ovf_U_Un => (0, uint.MaxValue),
-            _ => ((Int128)0, (Int128)ulong.MaxValue), // U8 and its checked forms
+            // U8 and its checked forms.
+            _ => ((Int128)0, (Int128)ulong.MaxValue),
         };
         if (source < min || source > max)
         {
             if (nativeTarget)
             {
-                // Out of the 64-bit range too: a checked conversion throws on every platform.
+                // A checked conversion outside the 64-bit range throws on every platform.
                 bool signed = op is Code.Conv_I or Code.Conv_Ovf_I or Code.Conv_Ovf_I_Un;
                 bool wideOverflow = signed ? source < long.MinValue || source > long.MaxValue : source < 0 || source > ulong.MaxValue;
                 throw isChecked && wideOverflow

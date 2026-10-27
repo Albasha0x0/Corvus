@@ -8,13 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Mutation fuzzing through the tools: real and synthetic images with headers, the section table, directories, code,
-/// .pdata, import/export tables, resources and RTTI structures mutated (seeded), each loaded through load_assembly and
-/// given to every native tool. Typed errors are fine; an unexpected exception, an unclassified error, a hang or a
-/// result over the response budget fails. CORVUS_NATIVE_TOOL_FUZZ_ITERATIONS sets the count (default 2500, about a minute on 16 cores),
-/// CORVUS_NATIVE_TOOL_FUZZ_SEED the base seed; CORVUS_NATIVE_TOOL_FUZZ_DUMP a folder that receives the failing inputs.
-/// </summary>
+/// <summary>Mutated images through every native tool fail only with typed errors, within budget (CORVUS_NATIVE_TOOL_FUZZ_*).</summary>
 [Trait("Speed", "Slow")]
 public class NativeToolFuzzTests(ITestOutputHelper output)
 {
@@ -26,7 +20,7 @@ public class NativeToolFuzzTests(ITestOutputHelper output)
 
     [Fact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public async Task MutatedImagesThroughEveryTool()
+    public async Task Mutated_images_get_bounded_answers_from_every_tool()
     {
         int iterations = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_FUZZ_ITERATIONS"), out var n) ? n : 2500;
         int seed = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_FUZZ_SEED"), out var s) ? s : 20261010;

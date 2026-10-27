@@ -6,12 +6,7 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// An Android package written as a Gradle project skeleton: settings and build files from the manifest, the manifest and
-/// resources decoded to XML (resource files at their canonical res/ paths, the resource table as values XML per
-/// configuration), assets, jniLibs, other Java resources, and the code as Java through JADX when it is configured, else
-/// smali. Signature files are left out.
-/// </summary>
+/// <summary>Writes an Android package as a Gradle project: decoded manifest and resources, assets, jniLibs, and code as Java (JADX) or smali; no signature files.</summary>
 public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerService java)
 {
     public sealed record Result(string Directory, int Files, string Sources, int Classes, int SourceFailures, IReadOnlyList<string> Notes);
@@ -50,7 +45,7 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
             Text("app/build.gradle", BuildFile(manifest));
             Text("app/src/main/AndroidManifest.xml", p.Manifest.ToXml(res == null ? null : res.Name));
 
-            // resource files at their canonical paths (shrunk builds rename them), the table as values XML
+            // Resource files go to their canonical paths, since shrunk builds rename them.
             var canonical = new Dictionary<string, string>(StringComparer.Ordinal);
             if (res != null)
             {
@@ -170,7 +165,7 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
 
         void CaseNote()
         {
-            if (renamed > 0) notes.Add($"{renamed} class(es) differ from another only in letter case and are written as Name_2 (Name_3, ...) beside it.");
+            if (renamed > 0) notes.Add($"{renamed} class(es) differ from another only in letter case; written as Name_2, Name_3.");
         }
     }
 
@@ -302,7 +297,8 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
     /// <summary>A string resource as aapt reads it back: XML escaped, quotes and apostrophes escaped, a leading @ or ? escaped.</summary>
     private static string AndroidString(string s, bool literal = false)
     {
-        if (!literal && ReferenceText().IsMatch(s)) return Xml(s); // a bag item's reference, not text
+        // A bag item's reference stays unescaped.
+        if (!literal && ReferenceText().IsMatch(s)) return Xml(s);
 
         var text = Xml(s).Replace("\\", "\\\\", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal)
             .Replace("&quot;", "\\\"", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal);

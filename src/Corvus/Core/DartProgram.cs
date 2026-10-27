@@ -6,10 +6,7 @@ namespace Corvus.Core;
 /// <summary>Compiled code of a Dart AOT snapshot: its offset in the instructions image and the name the VM prints for it.</summary>
 public sealed record DartCode(uint Offset, string Name);
 
-/// <summary>
-/// The code names of a Dart AOT snapshot. <see cref="Unsupported"/> names why nothing was read (another layout, a
-/// truncated stream); the names are then unknown, not absent.
-/// </summary>
+/// <summary>The code names of a Dart AOT snapshot; with <see cref="Unsupported"/> set the names are unknown, not absent.</summary>
 public sealed record DartProgram(IReadOnlyList<DartCode> Code, int Functions, int CodeObjects, string? Unsupported)
 {
     /// <summary>Instructions-table entries left unnamed: VM stubs and type-test stubs.</summary>
@@ -19,13 +16,7 @@ public sealed record DartProgram(IReadOnlyList<DartCode> Code, int Functions, in
     public string? Layout { get; init; }
 }
 
-/// <summary>
-/// Reads the clustered object stream of a Dart AOT snapshot far enough to name its code: strings, Code, Function,
-/// Class, PatchClass and ClosureData objects, and the instructions table that places each Code. Names follow the VM's
-/// Function::PrintName with user-visible names, as its DWARF and stack traces print them. Read layouts: product mode,
-/// 64-bit, with or without compressed pointers, of the single program snapshot of Dart 3.13 (kDartSnapshotData) and the
-/// VM and isolate snapshots of Dart 3.0 to 3.12; any other layout is refused as unsupported.
-/// </summary>
+/// <summary>Names a Dart AOT snapshot's code as Function::PrintName does; reads product 64-bit Dart 3.0 to 3.13, refuses others.</summary>
 public static class DartProgramReader
 {
     /// <summary>Class ids one Dart release assigns (runtime/vm/class_id.h).</summary>
@@ -37,15 +28,16 @@ public static class DartProgramReader
         int String, int OneByteString, int TwoByteString, int FirstFfi, int LastFfi, int FirstTypedData, int LastTypedData, int Null,
         int NumPredefined);
 
-    /// <summary>
-    /// One release's stream format. Split: a VM snapshot whose objects are the isolate snapshot's base objects.
-    /// PredefinedClasses: the Class cluster lists the predefined classes it fills before the new ones. FixedClosures:
-    /// a Closure has no length. CodeStubRefs: the Code cluster starts with the LazyCompile and UnknownDartCode refs.
-    /// PublicFuture: the release's names print dart:async's _Future as Future. TagHeaders: a cluster starts with the
-    /// object tags (cid from bit 12, canonical bit 1), not with cid &lt;&lt; 1 | canonical. SimdInstances: Float32x4,
-    /// Int32x4 and Float64x2 clusters are written as instances. PatchOrigins: a PatchClass holds its origin class
-    /// after the patched one. TypeParameterClassIds: a TypeParameter carries its parameterized class id.
-    /// </summary>
+    /// <summary>One release's stream format.</summary>
+    /// <param name="Split">A VM snapshot holds the isolate snapshot's base objects.</param>
+    /// <param name="PredefinedClasses">The Class cluster lists the predefined classes before the new ones.</param>
+    /// <param name="FixedClosures">A Closure has no length.</param>
+    /// <param name="CodeStubRefs">The Code cluster starts with the LazyCompile and UnknownDartCode refs.</param>
+    /// <param name="PublicFuture">Names print dart:async's _Future as Future.</param>
+    /// <param name="TagHeaders">A cluster starts with object tags (cid from bit 12, canonical bit 1).</param>
+    /// <param name="SimdInstances">Float32x4, Int32x4 and Float64x2 clusters are written as instances.</param>
+    /// <param name="PatchOrigins">A PatchClass holds its origin class after the patched one.</param>
+    /// <param name="TypeParameterClassIds">A TypeParameter carries its parameterized class id.</param>
     private sealed record Layout(string Release, Cids C, bool Split, bool PredefinedClasses, bool FixedClosures, bool CodeStubRefs, bool PublicFuture,
         bool TagHeaders = true, bool SimdInstances = false, bool PatchOrigins = false, bool TypeParameterClassIds = false);
 
@@ -139,10 +131,7 @@ public static class DartProgramReader
     /// <summary>Reads <paramref name="snapshot"/>, a program snapshot (kDartSnapshotData) <see cref="DartScan"/> found in <paramref name="data"/>; never throws on bad input.</summary>
     public static DartProgram Read(ReadOnlySpan<byte> data, DartSnapshot snapshot, CancellationToken ct = default) => Read(data, null, snapshot, ct);
 
-    /// <summary>
-    /// Reads <paramref name="snapshot"/>: a program snapshot (kDartSnapshotData), or an isolate snapshot
-    /// (kDartIsolateSnapshotData) with the <paramref name="vm"/> snapshot its base objects come from. Never throws on bad input.
-    /// </summary>
+    /// <summary>Reads a program snapshot, or an isolate snapshot with its <paramref name="vm"/> base; never throws on bad input.</summary>
     public static DartProgram Read(ReadOnlySpan<byte> data, DartSnapshot? vm, DartSnapshot snapshot, CancellationToken ct = default)
     {
         var tokens = snapshot.Features.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -172,10 +161,7 @@ public static class DartProgramReader
 
     private static DartProgram Refuse(string reason) => new([], 0, 0, reason);
 
-    /// <summary>
-    /// The objects of one stream. With <paramref name="vm"/> null, the stream is a VM snapshot and only its strings are
-    /// read; otherwise refs up to its base object count are the VM snapshot's.
-    /// </summary>
+    /// <summary>The objects of one stream; with <paramref name="vm"/> null it is a VM snapshot and only strings are read.</summary>
     private static Objects Parse(ReadOnlySpan<byte> data, DartSnapshot snapshot, Layout layout, bool compressed, Objects? vm, CancellationToken ct)
     {
         var C = layout.C;

@@ -49,11 +49,11 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
     private const int Chunk = 8;
 
     [McpServerTool(Name = "search_decompiled", Title = "Search native pseudocode", UseStructuredContent = true, OutputSchemaType = typeof(SearchDecompiledReport))]
-    [Description("Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in " +
-                 "address order; parallel where the engine allows, cached. Stops at maxFunctions, timeoutSeconds or limit hits.")]
+    [Description("Search the IDA or Ghidra pseudocode of every function, line by line, in address order. Stops at maxFunctions, " +
+                 "timeoutSeconds or limit hits; continue with nextOffset.")]
     public Task<string> SearchDecompiled(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Regex.")] string pattern,
+        [Description("Regex, case-insensitive; (?-i) for exact case.")] string pattern,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
         [Description(NameFilter.Description + ".")] string? filter = null,
         [Description("Max 20000.")] int maxFunctions = 500,
@@ -103,7 +103,8 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         var stamp = Stamp(session);
         int hitsSoFar = 0;
         var lanes = Math.Clamp(EngineControl.Of(session)?.DecompileLanes ?? 1, 1, 16);
-        int chunk = Chunk * lanes; // one request at a time; the engine spreads it over its decompiler pool
+        // One request at a time; the engine spreads it over its decompiler pool.
+        int chunk = Chunk * lanes;
         for (int first = 0; first < window.Count && hitsSoFar < hitLimit; first += chunk)
         {
             var left = budget - _time.GetElapsedTime(started);
@@ -125,7 +126,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
                 }
                 catch (ToolError e) when (e.Code is not ErrorCode.NotLoaded)
                 {
-                    // the request failed as a whole (a worker restart): its functions are failures, the search goes on
+                    // A request that failed whole (a worker restart) marks its functions failed; the search goes on.
                     outcomes = asked.Select(i => new DecompileOutcome(window[i].StartRva, DecompileStatus.Error, null, ToolError.CodeName(e.Code), e.Message)).ToList();
                 }
                 for (int k = 0; k < asked.Count && k < outcomes.Count; k++)
@@ -141,7 +142,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
             progress.Report(new ProgressNotificationValue { Progress = last, Total = window.Count, Message = $"searching pseudocode: {last}/{window.Count}" });
         }
 
-        // results in address order: stop at the first function not reached, or after the one that reaches the hit limit
+        // Results in address order: stop at the first function not reached, or after the one that reaches the hit limit.
         var hits = new List<DecompiledHit>();
         var failures = new List<string>();
         int searched = 0;
@@ -163,7 +164,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         if (stoppedBy == null && end < scope.Count) stoppedBy = "functions";
         int? nextCursor = end < scope.Count ? end : null;
 
-        // the time taken is in _meta: the text is the same in every run that searched the same functions
+        // The time taken goes in _meta, so runs over the same functions give the same text.
         var sb = new StringBuilder($"// {native.Id}: /{pattern}/ over the {session.ProviderId} pseudocode of {Plural(scope.Count, "function")}" +
                                    (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + $"; searched {cursor + (searched > 0 ? 1 : 0)}-{end} " +
                                    $"(requests of {chunk} over a decompiler pool of {lanes})\n");
@@ -212,7 +213,7 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         var cache = Texts.GetOrCreateValue(session);
         lock (cache)
             if (cache.Stamp == stamp && cache.Texts.TryGetValue(start, out var text)) return text;
-        // decompile_native's text: a header line, then the pseudocode
+        // decompile_native's text is a header line, then the pseudocode.
         if (pager.TryGet(NativeAnalysisTools.TextKey(native, session, start, false), out var page) && page.IndexOf('\n') is var nl and >= 0)
             return page[(nl + 1)..];
         return null;

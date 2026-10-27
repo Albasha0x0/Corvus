@@ -50,10 +50,7 @@ internal static class EngineOverrideChecks
                 $"e.g. {string.Join(", ", EngineOverrides.Nearest(spec, languages.Values.SelectMany(s => s)))}");
     }
 
-    /// <summary>
-    /// The names IDA's processor modules carry (each module's short processor names are NUL-terminated strings in its binary,
-    /// quoted strings in a Python module): a name not among them is no processor IDA has.
-    /// </summary>
+    /// <summary>Short processor names found in IDA's processor modules (NUL-terminated in binaries, quoted in Python modules).</summary>
     internal static IReadOnlySet<string> IdaProcessorNames(string idaDirectory) => Processors.GetOrAdd(idaDirectory, dir =>
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

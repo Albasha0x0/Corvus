@@ -9,11 +9,8 @@ using Corvus.Native.Pdb;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Pointer types of function parameters for value tracing through struct fields, per loaded image: the user's function
-/// types (set_native_type), the PDB's procedure types and RTTI (a vftable slot's this is its class; a primary vftable
-/// stored at +0 constructs its class). The user's types win over the PDB's, the PDB's over RTTI.
-/// </summary>
+// Sources in precedence order: the user's function types, the PDB's procedure types, then RTTI vftable slots.
+/// <summary>Parameter pointer types for value tracing through struct fields, per loaded image.</summary>
 internal sealed partial class NativeTraceTypes : ITraceTypes
 {
     private const int MaxProcedures = 200_000;

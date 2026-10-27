@@ -4,11 +4,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Sessions of a user without CAP_SYS_PTRACE under the Yama ptrace_scope values 1 and 2: at 1 a started program is
-/// observed while attaching to another program and saving a snapshot are refused with access_denied; at 2 starting a
-/// program is refused too. The machine's value is restored afterwards.
-/// </summary>
+/// <summary>Without CAP_SYS_PTRACE: ptrace_scope 1 refuses attach and snapshot with access_denied, 2 also refuses start; the value is restored.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -40,7 +36,7 @@ public sealed class LivePtraceScopeRealTests(ITestOutputHelper output) : LiveToo
             Set("2");
             Assert.Contains("ptrace_scope is 2", await Refused(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "3", "0" } }, "access_denied"));
             Assert.Contains("ptrace_scope is 2", await Refused(server, "live_session", new() { ["action"] = "attach", ["program"] = $"{program.Id}" }, "access_denied"));
-            // a refused open leaves no session and no started program behind
+            // A refused open leaves no session and no started program behind.
             Assert.DoesNotMatch(@"pid \d+, (running|suspended|stopped)", await Ok(server, "live_session", new() { ["action"] = "list" }));
             // This test builds orders in its own folder and other live classes run theirs elsewhere: only this copy counts.
             // An exited child is reaped once its worker is gone.

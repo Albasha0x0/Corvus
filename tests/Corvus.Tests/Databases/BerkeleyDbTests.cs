@@ -7,10 +7,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Fixtures built by build.py with libdb 5.3.28: ledger.db (btree, sorted-duplicate btree, recno and hash databases in
-/// one little-endian file with 4 KiB pages), queue.db (a queue) and ledger-be.db (a big-endian btree with 512-byte pages).
-/// </summary>
+/// <summary>Berkeley DB files built by build.py with libdb 5.3.28: every access method, both byte orders.</summary>
 public sealed class BerkeleyDbTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

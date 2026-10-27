@@ -24,13 +24,7 @@ public sealed record AppendedSection(string Name, uint Rva, uint VirtualSize, lo
 /// <summary>An exported patch set: the file content and what it holds.</summary>
 public sealed record PatchExportResult(byte[] Content, int Patches, int RelocationEdits, int ChangedBytes, int Records, bool ChecksumUpdated, List<string> Notes);
 
-/// <summary>
-/// Renders an image's byte patches for other tools: an IDAPython script (patches by RVA rebased to the database's image
-/// base, each applied only where the database holds the original bytes), IDA's .dif (file offsets, one changed byte per
-/// line), IPS / IPS32 (file offsets, records of changed bytes) and JSON (the whole patch set with original bytes and
-/// relocation edits). Relocation-table edits and the recomputed PE checksum are byte changes of the file, so every
-/// format carries them: applying a .dif or IPS to the original file gives exactly the bytes save_native writes.
-/// </summary>
+/// <summary>Exports byte patches as IDAPython, .dif, IPS/IPS32 or JSON; each reproduces the bytes save_native writes; the IDAPython script patches only where the database holds the original bytes.</summary>
 public static class PatchExport
 {
     public enum Format { Ida, Dif, Ips, Ips32, Json }
@@ -79,7 +73,7 @@ public static class PatchExport
             case Format.Dif:
                 if (grew)
                     throw new ToolError(ErrorCode.Unsupported,
-                        $"grown_file: the patch set appends {appendLength:N0} byte(s) for a new section, growing the file from {source.Original.Length:N0} to {source.Output.Length:N0} bytes; IDA's .dif format records only in-place byte changes and cannot grow the file.",
+                        $"grown_file: the patch set appends {appendLength:N0} byte(s) for a new section, growing the file to {source.Output.Length:N0} bytes; .dif records only in-place changes.",
                         "use format=json, ida (the IDAPython script adds the segment) or ips/ips32 (which extend the file)");
                 (content, records) = Dif(source, runs);
                 break;
@@ -147,8 +141,7 @@ public static class PatchExport
         foreach (var p in s.Patches)
         {
             entries.Add(($"#{number} {p.Description}", p.Rva, p.Original, p.Replacement));
-            // A cave stub overlays existing (loaded) bytes, so it is a normal entry; a grown stub lives in a new segment
-            // the script creates below, not an entry whose originals exist in the database.
+            // A grown stub lives in a new segment the script creates below; a cave stub is a normal entry.
             if (p.Stub is { } stub && p.Growth is null)
                 entries.Add(($"#{number} relocation stub", stub.Rva, stub.Original, stub.Replacement));
             foreach (var e in p.RelocationEdits)
@@ -161,7 +154,7 @@ public static class PatchExport
         // Segments to create for appended sections (a .dif cannot grow a segment, so the script does it with ida_segment).
         var segments = s.AppendedSections ?? [];
         if (grew && segments.Count == 0)
-            notes.Add("the IDAPython script applies the in-place changes; the appended bytes have no section metadata here, so no segment is created");
+            notes.Add("the IDAPython script applies in-place changes only; no segment is created");
 
         var sb = new StringBuilder();
         sb.Append("# IDAPython: apply exported native patches.\n");
@@ -293,7 +286,7 @@ public static class PatchExport
     {
         long eof = ips32 ? Ips32EofOffset : IpsEofOffset;
         long max = ips32 ? uint.MaxValue : IpsMaxOffset;
-        // merge runs separated by a few unchanged bytes (a record header costs 5 or 6 bytes), then split to the record size
+        // Merge runs separated by a few unchanged bytes (a record header costs 5 or 6 bytes), then split to the record size.
         var merged = new List<(long Offset, int Length)>();
         foreach (var r in runs)
         {
@@ -305,8 +298,7 @@ public static class PatchExport
         foreach (var (offset, length) in merged)
             for (int done = 0; done < length; done += MaxRecord)
                 records.Add((offset + done, Math.Min(MaxRecord, length - done)));
-        // a record starting at the end marker's offset would read as the end: start it one byte earlier (an unchanged or
-        // equal byte, written with its patched value)
+        // A record at the end marker's offset reads as the end, so start it one byte earlier.
         int moved = 0;
         for (int i = 0; i < records.Count; i++)
             if (records[i].Offset == eof) { records[i] = (eof - 1, records[i].Length + 1); moved++; }
@@ -351,8 +343,7 @@ public static class PatchExport
         {
             w.WriteStartObject();
             w.WriteString("kind", JsonKind);
-            // version 2 adds header edits (extraEdits), the appended section (append) and the output file size for
-            // grown patch sets; a version-1 reader that only walks "patches" still loads it (migrate_native_patches).
+            // Version 2 adds extraEdits, append and the output size; a version-1 reader that walks "patches" still loads it.
             w.WriteNumber("version", grew ? 2 : 1);
             w.WriteStartObject("image");
             w.WriteString("path", s.Path);
@@ -429,8 +420,7 @@ public static class PatchExport
             }
             else w.WriteNull("checksum");
 
-            // Header edits a grown patch made outside its recorded bodies (section count, the new section header slot,
-            // SizeOfImage, SizeOfCode), so applying patches + extraEdits + append to the original reproduces the output.
+            // Header edits outside the patch bodies, so patches + extraEdits + append reproduce the output.
             var extra = ExtraRuns(s, runs, checksum);
             w.WriteStartArray("extraEdits");
             foreach (var (offset, length) in extra)

@@ -1,10 +1,11 @@
-# Runs known-answer tasks (tasks.json) through agent clients (clients.json) against MCP servers and records, per run,
-# the answer and its grade, the tools called, input and output tokens, cost and wall time.
+# Runs known-answer tasks (tasks.json) through agent clients (clients.json) against MCP servers.
+# Records per run: answer and grade, tools called, input and output tokens, cost, wall time.
 # Usage:  ./tests/agents/run-tasks.ps1                         # client check: one question per client, Corvus only
 #         ./tests/agents/run-tasks.ps1 -Set bench -Client claude -Server corvus,reference -Runs 3   # token benchmark
-# Servers: corvus is this repository's build (CORVUS_AGENT_SERVER overrides it); reference is CORVUS_REFERENCE_SERVER.
-# Both variables hold JSON: {"command": "...", "args": ["..."]}. A client or server that is missing is skipped with the
-# reason. CORVUS_CLIENT_<NAME>_MODEL picks a client's model (clients.json modelArgs). Model calls cost tokens: nothing here runs in the test sets unless CORVUS_CLIENT_CHECKS=1.
+# Servers: corvus is this build (CORVUS_AGENT_SERVER overrides); reference is CORVUS_REFERENCE_SERVER.
+# Both hold JSON: {"command": "...", "args": ["..."]}. A missing client or server is skipped with the reason.
+# CORVUS_CLIENT_<NAME>_MODEL picks a client's model. Model calls cost tokens: test sets run this only with
+# CORVUS_CLIENT_CHECKS=1.
 #Requires -Version 7.0
 param(
     [ValidateSet('check', 'bench')][string]$Set = 'check',

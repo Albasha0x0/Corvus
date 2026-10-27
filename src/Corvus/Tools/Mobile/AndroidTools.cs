@@ -25,8 +25,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     private const string MappingDescription = "R8/ProGuard mapping.txt: shows and accepts original names; kept per package.";
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true, OutputSchemaType = typeof(AndroidManifestView))]
-    [Description("AndroidManifest.xml decoded. view=summary: package, versions, SDKs, permissions, application flags, component counts, exported " +
-                 "components and why, queries, features, libraries, highlights. components: each with intent filters, deep links, meta-data.")]
+    [Description("AndroidManifest.xml decoded. view=summary: package, SDKs, permissions, exported components and why, highlights; " +
+                 "components: each with intent filters, deep links and meta-data.")]
     public Task<string> GetAndroidManifest(
         [Description(PackageDescription)] string path,
         [Description("summary (default) or components.")] string? view = null,
@@ -118,8 +118,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [property: Description("view=components: the page of components.")] IReadOnlyList<AndroidComponentRow>? Items, int? Offset, int? Total);
 
     [McpServerTool(Name = "list_android_resources", Title = "List Android resources", UseStructuredContent = true, OutputSchemaType = typeof(AndroidResourceList))]
-    [Description("Compiled resources of an Android package (resources.arsc, or resources.pb in a bundle): a row per resource and configuration with " +
-                 "id, type, name, qualifiers, value type and value (cut at 200 characters); counts per type.")]
+    [Description("Compiled resources of an Android package (resources.arsc or resources.pb): one row per resource and configuration, " +
+                 "values cut at 200 characters.")]
     public Task<string> ListAndroidResources(
         [Description(PackageDescription)] string path,
         [Description("Only this type (string, layout, xml...).")] string? type = null,
@@ -137,7 +137,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "get_android_resource", Title = "Get Android resource", UseStructuredContent = true, OutputSchemaType = typeof(AndroidResourceFile))]
-    [Description("One entry or resource of an Android package: an entry path (binary XML decoded, references named; text; else a hex preview), " +
+    [Description("One entry or resource of an Android package: an entry path (binary XML decoded, else text or hex), " +
                  "or @type/name / 0x7f... for its value in every configuration.")]
     public Task<string> GetAndroidResource(
         [Description(PackageDescription)] string path,
@@ -154,8 +154,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "list_dex_classes", Title = "List DEX classes", UseStructuredContent = true, OutputSchemaType = typeof(DexClassList))]
-    [Description("Classes defined in the DEX code of an Android package (every classes*.dex): descriptor, DEX file, access, superclass, interfaces, " +
-                 "member counts, source file; unfiltered, the largest packages.")]
+    [Description("Classes defined in the DEX code of an Android package: descriptor, DEX file, access, superclass, member counts. " +
+                 "Unfiltered: the largest packages.")]
     public Task<string> ListDexClasses(
         [Description(CodeDescription)] string path,
         [Description("Only classes whose name contains or matches (* ?) this.")] string? query = null,
@@ -180,8 +180,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "get_dex_class", Title = "DEX class", UseStructuredContent = true, OutputSchemaType = typeof(DexClassPage))]
-    [Description("One DEX class: superclass, interfaces, generic signature, enclosing and inner classes, Kotlin @Metadata, annotations; then its " +
-                 "members, paged: fields (type, static value), methods (id, Java signature, code size, registers, parameters).")]
+    [Description("One DEX class: superclass, interfaces, signature, inner classes, Kotlin @Metadata and annotations, then its fields and methods, paged.")]
     public Task<string> GetDexClass(
         [Description(CodeDescription)] string path,
         [Description("Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner.")] string @class,
@@ -229,8 +228,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "disassemble_dex", Title = "Disassemble DEX", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Smali (baksmali layout) of a DEX method or class (a class lists its method ids and sizes first); format=annotated adds code offsets, " +
-                 "simplified the string each decoder call returns. A jar or .class: the javap -c -p listing.")]
+    [Description("Smali of a DEX method or class; format=annotated adds code offsets, simplified the string each decoder call returns. " +
+                 "A jar or .class: the javap -c -p listing.")]
     public Task<string> DisassembleDex(
         [Description("An Android package, .dex, jar or .class.")] string path,
         [Description("Method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)) or class (pkg.C, Lpkg/C;).")] string symbol,
@@ -252,9 +251,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         }, cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Java source of a class or method of an Android package or jar via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via " +
-                 "Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). Members, anonymous and lambda classes come from the code they are written " +
-                 "in. Without them: disassemble_dex.")]
+    [Description("Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via Vineflower " +
+                 "(engine=vineflower, CORVUS_JAVA_DECOMPILER2). Without either: disassemble_dex.")]
     public async Task<string> DecompileJava(
         [Description("An .apk, .aab or split set, a .dex, a jar or a .class.")] string path,
         [Description("Class (pkg.C, Lpkg/C;) or method (Lpkg/C;->m(I)V, pkg.C::m, pkg.C::m(int)).")] string symbol,
@@ -282,9 +280,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }
 
     [McpServerTool(Name = "map_java_dotnet", Title = "Map Java and .NET", UseStructuredContent = true, OutputSchemaType = typeof(JavaDotNetResult))]
-    [Description("Pairs across a Java / .NET bridge. .NET for Android (Xamarin, MAUI): Java wrapper classes and methods to .NET types and methods and " +
-                 "back ([Register], crc64 names). Unity Mono: C# reaching Java via AndroidJavaClass / Object / Proxy / AndroidJNI, and back, with a " +
-                 "confidence. A * / ? pattern lists pairs.")]
+    [Description("Pairs across a Java / .NET bridge, both ways: .NET for Android wrappers ([Register], crc64 names) and Mono C# calls through " +
+                 "AndroidJavaClass / AndroidJNI. A * / ? pattern lists pairs.")]
     public Task<string> MapJavaDotNet(
         [Description("Java class (Lpkg/C;, pkg.C) or method (Lpkg/C;->m(I)V), .NET symbol, or pattern.")] string symbol,
         [Description("Package whose assemblies to read; optional when they are loaded.")] string? path = null,
@@ -301,8 +298,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken);
 
     [McpServerTool(Name = "list_jni_bindings", Title = "List JNI bindings", UseStructuredContent = true, OutputSchemaType = typeof(JniBindingList))]
-    [Description("Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling and " +
-                 "RegisterNatives tables; also unbound methods and stray Java_ exports.")]
+    [Description("Java native methods of an Android package paired with their code in lib/<abi>/*.so, by Java_ exports and RegisterNatives " +
+                 "tables; also unbound methods and stray exports.")]
     public Task<string> ListJniBindings(
         [Description(PackageDescription)] string path,
         [Description("ABI to read, or all; default arm64-v8a, else the first.")] string? abi = null,
@@ -324,8 +321,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken));
 
     [McpServerTool(Name = "search_dex", Title = "Search DEX code", UseStructuredContent = true, OutputSchemaType = typeof(DexHitList))]
-    [Description("Search DEX code. kind=string: literals with method and offset per use, and the strings decoder calls return (recovered); type: defined classes and type uses; method / field: defined " +
-                 "and referenced members with use counts; const: numeric constants; opcode: instructions by mnemonic.")]
+    [Description("Search DEX code for strings (literals and decoder results), types, methods, fields, numeric constants or opcodes, " +
+                 "with method and offset per use.")]
     public Task<string> SearchDex(
         [Description(CodeDescription)] string path,
         [Description("What to search.")] string kind,
@@ -345,9 +342,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
     }, cancellationToken));
 
     [McpServerTool(Name = "find_dex_references", Title = "Find DEX references", UseStructuredContent = true, OutputSchemaType = typeof(DexReferenceList))]
-    [Description("Cross-references in DEX code, with method and code offset per instruction. direction=to: callers of a method, readers and writers " +
-                 "of a field, uses of a class or string. from: what a method (or each method of a class) calls, reads, writes and loads. Methods " +
-                 "match by exact id.")]
+    [Description("Cross-references in DEX code with method and code offset. direction=to: who calls, reads, writes or uses target; " +
+                 "from: what a method or class calls, reads, writes and loads. Methods match by exact id.")]
     public Task<string> FindDexReferences(
         [Description(CodeDescription)] string path,
         [Description("Class, method (Lpkg/C;->m(I)V, pkg.C::m(int)), field (Lpkg/C;->f:I, pkg.C::f), \"string\".")] string target,

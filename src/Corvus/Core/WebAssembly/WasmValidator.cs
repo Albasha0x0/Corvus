@@ -8,13 +8,7 @@ public sealed record WasmValidation(string Verdict, IReadOnlyList<string> Errors
     public bool Valid => Verdict == "valid";
 }
 
-/// <summary>
-/// WebAssembly validation as the specification's algorithm: section rules (indexes, limits, constant expressions, unique
-/// exports, declared function references, data count) and per-function type checking over an operand and a control stack
-/// with the polymorphic stack after unreachable code. Features as wasm-validate enables them, plus threads; a module
-/// that uses the GC proposal is checked with GC and typed function references: recursion groups, subtype declarations,
-/// reference subtyping, struct, array, i31 and cast instructions and the initialization of non-nullable locals.
-/// </summary>
+/// <summary>WebAssembly validation by the specification's algorithm, with wasm-validate's features plus threads, and GC when used.</summary>
 public sealed class WasmValidator
 {
     private const int MaxErrors = 50;
@@ -24,7 +18,8 @@ public sealed class WasmValidator
     private readonly List<string> _errors = [];
     private readonly HashSet<uint> _declared = [];
 
-    private readonly int[] _canon; // canonical id of each type index: equal ids are the same type (iso-recursive)
+    // Canonical id of each type index: equal ids are the same type (iso-recursive).
+    private readonly int[] _canon;
 
     private WasmValidator(WasmBinary m)
     {
@@ -46,7 +41,7 @@ public sealed class WasmValidator
         if (_errors.Count < MaxErrors) _errors.Add(text);
     }
 
-    // ---- module ----
+    // Module.
 
     private void Module(CancellationToken ct)
     {
@@ -74,7 +69,7 @@ public sealed class WasmValidator
         foreach (var l in _m.Memories) MemoryLimits(l, "memory");
         foreach (var t in _m.Tags) TagType(t, "tag");
 
-        // function references a body may take: in elements, exports and global initializers
+        // Function references a body may take: in elements, exports and global initializers.
         foreach (var e in _m.Exports) if (e.Kind == WasmExternal.Func) _declared.Add(e.Index);
         foreach (var e in _m.Elements)
         {
@@ -117,12 +112,9 @@ public sealed class WasmValidator
         }
     }
 
-    // ---- types (GC) ----
+    // Types (GC).
 
-    /// <summary>
-    /// Canonical type ids: two types are the same when their recursion groups are structurally equal (references inside a
-    /// group taken relative to it, outside by canonical id) and they sit at the same position.
-    /// </summary>
+    /// <summary>Canonical type ids: equal for types at the same position in structurally equal recursion groups.</summary>
     private static int[] Canonical(WasmBinary m)
     {
         var canon = new int[m.TypeDefs.Count];
@@ -217,10 +209,13 @@ public sealed class WasmValidator
         if (a.Abstract && b.Abstract)
             return a.Value == b.Value || (a.Value, b.Value) switch
             {
-                (0x71, 0x6E or 0x6D or 0x6C or 0x6B or 0x6A) => true, // none is below the any hierarchy
-                (0x6C or 0x6B or 0x6A, 0x6D or 0x6E) => true, // i31, struct, array <: eq <: any
+                // None is below the any hierarchy.
+                (0x71, 0x6E or 0x6D or 0x6C or 0x6B or 0x6A) => true,
+                // i31, struct, array <: eq <: any.
+                (0x6C or 0x6B or 0x6A, 0x6D or 0x6E) => true,
                 (0x6D, 0x6E) => true,
-                (0x73, 0x70) or (0x72, 0x6F) or (0x74, 0x69) => true, // nofunc, noextern, noexn
+                // The bottom types nofunc, noextern and noexn.
+                (0x73, 0x70) or (0x72, 0x6F) or (0x74, 0x69) => true,
                 _ => false,
             };
         if (a.Abstract)
@@ -238,7 +233,7 @@ public sealed class WasmValidator
                 _ => b.Value is 0x6A or 0x6D or 0x6E,
             };
         if (b.Value >= _m.TypeDefs.Count) return false;
-        // up the declared supertype chain, compared by canonical id
+        // Up the declared supertype chain, compared by canonical id.
         for (int t = a.Value, guard = 0; guard < 10_000; guard++)
         {
             if (_canon[t] == _canon[b.Value]) return true;
@@ -329,7 +324,7 @@ public sealed class WasmValidator
                     break;
                 case WasmOps.Fb | 0 or WasmOps.Fb | 1 or WasmOps.Fb | 6 or WasmOps.Fb | 7 or WasmOps.Fb | 8 or WasmOps.Fb | 28 or WasmOps.Fb | 26 or WasmOps.Fb | 27 when _m.Gc:
                     {
-                        // the GC constant instructions: allocation, i31 and the extern / any conversions
+                        // The GC constant instructions: allocation, i31 and the extern / any conversions.
                         var (pops, push) = ConstGc(ins);
                         if (pops == null) { Error($"{what}: {ins.Info.Name} names a type that does not exist"); return; }
                         for (int k = pops.Length - 1; k >= 0; k--)
@@ -407,7 +402,7 @@ public sealed class WasmValidator
         'a' => is64 ? WasmType.I64 : WasmType.I32, _ => Unknown,
     };
 
-    // ---- functions ----
+    // Functions.
 
     private sealed class Frame
     {
@@ -456,7 +451,7 @@ public sealed class WasmValidator
             if (_ctrls.Count != 0) { _at = body.End; Error("the body does not end with end"); }
         }
 
-        // ---- the operand stack ----
+        // The operand stack.
 
         private void Push(WasmType t) => _vals.Add(t);
 
@@ -499,7 +494,7 @@ public sealed class WasmValidator
             var frame = _ctrls[^1];
             PopAll(frame.Results);
             if (_vals.Count != frame.Height) Error($"{_vals.Count - frame.Height} values left on the stack at the end of a block");
-            // locals set inside the block are unset again after it
+            // Locals set inside the block are unset again after it.
             for (int i = frame.InitHeight; i < _inits.Count; i++) _init[_inits[i]] = false;
             _inits.RemoveRange(frame.InitHeight, _inits.Count - frame.InitHeight);
             _ctrls.RemoveAt(_ctrls.Count - 1);
@@ -1068,7 +1063,7 @@ public sealed class WasmValidator
                         if (Label(ins.A) is not { } l) return false;
                         var types = LabelTypes(l);
                         if (types.Length == 0 || !IsRef(types[^1]) && types[^1] != Unknown) return Fail($"{ins.Info.Name} needs a label that takes a reference last");
-                        // the operand without the cast's type: non-null when the cast takes null
+                        // The operand without the cast's type: non-null when the cast takes null.
                         var rest = WasmRef.WithNull(from, WasmRef.Nullable(from) && !WasmRef.Nullable(to));
                         var (branch, fall) = sub == 24 ? (to, rest) : (rest, to);
                         if (!v.Sub(branch, types[^1])) Error($"{ins.Info.Name}: {Name(branch)} does not match the label's {Name(types[^1])}");

@@ -6,12 +6,9 @@ using Corvus.Native.NativeAot;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// Static analyses of a loaded assembly or a file: features, typed values, embedded content and a combined summary.
-/// <see cref="Summarize"/> also opens containers and summarizes the assemblies inside.
-/// </summary>
+/// <summary>Static analyses of a loaded assembly or a file: features, typed values, embedded content and file summaries.</summary>
 public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeService? code = null, Mobile.DexService? dex = null,
-    Il2CppNavigator? il2cpp = null, Il2CppStringService? literals = null)
+    AotNavigator? aot = null, AotStringService? literals = null)
 {
     private static AnalysisLimits Limits => AnalysisLimits.Default;
     private const int MaxSummarizedAssemblies = 8;
@@ -33,14 +30,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         public IReadOnlyList<string> PartialIn { get; init; } = ["assemblies"];
     }
 
-    /// <summary>
-    /// Bounds of a Unity asset read: bytes of asset files read (at most <see cref="UnityAssetStrings.MaxBytes"/>), an
-    /// optional time after which extraction and reading stop with what was read, and the Il2Cpp cache folder script
-    /// layouts are read from and written to (null: the default).
-    /// </summary>
-    public sealed record AssetReadLimits(long MaxBytes, TimeSpan? Time = null, string? Il2CppCache = null)
+    /// <summary>Bounds of an asset read: bytes (at most <see cref="AssetFileStrings.MaxBytes"/>), an optional time limit that keeps what was read, and the layout cache folder (null: default).</summary>
+    public sealed record AssetReadLimits(long MaxBytes, TimeSpan? Time = null, string? AotCache = null)
     {
-        public static readonly AssetReadLimits Default = new(UnityAssetStrings.MaxBytes);
+        public static readonly AssetReadLimits Default = new(AssetFileStrings.MaxBytes);
     }
 
     public sealed record EmbeddedReport(string Assembly, IReadOnlyList<EmbeddedContent> Contents,
@@ -66,10 +59,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         WrappingFacts Wrapping, IReadOnlyList<Feature> Features, ValueSummary Values, IReadOnlyList<EntryPoint> EntryPoints,
         IReadOnlyList<string> Highlights, IReadOnlyList<string> Notes)
     {
-        /// <summary>
-        /// With <see cref="FileViewOptions.Stix"/>: every URL, domain, IP address and email the assembly's values hold, up to
-        /// <see cref="MaxNetworkValues"/> plus one so a cut shows; null otherwise. Not part of the summary text.
-        /// </summary>
+        /// <summary>With <see cref="FileViewOptions.Stix"/>: network values up to <see cref="MaxNetworkValues"/> + 1 (a cut shows); null otherwise.</summary>
         [JsonIgnore] public IReadOnlyList<ExtractedValue>? NetworkValues { get; init; }
     }
 
@@ -167,9 +157,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return Guard(Path.GetFileName(full), () => work(new Scanned(module, ModuleScan.Of(module, Limits, ct), bytes, Path.GetFileName(full))));
     }
 
-    /// <summary>
-    /// dnlib reads metadata lazily, so corruption surfaces at first access; converts such exceptions into a ToolError.
-    /// </summary>
+    /// <summary>Converts exceptions from dnlib's lazy metadata reads into a ToolError.</summary>
     private static T Guard<T>(string label, Func<T> work)
     {
         try { return work(); }
@@ -189,8 +177,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return (full, File.ReadAllBytes(full));
     }
 
-    /// <summary>The file for summarize_file: any size, streamed above <see cref="FileInput.StreamAbove"/>.</summary>
-    /// <summary>A source folder (a cloned repository) summarized by its package view: what it runs on open, install, checkout or build.</summary>
+    /// <summary>A source folder summarized by its package view: what it runs on open, install, checkout or build.</summary>
     private static FileSummary SourceFolder(string folder, CancellationToken ct)
     {
         var view = PackageFileView.Of(Web.Packages.PackageReview.Review(folder, ct)!);
@@ -199,6 +186,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             { Views = new Dictionary<string, FileView> { ["package"] = view } };
     }
 
+    /// <summary>The file for summarize_file: any size, streamed above <see cref="StreamAbove"/>.</summary>
     private FileInput OpenInput(string path)
     {
         if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
@@ -215,10 +203,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) => Survey(assembly, path, category, true, ct);
 
-    /// <summary>
-    /// The features two builds are compared by: the survey of a loaded assembly or native image with the capa labels kept
-    /// for its file, never running capa. CapaLabelled is false when capa has not labelled that file, so its labels are unknown.
-    /// </summary>
+    /// <summary>A loaded build's survey with kept capa labels, never running capa; CapaLabelled false means its labels are unknown.</summary>
     public (FeatureReport Report, bool CapaLabelled) BuildSurvey(string assembly, CancellationToken ct)
     {
         var (subject, file, generation) = workspace.Read(() =>
@@ -260,8 +245,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         if (assembly == null && path != null && AppSurvey(path, ct) is { } app) return Filter(app, category);
         if (NativeSurvey(assembly, path, category, ct) is { } native) return Filter(native, category);
-        var il2cppCapa = assembly != null && runCapa ? CapaSurvey(assembly, ct) : null;
-        var file = il2cppCapa != null ? null : path != null ? Path.GetFullPath(path) : workspace.Read(() => workspace.Get(assembly!).FilePath);
+        var aotCapa = assembly != null && runCapa ? CapaSurvey(assembly, ct) : null;
+        var file = aotCapa != null ? null : path != null ? Path.GetFullPath(path) : workspace.Read(() => workspace.Get(assembly!).FilePath);
         var labels = file != null ? CapaLabels(file, category, ct) : null;
         var report = WithAssembly(assembly, path, s =>
         {
@@ -270,11 +255,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             return labels != null ? WithLabels(found, labels, token => s.Module.ResolveToken((uint)token) is IMethod m
                 ? $"0x{token:X8} {m.DeclaringType?.FullName}::{m.Name}" : $"0x{token:X8}") : found;
         }, ct);
-        if (il2cppCapa is { } capa)
+        if (aotCapa is { } capa)
             report = report with
             {
                 Features = [.. report.Features, .. capa.Rules.Select(r => new Feature(r.Name, CapaCategory, [new Evidence(r.Namespace ?? "(no namespace)", r.Matches, r.Methods)]))],
-                Notes = [.. report.Notes, $"category {CapaCategory}: rules of {capa.Checker ?? "capa"} over the Il2Cpp binary's direct calls, {capa.State}",
+                Notes = [.. report.Notes, $"category {CapaCategory}: rules of {capa.Checker ?? "capa"} over the native binary's direct calls, {capa.State}",
                     .. capa.Notes.Select(n => $"{CapaCategory}: {n}")],
             };
         return Filter(report, category);
@@ -286,10 +271,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     /// <summary>Most functions named per capa label; the count covers them all.</summary>
     private const int MaxCapaLocations = 5;
 
-    /// <summary>
-    /// capa's labels of the file at <paramref name="file"/>: run when <paramref name="category"/> is capa, else only those
-    /// an earlier run kept; null when there are none and capa is not set up, so a survey without it is unchanged.
-    /// </summary>
+    /// <summary>capa's labels of a file: run for category capa, else kept ones; null when none are kept and capa is not set up.</summary>
     private static CapaReport? CapaLabels(string file, string? category, CancellationToken ct)
     {
         if (!string.Equals(category, CapaCategory, StringComparison.OrdinalIgnoreCase))
@@ -299,10 +281,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             : new(NativeCapa.NotChecked, null, false, null, [], [$"capa reads files on disk; {Path.GetFileName(file)} is not one"]);
     }
 
-    /// <summary>
-    /// <paramref name="report"/> with capa's labels as features of category capa: evidence is the namespace at the matched
-    /// functions (named by <paramref name="name"/>), then each ATT&amp;CK and MBC label; a file-scope label is at "(file)".
-    /// </summary>
+    /// <summary><paramref name="report"/> plus capa's labels as category capa features; a file-scope label is at "(file)".</summary>
     private static FeatureReport WithLabels(FeatureReport report, CapaReport capa, Func<ulong, string> name) => report with
     {
         Features = [.. report.Features, .. capa.Labels.Select(l =>
@@ -316,12 +295,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             .. capa.Notes.Select(n => $"{CapaCategory}: {n}")],
     };
 
-    /// <summary>capa's capabilities when <paramref name="assembly"/> is a dummy assembly of an Il2Cpp dump; null for any other.</summary>
+    /// <summary>capa's capabilities when <paramref name="assembly"/> is a dummy assembly with [Address] attributes; null otherwise.</summary>
     private CapaCapabilities? CapaSurvey(string assembly, CancellationToken ct)
     {
-        if (il2cpp == null || literals == null) return null;
-        var image = workspace.Read(() => il2cpp.ImageOf(workspace.Get(assembly)));
-        return image?.Dump == null ? null : Il2CppCapa.Survey(workspace, image, literals, ct);
+        if (aot == null || literals == null) return null;
+        var image = workspace.Read(() => aot.ImageOf(workspace.Get(assembly)));
+        return image?.Dump == null ? null : AotCapa.Survey(workspace, image, literals, ct);
     }
 
     private static FeatureReport Filter(FeatureReport report, string? category) =>
@@ -331,10 +310,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                                                      || (c.Rule?.Masvs?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))],
         };
 
-    /// <summary>
-    /// The survey of a native image: a loaded one (assembly names it and no managed assembly matches) through its code index,
-    /// or a native PE file (path) indexed for this call without loading it; null when the input is not native.
-    /// </summary>
+    /// <summary>The survey of a loaded native image or a native file indexed for this call; null when the input is not native.</summary>
     private FeatureReport? NativeSurvey(string? assembly, string? path, string? category, CancellationToken ct)
     {
         if ((assembly == null) == (path == null)) return null;
@@ -346,7 +322,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             var native = workspace.Read(() =>
             {
                 if (workspace.FindNative(assembly) is not { } n) return null;
-                try { workspace.Get(assembly); return null; } // a managed assembly of that name wins
+                // A managed assembly of that name wins.
+                try { workspace.Get(assembly); return null; }
                 catch (ToolError) { return n; }
             });
             if (native == null) return null;
@@ -410,10 +387,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new FeatureReport(label, index.Functions.Count, found, notes);
     }
 
-    /// <summary>
-    /// The survey of an app package: an Android package or DEX file (android rules over its code, manifest and network
-    /// security config) or an .ipa (its main executable with the Apple rules); null for any other file.
-    /// </summary>
+    /// <summary>The survey of an Android package, DEX file or .ipa with its platform's rules; null for any other file.</summary>
     private FeatureReport? AppSurvey(string path, CancellationToken ct)
     {
         var full = Path.GetFullPath(path);
@@ -508,10 +482,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new FeatureReport(label, methods, [.. found.Except(libraryOnly)], notes);
     }
 
-    /// <summary>
-    /// Typed values sorted by type (in <see cref="Values.Types"/> order), count descending, then value. Unity inputs are
-    /// read within <paramref name="assets"/> (default <see cref="AssetReadLimits.Default"/>).
-    /// </summary>
+    /// <summary>Typed values by type order, count descending, then value; asset inputs are read within <paramref name="assets"/>.</summary>
     public ValueReport ExtractStrings(string? assembly, string? path, IReadOnlyCollection<string>? types, CancellationToken ct, AssetReadLimits? assets = null)
     {
         types = types?.Select(t => t.Trim().ToLowerInvariant()).Where(t => t.Length > 0).ToList();
@@ -528,13 +499,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 if (t > TimeSpan.Zero) time.CancelAfter(t);
                 else time.Cancel();
             }
-            if (UnityInput(path, time.Token, ct) is { } unity)
+            if (AssetInput(path, time.Token, ct) is { } assetInput)
             {
-                var key = UnityReadKey(path, unity, types, assets);
-                lock (LastUnityRead)
-                    if (LastUnityRead.Key == key && DateTime.UtcNow - LastUnityRead.At < UnityReadReuse) return LastUnityRead.Report!;
-                var report = StringsInUnity(unity, types, assets, time.Token, ct);
-                lock (LastUnityRead) (LastUnityRead.Key, LastUnityRead.At, LastUnityRead.Report) = (key, DateTime.UtcNow, report);
+                var key = AssetReadKey(path, assetInput, types, assets);
+                lock (LastAssetRead)
+                    if (LastAssetRead.Key == key && DateTime.UtcNow - LastAssetRead.At < AssetReadReuse) return LastAssetRead.Report!;
+                var report = StringsInAssets(assetInput, types, assets, time.Token, ct);
+                lock (LastAssetRead) (LastAssetRead.Key, LastAssetRead.At, LastAssetRead.Report) = (key, DateTime.UtcNow, report);
                 return report;
             }
         }
@@ -547,11 +518,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }, ct);
     }
 
-    /// <summary>
-    /// Typed values of a container's own assemblies (host, main, then libraries; the framework ones only when it has no
-    /// others), at most <see cref="MaxSummarizedAssemblies"/>; satellite assemblies and repeated builds are skipped. Each
-    /// location starts with the assembly's inner path; Partial names the assemblies not read.
-    /// </summary>
+    /// <summary>Typed values of up to <see cref="MaxSummarizedAssemblies"/> own assemblies of a container; Partial names those not read.</summary>
+    // Host, main, then libraries; framework assemblies only when there are no others; satellites and duplicates skipped.
     private static ValueReport StringsInContainer((string Full, string Sha, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) container,
         IReadOnlyCollection<string>? types, CancellationToken ct)
     {
@@ -575,32 +543,30 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new ValueReport(Path.GetFileName(container.Full), found.Count, found, notes) { Partial = gaps.Count > 0 ? string.Join("; ", gaps) : null };
     }
 
-    // The last Unity read is kept briefly: a caller paging its rows calls again, and a read the time limit stopped
-    // would otherwise stop at another point and give other rows.
-    private static readonly TimeSpan UnityReadReuse = TimeSpan.FromMinutes(5);
-    private static readonly UnityRead LastUnityRead = new();
+    // The last asset read is kept briefly so paging sees the same rows a time-limited read produced.
+    private static readonly TimeSpan AssetReadReuse = TimeSpan.FromMinutes(5);
+    private static readonly AssetRead LastAssetRead = new();
 
-    private sealed class UnityRead
+    private sealed class AssetRead
     {
         public string? Key;
         public DateTime At;
         public ValueReport? Report;
     }
 
-    /// <summary>The key of <see cref="LastUnityRead"/>: the input path, a hash of each asset file's path, size and write time, of the assemblies read and of the Il2Cpp build, the types and the limits.</summary>
-    private static string UnityReadKey(string path, UnityStringsInput input, IReadOnlyCollection<string>? types, AssetReadLimits assets)
+    /// <summary>The key of <see cref="LastAssetRead"/>: the path, a hash of every input file's stamp, the types and the limits.</summary>
+    private static string AssetReadKey(string path, AssetStringsInput input, IReadOnlyCollection<string>? types, AssetReadLimits assets)
     {
-        // Keyed on every file the read takes, not on a folder's write time: a changed asset file in a subfolder
-        // leaves its parents' times as they were, and an old read of changed input is never reported.
+        // Keyed on every file read, not a folder's write time, which a change in a subfolder leaves as it was.
         var files = new System.Text.StringBuilder();
         foreach (var piece in input.Files.SelectMany(f => f.Pieces)) Stamp(piece);
         foreach (var a in input.Assemblies) files.Append(a.Path).Append('|').Append(a.Sha256).Append('\n');
-        // Script layouts come from the Il2Cpp build and its cache entry, so both are part of the key.
-        if (input.Il2CppBuild is { } build)
+        // Class layouts come from the native build and its cache entry, so both are part of the key.
+        if (input.AotBuild is { } build)
         {
             Stamp(build.Metadata);
             if (build.Binary.Length > 0) Stamp(build.Binary);
-            files.Append(assets.Il2CppCache).Append('|').Append(Il2CppRawLoader.CachedDummies(build, assets.Il2CppCache) != null).Append('\n');
+            files.Append(assets.AotCache).Append('|').Append(AotBuildLoader.CachedDummies(build, assets.AotCache) != null).Append('\n');
         }
         return $"{Path.GetFullPath(path)}|{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(files.ToString())))}" +
                $"|{string.Join(",", types ?? [])}|{assets.MaxBytes}|{assets.Time?.Ticks}";
@@ -646,64 +612,56 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     private static string EncodedGap(int dropped) => $"{dropped:N0} encoded values past {Values.MaxEncoded} per assembly are not listed";
 
-    /// <summary>Unity data to read: the label, the Il2Cpp build at or above it (null: none), its asset files, the build's own assemblies, whether it is Il2Cpp, and notes.</summary>
-    private sealed record UnityStringsInput(string Label, Il2CppBuildFiles? Il2CppBuild, List<UnityAssetStrings.AssetFile> Files, List<UnpackService.ManagedAssembly> Assemblies, int OtherAssemblies,
-        bool Il2Cpp, List<string> Notes, string? Partial);
+    /// <summary>Asset input to read: label, native build above it (null: none), asset files, own assemblies and notes.</summary>
+    private sealed record AssetStringsInput(string Label, AotBuildFiles? AotBuild, List<AssetFileStrings.AssetFile> Files, List<UnpackService.ManagedAssembly> Assemblies, int OtherAssemblies,
+        bool Aot, List<string> Notes, string? Partial);
 
-    /// <summary>
-    /// A serialized file or bundle; a folder holding a Unity build; or an application package or zip holding one, its
-    /// data folder extracted to the package cache. Null for any other input, and for a package whose extraction found no
-    /// Unity data. A folder without a build is refused with reason not_a_unity_build, as unity_overview refuses it.
-    /// </summary>
-    private static UnityStringsInput? UnityInput(string? path, CancellationToken stop, CancellationToken ct)
+    /// <summary>A serialized asset file, a build folder or a package holding one (extracted); null otherwise; a folder without a build is refused with reason not_a_build.</summary>
+    private static AssetStringsInput? AssetInput(string? path, CancellationToken stop, CancellationToken ct)
     {
         if (path == null) return null;
         var full = Path.GetFullPath(path);
         var notes = new List<string>();
         string? partial = null;
-        if (File.Exists(full) && Core.Unity.SerializedFile.IsAssetFile(full))
+        if (File.Exists(full) && Core.Assets.SerializedFile.IsAssetFile(full))
         {
             full = InputFiles.RequireRegularFile(path);
-            return new(Path.GetFileName(full), UnityFileView.Il2CppBuildAbove(Path.GetDirectoryName(full)!), [new(Path.GetFileName(full), [full])], [], 0, false, notes, null);
+            return new(Path.GetFileName(full), AssetFileView.AotBuildAbove(Path.GetDirectoryName(full)!), [new(Path.GetFileName(full), [full])], [], 0, false, notes, null);
         }
         string root;
         if (Directory.Exists(full)) root = full;
-        else if (PackageFiles.HoldsUnityData(full))
+        else if (PackageFiles.HoldsPlayerData(full))
         {
-            if (Il2CppPackages.Extract(full, null, ct: ct, assets: true, stop: stop) is not { } app) return null;
+            if (AotPackages.Extract(full, null, ct: ct, assets: true, stop: stop) is not { } app) return null;
             root = app;
             notes.Add($"Read from the data folder of {Path.GetFileName(full)}, extracted to {app}.");
-            var skipped = Il2CppPackages.SkippedAssets(app);
+            var skipped = AotPackages.SkippedAssets(app);
             if (skipped.Count > 0)
                 partial = $"{skipped.Count} package entries are not extracted ({string.Join("; ", skipped.Take(3))})";
         }
         else return null;
-        var data = UnityOverview.DataFolder(root, ct);
+        var data = BuildSummary.DataFolder(root, ct);
         if (data == null)
         {
             if (!Directory.Exists(full)) return null;
             throw new ToolError(ErrorCode.Unsupported,
-                $"{full} is a folder without a Unity build (no <Product>_Data, assets/bin/Data or .app/Data folder in it or 4 folders above): reason not_a_unity_build.",
-                "pass a file, or the folder of a Unity build") { Details = new { reason = "not_a_unity_build", path = full } };
+                $"{full} has no <Product>_Data, assets/bin/Data or .app/Data folder in it or 4 folders above: reason not_a_build.",
+                "pass a file, or a build folder") { Details = new { reason = "not_a_build", path = full } };
         }
         notes.AddRange(data.Value.Notes);
-        var files = UnityAssetStrings.Files(data.Value.Data, data.Value.Streaming, notes);
+        var files = AssetFileStrings.Files(data.Value.Data, data.Value.Streaming, notes);
         var managed = Path.Combine(data.Value.Data, "Managed");
-        var (own, others) = Directory.Exists(managed) ? UnityOwnAssemblies(managed, data.Value.Data) : (new List<UnpackService.ManagedAssembly>(), 0);
-        bool il2cpp = Il2CppBuildFiles.MetadataIn(data.Value.Data) != null || Directory.Exists(Path.Combine(data.Value.Data, "il2cpp_data"))
-                      || File.Exists(Path.Combine(managed, "Metadata", Il2CppBuildFiles.MetadataFileName));
-        return new(Path.GetFileName(full), UnityFileView.Il2CppBuildAbove(data.Value.Data), files, own, others, il2cpp, notes, partial);
+        var (own, others) = Directory.Exists(managed) ? BuildOwnAssemblies(managed, data.Value.Data) : (new List<UnpackService.ManagedAssembly>(), 0);
+        bool aot = AotBuildFiles.MetadataIn(data.Value.Data) != null || Directory.Exists(Path.Combine(data.Value.Data, "il2cpp_data"))
+                      || File.Exists(Path.Combine(managed, "Metadata", AotBuildFiles.MetadataFileName));
+        return new(Path.GetFileName(full), AssetFileView.AotBuildAbove(data.Value.Data), files, own, others, aot, notes, partial);
     }
 
-    // Engine, editor and class library assemblies of a Managed folder; their strings are the engine's, not the build's.
+    // Runtime and class library assemblies of a Managed folder; their strings are not the program's own.
     private static readonly string[] EnginePrefixes = ["UnityEngine", "UnityEditor", "Unity.", "Mono.", "System", "Microsoft.", "mscorlib", "netstandard", "Boo.", "UnityScript"];
 
-    /// <summary>
-    /// The script assemblies of a Managed folder (Assembly-CSharp, Assembly-CSharp-firstpass, then the rest by name, the
-    /// engine and class library left out), the first <see cref="MaxSummarizedAssemblies"/>, each by its path under
-    /// <paramref name="data"/>, with the number not read. Empty for none.
-    /// </summary>
-    private static (List<UnpackService.ManagedAssembly>, int) UnityOwnAssemblies(string managed, string data)
+    /// <summary>The first <see cref="MaxSummarizedAssemblies"/> own assemblies of a Managed folder, Assembly-CSharp first, and the count not read.</summary>
+    private static (List<UnpackService.ManagedAssembly>, int) BuildOwnAssemblies(string managed, string data)
     {
         var own = Directory.EnumerateFiles(managed, "*.dll")
             .Where(f => !EnginePrefixes.Any(p => Path.GetFileName(f).StartsWith(p, StringComparison.OrdinalIgnoreCase)))
@@ -713,35 +671,31 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         foreach (var f in own.Take(MaxSummarizedAssemblies))
         {
             var bytes = File.ReadAllBytes(f);
-            read.Add(new UnpackService.ManagedAssembly(Path.GetRelativePath(data, f).Replace('\\', '/'), bytes, Blob.Sha256(bytes), "unity"));
+            read.Add(new UnpackService.ManagedAssembly(Path.GetRelativePath(data, f).Replace('\\', '/'), bytes, Blob.Sha256(bytes), "managed folder"));
         }
         return (read, own.Count - read.Count);
     }
 
-    // Il2Cpp files a script layout read is attempted on; larger ones are named in a note and left to load_assembly.
-    private const long MaxIl2CppMetadataBytes = 512L << 20, MaxIl2CppBinaryBytes = 2L << 30;
+    // Largest build files a layout read is attempted on; larger ones are left to load_assembly.
+    private const long MaxAotMetadataBytes = 512L << 20, MaxAotBinaryBytes = 2L << 30;
 
-    /// <summary>
-    /// Reads the Il2Cpp build into the dummy assembly cache when no earlier load did, so script fields are laid out as
-    /// after load_assembly; nothing stays loaded in the workspace. Field types and attributes are in the binary, so a
-    /// build without one is not read. The read is bounded by file size and the time limit; a read that does not finish
-    /// is named in the notes, and the scripts it would lay out stay unknown. True when this call read the build.
-    /// </summary>
-    private static bool ReadIl2CppLayouts(Il2CppBuildFiles build, string? cache, List<string> notes, CancellationToken stop, CancellationToken ct)
+    /// <summary>Reads the build into the dummy assembly cache for class layouts, bounded by size and time; true when this call read it. Nothing stays loaded in the workspace.</summary>
+    // Field types are in the binary, so a build without one is not read; an unfinished read leaves its layouts unknown.
+    private static bool ReadAotLayouts(AotBuildFiles build, string? cache, List<string> notes, CancellationToken stop, CancellationToken ct)
     {
-        const string NotRead = "Il2Cpp build not read for the script layouts";
-        if (Il2CppRawLoader.CachedDummies(build, cache) != null) return false;
+        const string NotRead = "Build not read for class layouts";
+        if (AotBuildLoader.CachedDummies(build, cache) != null) return false;
         if (build.Binary.Length == 0)
         {
-            notes.Add($"{NotRead}: field types are in the Il2Cpp binary, which is not beside the metadata.");
+            notes.Add($"{NotRead}: field types are in the native binary, which is not beside the metadata.");
             return false;
         }
         long metadata = new FileInfo(build.Metadata).Length, binary = new FileInfo(build.Binary).Length;
-        if (metadata > MaxIl2CppMetadataBytes || binary > MaxIl2CppBinaryBytes)
+        if (metadata > MaxAotMetadataBytes || binary > MaxAotBinaryBytes)
         {
-            notes.Add(metadata > MaxIl2CppMetadataBytes
-                ? $"{NotRead}: the metadata is {metadata:N0} bytes, over {MaxIl2CppMetadataBytes:N0}; load_assembly the build folder reads it."
-                : $"{NotRead}: the binary is {binary:N0} bytes, over {MaxIl2CppBinaryBytes:N0}; load_assembly the build folder reads it.");
+            notes.Add(metadata > MaxAotMetadataBytes
+                ? $"{NotRead}: the metadata is {metadata:N0} bytes, over {MaxAotMetadataBytes:N0}; load_assembly the build folder reads it."
+                : $"{NotRead}: the binary is {binary:N0} bytes, over {MaxAotBinaryBytes:N0}; load_assembly the build folder reads it.");
             return false;
         }
         if (stop.IsCancellationRequested)
@@ -754,8 +708,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         try
         {
             using var scratch = new AssemblyWorkspace();
-            new Il2CppRawLoader(scratch, cache).Load(build, loadBinary: false, null, linked.Token);
-            notes.Add($"Il2Cpp build read for the script layouts in {watch.Elapsed.TotalSeconds:0.0} s; load_assembly reuses the read.");
+            new AotBuildLoader(scratch, cache).Load(build, loadBinary: false, null, linked.Token);
+            notes.Add($"Build read for class layouts in {watch.Elapsed.TotalSeconds:0.0} s; load_assembly reuses it.");
             return true;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -769,12 +723,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return false;
     }
 
-    /// <summary>
-    /// Typed values of a Unity input as one list: the own assemblies' code strings ("Managed/Assembly-CSharp.dll: ...")
-    /// and the asset field strings ("sharedassets0.assets: Holder (Script: Net.Config).endpoint"). Partial names the
-    /// limits reached, the time limit and the assets whose layout did not read.
-    /// </summary>
-    private static ValueReport StringsInUnity(UnityStringsInput input, IReadOnlyCollection<string>? types, AssetReadLimits limits,
+    /// <summary>Typed values of own assemblies and asset fields as one list; Partial names the limits reached and assets left unread.</summary>
+    private static ValueReport StringsInAssets(AssetStringsInput input, IReadOnlyCollection<string>? types, AssetReadLimits limits,
         CancellationToken stop, CancellationToken ct)
     {
         var notes = new List<string>(input.Notes);
@@ -788,10 +738,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var unread = new List<string>();
         var parts = AssemblyValues(input.Assemblies, notes, unread, out int encodedDropped, ct);
         if (input.Assemblies.Count > 0 || input.OtherAssemblies > 0)
-            notes.Add($"{input.Assemblies.Count - unread.Count} of the build's {input.Assemblies.Count + input.OtherAssemblies} script assemblies read; engine and class library assemblies skipped.");
+            notes.Add($"{input.Assemblies.Count - unread.Count} of the build's {input.Assemblies.Count + input.OtherAssemblies} own assemblies read; runtime and class library assemblies skipped.");
         if (input.OtherAssemblies > 0 || unread.Count > 0)
         {
-            if (input.OtherAssemblies > 0) gaps.Add($"the first {MaxSummarizedAssemblies} script assemblies are read, Assembly-CSharp first");
+            if (input.OtherAssemblies > 0) gaps.Add($"the first {MaxSummarizedAssemblies} own assemblies are read, Assembly-CSharp first");
             if (unread.Count > 0) gaps.Add($"{unread.Count} assemblies are unreadable ({string.Join(", ", unread.Take(3))})");
             partialIn.Add("assemblies");
         }
@@ -800,13 +750,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             gaps.Add(EncodedGap(encodedDropped));
             if (!partialIn.Contains("assemblies")) partialIn.Add("assemblies");
         }
-        var il2cpp = input.Il2CppBuild;
-        if ((input.Il2Cpp || il2cpp != null) && input.Assemblies.Count == 0)
-            notes.Add("Il2Cpp build: code strings are in global-metadata.dat and are not read here; load_assembly the build folder, then search_strings.");
-        var assets = UnityAssetStrings.Read(input.Files, limits.MaxBytes, stop, ct, limits.Il2CppCache);
-        // The Il2Cpp read takes seconds to minutes, so it runs only when an asset needs a layout from it.
-        if (il2cpp != null && assets.Unread > 0 && ReadIl2CppLayouts(il2cpp, limits.Il2CppCache, notes, stop, ct))
-            assets = UnityAssetStrings.Read(input.Files, limits.MaxBytes, stop, ct, limits.Il2CppCache);
+        var aot = input.AotBuild;
+        if ((input.Aot || aot != null) && input.Assemblies.Count == 0)
+            notes.Add("Code strings are in global-metadata.dat, not read here; load_assembly the build folder, then search_strings.");
+        var assets = AssetFileStrings.Read(input.Files, limits.MaxBytes, stop, ct, limits.AotCache);
+        // The build read takes seconds to minutes, so it runs only when an asset needs a layout from it.
+        if (aot != null && assets.Unread > 0 && ReadAotLayouts(aot, limits.AotCache, notes, stop, ct))
+            assets = AssetFileStrings.Read(input.Files, limits.MaxBytes, stop, ct, limits.AotCache);
         parts.AddRange(assets.Parts);
         notes.AddRange(assets.Notes);
         if (assets.Partial != null)
@@ -823,10 +773,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         };
     }
 
-    /// <summary>
-    /// Finds embedded content. With save or load, writes items as embedded_NN.ext to a dedicated directory; with load,
-    /// also loads the .NET assemblies.
-    /// </summary>
+    /// <summary>Finds embedded content; save or load writes embedded_NN.ext files to a dedicated folder, and load also loads assemblies.</summary>
     public EmbeddedReport ExtractEmbedded(string? assembly, string? path, bool save, string? outputDirectory, bool load, CancellationToken ct,
         bool xorText = false, bool includeMedia = false)
     {
@@ -899,7 +846,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     private static string Extension(EmbeddedContent p) => p.Kind switch
     {
         ".NET assembly" => ".dll",
-        "native PE" or "NativeAOT executable" => p.Detail?.EndsWith("DLL", StringComparison.Ordinal) == true ? ".dll" : ".exe", // .exe is defanged on write
+        // SafeRelativePath appends .bin to .exe on write.
+        "native PE" or "NativeAOT executable" => p.Detail?.EndsWith("DLL", StringComparison.Ordinal) == true ? ".dll" : ".exe",
         "zip" => ".zip",
         "jmod" => ".jmod",
         "gzip" => ".gz",
@@ -924,7 +872,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             });
         }
 
-        // an .app, .appex or .framework folder: its main executable, whose apple view describes the bundle
+        // A bundle folder is summarized through its main executable, whose apple view describes the bundle.
         if (AppleFileView.MainExecutable(path!) is { } executable) path = executable;
         else if (Directory.Exists(Path.GetFullPath(path!))) return SourceFolder(Path.GetFullPath(path!), ct);
         var input = OpenInput(path!);
@@ -933,7 +881,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var facts = Facts(input, ct);
         var fileHighlights = new List<string>();
         if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
-        if (UnityLayout.FileHint(full, input.Streamed ? input.Head : input.Bytes) is { } layout) fileHighlights.Add(layout);
+        if (PlayerLayout.FileHint(full, input.Streamed ? input.Head : input.Bytes) is { } layout) fileHighlights.Add(layout);
         var viewNotes = new List<string>();
         var views = Views(input, viewNotes, ct);
         foreach (var v in views.Values) fileHighlights.AddRange(v.Highlights);
@@ -958,7 +906,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }
         DependencyView(input, managed.Assemblies, managed.Manifests, views, viewNotes, ct);
         var reportNotes = new List<string>(managed.Notes);
-        reportNotes.AddRange(MappingNotes(input.Streamed ? input.Head : input.Bytes)); // the section table is in the headers
+        // The section table is in the headers.
+        reportNotes.AddRange(MappingNotes(input.Streamed ? input.Head : input.Bytes));
         if (input.Streamed)
         {
             reportNotes.Add($"Read as a stream ({input.Length:N0} bytes): hashes, captures, databases, zip, HAR, flows, packages and archives in bounded memory.");
@@ -970,8 +919,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var ranked = managed.Assemblies.Select((a, i) => (a, i, Rank: Rank(a, full))).ToList();
         var satellites = ranked.Count(r => r.Rank == AssemblyRank.Satellite);
         var candidates = ranked.Where(r => r.Rank != AssemblyRank.Satellite).OrderBy(r => r.Rank).ThenBy(r => r.i).ToList();
-        var found = new List<(string Path, IReadOnlyList<string> Highlights)>(); // captured before Brief() drops them
-        var copies = new Dictionary<string, List<string>>(StringComparer.Ordinal); // identity -> other builds of the same assembly
+        // Highlights are captured before Brief() drops them.
+        var found = new List<(string Path, IReadOnlyList<string> Highlights)>();
+        // Assembly identity to the other builds of it, such as per-TFM builds in one package.
+        var copies = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var (a, _, rank) in candidates)
         {
             ct.ThrowIfCancellationRequested();
@@ -980,11 +931,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             {
                 using var module = LoadModule(a.Bytes, a.Path);
                 var identity = module.Assembly?.FullName ?? module.Name.String;
-                if (copies.TryGetValue(identity, out var paths)) { paths.Add(a.Path); continue; } // e.g. per-TFM builds in one package
+                if (copies.TryGetValue(identity, out var paths)) { paths.Add(a.Path); continue; }
                 copies[identity] = [];
                 var one = Guard(a.Path, () => SummarizeAssembly(a.Path, module, ModuleScan.Of(module, Limits, ct), a.Bytes, ct, input.Options.Stix));
+                // Framework capabilities are not findings.
                 if (rank == AssemblyRank.Framework)
-                    one = one with { Highlights = one.Highlights.Where(IsProblem).ToList() }; // framework capabilities are not findings
+                    one = one with { Highlights = one.Highlights.Where(IsProblem).ToList() };
                 found.Add((one.Path, one.Highlights));
                 summarized.Add(summarized.Count == 0 ? one : Brief(one));
             }
@@ -999,10 +951,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             reportNotes.Add($"{identity.Split(',')[0]}: {paths.Count} more build(s) of the same assembly not summarized ({string.Join(", ", paths.Take(6))}).");
         int skipped = candidates.Count - summarized.Count - copies.Sum(c => c.Value.Count);
         if (skipped > 0)
-            reportNotes.Add($"Summarized {summarized.Count} of {candidates.Count} assemblies (the app's own first, framework libraries last; the first in full, " +
-                            "the others in brief); list_assemblies with path lists them all, summarize_file on an extracted one (unpack_container) gives its details.");
+            reportNotes.Add($"Summarized {summarized.Count} of {candidates.Count} assemblies (own first, framework last; the first in full, the others in brief); " +
+                            "list_assemblies with path lists them all; unpack_container, then summarize_file, details one.");
         else if (summarized.Count > 1)
-            reportNotes.Add("The first assembly is summarized in full, the others in brief: summarize_file on an extracted one (unpack_container) gives its details.");
+            reportNotes.Add("The first assembly is summarized in full, the others in brief; unpack_container, then summarize_file, details one.");
         if (satellites > 0)
             reportNotes.Add($"{satellites} satellite resource assembly(ies) (translations) not summarized.");
         if (managed.Assemblies.Count == 0)
@@ -1048,9 +1000,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             {
                 if (provider.Inspect(file, ct) is { } view) views[provider.Name] = view;
             }
+            // A wrong table= or columns= for the view asked for is the caller's error.
             catch (ToolError ex) when (file.Options.View == provider.Name && ex.Code is ErrorCode.InvalidArgument or ErrorCode.NotFound)
             {
-                throw; // a wrong table= or columns= for the view asked for
+                throw;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -1075,7 +1028,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         Wrapping = new WrappingFacts(a.Wrapping.EmbeddedAssemblies.Take(3).ToList(), [], a.Wrapping.HighEntropySections) { EmbeddedAssemblyTotal = a.Wrapping.EmbeddedAssemblyTotal },
         Identity = a.Identity with { References = a.Identity.References.Take(5).ToList() },
         Notes = a.Notes.Take(3).ToList(),
-        Highlights = [], // aggregated into the file's highlights
+        // Aggregated into the file's highlights.
+        Highlights = [],
     };
 
     // Public key tokens of Microsoft framework assemblies.
@@ -1213,9 +1167,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             tfm, kind, arch, AssemblyTraits.IsReadyToRun(image), AssemblyTraits.MergeNote(module), types.Count, types.Sum(t => t.Methods.Count), references);
     }
 
-    /// <summary>
-    /// PE sections with entropy 7.2+, excluding the managed resources span (compressed resources in .text are normal).
-    /// </summary>
+    /// <summary>PE sections with entropy 7.2+, excluding the managed resources span, where compressed resources are normal.</summary>
     private static List<string> HighEntropySections(ModuleDef module, PeImage pe, byte[] image)
     {
         (long Start, long End) resources = (0, 0);
@@ -1281,7 +1233,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 : $"Embedded {p.Kind}{(p.Detail != null && p.Kind != "text" ? $" ({p.Detail})" : "")} in {p.Source}{how}.");
         }
         if (wrapping.Contents.Count > 5) h.Add($"{wrapping.Contents.Count - 5} more embedded item(s) listed.");
-        foreach (var s in wrapping.HighEntropySections) h.Add($"High-entropy PE section {s}: wrapped or encrypted code?");
+        foreach (var s in wrapping.HighEntropySections) h.Add($"High-entropy PE section {s}: possibly wrapped or encrypted code.");
         foreach (var c in features.Where(c => NotableCategories.Contains(c.Category) || NotableNames.Contains(c.Name)))
             h.Add($"Can {c.Name} ({c.Category}).");
         var network = new[] { "url", "domain", "ipv4", "ipv6" }.Where(values.ByType.ContainsKey).Select(t => $"{values.ByType[t]} {t}").ToList();

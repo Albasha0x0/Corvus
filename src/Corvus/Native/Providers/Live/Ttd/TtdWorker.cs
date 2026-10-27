@@ -6,12 +6,9 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Ttd;
 
-/// <summary>
-/// The <c>corvus ttd-worker</c> process: the session worker protocol answered over a TTD recording. The program is the
-/// recorded one, held at the recording's first position; resume replays forward to the next stop point, recording each
-/// watched call on the way, and the end of the recording is the program's exit. Ops: hello, open, info, read, export,
-/// set, set_many, clear, clear_many, watch, unwatch, resume, close. Nothing runs: the replay engine reads the file.
-/// </summary>
+// resume replays to the next stop point, recording watched calls; the recording's end is the exit.
+// Ops: hello, open, info, read, export, set, set_many, clear, clear_many, watch, unwatch, resume, close.
+/// <summary>The <c>corvus ttd-worker</c> process: the session worker protocol over a TTD recording, held at its first position; nothing runs, the replay engine reads the file.</summary>
 internal static class TtdWorker
 {
     public const string Command = "ttd-worker";

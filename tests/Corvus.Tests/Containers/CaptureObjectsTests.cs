@@ -10,10 +10,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// unpack_container on pcap / pcapng (W-P1-1): TCP reassembled, HTTP/1.x and HTTP/2 objects exported, TLS 1.2 and 1.3
-/// decrypted with a key log (OpenSSL-made sessions), other streams written, JA3 / JA4 / JA4S fingerprints.
-/// </summary>
+/// <summary>unpack_container on pcap and pcapng: reassembly, HTTP objects, TLS decryption with a key log, fingerprints.</summary>
 public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -104,7 +101,7 @@ public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
     public void A_gap_is_counted_and_marked_on_the_body_it_cuts()
     {
         var body = new string('a', 3000);
-        // segment 2 of the response (bytes 1400-2799 of the write) is never captured
+        // Segment 2 of the response (bytes 1400-2799 of the write) is never captured.
         var frames = Connection(50001, 80,
         [
             (true, A("GET /big.txt HTTP/1.1\r\nHost: files.example.com\r\n\r\n")),
@@ -134,14 +131,15 @@ public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
 
     private static byte[] WithAck(byte[] frame, uint ack)
     {
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(14 + 20 + 8), ack); // Ethernet, IPv4, TCP acknowledgment number
+        // Ethernet, IPv4, TCP acknowledgment number.
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(14 + 20 + 8), ack);
         return frame;
     }
 
     [Fact]
     public void A_hole_the_receiver_acknowledged_ends_at_once_and_the_next_response_pairs_with_its_request()
     {
-        // the answer to /one is never captured; the client's ACKs pass it, so /two and /three are answered in step
+        // The answer to /one is never captured; the client's ACKs pass it, so /two and /three are answered in step.
         static byte[] Response(string body) => A($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {body.Length}\r\n\r\n{body}");
         byte[] one = Response("first"), two = Response("second"), three = Response("third");
         byte[] get1 = A("GET /one HTTP/1.1\r\nHost: files.example.com\r\n\r\n"), get2 = A("GET /two HTTP/1.1\r\nHost: files.example.com\r\n\r\n"), get3 = A("GET /three HTTP/1.1\r\nHost: files.example.com\r\n\r\n");
@@ -182,7 +180,7 @@ public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void Tls_13_early_data_decrypts_with_the_early_traffic_secret()
     {
-        // a resumed session: the client's first request goes out as 0-RTT data before the ServerHello
+        // A resumed session: the client's first request goes out as 0-RTT data before the ServerHello.
         byte[] early = [.. Enumerable.Repeat((byte)1, 32)], clientHs = [.. Enumerable.Repeat((byte)2, 32)], serverHs = [.. Enumerable.Repeat((byte)3, 32)],
             clientApp = [.. Enumerable.Repeat((byte)4, 32)], serverApp = [.. Enumerable.Repeat((byte)5, 32)];
         var random = new string('0', 64);
@@ -223,10 +221,11 @@ public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void Http2_streams_give_their_responses()
     {
-        // GET /a and /b on streams 1 and 3 (literal :path, :authority added to the table, then indexed), answers interleaved
+        // GET /a and /b on streams 1 and 3 (literal :path, :authority added to the table, then indexed), answers interleaved.
         byte[] first = [0x82, 0x86, 0x44, .. Literal("/a"), 0x41, .. Literal("h2.example.com")];
         byte[] second = [0x82, 0x86, 0x44, .. Literal("/b"), 0xBF];
-        byte[] status = [0x88, 0x5F, .. Literal("text/plain")]; // :status 200, content-type literal
+        // :status 200, content-type literal.
+        byte[] status = [0x88, 0x5F, .. Literal("text/plain")];
         var frames = Connection(50003, 80,
         [
             (true, [.. "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"u8, .. H2(4, 0, 0, []), .. H2(1, 0x05, 1, first), .. H2(1, 0x05, 3, second)]),
@@ -279,7 +278,7 @@ public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void A_pcapng_carries_its_own_keys_and_without_keys_only_handshakes_are_read()
     {
-        // the key log as a decryption secrets block before the packets, as editcap --inject-secrets writes it
+        // The key log as a decryption secrets block before the packets, as editcap --inject-secrets writes it.
         var keys = Encoding.ASCII.GetBytes(string.Join("\n", Sessions().SelectMany(s => s.Keys)) + "\n");
         var o = new MemoryStream();
         o.Write(Block(0x0A0D0D0A, [.. Le(0x1A2B3C4D), 1, 0, 0, 0, .. Enumerable.Repeat((byte)0xFF, 8)]));
@@ -298,13 +297,13 @@ public sealed class CaptureObjectsTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void Ja3_and_ja4_equal_their_published_examples()
     {
-        // JA4's README: a Chrome hello with 15 ciphers, 16 extensions (SNI, ALPN h2), these signature algorithms, GREASE
+        // JA4's README: a Chrome hello with 15 ciphers, 16 extensions (SNI, ALPN h2), these signature algorithms, GREASE.
         ushort[] ciphers = [0x0A0A, 0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035];
         ushort[] extensions = [0x1A1A, 0x0000, 0x0010, 0x0005, 0x000a, 0x000b, 0x000d, 0x0012, 0x0015, 0x0017, 0x001b, 0x0023, 0x002b, 0x002d, 0x0033, 0x4469, 0xff01];
         var hello = Hello(0x0303, ciphers, extensions, sni: "example.com", alpn: "h2", sigalgs: [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601], versions: [0x0304, 0x0303]);
         Assert.Equal("t13d1516h2_8daaf6152771_e5627efa2ab1", TlsHello.Parse(hello)!.Ja4());
 
-        // JA3's README: 769,47-53-5-10-49161-49162-49171-49172-50-56-19-4,0-10-11,23-24-25,0
+        // JA3's README: 769,47-53-5-10-49161-49162-49171-49172-50-56-19-4,0-10-11,23-24-25,0.
         var old = Hello(0x0301, [47, 53, 5, 10, 49161, 49162, 49171, 49172, 50, 56, 19, 4], [0, 10, 11], sni: "example.com", groups: [23, 24, 25], formats: [0]);
         Assert.Equal("ada70206e40642a3e4461f35503241d5", TlsHello.Parse(old)!.Ja3());
     }

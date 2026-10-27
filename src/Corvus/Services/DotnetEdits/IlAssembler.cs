@@ -8,20 +8,10 @@ using Corvus.Core;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Small IL assembler for patching method bodies from text. Accepts the output of get_il (edited) as well as
-/// hand-written IL. One instruction per line:
-///
-///   [label:] opcode [operand]   // comment
-///
-/// Operands:
-///   numbers (decimal or 0x hex), "C# escaped strings", labels (any 'name:' defined in the text, or IL_xxxx
-///   offsets of the original body when prepending), switch (L1, L2, ...), arguments/locals by index or name,
-///   and members/types either by a trailing metadata-token comment exactly as get_il prints it (/* 0A000025 */),
-///   a token '0x06000012', or a symbol string ('Ns.Type::Method(int, string)', 'System.String::Concat(string, string)').
-/// Directive: '.local &lt;type&gt;' declares a new local (index continues after existing locals).
-/// Header lines from get_il (.method, .maxstack, braces, comments) are ignored.
-/// </summary>
+/// <summary>Assembles IL text (get_il output or hand-written) for a method body: one <c>[label:] opcode [operand]</c>
+/// per line, '.local &lt;type&gt;' adds a local, get_il header lines are ignored.</summary>
+/// <remarks>Operands: numbers, "escaped strings", labels or IL_xxxx offsets when prepending, switch lists, arguments
+/// and locals by index or name, members and types by /* token */ comment, 0x token or 'Ns.Type::Method(int)'.</remarks>
 public sealed class IlAssembler(AssemblyWorkspace workspace)
 {
     private static readonly Dictionary<string, OpCode> OpCodesByName = typeof(OpCodes)
@@ -113,7 +103,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
             if (text.StartsWith(".try", StringComparison.Ordinal) || text.StartsWith("catch", StringComparison.Ordinal)
                 || text.StartsWith("finally", StringComparison.Ordinal) || text.StartsWith("fault", StringComparison.Ordinal)
                 || text.StartsWith("filter", StringComparison.Ordinal))
-                throw new ToolError(ErrorCode.Unsupported, $"Line {i + 1}: exception-handling blocks are not supported in patches. Use mode=prepend to keep the original body (and its try/catch), or patch a method without handlers.");
+                throw new ToolError(ErrorCode.Unsupported, $"Line {i + 1}: patches cannot contain exception-handling blocks; use mode=prepend to keep the original handlers.");
             if (text is "{" or "}" || (text.StartsWith('.') && !text.StartsWith(".local ", StringComparison.OrdinalIgnoreCase)))
                 continue; // .maxstack, .locals init (...), braces
 
@@ -298,11 +288,8 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
         };
     }
 
-    /// <summary>
-    /// Builds a MemberRef for "Ns.Type::Member(params)" where Ns.Type lives in a referenced (not loaded) assembly.
-    /// The declaring type is the module's existing TypeRef (or a corlib TypeRef), so the patched assembly keeps
-    /// referencing the same facade (e.g. System.Runtime / mscorlib) it already uses.
-    /// </summary>
+    /// <summary>A MemberRef for "Ns.Type::Member(params)" in a referenced, unloaded assembly, through the module's own
+    /// TypeRef so the facade it references is kept; null when not found.</summary>
     private static object? ResolveThroughTypeRefs(ModuleDef module, string symbol, SymbolKind kind, ParsedLine line)
     {
         int sep = symbol.IndexOf("::", StringComparison.Ordinal);

@@ -4,27 +4,14 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// One call to a string decoder: the calling method, the call's code offset, the decoder and what the call returns. A read
-/// of a static String[] table its class initializer computes names the field as the decoder, at the aget-object offset.
-/// <see cref="Evaluated"/> is false when an argument is not a constant, so the decoder did not run. A decoder returning a
-/// char or byte array names the String call that turns it into the string (<see cref="Wrapper"/>, at
-/// <see cref="WrapperOffset"/>); they are null and -1 for a decoder returning a string.
-/// </summary>
+/// <summary>One decoder call or computed String[] table read and its result; <see cref="Evaluated"/> is false when an argument is not constant.</summary>
+/// <remarks><see cref="Wrapper"/> names the String call that turns an array decoder's result into a string; null and -1 otherwise.</remarks>
 public sealed record DexFoldSite(string Method, int Offset, string Decoder, DexFold Fold, bool Evaluated = true, string? Wrapper = null, int WrapperOffset = -1);
 
 /// <summary>The decoder calls of a package, with the methods that were not reached within the time limit.</summary>
 public sealed record DexPackageFolds(IReadOnlyList<DexFoldSite> Sites, int MethodsLeft);
 
-/// <summary>
-/// Finds the calls to string decoders of a package (methods of its DEX code that return a string, or a char or byte array
-/// a String call turns into one, called with constant arguments) and evaluates them. A decoder is static, or an instance
-/// method of a class whose instances all behave alike, as Kotlin objects do. Arguments are numbers,
-/// strings and values of static fields as their class initializers leave them (when no other code writes them) that
-/// every path to the call agrees on, and, in the call's basic block, arrays built there and strings earlier decoder calls
-/// return. Reads of static String[] tables are evaluated too: an element the class initializer computes, rather than
-/// loads as a literal, is a site. Results are kept per package while it is loaded.
-/// </summary>
+/// <summary>Finds and evaluates a package's string decoder calls with constant arguments and computed String[] table reads; results kept per package.</summary>
 public sealed class DexStringFolding
 {
     /// <summary>The time one package-wide pass may take; a later pass continues where it stopped.</summary>
@@ -77,10 +64,7 @@ public sealed class DexStringFolding
     public bool IsArrayDecoder(string descriptor) =>
         _index.Methods.TryGetValue(descriptor, out var m) && m.Ref.Proto.ReturnType is "[C" or "[B" && m.Ref.Proto.Parameters.Count > 0 && Callable(m);
 
-    /// <summary>
-    /// A static method, or an instance method with code of a class without instance fields, whose superclass is Object
-    /// and that no class of the package extends: every instance runs it alike, so the receiver need not be known.
-    /// </summary>
+    /// <summary>A static method, or an instance method of an unextended Object subclass without instance fields, so the receiver need not be known.</summary>
     private bool Callable(DexMethodEntry m)
     {
         if ((m.Encoded.Access & 0x8) != 0) return true;
@@ -112,11 +96,7 @@ public sealed class DexStringFolding
         field.EndsWith(":[Ljava/lang/String;", StringComparison.Ordinal) && field.IndexOf("->", StringComparison.Ordinal) is > 0 and var at
         && _index.Classes.ContainsKey(field[..at]);
 
-    /// <summary>
-    /// A method other than the declaring class's static initializer that stores into the array a String[] field holds, or
-    /// passes it on; null when none does. Registers are followed through each reader in code order, without regard to
-    /// branches.
-    /// </summary>
+    /// <summary>A method other than the static initializer that stores into or passes on a String[] field's array; null when none.</summary>
     private string? TableWriter(string field)
     {
         lock (_tableWriters)
@@ -188,10 +168,7 @@ public sealed class DexStringFolding
         }
     }
 
-    /// <summary>
-    /// The decoder calls of every method that has one; methods not reached within <paramref name="limit"/> (default
-    /// <see cref="PackageTimeLimit"/>) are counted.
-    /// </summary>
+    /// <summary>The decoder calls of every method; methods not reached within <paramref name="limit"/> (default <see cref="PackageTimeLimit"/>) are counted.</summary>
     public DexPackageFolds Package(CancellationToken ct, TimeSpan? limit = null)
     {
         _index.EnsureCode(ct);
@@ -253,10 +230,7 @@ public sealed class DexStringFolding
     /// <summary>Rounds of the block entry pass at most; beyond them every block starts with nothing known.</summary>
     private const int MaxEntryRounds = 32;
 
-    /// <summary>
-    /// The numbers and strings each block starts with: the values every path into it agrees on, decoder results left out.
-    /// Exception handlers and blocks no path reaches start with nothing known.
-    /// </summary>
+    /// <summary>The numbers and strings every path into each block agrees on; handlers and unreached blocks start with nothing.</summary>
     private Dictionary<int, Dictionary<int, object?>> BlockEntries(DexMethodEntry m, DexCode code, List<DalvikInstruction> insns, HashSet<int> starts)
     {
         var order = starts.Append(0).Distinct().Order().ToList();
@@ -460,10 +434,7 @@ public sealed class DexStringFolding
             if (!setsPending) _hasPending = false;
         }
 
-        /// <summary>
-        /// Records the site of an array decoder call whose result <paramref name="wrapper"/> turns into a string; false when
-        /// the array it reads is not such a result.
-        /// </summary>
+        /// <summary>Records an array decoder call whose result <paramref name="wrapper"/> turns into a string; false when the array is not one.</summary>
         private bool Wrapped(DalvikInstruction i, DexMethodRef wrapper, string arrayType, List<DexFoldSite> sites)
         {
             bool init = wrapper.Name == "<init>";
@@ -489,10 +460,7 @@ public sealed class DexStringFolding
         }
     }
 
-    /// <summary>
-    /// An array decoder call not yet turned into a string: its constant arguments, or the refusal when one is not known.
-    /// It is never passed on as an argument.
-    /// </summary>
+    /// <summary>An array decoder call not yet turned into a string: its constant arguments or the refusal; never passed on.</summary>
     private sealed class ArrayCall
     {
         public int Offset { get; }
@@ -526,10 +494,7 @@ public sealed class DexStringFolding
         return Site(_evaluator.Fold(call.Callee.Descriptor, call.Arguments, wrapper, extra));
     }
 
-    /// <summary>
-    /// The constant values of <paramref name="parameters"/>, read from the call's registers from index <paramref name="first"/>
-    /// on and numbered from <paramref name="number"/>; null with the refusal when one is not known.
-    /// </summary>
+    /// <summary>Constant values of <paramref name="parameters"/> from register <paramref name="first"/> on; null with the refusal when one is unknown.</summary>
     private static List<object?>? Constants(DalvikInstruction i, IEnumerable<string> parameters, int first, int number, KnownRegister known, out string? refusal)
     {
         var args = new List<object?>();

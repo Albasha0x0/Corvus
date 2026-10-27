@@ -108,7 +108,7 @@ public class Arm64TraceTests
         Here("second"); a.Word(A64.MovW(0, 2)).Word(A64.Ret);
 
         var code = a.Bytes();
-        // store: adrp x8, target; add x8, x8, #lo12
+        // Store: adrp x8, target; add x8, x8, #lo12.
         BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan((int)(at["store"] - Code)), A64.Adrp(at["store"], at["target"], 8, Base));
         BinaryPrimitives.WriteUInt32LittleEndian(code.AsSpan((int)(at["store"] - Code + 4)), A64.AddImm(8, 8, at["target"] & 0xFFF));
 

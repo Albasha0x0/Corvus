@@ -48,14 +48,14 @@ public class CallArgumentTests(ITestOutputHelper output)
             a.mov(__dword_ptr[rsp + 0x28], 0x80);
             a.and(__qword_ptr[rsp + 0x30], 0);
             a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data), 8)));
-            // different values on two paths: unknown
+            // Different values on two paths: unknown.
             a.mov(ecx, 1000);
             a.test(eax, eax);
             a.jz(l1);
             a.mov(ecx, 2000);
             a.Label(ref l1);
             a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data + 8), 8)));
-            // the same value on both paths
+            // The same value on both paths.
             a.mov(ecx, 5);
             a.test(eax, eax);
             a.jz(l2);
@@ -86,7 +86,7 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.Contains("differs between paths", calls[1].Arguments[0].Derivation);
         Assert.Equal("Sleep(5)", calls[2].Display);
 
-        // a guessed call counts stack slots only from the first one up: a local stored above a gap is no argument
+        // A guessed call counts stack slots only from the first one up: a local stored above a gap is no argument.
         var guessed = Assemble(64, a =>
         {
             var callee = a.CreateLabel();
@@ -105,7 +105,7 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.True(call.Guessed);
         Assert.Equal(["rcx"], call.Arguments.Select(x => x.Location));
 
-        // reference rows carry arguments only on the page asked for
+        // Reference rows carry arguments only on the page asked for.
         var rows = Corvus.Tools.NativeCallTools.WithArguments(index, calls.Select(c => (c.Rva, "Call", true)), _ => "f", default, first: 2, count: 1);
         Assert.Equal([false, false, true], rows.Select(r => r.Contains('(')).ToArray());
         Assert.EndsWith("Sleep(5)", rows[2]);
@@ -459,7 +459,7 @@ public class CallArgumentTests(ITestOutputHelper output)
                         else if (Environment.GetEnvironmentVariable("CORVUS_DEBUG_ARGS") == "1" && fileSites - fileConst < 3)
                             output.WriteLine($"    {s.Display} @{s.Rva:X}: {string.Join(" | ", s.Arguments.Select(a => a.Derivation))}");
                     }
-                // every call of the image: no exception, guessed arguments for unknown callees
+                // Every call of the image: no exception, guessed arguments for unknown callees.
                 foreach (var f in index.Functions.Take(3000))
                     foreach (var s in analysis.CallsIn(f))
                         if (s.Guessed) guessedSites++;
@@ -558,7 +558,7 @@ public class CallArgumentTests(ITestOutputHelper output)
             var tree = await codeTools.NativeCallTree(kernel32, $"0x{index.Image.ImageBase + caller.Start:X}", depth: 1);
             output.WriteLine(tree);
             Assert.Contains($"{called.FullName}  [dynamic]", tree);
-            // the cross-image tree (the server's configuration)
+            // The cross-image tree (the server's configuration).
             var linked = new Corvus.Tools.NativeCodeTools(env.Workspace, service, env.Pager, new Corvus.Services.NativeLinkService(env.Workspace, service));
             Assert.Contains($"{called.FullName}  [dynamic]", await linked.NativeCallTree(kernel32, $"0x{index.Image.ImageBase + caller.Start:X}", depth: 1));
         }

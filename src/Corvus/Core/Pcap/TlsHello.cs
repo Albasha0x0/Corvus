@@ -4,11 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// The fields of a ClientHello or ServerHello handshake message (from its type byte on) that key derivation and
-/// fingerprints use: version, random, cipher suites, extension types in order, groups, point formats, signature
-/// algorithms, ALPN, server name and supported versions.
-/// </summary>
+/// <summary>The ClientHello or ServerHello fields that key derivation and fingerprints use.</summary>
 internal sealed class TlsHello
 {
     public bool Client;
@@ -54,7 +50,8 @@ internal sealed class TlsHello
             else
             {
                 h.Ciphers.Add(BinaryPrimitives.ReadUInt16BigEndian(b[at..]));
-                at += 3; // cipher and compression method
+                // Cipher and compression method.
+                at += 3;
             }
             if (at + 2 > b.Length) return h;
             int end = Math.Min(b.Length, at + 2 + BinaryPrimitives.ReadUInt16BigEndian(b[at..]));
@@ -101,7 +98,8 @@ internal sealed class TlsHello
             }
             return h;
         }
-        catch (ArgumentOutOfRangeException) { return null; } // a length past the message
+        // A length past the message.
+        catch (ArgumentOutOfRangeException) { return null; }
         catch (IndexOutOfRangeException) { return null; }
     }
 
@@ -120,11 +118,7 @@ internal sealed class TlsHello
         return Convert.ToHexStringLower(MD5.HashData(Encoding.ASCII.GetBytes(text)));
     }
 
-    /// <summary>
-    /// JA4 (client): t (TCP) or q (QUIC), version, d or i (server name or not), cipher and extension counts, ALPN's first and
-    /// last characters; the truncated SHA-256 of the sorted ciphers; of the sorted extensions without SNI and ALPN, then the
-    /// signature algorithms in order. JA4S (server): version, extension count, ALPN; the cipher; the hash of the extensions in order.
-    /// </summary>
+    /// <summary>The JA4 fingerprint of a ClientHello, or JA4S of a ServerHello.</summary>
     public string Ja4(bool quic = false)
     {
         string proto = quic ? "q" : "t";

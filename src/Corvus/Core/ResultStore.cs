@@ -8,10 +8,7 @@ namespace Corvus.Core;
 /// <summary>A loaded input of the call that produced a kept result.</summary>
 public sealed record KeptInput(string Id, string Sha256);
 
-/// <summary>
-/// The call that produced a kept result (S3.6). <paramref name="Arguments"/> is the canonical arguments object with secrets
-/// already masked; <paramref name="ArgumentsSha256"/> hashes the unmasked canonical form.
-/// </summary>
+/// <summary>The call that produced a kept result; arguments with secrets masked, the hash over the unmasked form.</summary>
 public sealed record KeptOrigin(string Tool, string? Arguments = null, string? ArgumentsSha256 = null, IReadOnlyList<KeptInput>? Inputs = null);
 
 /// <summary>The side record of a kept result: its origin, creation time, size and whether a structured record is kept.</summary>
@@ -48,12 +45,9 @@ public sealed record ResultCacheOptions(string? Root, long MaxBytes, TimeSpan Ma
 public sealed record ResultStoreStatus(string Mode, string? Root, int Entries, long Bytes, long MaxBytes, TimeSpan MaxAge,
     int MemoryEntries, long MemoryChars, long MaxMemoryChars, int MaxResultChars, int Kept, int Reads, int Evicted, string? LastError);
 
-/// <summary>
-/// Results too large to send, kept for read_result (S3, D5). Ids are content-addressed ("r-" + 12 hex of the text's
-/// SHA-256), so an id never names other content, across restarts and servers. A memory LRU is the hot tier; the disk tier
-/// (one folder, shared by every server of the user) is bounded by size and age. Entries are verified by hash on read, so
-/// a truncated or foreign file is a miss. An evicted entry keeps its side record, so a read can name the original call.
-/// </summary>
+/// <summary>Results too large to send, kept for read_result under content-addressed ids in memory and a shared disk tier.</summary>
+/// <remarks>Ids are "r-" plus 12 hex of the text's SHA-256, so an id never names other content across restarts and servers.
+/// Entries are hash-verified on read, so a truncated or foreign file is a miss; an evicted entry keeps its side record naming the original call.</remarks>
 public sealed partial class ResultStore
 {
     /// <summary>Largest result written to disk; larger ones stay in memory only.</summary>
@@ -75,8 +69,7 @@ public sealed partial class ResultStore
     private long _memoryChars;
     private int _kept, _reads, _evicted;
     private string? _lastError;
-    // Bytes on disk as of the last walk plus what this store wrote since (-1: not walked yet), and when the walk ran:
-    // a write walks the folder again only past the size limit or an hour later, not on every write.
+    // Bytes on disk since the last walk (-1: not walked); a write walks again only past the size limit or an hour later.
     private long _diskBytes = -1;
     private DateTime _walked;
 
@@ -171,10 +164,7 @@ public sealed partial class ResultStore
                 _memory.Count, _memoryChars, MemoryLimit, MaxResultChars, _kept, _reads, _evicted, _lastError);
     }
 
-    /// <summary>
-    /// Deletes disk entries unused for longer than the age limit, then, past the size limit, the least recently used down
-    /// to <see cref="LowWater"/> of it.
-    /// </summary>
+    /// <summary>Deletes disk entries past the age limit, then least recently used ones down to <see cref="LowWater"/>.</summary>
     public void Evict()
     {
         if (Options.Root is not { } root || !Directory.Exists(root)) return;
@@ -332,10 +322,7 @@ public sealed partial class ResultStore
         lock (_memory) _evicted++;
     }
 
-    /// <summary>
-    /// Side records without content beyond twice the age limit, or beyond <see cref="MaxTombstones"/>, oldest first.
-    /// <paramref name="live"/> names the entries the walk kept, so no side record costs a call of its own.
-    /// </summary>
+    /// <summary>Deletes side records past twice the age limit or beyond <see cref="MaxTombstones"/>, oldest first.</summary>
     private void PruneTombstones(string root, DateTime now, List<FileInfo> files, HashSet<string> live)
     {
         List<FileInfo> orphans = [.. files

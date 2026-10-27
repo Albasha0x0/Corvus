@@ -13,10 +13,7 @@ public static class NativeCodeScanner
         public bool Contains(ulong rva) => rva >= Rva && rva < Rva + (ulong)Math.Max(VirtualSize, RawSize);
     }
 
-    /// <summary>
-    /// Sections of an x64 PE file; ToolError when the file is not one. A memory image of the loaded module (a process
-    /// dump, see <see cref="MappedPeLayout"/>) has each section's data at its RVA.
-    /// </summary>
+    /// <summary>Sections of an x64 PE file, data at the RVA for a mapped memory image; throws ToolError for other files.</summary>
     public static List<Section> Sections(string path)
     {
         bool mapped;
@@ -43,12 +40,8 @@ public static class NativeCodeScanner
 
     private const int ChunkSize = 1 << 20;
 
-    /// <summary>
-    /// Every "mov r64, [rip+disp32]" (REX.W 8B /r) and "lea r64, [rip+disp32]" (REX.W 8D /r) in the executable
-    /// sections whose target RVA is in [<paramref name="low"/>, <paramref name="high"/>]: reports the instruction's RVA
-    /// and the target. A byte scan, not a disassembly: a match inside another instruction is possible but needs its
-    /// target to land on a wanted address.
-    /// </summary>
+    // A byte scan, not a disassembly: a match inside another instruction must still hit a wanted target.
+    /// <summary>Reports each RIP-relative "mov/lea r64" in code whose target RVA is in [<paramref name="low"/>, <paramref name="high"/>].</summary>
     public static void FindRipRelative(string path, IReadOnlyList<Section> sections, uint low, uint high, Action<uint, uint> found, CancellationToken ct)
     {
         using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -63,7 +56,8 @@ public static class NativeCodeScanner
                 {
                     ct.ThrowIfCancellationRequested();
                     int length = RandomAccess.Read(file, buffer.AsSpan(0, (int)Math.Min(ChunkSize + 16, size - chunk)), s.RawOffset + chunk);
-                    int limit = (int)Math.Min(ChunkSize, length); // instructions starting in this chunk
+                    // Instructions starting in this chunk.
+                    int limit = (int)Math.Min(ChunkSize, length);
                     Scan(buffer.AsSpan(0, length), limit, s.Rva + (uint)chunk, low, high, found);
                 }
             }
@@ -84,7 +78,7 @@ public static class NativeCodeScanner
             if (k < 0) return;
             p += k;
             if (p + 6 > code.Length || p - 1 >= limit) return;
-            // REX.W with any of R and B (0x48, 0x49, 0x4C, 0x4D)
+            // REX.W with any of R and B (0x48, 0x49, 0x4C, 0x4D).
             if ((code[p - 1] & 0xFA) == 0x48 && (code[p + 1] & 0xC7) == 0x05)
             {
                 uint site = baseRva + (uint)(p - 1);

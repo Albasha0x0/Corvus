@@ -11,37 +11,60 @@ public static partial class ToolEffects
     {
         // Native images
         ["get_pe_info"] = Reads(),
-        ["get_nativeaot_info"] = Reads(longRunning: true), // the first call reads the metadata of a large image
-        ["list_imports"] = Reads(longRunning: true), // call sites wait for the code index
+        // The first call reads the metadata of a large image.
+        ["get_nativeaot_info"] = Reads(longRunning: true),
+        // Call sites wait for the code index.
+        ["list_imports"] = Reads(longRunning: true),
         ["list_exports"] = Reads(),
         ["resolve_address"] = Reads(),
         ["search_bytes"] = Reads(),
         ["read_bytes"] = Reads(),
         ["convert_number"] = Reads(),
-        ["list_functions"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["disassemble"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["inspect_instruction"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["search_instructions"] = Reads(longRunning: true, openWorld: true), // engine=ida or ghidra runs that engine
-        ["list_globals"] = Reads(longRunning: true, openWorld: true), // engine=ida or ghidra runs that engine
-        ["get_cfg"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["find_xrefs"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["native_call_tree"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true), // crossCheck=true runs IDA
-        ["search_native_strings"] = Reads(longRunning: true, openWorld: true), // engine=ida or ghidra runs that engine
+        // engine=ida runs IDA.
+        ["list_functions"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida runs IDA.
+        ["disassemble"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida runs IDA.
+        ["inspect_instruction"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida or ghidra runs that engine.
+        ["search_instructions"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida or ghidra runs that engine.
+        ["list_globals"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida runs IDA.
+        ["get_cfg"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida runs IDA.
+        ["find_xrefs"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida runs IDA.
+        ["native_call_tree"] = Reads(longRunning: true, openWorld: true),
+        // crossCheck=true runs IDA.
+        ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida or ghidra runs that engine.
+        ["search_native_strings"] = Reads(longRunning: true, openWorld: true),
         ["get_call_arguments"] = Reads(longRunning: true),
-        ["trace_native_values"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["resolve_call_targets"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
-        ["analyze_native_function"] = Reads(longRunning: true, openWorld: true), // pseudocode=true runs IDA or Ghidra
-        ["trace_native_feature"] = Reads(longRunning: true, openWorld: true), // engine=ida or ghidra runs that engine
+        // engine=ida runs IDA.
+        ["trace_native_values"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida runs IDA.
+        ["resolve_call_targets"] = Reads(longRunning: true, openWorld: true),
+        // pseudocode=true runs IDA or Ghidra.
+        ["analyze_native_function"] = Reads(longRunning: true, openWorld: true),
+        // engine=ida or ghidra runs that engine.
+        ["trace_native_feature"] = Reads(longRunning: true, openWorld: true),
         ["find_similar_functions"] = Reads(longRunning: true),
         ["get_exception_info"] = Reads(longRunning: true),
-        ["list_cpp_classes"] = Reads(openWorld: true), // engine=ida|ghidra runs the engine
-        ["get_native_type"] = Reads(longRunning: true, openWorld: true), // source=engine runs IDA
-        ["decompile_native"] = Reads(longRunning: true, openWorld: true), // runs IDA (idalib) in a worker process; its database is a private cache
-        ["search_decompiled"] = Reads(longRunning: true, openWorld: true), // decompiles many functions through IDA or Ghidra
-        ["emulate_native"] = Reads(longRunning: true, openWorld: true), // emulation in the Ghidra worker, in process or in speakeasy; the program is not changed
-        ["verify_native_imports"] = Reads(longRunning: true), // the whole IL and every library the declarations bind to
-        ["load_pdb"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // download=true fetches from a symbol server; clear=true deletes the saved PDB names
+        // engine=ida|ghidra runs the engine.
+        ["list_cpp_classes"] = Reads(openWorld: true),
+        // source=engine runs IDA.
+        ["get_native_type"] = Reads(longRunning: true, openWorld: true),
+        // Runs IDA (idalib) in a worker process; its database is a private cache.
+        ["decompile_native"] = Reads(longRunning: true, openWorld: true),
+        // Decompiles many functions through IDA or Ghidra.
+        ["search_decompiled"] = Reads(longRunning: true, openWorld: true),
+        // Emulation in the Ghidra worker, in process or in speakeasy; the program is not changed.
+        ["emulate_native"] = Reads(longRunning: true, openWorld: true),
+        // The whole IL and every library the declarations bind to.
+        ["verify_native_imports"] = Reads(longRunning: true),
+        // download=true fetches from a symbol server; clear=true deletes the saved PDB names.
+        ["load_pdb"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["search_pdb_symbols"] = Reads(),
     };
 }
@@ -70,7 +93,7 @@ public static partial class ParameterDomains
         ["emulate_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra", "ours", "speakeasy"], "built-in", "builtin") },
         ["get_native_type"] = new Dictionary<string, Domain>
         {
-            ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "objc", "swift", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,
+            ["source"] = Of(["auto", "pdb", "rtti", "metadata", "objc", "swift", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,
         },
         ["find_virtual_calls"] = new Dictionary<string, Domain> { ["status"] = Of(["exact", "possible", "unresolved"]) },
         ["trace_native_values"] = new Dictionary<string, Domain> { ["direction"] = Of(["backward", "forward", "both"], "back", "fwd"), ["engine"] = Engine },
@@ -120,7 +143,7 @@ public sealed partial record ToolContract
         ["search_decompiled"] = Row(O.List, L.Long, core: true, sort: "function address"),
         ["emulate_native"] = Row(O.Report, L.Engine, core: true),
         ["verify_native_imports"] = Row(O.List, L.Long, core: true, sort: "status severity, module, entry point"),
-        ["load_pdb"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "N14: clear=true removes the saved PDB names"),
+        ["load_pdb"] = Row(O.Edit, L.Interactive, core: true, noDryRun: "clear=true removes the saved PDB names"),
         ["search_pdb_symbols"] = Row(O.List, L.Instant, core: true, sort: "address"),
         ["get_nativeaot_info"] = Row(O.Report, L.Interactive, core: true),
     };

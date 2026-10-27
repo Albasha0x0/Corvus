@@ -12,9 +12,8 @@ namespace Corvus.Tools;
 public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
 {
     [McpServerTool(Name = "symbolize_stack_text", Title = "Symbolize crash text", UseStructuredContent = true, OutputSchemaType = typeof(StackTextService.SymbolizedStack))]
-    [Description("Resolve crash text against the loaded build: Unity Player.log, Mono and Il2Cpp lines, .NET exception text, Report.wer, Event Log " +
-                 "1000/1026, debugger stacks, Android tombstones. Each frame gets our name, a buildCheck (time stamp, MVID, BuildId or the text name; " +
-                 "mismatch: another build) and the C# statement at an IL offset.")]
+    [Description("Resolve crash text (logs, .NET exceptions, WER reports, Event Log entries, debugger stacks, Android tombstones) against " +
+                 "the loaded builds. Each frame gets a name, a build check and the C# statement at an IL offset.")]
     public Task<string> SymbolizeStackText(
         [Description("Crash text (up to 1 MiB); this or path.")] string? text = null,
         [Description("A log or report file; its last 8 MiB are read.")] string? path = null,
@@ -39,9 +38,8 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
     }, cancellationToken);
 
     [McpServerTool(Name = "bucket_minidumps", Title = "Group crash dumps", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpBuckets))]
-    [Description("Group a folder of minidumps by signature: code | faulting module!function | next frames (raising frames skipped); .NET: clr | " +
-                 "exception type | top managed frames; no exception: hang | top frames. Names, not offsets: rebases do not split a bucket. Each " +
-                 "bucket lists its dumps and the newest. Cached per file.")]
+    [Description("Group a folder of minidumps by crash signature (exception code, faulting function, top frames), by name so rebases do " +
+                 "not split a bucket. Each bucket lists its dumps and the newest.")]
     public Task<string> BucketMinidumps(
         [Description("Folder of .dmp or core files.")] string folder,
         [Description("Also search subfolders.")] bool recursive = false,

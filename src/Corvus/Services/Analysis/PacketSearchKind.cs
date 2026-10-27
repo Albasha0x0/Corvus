@@ -5,10 +5,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// search_container kind=packet on a pcap / pcapng capture: the query is a Wireshark display filter over the fields decoded
-/// in-process (addresses, ports, DNS, HTTP, TLS server names); rows are the matching frames in capture order, streamed.
-/// </summary>
+/// <summary>search_container kind=packet: a Wireshark display filter over a pcap or pcapng capture; rows are matching frames in order.</summary>
 internal sealed class PacketSearchKind : IContainerSearchKind
 {
     public IReadOnlyList<string> Kinds => ["packet"];
@@ -54,10 +51,7 @@ internal sealed class PacketSearchKind : IContainerSearchKind
             (int)Math.Min(result.Matched, int.MaxValue), notes);
     }
 
-    /// <summary>
-    /// The filter run by TShark (any Wireshark field, on any OS where it is installed): its field output streamed line by
-    /// line, every match counted, the page kept. Frames read are not counted (-1).
-    /// </summary>
+    /// <summary>The filter run by TShark for any Wireshark field: every match counted, the page kept; frames read is -1.</summary>
     private static PacketQueryResult TShark(string exe, string source, PacketFilter filter, int offset, int limit, CancellationToken ct)
     {
         var tool = ExternalTools.TShark;
@@ -83,7 +77,8 @@ internal sealed class PacketSearchKind : IContainerSearchKind
             rows.Add(new PacketRow(frame, time, Host(2, 3, 6, 7), Host(4, 5, 8, 9), c[10].ToLowerInvariant(), fields));
         });
         var size = new FileInfo(source).Length;
-        var timeout = TimeSpan.FromSeconds(Math.Clamp(size / (2 << 20), 60, 3600)); // 2 MB/s at the slowest
+        // Allows 2 MB/s at the slowest.
+        var timeout = TimeSpan.FromSeconds(Math.Clamp(size / (2 << 20), 60, 3600));
         var run = ExternalTools.Run(exe, args, timeout, long.MaxValue, ct, sink: sink);
         sink.Flush();
         if (run.StartError != null) throw new ToolError(ErrorCode.Unsupported, $"TShark could not be started: {run.StartError}.", ExternalTools.Remediation(tool));

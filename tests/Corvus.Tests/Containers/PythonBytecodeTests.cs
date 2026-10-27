@@ -46,7 +46,7 @@ public sealed class PythonBytecodeTests
         Assert.Equal(File.ReadAllText(Fixture("constructs-3.12.dis"))[100..], facts.Disassembly);
         Assert.Null(facts.Next);
 
-        // the overview names the view without disassembling
+        // The overview names the view without disassembling.
         var overview = new PythonFileView().Inspect(new FileInput(path, bytes, Blob.Identify(bytes)), default)!;
         Assert.Equal("", Assert.IsType<PythonFileView.Bytecode>(overview.Detail).Disassembly);
         Assert.Contains("view=python shows the disassembly", Assert.Single(overview.Highlights));
@@ -59,7 +59,7 @@ public sealed class PythonBytecodeTests
             new[] { 1e16, 1234567890123456.0, 0.0001, 1.5e-5, -0.0, double.PositiveInfinity, 0.1 }.Select(d => PyRepr.Of(d, (3, 12))));
         Assert.Equal("'\\ud800'", PyRepr.Of("\ud800", (3, 12)));
         Assert.Equal("\"it's\"", PyRepr.Of("it's", (3, 12)));
-        // U+1C89 was assigned in Unicode 16.0: Python 3.13 (15.1) escapes it
+        // U+1C89 was assigned in Unicode 16.0: Python 3.13 (15.1) escapes it.
         Assert.Equal("'\\u1c89'", PyRepr.Of("Ᲊ", (3, 13)));
         Assert.Equal("'Ᲊ'", PyRepr.Of("Ᲊ", (3, 14)));
         Assert.Equal("(1+0j)", PyRepr.Of(new PyComplex(1, 0), (3, 12)));

@@ -4,12 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Databases;
 
-/// <summary>
-/// LevelDB databases (a folder of CURRENT, MANIFEST, table and log files): the MANIFEST's version edits for the live files
-/// per level, every record of the table files (.ldb, .sst) and write-ahead logs (.log), and the live state merged from
-/// them by sequence number. Records the live state no longer shows (deleted keys, older versions, files no longer
-/// listed) are kept and labelled, not dropped.
-/// </summary>
+/// <summary>LevelDB databases: every table and log record, and the live state by sequence number; superseded records are kept and labelled.</summary>
 internal static class LevelDb
 {
     private const ulong TableMagic = 0xdb4775248b80fb57;
@@ -21,10 +16,7 @@ internal static class LevelDb
     /// <summary>A table or log file: its role in the database ("table, level 2", "log, live", "table, not in the MANIFEST") and record count.</summary>
     public sealed record FileFacts(string Name, string Role, long Size, int Records, bool Live);
 
-    /// <summary>
-    /// The database as read: comparator and last sequence from the MANIFEST (null when none was read), the files, every
-    /// record, and for each key its newest record in the live files (<see cref="Live"/>, deletions included).
-    /// </summary>
+    /// <summary>The database as read; MANIFEST fields are null when none was read, <see cref="Live"/> includes deletions.</summary>
     public sealed record Database(string? Comparator, ulong? LastSequence, IReadOnlyList<FileFacts> Files, IReadOnlyList<Record> Records,
         IReadOnlyList<Record> Live, IReadOnlyList<string> Notes);
 
@@ -40,10 +32,7 @@ internal static class LevelDb
             && File.ReadAllBytes(Path.Combine(dir, "CURRENT")).AsSpan().StartsWith("MANIFEST-"u8);
     }
 
-    /// <summary>
-    /// Reads the database in <paramref name="folder"/>; without a CURRENT or MANIFEST only <paramref name="single"/> is read
-    /// and the live state is that file's alone (noted). Reads at most <paramref name="maxBytes"/> of files, noting the rest.
-    /// </summary>
+    /// <summary>Reads the database, or only <paramref name="single"/> without a CURRENT or MANIFEST; files past <paramref name="maxBytes"/> are noted.</summary>
     public static Database Read(string folder, string? single, long maxBytes, CancellationToken ct)
     {
         var notes = new List<string>();
@@ -110,10 +99,7 @@ internal static class LevelDb
         return new Database(manifest?.Comparator, manifest?.LastSequence, files, records, live, notes);
     }
 
-    /// <summary>
-    /// Adds the records of one file, a table (.ldb, .sst) or log by its name, to <paramref name="records"/>; a MANIFEST
-    /// adds none. Damage is noted, never thrown.
-    /// </summary>
+    /// <summary>Adds one table or log file's records; a MANIFEST adds none; damage is noted, never thrown.</summary>
     internal static void ReadFile(byte[] data, string name, List<Record> records, List<string> notes, CancellationToken ct)
     {
         try
@@ -263,8 +249,7 @@ internal static class LevelDb
         }
     }
 
-    // A table: footer (metaindex and index block handles, magic), index block of data block handles, data blocks of
-    // internal keys (user key, then sequence << 8 | type).
+    // A table: footer, index block of data block handles, data blocks of internal keys (user key, sequence << 8 | type).
     private static void ReadTable(byte[] data, string name, List<Record> records, List<string> notes, CancellationToken ct)
     {
         if (data.Length < 48 || BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(data.Length - 8)) != TableMagic) throw new InvalidDataException("no table footer");

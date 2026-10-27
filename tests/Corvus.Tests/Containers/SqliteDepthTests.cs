@@ -4,10 +4,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// SQLite rows by position (checked against the e_sqlite3 library as the oracle), -wal frames applied with their history,
-/// and deleted rows carved from free space (summarize_file view=sqlite table=, view=sqlite-recover).
-/// </summary>
+/// <summary>SQLite rows checked against e_sqlite3, -wal frames applied and deleted rows carved from free space.</summary>
 public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -41,7 +38,8 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(expected.Count, ours.Count);
             for (int i = 0; i < expected.Count; i++)
                 for (int c = 0; c < expected[i].Length; c++)
-                    if (t.Generated.GetValueOrDefault(c) == 'V') Assert.Null(ours[i][c]); // computed, not stored
+                    // Computed, not stored.
+                    if (t.Generated.GetValueOrDefault(c) == 'V') Assert.Null(ours[i][c]);
                     else Assert.True(Same(expected[i][c], ours[i][c]), $"{t.Name} row {i} column {t.Columns[c]}: {expected[i][c]} vs {ours[i][c]}");
         }
         Assert.Empty(db.Issues);
@@ -157,7 +155,8 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
         var wal = view.Wal!;
         Assert.True(wal.Committed > 0 && wal.Commits >= 2, $"{wal.Committed} committed, {wal.Commits} commits");
         Assert.True(wal.States.GetValueOrDefault("applied") > 0);
-        Assert.True(wal.States.GetValueOrDefault("stale") > 0, string.Join(", ", wal.States)); // frames left from before the restart
+        // Frames left from before the restart.
+        Assert.True(wal.States.GetValueOrDefault("stale") > 0, string.Join(", ", wal.States));
         Assert.Contains(wal.History, p => p.Frames.Any(f => f.EndsWith("applied (commit)", StringComparison.Ordinal) || f.Contains("applied", StringComparison.Ordinal)));
         Assert.Equal(NativeSqlite.Query(oracle, "SELECT count(*) FROM log")[0][0], view.Tables.Single(t => t.Name == "log").Rows);
         Assert.Contains(view.Notes, n => n.Contains("committed frames are applied", StringComparison.Ordinal));
@@ -251,10 +250,11 @@ public sealed class SqliteDepthTests(ITestOutputHelper output) : IDisposable
         var notes = new List<string>();
         var rows = db.Recover(notes);
         output.WriteLine(string.Join("; ", notes));
-        var skip = new Dictionary<string, int> { ["kv"] = 0, ["doc"] = 1, ["note"] = 1 }; // the rowid alias
+        // The rowid alias.
+        var skip = new Dictionary<string, int> { ["kv"] = 0, ["doc"] = 1, ["note"] = 1 };
         foreach (var (table, deleted) in gone)
         {
-            // a row can come back only while its bytes are in the file: B-tree rebalancing rewrites pages and drops freed cells
+            // A row can come back only while its bytes are in the file: B-tree rebalancing rewrites pages and drops freed cells.
             var expected = deleted.Select(Key).ToHashSet();
             var present = deleted.Where(r => bytes.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(((string)r[table == "kv" ? 2 : table == "doc" ? 1 : 0]!)[..Math.Min(24, ((string)r[table == "kv" ? 2 : table == "doc" ? 1 : 0]!).Length)])) >= 0)
                 .Select(Key).ToHashSet();
@@ -318,7 +318,7 @@ public sealed class SqlitePagingTimingTests(ITestOutputHelper output) : IDisposa
     [Fact]
     [Trait("Speed", "Slow")]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void Hundred_megabyte_database_pages_quickly()
+    public void A_100_MB_database_pages_within_250_ms()
     {
         var path = _dir.File("big.db");
         NativeSqlite.Write(path, ["PRAGMA journal_mode=OFF;", "PRAGMA synchronous=OFF;", "CREATE TABLE big(id INTEGER PRIMARY KEY, a TEXT, b INTEGER);",
@@ -331,7 +331,8 @@ public sealed class SqlitePagingTimingTests(ITestOutputHelper output) : IDisposa
             input.Options = new FileViewOptions("sqlite", "big", ["id", "b"], offset, 50);
             return (SqliteFileView.Facts)new SqliteFileView().Inspect(input, default)!.Detail;
         }
-        Page(0); // the file in the OS cache
+        // The file in the OS cache.
+        Page(0);
         var times = new List<double>();
         foreach (var offset in new long[] { 0, 400_000, 799_950 })
         {

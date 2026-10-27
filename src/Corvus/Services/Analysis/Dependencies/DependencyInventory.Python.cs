@@ -39,10 +39,7 @@ internal static partial class DependencyInventory
 
     private sealed record Distribution(string Name, string Version, string MetadataPath, List<string> TopLevel, List<string> Requires);
 
-    /// <summary>
-    /// A frozen Python program: the interpreter, the distributions whose metadata it bundles, and the other top-level
-    /// packages by import name, with the version their __version__ string gives or an unknown version.
-    /// </summary>
+    /// <summary>Adds a frozen Python program's interpreter, bundled distributions and other top-level packages.</summary>
     private static void FromPython(Builder b, FrozenApp app, string path, CancellationToken ct)
     {
         b.Sources.Add($"{app.Freezer} contents ({app.Kind})");
@@ -162,9 +159,9 @@ internal static partial class DependencyInventory
                 if (refs.TryGetValue(Purl.PyPIName(r), out var to) && to != from) b.Edge(from, to);
         }
         if (fromModule > 0)
-            b.Notes.Add($"{fromModule} Python package version(s) come from a module's __version__ string and the distribution name from the import name (confidence {ModuleVersion})");
+            b.Notes.Add($"{fromModule} Python package version(s) come from __version__ and the name from the import name (confidence {ModuleVersion})");
         if (unknown > 0)
-            b.Notes.Add($"{unknown} Python package(s) are named by import name only: no distribution metadata or __version__ was read, so the version is unknown and there is no package URL");
+            b.Notes.Add($"{unknown} Python package(s) are named by import name only: version unknown, no package URL");
         if (app.Compiled && app.CompiledModules.Count == 0)
             b.Notes.Add("Nuitka compiled the program's modules to native code and its constants named none: the packages compiled into it are unknown");
     }

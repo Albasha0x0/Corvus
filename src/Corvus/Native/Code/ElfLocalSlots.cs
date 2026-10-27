@@ -2,10 +2,7 @@ using System.Runtime.CompilerServices;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// ELF JUMP_SLOT / GLOB_DAT slots whose symbol the image itself defines (an exported function bound through the GOT, so
-/// its PLT stub or GOT load reaches local code): slot RVA -> the function's RVA, bit 0 kept for ARM32 Thumb functions.
-/// </summary>
+/// <summary>ELF JUMP_SLOT / GLOB_DAT slots of functions the image defines: slot RVA -> function RVA, Thumb bit kept.</summary>
 internal static class ElfLocalSlots
 {
     private static readonly ConditionalWeakTable<INativeImage, IReadOnlyDictionary<uint, uint>> Cache = new();

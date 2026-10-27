@@ -2,10 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Native.Pe;
 
-/// <summary>
-/// IMAGE_EXPORT_DIRECTORY. <see cref="NamesSorted"/> is false when the name table is out of order, which makes the
-/// loader's binary search (GetProcAddress by name) miss names.
-/// </summary>
+/// <summary>IMAGE_EXPORT_DIRECTORY; <see cref="NamesSorted"/> false means GetProcAddress by name can miss names.</summary>
 public sealed record PeExportDirectory(
     string? DllName,
     uint TimeDateStamp,
@@ -26,10 +23,7 @@ public sealed partial class PeFile
         public static readonly ExportTable Empty = new(null, []);
     }
 
-    /// <summary>
-    /// Export address table entries joined with the name table. Zero entries without a name are gaps in the ordinal
-    /// range and are skipped; an entry pointing inside the export directory is a forwarder string.
-    /// </summary>
+    /// <summary>Export entries joined with names; unnamed zero entries are skipped, entries inside the directory are forwarders.</summary>
     private ExportTable ParseExports(IssueLog log)
     {
         var dir = Directory(PeDirectory.Export);
@@ -74,7 +68,8 @@ public sealed partial class PeFile
         }
         if (!sorted) log.Add("export names are not sorted; GetProcAddress by name can miss some of them");
 
-        var byIndex = named.OrderBy(n => n.Index).ToList(); // stable: name table order within an index
+        // Stable: name table order within an index.
+        var byIndex = named.OrderBy(n => n.Index).ToList();
         var entries = new List<NativeExport>(Math.Max(eat.Length, byIndex.Count));
         long forwardStart = dir.Rva, forwardEnd = (long)dir.Rva + dir.Size;
         int k = 0;
@@ -98,10 +93,7 @@ public sealed partial class PeFile
         return new ExportTable(directory, entries);
     }
 
-    /// <summary>
-    /// <paramref name="count"/> 32-bit values at <paramref name="rva"/>, cut at <see cref="PeLimits.MaxExports"/> and at
-    /// the end of the mapped image (both recorded).
-    /// </summary>
+    /// <summary><paramref name="count"/> 32-bit values at <paramref name="rva"/>, cut and recorded at the limit or the image end.</summary>
     private uint[] ReadTable32(uint rva, uint count, string what, IssueLog log)
     {
         if (count == 0) return [];

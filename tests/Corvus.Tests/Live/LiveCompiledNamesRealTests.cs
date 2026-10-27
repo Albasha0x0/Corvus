@@ -15,11 +15,7 @@ public sealed class LiveRealDataFactAttribute(string target, params string[] var
         ?? variables.Where(v => RealData.Get(v) is not { } value || value != "1" && !Path.Exists(value)).Select(v => $"Set {v} to run this real-data session test.").FirstOrDefault();
 }
 
-/// <summary>
-/// A session stopped in managed code compiled ahead of time names its frames through the loaded image's code index:
-/// an Il2Cpp build (CORVUS_IL2CPP_BUILD) after apply_il2cpp_names, and a NativeAOT program (CORVUS_NATIVEAOT_SAMPLES=1)
-/// without its PDB.
-/// </summary>
+/// <summary>Frames in ahead-of-time code are named through the image's code index: a metadata build (CORVUS_AOT_BUILD) after apply_metadata_names, and NativeAOT without its PDB.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -29,16 +25,16 @@ public sealed class LiveCompiledNamesRealTests(ITestOutputHelper output) : LiveT
 
     public void Dispose() => _dir.Dispose();
 
-    [LiveRealDataFact("win-x64", "CORVUS_IL2CPP_BUILD")]
-    public async Task Il2Cpp_frames_are_named()
+    [LiveRealDataFact("win-x64", "CORVUS_AOT_BUILD")]
+    public async Task Frames_in_metadata_build_code_are_named()
     {
-        var files = Il2CppBuildFiles.Find(RealData.Path("CORVUS_IL2CPP_BUILD")) ?? throw new InvalidOperationException("not an Il2Cpp build");
+        var files = AotBuildFiles.Find(RealData.Path("CORVUS_AOT_BUILD")) ?? throw new InvalidOperationException("not an AOT build");
         var folder = Path.GetDirectoryName(files.Binary)!;
         var exe = Directory.EnumerateFiles(folder, "*.exe").Single(f => !Path.GetFileName(f).StartsWith("UnityCrashHandler", StringComparison.OrdinalIgnoreCase));
         await using var server = await Server();
         await Ok(server, "load_assembly", new() { ["path"] = folder }, log: false);
-        await Ok(server, "apply_il2cpp_names", new() { ["image"] = Path.GetFileName(files.Binary) });
-        // a per-frame method, by the layer's C identifier ("Ns.Type::Update()" as "Ns_Type__Update")
+        await Ok(server, "apply_metadata_names", new() { ["image"] = Path.GetFileName(files.Binary) });
+        // A per-frame method, by the layer's C identifier ("Ns.Type::Update()" as "Ns_Type__Update").
         var update = await Ok(server, "search_symbols", new() { ["query"] = "::Update()", ["assembly"] = "Assembly-CSharp", ["kind"] = "method", ["limit"] = 1 });
         var method = Regex.Match(update, @"method\s+(\S+)::Update\(\)").Groups[1].Value;
         Assert.NotEmpty(method);
@@ -84,7 +80,7 @@ public sealed class LiveCompiledNamesRealTests(ITestOutputHelper output) : LiveT
               </PropertyGroup>
             </Project>
             """);
-        // no PDB at all: a deterministic build's PDB could still be found in a symbol cache by its signature
+        // No PDB at all: a deterministic build's PDB could still be found in a symbol cache by its signature.
         var (code, log) = Tools.Dotnet(_dir.Path, "publish", "app.csproj", "-c", "Release", "-r", "win-x64", "-o", "out", "-nologo", "-p:DebugType=none", "-p:DebugSymbols=false");
         Assert.True(code == 0, log);
         var exe = _dir.File(Path.Combine("out", "app.exe"));

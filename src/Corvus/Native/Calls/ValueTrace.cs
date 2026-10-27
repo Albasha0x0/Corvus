@@ -115,13 +115,7 @@ internal interface ITraceLinks
     IReadOnlyList<(ITraceHost Host, uint Site, NativeFunction Caller)> Importers(ITraceHost host, NativeFunction f);
 }
 
-/// <summary>
-/// Interprocedural value tracing composed from per-function slices (<see cref="IFunctionSliceProvider"/>): backward from a
-/// use to the values that reach it (merges, loops, parameters bound to every caller's argument, callee return values,
-/// writers of globals), forward from a definition to its uses (call arguments into callees, returns into callers' uses,
-/// stores to globals into their readers). Constants are named through the API parameter or return they meet. Budgets on
-/// depth, functions, nodes, callers, writers and steps; whatever a budget stops is a frontier entry with the follow-up call.
-/// </summary>
+/// <summary>Interprocedural value tracing over per-function slices, backward or forward; what a budget stops becomes a frontier entry with its follow-up call.</summary>
 public sealed class ValueTrace
 {
     private readonly List<(ITraceHost Host, IFunctionSliceProvider Slices)> _hosts = [];
@@ -257,7 +251,7 @@ public sealed class ValueTrace
                 return;
             case TraceSeedKind.Argument when f != null && _seed.Location != null:
             {
-                // the value in the argument's location at the call: its uses start with the call
+                // The argument's uses start with the call.
                 var atCall = Host.AtCall(f, _seed.Address, _seed.Location, _ct);
                 Materialize(Slice(f, new SliceSeed(SliceSeedKind.Location, _seed.Address, atCall), forward: true), 0, seedNode, false, "copy", _seed.Address, _seed.Param, _seed.Returns);
                 return;
@@ -295,10 +289,7 @@ public sealed class ValueTrace
         return id;
     }
 
-    /// <summary>
-    /// Adds a slice's nodes and edges. Backward: the slice's root feeds <paramref name="attach"/> through an edge of
-    /// <paramref name="link"/>. Forward: the slice's origin is <paramref name="attach"/>. Boundary nodes are queued.
-    /// </summary>
+    /// <summary>Adds a slice's nodes and edges joined at <paramref name="attach"/>, and queues its boundary nodes.</summary>
     private void Materialize(FunctionSlice s, int depth, int attach, bool backward, string link, uint site, ApiParam? param, ApiReturn? returns, int siteHost = -1)
     {
         var map = new int[s.Nodes.Count];
@@ -350,10 +341,7 @@ public sealed class ValueTrace
         _nodes[node] = Get(node) with { Decoded = what, Value = (ulong)value };
     }
 
-    /// <summary>
-    /// A load from or a store to a field of a parameter whose type is known: the other functions holding that type are
-    /// searched for the field's writers (backward) or readers (forward).
-    /// </summary>
+    /// <summary>Queues the writers or readers of a field of a typed parameter in the other functions holding that type.</summary>
     private void TypedField(FunctionSlice s, int i, int node, int depth, bool backward, ApiParam? param, ApiReturn? returns)
     {
         var n = s.Nodes[i];
@@ -505,7 +493,7 @@ public sealed class ValueTrace
         var key = $"{e.Host}:{e.Key}";
         if (_expanded.TryGetValue(key, out int earlier))
         {
-            // reached again (recursion, or a second path to the same boundary): link instead of expanding twice
+            // Reached again by recursion or a second path: link instead of expanding twice.
             if (earlier != e.Node) _edges.Add(new TraceEdge(earlier, e.Node, "loop", 0, _cur));
             return;
         }
@@ -636,7 +624,7 @@ public sealed class ValueTrace
             if (!CanEnter(g)) { _frontier.Add(new TraceFrontier(e.Node, "functions", $"{Where(g.Start)}: maxFunctions={_o.MaxFunctions} reached", Next(e))); continue; }
             Uses(g, Slice(g, new SliceSeed(SliceSeedKind.Parameter, g.Start, location), true));
         }
-        // objects typed by a vftable store at +0 (an inlined constructor): the object register from that store on
+        // A vftable store at +0 (an inlined constructor) types the object register from that store on.
         int constructions = 0;
         foreach (uint vftable in _types.Vftables(Host, e.Location!))
             foreach (var r in Index.RefsTo(vftable).Where(r => r.Kind == XrefKind.Address))
@@ -666,10 +654,7 @@ public sealed class ValueTrace
             };
     }
 
-    /// <summary>
-    /// The base register of "mov [reg], imm" storing <paramref name="target"/> at <paramref name="rva"/> (x86 "mov dword [ecx], offset vftable",
-    /// x64 "mov qword [rcx], imm32" below 2 GB), or null: no register carries the address, so the object register is followed from the store.
-    /// </summary>
+    /// <summary>The base register of "mov [reg], imm" storing <paramref name="target"/> at <paramref name="rva"/>, or null.</summary>
     private string? ImmediateStoreBase(uint rva, uint target)
     {
         if (Index.Image.Arch is not (NativeArch.X86 or NativeArch.X64)) return null;
@@ -718,7 +703,7 @@ public sealed class ValueTrace
             _cur = h;
             if (!CanEnter(caller))
                 _frontier.Add(new TraceFrontier(e.Node, "functions", $"call site {Where(site)}: maxFunctions={_o.MaxFunctions} reached", $"{Tool} address={Va(site)} {position}"));
-            // a jump thunk (incremental-link entry, one jump to the function) passes the arguments on: it costs no depth
+            // A jump thunk passes the arguments on, so it costs no depth.
             else Materialize(Slice(caller, new SliceSeed(SliceSeedKind.Argument, site, e.Location), false),
                 caller.InstructionCount == 1 && site == caller.Start ? e.Depth : e.Depth + 1, e.Node, true, "argument", site, e.Param, null);
             _cur = home;

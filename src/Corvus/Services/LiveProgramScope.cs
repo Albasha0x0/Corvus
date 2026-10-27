@@ -7,8 +7,8 @@ using Corvus.Native.Live;
 namespace Corvus.Services;
 
 /// <summary>
-/// The programs a session may open (--live-allow): a program is inside when its image path is a listed file or lies under a
-/// listed folder. Checked on the real image path, and the backend is handed what was checked (a full path or a process id).
+/// The programs a session may open (--live-allow): a listed file or one under a listed folder, checked on the final image
+/// path; the backend gets what was checked.
 /// </summary>
 public static class LiveProgramScope
 {
@@ -31,7 +31,7 @@ public static class LiveProgramScope
         var text = program.Trim();
         if (int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int pid))
         {
-            var image = ImagePath(pid) ?? throw Outside($"The image path of process {pid} cannot be read, so it cannot be checked against the allowed programs.", allowed);
+            var image = ImagePath(pid) ?? throw Outside($"The image path of process {pid} cannot be read to check it against the allowed programs.", allowed);
             if (!Contains(allowed, image)) throw Outside($"Process {pid} ({image}) is outside the programs sessions may open.", allowed);
             return text;
         }
@@ -96,7 +96,7 @@ public static class LiveProgramScope
             try
             {
                 FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
-                // a target's own folders can be links too (macOS: /var is /private/var); 40 is the kernel's limit on links followed
+                // A target's folders can be links too (macOS /var); 40 is the kernel's limit on links followed.
                 if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target)
                     current = depth < 40 ? FinalPathByLinks(Path.GetFullPath(target.FullName), depth + 1) : Path.GetFullPath(target.FullName);
             }
@@ -147,8 +147,7 @@ public static class LiveProgramScope
     }
 
     /// <summary>
-    /// Refuses this server's own process and the processes it runs under (the MCP client, its terminal, the editor): a
-    /// session held at a stop point there would freeze the client that drives it. A name matches when any of them has it.
+    /// Refuses this server's process and its ancestors, since a stop there would freeze the client; a name matches any of them.
     /// </summary>
     public static void RefuseOwnChain(string target)
     {

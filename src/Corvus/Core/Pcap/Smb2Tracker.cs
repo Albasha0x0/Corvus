@@ -6,11 +6,7 @@ namespace Corvus.Core.Pcap;
 /// <summary>SMB2 messages of one TCP segment: commands, the share (tree) and file names they act on, NTLMSSP account names.</summary>
 internal sealed record Smb2Facts(List<long> Commands, List<string> Trees, List<string> Files, List<string> Users, List<string> Domains, List<string> Hosts);
 
-/// <summary>
-/// SMB2 over TCP 445 (NetBIOS session framing, compounded messages): tree paths from TREE_CONNECT, file names from CREATE,
-/// both carried to later messages by tree id, file id and message id as Wireshark does; NTLMSSP AUTHENTICATE names in
-/// SESSION_SETUP. Messages are read from the segment that starts them.
-/// </summary>
+/// <summary>SMB2 on TCP 445: tree paths, file names and NTLMSSP names, carried to later messages as Wireshark does.</summary>
 internal sealed class Smb2Tracker
 {
     private const int MaxConnections = 10_000, MaxNames = 100_000;

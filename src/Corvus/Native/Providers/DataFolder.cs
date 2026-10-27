@@ -1,9 +1,6 @@
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// The per-user data folder: annotations, notes, the analysis and code-index caches, engine databases, symbols, Il2Cpp
-/// caches, reference packs and relay state. <see cref="RootVariable"/> replaces it; by default it is &lt;LocalAppData&gt;/Corvus.
-/// </summary>
+/// <summary>Per-user data folder for annotations, caches, engine databases and symbols: &lt;LocalAppData&gt;/Corvus, or <see cref="RootVariable"/>.</summary>
 public static class DataFolder
 {
     public const string Name = "Corvus";
@@ -25,11 +22,7 @@ public static class DataFolder
     /// <summary>What <see cref="Migrate"/> did: entries moved, and entries copied because a move failed (their originals kept).</summary>
     public sealed record Migration(string From, string To, IReadOnlyList<string> Moved, IReadOnlyList<string> Copied);
 
-    /// <summary>
-    /// Brings data from the legacy folder into <paramref name="to"/>: each entry the new folder lacks is moved, or copied when
-    /// the move fails (a file in use, another volume) with the original kept. Entries already present are left alone, so
-    /// running it again changes nothing; the legacy folder is removed once empty. Null when there was nothing to bring.
-    /// </summary>
+    /// <summary>Moves (or copies, keeping the original, when a move fails) each entry <paramref name="to"/> lacks and removes the empty legacy folder; idempotent; null when nothing was brought.</summary>
     public static Migration? Migrate(string from, string to)
     {
         if (!Directory.Exists(from) || SamePath(from, to)) return null;
@@ -73,10 +66,7 @@ public static class DataFolder
     public static bool MigratesOnStart(IReadOnlyList<string> args) =>
         args is not [("version" or "--version" or "-v" or "status"), ..] && !args.Contains("--dry-run");
 
-    /// <summary>
-    /// The migration for the default folder, reported on <paramref name="log"/> when it brought anything. Not when
-    /// <see cref="RootVariable"/> chooses the folder: that one is the user's, not a renamed default.
-    /// </summary>
+    /// <summary>Migrates the default folder and logs what moved; skipped when <see cref="RootVariable"/> chooses the folder.</summary>
     public static Migration? MigrateDefault(TextWriter log)
     {
         if (Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 }) return null;

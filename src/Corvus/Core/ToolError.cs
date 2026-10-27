@@ -2,10 +2,7 @@ using ModelContextProtocol;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Why a tool call failed; rendered as a snake_case code at the start of the error text. Meanings and retryability:
-/// <see cref="ToolError.Meaning"/> and <see cref="ToolError.IsRetryable"/> (published as docs/errors.md).
-/// </summary>
+/// <summary>Why a tool call failed, rendered as a snake_case code; meanings are in <see cref="ToolError.Meaning"/> (docs/errors.md).</summary>
 public enum ErrorCode
 {
     Failed,
@@ -25,11 +22,7 @@ public enum ErrorCode
     AccessDenied,
 }
 
-/// <summary>
-/// A user-facing error, returned to the client as an IsError result (<see cref="Mcp.ErrorResult"/>): the rendered text,
-/// then the same error as JSON. <see cref="Code"/> classifies it; <see cref="Remediation"/> names the next step that can
-/// succeed, and without one the code's <see cref="DefaultNext(ErrorCode, string?)"/> applies, so every error has a next step.
-/// </summary>
+/// <summary>A user-facing error sent as text and JSON; every error has a next step, the code's default when none is given.</summary>
 public sealed class ToolError : McpException
 {
     public ToolError(string message) : this(ErrorCode.Failed, message) { }
@@ -45,39 +38,30 @@ public sealed class ToolError : McpException
     /// <summary>The throw site's next step, or null for the code's default (<see cref="NextFor"/>).</summary>
     public string? Remediation { get; }
 
-    /// <summary>
-    /// Results produced before the failure (matches found before a time limit, files written before a timeout, the phase an
-    /// index build reached); serialized as the "partial" member of the error's JSON. Above <see cref="MaxPartialTokens"/> it is
-    /// kept for read_result (details.partialResultId) when the caller can keep results, else dropped with its size reported.
-    /// </summary>
+    /// <summary>Results produced before the failure, the JSON "partial" member; above <see cref="MaxPartialTokens"/> kept for read_result or dropped.</summary>
+    /// <remarks>Kept as details.partialResultId when the caller can keep results, else dropped with its size reported.</remarks>
     public object? Partial { get; set; }
 
     /// <summary>Further machine-readable facts (limits, ids, candidates); the "details" member of the error's JSON.</summary>
     public object? Details { get; set; }
 
-    /// <summary>
-    /// When the same call can succeed after a wait (details.retryAfterMs). Sent only for <see cref="TakesRetryAfter"/> codes:
-    /// an engine restarting or a busy server, a database lock held by another process, a timeout whose work still runs.
-    /// </summary>
+    /// <summary>The wait after which the same call can succeed (details.retryAfterMs); sent only for <see cref="TakesRetryAfter"/> codes.</summary>
     public TimeSpan? RetryAfter { get; init; }
 
-    /// <summary>The error budget (STANDARDS S1.3) of the partial result sent with an error.</summary>
+    /// <summary>The token budget of the partial result sent with an error.</summary>
     public const int MaxPartialTokens = 4_000;
 
     /// <summary>The next step of an "internal" error (an exception no tool classified), also per item where a tool collects failures.</summary>
     public const string InternalNext = "retry once; if it repeats, report it with the tool and its arguments (server_status shows the version)";
 
-    /// <summary>
-    /// Whether repeating the same call can succeed without changing its arguments: by code, unless the thrower knows better
-    /// (a provider that is not configured stays unavailable).
-    /// </summary>
+    /// <summary>Whether repeating the same call can succeed; by code unless the thrower sets it (an unconfigured provider stays unavailable).</summary>
     public bool Retryable { get => _retryable ?? IsRetryable(Code); init => _retryable = value; }
 
     private readonly bool? _retryable;
 
     public static bool IsRetryable(ErrorCode code) => code is ErrorCode.Timeout or ErrorCode.Cancelled or ErrorCode.IoError or ErrorCode.ProviderUnavailable;
 
-    /// <summary>The codes that may carry details.retryAfterMs (STANDARDS S6.4).</summary>
+    /// <summary>The codes that may carry details.retryAfterMs.</summary>
     public static bool TakesRetryAfter(ErrorCode code) => code is ErrorCode.ProviderUnavailable or ErrorCode.Conflict or ErrorCode.Timeout;
 
     /// <summary>The next step: the throw site's, else the code's default; never empty.</summary>
@@ -157,10 +141,7 @@ public sealed class ToolError : McpException
     public string Render(string? tool) =>
         $"Error ({CodeName(Code)}{(Retryable ? ", retryable" : "")}){(tool != null ? " in " + tool : "")}: {Format.EscapeMarkers(Message)}\nNext: {Format.EscapeMarkers(NextFor(tool))}";
 
-    /// <summary>
-    /// The error as JSON: { code, retryable, message, next, partial, details }, escaped as in the text. <paramref name="keep"/>
-    /// keeps an oversized partial (given as JSON) for read_result and returns the kept id.
-    /// </summary>
+    /// <summary>The error as JSON { code, retryable, message, next, partial, details }; <paramref name="keep"/> stores an oversized partial.</summary>
     public string ToJson(string? tool = null, Func<string, string>? keep = null) =>
         ErrorJson(CodeName(Code), Retryable, Format.EscapeMarkers(Message), Format.EscapeMarkers(NextFor(tool)), Partial, Details,
             TakesRetryAfter(Code) && RetryAfter is { } wait ? (long)wait.TotalMilliseconds : null, keep);
@@ -222,10 +203,7 @@ public sealed class ToolError : McpException
     }
 }
 
-/// <summary>
-/// An exception a worker process caught and the server raises in its place: its type name and message, so an unclassified
-/// failure reads the same as when the work ran in the server.
-/// </summary>
+/// <summary>A worker process's exception raised again in the server with its type name and message, so it reads as if the work ran there.</summary>
 public sealed class ForwardedException(string typeName, string message) : Exception(message)
 {
     public string TypeName { get; } = typeName;

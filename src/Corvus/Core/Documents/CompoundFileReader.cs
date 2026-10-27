@@ -3,11 +3,7 @@ using Corvus.Core.Archives;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>
-/// OLE compound files other than Windows Installer databases (.doc, .xls, .ppt, .msg, vbaProject.bin, OLE objects): every
-/// stream listed; VBA module sources written as .bas / .cls / .frm, Excel 4.0 macro formulas as xlm_macros.txt, and OLE
-/// Package objects under the name they were embedded with; other streams with allFiles, or when they hold a binary or package.
-/// </summary>
+/// <summary>OLE compound files other than MSI: streams listed, VBA sources, XLM formulas and OLE Package objects extracted.</summary>
 internal sealed class CompoundFileReader : IContainerReader
 {
     public string Kind => "ole";

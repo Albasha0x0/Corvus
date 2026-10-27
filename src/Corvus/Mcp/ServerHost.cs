@@ -16,9 +16,8 @@ public static class ServerHost
     /// <summary>Builds the host; <paramref name="transport"/> adds the transport (stdio for the server, streams in process).</summary>
     public static IHost Build(ServerOptions options, string instructions, Action<IMcpServerBuilder> transport)
     {
-        // Arguments are not passed to the host, and stdout carries the MCP protocol, so all logging goes to stderr.
-        // No configuration files and no content root in the client's working directory: clients start servers from any
-        // folder, and watching or reading it slows startup and lets a stray appsettings.json change the server.
+        // Stdout carries the protocol, so logging goes to stderr; no config files or content root in the client's folder,
+        // since reading it slows startup and lets a stray appsettings.json change the server.
         var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ContentRootPath = AppContext.BaseDirectory });
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
@@ -77,9 +76,10 @@ public static class ServerHost
         // Resolve before preloading so preloaded assemblies are indexed and watched.
         host.Services.GetRequiredService<IndexingService>();
         host.Services.GetRequiredService<NativeCodeService>();
-        host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
-        host.Services.GetRequiredService<NativeEngineService>(); // with --prewarm, analyzes preloaded native images in the background
-        host.Services.GetRequiredService<EditJournal>(); // offers journals of earlier sessions for preloaded files
+        // PDBs are read during index builds, --prewarm analyzes preloaded images, and journals of earlier sessions are offered.
+        host.Services.GetRequiredService<PdbService>();
+        host.Services.GetRequiredService<NativeEngineService>();
+        host.Services.GetRequiredService<EditJournal>();
         var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
         host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();
         Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
@@ -99,10 +99,10 @@ public static class ServerHost
             .AddSingleton<DecompilerService>()
             .AddSingleton<SearchService>()
             .AddSingleton<ReferenceService>()
-            .AddSingleton<Il2CppService>()
-            .AddSingleton<Il2CppStringService>()
-            .AddSingleton<Il2CppNavigator>()
-            .AddSingleton<Il2CppRawLoader>()
+            .AddSingleton<AotMetadataService>()
+            .AddSingleton<AotStringService>()
+            .AddSingleton<AotNavigator>()
+            .AddSingleton<AotBuildLoader>()
             .AddSingleton<ResourceService>()
             .AddSingleton<AssemblyReport>()
             .AddSingleton<IlAssembler>()
@@ -111,7 +111,7 @@ public static class ServerHost
             .AddSingleton<EditHistoryService>()
             .AddSingleton<AssemblyComparer>()
             .AddSingleton<CallGraphService>()
-            .AddSingleton<Il2CppExporter>()
+            .AddSingleton<AotExporter>()
             .AddSingleton<CppBindingGenerator>()
             .AddSingleton<IndexingService>()
             .AddSingleton<FileWatchService>()
@@ -127,7 +127,7 @@ public static class ServerHost
             .AddSingleton<NativeEditJournal>()
             .AddSingleton<NativeEditService>()
             .AddSingleton<LiveSessionService>()
-            .AddSingleton<Il2CppNativeNames>()
+            .AddSingleton<AotNativeNames>()
             .AddSingleton<NativeNamePush>()
             .AddSingleton<NativeTypePush>()
             .AddSingleton<NativeUserTypePush>()

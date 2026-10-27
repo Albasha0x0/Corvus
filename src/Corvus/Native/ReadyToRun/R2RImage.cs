@@ -30,11 +30,7 @@ public sealed record R2RImportSection(int Index, uint Rva, uint Size, ushort Fla
 /// <summary>One RUNTIME_FUNCTION of the ReadyToRun table (code range [Begin, End)).</summary>
 public sealed record R2RRuntimeFunction(int Index, uint Begin, uint End, uint UnwindRva);
 
-/// <summary>
-/// A method with precompiled code: a MethodDef row (<see cref="MethodDefRid"/>) or an instantiation named by a
-/// signature (<see cref="Signature"/>, from InstanceMethodEntryPoints). <see cref="Component"/> is the component
-/// index in a composite image, else -1.
-/// </summary>
+/// <summary>A method with precompiled code: a MethodDef row or an instantiation signature; <see cref="Component"/> -1 outside a composite image.</summary>
 public sealed record R2REntry(int Component, uint MethodDefRid, uint SignatureRva, R2RMethodSig? Signature, int RuntimeFunction, uint FixupsRva)
 {
     public bool IsInstance => SignatureRva != 0;
@@ -43,11 +39,7 @@ public sealed record R2REntry(int Component, uint MethodDefRid, uint SignatureRv
 /// <summary>A component assembly of a composite image and the sections of its READYTORUN_CORE_HEADER.</summary>
 public sealed record R2RComponent(int Index, string? Name, uint CoreHeaderRva, IReadOnlyList<R2RSection> Sections);
 
-/// <summary>
-/// A ReadyToRun image parsed from its READYTORUN_HEADER (readytorun.h): version, flags, sections, the runtime
-/// function table, import sections and every method entry point. A component assembly of a composite image has
-/// no code of its own; <see cref="OwnerComposite"/> names the file that has it.
-/// </summary>
+/// <summary>A ReadyToRun image from its READYTORUN_HEADER; a composite component's code is in <see cref="OwnerComposite"/>.</summary>
 public sealed class R2RImage
 {
     public const uint Signature = 0x00525452; // "RTR"
@@ -83,10 +75,7 @@ public sealed class R2RImage
     public R2RSection? Section(R2RSectionType type, IReadOnlyList<R2RSection>? sections = null) =>
         (sections ?? Sections).FirstOrDefault(s => s.Type == (int)type);
 
-    /// <summary>
-    /// The READYTORUN_HEADER of an IL image (COR header ManagedNativeHeader) or of a composite image (RTR_HEADER
-    /// export); 0 when there is none.
-    /// </summary>
+    /// <summary>The READYTORUN_HEADER RVA of an IL or composite image; 0 when there is none.</summary>
     public static uint FindHeader(PeFile pe)
     {
         var v = new ImageView(pe);

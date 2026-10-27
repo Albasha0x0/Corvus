@@ -10,7 +10,7 @@ namespace Corvus.Native.Code;
 /// <param name="Root">Directory of the cache files.</param>
 /// <param name="MaxBytes">Total size kept; the least recently used entries go first beyond it.</param>
 /// <param name="MaxAge">Entries not used for this long are deleted.</param>
-/// <param name="MinBuildTime">Indexes that built faster than this are not saved (small images rebuild quicker than they load).</param>
+/// <param name="MinBuildTime">Indexes that built faster than this are not saved: they rebuild quicker than they load.</param>
 public sealed record CodeIndexCacheOptions(string Root, long MaxBytes, TimeSpan MaxAge, TimeSpan MinBuildTime)
 {
     public const string RootVariable = "CORVUS_CODE_INDEX_CACHE";
@@ -19,11 +19,7 @@ public sealed record CodeIndexCacheOptions(string Root, long MaxBytes, TimeSpan 
     public const long DefaultMaxMegabytes = 8192;
     public const int DefaultMaxDays = 30;
 
-    /// <summary>
-    /// <c>&lt;LocalAppData&gt;/Corvus/code-index</c> (a sibling of the analysis cache and the annotations), or
-    /// CORVUS_CODE_INDEX_CACHE; null when that variable is "off". Size and age limits from CORVUS_CODE_INDEX_CACHE_MB and
-    /// CORVUS_CODE_INDEX_CACHE_DAYS.
-    /// </summary>
+    /// <summary>Root <c>&lt;LocalAppData&gt;/Corvus/code-index</c> or CORVUS_CODE_INDEX_CACHE ("off": null); limits from CORVUS_CODE_INDEX_CACHE_MB and _DAYS.</summary>
     public static CodeIndexCacheOptions? FromEnvironment()
     {
         var root = Environment.GetEnvironmentVariable(RootVariable)?.Trim();
@@ -42,14 +38,7 @@ public sealed record CodeIndexCacheOptions(string Root, long MaxBytes, TimeSpan 
 public sealed record CodeIndexCacheStatus(string Root, int Entries, long Bytes, long MaxBytes, TimeSpan MaxAge,
     int Hits, int Misses, int Rejected, int Writes, int Evicted, string? LastError);
 
-/// <summary>
-/// Saved code indexes, one file per image content (SHA-256) and build options digest:
-/// <c>root/&lt;sha256&gt;-&lt;digest16&gt;.cidx</c>. A file holds a header (magic, <see cref="NativeCodeIndex.PersistFormatVersion"/>,
-/// the image hash, the options digest, payload length and XxHash3 of the payload) and the payload in LZ4 blocks. Anything that does
-/// not match or does not decode is ignored (and rebuilt and overwritten by the caller); writes go to a temporary file
-/// renamed into place, so readers in this or another server process see a whole file or none. After each write the
-/// least recently used entries beyond the size limit, and entries unused past the age limit, are deleted.
-/// </summary>
+/// <summary>Saved code indexes at <c>root/&lt;sha256&gt;-&lt;digest16&gt;.cidx</c>; unreadable files are ignored, writes are atomic renames; each write evicts LRU entries past the size or age limit.</summary>
 public sealed class CodeIndexCache(CodeIndexCacheOptions options)
 {
     private const ulong Magic = 0x3158444945_444F43UL; // "CODEIDX1"
@@ -163,7 +152,7 @@ public sealed class CodeIndexCache(CodeIndexCacheOptions options)
             try { File.Move(temp, path, overwrite: true); }
             catch (IOException) when (File.Exists(path))
             {
-                // another process wrote (or is reading) the same entry: its content is the same index
+                // Another process wrote or is reading the same entry: its content is the same index.
                 File.Delete(temp);
                 return false;
             }

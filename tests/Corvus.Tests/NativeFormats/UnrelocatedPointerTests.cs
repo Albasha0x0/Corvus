@@ -10,7 +10,7 @@ public sealed class UnrelocatedPointerTests
 {
     private const ulong Base = 0x400000;
 
-    // two functions, a table of both at the start of .data, a lone pointer to the second at +0x20
+    // Two functions, a table of both at the start of .data, a lone pointer to the second at +0x20.
     private static byte[] Text()
     {
         var text = new byte[0x20];
@@ -26,7 +26,7 @@ public sealed class UnrelocatedPointerTests
         BinaryPrimitives.WriteUInt64LittleEndian(data, textVa);
         BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(8), textVa + 0x10);
         BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(0x20), textVa + 0x10);
-        // a run whose other value is inside code but no function start (a small integer, where the image base is low)
+        // A run whose other value is inside code but no function start (a small integer, where the image base is low).
         BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(0x30), textVa + 0x10);
         BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(0x38), textVa + 0x14);
         return data;
@@ -44,7 +44,7 @@ public sealed class UnrelocatedPointerTests
         var index = NativeCodeIndex.Build(ElfFile.FromBytes(Elf(), "static"));
         Assert.True(index.PointersUnconfirmed);
         Assert.Equal([(ElfWriter.DataRva, XrefKind.Pointer)], index.RefsTo(ElfWriter.TextRva).Select(x => (x.From, x.Kind)));
-        // the lone value at +0x20 stands in no run, the one at +0x30 beside no other function start
+        // The lone value at +0x20 stands in no run, the one at +0x30 beside no other function start.
         Assert.Equal([(ElfWriter.DataRva + 8, XrefKind.Pointer)], index.RefsTo(ElfWriter.TextRva + 0x10).Select(x => (x.From, x.Kind)));
 
         using var dir = new TempDir();
@@ -58,10 +58,7 @@ public sealed class UnrelocatedPointerTests
         Assert.Contains("data pointers are runs of values that are function starts, unconfirmed", await h.CodeTools.ListFunctions(path));
     }
 
-    /// <summary>
-    /// A value inside a function the image declares (a small integer where the image base is low, Go ARM tables) starts no
-    /// function and is no pointer reference; a value past every declared extent still does.
-    /// </summary>
+    /// <summary>A value inside a declared function starts no function and is no pointer; a value past every declared extent still is.</summary>
     [Fact]
     public void Values_inside_declared_functions_start_none()
     {

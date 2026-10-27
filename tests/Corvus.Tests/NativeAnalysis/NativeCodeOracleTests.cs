@@ -6,11 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Function starts and direct call edges compared with IDA (idalib, auto-analysis, PDB loading off) on a few system
-/// DLLs. Skipped when IDA or a Python that can import idapro is missing. CORVUS_IDA_ORACLE_FILES (paths separated by
-/// ';') replaces the default sample. IDA results are cached per file hash under %TEMP%\corvus-test-ida-oracle.
-/// </summary>
+/// <summary>Function starts and call edges against IDA on system DLLs (CORVUS_IDA_ORACLE_FILES replaces the sample); IDA results are cached per file hash.</summary>
 [Trait("Speed", "Slow")]
 public class NativeCodeOracleTests(ITestOutputHelper output)
 {
@@ -115,8 +111,7 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
                 $"calls ours {ourCalls.Count} ida {idaCalls.Count} precision {Ratio(bothCalls, ourCalls.Count)} recall {Ratio(bothCalls, idaCalls.Count)}");
             var missing = theirs.Except(ours).Order().ToList();
             var extra = ours.Except(theirs).Order().ToList();
-            // where IDA has code we call a separate function: IDA made it a chunk of another function
-            // or as code outside any function (IDA decoded it but made no function, e.g. x86 delay-load thunks)
+            // Our separate function is a chunk of another IDA function, or code outside any (x86 delay-load thunks).
             var chunks = (result.Chunks ?? []).Select(c => (Start: c[0], End: c[1])).OrderBy(c => c.Start).ToArray();
             var orphans = (result.Orphans ?? []).ToHashSet();
             bool InIdaChunk(uint a) => orphans.Contains(a) || chunks.Any(c => a >= c.Start && a < c.End);
@@ -136,16 +131,15 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
             totals[image.Arch] = (t.Ours + ours.Count, t.Ida + theirs.Count, t.Both + both, t.InIda + extraInChunks,
                 t.OurCalls + ourCalls.Count, t.IdaCalls + idaCalls.Count, t.BothCalls + bothCalls);
         }
-        // "in IDA code": our extra starts that IDA has as code, inside one of its functions (.pdata funclets and
-        // exception handler stubs IDA attaches to their parent function) or in no function
+        // Our extra starts IDA has as code, inside its functions (.pdata funclets, handler stubs) or in none.
         foreach (var (arch, t) in totals)
             output.WriteLine($"TOTAL {arch}: functions precision {Ratio(t.Both, t.Ours)} (counting starts in IDA code {Ratio(t.Both + t.InIda, t.Ours)}) " +
                 $"recall {Ratio(t.Both, t.Ida)}; calls precision {Ratio(t.BothCalls, t.OurCalls)} recall {Ratio(t.BothCalls, t.IdaCalls)}");
         foreach (var (arch, t) in totals)
         {
-            // floors below the measured values: a regression check, not a target
+            // Floors below the measured values: a regression check, not a target.
             Assert.True(t.Both + t.InIda >= 0.97 * t.Ours, $"{arch} function precision {Ratio(t.Both + t.InIda, t.Ours)}");
-            // exception funclets and handlers attached to their functions (IDA keeps x64 C++ funclets as functions, as we do)
+            // Exception funclets and handlers attached to their functions (IDA keeps x64 C++ funclets as functions, as we do).
             Assert.True(t.Both >= (arch == NativeArch.X64 ? 0.99 : 0.93) * t.Ours, $"{arch} strict function precision {Ratio(t.Both, t.Ours)}");
             Assert.True(t.Both >= (arch == NativeArch.X64 ? 0.99 : 0.95) * t.Ida, $"{arch} function recall {Ratio(t.Both, t.Ida)}");
             Assert.True(t.BothCalls >= 0.98 * t.OurCalls, $"{arch} call precision {Ratio(t.BothCalls, t.OurCalls)}");

@@ -69,7 +69,7 @@ public sealed class AppleBundleViewTests(ITestOutputHelper output) : IDisposable
                 ("NSCameraUsageDescription", "<string>scan codes</string>"))));
             Put("Bar", Dylib("libclrjit.dylib"));
             Put("Frameworks/Lib.framework/Lib", Dylib("libhostfxr.dylib"));
-            // a CMS envelope's bytes around the profile's plist
+            // A CMS envelope's bytes around the profile's plist.
             Put("embedded.mobileprovision", [0x30, 0x80, .. Encoding.UTF8.GetBytes(Plist(("Name", "<string>Bar Dev</string>"), ("TeamName", "<string>Example</string>"),
                 ("ProvisionedDevices", "<array><string>a</string><string>b</string></array>"), ("Entitlements", "<dict><key>get-task-allow</key><true/></dict>"))), 0, 0]);
         }

@@ -3,11 +3,7 @@ using Corvus.Core.Databases;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=leveldb: a LevelDB database read from any of its files (CURRENT, MANIFEST, a table or log): the comparator, the
-/// files with their level or log role, the live records in key order (offset=, limit=), and the records the live state
-/// no longer shows (deleted keys, older versions, files the MANIFEST no longer lists) with the file each came from.
-/// </summary>
+/// <summary>view=leveldb: a LevelDB database from any of its files: files, live records in key order (offset=, limit=), and recoverable records.</summary>
 internal sealed class LevelDbFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxRecovered = 50, MaxValue = 200;
@@ -67,10 +63,7 @@ internal sealed class LevelDbFileView : IFileSummaryView
 
     private static Entry Show(LevelDb.Record r, string state) => new(Text(r.Key), r.Deleted ? null : Text(r.Value), r.Sequence, state, r.File);
 
-    /// <summary>
-    /// Bytes as text when valid UTF-8 and mostly printable (other bytes and control characters as \xNN), otherwise as hex;
-    /// clipped to <see cref="MaxValue"/> characters with the full length named.
-    /// </summary>
+    /// <summary>Bytes as text (\xNN escapes) when mostly printable, else hex; clipped to <see cref="MaxValue"/> characters with the length named.</summary>
     internal static string Text(byte[] b)
     {
         var span = b.AsSpan(0, Math.Min(b.Length, MaxValue * 4));

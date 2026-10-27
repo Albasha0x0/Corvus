@@ -40,10 +40,7 @@ public static class MachOFat
         return result;
     }
 
-    /// <summary>
-    /// The slice named or numbered by <paramref name="slice"/>; by default the first of arm64e, arm64, x86_64, then
-    /// the first slice.
-    /// </summary>
+    /// <summary>The slice named or numbered by <paramref name="slice"/>; by default arm64e, arm64, x86_64, then the first.</summary>
     public static MachOSlice Select(IReadOnlyList<MachOSlice> slices, string? slice)
     {
         if (slices.Count == 0) throw new ToolError(ErrorCode.MalformedInput, "the universal file holds no readable slice");

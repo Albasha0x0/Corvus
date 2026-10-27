@@ -5,11 +5,7 @@ namespace Corvus.Core.Pcap;
 /// <summary>A QUIC long-header packet: version, packet type and connection ids.</summary>
 internal sealed record QuicFacts(long Version, long PacketType, string Dcid, string Scid);
 
-/// <summary>
-/// QUIC long headers, and client Initial packets decrypted with the keys their destination connection id derives (RFC 9001
-/// for version 1, RFC 9369 for version 2): CRYPTO frames are joined per connection, in any order, until the ClientHello is
-/// whole; the packet that completes it carries its server name and ALPN, as Wireshark shows them.
-/// </summary>
+/// <summary>QUIC long headers and client Initials decrypted until the ClientHello is whole, as Wireshark shows them.</summary>
 internal sealed class QuicTracker
 {
     private const int MaxConnections = 10_000, MaxHello = 16 * 1024;
@@ -49,7 +45,8 @@ internal sealed class QuicTracker
         if (!QuicCapture.Varint(p, ref at, out var length) || length > (ulong)(p.Length - at) || length < 20) return;
         var key = Convert.ToHexStringLower(dcid);
         if (_connections.TryGetValue(key, out var crypto) && crypto.Done) return;
-        if (QuicCapture.InitialPayload(version, dcid.ToArray(), p[..(at + (int)length)], at) is not { } plain) return; // a server Initial: other keys
+        // A server Initial uses other keys.
+        if (QuicCapture.InitialPayload(version, dcid.ToArray(), p[..(at + (int)length)], at) is not { } plain) return;
         if (crypto == null)
         {
             if (_connections.Count >= MaxConnections) return;
@@ -113,7 +110,7 @@ internal sealed class QuicTracker
         if (contiguous < 4 || crypto.Data[0] != 1) return null;
         int need = 4 + (crypto.Data[1] << 16 | crypto.Data[2] << 8 | crypto.Data[3]);
         if (need > MaxHello || contiguous < need) return null;
-        // a TLS record header in front, as the record reader expects one
+        // A TLS record header in front, as the record reader expects one.
         byte[] record = [0x16, 3, 1, (byte)(need >> 8), (byte)need, .. crypto.Data.AsSpan(0, need)];
         return HelloFacts.Of(record, quic: true);
     }

@@ -109,7 +109,7 @@ public sealed class NativePeTests
     }
 
     [WindowsFact]
-    public void NtdllAndUser32()
+    public void Ntdll_and_user32_read_like_the_system_reports_them()
     {
         if (PeCorpus.System32("ntdll.dll") is { } ntdll)
         {
@@ -165,7 +165,7 @@ public sealed class NativePeTests
     }
 
     [WindowsFact]
-    public void ChecksumMatchesImageHlp()
+    public void Checksum_matches_ImageHlp()
     {
         var b = Basic();
         b.Overlay = [1, 2, 3]; // odd length
@@ -212,7 +212,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void LfanewOutOfRange_Throws()
+    public void An_out_of_range_lfanew_throws()
     {
         var bytes = Basic().Build();
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0x3C), 0xFFFFFFF0);
@@ -234,7 +234,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void SectionTablePastEndOfFile()
+    public void A_section_table_past_the_end_of_the_file_is_reported()
     {
         var b = Basic();
         var bytes = b.Build();
@@ -246,7 +246,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void BogusDirectories_RecordIssuesPerArea()
+    public void Bogus_directories_record_issues_per_area()
     {
         var b = Basic();
         for (int i = 0; i < 16; i++) b.Directories[i] = (0xFFFFFF00, 0xFFFFFFFF);
@@ -289,7 +289,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void SectionLayout_RawDataPastEndOfFile_ReadsZeros()
+    public void Raw_data_past_the_end_of_the_file_reads_as_zeros()
     {
         var b = Basic();
         var data = b.Add(".data", Enumerable.Repeat((byte)0x5A, 0x400).ToArray());
@@ -303,7 +303,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void SectionLayout_Overlap_LowerSectionWins()
+    public void Of_overlapping_sections_the_lower_one_wins()
     {
         var b = Basic();
         var first = b.Add(".a", new byte[0x2000]);
@@ -315,7 +315,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void SectionLayout_FlatWhenAlignmentBelowPage()
+    public void The_layout_is_flat_when_alignment_is_below_a_page()
     {
         var b = new PeBuilder { SectionAlignment = 0x200, FileAlignment = 0x200 };
         var text = b.Add(".text", [0x90, 0xC3]);
@@ -330,9 +330,9 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void SectionLayout_ReadyToRunForAnotherOsMapsThroughTheSectionTable()
+    public void ReadyToRun_images_for_another_OS_map_through_the_section_table()
     {
-        // crossgen for macOS / Linux: ARM64 ^ the Apple mask, 0x200 alignment, RVAs 0x10000 apart from the file offsets.
+        // Crossgen for macOS / Linux: ARM64 ^ the Apple mask, 0x200 alignment, RVAs 0x10000 apart from the file offsets.
         var b = new PeBuilder { Machine = 0xAA64 ^ 0x4644, SectionAlignment = 0x200, FileAlignment = 0x200 };
         var text = b.Add(".text", [1, 2, 3, 4]);
         text.Rva = 0x10200;
@@ -348,7 +348,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void MappedReadsCrossSections()
+    public void Mapped_reads_cross_section_boundaries()
     {
         var b = Basic();
         var a = b.Add(".a", Enumerable.Repeat((byte)1, 0x1000).ToArray());
@@ -365,7 +365,7 @@ public sealed class NativePeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void Imports_ByNameOrdinalAndHint(bool is64)
+    public void Imports_read_by_name_ordinal_and_hint(bool is64)
     {
         var b = Basic(is64);
         uint descriptors = 0, iat = 0;
@@ -407,7 +407,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void Imports_Unterminated_HitsLimitsInBoundedTime()
+    public void Unterminated_imports_hit_limits_in_bounded_time()
     {
         // A section of repeated descriptors whose name table is a long run of name thunks.
         var b = Basic();
@@ -468,7 +468,7 @@ public sealed class NativePeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void DelayImports_RvaAndVaBased(bool rvaBased)
+    public void Delay_imports_read_RVA_and_VA_based_descriptors(bool rvaBased)
     {
         var b = Basic(is64: false);
         uint descriptor = 0, iat = 0;
@@ -510,7 +510,7 @@ public sealed class NativePeTests
     // ---- exports ----
 
     [Fact]
-    public void Exports_NamesOrdinalsForwardersGaps()
+    public void Exports_read_names_ordinals_forwarders_and_gaps()
     {
         var b = Basic();
         uint dir = 0, dirSize = 0, forwarder = 0, code = b.Sections[0].Rva;
@@ -583,7 +583,7 @@ public sealed class NativePeTests
     // ---- relocations, TLS, exception directory ----
 
     [Fact]
-    public void Relocations_TypesAndPointerRvas()
+    public void Relocations_read_types_and_pointer_RVAs()
     {
         var b = Basic();
         uint dir = 0, size = 0;
@@ -616,7 +616,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void Tls_CallbacksAndUnrelocatedSlot()
+    public void TLS_reads_callbacks_and_the_unrelocated_slot()
     {
         var b = Basic();
         uint code = b.Sections[0].Rva, dir = 0, array = 0;
@@ -651,7 +651,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void RuntimeFunctions_Arm64PackedAndUnpacked()
+    public void ARM64_runtime_functions_read_packed_and_unpacked()
     {
         var b = new PeBuilder { Machine = 0xAA64 };
         var text = b.Add(".text", new byte[0x100], 0x60000020);
@@ -676,7 +676,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void LoadConfig_X86SafeSehAndCookie()
+    public void The_x86_load_config_reads_SafeSEH_and_the_cookie()
     {
         var b = Basic(is64: false);
         uint dir = 0, code = b.Sections[0].Rva;
@@ -794,7 +794,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void Resources_VersionManifestStrings()
+    public void Resources_read_version_manifest_and_strings()
     {
         var b = Basic();
         var manifest = "﻿<assembly manifestVersion=\"1.0\"/>";
@@ -824,7 +824,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void Resources_IconGroupsPairWithIconsAndCarryFileRanges()
+    public void Icon_groups_pair_with_icons_and_carry_file_ranges()
     {
         // GRPICONDIR naming icon 1 (present, a PNG) and icon 2 (missing); icon 3 is a 16x16 DIB in no group.
         var group = new byte[6 + 2 * 14];
@@ -862,7 +862,7 @@ public sealed class NativePeTests
     }
 
     [Fact]
-    public void Resources_CycleAndDepth()
+    public void Resource_cycles_and_depth_are_bounded()
     {
         var b = Basic();
         var rsrc = b.Add(".rsrc", rva =>
@@ -897,7 +897,7 @@ public sealed class NativePeTests
     // ---- rich header, overlay ----
 
     [Fact]
-    public void RichHeaderAndOverlay()
+    public void The_Rich_header_and_overlay_are_read()
     {
         var b = Basic();
         b.Overlay = Enumerable.Repeat((byte)0xEE, 100).ToArray();

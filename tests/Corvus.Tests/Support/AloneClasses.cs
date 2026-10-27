@@ -2,11 +2,7 @@ using System.Reflection;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The test classes whose collection runs alone (DisableParallelization), for test.ps1: a quick run starts them in a
-/// test process of their own beside the parallel ones, as what they need alone (the thread pool, process-wide
-/// variables) is per process. test.ps1 runs it as <c>dotnet exec Corvus.Tests.dll --alone-classes</c>.
-/// </summary>
+/// <summary>Lists the classes whose collection runs alone, so test.ps1 starts them in their own process (<c>dotnet exec Corvus.Tests.dll --alone-classes</c>).</summary>
 internal static class AloneClasses
 {
     public const string Flag = "--alone-classes";

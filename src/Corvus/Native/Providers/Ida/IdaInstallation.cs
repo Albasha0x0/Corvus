@@ -2,11 +2,7 @@ using System.Text.Json;
 
 namespace Corvus.Native.Providers.Ida;
 
-/// <summary>
-/// An IDA install usable as a library: the directory, the idalib binary and the <c>idapro</c> Python package
-/// shipped under idalib/python. Located from CORVUS_IDA_DIR, else from Paths.ida-install-dir in ida-config.json
-/// (in IDAUSR or the per-user IDA directory), which IDA writes on first start.
-/// </summary>
+/// <summary>An idalib-capable IDA install, located from CORVUS_IDA_DIR, else Paths.ida-install-dir in ida-config.json.</summary>
 public sealed record IdaInstallation(string Directory, string LibraryPath, string PythonPackageDirectory, string Source)
 {
     public const string DirectoryVariable = "CORVUS_IDA_DIR";
@@ -20,10 +16,7 @@ public sealed record IdaInstallation(string Directory, string LibraryPath, strin
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Digests = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Identity of this IDA build for cache keys: the idalib file version and a SHA-256 prefix over idalib and the kernel,
-    /// e.g. "9.3.26.0213-1a2b3c4d5e6f". Computed once per install directory.
-    /// </summary>
+    /// <summary>Cache key of this IDA build: idalib file version plus a SHA-256 prefix of idalib and the kernel ("9.3.26.0213-1a2b3c4d5e6f").</summary>
     public string EngineDigest() => Digests.GetOrAdd(Directory, _ =>
     {
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
@@ -54,10 +47,7 @@ public sealed record IdaInstallation(string Directory, string LibraryPath, strin
         return dirs;
     }
 
-    /// <summary>
-    /// Finds and validates the install. <paramref name="explicitDirectory"/> wins over the environment and IDA's config.
-    /// Returns null with <paramref name="reason"/> and <paramref name="remediation"/> set when unusable.
-    /// </summary>
+    /// <summary>The validated install (<paramref name="explicitDirectory"/> first), or null with <paramref name="reason"/> and <paramref name="remediation"/> set.</summary>
     public static IdaInstallation? Locate(string? explicitDirectory, out string reason, out string remediation)
     {
         string? dir = null, source = null;

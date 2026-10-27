@@ -9,11 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A launcher that starts a child process and waits, per target: with childNames the child is held at its start,
-/// attached as a session of its own and stopped at a stop point; a child still held when the session closes runs on;
-/// without childNames the session sees only the launcher, as before. Every run ends with no process left.
-/// </summary>
+/// <summary>With childNames a launcher's child is held, attached as its own session and stopped; a held child runs on after close; without childNames only the launcher is seen.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -64,9 +60,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
     [LiveTargetFact("linux-x64")] public Task Child_attached_on_linux_x64() => ChildAttached(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86")] public Task Child_attached_on_linux_x86() => ChildAttached(LiveTarget.LinuxX86);
 
-    // The agent DLL loads from the worker's temp folder, which here grants only the user (as under a user profile):
-    // a child under a restricted token reads it by the RESTRICTED entry the backend adds. The fixture folder gets the
-    // same entry so the child can start.
+    // The worker's temp folder grants only the user, so a restricted child reads the agent DLL through the RESTRICTED entry the backend adds; the fixture folder gets it too.
     [LiveTargetFact("win-x64")] public Task Restricted_child_attached_on_win_x64() => ChildAttached(LiveTarget.WinX64, restricted: true);
     [LiveTargetFact("win-x86")] public Task Restricted_child_attached_on_win_x86() => ChildAttached(LiveTarget.WinX86, restricted: true);
 
@@ -82,9 +76,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         var parent = await SpawnFollowing(server, launcher, orders, restricted);
         var child = await HeldChild(server, orders);
         using var watched = Watch(child);
-        // Under a network logon (ssh) a restricted child does not load the agent, and the attach is refused, naming the
-        // sandbox; an interactive logon loads it. Seen on Windows 11 with Frida 17.24.3; the object that denies it is not
-        // known.
+        // Under a network logon a restricted child does not load the agent and the attach is refused naming the sandbox (Windows 11, Frida 17.24.3; cause unknown).
         if (restricted && OperatingSystem.IsWindows() && !InteractiveLogon())
         {
             var refusal = await Refused(server, "live_session", new() { ["action"] = "attach_child", ["session"] = "live-1", ["program"] = child.ToString(CultureInfo.InvariantCulture) }, "access_denied");

@@ -45,21 +45,14 @@ public enum WasmImm : byte
     BrOnCast,
 }
 
-/// <summary>
-/// One opcode: its text name, immediate kind, operand signature ("pops:pushes" over i i32, l i64, f f32, d f64, v v128, a an
-/// address of the instruction's memory; "*" when the type rules are the instruction's own) and, for memory accesses, the
-/// natural alignment as a power of two.
-/// </summary>
+/// <summary>One opcode: name, immediate kind, "pops:pushes" signature ("*" for its own rules) and memory alignment as a power of two.</summary>
+/// <remarks>Signature letters: i i32, l i64, f f32, d f64, v v128, a an address of the instruction's memory.</remarks>
 public sealed record WasmOp(int Code, string Name, WasmImm Imm, string Signature, int Align = -1)
 {
     public bool IsMemoryAccess => Imm is WasmImm.MemArg or WasmImm.MemArgLane;
 }
 
-/// <summary>
-/// The opcode table: MVP, sign extension, saturating truncation, bulk memory, reference types, SIMD and relaxed SIMD,
-/// threads, tail calls, exception handling (legacy and try_table), typed function references and GC. A prefixed opcode's
-/// code is prefix &lt;&lt; 16 | sub-opcode.
-/// </summary>
+/// <summary>The opcode table through GC, SIMD, threads and exception handling; a prefixed code is prefix &lt;&lt; 16 | sub-opcode.</summary>
 public static class WasmOps
 {
     public const int Fb = 0xFB << 16, Fc = 0xFC << 16, Fd = 0xFD << 16, Fe = 0xFE << 16;

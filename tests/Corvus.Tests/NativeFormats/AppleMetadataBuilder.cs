@@ -1,9 +1,6 @@
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>
-/// Lays out Objective-C and Swift metadata into extra sections of a <see cref="MachOWriter"/> image: pointers become
-/// chained fixups (rebases to labels, binds to imported symbols), relative offsets are resolved when the image is built.
-/// </summary>
+/// <summary>Lays out Objective-C and Swift metadata in extra sections of a <see cref="MachOWriter"/> image, with pointers as chained fixups.</summary>
 internal sealed class AppleMetadataBuilder(MachOWriter writer)
 {
     private readonly List<Region> regions = [];

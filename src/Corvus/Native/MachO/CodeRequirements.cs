@@ -5,10 +5,7 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// A code requirement from the signature's requirement set: its type (designated, host, guest, library, plugin) and its
-/// expression in the text form codesign -d -r- prints. Partial when the expression holds an opcode not read here.
-/// </summary>
+/// <summary>A code requirement as codesign -d -r- prints it; partial when the expression holds an opcode not read here.</summary>
 public sealed record CodeRequirement(uint Type, string Text, bool Partial)
 {
     public string TypeName => Type switch { 1 => "host", 2 => "guest", 3 => "designated", 4 => "library", 5 => "plugin", _ => $"type {Type}" };
@@ -22,10 +19,7 @@ public static class CodeRequirements
     private const uint SetMagic = 0xFADE0C01, RequirementMagic = 0xFADE0C00;
     private const int MaxDepth = 256, MaxRequirements = 32;
 
-    /// <summary>
-    /// The requirements of a requirement set blob (magic included); empty for a set with none. Bad offsets and lengths are
-    /// logged and the requirements read before them are kept.
-    /// </summary>
+    /// <summary>The requirements of a requirement set blob; bad offsets are logged and the requirements before them kept.</summary>
     internal static IReadOnlyList<CodeRequirement> Parse(ReadOnlySpan<byte> set, IssueLog log)
     {
         var list = new List<CodeRequirement>();

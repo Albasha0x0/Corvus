@@ -31,7 +31,7 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
             sensor.Members.Select(m => $"{m.Name} +0x{m.Offset:X} {model.Spell(m.Type)}"));
         var levels = model.Node(sensor.Members[3].Type)!;
         Assert.Equal((PdbTypeKind.Array, 4L, 16L, 0x74u), (levels.Kind, levels.Count, levels.Size, levels.Element));
-        // the pointer names the forward record, which resolves to the definition
+        // The pointer names the forward record, which resolves to the definition.
         var next = model.Node(sensor.Members[4].Type)!;
         Assert.Equal(sensor.Index, model.DefinitionOf(next.Element));
 
@@ -77,7 +77,7 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
         Assert.Same(PdbTypeModel.Of(pdb, 8), PdbTypeModel.Of(pdb, 8));
         Assert.NotSame(PdbTypeModel.Of(pdb, 8), PdbTypeModel.Of(pdb, 4));
         Assert.Equal(0x403u, Named(PdbTypeModel.Of(pdb, 4), "Base").Members[0].Type); // the vftable pointer: T_32PVOID
-        // a cancelled wait ends at once and leaves the shared read usable
+        // A cancelled wait ends at once and leaves the shared read usable.
         var other = Fixture();
         Assert.ThrowsAny<OperationCanceledException>(() => PdbTypeModel.Of(other, 8, new CancellationToken(canceled: true)));
         Assert.NotNull(PdbTypeModel.Of(other, 8));

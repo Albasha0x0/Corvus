@@ -5,9 +5,8 @@ using Microsoft.Win32.SafeHandles;
 namespace TestFixture.FakeTools;
 
 /// <summary>
-/// Puts the current process in a Windows job object that ends every process in it when its last handle closes. Only this
-/// process holds the handle, so its exit, however it comes (a crash, a kill, a timeout), ends the processes it started and
-/// theirs, unless they left the job. Elsewhere it does nothing.
+/// Puts the current process in a kill-on-close Windows job, so any exit of it ends the processes it started that stay in
+/// the job. Does nothing on other systems.
 /// </summary>
 public static class KillOnCloseJob
 {

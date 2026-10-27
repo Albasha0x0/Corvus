@@ -11,15 +11,7 @@ using static Corvus.Tools.ToolSupport;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// list_functions, disassemble, get_cfg, find_xrefs and native_call_tree answered through an engine session (IDA or
-/// Ghidra) in the same formats, marked "(via IDA)" or "(via Ghidra)": for images whose instruction set the built-in
-/// analysis does not decode (ARM), and for any image when the engine preference picks an engine (engine=ida or
-/// engine=ghidra, or auto once that engine's analysis is complete). Merging: functions, bounds, references and blocks
-/// are the engine's; names in effect here (user, PDB, Il2Cpp, exports) win over the engine's own (they are pushed into
-/// the database first); virtual call edges the built-in index resolved through RTTI and the engine has no reference
-/// for are added, marked as ours.
-/// </summary>
+/// <summary>Native code tools answered through IDA or Ghidra in the built-in formats; names here win, RTTI virtual edges are merged in.</summary>
 internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager pager, NativeNamePush? names)
 {
     /// <summary>The marker of results an engine produced: "(via IDA)", "(via Ghidra)".</summary>
@@ -64,10 +56,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
 
     private static string Va(NativeCodeIndex index, uint rva) => NativeAddress.Va(index.Image, rva);
 
-    /// <summary>
-    /// An engine's function record as lines ("prototype: ..."). <paramref name="compact"/> summarizes the parameters of a
-    /// signature the engine only guessed (IDA can guess dozens of stack parameters) in one line and clips the prototype.
-    /// </summary>
+    /// <summary>An engine's function record as lines; <paramref name="compact"/> folds guessed parameters into one line.</summary>
     public static List<string> RecordLines(EngineFunctionRecord r, Func<uint, string> va, bool compact = false)
     {
         var lines = new List<string>();
@@ -105,7 +94,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         catch (ToolError e) when (e.Code is ErrorCode.Unsupported or ErrorCode.NotFound) { return ""; }
     }
 
-    /// <summary>Our name at a function start (user, PDB, Il2Cpp, export), else the engine's.</summary>
+    /// <summary>Our name at a function start (user, PDB, metadata, export), else the engine's.</summary>
     private static string Name(NativeCodeIndex index, uint rva, string engineName) =>
         index.Sourced.NameAt(rva)?.Name ?? index.FunctionByStart(rva)?.KnownName ?? (engineName.Length > 0 ? engineName : $"sub_{rva:X}");
 
@@ -284,7 +273,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             "ret" or "cndret" => "Return",
             "noret" or "enoret" => "NoReturnCall",
             "error" => "Invalid",
-            // IDA also types ARM64 TBZ / TBNZ blocks indjump: by the successors, those are conditional jumps
+            // IDA also types ARM64 TBZ / TBNZ blocks indjump; by their successors they are conditional jumps.
             "indjump" => b.Switch ? "Switch" : b.Successors.Count >= 2 ? "ConditionalJump" : b.Successors.Count == 1 ? "Jump" : "IndirectJump",
             _ when b.Switch => "Switch",
             _ when b.Successors.Count >= 2 => "ConditionalJump",
@@ -295,10 +284,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         };
     }
 
-    /// <summary>
-    /// find_xrefs rows in the tool's format, the header lines and the target as shown: the engine's references, plus the
-    /// virtual call sites the built-in index resolved through RTTI that the engine has no reference from (marked "ours").
-    /// </summary>
+    /// <summary>find_xrefs rows from the engine's references, plus RTTI-resolved virtual call sites it lacks (marked "ours").</summary>
     public async Task<(string Title, List<string> Rows, string Target)> Xrefs(LoadedNative native, NativeCodeIndex index, uint rva,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -335,10 +321,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         return ($"References to {target} {Via(choice.Engine)}:\n", rows.OrderBy(r => r.From).Select(r => r.Row).ToList(), target);
     }
 
-    /// <summary>
-    /// find_xrefs direction=from: the engine's references from the item at <paramref name="rva"/> or, at a function start, from
-    /// the whole function, plus the RTTI-resolved virtual calls the built-in index has from there; rows end "-> target (name)".
-    /// </summary>
+    /// <summary>find_xrefs direction=from: references from the item, or the whole function at its start, plus RTTI virtual calls.</summary>
     public async Task<(string Title, List<string> Rows, string Target)> XrefsFrom(LoadedNative native, NativeCodeIndex index, uint rva,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -364,14 +347,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             rows.OrderBy(r => r.From).ThenBy(r => r.To).Select(r => r.Row).ToList(), target);
     }
 
-    /// <summary>
-    /// Callers or callees through the engine's call and jump references; with a decoded image, the virtual call edges the
-    /// built-in index resolved through RTTI are added where the engine has none (marked "ours"), filtered by <paramref name="edges"/>.
-    /// </summary>
-    /// <summary>
-    /// One level of callers and callees by call site from the engine's call and jump references: a reference through an import
-    /// slot is indirect and external, a jump a tail call; with a decoded image the RTTI virtual edges it lacks are added (ours).
-    /// </summary>
+    /// <summary>One level of callers and callees by call site from the engine's references, plus RTTI virtual edges it lacks.</summary>
     public async Task<string> CallSites(LoadedNative native, NativeCodeIndex index, uint rva, CallEdgeFilter edges, EngineChoice choice,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -441,7 +417,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             var name = functions.ByStart.TryGetValue(start, out var info) ? Name(index, start, info.Name) : index.NameAt(start) ?? Va(index, start);
             sb.Append(new string(' ', level * 2)).Append(name).Append(tag != null ? "  " + tag : "").Append($"  {Va(index, start)}");
             if (level >= depth) { sb.AppendLine(); return; }
-            // a function expanded before (also recursion: it is on the current path) is not expanded again
+            // A function expanded before, or on the current path, is not expanded again.
             if (!expanded.Add(start)) { sb.AppendLine("  (repeated)"); return; }
             var children = new List<(uint Rva, string? Import, string? Tag)>();
             if (callers)
@@ -457,7 +433,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             }
             else
             {
-                // a thunk in the image forwards to its target: its callees are the target's (Ghidra's PPC64 ELFv2 global entries)
+                // A thunk forwards to its target, so its callees are the target's (Ghidra's PPC64 ELFv2 global entries).
                 var from = start;
                 if (functions.ByStart.TryGetValue(start, out var fn) && fn.Flags.HasFlag(NativeFunctionFlags.Thunk)
                     && (await session.GetFunctionRecordAsync(start, ct)).ThunkTarget is { } target && target != start && functions.ByStart.TryGetValue(target, out var to))
@@ -476,7 +452,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
                     foreach (var v in index.VirtualEdgesFrom(start, self.EndRva))
                         children.Add((functions.At(v.To)?.StartRva ?? v.To, null, VirtualTag(v)));
             }
-            // the engine's edges come first: a virtual edge to a function its references already reach adds nothing
+            // Engine edges come first; a virtual edge to a function already reached adds nothing.
             var distinct = children.DistinctBy(c => c.Rva).ToList();
             sb.AppendLine();
             foreach (var (child, import, childTag) in distinct)

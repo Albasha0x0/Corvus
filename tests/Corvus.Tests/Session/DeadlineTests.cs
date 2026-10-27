@@ -21,7 +21,7 @@ public sealed class DeadlineTests
         CallFilter.Run(new CallToolRequestParams { Name = tool, Arguments = arguments }, null, services, ct => new ValueTask<CallToolResult>(work(ct)), client, clientName);
 
     [Fact]
-    public void Effective_IsTheSmallerOfServerAndClientLessMargin()
+    public void Effective_is_the_smaller_of_server_and_client_less_margin()
     {
         var options = new ServerOptions { TimeoutSeconds = 180 };
         ClientLimits Client(string? id) => ClientProfiles.Resolve(new ServerOptions { TimeoutSeconds = 180, Client = id }, null);
@@ -49,7 +49,7 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public async Task AShortClientDeadline_IsAnsweredWithAMarginLeft()
+    public async Task A_short_client_deadline_is_answered_with_a_margin_left()
     {
         var (elapsed, error) = await SlowCallUnder(6, "export_project");
         Assert.True(elapsed <= TimeSpan.FromSeconds(2), $"answered after {elapsed}");
@@ -61,7 +61,7 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public async Task AFakeTenSecondClient_GetsItsAnswerFiveSecondsEarly()
+    public async Task A_fake_ten_second_client_gets_its_answer_five_seconds_early()
     {
         var (elapsed, error) = await SlowCallUnder(10, "export_project");
         Assert.True(elapsed <= TimeSpan.FromSeconds(5.2), $"answered after {elapsed}");
@@ -70,7 +70,7 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public async Task IdenticalReadOnlyCalls_JoinOneRun()
+    public async Task Identical_read_only_calls_join_one_run()
     {
         using var services = Services(new ServerOptions { TimeoutSeconds = 3600 });
         int runs = 0;
@@ -97,7 +97,7 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public async Task EditingCallsNeverJoin()
+    public async Task Editing_calls_never_join()
     {
         Assert.Null(CallJoin.Key("rename_symbol", false, Args("""{"symbol":"a"}""")));
         Assert.Null(CallJoin.Key("server_status", true, null));
@@ -123,7 +123,7 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public async Task ACallLeftAtTheClientDeadline_IsPickedUpByTheSameCallAgain()
+    public async Task A_call_left_at_the_client_deadline_is_picked_up_by_the_same_call_again()
     {
         var clock = new ArmedClock();
         using var services = Services(new ServerOptions { TimeoutSeconds = 3600, ClientTimeoutSeconds = 6 }, clock);
@@ -154,7 +154,7 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public async Task AJoinedRunStops_OnlyWhenEveryCallerCancelled()
+    public async Task A_joined_run_stops_only_when_every_caller_cancelled()
     {
         var clock = new ArmedClock();
         using var services = Services(new ServerOptions { TimeoutSeconds = 3600 }, clock);

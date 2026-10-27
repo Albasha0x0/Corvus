@@ -35,7 +35,7 @@ public sealed class StaticElfDiscoveryTests
         var index = Build(text, data: data);
         foreach (var f in new[] { f1, f2 })
             Assert.True(index.FunctionByStart(f)?.Sources.HasFlag(FunctionSource.DataPointer) == true, Starts(index));
-        // a pointer standing alone is not taken without relocations
+        // A pointer standing alone is not taken without relocations.
         BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(0x18), 0);
         Assert.Null(Build(text, data: data).FunctionByStart(f1));
     }

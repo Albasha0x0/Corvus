@@ -9,10 +9,7 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Small x64 DLLs for cross-image tests: exports (code or forwarders), imports by name or ordinal, and code that
-/// calls or jumps through import slots ("call [Module!Name]" by slot).
-/// </summary>
+/// <summary>Small x64 DLLs with exports, imports and calls through import slots for cross-image tests.</summary>
 internal static class LinkedImages
 {
     public const uint Text = 0x1000, Data = 0x2000;
@@ -174,7 +171,7 @@ public sealed class NativeLinkTests : IDisposable
     internal static void Has(string text, string expected) => Assert.True(text.Contains(expected, StringComparison.Ordinal), $"'{expected}' not in:\n{text}");
 
     [Fact]
-    public async Task ImportsBindAcrossLoadedImages()
+    public async Task Imports_bind_across_loaded_images()
     {
         var (app, prov, deep) = LinkedImages.Trio(_dir);
         _ws.LoadAny(app);
@@ -262,7 +259,7 @@ public sealed class NativeLinkTests : IDisposable
     }
 
     [WindowsFact("P/Invoke DLL lookup is done on Windows hosts only.")]
-    public async Task ManagedCallsContinueIntoNativeCode()
+    public async Task Managed_calls_continue_into_native_code()
     {
         var (env, refs, graph) = ManagedSetup();
         using var _ = env;
@@ -301,7 +298,7 @@ public sealed class NativeLinkTests : IDisposable
     }
 
     [Fact]
-    public void NativeSymbolSyntax()
+    public void Native_symbols_parse_from_module_and_name_or_address()
     {
         Assert.Equal(new NativeSymbol("kernel32.dll", "CreateFileW"), SymbolResolver.ParseNative("kernel32.dll!CreateFileW"));
         Assert.Equal(new NativeSymbol("KERNELBASE", "0x180001000"), SymbolResolver.ParseNative(" native:KERNELBASE!0x180001000 "));
@@ -313,7 +310,7 @@ public sealed class NativeLinkTests : IDisposable
     }
 
     [Fact]
-    public void ForwarderLoopsAndBadOrdinalsStopWithAReason()
+    public void Forwarder_loops_and_bad_ordinals_stop_with_a_reason()
     {
         var a = _dir.File("loopa.dll");
         File.WriteAllBytes(a, LinkedImages.Build("loopa.dll", [("F", "loopb.G"), ("Bad", "loopb.#x")], [], _ => [0xC3]));

@@ -2,11 +2,7 @@ using Corvus.Core.Pcap;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=pcap: a pcap or pcapng capture read in one streaming pass: link types, protocol counts, the largest flows, DNS
-/// names and answers, TLS ClientHello server names with ALPN and JA4 / JA3, HTTP/1.x request templates, and patterns worth
-/// reviewing (<see cref="CapturePatterns"/>). No external decoder.
-/// </summary>
+/// <summary>view=pcap: one streaming pass over a capture: protocols, largest flows, DNS, TLS server names, HTTP templates, patterns.</summary>
 internal sealed class PcapFileView : IFileSummaryView
 {
     private const int MaxListed = 100;
@@ -38,7 +34,7 @@ internal sealed class PcapFileView : IFileSummaryView
         if (dns.Count > MaxListed) notes.Add($"DNS names: the first {MaxListed} of {dns.Count:N0}");
         if (tls.Count > MaxListed) notes.Add($"TLS server names: the first {MaxListed} of {tls.Count:N0}");
         if (http.Count > MaxListed) notes.Add($"HTTP requests: the first {MaxListed} of {http.Count:N0}; search_container kind=endpoint lists them all");
-        notes.Add("This view reads a ClientHello joined over in-order segments and HTTP request lines from the segment that starts them; unpack_container reassembles TCP, exports HTTP objects and decrypts TLS with a key log.");
+        notes.Add("Only a ClientHello is joined across segments; HTTP request lines come from the segment that starts them; unpack_container reassembles TCP, exports HTTP objects and decrypts TLS with a key log.");
         var facts = new Facts(c.Format, [.. c.LinkTypes.Select(PacketDecoder.LinkTypeName)], c.Interfaces, c.Packets, c.Bytes, c.First, c.Last, c.Protocols,
             c.FlowCount, [.. c.Flows().OrderByDescending(f => f.Bytes).Take(MaxListed)], [.. dns.Take(MaxListed)], [.. tls.Take(MaxListed)], [.. http.Take(MaxListed)], notes)
         {

@@ -210,10 +210,8 @@ public static class StreamingInventory
         return inv;
     }
 
-    /// <summary>
-    /// SHA-256 and CRC-32 of every folder or single-file entry without a hash, reusing <paramref name="previous"/> hashes of the same
-    /// path, size and write time. Entries past <paramref name="budget"/> bytes stay unhashed; a file that cannot be read gets an Error.
-    /// </summary>
+    /// <summary>SHA-256 and CRC-32 of unhashed entries within <paramref name="budget"/> bytes; unreadable files get an Error.</summary>
+    /// <remarks>A <paramref name="previous"/> hash is reused when path, size and write time match.</remarks>
     public static void Hash(Inventory inv, IReadOnlyDictionary<string, InventoryEntry>? previous, ref long budget, Action<int>? progress, CancellationToken ct)
     {
         if (inv.Kind == Inventory.Zip) return;
@@ -234,7 +232,7 @@ public static class StreamingInventory
         int done = 0;
         if (inv.Kind == Inventory.Asar)
         {
-            // one archive stream: entries are read in turn
+            // One archive stream: entries are read in turn.
             using var reader = new ContentReader(inv);
             foreach (var e in work)
             {
@@ -274,7 +272,8 @@ public static class StreamingInventory
             total += n;
             if (total >= 64L << 20) ct.ThrowIfCancellationRequested();
         }
-        e.Size = total; // the file may have changed since it was listed
+        // The file may have changed since it was listed.
+        e.Size = total;
         e.Crc32 = crc.GetCurrentHashAsUInt32();
         e.Sha256 = Convert.ToHexStringLower(sha.GetHashAndReset());
     }
@@ -315,7 +314,7 @@ public static class StreamingInventory
                     _asar ??= AsarArchive.Read(_asarStream);
                     if (_asar.Find(e.Path) is not { } item) return null;
                     inv.CountEntryRead();
-                    // an unpacked file lives beside the archive, in <name>.asar.unpacked
+                    // An unpacked file lives beside the archive, in <name>.asar.unpacked.
                     if (item.Unpacked)
                         return new FileStream(System.IO.Path.Combine(inv.Root + ".unpacked", e.Path), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     return _asar.ReadPacked(_asarStream, item, AnalysisLimits.Default.MaxItemBytes) is { } bytes ? new MemoryStream(bytes, writable: false) : null;

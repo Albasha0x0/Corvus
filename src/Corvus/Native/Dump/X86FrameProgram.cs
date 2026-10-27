@@ -1,20 +1,12 @@
 namespace Corvus.Native.Dump;
 
-/// <summary>
-/// Evaluates an x86 frame data program (the postfix expressions a PDB's FRAMEDATA records carry, such as
-/// "$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + ="): operands are numbers, registers ($eip, $esp, ...), temporaries
-/// ($T0, ...) and frame values (.raSearch, .cbLocals, ...); operators are + - * / % @ (align down), ^ (read 32 bits) and
-/// = (assign).
-/// </summary>
+/// <summary>Evaluates a PDB FRAMEDATA postfix program; operators + - * / % @ (align down), ^ (read 32 bits), = (assign).</summary>
 public static class X86FrameProgram
 {
     /// <summary>Most tokens evaluated in one program.</summary>
     public const int MaxTokens = 512;
 
-    /// <summary>
-    /// The variables after running <paramref name="program"/> on <paramref name="variables"/> (updated in place), or null
-    /// when a token is unknown, an operand is missing, a division is by zero or a read fails.
-    /// </summary>
+    /// <summary>The variables after running <paramref name="program"/> (updated in place); null on a bad token, missing operand, zero divisor or failed read.</summary>
     public static Dictionary<string, uint>? Run(string program, Dictionary<string, uint> variables, Func<uint, uint?> read)
     {
         var stack = new Stack<string>();

@@ -7,11 +7,7 @@ namespace Corvus.Core;
 /// <summary>A WebSocket message of a captured exchange: direction, text (binary as base64) and whether it was binary.</summary>
 public sealed record CapturedMessage(bool Sent, string Data, bool Binary);
 
-/// <summary>
-/// The request side of one captured exchange, in capture order: headers and cookies (names and values; callers show values
-/// only when asked), request body, response type and size, timing, and WebSocket messages. Texts are kept up to
-/// <see cref="CaptureRequests.MaxText"/> characters, for GraphQL operations and message shapes.
-/// </summary>
+/// <summary>The request side of one captured exchange; callers show header and cookie values only when asked; texts are kept up to <see cref="CaptureRequests.MaxText"/> characters.</summary>
 public sealed record CapturedRequest(int Index, string Method, string Url, int Status)
 {
     public string? HttpVersion { get; init; }
@@ -38,10 +34,7 @@ public static class CaptureRequests
     /// <summary>Longest WebSocket message text kept, and messages kept per exchange.</summary>
     private const int MaxMessageText = 64 * 1024, MaxMessages = 10_000;
 
-    /// <summary>
-    /// The requests of a HAR, mitmproxy flow or .saz file, streamed in capture order; the capture's kind, or null when the
-    /// file is none of these. Without <paramref name="texts"/> bodies, response texts and messages are not kept.
-    /// </summary>
+    /// <summary>Streams the requests of a HAR, mitmproxy flow or .saz file; returns the kind, or null for other files; without <paramref name="texts"/> no bodies or messages are kept.</summary>
     public static string? Read(Stream s, Action<CapturedRequest> request, List<string> notes, bool texts, CancellationToken ct)
     {
         var head = new byte[4096];
@@ -144,7 +137,7 @@ public static class CaptureRequests
         List<CapturedMessage>? messages = null;
         if (f.GetValueOrDefault("websocket") is Dictionary<string, object?> ws && ws.GetValueOrDefault("messages") is List<object?> list)
         {
-            // mitmproxy 7+: [opcode, from_client, content, timestamp]
+            // mitmproxy 7+: [opcode, from_client, content, timestamp].
             messages = [];
             foreach (var m in list.Take(MaxMessages))
                 if (m is List<object?> { Count: >= 3 } fields)
@@ -205,7 +198,8 @@ public static class CaptureRequests
     {
         if (e.ValueKind != JsonValueKind.Object || !e.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.String) return null;
         try { return v.GetString(); }
-        catch (InvalidOperationException) { return null; } // invalid UTF-8 in the string
+        // Invalid UTF-8 in the string.
+        catch (InvalidOperationException) { return null; }
     }
 
     private static long Long(JsonElement e, string name) =>

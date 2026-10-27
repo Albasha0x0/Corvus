@@ -4,12 +4,9 @@ using Corvus.Native.Live;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The .NET runtime of a session's program, read through ClrMD and the runtime's own DAC from the process's memory with
-/// the inspector's read-only handle; the program is never suspended. Names JIT-compiled and ReadyToRun code, walks a
-/// held thread's managed frames from the registers its stop captured, and finds a managed method's code. Windows only;
-/// a 32-bit program under this 64-bit server is read by the 32-bit decoder process.
-/// </summary>
+// A 32-bit program under the 64-bit server is read by the 32-bit decoder process.
+/// <summary>The .NET runtime of a session's program, read through ClrMD and its DAC with the inspector's read-only handle,
+/// without suspending it; Windows only.</summary>
 public sealed class LiveClr : IDisposable
 {
     private readonly ClrDecoder _decoder;
@@ -40,7 +37,7 @@ public sealed class LiveClr : IDisposable
         var reader = new LiveDataReader(LiveProcess.Attach(pid, ct));
         try
         {
-            // the decoder owns the reader from here
+            // The decoder owns the reader from here.
             var decoder = await ClrDecoder.OpenLive(reader, request, ct).ConfigureAwait(false);
             return decoder != null ? new LiveClr(decoder) : null;
         }
@@ -69,10 +66,7 @@ public sealed class LiveClr : IDisposable
         return default;
     }
 
-    /// <summary>
-    /// A read of the runtime's heap or objects through its decoder (see <see cref="ClrDecoder.Walk"/>). Errors of the read
-    /// itself reach the caller; a 32-bit decoder that stopped during it stops the session's decoder, as for the other reads.
-    /// </summary>
+    /// <summary>Reads the runtime's heap or objects through its decoder; read errors reach the caller, a stopped decoder is recorded.</summary>
     internal T Decode<T>(Func<ClrDecoder, T> read)
     {
         string? stopped = null;
@@ -93,19 +87,11 @@ public sealed class LiveClr : IDisposable
     public (string Assembly, string Signature, ulong Start)? MethodAt(ulong ip) =>
         Read(live => live.MethodAt(ip)) is { } m ? (m.Assembly, m.Signature, m.Start) : null;
 
-    /// <summary>
-    /// The managed frames of a held thread, innermost first, walked by the runtime from the registers its stop captured
-    /// (instruction pointers of methods only); empty when the runtime does not know the thread or the walk finds nothing.
-    /// </summary>
+    /// <summary>Managed frame instruction pointers of a held thread, innermost first; empty when the runtime finds none.</summary>
     public IReadOnlyList<ulong> Frames(long thread, IReadOnlyDictionary<string, string> registers, int max) =>
         thread is <= 0 or > uint.MaxValue ? [] : Read(live => live.Frames((uint)thread, registers, max)) ?? [];
 
-    /// <summary>
-    /// Where the method <paramref name="methodToken"/> of type <paramref name="typeToken"/> in the module loaded from
-    /// <paramref name="path"/> has code now: what the runtime prepared (JIT-compiled or ReadyToRun), else its ReadyToRun
-    /// body, which runs from the first call, in the module mapped at <paramref name="imageBase"/> (the runtime's own record
-    /// of the module when it has one). Null when it has none yet: a JIT-compiled method gets code at its first call.
-    /// </summary>
+    /// <summary>A method's current code: what the runtime prepared, else its ReadyToRun body; null before a JIT method's first call.</summary>
     public (ulong Code, string Kind)? CodeOf(string path, int typeToken, int methodToken, ulong imageBase)
     {
         lock (_decoder.Gate)
@@ -121,18 +107,12 @@ public sealed class LiveClr : IDisposable
     /// <summary>Where the runtime mapped the module loaded from <paramref name="path"/>, and whether as the file (flat) rather than as an image; null before it loads.</summary>
     public (ulong Base, bool Flat)? ModuleImage(string path) => Read(live => live.ModuleImage(path)) is { } m ? (m.Base, m.Flat) : null;
 
-    /// <summary>
-    /// The metadata tokens of the methods of an assembly the runtime has prepared code for: JIT-compiled at a first call,
-    /// or ReadyToRun code bound at a first call. Null when the read failed.
-    /// </summary>
+    /// <summary>Tokens of an assembly's methods the runtime has prepared code for (JIT or bound ReadyToRun); null when the read failed.</summary>
     public IReadOnlyList<uint>? Prepared(string path) => Read(live => live.Prepared(path));
 
     private readonly Dictionary<string, Native.ReadyToRun.R2RImage?> _r2r = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// The RVA of a method's precompiled body in the image at <paramref name="path"/> (its own ReadyToRun code, not a
-    /// composite's); null without one.
-    /// </summary>
+    /// <summary>The RVA of a method's own ReadyToRun body (not a composite's); null without one.</summary>
     private uint? ReadyToRunEntry(string path, int token)
     {
         if (!File.Exists(path)) return null;

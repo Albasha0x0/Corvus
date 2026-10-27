@@ -18,7 +18,7 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
     private string Apk() => Save(_dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", Dex())));
 
     [Fact]
-    public void Method_ResolvesOperands_ParametersLinesAndLabels()
+    public void Method_resolves_operands_parameters_lines_and_labels()
     {
         var apk = Apk();
         var onCreate = _dex.Disassemble(apk, Main + "->onCreate(Landroid/os/Bundle;)V", false, default);
@@ -50,7 +50,8 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
         Assert.Contains("    if-eqz v0, :cond_8\n", compute);
         Assert.Contains("    :cond_8\n    return p1\n", compute);
         Assert.Contains("iget-object v0, p0, Lcom/example/app/Main;->name:Ljava/lang/String;", compute);
-        Assert.DoesNotContain("length()I", compute); // the other overload is never included
+        // The other overload is never included.
+        Assert.DoesNotContain("length()I", compute);
 
         var pick = _dex.Disassemble(apk, Main + "->pick(I)I", false, default);
         Assert.Contains("    packed-switch p0, :pswitch_data_8\n", pick);
@@ -80,7 +81,7 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
     }
 
     [Fact]
-    public void Class_FieldsAnnotationsAndEveryMethod()
+    public void A_class_disassembles_with_its_fields_annotations_and_every_method()
     {
         var text = _dex.Disassemble(Apk(), "com.example.app.Main", false, default);
         Assert.StartsWith("# Lcom/example/app/Main; in classes.dex: 8 methods (symbol=<id> disassembles one)\n#   Lcom/example/app/Main;-><init>()V  4 units\n", text);
@@ -94,7 +95,7 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
     }
 
     [Fact]
-    public void Errors_AmbiguousOverloads_FrameworkMethods_BadFormat()
+    public void Ambiguous_overloads_and_framework_methods_are_refused()
     {
         var apk = Apk();
         Assert.Equal(ErrorCode.Ambiguous, Assert.Throws<ToolError>(() => _dex.Disassemble(apk, "com.example.app.Main::compute", false, default)).Code);
@@ -106,7 +107,7 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
     [Permit("reference-tool")]
     [Trait("Speed", "Slow")]
     [RequiresRealDataFact("CORVUS_DEX_DISASSEMBLER")]
-    public void MatchesBaksmali()
+    public void Disassembly_equals_baksmali()
     {
         var dexPath = Save(_dir, "classes.dex", Dex());
         Compare(dexPath, File.ReadAllBytes(dexPath), all: true);

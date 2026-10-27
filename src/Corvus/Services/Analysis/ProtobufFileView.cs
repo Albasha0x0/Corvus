@@ -7,11 +7,7 @@ using Corvus.Services.Analysis.Endpoints;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=protobuf: FileDescriptorProto blobs embedded in a native image (C++, Go), DEX code (Java descriptorData) or a .NET
-/// assembly (C# base64 descriptorData), each rebuilt as .proto text that protoc compiles back to the same descriptor. An
-/// APK, IPA or jar is read when view=protobuf is asked for; on its own the overview reads single files only.
-/// </summary>
+/// <summary>view=protobuf: embedded FileDescriptorProto blobs rebuilt as .proto text; archives are read only when the view is asked for.</summary>
 internal sealed class ProtobufFileView : IFileSummaryView
 {
     private const int DefaultLimit = 20, MaxLimit = 200;
@@ -42,7 +38,7 @@ internal sealed class ProtobufFileView : IFileSummaryView
             bool dex = DexFile.IsDex(head);
             if (!native && !dex) return null;
             var bytes = native ? file.Image : file.Bytes;
-            // C# descriptors reference Google.Protobuf; the others keep ".proto" names in their bytes
+            // C# descriptors reference Google.Protobuf; the others keep ".proto" names in their bytes.
             bool dotnet = file.Kind == ".NET assembly";
             if (!asked && bytes.AsSpan().IndexOf(dotnet ? "Google.Protobuf"u8 : ".proto"u8) < 0) return null;
             items = [new ContainerItem(Path.GetFileName(file.Path), dex ? "dex" : Blob.Identify(head), "file", bytes)];

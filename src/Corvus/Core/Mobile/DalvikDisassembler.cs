@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Mobile;
 
-/// <summary>
-/// Smali text in baksmali's layout: labels named by code offset (:cond_1a, :goto_1f, :pswitch_data_8, :try_start_0), parameter
-/// registers as pN, .line from the debug info, try / catch directives, switch and array payloads, and annotations.
-/// <see cref="Annotated"/> adds each instruction's offset and code units as a comment.
-/// </summary>
+/// <summary>Smali text in baksmali's layout; <see cref="Annotated"/> adds each instruction's offset and code units.</summary>
 public sealed class DalvikDisassembler(DexFile dex)
 {
     public bool Annotated { get; init; }
@@ -142,7 +138,8 @@ public sealed class DalvikDisassembler(DexFile dex)
             sb.Append('\n');
         }
         if (code != null) Body(sb, code, parameterBase, lines, Notes?.Invoke(m));
-        else if (sb[^1] == '\n' && sb[^2] == '\n') sb.Length--; // annotations end without a blank line when no code follows
+        // Annotations end without a blank line when no code follows.
+        else if (sb[^1] == '\n' && sb[^2] == '\n') sb.Length--;
         sb.Append(".end method\n");
     }
 
@@ -258,7 +255,8 @@ public sealed class DalvikDisassembler(DexFile dex)
         string Args() => i.IsRange
             ? i.Arguments.Count == 0 ? "{}" : $"{{{R(i.Arguments[0])} .. {R(i.Arguments[^1])}}}"
             : "{" + string.Join(", ", i.Arguments.Select(R)) + "}";
-        bool wide = i.Opcode is 0x18 or 0x19; // baksmali marks only const-wide and const-wide/high16 literals as long
+        // baksmali marks only const-wide and const-wide/high16 literals as long.
+        bool wide = i.Opcode is 0x18 or 0x19;
         string Lit() => Hex(i.Literal) + (wide ? "L" : "");
         string Target(string kind) => $":{kind}_{i.Target:x}";
         var n = i.Name;
@@ -309,7 +307,8 @@ public sealed class DalvikDisassembler(DexFile dex)
         {
             if (v is int.MaxValue or int.MinValue || float.IsNaN(f)) return "";
             int package = v >> 24, type = (v >> 16) & 0xff, id = v & 0xffff;
-            if ((package == 0x7f || package == 1) && type < 0x1f && id < 0xfff) return ""; // a resource id
+            // A resource id.
+            if ((package == 0x7f || package == 1) && type < 0x1f && id < 0xfff) return "";
             if (!(Shorter(f) < JavaScientific(v.ToString(CultureInfo.InvariantCulture)).Length)) return "";
         }
         return "    # " + (name ?? (float.IsPositiveInfinity(f) ? "Float.POSITIVE_INFINITY" : float.IsNegativeInfinity(f) ? "Float.NEGATIVE_INFINITY" : DexFile.JavaNumber(f) + "f"));

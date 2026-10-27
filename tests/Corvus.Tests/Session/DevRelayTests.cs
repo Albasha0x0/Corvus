@@ -16,7 +16,7 @@ namespace Corvus.Tests;
 public sealed class DevRelayInitializeTests() : DevRelayTests("2025-11-25")
 {
     [Fact]
-    public void ArgumentsSplitBetweenRelayAndServer()
+    public void Arguments_split_between_relay_and_server()
     {
         var options = RelayCli.Parse(["--target", Dir.Path, "--load", "x.dll", "--poll-ms", "50", "--", "--target", "y"]);
         Assert.Equal(Path.GetFullPath(Dir.Path), options.Target);
@@ -28,7 +28,7 @@ public sealed class DevRelayInitializeTests() : DevRelayTests("2025-11-25")
     }
 
     [Fact]
-    public void StagingSkipsTheMarkerAndRenamedAsideFiles()
+    public void Staging_skips_the_marker_and_renamed_aside_files()
     {
         File.WriteAllText(Path.Combine(Publish, "corvus.dll" + RelayBuilds.AsideInfix + "1"), "old");
         Directory.CreateDirectory(Path.Combine(Publish, "runtimes"));
@@ -47,7 +47,7 @@ public sealed class DevRelayInitializeTests() : DevRelayTests("2025-11-25")
 public sealed class DevRelayDiscoverTests() : DevRelayTests("2026-07-28")
 {
     [Fact]
-    public async Task FailedInitializeIsNotRepeatedOnTheNewBuild()
+    public async Task Failed_initialize_is_not_repeated_on_the_new_build()
     {
         var initialize = new JsonRpcRequest
         {
@@ -61,10 +61,7 @@ public sealed class DevRelayDiscoverTests() : DevRelayTests("2026-07-28")
     }
 }
 
-/// <summary>
-/// The development reload relay against scripted fake servers (one per staged build) and the SDK's client, run once per
-/// protocol family: the initialize handshake, and per-request metadata where list_changed travels on a listen stream.
-/// </summary>
+/// <summary>The development reload relay against scripted fake servers and the SDK client, once per protocol family.</summary>
 public abstract class DevRelayTests(string protocol) : IAsyncLifetime
 {
     protected string Protocol { get; } = protocol;
@@ -168,7 +165,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ForwardsCallsAndAddsTheApplyTool()
+    public async Task Forwards_calls_and_adds_the_apply_tool()
     {
         var tools = await Client.ListToolsAsync();
         Assert.Contains(tools, t => t.Name == "echo");
@@ -181,7 +178,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task NewBuildReplaysLoadsAndNotifies()
+    public async Task New_build_replays_loads_and_notifies()
     {
         var file = Dir.File("app.dll");
         File.WriteAllText(file, "x");
@@ -211,7 +208,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UnsavedEditsPostponeTheSwapUntilSavedOrForced()
+    public async Task Unsaved_edits_postpone_the_swap_until_saved_or_forced()
     {
         await Call("edit");
         PublishBuild("B");
@@ -236,7 +233,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task EditsThatCannotBeCheckedPostponeTheSwapUntilForced()
+    public async Task Edits_that_cannot_be_checked_postpone_the_swap_until_forced()
     {
         await Call("edit");
         await Call("unlist");
@@ -251,7 +248,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FailedNewServerKeepsTheOldOne()
+    public async Task Failed_new_server_keeps_the_old_one()
     {
         PublishBuild("broken");
         await Until(() => _servers.Any(s => s.Tag == "broken" && s.Killed), "the broken build to be dropped");
@@ -265,7 +262,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FailedReplayKeepsTheOldOneUnlessForced()
+    public async Task Failed_replay_keeps_the_old_one_unless_forced()
     {
         var file = Dir.File("gone.dll");
         File.WriteAllText(file, "x");
@@ -283,7 +280,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SwapWaitsForCallsInFlightAndRoutesCancellation()
+    public async Task Swap_waits_for_calls_in_flight_and_routes_cancellation()
     {
         var slow = Call("slow");
         await Until(() => Server("A").Running == 1, "the slow call to start");
@@ -302,7 +299,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ServerRequestsReachTheClientAcrossSwaps()
+    public async Task Server_requests_reach_the_client_across_swaps()
     {
         // A 2026-07-28 client refuses ping (removed there); its error reply still has to find the asking server.
         var answer = PerRequest ? "failed" : "answered";
@@ -313,7 +310,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ExitedServerIsRestartedWithReplay()
+    public async Task Exited_server_is_restarted_with_replay()
     {
         var file = Dir.File("app.dll");
         File.WriteAllText(file, "x");
@@ -329,10 +326,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
     }
 }
 
-/// <summary>
-/// The relay with the real server: two publishes of this build, a load replayed, an edit holding the swap back; on
-/// 2026-07-28 with a listen stream open throughout, which carries list_changed.
-/// </summary>
+/// <summary>The relay with the real server: two publishes, a replayed load and an edit holding the swap back, with a listen stream open on 2026-07-28.</summary>
 // Runs alone: it copies and starts the whole server, which other classes running at once can hold open.
 [Collection(nameof(SerialTimingTests))]
 public sealed class DevRelayRealServerTests
@@ -341,12 +335,12 @@ public sealed class DevRelayRealServerTests
     [Theory]
     [InlineData("2025-11-25")]
     [InlineData("2026-07-28")]
-    public async Task RepublishSwapsTheRealServerAndKeepsTheWorkspace(string protocol)
+    public async Task Republish_swaps_the_real_server_and_keeps_the_workspace(string protocol)
     {
         using var dir = new TempDir();
         var publish = Path.Combine(dir.Path, "publish");
         var server = Path.GetDirectoryName(typeof(DevRelay).Assembly.Location)!;
-        // the server's own folders only: the test data beside it is not the server, and antivirus may block reading some of it
+        // The server's own folders only: the test data beside it is not the server, and antivirus may block reading some of it.
         static bool Shipped(string relative) => Path.GetDirectoryName(relative) is not { Length: > 0 } dir
             || dir.Split(Path.DirectorySeparatorChar)[0] is "runtimes" or "clr32" || relative.EndsWith(".resources.dll", StringComparison.Ordinal);
         foreach (var file in Directory.EnumerateFiles(server, "*", SearchOption.AllDirectories).Where(f => Shipped(Path.GetRelativePath(server, f))))

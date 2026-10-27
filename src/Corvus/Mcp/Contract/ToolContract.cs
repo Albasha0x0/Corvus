@@ -1,17 +1,17 @@
 namespace Corvus.Mcp;
 
-/// <summary>What a tool returns (S1.3); sets the default token budget of each result part (D1).</summary>
+/// <summary>What a tool returns; sets the default token budget of each result part.</summary>
 public enum OutputClass { List, Code, Bytes, Report, Edit, Error }
 
-/// <summary>Warm p95 target (S11.1): instant 50 ms, interactive 500 ms, engine 1 s per query once the engine is open, long without a bound (reports progress).</summary>
+/// <summary>Warm p95 target: instant 50 ms, interactive 500 ms, engine 1 s per query once the engine is open, long without a bound (reports progress).</summary>
 public enum LatencyClass { Instant, Interactive, Engine, Long }
 
-/// <summary>How a tool previews (S7.3, D7): read-only tools have nothing to preview; a changing tool without dryRun records why.</summary>
+/// <summary>How a tool previews: read-only tools have nothing to preview; a changing tool without dryRun records why.</summary>
 public enum DryRunPolicy { NotApplicable, DefaultTrue, None }
 
 public static class OutputClasses
 {
-    /// <summary>Default page per part in estimated tokens (D1).</summary>
+    /// <summary>Default page per part in estimated tokens.</summary>
     public static int Budget(OutputClass output) => output switch
     {
         OutputClass.List => 6_000,
@@ -24,25 +24,19 @@ public static class OutputClasses
     };
 }
 
-/// <summary>
-/// A tool's contract beyond its annotations: output and latency class, profile membership, preview policy and the order of
-/// its rows. Rows are in the per-family files beside this one; Core records the intended core profile (D12, D14).
-/// </summary>
+/// <summary>A tool's contract beyond its annotations: output and latency class, profile membership, preview policy; rows are in the per-family files.</summary>
 public sealed partial record ToolContract(string Tool, OutputClass Output, LatencyClass Latency, bool Lean, bool Core, DryRunPolicy DryRun,
     string? DryRunReason, string? SortKey)
 {
     public ToolEffects.Effects Effects => ToolEffects.Of(Tool);
 
-    /// <summary>
-    /// The result may quote the analyzed file (names, strings, code, resources): its provenance says
-    /// untrustedContent, errors included. True for every tool, a new one too, except those that never return such text.
-    /// </summary>
+    /// <summary>True when the result may quote the analyzed file, so its provenance says untrustedContent; every tool unless listed as server-only output.</summary>
     public bool UntrustedContent => !ServerOnlyOutput.Contains(Tool);
 
     /// <summary>Tools whose results hold only the server's own text and the caller's numbers.</summary>
     internal static readonly IReadOnlySet<string> ServerOnlyOutput = new HashSet<string>(StringComparer.Ordinal) { "server_status", "convert_number" };
 
-    /// <param name="sort">The default row order of a list (S2.3).</param>
+    /// <param name="sort">The default row order of a list.</param>
     /// <param name="dryRun">Takes dryRun and defaults it to true.</param>
     /// <param name="noDryRun">Why a tool that changes something has no dryRun.</param>
     private static ToolContract Row(OutputClass output, LatencyClass latency, bool lean = false, bool core = false, string? sort = null,
@@ -57,7 +51,7 @@ public sealed partial record ToolContract(string Tool, OutputClass Output, Laten
             ["dotnet"] = DotnetTools(),
             ["containers"] = ContainersTools(),
             ["edit"] = EditTools(),
-            ["il2cpp"] = Il2CppTools(),
+            ["aot"] = AotTools(),
             ["native"] = NativeTools(),
             ["native-edit"] = NativeEditTools(),
             ["builds"] = BuildsTools(),

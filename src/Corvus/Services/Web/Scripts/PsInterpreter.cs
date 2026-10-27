@@ -7,13 +7,7 @@ using static Corvus.Services.Web.Scripts.PsConvert;
 
 namespace Corvus.Services.Web.Scripts;
 
-/// <summary>
-/// A bounded PowerShell evaluator: straight-line code, loops and functions over constants, with the decoders layered
-/// scripts carry
-/// (base64, char codes, XOR, format, replace, reverse, deflate / gzip, SecureString). Commands are never run: the
-/// invocations of code (Invoke-Expression and its spellings, script blocks, encoded commands) are peeled as layers, and
-/// constant expressions are folded to literals in place. Anything not modelled is unknown.
-/// </summary>
+/// <summary>Bounded PowerShell evaluator: peels code invocations as layers and folds constants; runs no command; anything not modelled is unknown.</summary>
 internal sealed partial class PsInterpreter
 {
     private const int MaxCallDepth = 64, MaxEvalDepth = 300, MaxFold = 32_768;
@@ -119,7 +113,8 @@ internal sealed partial class PsInterpreter
                 foreach (var (cond, body) in i.Clauses)
                 {
                     var c = Bool(Value(cond));
-                    if (c == null) return; // undecided: the fold pass reads the branches
+                    // Undecided: the fold pass reads the branches.
+                    if (c == null) return;
                     if (c == true) { ExecBody(body, outputs); return; }
                 }
                 if (i.Else != null) ExecBody(i.Else, outputs);
@@ -212,7 +207,7 @@ internal sealed partial class PsInterpreter
                     if (!Body()) break;
                 }
                 break;
-            default: // do-while, do-until
+            default:
                 while (true)
                 {
                     Step();
@@ -578,7 +573,8 @@ internal sealed partial class PsInterpreter
                 if (l is object[] la) return Tag(la.Concat(Items(r)).ToArray(), l, r);
                 if (l is byte[] lb) return Tag(Items(lb).Concat(Items(r)).ToArray(), l, r);
                 if (l == null) return r;
-                if (l is char lc) return Str(r, Ofs) is { } rc ? TagStep(lc + rc, "concatenation", r) : PsUnknown.Value; // a char adds as text
+                // A char adds as text.
+                if (l is char lc) return Str(r, Ofs) is { } rc ? TagStep(lc + rc, "concatenation", r) : PsUnknown.Value;
                 return Arith(op, l, r);
             case "*":
             {

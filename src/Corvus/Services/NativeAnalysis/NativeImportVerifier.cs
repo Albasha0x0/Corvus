@@ -8,17 +8,10 @@ using Corvus.Native.Linking;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Checks P/Invoke declarations ([DllImport] / ImplMap rows) against the exports of the native DLLs they bind to,
-/// with the Windows runtime's lookup rules: DLL search order, API set redirection, A/W suffixes, x86 stdcall
-/// decoration (_Name@N with N computed from the signature), ordinals and export forwarders. DLL location and
-/// forwarders follow <see cref="NativeLinker"/>, which the cross-image navigation uses as well. Each declaration gets
-/// a verdict (verified / contradicted / unresolved / dynamic_only / not_checked) with a reason code; run-time loading
-/// found in the IL (<see cref="DynamicNativeLoads"/>) turns unresolved declarations into dynamic_only, and malformed
-/// ImplMap / ModuleRef rows are reported with their location instead of being read as empty names. Off Windows targets
-/// (the platform the app ships for, see <see cref="UnixProbing"/>) .so / .dylib libraries are probed as .NET does and
-/// matched against ELF dynamic symbols and Mach-O exports; __Internal binds to an Il2Cpp build's own binary.
-/// </summary>
+// Windows: search order, API sets, A/W suffixes, stdcall decoration, ordinals, forwarders. Unix targets: .so/.dylib
+// probing as .NET does. Run-time loading in the IL turns unresolved into dynamic_only; malformed rows keep their location.
+/// <summary>Checks P/Invoke declarations against the exports they bind to, with the runtime's lookup rules; one verdict
+/// (verified, contradicted, unresolved, dynamic_only, not_checked) and reason code each.</summary>
 public sealed class NativeImportVerifier
 {
     public sealed record Check(
@@ -49,10 +42,7 @@ public sealed class NativeImportVerifier
     public NativeImportVerifier(Func<string, INativeImage> open) : this(open, OperatingSystem.IsWindows()) { }
 
     /// <param name="open">Opens a native image.</param>
-    /// <param name="hostHasSystemDlls">
-    /// False off Windows: only DLLs next to the assembly (and loaded images) are checked, and declarations bound to Windows
-    /// system DLLs are unresolved with reason system_dll_not_on_host.
-    /// </param>
+    /// <param name="hostHasSystemDlls">False off Windows: only app-local DLLs are checked; system DLL bindings are system_dll_not_on_host.</param>
     public NativeImportVerifier(Func<string, INativeImage> open, bool hostHasSystemDlls)
     {
         _open = Cached(open);
@@ -113,8 +103,8 @@ public sealed class NativeImportVerifier
         T Locked<T>(Func<T> read) => workspace != null ? workspace.Read(read, ct) : read();
 
         var appDirectory = Path.GetDirectoryName(Path.GetFullPath(asm.FilePath))!;
-        var il2cpp = FindIl2CppBinary(appDirectory);
-        var target = UnixProbing.Detect(appDirectory, platform, il2cpp?.Platform);
+        var aot = FindAotBinary(appDirectory);
+        var target = UnixProbing.Detect(appDirectory, platform, aot?.Platform);
         var issues = MetadataSurvey.Survey(asm.OriginalBytes).ToList();
         var (rowIssues, types, x86) = Locked(() => (MetadataSurvey.ImplMapRows(asm.Module), asm.Module.GetTypes().ToList(), IsX86(asm.Module)));
         issues.AddRange(rowIssues.Values);
@@ -139,10 +129,11 @@ public sealed class NativeImportVerifier
             progress?.Invoke(i, libraries.Count, $"checking {(libraries[i].Key.Length > 0 ? libraries[i].Key : "(no module)")} ({libraries[i].Count()} declarations)");
             Each(libraries[i].ToList(), method =>
             {
-                if (method.ImplMap is not { } map) return true; // removed by an edit meanwhile
+                // Removed by an edit meanwhile.
+                if (method.ImplMap is not { } map) return true;
                 var check = rowIssues.TryGetValue(map.Rid, out var issue) ? Malformed(method, map, issue)
                     : target.IsWindows ? CheckOne(asm, method, map, x86)
-                    : CheckUnix(method, map, appDirectory, target, il2cpp);
+                    : CheckUnix(method, map, appDirectory, target, aot);
                 checks.Add(Dynamic(check, resolvers, loadedLibraries));
                 return true;
             });
@@ -151,12 +142,12 @@ public sealed class NativeImportVerifier
         return new Result(checks, dynamic, truncated, issues) { Platform = target };
     }
 
-    /// <summary>An Il2Cpp build whose dummy assemblies are in <paramref name="directory"/>: its binary (for __Internal), platform and library folders.</summary>
-    private sealed record Il2CppBinaryFile(string File, TargetPlatform Platform, List<string> Folders);
+    /// <summary>The native binary beside dummy assemblies with [Address] attributes: file (for __Internal), platform and library folders.</summary>
+    private sealed record AotBinaryFile(string File, TargetPlatform Platform, List<string> Folders);
 
-    private Il2CppBinaryFile? FindIl2CppBinary(string directory)
+    private AotBinaryFile? FindAotBinary(string directory)
     {
-        if (Il2CppDumpFiles.Locate(directory)?.GameAssembly is not { } binary || _open(binary) is not { } image) return null;
+        if (AotDumpFiles.Locate(directory)?.GameAssembly is not { } binary || _open(binary) is not { } image) return null;
         var folder = Path.GetDirectoryName(binary)!;
         string arch = image.Arch switch { NativeArch.Arm64 => "arm64", NativeArch.Arm => "arm", NativeArch.X64 => "x64", NativeArch.X86 => "x86", _ => "" };
         string os = image.Format switch
@@ -168,29 +159,29 @@ public sealed class NativeImportVerifier
         var folders = new List<string> { folder };
         // iOS: UnityFramework.framework sits in the app's Frameworks folder beside the other frameworks.
         if (os == "ios" && Path.GetDirectoryName(folder) is { } frameworks) folders.Add(frameworks);
-        return new Il2CppBinaryFile(binary, new TargetPlatform(os, arch.Length > 0 ? $"{os}-{arch}" : null, $"Il2Cpp binary {Path.GetFileName(binary)}"), folders);
+        return new AotBinaryFile(binary, new TargetPlatform(os, arch.Length > 0 ? $"{os}-{arch}" : null, $"AOT binary {Path.GetFileName(binary)}"), folders);
     }
 
     /// <summary>A declaration checked against .so / .dylib libraries with the .NET probing rules of a Unix target.</summary>
-    private Check CheckUnix(MethodDef method, ImplMap map, string appDirectory, TargetPlatform target, Il2CppBinaryFile? il2cpp)
+    private Check CheckUnix(MethodDef method, ImplMap map, string appDirectory, TargetPlatform target, AotBinaryFile? aot)
     {
         string label = Format.MemberLabel(method);
         var (module, entry, charSet, callConv) = Describe(method, map);
         Check Result(string status, string reason, string? file, string? export, string detail) =>
             new(label, $"0x{method.MDToken.Raw:X8}", module, entry, charSet, map.IsNoMangle, callConv, status, reason, file, export, detail, null);
 
-        if (module == "__Internal" && il2cpp != null && _open(il2cpp.File) is { } own)
+        if (module == "__Internal" && aot != null && _open(aot.File) is { } own)
         {
             var name = own.Format == ImageFormat.MachO ? "_" + entry : entry;
             return own.Exports.Any(e => e.Name == name) || own.Symbols.Any(s => s.Name == name && s.Kind == ImageSymbolKind.Function)
-                ? Result(Verified, "internal", il2cpp.File, name, $"__Internal: defined in {Path.GetFileName(il2cpp.File)}, the Il2Cpp binary it is linked into")
-                : Result(Contradicted, "missing_export", il2cpp.File, null, $"__Internal: {Path.GetFileName(il2cpp.File)} does not define it; {NativeLinker.NearMisses(own, name)}");
+                ? Result(Verified, "internal", aot.File, name, $"__Internal: defined in {Path.GetFileName(aot.File)}, the binary it is linked into")
+                : Result(Contradicted, "missing_export", aot.File, null, $"__Internal: {Path.GetFileName(aot.File)} does not define it; {NativeLinker.NearMisses(own, name)}");
         }
         if (RuntimeResolved(module) is { } why) return Result(NotChecked, "runtime_internal", null, null, why);
         if (IsRuntimeLibrary(module))
-            return Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library that ships with the runtime on this platform");
+            return Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library shipped with the runtime");
 
-        var (file, searched, other) = UnixProbing.Locate(module, appDirectory, target, il2cpp?.Folders);
+        var (file, searched, other) = UnixProbing.Locate(module, appDirectory, target, aot?.Folders);
         var tried = string.Join(", ", UnixProbing.ProbeNames(module, target));
         if (file == null)
             return other.Count > 0
@@ -248,13 +239,13 @@ public sealed class NativeImportVerifier
         {
             if (check.Module.Length > 0 && loaded.TryGetValue(DynamicNativeLoads.NormalizeLibrary(check.Module), out var load))
                 return check with { Status = DynamicOnly, Reason = "library_loaded_at_run_time",
-                    Detail = $"not found statically ({check.Detail}); the assembly loads '{load.Library}' itself at run time ({load.Kind} in {load.Method})" };
+                    Detail = $"not found statically ({check.Detail}); the assembly loads '{load.Library}' at run time ({load.Kind} in {load.Method})" };
             if (resolvers.Count > 0)
                 return check with { Status = DynamicOnly, Reason = "dll_import_resolver",
-                    Detail = $"not found statically ({check.Detail}); a DllImportResolver set in {resolvers[0]} decides at run time which library this binds to" };
+                    Detail = $"not found statically ({check.Detail}); a DllImportResolver set in {resolvers[0]} picks the library at run time" };
         }
         if (check.Status == Contradicted && resolvers.Count > 0)
-            return check with { Detail = check.Detail + $"; note: a DllImportResolver set in {resolvers[0]} may bind this declaration to another library at run time" };
+            return check with { Detail = check.Detail + $"; a DllImportResolver set in {resolvers[0]} may bind it to another library at run time" };
         return check;
     }
 
@@ -297,9 +288,9 @@ public sealed class NativeImportVerifier
             file = file != null && IsAppLocal(file, asm.FilePath, searched) ? file : AppLocalIgnoringCase(module, asm.FilePath);
         if (file == null)
             return IsRuntimeLibrary(module)
-                ? Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library that the runtime links in on this platform (no separate DLL)")
+                ? Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library linked into the runtime here (no separate DLL)")
                 : !_systemDlls && IsSystemDll(module)
-                    ? Result(Unresolved, "system_dll_not_on_host", null, null, $"a Windows system DLL, and this host has none to check against; searched {string.Join("; ", searched)}")
+                    ? Result(Unresolved, "system_dll_not_on_host", null, null, $"a Windows system DLL, absent on this host; searched {string.Join("; ", searched)}")
                 : Result(Unresolved, searched.Any(s => s.EndsWith("(not in this system's map)", StringComparison.Ordinal)) ? "api_set_unmapped" : "dll_not_found",
                     null, null, "searched " + string.Join("; ", searched));
         var image = _linker.Open(file);
@@ -400,7 +391,8 @@ public sealed class NativeImportVerifier
             }
             return total;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException) { return null; } // unreadable signature
+        // An unreadable signature.
+        catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
     }
 
     private static int? ArgumentSize(TypeSig type)

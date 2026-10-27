@@ -3,12 +3,7 @@ using Iced.Intel;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// Handlers of table-dispatched 16-bit code (DOS .COM and MZ): code reached from the entry is decoded, each
-/// <c>call/jmp word [reg+table]</c> names a table of near pointers, and the table's entries that point at code are
-/// handlers, decoded in turn for further tables. Ghidra resolves no such computed call in real mode, so these are its
-/// seeds. Offsets are into the code image: the file for a .COM, the load module for an MZ executable.
-/// </summary>
+/// <summary>Finds handlers behind <c>call/jmp word [reg+table]</c> dispatch in 16-bit DOS code; seeds for Ghidra, which resolves none; offsets are into the .COM file or the MZ load module.</summary>
 public static class RealModeDispatch
 {
     public const int MaxHandlers = 16_384;
@@ -17,7 +12,7 @@ public static class RealModeDispatch
     /// <summary>The code of an x86-16 file: a near pointer p is at image offset <see cref="Segment"/> + p.</summary>
     public readonly record struct CodeImage(ReadOnlyMemory<byte> Code, long Segment, long Entry);
 
-    /// <summary>An x86-16 raw file at its base (CS = 0: a pointer is the linear address), or an MZ executable's load module (CS from the header); null for other layouts.</summary>
+    /// <summary>The code of an x86-16 raw file or an MZ executable's load module; null for other layouts.</summary>
     public static CodeImage? Of(ReadOnlyMemory<byte> file, RawLayout layout)
     {
         if (layout.Isa.Name == "dos-mz")
@@ -94,7 +89,7 @@ public static class RealModeDispatch
         while (end + 2 <= code.Length && targets.Count < MaxTable)
         {
             long t = segment + BinaryPrimitives.ReadUInt16LittleEndian(code[(int)end..]);
-            // a target inside the table is the end of it (the next entries are data or code)
+            // A target inside the table ends it.
             if (t >= start && t < end + 2 || !LooksLikeCode(code, t, decoder, reader)) break;
             targets.Add(t);
             end += 2;
@@ -104,7 +99,7 @@ public static class RealModeDispatch
         return targets;
     }
 
-    /// <summary>Up to 8 instructions from <paramref name="at"/> decode, without running past the image, up to the first ret or jump.</summary>
+    /// <summary>Up to 8 instructions from <paramref name="at"/> decode inside the image, up to the first ret or jump.</summary>
     private static bool LooksLikeCode(ReadOnlySpan<byte> code, long at, Decoder decoder, ByteArrayCodeReader reader)
     {
         if (at < 0 || at >= code.Length) return false;
@@ -113,7 +108,7 @@ public static class RealModeDispatch
         {
             var insn = decoder.Decode();
             if (insn.IsInvalid || reader.Position > code.Length) return false;
-            // two zero bytes (add [bx+si], al) open most padding and data
+            // Two zero bytes (add [bx+si], al) open most padding and data.
             if (insn.Code == Iced.Intel.Code.Add_rm8_r8 && insn.Op0Kind == OpKind.Memory && insn.Op1Register == Register.AL && insn.MemoryBase == Register.BX && insn.MemoryIndex == Register.SI) return false;
             if (insn.FlowControl is FlowControl.Return or FlowControl.UnconditionalBranch or FlowControl.IndirectBranch) return true;
             if (!reader.CanReadByte) return false;

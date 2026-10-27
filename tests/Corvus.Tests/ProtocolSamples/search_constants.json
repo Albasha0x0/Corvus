@@ -5,14 +5,14 @@
   },
   "isError": false,
   "content": [
-    "Occurrences of 0x3E8: 1 occurrence (showing 1-1):\n  Fixture.Model.PremiumAccount::Score() @IL_0000  ldc.i4 1000  [TestFixture] 0x06000022\n[End: 1 occurrence]\n"
+    "Occurrences of 0x3E8: 1 occurrence (showing 1-1):\n  Fixture.Model.PremiumAccount::Score() @IL_0000  ldc.i4 1000  [TestFixture] 0x0600001B\n[End: 1 occurrence]\n"
   ],
   "structuredContent": {
     "value": "0x3E8",
     "items": [
       {
         "owner": "Fixture.Model.PremiumAccount::Score()",
-        "token": "0x06000022",
+        "token": "0x0600001B",
         "assembly": "TestFixture",
         "kind": "ldc.i4",
         "value": "1000",

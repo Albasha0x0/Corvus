@@ -5,20 +5,20 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// Original names for an renamed package: an R8 / ProGuard mapping.txt (classes, fields and methods, inlined frames
-/// skipped), and for classes it leaves out, names recovered from Kotlin @Metadata (d2) or the SourceFile attribute. Ids
-/// stay the package's own; this layer annotates them and translates original names given as input.
-/// </summary>
+/// <summary>Original names of a renamed package from an R8 / ProGuard mapping.txt, Kotlin @Metadata or SourceFile; ids stay the package's own.</summary>
 public sealed partial class DexNames
 {
     /// <summary>A recovered class name and where it came from (mapping, kotlin metadata, source file).</summary>
     public sealed record ClassName(string Name, string Basis);
 
-    private readonly Dictionary<string, ClassName> _classes = new(StringComparer.Ordinal); // renamed descriptor -> name
-    private readonly Dictionary<string, string> _original = new(StringComparer.Ordinal); // original descriptor -> renamed
-    private readonly Dictionary<string, string> _members = new(StringComparer.Ordinal); // renamed member id -> original id
-    private readonly Dictionary<string, List<string>> _byName = new(StringComparer.Ordinal); // original class->name -> renamed ids
+    // Renamed descriptor to name.
+    private readonly Dictionary<string, ClassName> _classes = new(StringComparer.Ordinal);
+    // Original descriptor to renamed.
+    private readonly Dictionary<string, string> _original = new(StringComparer.Ordinal);
+    // Renamed member id to original id.
+    private readonly Dictionary<string, string> _members = new(StringComparer.Ordinal);
+    // Original class->name to renamed ids.
+    private readonly Dictionary<string, List<string>> _byName = new(StringComparer.Ordinal);
 
     public string? Mapping { get; private init; }
     public int MappedClasses { get; private set; }
@@ -30,13 +30,13 @@ public sealed partial class DexNames
 
     public bool IsEmpty => _classes.Count == 0 && _members.Count == 0;
 
-    /// <summary>The original descriptor (mapping or Kotlin metadata) of an renamed one, else null.</summary>
+    /// <summary>The original descriptor (mapping or Kotlin metadata) of a renamed one, else null.</summary>
     public string? Descriptor(string renamed) =>
         _classes.TryGetValue(renamed, out var c) && c.Basis != "source file" ? c.Name : null;
 
     public ClassName? Class(string renamed) => _classes.GetValueOrDefault(renamed);
 
-    /// <summary>The original id of an renamed field or method id, else null.</summary>
+    /// <summary>The original id of a renamed field or method id, else null.</summary>
     public string? Member(string renamedId) => _members.GetValueOrDefault(renamedId);
 
     /// <summary>A type descriptor with every class in it named by its original (arrays kept).</summary>
@@ -47,10 +47,7 @@ public sealed partial class DexNames
         return dims < descriptor.Length && descriptor[dims] == 'L' && Descriptor(descriptor[dims..]) is { } o ? descriptor[..dims] + o : descriptor;
     }
 
-    /// <summary>
-    /// The Java form with original names of a class descriptor or a member id, or null when nothing in it is renamed:
-    /// com.example.Foo, com.example.Foo.count : int, com.example.Foo.compute(int) : String.
-    /// </summary>
+    /// <summary>The Java form with original names (com.example.Foo.compute(int) : String); null when nothing in it is renamed.</summary>
     public string? Display(string idOrDescriptor)
     {
         int arrow = idOrDescriptor.IndexOf("->", StringComparison.Ordinal);
@@ -76,10 +73,8 @@ public sealed partial class DexNames
         return colon < 0 ? null : $"{cls}.{rest[..colon]} : {DexFile.JavaName(Type(rest[(colon + 1)..]))}";
     }
 
-    /// <summary>
-    /// A class or member named by its original names (pkg.Original, pkg.Original::name, Lpkg/Original;->name(...)) as the
-    /// package's own id; unchanged when nothing matches. Several overloads of one original name stay a name for the caller to resolve.
-    /// </summary>
+    /// <summary>The package's own id of a class or member given by original name; unchanged when nothing matches.
+    /// Overloads of one original name stay a name for the caller to resolve.</summary>
     public string Translate(string spec)
     {
         spec = spec.Trim();
@@ -101,7 +96,7 @@ public sealed partial class DexNames
             if (ids.Count == 1) return ids[0];
             if (open >= 0)
             {
-                // parameters given in original names: compare with each candidate's original parameters
+                // Parameters are given in original names.
                 var wanted = spec[open..];
                 var match = ids.Where(id => _members.TryGetValue(id, out var o) && (o.EndsWith(wanted, StringComparison.Ordinal) || Display(id)?.Contains(Java(wanted), StringComparison.Ordinal) == true)).ToList();
                 if (match.Count == 1) return match[0];
@@ -114,11 +109,7 @@ public sealed partial class DexNames
 
     private static string Java(string parameters) => parameters.Trim().Replace(" ", "", StringComparison.Ordinal).Replace(",", ", ", StringComparison.Ordinal);
 
-    /// <summary>
-    /// Parses mapping.txt against <paramref name="index"/>: "original -> renamed:" class lines, then four-space member lines
-    /// "type name -> obf" and "[a:b:]ret name(params)[:x[:y]] -> obf". Of lines sharing a line range and an renamed name,
-    /// the last is the method and the others are frames inlined into it.
-    /// </summary>
+    /// <summary>Parses mapping.txt against <paramref name="index"/>; of lines sharing a line range and renamed name, the last is the method.</summary>
     public static DexNames Read(string mappingPath, DexIndex index, CancellationToken ct)
     {
         var full = InputFiles.RequireRegularFile(mappingPath, "mapping.txt");
@@ -162,7 +153,7 @@ public sealed partial class DexNames
                 if (!m.Success) { bad++; continue; }
                 var (range, type, name, parameters, obfName) = (m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value, m.Groups[4], m.Groups[5].Value);
                 bool method = parameters.Success;
-                // inlined frames: the next line shares the range and renamed name; a qualified name is from another class
+                // An inlined frame shares the next line's range and renamed name; a qualified name is from another class.
                 if (method && range.Length > 0 && i + 1 < lines.Count && MemberLine().Match(lines[i + 1]) is { Success: true } next
                     && next.Groups[1].Value == range && next.Groups[5].Value == obfName) continue;
                 if (name.Contains('.', StringComparison.Ordinal)) continue;
@@ -218,10 +209,7 @@ public sealed partial class DexNames
         return dims < descriptor.Length && descriptor[dims] == 'L' && _original.TryGetValue(descriptor[dims..], out var x) ? descriptor[..dims] + x : descriptor;
     }
 
-    /// <summary>
-    /// Names for renamed-looking classes the mapping does not cover: the class name Kotlin @Metadata d2 records (when it is
-    /// another descriptor), else the SourceFile stem for a top-level class (a hint, not an id).
-    /// </summary>
+    /// <summary>Names unmapped renamed-looking classes from Kotlin @Metadata d2, else the SourceFile stem (a hint, not an id).</summary>
     private void Recover(DexIndex index)
     {
         int kotlin = 0, source = 0;
@@ -277,7 +265,7 @@ public sealed partial class DexNames
         return new string('[', dims) + core;
     }
 
-    // "1:3:int compute(int,java.lang.String):10:12 -> a", "java.lang.String name -> b"
+    // Matches "1:3:int compute(int,java.lang.String):10:12 -> a" and "java.lang.String name -> b".
     [GeneratedRegex(@"^(?:(\d+:\d+):)?(\S+)\s+([^\s(]+)(?:\(([^)]*)\))?(?::\d+(?::\d+)?)?\s+->\s+(\S+)$")]
     private static partial Regex MemberLine();
 
@@ -291,7 +279,7 @@ public sealed partial class DexNames
             sb.Append(line);
             var t = line.TrimStart();
             string? comment = null;
-            // a method's disassembly starts "# Lpkg/C;->m()V in classes.dex"
+            // A method's disassembly starts "# Lpkg/C;->m()V in classes.dex".
             if (current == null && t.StartsWith("# L", StringComparison.Ordinal) && t.IndexOf("->", StringComparison.Ordinal) is var arrow and > 0) current = t[2..arrow];
             if (t.StartsWith(".class ", StringComparison.Ordinal)) { current = t.Split(' ')[^1]; comment = Display(current); }
             else if (current != null && t.StartsWith(".method ", StringComparison.Ordinal)) comment = Display(current + "->" + t.Split(' ')[^1]);
@@ -314,7 +302,7 @@ public sealed partial class DexNames
         return sb.ToString();
     }
 
-    // a member id or a class descriptor in an instruction's operands
+    // A member id or class descriptor in an instruction's operands.
     [GeneratedRegex(@"L[^;\s,{}]+;(?:->[^\s(:,]+(?:\([^)\s]*\)\S+|:\S+))?")]
     private static partial Regex Reference();
 }

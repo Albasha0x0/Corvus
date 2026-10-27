@@ -3,11 +3,7 @@ using Corvus.Core.Registry;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=registry: a registry hive file (NTUSER.DAT, SOFTWARE, SYSTEM, settings.dat, Amcache.hve) read without the
-/// registry API: base block facts, key and value counts, the keys and values recovered from free cells, then one key
-/// (table= names its path; the root by default) with a page of its subkeys and values (offset=, limit=).
-/// </summary>
+/// <summary>view=registry: a hive file's counts, cells recovered from free space, and a page of one key's subkeys and values (table= path, root by default; offset=, limit=).</summary>
 internal sealed class RegistryFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxRecovered = 50;

@@ -61,7 +61,7 @@ public sealed class LiveProgramScopeTests : IDisposable
         Assert.Equal(Environment.ProcessId, chain[0].Pid);
         var self = await Refused(() => Tools().LiveSession("attach", program: Environment.ProcessId.ToString()));
         Assert.Contains("is this server", self.Message);
-        // a name is matched nearest first: on Linux the test host's parent is also named dotnet
+        // A name is matched nearest first: on Linux the test host's parent is also named dotnet.
         if (chain.Skip(1).FirstOrDefault(c => !c.Name.Equals(chain[0].Name, StringComparison.OrdinalIgnoreCase)) is { Name: not null } other)
         {
             var parent = await Refused(() => Tools().LiveSession("attach", program: other.Name));
@@ -78,7 +78,7 @@ public sealed class LiveProgramScopeTests : IDisposable
     {
         var inside = Program("allowed");
         await Tools(allow: Path.Combine(_dir.Path, "allowed")).LiveSession("spawn", program: inside);
-        // the backend gets the final path (macOS: the temporary folder under /var is /private/var)
+        // The backend gets the final path (macOS: the temporary folder under /var is /private/var).
         var final = LiveProgramScope.Canonical(inside);
         Assert.Equal(final, (string?)_backend.LastOpen!["spawn"]);
         Assert.Equal(Path.GetDirectoryName(final), (string?)_backend.LastOpen!["cwd"]);
@@ -132,7 +132,7 @@ public sealed class LiveProgramScopeTests : IDisposable
         var link = Path.Combine(_dir.Path, "link-to-allowed");
         Links.CreateDirectoryLink(link, allowed);
         Assert.True(LiveProgramScope.Contains([link], inside));
-        // a link whose target passes through another link
+        // A link whose target passes through another link.
         var parent = Path.Combine(_dir.Path, "link-to-dir");
         Links.CreateDirectoryLink(parent, _dir.Path);
         var through = Path.Combine(_dir.Path, "link-through");

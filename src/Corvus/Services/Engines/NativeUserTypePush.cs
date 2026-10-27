@@ -5,12 +5,8 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Keeps an engine session's database in step with the image's user types (<see cref="UserTypeLayer"/>, kept in the
-/// annotation sidecar). A whole layer is pushed when the database's stamp differs (a new database, a new IDA build, edits
-/// lost with an unsaved database) and saved; single edits go through <see cref="ApplyAsync"/>, journaled by the session
-/// and recorded in the layer only when the engine took them. Runs after the name and type pushes so user types win.
-/// </summary>
+/// <summary>Keeps an engine database in step with the image's user types: the whole layer on a stamp mismatch, single
+/// edits through <see cref="ApplyAsync"/>. Runs after the name and type pushes so user types win.</summary>
 public sealed class NativeUserTypePush(NativeCodeService code)
 {
     public const string StampKey = "user_types";
@@ -54,10 +50,8 @@ public sealed class NativeUserTypePush(NativeCodeService code)
         return new PushResult(layer.Count, totals, false);
     }
 
-    /// <summary>
-    /// Applies <paramref name="edit"/> (the layer is brought up to date first), then records it with <paramref name="record"/>,
-    /// which returns the new layer or null to record nothing (the engine did not take it).
-    /// </summary>
+    /// <summary>Applies <paramref name="edit"/> after syncing the layer, then records it; <paramref name="record"/> returns
+    /// null to record nothing.</summary>
     public async Task<UserTypeResult> ApplyAsync(LoadedNative native, INativeDecompilerSession session, NativeUserTypeBatch edit,
         Func<UserTypeResult, UserTypeLayer, UserTypeLayer?> record, CancellationToken ct)
     {
@@ -79,7 +73,7 @@ public sealed class NativeUserTypePush(NativeCodeService code)
         finally { state.Gate.Release(); }
     }
 
-    /// <summary>Drops what is known of the session's user types (the database's types were replaced): the next call pushes the layer.</summary>
+    /// <summary>Forgets the session's user types, so the next call pushes the layer.</summary>
     public static void Forget(INativeDecompilerSession session) => States.Remove(session);
 
     /// <summary>Marks the session's database as changed by an engine script, so cached engine output is made again.</summary>

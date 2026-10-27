@@ -17,7 +17,7 @@ public class ToolContractTests
     ];
 
     [Fact]
-    public void EveryToolHasOutputAndLatencyClass()
+    public void Every_tool_has_an_output_and_latency_class()
     {
         Assert.Equal(AllTools.Order(StringComparer.Ordinal), ToolContract.Table.Keys.Order(StringComparer.Ordinal));
         Assert.Equal(165, ToolContract.Table.Count);
@@ -31,7 +31,7 @@ public class ToolContractTests
     }
 
     [Fact]
-    public void RowsAgreeWithTheEffects()
+    public void Rows_agree_with_the_effects()
     {
         var problems = new List<string>();
         foreach (var c in ToolContract.Table.Values)
@@ -43,14 +43,14 @@ public class ToolContractTests
         }
         foreach (var tool in D7.Concat(["migrate_native_patches", "update_to_new_build", "load_session"]))
             if (ToolContract.Of(tool).DryRun != DryRunPolicy.DefaultTrue) problems.Add($"{tool}: D7 dryRun default true");
-        foreach (var tool in new[] { "revert_edits", "load_pdb", "apply_il2cpp_names", "install_android_package", "uninstall_android_package", "export_il2cpp_symbols", "get_resource" }
+        foreach (var tool in new[] { "revert_edits", "load_pdb", "apply_metadata_names", "install_android_package", "uninstall_android_package", "export_method_symbols", "get_resource" }
                      .Concat(Toolsets.Families.Single(f => f.Name == "engine").Tools.Where(t => !ToolEffects.Of(t).ReadOnly)))
             if (ToolContract.Of(tool).DryRun != DryRunPolicy.None) problems.Add($"{tool}: no dryRun, with a recorded reason (N12-N14)");
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
     [Fact]
-    public void DryRunPolicyMatchesTheParameters()
+    public void Dry_run_policy_matches_the_parameters()
     {
         var schemas = Catalog.OfThisBuild().Tools.ToDictionary(t => (string)t["name"]!, t => t["inputSchema"]!["properties"]!.AsObject());
         var problems = new List<string>();
@@ -63,7 +63,7 @@ public class ToolContractTests
     }
 
     [Fact]
-    public void ProfilesHaveTheirSizes()
+    public void Profiles_have_their_sizes()
     {
         var lean = ToolContract.Table.Values.Where(c => c.Lean).Select(c => c.Tool).ToList();
         var core = ToolContract.Table.Values.Where(c => c.Core).Select(c => c.Tool).ToList();
@@ -77,7 +77,7 @@ public class ToolContractTests
     }
 
     [Fact]
-    public void BudgetsAreTheD1Defaults()
+    public void Budgets_are_the_D1_defaults()
     {
         Assert.Equal([6_000, 8_000, 6_000, 4_000, 3_000, 1_000],
             new[] { OutputClass.List, OutputClass.Code, OutputClass.Bytes, OutputClass.Report, OutputClass.Edit, OutputClass.Error }.Select(OutputClasses.Budget));

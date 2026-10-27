@@ -4,11 +4,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// live_session's options on each target: a started program's arguments, extra variables and working folder (the server's
-/// other variables kept out), attach by process name, inspect_process by session id, a snapshot to a chosen file replaced
-/// only with overwrite, and attach to a process id no process has.
-/// </summary>
+/// <summary>live_session options per target: arguments, variables, working folder, attach by name, inspect_process by session, snapshot overwrite, unknown process id.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -52,7 +48,7 @@ public sealed class LiveSessionOptionsRealTests(ITestOutputHelper output) : Live
         Assert.True(File.Exists(Path.Combine(cwd, "probe.c")), $"the program ran in {cwd}, not in its folder {_dir.Path}");
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
 
-        // attach by a name no other process has
+        // Attach by a name no other process has.
         var unique = "probe" + Guid.NewGuid().ToString("N")[..8];
         var named = target.Build(_dir, unique, LivePrograms.Probe);
         using var program = Process.Start(new ProcessStartInfo(named, "x 60") { RedirectStandardOutput = true, UseShellExecute = false })!;

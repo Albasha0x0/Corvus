@@ -12,13 +12,16 @@ public static partial class ToolEffects
         // Native annotations and edits (names and comments are saved to a per-user sidecar file)
         ["rename_native"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["comment_native"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
-        ["export_native_annotations"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces the file at outputPath
+        // overwrite=true replaces the file at outputPath.
+        ["export_native_annotations"] = Changes(destructive: true, idempotent: true, longRunning: true),
         ["patch_bytes"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),
         ["undo_native_edit"] = Changes(destructive: true, idempotent: false, longRunning: true),
-        ["save_native"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces a file, replaceOriginal=true the original behind --allow-replace-original (its .bak is made once)
-        ["export_native_patches"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at outputPath
+        // overwrite=true replaces a file, replaceOriginal=true the original behind --allow-replace-original (its .bak is made once).
+        ["save_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
+        // overwrite=true replaces the file at outputPath.
+        ["export_native_patches"] = Changes(destructive: true, idempotent: true),
     };
 }
 

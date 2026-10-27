@@ -9,33 +9,28 @@ using Corvus.Core.Mobile;
 namespace Corvus.Services.Mobile;
 
 public sealed record AppLayer(
-    [property: Description("dex, native, dotnet, il2cpp, js or web.")] string Layer,
+    [property: Description("dex, native, dotnet, aot, js or web.")] string Layer,
     [property: Description("How many items the layer holds (classes, libraries, assemblies, methods, strings).")] int Items,
     string What);
 
 public sealed record AppEdgeKind(
-    [property: Description("jni (DEX native method to .so function), java_dotnet (Java callable wrapper or bound class to .NET type), unity_java " +
-                           "(Unity C# to the Java class it names), il2cpp_native (C# method to its libil2cpp.so code), js_native_module (JS bundle to a " +
+    [property: Description("jni (DEX native method to .so function), java_dotnet (Java callable wrapper or bound class to .NET type), dotnet_java " +
+                           "(C# to the Java class it names), aot_native (C# method to its libil2cpp.so code), js_native_module (JS bundle to a " +
                            "React Native module class), cordova_plugin, capacitor_plugin (web code to plugin class).")] string Kind,
     int Edges,
-    [property: Description("The items that could have an edge of this kind (native methods, Unity calls, modules ...).")] int Candidates,
+    [property: Description("The items that could have an edge of this kind (native methods, Java calls, modules ...).")] int Candidates,
     [property: Description("complete, partial (candidates without an edge; reason says which) or unknown (the layer was not read).")] string Coverage,
     [property: Description("How each edge is verified.")] string Basis,
     string? Reason);
 
 public sealed record AppEdge(string Kind, string From, string To,
-    [property: Description("The evidence: static_export, registered, register_attribute, crc64_package, unity_call, metadata_address, module_name ...")] string Basis);
+    [property: Description("The evidence: static_export, registered, register_attribute, crc64_package, java_call, metadata_address, module_name ...")] string Basis);
 
 public sealed record AppGraphFacts(IReadOnlyList<AppLayer> Layers, IReadOnlyList<AppEdgeKind> EdgeKinds, IReadOnlyList<AppEdge> Edges, int Offset, int Total,
     [property: Description("Seconds the graph took.")] double Seconds, IReadOnlyList<string> Notes);
 
-/// <summary>
-/// One graph of an Android package's code layers (DEX, native libraries, .NET, Il2Cpp, JS bundle) with the edges between
-/// them, each verified the way its bridge binds at run time: JNI name mangling and RegisterNatives tables, [Register] and
-/// crc64 wrapper names, Unity's Java calls by class name, Il2Cpp metadata addresses, React Native module names, Cordova and Capacitor plugin names. Composes
-/// the bridge services; coverage per edge kind says what is joined and what is not.
-/// </summary>
-public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map, Il2CppRawLoader? il2cpp = null)
+/// <summary>Joins an Android package's code layers (DEX, native, .NET, AOT, JS, web) by the names each bridge binds at run time; reports coverage per edge kind.</summary>
+public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map, AotBuildLoader? aot = null)
 {
     public const int DefaultLimit = 100;
     private const string ReactModule = "Lcom/facebook/react/bridge/ReactContextBaseJavaModule;", BaseModule = "Lcom/facebook/react/bridge/BaseJavaModule;";
@@ -64,7 +59,7 @@ public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map,
 
         var wrappers = DotNet(full, index, layers, kinds, edges, notes, ct);
         if (index != null && libraries.Count > 0) Jni(full, wrappers, kinds, edges, notes, ct);
-        Il2Cpp(full, entries, layers, kinds, edges, notes, ct);
+        AotLayers(full, entries, layers, kinds, edges, notes, ct);
         if (index != null) Js(full, index, layers, kinds, edges, notes, ct);
         if (index != null)
             using (var package = AndroidPackage.Open(full)) WebBridges.Add(package, entries, index, layers, kinds, edges, notes, ct);
@@ -80,7 +75,7 @@ public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map,
     private void Jni(string full, HashSet<string> wrappers, List<AppEdgeKind> kinds, List<AppEdge> edges, List<string> notes, CancellationToken ct)
     {
         JniBindingList rows;
-        // A table's class from the code that passes it: read in libraries up to 8 MB, so an engine library (libunity.so) does not cost seconds.
+        // Code that passes a table is read only in libraries up to 8 MB, so a large library does not cost seconds.
         try { rows = jni.Rows(full, null, null, null, 0, int.MaxValue, ct, readCodeUpTo: 8 << 20); }
         catch (ToolError e) { notes.Add($"JNI bindings not read: {e.Message}"); return; }
         int bound = 0, unresolved = 0, byRuntime = 0;
@@ -105,18 +100,19 @@ public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map,
     // Classes of the Android platform: bound by .NET for Android, defined by the device, never in the app's DEX code.
     private static readonly string[] Platform = ["Landroid/", "Ljava/", "Ljavax/", "Ldalvik/", "Lorg/w3c/", "Lorg/xml/", "Lorg/json/", "Lorg/apache/http/"];
 
-    /// <summary>.NET for Android and Unity Mono edges; returns the Java callable wrapper classes.</summary>
+    /// <summary>Edges between .NET and Java code; returns the Java callable wrapper classes.</summary>
     private HashSet<string> DotNet(string full, DexIndex? index, List<AppLayer> layers, List<AppEdgeKind> kinds, List<AppEdge> edges, List<string> notes, CancellationToken ct)
     {
         var wrappers = new HashSet<string>(StringComparer.Ordinal);
         JavaDotNetResult pairs;
         try { pairs = map.Map("*", full, ct); }
-        catch (ToolError e) when (e.Code is ErrorCode.NotFound or ErrorCode.NotLoaded or ErrorCode.Unsupported) { return wrappers; } // no .NET code in the package
+        // No .NET code in the package.
+        catch (ToolError e) when (e.Code is ErrorCode.NotFound or ErrorCode.NotLoaded or ErrorCode.Unsupported) { return wrappers; }
         var assemblies = pairs.Items.Select(p => p.Assembly).Distinct(StringComparer.Ordinal).Count();
         layers.Add(new("dotnet", assemblies, "assemblies with Java bridge pairs"));
         static string ClassOf(string java) => java.Contains("->", StringComparison.Ordinal) ? java[..java.IndexOf("->", StringComparison.Ordinal)] : java;
         bool InDex(string java) => index == null || index.Classes.ContainsKey(ClassOf(java));
-        var bridge = pairs.Items.Where(p => !p.Basis.StartsWith("unity_", StringComparison.Ordinal)).ToList();
+        var bridge = pairs.Items.Where(p => !p.Basis.StartsWith("java_", StringComparison.Ordinal)).ToList();
         if (bridge.Count > 0)
         {
             int missing = 0;
@@ -128,51 +124,51 @@ public sealed class AppGraph(DexService dex, JniBindings jni, JavaDotNetMap map,
                 edges.Add(new("java_dotnet", p.Java, $"{p.Assembly}!{p.DotNet}", platform ? p.Basis + ", platform class" : p.Basis));
             }
             kinds.Add(new("java_dotnet", bridge.Count - missing, bridge.Count, missing == 0 ? "complete" : "partial",
-                "[Register] and component attribute names and crc64 wrapper names computed as the build does; the Java class defined by the DEX code or the platform",
-                missing == 0 ? null : $"{missing} pair(s) name a Java class neither the DEX code nor the platform defines (a binding of a library the package does not carry)"));
+                "[Register], component attribute and crc64 wrapper names; the Java class defined by the DEX code or the platform",
+                missing == 0 ? null : $"{missing} pair(s) name a Java class neither the DEX code nor the platform defines"));
         }
-        var unity = pairs.Items.Where(p => p.Basis.StartsWith("unity_", StringComparison.Ordinal)).ToList();
-        if (unity.Count > 0)
+        var bridged = pairs.Items.Where(p => p.Basis.StartsWith("java_", StringComparison.Ordinal)).ToList();
+        if (bridged.Count > 0)
         {
             int resolved = 0;
-            foreach (var p in unity)
+            foreach (var p in bridged)
             {
                 bool there = InDex(p.Java);
                 if (!there) continue;
                 resolved++;
-                edges.Add(new("unity_java", $"{p.Assembly}!{p.DotNet}", p.Java, $"{p.Basis} ({p.Confidence})"));
+                edges.Add(new("dotnet_java", $"{p.Assembly}!{p.DotNet}", p.Java, $"{p.Basis} ({p.Confidence})"));
             }
-            kinds.Add(new("unity_java", resolved, unity.Count, resolved == unity.Count ? "complete" : "partial",
+            kinds.Add(new("dotnet_java", resolved, bridged.Count, resolved == bridged.Count ? "complete" : "partial",
                 "AndroidJavaClass / AndroidJavaObject / AndroidJavaProxy / AndroidJNI names matched to classes the DEX code defines",
-                resolved == unity.Count ? null : $"{unity.Count - resolved} call(s) name a Java class not in the DEX code (a framework class, or a name built at run time)"));
+                resolved == bridged.Count ? null : $"{bridged.Count - resolved} call(s) name a Java class not in the DEX code (a framework class, or a name built at run time)"));
         }
         notes.AddRange(pairs.Notes.Select(n => ".NET: " + n));
         return wrappers;
     }
 
-    private void Il2Cpp(string full, List<string> entries, List<AppLayer> layers, List<AppEdgeKind> kinds, List<AppEdge> edges, List<string> notes, CancellationToken ct)
+    private void AotLayers(string full, List<string> entries, List<AppLayer> layers, List<AppEdgeKind> kinds, List<AppEdge> edges, List<string> notes, CancellationToken ct)
     {
         if (!entries.Any(e => e.EndsWith("/global-metadata.dat", StringComparison.Ordinal))) return;
-        Il2CppBuildModel? model = null;
+        AotBuildModel? model = null;
         try
         {
-            if (il2cpp != null && Il2CppPackages.Extract(full, null, ct: ct) is { } root && Il2CppBuildFiles.Find(root) is { Binary.Length: > 0 } files)
-                model = il2cpp.Cached(files);
+            if (aot != null && AotPackages.Extract(full, null, ct: ct) is { } root && AotBuildFiles.Find(root) is { Binary.Length: > 0 } files)
+                model = aot.Cached(files);
         }
-        catch (ToolError e) { notes.Add($"Il2Cpp build not located: {e.Message}"); }
+        catch (ToolError e) { notes.Add($"AOT build not located: {e.Message}"); }
         if (model == null)
         {
-            layers.Add(new("il2cpp", 0, "global-metadata.dat and libil2cpp.so, not read yet"));
-            kinds.Add(new("il2cpp_native", 0, 0, "unknown", "Il2Cpp metadata method addresses",
-                $"load_assembly path={full} reads the Il2Cpp metadata once (kept in the cache); this view then joins every C# method to its code"));
+            layers.Add(new("aot", 0, "global-metadata.dat and libil2cpp.so, not read yet"));
+            kinds.Add(new("aot_native", 0, 0, "unknown", "AOT metadata method addresses",
+                $"load_assembly path={full} reads the metadata once; this view then joins each C# method to its code"));
             return;
         }
-        layers.Add(new("il2cpp", model.MethodDefinitions, $"C# methods (Unity {model.UnityVersion}, metadata v{model.MetadataVersion})"));
+        layers.Add(new("aot", model.MethodDefinitions, $"C# methods (engine {model.EngineVersion}, metadata v{model.MetadataVersion})"));
         foreach (var m in model.Methods)
-            if (m.Address != 0) edges.Add(new("il2cpp_native", $"{m.Image}!{m.Name}", $"libil2cpp.so@0x{model.ImageBase + m.Address:X}", "metadata_address"));
+            if (m.Address != 0) edges.Add(new("aot_native", $"{m.Image}!{m.Name}", $"libil2cpp.so@0x{model.ImageBase + m.Address:X}", "metadata_address"));
         // Methods holds definitions with code and generic instances, each with the address the code registration gives.
         int joined = model.Methods.Count(m => m.Address != 0);
-        kinds.Add(new("il2cpp_native", joined, model.Methods.Count, joined == model.Methods.Count ? "complete" : "partial", "Il2Cpp metadata method pointers (code registration)",
+        kinds.Add(new("aot_native", joined, model.Methods.Count, joined == model.Methods.Count ? "complete" : "partial", "AOT metadata method pointers (code registration)",
             joined == model.Methods.Count ? null : $"{model.Methods.Count - joined} method(s) have no address read"));
     }
 

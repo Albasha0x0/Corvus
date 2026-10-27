@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// ledger-8k.edb and ledger-32k.edb (stored gzip-compressed) built by build.cs with esent.dll: table accounts (200 rows, 20 updated, rows 191 to
-/// 200 deleted) and table journal (300 rows), one file per page size.
-/// </summary>
+/// <summary>ESE databases built by build.cs with esent.dll, 8 and 32 KiB pages, with updated and deleted rows.</summary>
 public sealed class EseTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

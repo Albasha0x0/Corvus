@@ -21,11 +21,7 @@ internal sealed class WalkResult
     public (uint Rva, string Text)[] InlineStrings = [];
 }
 
-/// <summary>
-/// Recursive descent over one function given the known function starts: follows jumps, conditional jumps and
-/// resolved switches, stops at returns, traps, noreturn calls, tail calls and other functions' starts. Optionally
-/// builds the basic blocks and edges. One instance per thread; scratch collections are reused.
-/// </summary>
+/// <summary>Walks one function by recursive descent over the known starts; optionally builds its blocks. One instance per thread.</summary>
 internal sealed class FunctionWalker
 {
     private enum RunEnd : byte { FallThrough, Jump, Return, Switch, IndirectJump, TailCall, NoReturnCall, Trap, Invalid, FunctionBoundary, EndOfCode, Truncated }
@@ -59,7 +55,7 @@ internal sealed class FunctionWalker
     private bool _conditionalReturn;
     /// <summary>ARM32: halfwords of the literal pool entries the function loads; flow never runs into them.</summary>
     private readonly HashSet<uint> _ownLiterals = [];
-    /// <summary>ARM32: runs that hold a literal pool a run stopped at (extended once every load is known).</summary>
+    /// <summary>ARM32: runs holding a literal pool, extended once every load is known.</summary>
     private readonly List<int> _poolRuns = [];
     private readonly StringHints? _hints;
 
@@ -70,10 +66,7 @@ internal sealed class FunctionWalker
         if (ctx.RustStrings || ctx.SwiftStrings) _hints = new StringHints(ctx.RustStrings, ctx.SwiftStrings, ctx.Image.Arch, ctx.Image.Format);
     }
 
-    /// <param name="chunks">
-    /// Further roots of the same function (exception funclets and handlers), walked after its body, each with its own
-    /// .pdata ranges when it has them; code shared with the body is decoded once.
-    /// </param>
+    /// <param name="chunks">Further roots of the function (funclets, handlers), walked after its body with their own .pdata ranges.</param>
     public WalkResult Walk(NativeFunction? function, uint start, bool buildGraph, CancellationToken ct, IReadOnlyList<uint>? chunks = null)
     {
         var result = new WalkResult();
@@ -83,7 +76,7 @@ internal sealed class FunctionWalker
         return result;
     }
 
-    /// <summary>Walks like <see cref="Walk"/> and fills <paramref name="blocks"/> with the blocks only: no result arrays, no graph objects.</summary>
+    /// <summary>Walks like <see cref="Walk"/> and fills <paramref name="blocks"/> only, without result arrays or graph objects.</summary>
     public void WalkBlocks(uint start, IReadOnlyList<uint>? chunks, BlockList blocks, CancellationToken ct)
     {
         _scratchResult.Flags = 0;
@@ -102,8 +95,7 @@ internal sealed class FunctionWalker
         _poolRuns.Clear();
         _hints?.Clear();
         _dec.BeginFunction(start);
-        // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
-        // (a switch table), so fragments are reached by flow, never decoded from their begin
+        // Chained .pdata fragments are reached by flow only; a fragment can begin with data such as a switch table.
         var bodyOwn = _ctx.PdataRanges.GetValueOrDefault(start);
         var own = bodyOwn;
         uint root = start;
@@ -137,8 +129,7 @@ internal sealed class FunctionWalker
             while (true)
             {
                 if (_insns.Count >= cap) { run.EndKind = RunEnd.Truncated; result.Flags |= FunctionFlags.Truncated; break; }
-                // ARM32: a literal the function loads ends the run and stays in its extent as data; right after a direct call
-                // (and its nop) that call does not return there (error(2, ...) with the literal pool after it), as discovery reads it
+                // ARM32: a literal the function loads ends the run as data; right after a direct call, that call does not return.
                 if (_ownLiterals.Count > 0 && _ownLiterals.Contains(a & ~1u))
                 {
                     run.EndKind = afterCall ? RunEnd.NoReturnCall : RunEnd.EndOfCode;
@@ -190,7 +181,7 @@ internal sealed class FunctionWalker
                 _runs.Add(new Run { Start = a, End = a, FirstInsn = _insns.Count, EndKind = RunEnd.NoReturnCall });
             }
         }
-        // each literal pool stays in the extent as data: an extent without instructions or blocks, over the entries loaded
+        // Each literal pool stays in the extent as data, without instructions or blocks.
         foreach (int k in _poolRuns)
         {
             var r = _runs[k];
@@ -202,14 +193,11 @@ internal sealed class FunctionWalker
     private void Push(uint rva, IndexBound bound)
     {
         _leaders.Add(rva);
-        // already decoded: still queued when it carries a bound, for switches left unresolved on another path
+        // Decoded code is queued again with a bound, for switches unresolved on another path.
         if (!_visited.Contains(rva) || (bound.IsKnown && _pending.Count > 0)) _work.Push((rva, bound));
     }
 
-    /// <summary>
-    /// A path with a known index bound reaches <paramref name="a"/>, which is already decoded: decodes again from
-    /// there with the bound, and resolves unresolved indirect jumps that this path reaches.
-    /// </summary>
+    /// <summary>Redecodes from decoded <paramref name="a"/> with a known index bound and resolves the pending jumps it reaches.</summary>
     private void RetrySwitches(uint a, IndexBound bound, List<(uint Begin, uint End)>? own)
     {
         foreach (uint jump in _pending.GetViewBetween(a, a + RetryWindow).ToList())
@@ -246,7 +234,7 @@ internal sealed class FunctionWalker
         if (_ctx.FunctionStarts.Contains(target)) return true;
         if (own == null) return false;
         foreach (var (b, e) in own) if (target >= b && target < e) return false;
-        // x64: leaving the function's .pdata ranges into another function's ranges
+        // x64: leaving the function's .pdata ranges into another function's.
         return _ctx.PdataOwner(target) is { } owner && owner != start && !_ctx.PdataFragments.Contains(owner);
     }
 
@@ -254,7 +242,7 @@ internal sealed class FunctionWalker
 
     private ICodeDecoder? _peek;
 
-    /// <summary>A direct call to a function that does not return comes next (bl abort after a failing check's call): still this function's code.</summary>
+    /// <summary>A direct call to a no-return function comes next, so the code is still this function's.</summary>
     private bool AbortFollows(uint rva)
     {
         if (_ctx.FunctionStarts.Contains(rva)) return false;
@@ -274,7 +262,7 @@ internal sealed class FunctionWalker
                 if (insn.Target == insn.Next) return false;
                 if (_ctx.LocalSubroutines.Contains(insn.Target))
                 {
-                    // called inside its own function (x86 __finally blocks): part of this function
+                    // A local subroutine (x86 __finally block) is part of this function.
                     Push(insn.Target, IndexBound.None);
                     return false;
                 }
@@ -414,16 +402,17 @@ internal sealed class FunctionWalker
                     break;
             }
         }
-        // a tail call (or falling into the next function) returns when its target does
+        // A tail call or fall-through returns when its target does.
         foreach (var t in _tails)
             if (!_ctx.NoReturn.Contains(t)) returns = true;
+        // Jmp [import].
         foreach (var c in _callees.Items)
-            if (_ctx.ImportSlots.ContainsKey(c) && !_ctx.NoReturn.Contains(c)) returns = true; // jmp [import]
+            if (_ctx.ImportSlots.ContainsKey(c) && !_ctx.NoReturn.Contains(c)) returns = true;
         result.Returns = returns;
         result.Instructions = _insns.Count;
         if (_unresolved.Count > 0) result.Flags |= FunctionFlags.UnresolvedJumps;
 
-        // extents: runs merged into sorted, non-overlapping ranges
+        // Merge runs into sorted, non-overlapping ranges.
         int count = 0;
         foreach (var r in _runs) if (r.End > r.Start) count++;
         if (_spans.Length < count) _spans = new ulong[Math.Max(count, _spans.Length * 2)];
@@ -435,7 +424,7 @@ internal sealed class FunctionWalker
         var ends = _rangeEnds;
         starts.Clear();
         ends.Clear();
-        // no address is decoded twice, so two runs that intersect decode one byte range at two offsets
+        // No address is decoded twice, so intersecting runs decode one byte range at two offsets.
         bool overlapping = false;
         for (int k = 0; k < count; k++)
         {
@@ -465,7 +454,7 @@ internal sealed class FunctionWalker
         if (_hints != null) (result.StringLengths, result.InlineStrings) = (_hints.Lengths.ToArray(), _hints.Inline.ToArray());
     }
 
-    // Summarize scratch, reused across walks
+    // Summarize scratch, reused across walks.
     private ulong[] _spans = new ulong[64];
     private readonly List<uint> _rangeStarts = [], _rangeEnds = [], _calleeScratch = [];
 
@@ -521,7 +510,7 @@ internal sealed class FunctionWalker
         };
     }
 
-    // BuildBlocks scratch: branch edges ordered by instruction (then insertion), raw blocks, block order by start
+    // BuildBlocks scratch: edges by instruction then insertion, raw blocks, block order by start.
     private ulong[] _edgeOrder = new ulong[64];
     private uint[] _rawStart = new uint[64], _rawEnd = new uint[64], _rawLast = new uint[64];
     private bool[] _rawFalls = new bool[64];
@@ -601,10 +590,7 @@ internal sealed class FunctionWalker
     };
 }
 
-/// <summary>
-/// Basic blocks of one walk sorted by start, with the indexes of their successor blocks (tail calls and targets that start no
-/// block left out, each successor once, in graph order); reused across walks.
-/// </summary>
+/// <summary>Basic blocks of one walk by start, with distinct successor block indexes in graph order; reused across walks.</summary>
 internal sealed class BlockList
 {
     public uint[] Starts = new uint[64];
@@ -643,10 +629,7 @@ internal sealed class BlockList
         Succs[end++] = target;
     }
 }
-/// <summary>
-/// A set of 32-bit values that empties in constant time: scratch reused across hundreds of thousands of walks, where clearing a
-/// hash set zeroes its whole capacity. Items keeps insertion order.
-/// </summary>
+/// <summary>A set of 32-bit values that clears in constant time, unlike a hash set that zeroes its capacity; <see cref="Items"/> keeps insertion order.</summary>
 internal sealed class ScratchSet
 {
     private uint[] _keys = new uint[64];

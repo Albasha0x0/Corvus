@@ -7,11 +7,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// simplify_methods over helpers that build strings from the assembly's own embedded resources: a packed string table
-/// (BinaryReader), a text file (StreamReader), an XOR blob (Stream.Read, Position), the resource list; each way out of
-/// the read-only, own-module subset is reported and the call kept. The fixture runs before and after.
-/// </summary>
+/// <summary>Helpers building strings from the assembly's own resources fold; reads outside the read-only own-module subset are reported and kept.</summary>
 public sealed class SimplifyResourceTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -196,7 +192,7 @@ public sealed class SimplifyResourceTests : IDisposable
     [InlineData("Missing")]
     [InlineData("FromMemory")]
     [InlineData("Derived")]
-    public void HelpersReadingOwnResourcesFoldToTheLiteral(string method)
+    public void Helpers_reading_own_resources_fold_to_the_literal(string method)
     {
         using var env = new Env(Fixture());
         var expected = (string)Run(env.Fixture.OriginalBytes, method)!;
@@ -214,7 +210,7 @@ public sealed class SimplifyResourceTests : IDisposable
     [InlineData("Foreign", "external-io", "reads the resources of another assembly")]
     [InlineData("Entry", "external-io", "the entry assembly is the host's")]
     [InlineData("Counted", "unmodeled-instance", "its base class System.IO.MemoryStream belongs to another assembly")]
-    public void ResourceUseOutsideTheModelIsKeptAndReported(string method, string code, string why)
+    public void Resource_use_outside_the_model_is_kept_and_reported(string method, string code, string why)
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Res.Use::" + method);
@@ -223,7 +219,7 @@ public sealed class SimplifyResourceTests : IDisposable
     }
 
     [Fact]
-    public void ResourceBytesCountAgainstTheMemoryCap()
+    public void Resource_bytes_count_against_the_memory_cap()
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Res.Use::Get1", new SimplifyOptions(Limits: new EvaluationLimits(MemoryLimit: 32)));

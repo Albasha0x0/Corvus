@@ -3,14 +3,7 @@ using Corvus.Native.Swift;
 
 namespace Corvus.Native.MachO;
 
-/// <summary>
-/// The Swift name layer, as the compiler's own mangled symbols (shown demangled): nominal type descriptors "Mn",
-/// metadata accessors "Ma" (function starts), field descriptors "MF", protocol descriptors "Mp", conformance
-/// descriptors "Mc" and witness tables "WP" of conformances declared in the type's module (patterns of generic types
-/// get a comment only). Vtable implementations take
-/// the name of the method whose exported method descriptor ("...Tq") sits on their vtable entry; others get a comment.
-/// Every built name is checked by demangling it; names already in the symbol table are not repeated.
-/// </summary>
+/// <summary>Swift names as the compiler's mangled symbols (descriptors, accessors, witness tables, vtable implementations), each checked by demangling.</summary>
 public static class AppleSwiftNames
 {
     private const int FieldsListed = 8;
@@ -55,7 +48,7 @@ public static class AppleSwiftNames
                 var m = t.Methods[k];
                 if (m.Impl == 0 || !image.TryVaToRva(m.DescriptorVa, out uint descriptor)) continue;
                 string slot = $"vtable slot {k} of {t.Name} ({(m.IsInstance ? "" : "static ")}{m.Kind}{(m.IsAsync ? ", async" : "")})";
-                // an async implementation is an async function pointer, not code
+                // An async implementation is an async function pointer, not code.
                 string? name = exportsAt.TryGetValue(descriptor, out var d) && d.EndsWith("Tq", StringComparison.Ordinal) && !m.IsAsync ? d[..^2] : null;
                 if (Add(m.Impl, name, slot, function: !m.IsAsync)) methods++;
             }

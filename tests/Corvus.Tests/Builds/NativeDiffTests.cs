@@ -165,14 +165,14 @@ public class NativeDiffTests
         Assert.Equal((0, 0, 1), (main.Changed, main.Removed, main.Added));
         Assert.Equal(3, main.Rows.Count(r => r is { Op: "=", OldText: var t } && t!.StartsWith("call", StringComparison.Ordinal)));
 
-        // C: inc ebx became add ebx, 2; the loop branch keeps its aligned label and the call to D its matched name
+        // C: inc ebx became add ebx, 2; the loop branch keeps its aligned label and the call to D its matched name.
         var c = diff.Diff(MatchOf("C")!, context: 8, maxRows: 100, default);
         Assert.Equal((1, 1), (c.Removed, c.Added));
         Assert.Contains(c.Rows, r => r is { Op: "-", OldText: "inc    ebx" });
         Assert.Contains(c.Rows, r => r is { Op: "+", NewText: "add    ebx, 2" });
         Assert.Contains(c.Rows, r => r is { Op: "=" } && r.OldText!.StartsWith("jl", StringComparison.Ordinal) && r.OldText.EndsWith("L2", StringComparison.Ordinal));
 
-        // A reads a global that moved, B a string that moved: no change after masking
+        // A reads a global that moved, B a string that moved: no change after masking.
         foreach (var name in new[] { "A", "B", "D" })
         {
             var same = diff.Diff(MatchOf(name)!, context: 4, maxRows: 100, default);
@@ -200,7 +200,7 @@ public class NativeDiffTests
         Assert.Equal(("same_string", n.Text), (text.Reason, text.NewRva!.Value));
         var global = mapper.Map(o.Global, default);
         Assert.Equal(("followed_references", n.Global), (global.Reason, global.NewRva!.Value));
-        // the changed instruction of C ("inc ebx" became "add ebx, 2") maps one for one
+        // The changed instruction of C ("inc ebx" became "add ebx, 2") maps one for one.
         uint inc = o.Index.Disassemble(o.Cmp - 2, 1)[0].Rva;
         var replaced = mapper.Map(inc, default);
         Assert.Equal(("replaced_instruction", n.Cmp - 3), (replaced.Reason, replaced.NewRva!.Value));
@@ -249,7 +249,7 @@ public class NativeDiffTests
         Assert.Equal(1, total);
         Assert.Equal(n.At["B"], hits[0]);
 
-        // a reference anchor: the pattern sits at a call to A, and the operand recovers A's address
+        // A reference anchor: the pattern sits at a call to A, and the operand recovers A's address.
         var byRef = CodePatterns.Make(o.Index, o.At["A"], 64, allowReference: true, referenceOnly: true, default);
         Assert.True(byRef.Unique, byRef.Note);
         Assert.Equal(("reference", "relative"), (byRef.Anchor, byRef.OperandKind));
@@ -264,7 +264,7 @@ public class NativeDiffTests
     public void Patterns_at_every_reference_each_recover_the_address_in_the_new_build()
     {
         var (o, n, _) = Pair.Value;
-        // A is called from main and from B: one signature per call site, each unique, shortest first
+        // A is called from main and from B: one signature per call site, each unique, shortest first.
         var made = CodePatterns.MakeAtReferences(o.Index, o.At["A"], 64, 8, [], default);
         Assert.Equal(2, made.Count);
         Assert.True(made[0].Pattern.Length <= made[1].Pattern.Length);
@@ -280,7 +280,7 @@ public class NativeDiffTests
             Assert.Equal(n.At["A"], hits[0] + (uint)p.InstructionEnd!.Value + (uint)BitConverter.ToInt32(bytes));
         }
         Assert.Single(CodePatterns.MakeAtReferences(o.Index, o.At["A"], 64, 1, [], default));
-        // an engine's reference that is not code adds nothing
+        // An engine's reference that is not code adds nothing.
         Assert.Equal(2, CodePatterns.MakeAtReferences(o.Index, o.At["A"], 64, 8, [o.Text], default).Count);
     }
 
@@ -317,7 +317,7 @@ public class NativeDiffTests
         Assert.Equal("Renamed", (await code.Index(newNative, null, default)).NameAt(first));
         Assert.Equal("same_name", Assert.Single((await tools.CarryNames(v1, v2, true, 5, 0, null, false, false, default, default)).Items).Reason);
 
-        // one undo takes the migration back
+        // One undo takes the migration back.
         await new Corvus.Services.NativeEditJournal(env.Workspace, code).UndoAsync(newNative, id, default);
         Assert.Null(code.Annotations(newNative).NameAt(first));
     }
@@ -341,7 +341,7 @@ public class NativeDiffTests
         Assert.Equal(string.Join(", ", tokens.Select(t => t == "??" ? "0x00" : "0x" + t)) + " 0b" + string.Concat(tokens.Reverse().Select(t => t == "??" ? '0' : '1')), bits);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", format: "yara"))).Code);
 
-        // range: the instructions inside [start, end) only, unique or not
+        // Range: the instructions inside [start, end) only, unique or not.
         var range = await tools.MakePattern(path, "First", anchor: "range", end: "+0x4");
         Assert.Equal("range", range.Anchor);
         Assert.InRange(range.Length, 1, 4);
@@ -352,7 +352,7 @@ public class NativeDiffTests
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", end: "+4"))).Code);
         Assert.Equal(ErrorCode.LimitExceeded, (await Assert.ThrowsAsync<ToolError>(() => tools.MakePattern(path, "First", anchor: "range", end: "+0x10000"))).Code);
 
-        // the tool: addresses[] with a bad one is a success with a per-item error
+        // The tool: addresses[] with a bad one is a success with a per-item error.
         var (batch, text) = await BuildToolCalls.Collected<Corvus.Tools.NativeDiffTools.CodePatternResults>(() => tools.MakeCodePattern(path, addresses: ["First", "no_such_name"], anchor: "address"));
         Assert.Equal((1, "ida"), (batch.Failed, batch.Format));
         Assert.Equal(("First", ida.Pattern), (batch.Results[0].Target, batch.Results[0].Pattern));

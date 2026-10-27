@@ -6,25 +6,19 @@ using Corvus.Core;
 
 namespace Corvus.Native.Diagnostics;
 
-/// <summary>
-/// A snapshot of a running process as a dump file, through the operating system's own writer: MiniDumpWriteDump on
-/// Windows (as dotnet-dump and ProcDump write them), GDB's gcore on Linux (an ELF core), lldb's process save-core on
-/// macOS (a Mach-O core). The process keeps running.
-/// </summary>
+/// <summary>Writes a running process's dump file with the OS writer (MiniDumpWriteDump, gcore, lldb save-core); the process keeps running.</summary>
 public static class ProcessSnapshot
 {
-    /// <summary>
-    /// A thread held at a stop, its registers named as Frida names them: on Windows they become the dump's exception context, as a
-    /// debugger's dump at a break records its last event; in a Linux core they replace the thread's own, with SIGTRAP as its signal.
-    /// </summary>
+    /// <summary>A thread held at a stop; its registers become the dump's exception context or the core thread's, with SIGTRAP.</summary>
     public sealed record Stop(int ThreadId, string Arch, IReadOnlyDictionary<string, ulong> Registers)
     {
         public ulong Address => Registers.GetValueOrDefault(Arch switch { "x64" => "rip", "arm64" => "pc", _ => "eip" });
     }
 
-    // MiniDumpWithFullMemory | WithHandleData | WithUnloadedModules | WithFullMemoryInfo | WithThreadInfo
+    // MiniDumpWithFullMemory | WithHandleData | WithUnloadedModules | WithFullMemoryInfo | WithThreadInfo.
     private const uint DumpType = 0x2 | 0x4 | 0x20 | 0x800 | 0x1000;
-    private const uint ProcessAccess = 0x0400 | 0x0010 | 0x0040; // PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_DUP_HANDLE (handle data)
+    // PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_DUP_HANDLE (handle data).
+    private const uint ProcessAccess = 0x0400 | 0x0010 | 0x0040;
 
     /// <summary>Writes the snapshot of <paramref name="pid"/> to <paramref name="path"/> (a temp file first, then placed); returns its size.</summary>
     public static long Write(int pid, string path, bool overwrite, CancellationToken ct, Stop? stop = null)
@@ -106,9 +100,8 @@ public static class ProcessSnapshot
         IntPtr block = IntPtr.Zero, exception = IntPtr.Zero;
         if (stop != null)
         {
-            // one block, in this process (ClientPointers false): MINIDUMP_EXCEPTION_INFORMATION (pack 4), EXCEPTION_POINTERS,
-            // an EXCEPTION_RECORD for a breakpoint at the stop, and the CONTEXT 16-byte aligned; a 64-bit writer copies an x64
-            // CONTEXT's size whatever the target, so a WoW64 program's x86 CONTEXT is padded to it
+            // One local block (exception info, pointers, breakpoint record, aligned CONTEXT); a 64-bit writer copies an x64
+            // CONTEXT's size, so a WoW64 program's x86 CONTEXT is padded to it.
             var stopContext = stop.Arch switch { "x64" => ContextX64(stop.Registers), "arm64" => ContextArm64(stop.Registers), _ => ContextX86(stop.Registers) };
             const int Info = 0, Pointers = 16, Record = 32, Context = 192;
             int size = Context + Math.Max(stopContext.Length, 0x4D0) + 16;
@@ -145,11 +138,7 @@ public static class ProcessSnapshot
     /// <summary>How long a snapshot waits for a starting program's loader before it refuses.</summary>
     internal static readonly TimeSpan LoaderWait = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// Returns once <paramref name="ready"/> is not false (true, or null for unknown); refuses with
-    /// <see cref="ErrorCode.Timeout"/> once <paramref name="elapsed"/> (default: wall time since the call) reaches
-    /// <paramref name="wait"/>.
-    /// </summary>
+    /// <summary>Returns once <paramref name="ready"/> is not false; refuses with Timeout once <paramref name="elapsed"/> reaches <paramref name="wait"/>.</summary>
     internal static void AwaitLoader(int pid, Func<bool?> ready, TimeSpan wait, CancellationToken ct, Func<TimeSpan>? elapsed = null)
     {
         if (elapsed == null)
@@ -161,16 +150,13 @@ public static class ProcessSnapshot
         {
             if (elapsed() >= wait)
                 throw new ToolError(ErrorCode.Timeout, $"Process {pid} has not started: its loader has not listed its modules within {(wait.TotalSeconds >= 1 ? $"{wait.TotalSeconds:0.#} s" : $"{wait.TotalMilliseconds:0} ms")}.",
-                    "a program held at its start is written once it runs: live_break action=continue, then snapshot again");
+                    "run the held program with live_break action=continue, then snapshot again");
             ct.ThrowIfCancellationRequested();
             ct.WaitHandle.WaitOne(20);
         }
     }
 
-    /// <summary>
-    /// Whether the loader of <paramref name="process"/> has set up its module list (PEB.Ldr set and initialized),
-    /// which a process created suspended has not; null when the PEB cannot be read.
-    /// </summary>
+    /// <summary>Whether the loader has set up the module list (PEB.Ldr initialized); null when the PEB cannot be read.</summary>
     private static bool? LoaderReady(IntPtr process)
     {
         // PROCESS_BASIC_INFORMATION: PebBaseAddress is its second field.
@@ -182,7 +168,7 @@ public static class ProcessSnapshot
         return ReadProcessMemory(process, ldr + 4, out byte initialized, 1, out _) ? initialized != 0 : null;
     }
 
-    // HRESULT_FROM_WIN32 of ERROR_BAD_LENGTH and ERROR_PARTIAL_COPY: the running program changed a list or a region while it was read
+    // HRESULT_FROM_WIN32 of ERROR_BAD_LENGTH and ERROR_PARTIAL_COPY: the program changed while it was read.
     private static readonly int[] Changed = [unchecked((int)0x80070018), unchecked((int)0x8007012B)];
     internal const int WriteTries = 3;
 
@@ -197,7 +183,7 @@ public static class ProcessSnapshot
                 throw new ToolError(ErrorCode.IoError, $"MiniDumpWriteDump failed for process {pid} (error 0x{error:X}).", "check the disk space at the output path");
             if (i == WriteTries)
                 throw new ToolError(ErrorCode.IoError, $"MiniDumpWriteDump failed for process {pid} {WriteTries} times (error 0x{error:X}): the program changed while it was read.",
-                    "try again: a program loading modules or starting threads (as at start-up) settles");
+                    "try again once the program has settled after start-up");
         }
     }
 
@@ -207,21 +193,14 @@ public static class ProcessSnapshot
     internal static readonly TimeSpan VforkWait = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan CoreTimeout = TimeSpan.FromMinutes(5);
 
-    /// <summary>
-    /// gcore names its output &lt;prefix&gt;.&lt;pid&gt;; the file is moved to <paramref name="path"/>. Without
-    /// <paramref name="waitOutVfork"/> gcore starts at once, as when a vfork begins while it attaches.
-    /// </summary>
+    /// <summary>Writes an ELF core with gcore to <paramref name="path"/>; without <paramref name="waitOutVfork"/> gcore starts at once.</summary>
     internal static void WriteCore(int pid, string path, CancellationToken ct, Stop? stop, bool waitOutVfork = true)
     {
         var gcore = OnPath("gcore") ?? throw new ToolError(ErrorCode.ProviderUnavailable, "gcore (GDB) is not on PATH.", "install GDB (it ships gcore)");
-        // GDB stops every thread, and a thread in vfork stops only once its
-        // child execs or exits. The child's exec can wait on the stopped
-        // program (a session's child gate hooks exec there), so GDB would
-        // wait forever.
+        // A vfork thread stops only once its child execs, which can wait on the stopped program, so GDB would hang.
         for (var waited = Stopwatch.StartNew(); waitOutVfork && InVfork(pid) is { } tid; Thread.Sleep(100))
             if (waited.Elapsed >= VforkWait) throw VforkRefusal(pid, tid);
-        // A process GDB is killed on stays in group stop; one that was
-        // stopped before the write is left stopped.
+        // A process GDB is killed on stays in group stop; one stopped before the write is left stopped.
         bool stoppedBefore = State(pid, pid) == 'T';
         var prefix = path + ".core";
         using var p = Process.Start(new ProcessStartInfo(gcore) { ArgumentList = { "-o", prefix, pid.ToString(System.Globalization.CultureInfo.InvariantCulture) }, RedirectStandardOutput = true, RedirectStandardError = true })!;
@@ -247,7 +226,7 @@ public static class ProcessSnapshot
         if (p.ExitCode != 0 || !File.Exists(written))
         {
             var failure = $"gcore failed (exit {p.ExitCode}): {stderr.Result.Trim()}";
-            // gcore is never the program's parent: a refusal is permanent, not a retryable I/O error
+            // gcore is never the program's parent, so a ptrace refusal is permanent.
             throw Live.PtraceScope.Refusing(started: false) is { } scope ? Live.PtraceScope.Refusal(scope, failure) : new ToolError(ErrorCode.IoError, failure, "check the disk space at the output path");
         }
         File.Move(written, path, true);
@@ -255,8 +234,8 @@ public static class ProcessSnapshot
     }
 
     private static ToolError VforkRefusal(int pid, int tid) => new(ErrorCode.Timeout,
-        $"Thread {tid} of process {pid} waits in vfork for a child that has not run its program yet; GDB cannot stop it, so no snapshot was written.",
-        "take the snapshot again: a vfork child runs its program within moments unless the program is held");
+        $"Thread {tid} of process {pid} waits in vfork, which GDB cannot stop; no snapshot was written.",
+        "take the snapshot again once the vfork child has run its program");
 
     /// <summary>A thread of <paramref name="pid"/> that waits in vfork for its child; null when none does.</summary>
     internal static int? InVfork(int pid)
@@ -290,15 +269,12 @@ public static class ProcessSnapshot
     [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
     private static extern int Kill(int pid, int signal);
 
-    // user_regs_struct order (x86-64, i386), as NT_PRSTATUS holds it
+    // user_regs_struct order (x86-64, i386), as NT_PRSTATUS holds it.
     private static readonly string[] UserRegsX64 = ["r15", "r14", "r13", "r12", "rbp", "rbx", "r11", "r10", "r9", "r8", "rax", "rcx", "rdx", "rsi", "rdi", "", "rip", "", "", "rsp"];
     private static readonly string[] UserRegsX86 = ["ebx", "ecx", "edx", "esi", "edi", "ebp", "eax", "", "", "", "", "", "eip", "", "", "esp"];
     private const int SigTrap = 5, TrapBrkpt = 1;
 
-    /// <summary>
-    /// Gives the stopped thread of an ELF core the stop's registers in its NT_PRSTATUS (the segment and flag registers stay),
-    /// and SIGTRAP (TRAP_BRKPT at the stop's address) as its signal and the core's; every other thread's signal is cleared.
-    /// </summary>
+    /// <summary>Gives the stopped thread of an ELF core the stop's registers and SIGTRAP; every other thread's signal is cleared.</summary>
     internal static void MarkStop(string path, Stop stop)
     {
         using var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
@@ -321,7 +297,8 @@ public static class ProcessSnapshot
             var notes = new byte[size];
             file.Position = offset;
             file.ReadExactly(notes);
-            bool stopped = false; // the last NT_PRSTATUS seen is the stopped thread's: the notes after it until the next are its own
+            // The notes after an NT_PRSTATUS, until the next one, belong to its thread.
+            bool stopped = false;
             for (long at = 0; at + 12 <= size;)
             {
                 uint nameSize = BinaryPrimitives.ReadUInt32LittleEndian(notes.AsSpan((int)at)), descSize = BinaryPrimitives.ReadUInt32LittleEndian(notes.AsSpan((int)at + 4));

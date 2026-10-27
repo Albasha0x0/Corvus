@@ -5,11 +5,7 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Native.Annotations;
 
-/// <summary>
-/// The user's engine types of one image: C declarations, type renames and deletions, enum and struct members, analysis edits (code,
-/// functions, data, undefined ranges), types of functions and globals by RVA, stack frame members and decompiler locals by
-/// function, operand display formats. Immutable; every change makes a new layer.
-/// </summary>
+/// <summary>The user's engine types of one image; immutable, every change makes a new layer.</summary>
 public sealed class UserTypeLayer
 {
     public static readonly UserTypeLayer Empty = new([], new Dictionary<uint, string>(), new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>(),
@@ -137,10 +133,7 @@ public sealed class UserTypeLayer
         return With(declarations: [.. Declarations, text], typeEdits: edits);
     }
 
-    /// <summary>
-    /// With a type renamed or deleted, replacing an earlier edit of the same name. A rename renames the type in the other
-    /// edits (declarations, types, locals, stack members, data, operands, enum and struct members); a deletion drops its member edits.
-    /// </summary>
+    /// <summary>With a type renamed (also in the other edits) or deleted (dropping its member edits), replacing an earlier edit.</summary>
     public UserTypeLayer WithTypeEdit(NativeTypeEdit edit)
     {
         var layer = edit.NewName is { } to ? Renamed(edit.Name, to)
@@ -165,10 +158,7 @@ public sealed class UserTypeLayer
             fields: Fields.Select(f => f with { Type = f.Type == from ? to : f.Type, FieldType = N(f.FieldType) }).ToList());
     }
 
-    /// <summary>
-    /// With an analysis edit appended; it replaces an earlier edit at the same address. Data or an undefined range drops the
-    /// user types of globals it covers (applied after the analysis edits, they would undo it).
-    /// </summary>
+    /// <summary>With an analysis edit replacing one at the same address; data or undefine drops the global types it covers.</summary>
     public UserTypeLayer WithAnalysis(NativeAnalysisEdit edit)
     {
         var list = Analysis.Where(a => a.Rva != edit.Rva).Append(edit).ToList();
@@ -182,10 +172,7 @@ public sealed class UserTypeLayer
         return With(analysis: list, types: types);
     }
 
-    /// <summary>
-    /// With a local edit merged into the edit of the same variable (same stack offset, or a name it had or got), whose
-    /// identity is kept; fields the new edit leaves null keep their value, and auto storage drops a kept register.
-    /// </summary>
+    /// <summary>With a local edit merged into the same variable's edit; null fields keep their value, auto storage drops a register.</summary>
     public UserTypeLayer WithLocal(NativeLocalEdit edit)
     {
         var list = Locals.TryGetValue(edit.Function, out var existing) ? existing.ToList() : [];

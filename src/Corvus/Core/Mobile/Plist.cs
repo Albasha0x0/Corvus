@@ -35,10 +35,7 @@ public sealed record PlistNull : PlistNode
 /// <summary>A parsed property list: the root (null when nothing could be read), the format, and what could not be read.</summary>
 public sealed record PlistDocument(PlistNode? Root, string Format, IReadOnlyList<ParseIssue> Issues);
 
-/// <summary>
-/// Property lists in binary (bplist00), XML and ASCII (OpenStep, GNUstep, .strings) form. Never throws: malformed
-/// input gives what could be read plus issues.
-/// </summary>
+/// <summary>Property lists in binary, XML and ASCII form; never throws, malformed input gives what was read plus issues.</summary>
 public static class Plist
 {
     public const int MaxDepth = 512;
@@ -56,11 +53,7 @@ public static class Plist
         return new AsciiReader(text).Read();
     }
 
-    /// <summary>
-    /// A property list read from a seekable stream without holding the file: a binary plist through windowed reads, an XML
-    /// plist through a streamed XML reader; a value longer than <paramref name="maxValue"/> bytes (characters in XML) keeps
-    /// its start, with an issue. An ASCII plist is read whole.
-    /// </summary>
+    /// <summary>A property list read from a stream in windows; a value past <paramref name="maxValue"/> keeps its start, with an issue.</summary>
     public static PlistDocument Read(Stream stream, int maxValue)
     {
         Span<byte> magic = stackalloc byte[8];
@@ -90,7 +83,7 @@ public static class Plist
         return Encoding.UTF8.GetString(data);
     }
 
-    // ---- binary ----
+    // Binary form.
 
     /// <summary>A binary plist's bytes: an array, or a seekable stream read in windows (a large file is never held whole).</summary>
     private abstract class Bytes
@@ -307,11 +300,12 @@ public static class Plist
 
     private static DateTimeOffset? Date(double secondsSince2001)
     {
-        if (double.IsNaN(secondsSince2001) || Math.Abs(secondsSince2001) > 3e11) return null; // about ±9,500 years
+        // About ±9,500 years.
+        if (double.IsNaN(secondsSince2001) || Math.Abs(secondsSince2001) > 3e11) return null;
         return Epoch2001.AddTicks((long)Math.Round(secondsSince2001 * TimeSpan.TicksPerSecond));
     }
 
-    // ---- XML ----
+    // XML form.
 
     private sealed class Frame(bool isDict)
     {
@@ -319,7 +313,7 @@ public static class Plist
         public string? PendingKey { get; set; }
         public List<KeyValuePair<string, PlistNode>> Entries { get; } = [];
         public List<PlistNode> Items { get; } = [];
-        // {CF$UID: n} is how XML writes a keyed archive's object reference (CoreFoundation reads it as a UID)
+        // {CF$UID: n} is how XML writes a keyed archive's object reference; CoreFoundation reads it as a UID.
         public PlistNode Node => !IsDict ? new PlistArray(Items)
             : Entries is [{ Key: "CF$UID", Value: PlistInteger { Value: var uid } }] && uid >= 0 && uid <= ulong.MaxValue ? new PlistUid((ulong)uid)
             : new PlistDict(Entries);
@@ -388,7 +382,8 @@ public static class Plist
                         break;
                     case "string" or "integer" or "real" or "date" or "data":
                         Add(XmlScalar(name, Content(reader, maxValue, issues), issues));
-                        reader.Read(); // after the value is kept: past the end of a truncated file this throws
+                        // After the value is kept: past the end of a truncated file this throws.
+                        reader.Read();
                         break;
                     default:
                         issues.Add(new(Area, $"unknown element <{name}> skipped"));
@@ -409,10 +404,7 @@ public static class Plist
 
     private static PlistNode Pop(Stack<Frame> stack) => stack.Pop().Node;
 
-    /// <summary>
-    /// The text of a scalar element, leaving the reader on its end tag (or on the element when it is empty); past
-    /// <paramref name="maxValue"/> characters the rest is read in chunks and dropped, with an issue.
-    /// </summary>
+    /// <summary>A scalar element's text, the reader left on its end tag; past <paramref name="maxValue"/> the rest is dropped.</summary>
     private static string Content(XmlReader reader, int maxValue, List<ParseIssue> issues)
     {
         if (reader.IsEmptyElement) return "";
@@ -484,7 +476,7 @@ public static class Plist
         _ => double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null,
     };
 
-    // ---- ASCII (OpenStep / GNUstep / .strings) ----
+    // ASCII form (OpenStep, GNUstep, .strings).
 
     private sealed class AsciiReader(string text)
     {
@@ -584,7 +576,8 @@ public static class Plist
                 var key = Value(depth + 1);
                 if (key is not PlistString k) { _issues.Add(new(Area, "a dictionary key is not a string", _p)); break; }
                 Skip();
-                if (_p < text.Length && text[_p] == ';') { _p++; entries.Add(new(k.Value, k)); continue; } // .strings shorthand: "key";
+                // The .strings shorthand "key";.
+                if (_p < text.Length && text[_p] == ';') { _p++; entries.Add(new(k.Value, k)); continue; }
                 if (_p >= text.Length || text[_p] != '=') { _issues.Add(new(Area, $"'=' expected after '{k.Value}'", _p)); break; }
                 _p++;
                 entries.Add(new(k.Value, Value(depth + 1)));
@@ -682,13 +675,10 @@ public static class Plist
         }
     }
 
-    // ---- JSON ----
+    // JSON output.
 
-    /// <summary>
-    /// Writes <paramref name="node"/> as JSON: integers as exact numbers, reals as numbers (non-finite as strings), data as
-    /// {"$data": base64}, dates as {"$date": ISO 8601}, archive references as {"$uid": n}. Stops after
-    /// <paramref name="maxValues"/> values, writing {"$truncated": true}; returns false when it did.
-    /// </summary>
+    /// <summary>Writes <paramref name="node"/> as JSON; false when it stopped at <paramref name="maxValues"/> with {"$truncated": true}.</summary>
+    /// <remarks>Data is {"$data": base64}, dates {"$date": ISO 8601}, archive references {"$uid": n}, non-finite reals strings.</remarks>
     public static bool WriteJson(Utf8JsonWriter writer, PlistNode node, int maxValues = MaxObjects)
     {
         int budget = maxValues;

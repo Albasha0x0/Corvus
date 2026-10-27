@@ -31,7 +31,7 @@ public sealed class PeHybridTests
         U32(Map + 16, 0x10C0 | 2); U32(Map + 20, 0x40);
         if (machine == 0xAA64)
         {
-            // version 1, then symbol 6 (ARM64X) and one block over the headers: machine (2 bytes), entry point and export RVA (4 bytes each)
+            // Version 1, then symbol 6 (ARM64X) and one block over the headers: machine (2 bytes), entry point and export RVA (4 bytes each).
             var block = new List<byte>();
             void Entry(uint offset, int log2, ulong value)
             {

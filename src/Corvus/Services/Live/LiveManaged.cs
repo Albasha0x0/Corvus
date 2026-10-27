@@ -22,12 +22,8 @@ public sealed partial class LiveSessionService
     internal static bool ClrRetryDue(int modules, int triedAt, long nowTicks, long triedTicks) =>
         modules != triedAt || nowTicks - triedTicks >= (long)ClrRetryPeriod.TotalMilliseconds;
 
-    /// <summary>
-    /// The session's .NET runtime, opened on first use once the program has loaded one and read afresh on each call; null
-    /// for a program without one. A runtime whose DAC could not be loaded is returned with the reason in
-    /// <see cref="LiveClr.Unavailable"/>; one that could not be read yet (still starting) is tried again when the modules change or
-    /// <see cref="ClrRetryPeriod"/> has passed.
-    /// </summary>
+    // A runtime not yet readable is tried again when the modules change or ClrRetryPeriod has passed.
+    /// <summary>The session's .NET runtime, refreshed on each call; null without one; an unloadable DAC is named in <see cref="LiveClr.Unavailable"/>.</summary>
     public async Task<LiveClr?> ClrAsync(LiveSession session, CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows() || session.ProcessId == 0) return null;
@@ -57,23 +53,20 @@ public sealed partial class LiveSessionService
                 if (!session.ClrOpenFailureNoted && !session.Closed && session.Ended == null)
                 {
                     session.ClrOpenFailureNoted = true;
-                    session.Add("error", null, null, $"the program's runtime could not be read ({e.Message}); it is tried again when the program loads a module or after {ClrRetryPeriod.TotalSeconds:0} s");
+                    session.Add("error", null, null, $"the program's runtime could not be read ({e.Message}); retried at the next module load or after {ClrRetryPeriod.TotalSeconds:0} s");
                 }
             }
             if (session.Clr != null)
             {
                 session.Clr.Stopped = why => DecoderStopped(session, why);
-                session.Clr.Failed = why => session.Add("error", null, null, $"a read of the program's runtime failed ({why}); reads that fail give no managed names, and the decoder keeps running");
+                session.Clr.Failed = why => session.Add("error", null, null, $"a read of the program's runtime failed ({why}); failed reads give no managed names and the decoder keeps running");
             }
             return session.Clr;
         }
         finally { session.ClrOpen.Release(); }
     }
 
-    /// <summary>
-    /// The 32-bit decoder stopped mid-session: managed code is named from the JIT's compiles from then on, and the session's
-    /// managed coverage runs count first compiles; said once, in the session's events.
-    /// </summary>
+    /// <summary>After the 32-bit decoder stops, names managed code and counts managed coverage from JIT compiles; noted once.</summary>
     private void DecoderStopped(LiveSession session, string why) => _ = DecoderStoppedAsync(session, why);
 
     private async Task DecoderStoppedAsync(LiveSession session, string why)
@@ -102,11 +95,7 @@ public sealed partial class LiveSessionService
             { OffsetUnknown = m.Start == 0 };
     }
 
-    /// <summary>
-    /// A stop's frames with its managed part walked by the runtime: the backend's native frames down to the first managed
-    /// one, then the managed frames the runtime finds from the stop's registers. The backend's frames when the runtime
-    /// cannot walk the thread.
-    /// </summary>
+    /// <summary>A stop's native frames down to the first managed one, then the runtime's managed walk; the backend's frames when it cannot walk.</summary>
     public IReadOnlyList<ulong> StopFrames(LiveSession session, LiveHeldStop held)
     {
         if (session.Clr is not { Unavailable: null } clr) return held.Frames;
@@ -118,11 +107,8 @@ public sealed partial class LiveSessionService
         return [.. held.Frames.Take(first < 0 ? held.Frames.Count : first), .. managed];
     }
 
-    /// <summary>
-    /// The managed method <paramref name="where"/> names (<c>Ns.Type::Method</c>, with a parameter list for an overload,
-    /// or <c>assembly!Ns.Type::Method</c>), when it names no native code; null for a native name. Without an assembly the
-    /// program's own assembly and the loaded ones of its modules are searched; a name none of them defines is not_found.
-    /// </summary>
+    // Without an assembly, the program's own assembly and its loaded modules are searched.
+    /// <summary>The managed method <paramref name="where"/> names (<c>[assembly!]Ns.Type::Method</c>); null for a native name; throws not_found when undefined.</summary>
     private async Task<LiveManagedTarget?> ManagedTargetAsync(LiveSession session, string where, CancellationToken ct)
     {
         var t = where.Trim();
@@ -190,10 +176,7 @@ public sealed partial class LiveSessionService
 
     private static string BundleCache => Native.Providers.DataFolder.Combine("bundles");
 
-    /// <summary>
-    /// An assembly bundled into the single-file app at <paramref name="program"/>, by its bundle-relative path, saved once to
-    /// a cache folder named for the app's path, size and time, and loaded; null when the app bundles no such assembly.
-    /// </summary>
+    /// <summary>An assembly from a single-file app's bundle, extracted once to a cache keyed by the app's path, size and time; null when absent.</summary>
     private LoadedAssembly? Bundled(string program, string entry)
     {
         try
@@ -214,10 +197,7 @@ public sealed partial class LiveSessionService
         catch (Exception e) when (e is ToolError or IOException or UnauthorizedAccessException) { return null; }
     }
 
-    /// <summary>
-    /// The global assembly cache's copy of <paramref name="file"/> (the newest .NET Framework 4 version), which a
-    /// native image loaded in its place was compiled from; null when the cache has none.
-    /// </summary>
+    /// <summary>The newest .NET Framework 4 GAC copy of <paramref name="file"/>, source of its loaded native image; null when absent.</summary>
     private LoadedAssembly? GlobalAssembly(LiveSession session, string file)
     {
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "assembly");
@@ -255,11 +235,7 @@ public sealed partial class LiveSessionService
         return clr.CodeOf(target.Path, target.TypeToken, target.MethodToken, module?.Base ?? 0);
     }
 
-    /// <summary>
-    /// Defers a stop point or watch on a managed method that has no code yet: until its assembly loads (the loading thread
-    /// held, as for any module), then, for a method the runtime compiles at its first call, until it is compiled. Null
-    /// when <paramref name="where"/> names no managed method or the method has code.
-    /// </summary>
+    /// <summary>Defers a point on a managed method until its assembly loads, then until it is compiled; null when not managed or it has code.</summary>
     private async Task<(LiveDeferred Point, bool Held)?> DeferManagedAsync(LiveSession session, string where, bool watch, int perSecond, int rawArguments, string? id, CancellationToken ct)
     {
         if (await ManagedTargetAsync(session, where, ct).ConfigureAwait(false) is not { } target) return null;
@@ -269,10 +245,10 @@ public sealed partial class LiveSessionService
                 || NativeImageOf(m.Name)?.Equals(target.File, StringComparison.OrdinalIgnoreCase) == true);
         if (!loaded) return await DeferAsync(session, $"{target.File}!{target.Member}", watch, perSecond, rawArguments, ct, id).ConfigureAwait(false);
         if (await ManagedCodeAsync(session, target, ct).ConfigureAwait(false) != null) return null;
-        // without the runtime only the backend's hook on the JIT tells when the method is compiled
+        // Without the runtime only the backend's JIT hook tells when the method is compiled.
         var unreadable = session.Clr?.Unavailable is { } reason && !reason.StartsWith("load_failed", StringComparison.Ordinal) ? reason : null;
-        ToolError Unreadable() => new(ErrorCode.Unsupported, $"{target.Display} is JIT-compiled code, and the program's runtime cannot be read: {unreadable}.",
-            "publish the program ReadyToRun (its methods then have code before they run), or stop at a native function it calls");
+        ToolError Unreadable() => new(ErrorCode.Unsupported, $"{target.Display} is JIT-compiled and the program's runtime cannot be read: {unreadable}.",
+            "publish the program ReadyToRun so its methods have code before they run, or stop at a native function it calls");
         var d = new LiveDeferred(id ?? (watch ? session.NextWatchId() : session.NextPointId()), $"{target.File}!{target.Member}", target.Display, watch, perSecond, rawArguments)
         {
             UntilCompiled = true,
@@ -281,7 +257,7 @@ public sealed partial class LiveSessionService
         };
         if (unreadable != null && d.IlBodies.Count == 0) throw Unreadable();
         lock (session.Deferred) session.Deferred.Add(d);
-        // the backend holds the thread that compiles the method, so its first call stops; without the hook the runtime is read until it has code
+        // The backend holds the compiling thread so the first call stops; without the hook the runtime is polled for code.
         foreach (var il in d.IlBodies)
             try { await session.Worker.RequestAsync("watch_jit", new JsonObject { ["il"] = $"0x{il:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
             catch (ToolError) when (unreadable != null)
@@ -289,15 +265,13 @@ public sealed partial class LiveSessionService
                 lock (session.Deferred) session.Deferred.Remove(d);
                 throw Unreadable();
             }
-            catch (ToolError) { break; } // a worker without the op
+            // A worker without the op.
+            catch (ToolError) { break; }
         session.CompileCheck ??= new Timer(_ => _ = CheckCompiledAsync(session), null, CompileCheckPeriod, CompileCheckPeriod);
         return (d, false);
     }
 
-    /// <summary>
-    /// Where the method's IL body is mapped in the program: in the image the loader mapped, and in the runtime's own mapping
-    /// when that is another (a file-layout or bundled assembly). The JIT reads the body there.
-    /// </summary>
+    /// <summary>Addresses of the method's IL body in the loader's image and, when different, the runtime's own mapping; empty when unmapped.</summary>
     private IReadOnlyList<ulong> IlBodies(LiveSession session, LiveManagedTarget target)
     {
         var bases = new List<(ulong Base, bool Flat)>();
@@ -313,16 +287,13 @@ public sealed partial class LiveSessionService
             var offset = pe.ToFileOffset(rva);
             var reader = pe.CreateReader(offset);
             var flags = reader.ReadUInt16();
-            // a tiny header is one byte; a fat header gives its size in dwords
+            // A tiny header is one byte; a fat header gives its size in dwords.
             uint header = (flags & 3) == 2 ? 1u : (uint)(flags >> 12) * 4;
             return [.. bases.Select(b => b.Base + (b.Flat ? (uint)offset : (uint)rva) + header)];
         });
     }
 
-    /// <summary>
-    /// The backend held a thread as the JIT returned <paramref name="code"/> for the IL body at <paramref name="il"/>: the
-    /// point deferred until that method is compiled is set there, then the thread goes on to the method's first call.
-    /// </summary>
+    /// <summary>Sets the point deferred on the IL body at <paramref name="il"/> at its new <paramref name="code"/>, then releases the held thread.</summary>
     private async Task SetCompiledAsync(LiveSession session, ulong il, ulong code, IReadOnlyList<ulong> callers, long? thread)
     {
         try
@@ -371,7 +342,7 @@ public sealed partial class LiveSessionService
         }
     }
 
-    /// <summary>A point set at a managed method's code follows the method when the runtime compiles it again: tiered compilation moves calls to new code.</summary>
+    /// <summary>Makes a point at a managed method's code follow its recompiles, since tiered compilation moves calls to new code.</summary>
     private async Task FollowRecompilesAsync(LiveSession session, string where, ulong address, string id, bool watch, CancellationToken ct)
     {
         try
@@ -380,7 +351,8 @@ public sealed partial class LiveSessionService
                 || await ManagedCodeAsync(session, target, ct).ConfigureAwait(false) is not { } code || code.Code != address) return;
             await BindAsync(session, new LiveJitBinding(id, watch, target.Display, IlBodies(session, target)), address, ct).ConfigureAwait(false);
         }
-        catch (ToolError) { } // the point is set; only later versions of the method go unhooked
+        // The point is set; only later versions of the method go unhooked.
+        catch (ToolError) { }
     }
 
     private static async Task BindAsync(LiveSession session, LiveJitBinding binding, ulong code, CancellationToken ct)
@@ -390,14 +362,12 @@ public sealed partial class LiveSessionService
         session.Bind(binding);
         foreach (var il in binding.IlBodies)
             try { await session.Worker.RequestAsync("watch_jit", new JsonObject { ["il"] = $"0x{il:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
-            catch (ToolError) { break; } // a worker without the op
+            // A worker without the op.
+            catch (ToolError) { break; }
     }
 
-    /// <summary>
-    /// The runtime compiled a method with a point again: the point gets a hook at the new code as well, since the old code
-    /// keeps running until the runtime switches calls over. A compile for a loop the method is running (on-stack
-    /// replacement), which a thread enters mid-method, is recognized by the method among the compiling thread's callers.
-    /// </summary>
+    // An on-stack replacement compile is entered mid-method; it is recognized by the method among the compiling thread's callers.
+    /// <summary>Adds a hook at a recompiled method's new code; the old code runs until calls switch over.</summary>
     private async Task RecompiledAsync(LiveSession session, LiveJitBinding bound, ulong code, IReadOnlyList<ulong> callers)
     {
         List<ulong> known;
@@ -444,7 +414,8 @@ public sealed partial class LiveSessionService
                 if (await ManagedTargetAsync(session, d.Where, CancellationToken.None).ConfigureAwait(false) is not { } target
                     || await ManagedCodeAsync(session, target, CancellationToken.None).ConfigureAwait(false) is not { } code) continue;
                 lock (session.Deferred)
-                    if (!session.Deferred.Remove(d)) continue; // cleared meanwhile
+                    // Cleared meanwhile.
+                    if (!session.Deferred.Remove(d)) continue;
                 await SetDueAsync(session, $"{d.Module} {(code.Kind == "JIT" ? "compiled" : "bound to its ReadyToRun code")}", [d]).ConfigureAwait(false);
             }
         }

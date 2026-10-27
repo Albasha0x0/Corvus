@@ -20,7 +20,7 @@ internal static class FormatFuzz
             var cpu = ThreadCpuClock.Now();
             try { read(bytes); }
             catch (Exception ex) { failures.Add($"iteration {i}: {ex.GetType().Name}: {ex.Message} (in {Where(ex)})"); }
-            // a few ms each; the bound is CPU time, so a starved machine does not trip it
+            // A few ms each; the bound is CPU time, so a starved machine does not trip it.
             if (ThreadCpuClock.Now() - cpu is var took && took > TimeSpan.FromSeconds(2)) failures.Add($"iteration {i}: took {took.TotalSeconds:0.0} s of CPU");
         }
         return failures;

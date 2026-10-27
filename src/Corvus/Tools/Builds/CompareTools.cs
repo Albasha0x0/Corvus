@@ -63,9 +63,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     };
 
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyComparison))]
-    [Description("Two builds of an assembly: renamed, moved, added and removed types and members (matched by content in tiers, unique, else " +
-                 "ambiguous), how matched members changed (signature, body by IL hash, metadata, Il2Cpp offset), capabilities added or removed. " +
-                 "oldResult / newResult: kept results.")]
+    [Description("Compare two builds of an assembly: renamed, moved, changed, added and removed types and members, and capabilities " +
+                 "added or removed. oldResult / newResult compare two kept results instead.")]
     public Task<string> CompareAssemblies(
         [Description("Old build: id, name or path.")] string? oldAssembly = null,
         [Description("New build: id, name or path.")] string? newAssembly = null,
@@ -125,8 +124,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         }
         foreach (var (side, asm, skipped) in new[] { ("old", oldAsm, cmp.OldSkippedBodies), ("new", newAsm, cmp.NewSkippedBodies) })
             if (skipped > 0)
-                sb.AppendLine($"Skipped: {skipped} method bodies of the {side} build ({asm.Id}) are not valid IL (encrypted?) and were not compared; " +
-                              "their body changes are marked \"not comparable\", and members they leave without a counterpart \"unknown\".");
+                sb.AppendLine($"Skipped: {skipped} method bodies of the {side} build ({asm.Id}) are not valid IL and were not compared; " +
+                              "their body changes read \"not comparable\" and unpaired members \"unknown\".");
 
         string? mapId = null;
         int mapEntries = 0;
@@ -214,9 +213,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     public sealed record CounterpartList(string Old, string New, IReadOnlyList<CounterpartItem> Items, int Offset, int Total);
 
     [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", UseStructuredContent = true, OutputSchemaType = typeof(CounterpartList))]
-    [Description("Where a type or member of the old build went in the new one (by name, then content, unique-only; else candidates): new name and " +
-                 "token, tier, confidence, body change. diff=true and il=true add unified C# and normalized IL diffs of each pair, renames applied " +
-                 "first.")]
+    [Description("Find where a type or member of the old build went in the new one: new name, token, confidence and body change, or " +
+                 "the tied candidates. diff and il add C# and normalized IL diffs.")]
     public Task<string> FindCounterpart(
         [Description("Old build: " + SymbolDescription)] string? symbol,
         [Description("Old build: id, name or path.")] string oldAssembly,
@@ -292,10 +290,10 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                     : oldHash == newHash ? $"     body: unchanged (IL hash {IlHash.Short(oldHash)})"
                     : $"     body: changed (IL hash {IlHash.Short(oldHash)} -> {IlHash.Short(newHash)})");
             }
-            var oldIl2Cpp = Il2CppService.CompactSummary(sym.Member);
-            var newIl2Cpp = Il2CppService.CompactSummary(match);
-            if (oldIl2Cpp != null || newIl2Cpp != null)
-                sb.AppendLine($"     il2cpp: {oldIl2Cpp ?? "-"} -> {newIl2Cpp ?? "-"}");
+            var oldAddress = AotMetadataService.CompactSummary(sym.Member);
+            var newAddress = AotMetadataService.CompactSummary(match);
+            if (oldAddress != null || newAddress != null)
+                sb.AppendLine($"     address: {oldAddress ?? "-"} -> {newAddress ?? "-"}");
             if (!diff && !il) return (item, sb.ToString().TrimEnd('\n'));
             renames ??= Renames.Of(cmp);
             int budget = DiffLines;
@@ -346,10 +344,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     private static bool SameBody(LoadedAssembly oldAsm, MethodDef old, LoadedAssembly newAsm, MethodDef @new) =>
         IlHash.Of(oldAsm, old) is { } a && a == IlHash.Of(newAsm, @new) && Format.ParameterTypes(old.MethodSig) == Format.ParameterTypes(@new.MethodSig);
 
-    /// <summary>
-    /// The new build's names for what it renamed (types and members), applied to the old side's text before diffing, and the
-    /// per-build "[token 0x...]" marks removed. A name renamed to several names, or also used unchanged elsewhere, is left alone.
-    /// </summary>
+    /// <summary>Applies the new build's renames to old-side text and drops token marks; a name with several targets is left alone.</summary>
     private sealed class Renames
     {
         private static readonly System.Text.RegularExpressions.Regex TokenMark = new(@"\s*\[token (?:0x[0-9A-Fa-f]{8}|\(new\))\]",
@@ -360,8 +355,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         private Renames(Dictionary<string, string> map)
         {
             _map = map;
-            // Literal names between one-character lookarounds: bounded work per
-            // position, so no match timeout.
+            // One-character lookarounds bound the work per position, so no match timeout.
             if (map.Count > 0)
                 _names = new(@"(?<![\w`])(" + string.Join("|", map.Keys.OrderByDescending(k => k.Length).Select(System.Text.RegularExpressions.Regex.Escape)) + @")(?![\w`])",
                     System.Text.RegularExpressions.RegexOptions.CultureInvariant);

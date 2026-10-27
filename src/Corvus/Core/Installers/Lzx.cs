@@ -2,11 +2,7 @@ using System.Buffers.Binary;
 
 namespace Corvus.Core.Installers;
 
-/// <summary>
-/// LZX as cabinet files use it (window 2^15 to 2^21): verbatim, aligned-offset and uncompressed blocks, main / length /
-/// aligned Huffman trees delta-coded through pretrees against the previous block's lengths, the three recent match
-/// offsets, frames (one per cabinet data block) with the bitstream realigned to 16 bits after each, and E8 call translation.
-/// </summary>
+/// <summary>LZX as cabinet files use it (window 2^15 to 2^21), with E8 call translation.</summary>
 internal sealed class Lzx
 {
     private const int MainLiterals = 256, LengthElements = 249, AlignedElements = 8, PretreeElements = 20, MinMatch = 2, Frame = 32768;
@@ -38,7 +34,7 @@ internal sealed class Lzx
     private int _blockType, _blockRemaining, _blockLength;
     private Huffman? _main, _length, _aligned;
 
-    // the folder's compressed bytes as 16-bit little-endian words, read most significant bit first
+    // The folder's compressed bytes as 16-bit little-endian words, read most significant bit first.
     private readonly byte[] _in;
     private int _inPos;
     private uint _bits;
@@ -105,7 +101,7 @@ internal sealed class Lzx
         _bitCount -= n;
     }
 
-    // bytes decoded into the window and bytes handed out; a match may run up to 257 bytes into the next frame
+    // Bytes decoded into the window and bytes handed out; a match may run up to 257 bytes into the next frame.
     private long _decoded, _emitted;
 
     private void DecodeFrame(Span<byte> output)
@@ -115,7 +111,8 @@ internal sealed class Lzx
         {
             if (_blockRemaining == 0)
             {
-                if (_blockType == 3 && (_blockLength & 1) == 1) _inPos++; // the pad byte after an odd uncompressed block
+                // The pad byte after an odd uncompressed block.
+                if (_blockType == 3 && (_blockLength & 1) == 1) _inPos++;
                 ReadBlockHeader();
             }
             int n = (int)Math.Min(_emitted + output.Length - _decoded, _blockRemaining);
@@ -132,7 +129,7 @@ internal sealed class Lzx
             _decoded += n;
             _blockRemaining -= n;
         }
-        // realign to 16 bits after each frame
+        // Realign to 16 bits after each frame.
         int drop = _bitCount % 16;
         _bits <<= drop;
         _bitCount -= drop;
@@ -173,7 +170,7 @@ internal sealed class Lzx
                 _length = new Huffman(_lengthLengths);
                 break;
             case 3:
-                // 1 to 16 bits of padding to the next 16-bit boundary, then R0, R1, R2 as 32-bit little-endian values
+                // 1 to 16 bits of padding to the next 16-bit boundary, then R0, R1, R2 as 32-bit little-endian values.
                 if (_bitCount == 0) _inPos += 2;
                 _bits = 0;
                 _bitCount = 0;
@@ -273,7 +270,7 @@ internal sealed class Lzx
         private const int TableBits = 10;
         private readonly int[] _count = new int[17], _first = new int[17], _offset = new int[17];
         private readonly int[] _symbols;
-        // symbol << 5 | code length; 0 where the code is longer than TableBits
+        // Symbol << 5 | code length; 0 where the code is longer than TableBits.
         private readonly ushort[] _table = new ushort[1 << TableBits];
 
         public Huffman(byte[] lengths)
@@ -295,7 +292,8 @@ internal sealed class Lzx
                 for (int i = 0; i < _count[len]; i++)
                 {
                     int start = (_first[len] + i) << (TableBits - len), span = 1 << (TableBits - len);
-                    if (start + span > _table.Length) break; // an over-subscribed code: left to the length walk
+                    // An over-subscribed code is left to the length walk.
+                    if (start + span > _table.Length) break;
                     _table.AsSpan(start, span).Fill((ushort)(_symbols[_offset[len] + i] << 5 | len));
                 }
         }

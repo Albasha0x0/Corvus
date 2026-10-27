@@ -6,11 +6,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// Engine provenance of a result (EL-2b): the engine and why it was chosen in both parts (engine, engineNote), and its
-/// version, build, profile, analysis state and what was pushed or served from the output cache in _meta, which is the
-/// only place for details that differ between calls of the same question.
-/// </summary>
+/// <summary>Engine provenance of a result: engine and reason in the result; details that vary between calls in _meta only.</summary>
 internal static class EngineReport
 {
     /// <summary>Records that <paramref name="choice"/> answered, from <paramref name="session"/> when one was opened.</summary>
@@ -25,7 +21,7 @@ internal static class EngineReport
         meta["engineVersion"] = id.Version;
         meta["engineBuild"] = id.Build;
         meta["engineProfile"] = id.Profile;
-        // a saved database that could not be opened was analyzed again: said once, by the call that opened it
+        // A saved database that failed to open was analyzed again; only the call that opened it says so.
         if (session is WorkerSessionBase { Rebuilt: { } rebuilt } w)
         {
             ToolOutput.Warn(rebuilt);
@@ -57,11 +53,7 @@ internal static class EngineReport
         call.EngineMeta["outputCache"] = new { hits, misses };
     }
 
-    /// <summary>
-    /// Everything the server pushes into an engine database before a tool's answer (names and comments in effect, user types,
-    /// the PDB, the tool's own pushes such as notes, Il2Cpp names): equal digests mean equal pushes, so an answer stored after
-    /// them holds for another process that has not opened the engine.
-    /// </summary>
+    /// <summary>A digest of everything pushed into the engine before an answer; equal digests let another process reuse a stored answer.</summary>
     public static string SetupDigest(LoadedNative native, NativeCodeService? code, params object?[] tool)
     {
         var user = code?.Annotations(native);
@@ -70,7 +62,7 @@ internal static class EngineReport
         var pdbFile = pdb != null && new FileInfo(pdb) is { Exists: true } f ? $"{pdb}|{f.Length}|{f.LastWriteTimeUtc.Ticks}" : "";
         return EngineOutputCache.Key(["setup", NativeNamePush.StampOf(NativeNamePush.Effective(user, layers, native.Image)),
             NativeNamePush.StampOf(NativeNamePush.Effective(user, layers, native.Image, withPdb: true)), user?.UserTypes.Stamp, pdbFile,
-            Il2CppNativeNames.Of(native) != null, .. tool]);
+            AotNativeNames.Of(native) != null, .. tool]);
     }
 
     /// <summary>While an engine works on one request: a progress notification every few seconds naming it and the time so far (S9.2).</summary>

@@ -4,19 +4,12 @@ using System.Security.Principal;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>
-/// Folders a worker process runs code from or writes into (scripts, compiled workers, temporary files, memory captures):
-/// no other user account may open them, so it cannot replace what a worker runs or read what it writes, even under a
-/// shared CORVUS_DATA_DIR or TEMP. On Windows the folder's DACL is protected and grants full control to the current user,
-/// SYSTEM and Administrators, as a user profile folder does, inherited by everything inside; elsewhere a new folder is
-/// created with mode 0700.
-/// </summary>
+/// <summary>Worker folders no other account can open: a protected DACL (user, SYSTEM, Administrators) on Windows, mode 0700 elsewhere.</summary>
+/// <remarks>So no other account can replace what a worker runs or read what it writes, even under a shared
+/// CORVUS_DATA_DIR or TEMP.</remarks>
 public static class PrivateFolder
 {
-    /// <summary>
-    /// Creates <paramref name="path"/> and its missing parents; an existing folder on Windows gets the same DACL unless it
-    /// already has it, since a change propagates through everything inside.
-    /// </summary>
+    /// <summary>Creates <paramref name="path"/> and parents; an existing Windows folder gets the DACL only when it differs, as a change propagates inside.</summary>
     public static string Create(string path)
     {
         if (OperatingSystem.IsWindows())
@@ -35,11 +28,7 @@ public static class PrivateFolder
         return path;
     }
 
-    /// <summary>
-    /// A protected DACL: full control for the current user, SYSTEM and Administrators, inherited by files and folders
-    /// inside. SYSTEM and Administrators keep the access they have to a profile folder: a session on a service running
-    /// as SYSTEM loads its helper files from a worker folder.
-    /// </summary>
+    /// <summary>A protected, inherited DACL granting full control to the user, SYSTEM (services load helpers from it) and Administrators.</summary>
     [SupportedOSPlatform("windows")]
     internal static DirectorySecurity OwnerOnly()
     {

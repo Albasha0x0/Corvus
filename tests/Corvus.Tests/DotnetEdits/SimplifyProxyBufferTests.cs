@@ -5,12 +5,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A buffer held in a static field and passed through a call whose target is resolved (a call through a static delegate
-/// field, as transformation tools route calls): the proof that the buffer stays as its initializer left it follows the call into
-/// the target, a framework method or a module method, so calls reading the buffer through the proxy fold; a target that
-/// writes into the buffer keeps the bail-out. The fixture runs before and after.
-/// </summary>
+/// <summary>A static buffer passed through a resolved call stays proven unchanged unless the target writes it.</summary>
 public sealed class SimplifyProxyBufferTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -108,7 +103,7 @@ public sealed class SimplifyProxyBufferTests : IDisposable
     }
 
     [Fact]
-    public void BuffersReadThroughResolvedCallsStayVisible()
+    public void Buffers_read_through_resolved_calls_stay_visible()
     {
         using var env = new Env(Fixture());
         var before = Run(env.Fixture.OriginalBytes);

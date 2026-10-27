@@ -80,9 +80,8 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     private static readonly string[] Sections = ["summary", "nested", "fields", "properties", "events", "methods", "all"];
 
     [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]
-    [Description("Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; section= pages one " +
-                 "kind (constants, enum values, signatures, tokens, IL sizes, Il2Cpp RVAs). A field: its value or FieldRVA data (file offset, " +
-                 "SHA-256, readers, typed elements).")]
+    [Description("Outline of a type without decompiling: declaration, attributes, member counts, the first members of each kind; " +
+                 "section= pages one kind. A field shows its value or FieldRVA data.")]
     public Task<string> GetTypeInfo(
         [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -106,16 +105,16 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         var t = (TypeDef)sym.Member;
         bool Show(IHasCustomAttribute m, string name) =>
             includeCompilerGenerated || (!name.StartsWith('<') && !m.CustomAttributes.IsDefined(CompilerGenerated));
-        static string? Il2Cpp(IHasCustomAttribute m) => Il2CppService.CompactSummary(m);
+        static string? AddressOf(IHasCustomAttribute m) => AotMetadataService.CompactSummary(m);
 
         var nested = t.NestedTypes.Where(n => Show(n, n.Name)).Select(n => new MemberEntry(Format.Token(n), $"{Format.Kind(n)} {Format.TypeName(n)}") { Kind = "nested" }).ToList();
         var fields = t.Fields.Where(f => Show(f, f.Name)).Select(f => new MemberEntry(Format.Token(f),
-            t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f)) { Kind = "field", Il2Cpp = Il2Cpp(f) }).ToList();
+            t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f)) { Kind = "field", Address = AddressOf(f) }).ToList();
         var properties = t.Properties.Select(p => new MemberEntry(Format.Token(p), Format.Property(p)) { Kind = "property" }).ToList();
         var events = t.Events.Select(e => new MemberEntry(Format.Token(e), Format.Event(e)) { Kind = "event" }).ToList();
         var methods = t.Methods.Where(m => Show(m, m.Name)).Select(m => new MemberEntry(Format.Token(m),
             Format.Method(m) + (MetadataUtil.IsAccessor(m) ? "  (accessor)" : "") + (m.HasBody || MetadataUtil.SafeBody(m) != null ? "" : "  no body"))
-            { Kind = "method", Il2Cpp = Il2Cpp(m), Il = MetadataUtil.SafeBody(m)?.Instructions.Count }).ToList();
+            { Kind = "method", Address = AddressOf(m), Il = MetadataUtil.SafeBody(m)?.Instructions.Count }).ToList();
         var kinds = new (string Name, List<MemberEntry> Rows)[] { ("nested", nested), ("fields", fields), ("properties", properties), ("events", events), ("methods", methods) };
         bool hidden = fields.Count != t.Fields.Count || methods.Count != t.Methods.Count || nested.Count != t.NestedTypes.Count;
 
@@ -201,7 +200,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     }
 
     private static string MemberText(MemberEntry m) =>
-        $"{(m.Kind != null ? $"{m.Kind,-8} " : "")}{m.Token}  {m.Signature}{(m.Il is { } n ? $"  IL {n} instr" : "")}{(m.Il2Cpp is { } s ? $"  [{s}]" : "")}";
+        $"{(m.Kind != null ? $"{m.Kind,-8} " : "")}{m.Token}  {m.Signature}{(m.Il is { } n ? $"  IL {n} instr" : "")}{(m.Address is { } s ? $"  [{s}]" : "")}";
 
     [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy", UseStructuredContent = true, OutputSchemaType = typeof(TypeHierarchy))]
     [Description("Base chain, interfaces and directly derived or implementing loaded types of a type.")]
@@ -235,7 +234,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description(SymbolDescription + " Omit for assembly-level attributes.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required without symbol.")] string? assembly = null,
         [Description("Only attributes whose type name contains this.")] string? filter = null,
-        [Description("rows, or csharp (symbol omitted).")] string format = "rows",
+        [Description("csharp only without symbol.")] string format = "rows",
         [Description("Rows to skip (characters with format=csharp).")] int offset = 0,
         [Description(LimitDescription)] int limit = 200,
         [Description(MaxTokensDescription)] int? maxTokens = null,
@@ -308,7 +307,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     }
 
     [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
-    [Description("Every match of a symbol string or token, with kind, assembly, token and signature: disambiguate before other calls.")]
+    [Description("Every match of a symbol string or token, with kind, assembly, token and signature; disambiguates before other calls.")]
     public Task<string> ResolveSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,

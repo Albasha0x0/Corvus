@@ -117,7 +117,7 @@ public class GhidraSetupTests
         var standard = GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Standard, SymbolMode.Default, null);
         Assert.Contains(standard, o => o.Key == "Decompiler Parameter ID.Analysis Decompiler Timeout (sec)" && o.Value == "10");
         Assert.Contains(standard, o => o.Key == "WindowsResourceReference" && o.Value == "false");
-        // stack analysis waits for the completion pass, when one follows
+        // Stack analysis waits for the completion pass, when one follows.
         Assert.DoesNotContain(standard, o => o.Key == "Stack");
         Assert.Contains(GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Standard, SymbolMode.Default, null, completion: true), o => o.Key == "Stack" && o.Value == "false");
         Assert.Empty(GhidraOptions.AnalyzerOptions(GhidraAnalysisProfile.Full, SymbolMode.Default, null));
@@ -175,8 +175,7 @@ public class GhidraSetupTests
         Assert.Equal(g.UtilityJar + Path.PathSeparator + "boot.jar", args[^3]);
     }
 
-    // Regression: two PyGhidra workers starting together wrote the same config file, and one start failed with the file
-    // in use (the second Ghidra pass of 40356230's push run).
+    // Regression (40356230): two PyGhidra workers starting together wrote one config file, and one failed with it in use.
     [Fact]
     public void PyGhidra_workers_starting_together_share_one_complete_config_file()
     {

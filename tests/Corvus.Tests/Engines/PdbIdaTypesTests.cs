@@ -127,7 +127,7 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(2, decls.Prototypes.Count);
         Assert.All(decls.Prototypes, p => Assert.Equal("int __cdecl f(struct Node *, int);", p.Declaration));
 
-        // damaged type records: counted or noted, never thrown
+        // Damaged type records: counted or noted, never thrown.
         var random = new Random(5);
         var file = File.ReadAllBytes(path);
         int tpiAt = FindTpi(file); // one block: the stream is contiguous in the file
@@ -166,15 +166,11 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("  unsigned int urgent : 1;\n  unsigned int retries : 3;\n  unsigned int : 28;\n", text);
         Assert.Contains("typedef struct Packet *PPacket;", text);
         Assert.Contains(decls.Prototypes, p => p.Declaration == "int __cdecl f(struct Packet *, int);");
-        // Header: magic(2) version(1) pad(1) kind(4) bit fields(4) = 12 bytes, all explicit under pack(1)
+        // Header: magic(2) version(1) pad(1) kind(4) bit fields(4) = 12 bytes, all explicit under pack(1).
         Assert.Contains("struct Header\n{\n  unsigned short magic;\n  unsigned char version;\n  unsigned char __pad0[1];\n  enum PacketKind kind;\n", text);
     }
 
-    /// <summary>
-    /// A real image shipped with its PDB, named by CORVUS_PDB_SAMPLE ("image path|function name|function name..."; skipped when
-    /// unset): each function decompiled without the PDB's types (a copy of the image away from its PDB), then through IDA's
-    /// PDB loader and through the own reader. Prints the snippets and timings, so it runs only in the perf run.
-    /// </summary>
+    /// <summary>CORVUS_PDB_SAMPLE ("image|function|..."): each function decompiled without types, through IDA's PDB loader and through the own reader; perf run only.</summary>
     [Trait("Speed", "Slow"), Trait(PerfBudget.Trait, PerfBudget.Timing)]
     [IdaFact]
     public async Task Real_image_with_its_pdb()
@@ -215,17 +211,13 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         }
     }
 
-    /// <summary>
-    /// An image analyzed without its PDB, then given one with load_pdb: the next decompile_native loads it through IDA's
-    /// PDB loader into the saved database (once: a later session finds the stamp), and the pseudocode shows its types.
-    /// The same through the own reader on a fresh database.
-    /// </summary>
+    /// <summary>load_pdb after analysis: the next decompile_native loads the PDB once into the saved database and shows its types; the same through the own reader.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
     public async Task Pdb_types_reach_the_pseudocode_through_IDAs_loader_and_the_own_reader()
     {
         if (Build(_dir) is not { } built) { output.WriteLine("no MSVC build tools"); return; }
-        // the PDB away from the image and from the path recorded in it: the first analysis has no symbols
+        // The PDB away from the image and from the path recorded in it: the first analysis has no symbols.
         var symbols = Directory.CreateDirectory(_dir.File("symbols")).FullName;
         var pdbPath = Path.Combine(symbols, "fixture.pdb");
         File.Move(built.Pdb, pdbPath);
@@ -253,8 +245,7 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         var source = NativePdbTypes.Current(session)!;
         Assert.Equal(NativePdbTypes.RouteIda, source.Route);
 
-        // idempotent: the next call does not load again; a new session on the saved database finds the stamp (addresses=true: no answer
-        // stored for it, so the engine opens)
+        // The next call does not load again; a new session finds the stamp.
         Assert.Contains("(already in the database)", await EngineMeta.WithPushes(() => rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}")));
         rig.Engines.Dispose();
         var rig2 = Setup(_dir.File("cache"));
@@ -265,7 +256,7 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("->sequence_number", reopened);
         rig2.Engines.Dispose();
 
-        // the own reader, on a fresh database analyzed without the PDB
+        // The own reader, on a fresh database analyzed without the PDB.
         var rig3 = Setup(_dir.File("cache3"));
         rig3.Engines.PdbTypes.PreferOwnReader = true;
         var native3 = rig3.Workspace.LoadAny(built.Exe).Native!;

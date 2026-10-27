@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Builds Process Monitor backing files (format 9, 64-bit): a header, events with stack frames and the detail structure
-/// of their operation, the event offsets, a process table, a string table, an icon table, and host and port names.
-/// </summary>
+/// <summary>Builds Process Monitor backing files (format 9, 64-bit) with events, stacks, details and the process, string, icon and host tables.</summary>
 internal static class ProcmonSamples
 {
     public static readonly DateTime Start = new(2026, 3, 4, 5, 6, 7, DateTimeKind.Utc);

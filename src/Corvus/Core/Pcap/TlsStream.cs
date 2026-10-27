@@ -4,12 +4,7 @@ using System.Text;
 
 namespace Corvus.Core.Pcap;
 
-/// <summary>
-/// One TLS connection's records: the ClientHello and ServerHello read (version, cipher suite, randoms, fingerprints) and,
-/// when the key log holds the session's secrets, the records decrypted: TLS 1.3 (AES-GCM, ChaCha20-Poly1305; handshake
-/// then application traffic secrets, key updates followed) and TLS 1.2 AEAD suites (AES-GCM, ChaCha20-Poly1305) from the
-/// master secret. Application data goes on to <paramref name="inner"/>, created with the ALPN protocol once known.
-/// </summary>
+/// <summary>One TLS connection's hellos and, with keys, its TLS 1.2 AEAD or 1.3 records decrypted to <paramref name="inner"/>.</summary>
 internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inner) : ITcpConsumer
 {
     private const int MaxRecord = (1 << 14) + 2048 + 5;
@@ -66,7 +61,8 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
     private void Record(Side s, ReadOnlySpan<byte> header, ReadOnlySpan<byte> body)
     {
         byte type = header[0];
-        if (type == 20) // change cipher spec: TLS 1.2 encrypts from the next record on; TLS 1.3 sends it for compatibility only
+        // Change cipher spec: TLS 1.2 encrypts from the next record on; TLS 1.3 sends it for compatibility only.
+        if (type == 20)
         {
             if (Version is > 0 and < 0x0304) { s.Encrypted = true; s.Seq = 0; s.Cipher = Keys12(s.Client); }
             return;
@@ -81,7 +77,7 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
         var plain = s.Cipher.Open(s.Seq, header, body);
         if (plain == null && s.Early && ServerHello != null)
         {
-            // a server that rejects early data skips it, and the client goes on under its handshake secret
+            // A server that rejects early data skips it, and the client goes on under its handshake secret.
             s.Early = false;
             Switch(s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
             plain = s.Cipher?.Open(s.Seq, header, body);
@@ -152,14 +148,16 @@ internal sealed class TlsStream(TlsKeyLog? keys, Func<string?, ITcpConsumer> inn
                 else if (ClientHello == null || keys.Find(ClientHello.Random, "CLIENT_RANDOM") == null) Outcome = "no keys for this session in the key log";
                 else if (Suite12(Cipher) == null) Outcome = $"cipher suite 0x{Cipher:x4} is not decrypted (AEAD suites are)";
                 break;
-            case 8 when !plain: // EncryptedExtensions: TLS 1.3's ALPN
+            // EncryptedExtensions: TLS 1.3's ALPN.
+            case 8 when !plain:
                 if (m.Length >= 6) Alpn ??= Extensions(m[6..Math.Min(m.Length, 6 + BinaryPrimitives.ReadUInt16BigEndian(m[4..]))]);
                 break;
             case 5 when !plain && s.Early: // EndOfEarlyData
                 s.Early = false;
                 Switch(s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
                 break;
-            case 20 when !plain: // Finished: application traffic keys from the next record
+            // Finished: application traffic keys from the next record.
+            case 20 when !plain:
                 Switch(s, s.Client ? "CLIENT_TRAFFIC_SECRET_0" : "SERVER_TRAFFIC_SECRET_0");
                 break;
             case 24 when !plain && s.Secret != null: // KeyUpdate

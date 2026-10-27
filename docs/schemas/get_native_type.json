@@ -14,7 +14,7 @@
       "type": "object",
       "properties": {
         "id": {
-          "description": "Stable id: pdb:0x1A2B (type record), pdb:Name (typedef), rtti:<type descriptor VA>, il2cpp:Ns.Type (#statics), ida:Name.",
+          "description": "Stable id: pdb:0x1A2B (type record), pdb:Name (typedef), rtti:<type descriptor VA>, metadata:Ns.Type (#statics), ida:Name.",
           "type": "string"
         },
         "name": {
@@ -25,7 +25,7 @@
           "type": "string"
         },
         "source": {
-          "description": "pdb, rtti, pdb+rtti, il2cpp or the engine's id.",
+          "description": "pdb, rtti, pdb+rtti, metadata or the engine's id.",
           "type": "string"
         },
         "size": {
@@ -79,7 +79,7 @@
                 "type": "string"
               },
               "kind": {
-                "description": "member, base, vbase, vfptr, static, padding or header (Il2Cpp object header).",
+                "description": "member, base, vbase, vfptr, static, padding or header (AOT object header).",
                 "type": "string"
               },
               "bitOffset": {
@@ -91,7 +91,7 @@
                 "type": "integer"
               },
               "note": {
-                "description": "Source-specific detail: the managed type and declaring class for Il2Cpp, computed offsets.",
+                "description": "Source-specific detail: the managed type and declaring class for AOT metadata, computed offsets.",
                 "type": "string"
               },
               "value": {

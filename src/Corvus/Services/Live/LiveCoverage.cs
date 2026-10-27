@@ -10,12 +10,8 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// A code coverage run: stop points at the start of each function of an image, each stop counted and resumed at once; a
-/// point that reaches the hit limit is cleared, so its count reads "at least". A managed run (no <see cref="Image"/>)
-/// keys its points by metadata token and records which methods ran, from the runtime's record of the methods it prepared
-/// code for, without counts.
-/// </summary>
+// A cleared point's count reads "at least". A managed run (no Image) keys points by metadata token and has no counts.
+/// <summary>A code coverage run: a counted stop point per function start, cleared at the hit limit; a managed run records which methods ran.</summary>
 public sealed class LiveCoverageRun
 {
     private readonly ConcurrentDictionary<uint, long> _hits = new();
@@ -101,9 +97,7 @@ public sealed class LiveCoverageRun
 
     private bool _read;
 
-    /// <summary>
-    /// True for a run read from the runtime while no read has succeeded: a method not seen to run is unknown, not missed.
-    /// </summary>
+    /// <summary>True for a runtime-read run before any read succeeded: a method not seen to run is unknown, not missed.</summary>
     public bool Unread
     {
         get { lock (_live) return ReadsRuntime && !_read; }
@@ -124,7 +118,7 @@ public sealed class LiveCoverageRun
     /// <summary>The counted assembly's file, for a managed run.</summary>
     internal string? AssemblyPath { get; init; }
 
-    /// <summary>A managed run: records the methods that have run so far; with wait, after a read in progress ends (a last read before the run is complete).</summary>
+    /// <summary>A managed run's read of the methods run so far; with wait, after a read in progress ends.</summary>
     internal Func<bool, Task>? Sample { get; set; }
     internal Timer? Sampler { get; set; }
     private readonly SemaphoreSlim _sampling = new(1, 1);
@@ -137,17 +131,14 @@ public sealed class LiveCoverageRun
         finally { _sampling.Release(); }
     }
 
-    // a read that ends after the run is complete adds nothing: the report already counted
+    // A read that ends after the run is complete adds nothing: the report already counted.
     internal void MarkRan(uint token)
     {
         lock (_live)
             if (_state == "recording") _hits.TryAdd(token, 1);
     }
 
-    /// <summary>
-    /// Records a read of the runtime: the methods it found prepared, and whether the process was still running, so the read
-    /// saw every loaded module.
-    /// </summary>
+    /// <summary>Records a runtime read: the prepared methods, and whether the process still ran (so every module was seen).</summary>
     internal void MarkRead(IEnumerable<uint> tokens, bool whileRunning)
     {
         lock (_live)
@@ -214,10 +205,7 @@ public sealed partial class LiveSessionService
         _coverage.TryGetValue(id?.Trim() ?? "", out var r) ? r
             : throw new ToolError(ErrorCode.NotFound, $"No coverage run '{id}'.", "live_coverage action=list shows the runs; action=start begins one");
 
-    /// <summary>
-    /// Starts counting the functions of the program's image (or of module in "module!part") whose name contains
-    /// <paramref name="match"/>.
-    /// </summary>
+    /// <summary>Starts counting the functions of the program's image, or of module in "module!part", whose name contains <paramref name="match"/>.</summary>
     public async Task<LiveCoverageRun> StartCoverageAsync(LiveSession session, string? match, int hitLimit, CancellationToken ct)
     {
         string? module = null;
@@ -229,7 +217,7 @@ public sealed partial class LiveSessionService
         LiveModuleState? m;
         lock (session.Modules)
             m = string.IsNullOrWhiteSpace(module) ? session.Modules.FirstOrDefault() : session.Modules.FirstOrDefault(x => ModuleNamed(x, module));
-        // a managed assembly, loaded or the program's own still to load
+        // A managed assembly, loaded or the program's own still to load.
         var managed = m != null ? (Match(m) == null ? Managed(m.Path) : null)
             : string.IsNullOrWhiteSpace(module) ? null : AssemblyToLoad(session, module.Trim());
         if (managed != null) return await StartManagedCoverageAsync(session, managed, match, ct).ConfigureAwait(false);
@@ -239,15 +227,15 @@ public sealed partial class LiveSessionService
             LoadedNative? own = null;
             try { own = ImageOf(m); }
             catch (ToolError) { /* the error below names the file */ }
-            image = own ?? throw new ToolError(ErrorCode.Unsupported, $"{m.Name}'s image ({m.Path}) cannot be found or read as a native image, so it has no static functions to count.",
+            image = own ?? throw new ToolError(ErrorCode.Unsupported, $"{m.Name} ({m.Path}) cannot be found or read as a native image: no functions to count.",
                 "count another module with match=<module>!<part>, or set stop points by live address (live_break at=0x...)");
         }
         else if (string.IsNullOrWhiteSpace(module)) throw new ToolError(ErrorCode.NotFound, "The program has no modules yet.", "live_session action=status lists its modules");
         else
-            // a module the program loads later (a plug-in, a runtime) is counted from its first call, as a deferred stop point is set
+            // A module loaded later is counted once it loads, as a deferred stop point is set.
             image = workspace.Natives.FirstOrDefault(n => n.SliceName == null && ModuleNamed(n.FilePath, module))
                     ?? throw new ToolError(ErrorCode.NotFound, $"The program has no module '{module}', and no loaded image is named so.",
-                        "live_session action=status lists its modules; for one the program loads later, load_assembly path=<its file>, then start again: the run waits for it to load");
+                        "live_session action=status lists its modules; for a later load, load_assembly path=<its file> and start again; the run waits for it to load");
         var idx = code.Ready(image) ?? await code.Index(image, null, ct).ConfigureAwait(false);
         var filter = string.IsNullOrWhiteSpace(match) ? null : match.Trim();
         match = filter;
@@ -256,7 +244,7 @@ public sealed partial class LiveSessionService
             .Select(f => (f, Name: idx.NameAt(f.Start) ?? f.Name))
             .Where(x => filter == null || x.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
             .OrderBy(x => x.f.Start).Select(x => new LiveCoveragePoint(x.f.Start, x.Name))];
-        // a function whose first block is shorter than this is refused, not counted
+        // A function whose first block is shorter than this is refused, not counted.
         var minBlock = MinCountableBlock(image.Image.Arch);
         var refused = new Dictionary<uint, string>();
         foreach (var p in points)
@@ -265,10 +253,10 @@ public sealed partial class LiveSessionService
                 var lines = idx.Disassemble(first.Start, 8, first.End);
                 var room = first.End - first.Start - LandingPad(lines);
                 if (room < minBlock)
-                    refused[p.Rva] = $"too short to count with stop-based coverage: {Listing(lines)} leaves {room} byte(s) for the {minBlock}-byte jump a hook writes";
-                // the stop point lands where the jump leads: through a CFG dispatch pointer, every indirect call of the process
+                    refused[p.Rva] = $"too short to count: {Listing(lines)} leaves {room} byte(s) for the {minBlock}-byte hook jump";
+                // The stop point would land where the jump leads; through a CFG dispatch pointer, every indirect call.
                 else if (first.InstructionCount == 1 && first.EndKind is BlockEnd.Jump or BlockEnd.IndirectJump or BlockEnd.TailCall)
-                    refused[p.Rva] = "a single jump: its runs are counted at the function it leads to";
+                    refused[p.Rva] = "a single jump: counted at its target";
             }
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No function of {image.Id}{(match != null ? $" has a name containing '{match.Trim()}'" : " is indexed")}.", "list_functions shows the image's functions");
@@ -293,20 +281,17 @@ public sealed partial class LiveSessionService
             return run;
         }
         run.Wait(module!.Trim());
-        // known before the load, so the start reply counts what will be set
+        // Known before the load, so the start reply counts what will be set.
         for (int i = 0; i < points.Count; i++)
             if (refused.TryGetValue(points[i].Rva, out var reason)) run.Refused($"{run.Id}.{i + 1}", points[i].Rva, reason);
-        // the worker holds the module's loading thread until the points are set; one without the op sets them after its first calls
+        // The worker holds the loading thread until the points are set; a worker without the op sets them after first calls.
         try { await session.Worker.RequestAsync("defer_module", new JsonObject { ["name"] = run.PendingModule }, RequestTimeout, ct).ConfigureAwait(false); }
         catch (ToolError) { }
         return run;
     }
 
-    /// <summary>
-    /// Up to <paramref name="take"/> matches within <paramref name="limit"/> functions, broadest first: name prefixes cut
-    /// after a "::", "." or "_" (namespaces, classes, library prefixes) and, for unnamed functions, sub_ address prefixes.
-    /// Each contains <paramref name="filter"/>, so it narrows the match given.
-    /// </summary>
+    // Candidates are name prefixes cut after "::", "." or "_", and sub_ address prefixes; each contains the filter.
+    /// <summary>Up to <paramref name="take"/> narrower matches of at most <paramref name="limit"/> functions each, broadest first.</summary>
     internal static List<(string Match, int Count)> NarrowerMatches(IReadOnlyList<string> names, string? filter, int limit, int take = 5)
     {
         const int MaxDepth = 4;
@@ -332,7 +317,7 @@ public sealed partial class LiveSessionService
                 }
         }
         var chosen = new List<(string Match, int Count)>();
-        // a prefix count is a floor: a match is a substring, so the count shown is the one a run would place
+        // A prefix count is a floor: a match is a substring, so the shown count is recounted over all names.
         foreach (var (match, _) in starts.Where(s => s.Value is > 1 and var n && n <= limit).OrderByDescending(s => s.Value).ThenBy(s => s.Key, StringComparer.Ordinal))
         {
             if (chosen.Count == take) break;
@@ -348,13 +333,13 @@ public sealed partial class LiveSessionService
     {
         var (points, moduleBase) = (run.Points, run.ModuleBase);
         var refused = new Dictionary<uint, string>(run.Refusals);
-        // a hook at the start rewrites its first bytes, so a stop point or watch already inside them would be corrupted
+        // A hook rewrites the function's first bytes, corrupting a stop point or watch already inside them.
         List<(string Id, ulong Address)> occupied;
         lock (session.StopPoints) occupied = [.. session.StopPoints.Values.Select(p => (p.Id, p.Address))];
         lock (session.Watches) occupied.AddRange(session.Watches.Values.Where(w => !w.Cleared).Select(w => (w.Id, w.Address)));
         foreach (var p in points)
             if (occupied.FirstOrDefault(o => o.Address > moduleBase + p.Rva && o.Address < moduleBase + p.Rva + WatchPatchBytes) is { Id: { } inside } o)
-                refused[p.Rva] = $"{inside} sits {o.Address - (moduleBase + p.Rva)} bytes in, inside the bytes a hook at the start rewrites";
+                refused[p.Rva] = $"{inside} sits {o.Address - (moduleBase + p.Rva)} bytes in, inside the hook's bytes";
         // A point the backend refuses is left out of the run; any other error ends it.
         void Refuse(string id, uint rva, ToolError e)
         {
@@ -377,8 +362,7 @@ public sealed partial class LiveSessionService
                 session.CoveragePoints[id] = run;
                 due.Add((id, points[i].Rva));
             }
-            // A held load waits for every point, so they go in batches rather than a request each: under a busy
-            // thread pool each request costs a scheduling delay, which hundreds of requests turn into minutes.
+            // Batched: under a busy thread pool each request costs a scheduling delay, minutes over hundreds of points.
             int next = 0;
             for (; next < due.Count; next += SetBatch)
             {
@@ -415,7 +399,8 @@ public sealed partial class LiveSessionService
             await StopCoverageAsync(session, run, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
-        var image = run.Image!; // a managed run arms no points
+        // A managed run arms no points.
+        var image = run.Image!;
         var idx = code.Ready(image) ?? await code.Index(image, null, ct).ConfigureAwait(false);
         int n = 0;
         foreach (var f in idx.Functions.Where(f => ExitFunctions.Contains(idx.NameAt(f.Start) ?? f.Name)))
@@ -440,7 +425,7 @@ public sealed partial class LiveSessionService
             {
                 for (int i = 0; i < run.Points.Count; i++)
                     run.Refused($"{run.Id}.{i + 1}", run.Points[i].Rva, $"{module.Name} loaded from {module.Path}, another build than the counted image");
-                session.Add("error", null, module.Base, $"coverage run {run.Id} counts nothing: {module.Name} loaded from {module.Path}, another build than {run.Image?.FilePath}");
+                session.Add("error", null, module.Base, $"coverage run {run.Id} counts nothing: {module.Name} at {module.Path} is another build than {run.Image?.FilePath}");
                 continue;
             }
             try
@@ -456,17 +441,14 @@ public sealed partial class LiveSessionService
         return names;
     }
 
-    /// <summary>
-    /// Whether the session's process object is signaled; false where no handle is held, so such a read counts as taken
-    /// while running.
-    /// </summary>
+    /// <summary>Whether the session's process has ended; false without a handle, so the read counts as taken while running.</summary>
     private static bool HasEnded(LiveSession session)
     {
         try { return session.ProcessHandle is { IsInvalid: false, IsClosed: false } h && Native.Live.LiveNative.WaitForSingleObject(h, 0) == 0; }
         catch (ObjectDisposedException) { return true; }
     }
 
-    /// <summary>A run whose program ended while it started missed the exit that ends runs: it is ended here.</summary>
+    /// <summary>Ends a run whose program ended while it started, which missed the exit stop.</summary>
     private static void EndedMeanwhile(LiveSession session, LiveCoverageRun run)
     {
         if (session.Ended != null) run.Finish("ended");
@@ -474,22 +456,20 @@ public sealed partial class LiveSessionService
 
     private static readonly TimeSpan ManagedSamplePeriod = TimeSpan.FromSeconds(1);
 
-    /// <summary>
-    /// Starts recording which methods of a managed assembly run: the runtime's record of the methods it prepared code for,
-    /// read each second and when the program exits (its exiting thread is held at RtlExitUserProcess meanwhile).
-    /// </summary>
+    // The exiting thread is held at RtlExitUserProcess for the last read.
+    /// <summary>Records which methods of a managed assembly run, from the runtime's prepared methods, read each second and at exit.</summary>
     private async Task<LiveCoverageRun> StartManagedCoverageAsync(LiveSession session, LoadedAssembly asm, string? match, CancellationToken ct)
     {
         var file = Path.GetFileName(asm.FilePath);
         if (!OperatingSystem.IsWindows())
-            throw new ToolError(ErrorCode.Unsupported, $"{file} is a managed assembly; its coverage is read from the runtime on Windows only.", "count a native module with match=module!part");
+            throw new ToolError(ErrorCode.Unsupported, $"{file} is a managed assembly; its coverage is read on Windows only.", "count a native module with match=module!part");
         var filter = string.IsNullOrWhiteSpace(match) ? null : match.Trim();
         var points = workspace.Read(() => asm.Module.GetTypes().SelectMany(t => t.Methods).Where(x => x.HasBody)
             .Select(x => new LiveCoveragePoint(x.MDToken.Raw, Format.MemberLabel(x)))
             .Where(p => filter == null || p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).OrderBy(p => p.Rva).ToList());
         if (points.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"No method of {file}{(filter != null ? $" has a name containing '{filter}'" : " has a body")}.", "search_symbols shows the assembly's methods");
-        // this server reads a runtime of its own architecture, and a 32-bit one through the 32-bit decoder process, also once one loads
+        // The server reads a runtime of its own architecture, and a 32-bit one through the 32-bit decoder process.
         var arch = session.Arch switch
         {
             "ia32" => Architecture.X86, "x64" => Architecture.X64,
@@ -525,23 +505,21 @@ public sealed partial class LiveSessionService
             try { await session.Worker.RequestAsync("set", new JsonObject { ["id"] = id, ["address"] = $"0x{exit:X}" }, RequestTimeout, ct).ConfigureAwait(false); }
             catch (ToolError e) when (e.Code is ErrorCode.Failed or ErrorCode.InvalidArgument or ErrorCode.Unsupported) { run.Retire(id); }
         }
-        catch (ToolError e) when (e.Code is ErrorCode.NotFound or ErrorCode.Unsupported) { } // then the methods of the last second before exit are missed
+        // Without the exit stop, methods first run in the last second are missed.
+        catch (ToolError e) when (e.Code is ErrorCode.NotFound or ErrorCode.Unsupported) { }
         await run.Sample(true).ConfigureAwait(false);
         run.Sampler = new Timer(_ => _ = run.Sample(false), null, ManagedSamplePeriod, ManagedSamplePeriod);
         EndedMeanwhile(session, run);
         return run;
     }
 
-    /// <summary>
-    /// A managed run on a runtime that cannot be read (another architecture than the server's, no DAC): the session script
-    /// reports the first compile of each method, which precedes its first run. Methods compiled before the run are not seen.
-    /// </summary>
+    /// <summary>A managed run on an unreadable runtime, counted from each method's first JIT compile; earlier compiles are not seen.</summary>
     private async Task<LiveCoverageRun> StartJitCoverageAsync(LiveSession session, LoadedAssembly asm, List<LiveCoveragePoint> points, string reason, CancellationToken ct)
     {
         var file = Path.GetFileName(asm.FilePath);
         var bodies = JitBodiesOf(session, asm.FilePath, points);
         if (bodies.Count == 0)
-            throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read ({reason}), and {file} is not loaded yet, so its methods' compiles cannot be watched.",
+            throw new ToolError(ErrorCode.Unsupported, $"The program's runtime cannot be read ({reason}) and {file} is not loaded yet, so its methods' compiles cannot be watched.",
                 "start the run once the assembly has loaded, or count a native module with match=module!part");
         if (BeforeCoverageRun is { } before) await before().ConfigureAwait(false);
         var run = new LiveCoverageRun("cov-" + Interlocked.Increment(ref _nextCoverage), session, file, asm.OriginalSha256, points) { JitBodies = bodies, AssemblyPath = asm.FilePath };
@@ -586,10 +564,7 @@ public sealed partial class LiveSessionService
         if (_coverage.TryGetValue(runId, out var run) && run.JitBodies?.GetValueOrDefault(il) is { } token and > 0) run.MarkRan(token);
     }
 
-    /// <summary>
-    /// Functions reachable from the TLS callbacks (and a DLL's entry point): they also run at process exit, after the
-    /// program's other threads have ended, where a held thread could never be resumed.
-    /// </summary>
+    /// <summary>Functions reachable from TLS callbacks and a DLL's entry point, which run at exit where a held thread never resumes.</summary>
     private static HashSet<uint> DetachCode(LoadedNative image, NativeCodeIndex index)
     {
         var seen = new HashSet<uint>();
@@ -606,7 +581,7 @@ public sealed partial class LiveSessionService
     /// <summary>Static calls between the given functions of the run's image, as caller and callee RVAs.</summary>
     public async Task<IReadOnlyList<(uint From, uint To)>> CoverageCallsAsync(LiveCoverageRun run, IReadOnlySet<uint> among, CancellationToken ct)
     {
-        var image = run.Image ?? throw new ToolError(ErrorCode.Unsupported, $"{run.Id} records managed methods: it has no static call graph to draw.", "format=text");
+        var image = run.Image ?? throw new ToolError(ErrorCode.Unsupported, $"{run.Id} records managed methods: no static call graph.", "format=text");
         var idx = code.Ready(image) ?? await code.Index(image, null, ct).ConfigureAwait(false);
         var edges = new HashSet<(uint, uint)>();
         foreach (var rva in among)
@@ -629,8 +604,7 @@ public sealed partial class LiveSessionService
         var ids = run.Armed;
         foreach (var id in ids) run.Retire(id);
         bool Gone() => session.Closed || session.Ended != null || !session.Worker.IsAlive;
-        // A request per point costs a thread-pool scheduling delay each: at an
-        // exit point, thousands of them held the exiting thread for minutes.
+        // Batched: a request per point held the exiting thread for minutes at an exit point.
         int next = 0;
         try
         {
@@ -659,7 +633,7 @@ public sealed partial class LiveSessionService
     /// <summary>Resumes a thread held at a coverage point.</summary>
     private static async Task Resume(LiveSession session, long? thread)
     {
-        // the resume can reach the worker before it has the stop's thread as held: then it resumes nothing, and is sent again
+        // A resume can reach the worker before it holds the stop's thread; then it resumes nothing and is resent.
         for (int attempt = 0; attempt < 200 && !session.Closed && session.Ended == null; attempt++)
         {
             var args = new JsonObject();
@@ -685,7 +659,7 @@ public sealed partial class LiveSessionService
             {
                 try
                 {
-                    // past exit nothing resumes a held thread, so every point goes before this one resumes; managed runs read the runtime first
+                    // Past exit nothing resumes a held thread: clear every point first, after managed runs read the runtime.
                     var runs = session.CoveragePoints.Values.Distinct().ToList();
                     foreach (var r in runs)
                         if (r.Sample is { } sample) await sample(true).ConfigureAwait(false);
@@ -696,9 +670,9 @@ public sealed partial class LiveSessionService
             });
             return;
         }
-        // a stop that raced the clear is resumed uncounted: the id stays mapped to its run
+        // A stop that raced the clear is resumed uncounted: the id stays mapped to its run.
         bool retire = run.Hit(point);
-        // events arrive on the worker's reader thread, which also reads the responses: requests go out from another
+        // Events arrive on the worker's reader thread, which also reads responses, so requests go out from another.
         _ = Task.Run(async () =>
         {
             try

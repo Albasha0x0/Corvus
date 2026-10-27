@@ -32,11 +32,7 @@ public sealed record DartPool(long Start, long End, IReadOnlyList<DartString> St
     public int ImageStrings { get; init; }
 }
 
-/// <summary>
-/// The string pool of a Dart AOT isolate snapshot. Strings are stored as a varint length ((length &lt;&lt; 1) | one-byte flag in
-/// Dart 3, the plain length before) and their bytes; the scan takes printable runs between the snapshot's bounds, so it needs
-/// no knowledge of the version's cluster layout. Runs whose last byte is the next string's length continuation are trimmed.
-/// </summary>
+/// <summary>The string pool of a Dart AOT isolate snapshot, scanned as printable runs, so no cluster layout is needed.</summary>
 public static partial class DartPoolScan
 {
     public const int MaxStrings = 200_000;
@@ -56,7 +52,8 @@ public static partial class DartPoolScan
     {
         int start = (int)Math.Clamp(isolate.Offset, 0, data.Length);
         int end = (int)Math.Clamp(isolate.Offset + 4 + isolate.Length, start, data.Length);
-        var seen = new HashSet<ulong>(); // 64-bit hashes of the bytes: a repeat is never decoded
+        // 64-bit hashes of the bytes: a repeat is never decoded.
+        var seen = new HashSet<ulong>();
         var strings = new List<DartString>();
         var packages = new Dictionary<string, int>(StringComparer.Ordinal);
         var versions = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -127,7 +124,7 @@ public static partial class DartPoolScan
             while (e < run.Length && UriChar(run[e])) e++;
             var body = run[(at + prefix)..e];
             if (body.Length == 0 || !IsAsciiLetterOrUnderscore(body[0])) return;
-            // a run may continue past the URI: cut after the last ".dart"
+            // A run may continue past the URI: cut after the last ".dart".
             if (body.LastIndexOf(".dart"u8) is var dot and >= 0 && dot + 5 < body.Length) body = body[..(dot + 5)];
             if (kind == "package-uri" && (body.IndexOf((byte)'/') is var slash && slash <= 0 || !PackageName(body[..slash]))) return;
             Add(runStart + at, kind, run.Slice(at, prefix + body.Length));
@@ -158,12 +155,8 @@ public static partial class DartPoolScan
         return new DartPool(start, end, strings, list, [.. libraries], packageUris, dartUris, identifiers, capped) { ImageStrings = imageStrings };
     }
 
-    /// <summary>
-    /// The string objects of an image: at each object-aligned offset, a header whose class id is the image's dominant string
-    /// class (voted over all candidates; the two-byte string class follows it), a Smi length, and a size tag that matches the
-    /// object's size. Layout by target: 32-bit and compressed pointers put the length at +8 (4 bytes) and the characters at
-    /// +12; plain 64-bit puts an 8-byte length at +8 and the characters at +16. Objects align to 8 bytes on 32-bit, 16 on 64-bit.
-    /// </summary>
+    /// <summary>The string objects of an image, found by the voted string class id, a Smi length and a matching size tag.</summary>
+    /// <remarks>Length at +8, characters at +12 (32-bit, compressed) or +16 (64-bit); objects align to 8 or 16 bytes.</remarks>
     private static List<(long Offset, string Value, byte[] Bytes)> ImageObjects(ReadOnlySpan<byte> data, DartImage image, DartSnapshot isolate, CancellationToken ct)
     {
         bool bits32 = isolate.Architecture is "arm" or "ia32" or "riscv32" or "simarm";
@@ -187,7 +180,7 @@ public static partial class DartPoolScan
             return ((tags >> 12) & 0xFFFFF, n);
         }
 
-        // vote: one-byte candidates are objects whose characters are all printable
+        // Vote: one-byte candidates are objects whose characters are all printable.
         var votes = new Dictionary<uint, int>();
         for (long p = from; p + dataAt < to; p += align)
         {
@@ -274,14 +267,11 @@ public static partial class DartPoolScan
     private static bool LengthBefore(ReadOnlySpan<byte> data, int start, int n) =>
         start > 0 && (data[start - 1] == 0x80 + ((n << 1) | 1) || data[start - 1] == 0x80 + n);
 
-    // ".pub-cache/hosted/pub.dev/http-1.2.1/lib/..." (pub.dartlang.org before 2023)
+    // ".pub-cache/hosted/pub.dev/http-1.2.1/lib/..." (pub.dartlang.org before 2023).
     [GeneratedRegex(@"pub\.(?:dev|dartlang\.org)/([a-z_][a-z0-9_]*)-(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-+]+)?)/")]
     private static partial Regex PubPath();
 
-    /// <summary>
-    /// The Dart AOT image of a file: the file itself, else an APK's lib/&lt;abi&gt;/libapp.so (arm64-v8a first) or an .ipa's
-    /// Payload/X.app/Frameworks/App.framework/App; null when there is none. <paramref name="inner"/> names the entry.
-    /// </summary>
+    /// <summary>The Dart AOT image: the file, an APK's libapp.so (arm64-v8a first) or an .ipa's App.framework/App; else null.</summary>
     public static byte[]? AppImage(byte[] file, out string? inner, long maxBytes = 1L << 30)
     {
         inner = null;

@@ -25,11 +25,7 @@ final class GzfOps {
     /** The loader of packed programs, as ProgramLoader names it. */
     static final String LOADER = "GzfLoader";
 
-    /**
-     * Unpacks gzf into a throwaway project under scratch and writes the original file's bytes (the program's first file
-     * bytes) to out_dir under its recorded name (gzf_original). Result: name, sha256 and format as recorded, stored (whether
-     * the bytes were there), path when stored.
-     */
+    /** gzf_original: writes the archive's original file bytes to out_dir. Result: name, sha256, format, stored, path when stored. */
     static JsonElement original(Worker w, Worker.Request r) throws Exception {
         File gzf = new File(r.args.get("gzf").getAsString());
         File scratch = new File(r.args.get("scratch").getAsString());
@@ -82,10 +78,7 @@ final class GzfOps {
         }
     }
 
-    /**
-     * Opens the project copy project_dir/name.gpr and packs its program at program (the only one when absent) into out as a
-     * Ghidra archive (gpr_pack). Result: program, programs. The copy is the caller's: a user's project is never opened here.
-     */
+    /** gpr_pack: packs a program of the project copy project_dir/name.gpr into out; a user's project is never opened here. Result: program, programs. */
     static JsonElement packProject(Worker w, Worker.Request r) throws Exception {
         String dir = r.args.get("project_dir").getAsString();
         String name = r.args.get("name").getAsString();

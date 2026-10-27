@@ -7,10 +7,7 @@ using Corvus.Core;
 namespace Corvus.Native.Providers.Ida;
 
 /// <summary>One image open in an idalib worker; requests run one at a time (see <see cref="WorkerSessionBase"/>).</summary>
-/// <remarks>
-/// With <paramref name="connection"/>, the database open in IDA is attached instead: it is never opened, rebased,
-/// deleted or saved by the session, a dropped connection ends the session, and nothing is cached beside it.
-/// </remarks>
+/// <remarks>With <paramref name="connection"/>, attaches to IDA's open database: never opened, rebased, deleted or saved by the session, nothing cached beside it; a dropped connection ends the session.</remarks>
 internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, PythonInterpreter? python, NativeOpenOptions options, IdaConnection? connection = null)
     : WorkerSessionBase(options), INativeDecompilerSession
 {
@@ -74,15 +71,11 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
     // A connected database changes under the analyst: no output cache or state file is kept for it.
     protected override string? DatabaseLocation => connection == null && _databasePath.Length > 0 ? _databasePath : null;
 
-    // a raw layout is part of the database name: the same bytes at another base or processor are another database; so are import overrides.
-    // raw2: databases since a 32-bit raw image is a 32-bit database (older ones were left 64-bit)
+    // Raw layout and import overrides are part of the database name; raw2 marks 32-bit raw databases (older ones were 64-bit).
     private string Profile => (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "") +
                               (Options.Raw is { } raw ? "-raw2-" + raw.Key.Replace('@', '-') : "") + (Options.Overrides is { } ov ? "-" + ov.Key : "");
 
-    /// <summary>
-    /// The image's cache entry; when another server process holds it, a read-only snapshot of its last saved database,
-    /// else Conflict naming that process.
-    /// </summary>
+    /// <summary>The image's cache entry; when another server process holds it, a read-only snapshot of its saved database, else Conflict.</summary>
     protected override CacheEntry AcquireEntry(string imagePath, string? sha256) =>
         provider.Cache.Acquire(ProviderId, imagePath, sha256, (locked, sha) =>
         {
@@ -112,10 +105,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         Adopt();
     }
 
-    /// <summary>
-    /// Machine and image base from the PE header, or from our ELF / Mach-O reader (ELF: the lowest PT_LOAD page; Mach-O:
-    /// __TEXT, a thin image); rejects what IDA would load as something else.
-    /// </summary>
+    /// <summary>Machine and image base from the PE header or the ELF / Mach-O reader; rejects what IDA would load as something else.</summary>
     internal static (NativeArch, ulong) ReadHeader(string copy, string original)
     {
         switch (NativeImageLoader.DetectFile(copy))
@@ -171,7 +161,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
         var worker = provider.StartWorker(ida!, python!, Options.Symbols == SymbolMode.Off ? null : Options.PdbPath);
         SetWorker(worker);
-        // heartbeats before the open is decided (a slow worker start) belong to the start, not to an analysis
+        // Heartbeats before the open is decided belong to the start, not to an analysis.
         string stage = "start";
         worker.EventReceived += e =>
         {
@@ -192,7 +182,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         var processor = Options.Overrides?.Processor;
         if (Options.Raw is { } layout)
         {
-            // the binary loader with this processor, loaded at the base (-b takes 16-byte paragraphs)
+            // Binary loader with this processor at the base; -b takes 16-byte paragraphs.
             idaArgs.Add("-p" + (processor ?? layout.Isa.IdaProcessor));
             idaArgs.Add("-b" + (layout.Base >> 4).ToString("X", System.Globalization.CultureInfo.InvariantCulture));
             raw = IdaProvider.Args(("base", layout.Base), ("entry", layout.EntryOffset), ("bits", layout.Isa.Bits),
@@ -206,7 +196,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
                 ("disable", new JsonArray(ov.DisabledAnalyzers.Select(a => (JsonNode)a).ToArray())));
         var remaining = Options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-        // the analysis stops early enough to save what it has inside the open's limit, as Ghidra's does
+        // The analysis stops early enough to save its result inside the open's limit.
         var budget = Options.AnalysisBudget ?? remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2));
         var adopting = reuse ? _adopting : null;
         _adopting = null;
@@ -219,7 +209,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         }
         catch (ToolError e) when (adopting != null)
         {
-            // the session rebuilds the database from the input
+            // The session rebuilds the database from the input.
             _adoptionRejected = $"{adopting} was not used: {e.Message}";
             throw;
         }
@@ -257,7 +247,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         var loadedBase = info.GetProperty("imagebase").GetUInt64();
         if (loadedBase != _headerImageBase)
             throw new ToolError(ErrorCode.InvalidArgument,
-                $"IDA has {ImagePath} at 0x{loadedBase:X}; the image's own base is 0x{_headerImageBase:X}, and Corvus does not rebase a database open in IDA.",
+                $"IDA has {ImagePath} at 0x{loadedBase:X}, not its header base 0x{_headerImageBase:X}; a database open in IDA is not rebased.",
                 $"rebase it in IDA (Edit > Segments > Rebase program) to 0x{_headerImageBase:X}, or unset {IdaConnection.Variable}");
         ImageBase = loadedBase;
         DecompilerAvailable = info.GetProperty("decompiler").GetBoolean();
@@ -266,8 +256,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }
 
-    // Workaround: IDA 9.3 ends with code 2 on "Fatal registry error: The
-    // handle is invalid." when its registry mutex wait fails while other IDA
+    // Workaround: IDA 9.3 exits 2 with "Fatal registry error" when its registry mutex wait fails while other IDA
     // processes start; a new worker opens normally.
     protected override bool TransientStartFailure(ToolError error) =>
         error.Code == ErrorCode.ProviderUnavailable && error.Message.Contains("Fatal registry error", StringComparison.Ordinal);
@@ -360,7 +349,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         return await CachedManyAsync(rvas, async asked =>
         {
             var args = IdaProvider.Args(("rvas", new JsonArray(asked.Select(r => (JsonNode)r).ToArray())), ("seconds_per_item", secondsPerItem), ("budget_seconds", budgetSeconds));
-            // the worker keeps the budget; the request limit only catches a stuck worker
+            // The worker keeps the budget; the request limit only catches a stuck worker.
             return WorkerRows.DecompiledMany(await CallAsync("decompile_many", args, cancellationToken, timeout: TimeSpan.FromSeconds(budgetSeconds + 60)).ConfigureAwait(false));
         }).ConfigureAwait(false);
     }
@@ -486,7 +475,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
             }
             var methods = new JsonArray();
             foreach (var m in batch.Methods) methods.Add(new JsonArray(m.Rva, m.Class));
-            // a whole push decompiles nothing for method types; methods sent alone (on demand, when decompiled) may decompile
+            // A whole push decompiles nothing for method types; methods sent alone may decompile.
             classes = new JsonObject { ["ptr"] = batch.PointerSize, ["classes"] = list, ["methods"] = methods,
                 ["method_seconds"] = batch.Classes.Count == 0 ? Math.Max(1, RequestTimeout.TotalSeconds * 0.5) : 0 };
         }
@@ -514,7 +503,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
     public async Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
         uint? allFrom = null, CancellationToken cancellationToken = default)
     {
-        // the budget stays under the request timeout so slow decompilation ends the scan instead of the worker
+        // The budget stays under the request timeout so slow decompilation ends the scan, not the worker.
         double budget = Math.Clamp(seconds, 1, Math.Max(1, RequestTimeout.TotalSeconds * 0.6));
         var args = IdaProvider.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
             ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget), ("all_from", allFrom));
@@ -555,7 +544,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
     public Task<IReadOnlyList<NativeFrameOutcome>> GetFramesAsync(IReadOnlyList<uint> rvas, bool locals, CancellationToken cancellationToken = default) =>
         FramesAsync(rvas, locals, cancellationToken);
 
-    // the decompiler's locals are the slow part (a decompile): only that frame is kept across processes
+    // Only the frame with decompiler locals (a decompile) is cached across processes.
     public Task<NativeFrame> GetFrameAsync(uint rva, bool withLocals, CancellationToken cancellationToken = default) => withLocals
         ? CachedAsync(OutputCacheKinds.Frame, OutputCacheKinds.At(rva), () => FrameAsync(rva, true, cancellationToken))
         : FrameAsync(rva, false, cancellationToken);

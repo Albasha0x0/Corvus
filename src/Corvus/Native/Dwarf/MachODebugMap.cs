@@ -16,12 +16,7 @@ internal readonly record struct MachONlist(string Name, byte Type, byte Section,
     public bool IsDefinedInSection => !IsStab && (Type & 0x0E) == 0x0E;
 }
 
-/// <summary>
-/// The debug map a Mach-O linker leaves in an image without a dSYM: STABS entries naming each object file (N_OSO) and
-/// the final addresses of its functions (N_FUN pairs: address, then size), statics (N_STSYM, N_LCSYM) and globals
-/// (N_GSYM, addressed through the symbol table when the entry has none). The objects' DWARF is read in place, as
-/// dsymutil would link it.
-/// </summary>
+/// <summary>The STABS debug map of a Mach-O image without a dSYM: each object file (N_OSO) and its symbols' final addresses.</summary>
 internal static class MachODebugMap
 {
     private const int MaxSymbols = 1 << 22;
@@ -121,10 +116,7 @@ internal static class MachODebugMap
     }
 }
 
-/// <summary>
-/// Object addresses to image addresses for one debug map object: each symbol's extent in the object moved to its
-/// final address (a function's N_FUN size, else up to the object's next symbol).
-/// </summary>
+/// <summary>Maps one debug map object's addresses to image addresses, each symbol's extent moved to its final address.</summary>
 internal sealed class DebugAddressMap
 {
     private readonly (ulong From, ulong To, ulong Size)[] _forward, _back;

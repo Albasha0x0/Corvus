@@ -5,10 +5,7 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Facts an Electron binary and its app layout carry, read statically: fuses, Electron / Chromium / Node versions and the
-/// ASAR header hashes the app declares (Windows PE resource INTEGRITY/ELECTRONASAR, macOS Info.plist ElectronAsarIntegrity).
-/// </summary>
+/// <summary>Electron binary facts read statically: fuses, Electron, Chromium and Node versions, and declared ASAR header hashes.</summary>
 public static class Electron
 {
     public static ReadOnlySpan<byte> FuseSentinel => "dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX"u8;
@@ -52,14 +49,16 @@ public static class Electron
             int filled = carried + stream.ReadAtLeast(buffer.AsSpan(carried), buffer.Length - carried, throwOnEndOfStream: false);
             bool end = filled < buffer.Length;
             var span = buffer.AsSpan(0, filled);
-            int limit = end ? filled : filled - Overlap; // a match starting in the overlap is seen in the next window
+            // A match starting in the overlap is seen in the next window.
+            int limit = end ? filled : filled - Overlap;
             for (int at = 0; (at = IndexFrom(span, FuseSentinel, at, limit)) >= 0; at++)
             {
                 if (sentinels++ > 0) continue;
                 var tail = span[(at + FuseSentinel.Length)..];
                 if (tail.Length < 2) continue;
                 wire = tail[0];
-                if (wire != 1) continue; // another wire version is reported, not guessed
+                // Another wire version is reported, not guessed.
+                if (wire != 1) continue;
                 int count = Math.Min(tail[1], tail.Length - 2);
                 for (int i = 0; i < count; i++)
                     fuses.Add(new Fuse(i, i < FuseNames.Length ? FuseNames[i] : $"fuse_{i}", tail[2 + i] switch
@@ -76,7 +75,7 @@ public static class Electron
                     var version = VersionAt(span, at + 10);
                     if (version == null) continue;
                     electron = version;
-                    // the user agent template: "Chrome/<chromium> Electron/<electron>"
+                    // The user agent template: "Chrome/<chromium> Electron/<electron>".
                     int chrome = span[Math.Max(0, at - 40)..at].LastIndexOf("Chrome/"u8);
                     if (chrome >= 0)
                     {
@@ -123,10 +122,7 @@ public static class Electron
         return dots >= 2 && end > at && char.IsAsciiDigit((char)span[at]) ? Encoding.ASCII.GetString(span[at..end]).TrimEnd('.', '-') : null;
     }
 
-    /// <summary>
-    /// The folder an app's archives belong to and its likely main executables, largest first: for &lt;root&gt;/resources/x.asar the
-    /// root's .exe files (uninstallers and helpers skipped) or extension-less ELF files; for a macOS bundle the framework binary.
-    /// </summary>
+    /// <summary>The app folder of an archive and its likely main executables, largest first, helpers and uninstallers skipped.</summary>
     public static (string? Root, List<string> Executables) LayoutOf(string archivePath)
     {
         var resources = Path.GetDirectoryName(Path.GetFullPath(archivePath));
@@ -176,10 +172,7 @@ public static class Electron
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
     }
 
-    /// <summary>
-    /// The header hash declared for <paramref name="archivePath"/> by its app: the PE resource of an executable beside it on
-    /// Windows, Info.plist on macOS. Null when the app declares none (the integrity fuse is then usually off too).
-    /// </summary>
+    /// <summary>The header hash the app declares for the archive (PE resource or Info.plist); null when it declares none.</summary>
     public static DeclaredHash? DeclaredFor(string archivePath)
     {
         var full = Path.GetFullPath(archivePath);
@@ -216,7 +209,8 @@ public static class Electron
                 if (item.ValueKind == JsonValueKind.Object && Str(item, "file") is { } file && Str(item, "value") is { } hash)
                     result.Add(new DeclaredHash(source, file, Str(item, "alg") ?? "SHA256", hash));
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException) { } // InvalidOperationException: invalid UTF-8 in a string
+        // InvalidOperationException: invalid UTF-8 in a string.
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
         return result;
 
         static string? Str(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
@@ -240,10 +234,7 @@ public static class Electron
         return result;
     }
 
-    /// <summary>
-    /// The data of the resource of type "INTEGRITY", name "ELECTRONASAR", read through the section table and the resource
-    /// section only (the executable is not read whole). Null when absent or malformed.
-    /// </summary>
+    /// <summary>The INTEGRITY/ELECTRONASAR resource, read from the resource section only; null when absent or malformed.</summary>
     public static byte[]? IntegrityResource(Stream s)
     {
         const int MaxSection = 64 * 1024 * 1024;
@@ -277,7 +268,7 @@ public static class Electron
 
     private static byte[]? FindResource(byte[] section, uint sectionVa, int root)
     {
-        // type -> name -> language -> data entry
+        // Type, then name, then language, then the data entry.
         int? type = Child(root, "INTEGRITY"), item = type is { } t ? Child(t, "ELECTRONASAR") : null, language = item is { } n ? Child(n, null) : null;
         if (language is not { } data || data + 16 > section.Length) return null;
         uint rva = BinaryPrimitives.ReadUInt32LittleEndian(section.AsSpan(data)), size = BinaryPrimitives.ReadUInt32LittleEndian(section.AsSpan(data + 4));

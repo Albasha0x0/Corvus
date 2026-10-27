@@ -5,10 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Services.Web;
 
-/// <summary>
-/// React Server Components payloads (the flight format): rows of id:TAG data, read from a raw response (text/x-component,
-/// Next.js .rsc files) or from the self.__next_f.push chunks of a page. Nothing is run; the rows are decoded and joined.
-/// </summary>
+/// <summary>Decodes React Server Components (flight) payloads from a raw stream or a page's self.__next_f.push chunks, without running them.</summary>
 public static partial class FlightData
 {
     /// <summary>A client module reference (an I row): the row, the bundler's module id, its chunk files and the export it names.</summary>

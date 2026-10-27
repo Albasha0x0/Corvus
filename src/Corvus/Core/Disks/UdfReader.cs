@@ -4,11 +4,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Core.Disks;
 
-/// <summary>
-/// UDF (ECMA-167, UDF 1.02 to 2.01 with type 1 partition maps): the anchor at sector 256, the volume descriptor sequence
-/// for the partition and the file set, then file entries and extended file entries with short, long or embedded allocation
-/// descriptors, directories from their file identifier descriptors.
-/// </summary>
+/// <summary>UDF file systems (ECMA-167, UDF 1.02 to 2.01, type 1 partition maps) from the anchor at sector 256.</summary>
 internal static class UdfReader
 {
     private const int Sector = 2048;
@@ -51,7 +47,8 @@ internal static class UdfReader
             else if (tag == 8) break;
         }
         if (partitionStart < 0 || fileSet == null) return null;
-        if (otherMaps) return null; // virtual, sparable or metadata partitions: ISO 9660 covers these images
+        // Virtual, sparable or metadata partitions: ISO 9660 covers these images.
+        if (otherMaps) return null;
         var v = new Volume(src, partitionStart, blockSize, allFiles, limits, ct);
         v.Tree.Notes.Add($"UDF, volume '{label}'");
         return v.Walk(fileSet.Value.Lbn);
@@ -131,7 +128,8 @@ internal static class UdfReader
             {
                 if (done >= want) break;
                 int n = (int)Math.Min(length, want - done);
-                if (at >= 0) src.Read(at, n).CopyTo(o, done); // an allocated but unrecorded extent reads as zeros
+                // An allocated but unrecorded extent reads as zeros.
+                if (at >= 0) src.Read(at, n).CopyTo(o, done);
                 done += n;
             }
             return o;
@@ -155,7 +153,8 @@ internal static class UdfReader
                 if (pos + 38 + iu + nameLen > d.Length) break;
                 var name = Characters(d.AsSpan(pos + 38 + iu, nameLen));
                 pos += total;
-                if ((chars & 0x0C) != 0 || !FsTree.UsableName(name)) continue; // parent entry, deleted entry
+                // Parent and deleted entries.
+                if ((chars & 0x0C) != 0 || !FsTree.UsableName(name)) continue;
                 var path = prefix.Length == 0 ? name : prefix + "/" + name;
                 try
                 {

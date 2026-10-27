@@ -3,10 +3,7 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Ttd;
 
-/// <summary>
-/// Sessions on a TTD recording (<c>ttd:PATH</c>), replayed by this program's own <c>ttd-worker</c> with the TTD Replay API
-/// (CORVUS_TTD names the folder holding TTDReplay.dll).
-/// </summary>
+/// <summary>Sessions on a TTD recording (<c>ttd:PATH</c>), replayed by <c>ttd-worker</c>; CORVUS_TTD names the TTDReplay.dll folder.</summary>
 public sealed class TtdBackend : ILiveBackend
 {
     public string Name => "ttd";

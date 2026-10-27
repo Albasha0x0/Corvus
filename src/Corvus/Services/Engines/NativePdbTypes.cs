@@ -5,15 +5,9 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Brings an image's PDB types (structs, classes, unions, enums, typedefs, function prototypes) into its engine
-/// database: through the engine's own PDB loader (IDA's pdb plugin, Ghidra's PDB applicator), else, when that loader is not available or does
-/// not take the file, as C declarations written from the PDB's type stream (<see cref="PdbTypes"/>). The PDB's
-/// identity (GUID, age, file size) and the route are recorded as a stamp in the database and saved with it, so a
-/// database that already has this PDB's types is not loaded again (in this or a later session); a different PDB for
-/// the same image (load_pdb) loads again. A PDB IDA loaded itself during the auto-analysis of a new database is
-/// recognized and not loaded twice. Loading replaces the names pushed into the database, so they are pushed again.
-/// </summary>
+/// <summary>Brings an image's PDB types into its engine database through the engine's PDB loader, else as C declarations
+/// from the type stream; a saved stamp of the PDB identity skips repeat loads. Loading replaces the pushed names, so
+/// they are pushed again.</summary>
 public sealed class NativePdbTypes
 {
     public const string StampKey = "pdb";
@@ -35,12 +29,7 @@ public sealed class NativePdbTypes
         public int Failures;
     }
 
-    /// <summary>
-    /// The PDB types in a session's database. <see cref="Route"/>: ida_pdb_loader, ghidra_pdb_loader or own_tpi_reader, null when they
-    /// could not be applied (<see cref="Error"/>); <see cref="AlreadyInDatabase"/>: recorded earlier;
-    /// <see cref="FromAnalysis"/>: the engine loaded the PDB itself during auto-analysis; <see cref="FallbackReason"/>: why the
-    /// engine's loader was not used.
-    /// </summary>
+    /// <summary>The PDB types in a session's database; <see cref="Route"/> is null when they could not be applied.</summary>
     public sealed record PdbTypeSource(string PdbPath, string Identity, string? Route, bool AlreadyInDatabase, bool FromAnalysis, int TypesAdded,
         PdbTypeDeclarations? Own, TypeBatchResult? OwnApplied, string? FallbackReason, string? Error, TimeSpan Elapsed);
 
@@ -53,10 +42,7 @@ public sealed class NativePdbTypes
 
     private static readonly ConditionalWeakTable<LoadedNative, SourceCache> Sources = new();
 
-    /// <summary>
-    /// The PDB the engine should have and its identity, or null when the image has none; looked up again when a PDB
-    /// is loaded for the image (load_pdb), not on every call.
-    /// </summary>
+    /// <summary>The image's PDB and its identity, or null when it has none; cached until another PDB is loaded.</summary>
     internal static (string Path, string Identity, bool Matches, PdbFile? Read)? Source(LoadedNative native)
     {
         var cache = Sources.GetValue(native, _ => new SourceCache());
@@ -70,7 +56,7 @@ public sealed class NativePdbTypes
 
     private static (string Path, string Identity, bool Matches, PdbFile? Read)? Locate(LoadedNative native)
     {
-        // DWARF is read by the server only (the engines see the image, not its separate debug file)
+        // Only the server reads DWARF; the engines see the image, not its separate debug file.
         if (PdbService.StateOf(native) is { Pdb.Format: DebugInfoFormat.Dwarf } dwarf)
             return (dwarf.Path, PdbService.Identity(dwarf.Pdb).Replace(' ', '-'), dwarf.Verified, dwarf.Pdb);
         var path = PdbService.PathForEngines(native);
@@ -94,10 +80,8 @@ public sealed class NativePdbTypes
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError or InvalidDataException) { return null; }
     }
 
-    /// <summary>
-    /// Makes the session's database have the image's PDB types; null when the image has no PDB. Engine failures are
-    /// reported in the result (and tried again on the next call), cancellation propagates.
-    /// </summary>
+    /// <summary>Brings the image's PDB types into the session's database; null when it has no PDB. Engine failures go in
+    /// the result.</summary>
     /// <param name="openedWith">The PDB path the session was opened with (IDA searched there first during analysis).</param>
     public async Task<PdbTypeSource?> EnsureAsync(LoadedNative native, INativeDecompilerSession session, string? openedWith, CancellationToken ct)
     {
@@ -107,7 +91,7 @@ public sealed class NativePdbTypes
         await state.Gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // applied, or failed twice for this PDB (a PDB that times out is not loaded on every call)
+            // Stop after two failures, so a PDB that times out is not loaded on every call.
             if (state.Identity == s.Identity && (state.Result is { Route: not null } || state.Failures >= 2)) return state.Result;
             if (state.Identity != s.Identity) state.Failures = 0;
             var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -140,7 +124,7 @@ public sealed class NativePdbTypes
         if (dwarf) fallback = "DWARF";
         else if (!PreferOwnReader)
         {
-            // the engine was given the PDB's path when it analyzed a new database: a PDB it loaded then (only matching ones) is this one
+            // A new database was analyzed with this PDB's path, so a matching PDB it loaded then is this one.
             bool trust = !session.ReusedDatabase && matches && string.Equals(openedWith, path, StringComparison.OrdinalIgnoreCase);
             var route = session.ProviderId == "ghidra" ? RouteGhidra : RouteIda;
             var loaded = await session.LoadPdbAsync(path, StampKey, identity + "|" + route, trust, ct).ConfigureAwait(false);
@@ -155,10 +139,10 @@ public sealed class NativePdbTypes
         }
         else fallback = "own reader requested";
 
-        // the declarations from the PDB's type stream
+        // The declarations from the PDB's type stream.
         var pdb = read ?? await Task.Run(() => PdbFile.Open(path, native.Image.Sections, ct), ct).ConfigureAwait(false);
         var own = await Task.Run(() => PdbTypes.Build(pdb, native.Image.Is64Bit ? 8 : 4, ct), ct).ConfigureAwait(false);
-        // DWARF functions use the platform's default convention, which __cdecl does not name on System V x64 or ARM
+        // DWARF functions use the platform default convention, which __cdecl misnames on System V x64 and ARM.
         string Convention(string c) => dwarf ? c.Replace("__cdecl ", "", StringComparison.Ordinal) : c;
         var batch = new NativeTypeBatch(Convention(own.Declarations), own.Prototypes.Select(p => new NativePrototype(p.Rva, Convention(p.Declaration))).ToList(), [], [],
             native.Image.Is64Bit ? 8 : 4);
@@ -171,9 +155,7 @@ public sealed class NativePdbTypes
     public static PdbTypeSource? Current(INativeDecompilerSession session) =>
         States.TryGetValue(session, out var s) ? s.Result : null;
 
-    /// <summary>
-    /// <see cref="Current"/> for tool output: a load is reported once, later calls see the types as already in the database.
-    /// </summary>
+    /// <summary><see cref="Current"/> for tool output; a load is reported once, then as already in the database.</summary>
     public static PdbTypeSource? Report(INativeDecompilerSession session)
     {
         if (!States.TryGetValue(session, out var s)) return null;

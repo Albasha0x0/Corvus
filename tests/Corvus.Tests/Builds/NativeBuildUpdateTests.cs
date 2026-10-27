@@ -12,11 +12,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// update_to_new_build: names, imported layers, patches (stub extensions re-created), code patterns and the Il2Cpp method
-/// mapping carried from an old build to a new one in one call. Two synthetic builds cover every category and a refusal per
-/// reason; a Slow test runs it on real build pairs.
-/// </summary>
+/// <summary>update_to_new_build carries names, layers, patches, code patterns and the metadata method map to a new build in one call.</summary>
 public class NativeBuildUpdateTests(ITestOutputHelper output)
 {
     internal sealed class Harness : IDisposable
@@ -39,7 +35,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
             Code.SymbolStarts = (n, _) => _starts.TryGetValue(n, out var s) ? s : null;
             Edits = new NativeEditService(Env.Workspace, Code);
             Notes = new NotesService(store);
-            Tools = new BuildUpdateTools(Env.Workspace, Code, Edits, pdb, Env.Il2Cpp, Env.Il2CppNavigator, new Il2CppNativeNames(Env.Il2Cpp, Env.Il2CppNavigator, Code),
+            Tools = new BuildUpdateTools(Env.Workspace, Code, Edits, pdb, Env.AotMetadata, Env.AotNavigator, new AotNativeNames(Env.AotMetadata, Env.AotNavigator, Code),
                 noteStore: Notes, comparer: new AssemblyComparer(Env.Workspace));
         }
 
@@ -104,7 +100,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     internal const uint Shift = 0x10;
     internal static string Va(uint rva) => $"0x{0x180000000UL + rva:X}";
 
-    /// <summary>The old build with user names, a comment, a PDB and an Il2Cpp layer, and five patches (two of which cannot carry).</summary>
+    /// <summary>The old build with user names, a comment, a PDB and a metadata layer, and five patches (two of which cannot carry).</summary>
     private static async Task<(LoadedNative Old, LoadedNative New)> Prepare(Harness h)
     {
         var (oldN, oldIdx) = await h.Load(Image(false, 0), "old.dll", OldStarts);
@@ -113,8 +109,8 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         ann.SetMany([(F1, "ReadGlobal"), (F5, "Removed"), (F6, "Duplicated")], [(F1 + 6, "adds the bias")]);
         foreach (var (rva, name) in ann.Names()) oldIdx.SetUserName(rva, name);
         NativeNameLayers.Of(oldN).Set(new NativeNameLayers.Layer(NativeNameSource.Pdb, new Dictionary<uint, string> { [F2] = "pdb_f2" }, new Dictionary<uint, string>(), "old.pdb"), oldIdx);
-        NativeNameLayers.Of(oldN).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [F3] = "App_Thing__Update" },
-            new Dictionary<uint, string> { [F3] = "App.Thing::Update()" }, "Il2Cpp metadata (test)"), oldIdx);
+        NativeNameLayers.Of(oldN).Set(new NativeNameLayers.Layer(NativeNameSource.Metadata, new Dictionary<uint, string> { [F3] = "App_Thing__Update" },
+            new Dictionary<uint, string> { [F3] = "App.Thing::Update()" }, "AOT metadata (test)"), oldIdx);
 
         async Task Apply(Func<NativeCodeIndex, NativeEditService.PatchResult> make)
         {
@@ -242,7 +238,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(("refused", "function_not_matched"), One(dry, "names", i => i.Value == "Removed") is var removed ? (removed.Outcome, removed.Reason) : default);
         Assert.Equal("ambiguous", One(dry, "names", i => i.Value == "Duplicated").Outcome);
         Assert.Equal(("not_applicable", "pdb_mismatch"), One(dry, "pdb", _ => true) is var p ? (p.Outcome, p.Reason) : default);
-        var il2 = One(dry, "il2cpp_names", i => i.Value == "App_Thing__Update");
+        var il2 = One(dry, "metadata_names", i => i.Value == "App_Thing__Update");
         Assert.Equal(("would_carry", Va(F3 + Shift)), (il2.Outcome, il2.NewAddress));
 
         Assert.Equal(Va(F1 + Shift + 6), One(dry, "patches", i => i.OldAddress == Va(F1 + 6)).NewAddress);
@@ -257,23 +253,23 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal("carried", One(dry, "patterns", i => i.OldAddress == Va(F1)).Outcome);
         Assert.Equal("not_found", One(dry, "patterns", i => i.OldAddress == Va(F5)).Reason);
         Assert.Equal("now_ambiguous", One(dry, "patterns", i => i.OldAddress == Va(F6)).Reason);
-        Assert.Equal("not_applicable", dry.Categories.Single(c => c.Category == "il2cpp_mapping").Status);
+        Assert.Equal("not_applicable", dry.Categories.Single(c => c.Category == "method_mapping").Status);
         Assert.Equal("out_of_scope", dry.Categories.Single(c => c.Category == "dotnet").Status);
         var patches = dry.Categories.Single(c => c.Category == "patches");
         Assert.Equal((3, 2), (patches.Carried, patches.Refused));
         Assert.Contains(patches.Reasons, r => r.Reason == "displaced_bytes_differ");
         Assert.False(newN.HasPatches);
         Assert.Equal(0, h.Code.Annotations(newN).NameCount);
-        Assert.Null(NativeNameLayers.OfOrNull(newN)?.Get(NativeNameSource.Il2Cpp));
+        Assert.Null(NativeNameLayers.OfOrNull(newN)?.Get(NativeNameSource.Metadata));
 
-        // the tool: summary, category reasons and rows in the text
+        // The tool: summary, category reasons and rows in the text.
         var (tool, text) = await BuildToolCalls.Collected<BuildUpdateTools.UpdateReport>(() => h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: ["patches"], limit: 1));
         Assert.Equal((1, 0), (tool.Items.Count, tool.Offset));
         Assert.StartsWith("Dry run (nothing changed): ", text);
         Assert.Contains("patches (previewed): ", text);
         Assert.Contains("[More: offset=1]", text);
 
-        // paging and filters
+        // Paging and filters.
         var page = await h.Tools.Update(oldN.Id, newN.Id, include: ["patches"], outcome: "refused", limit: 1);
         Assert.Equal((2, 1), (page.Total, page.Items.Count));
         Assert.Equal("not_included", page.Categories.Single(c => c.Category == "names").Status);
@@ -290,7 +286,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         img.Read(F3 + Shift, b); Assert.True(b[0] is 0xE9 or 0xEB, $"stub site starts with 0x{b[0]:X2}");
         Assert.NotNull(newN.Patches.Patches.Single(x => x.Rva == F3 + Shift).Stub?.NewAssembly);
         Assert.Equal("ReadGlobal", h.Code.Annotations(newN).NameAt(F1 + Shift));
-        var carried = NativeNameLayers.Of(newN).Get(NativeNameSource.Il2Cpp);
+        var carried = NativeNameLayers.Of(newN).Get(NativeNameSource.Metadata);
         Assert.StartsWith("carried by match from", carried!.Origin);
         Assert.Equal("App_Thing__Update", carried.Names[F3 + Shift]);
         Assert.Contains("confidence", carried.Comments[F3 + Shift]);
@@ -300,7 +296,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(3, newN.Patches.Patches.Count);
         Assert.Equal(3, again.Categories.Single(c => c.Category == "patches").AlreadyPresent);
         Assert.Equal("already_present", One(again, "names", i => i.Value == "ReadGlobal").Outcome);
-        Assert.Equal("already_present", One(again, "il2cpp_names", i => i.Value == "App_Thing__Update").Outcome);
+        Assert.Equal("already_present", One(again, "metadata_names", i => i.Value == "App_Thing__Update").Outcome);
     }
 
     [Fact]
@@ -312,7 +308,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PrepareExtendedPatch(oldIdx, F3, [0x90], null, StubMode.Before, "stub", null), dryRun: false);
         var json = h.Dir.File("set.json");
         await new NativePatchTools(h.Env.Workspace, h.Code, h.Edits).Export(oldN.Id, json, "json");
-        // a patch set exported before the stub's new code was recorded
+        // A patch set exported before the stub's new code was recorded.
         File.WriteAllText(json, System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(json), "\"newCode\":\\s*\"[0-9A-F]*\"", "\"newCode\": null"));
         var r = await h.Tools.Update(oldN.Id, newN.Id, include: ["patches"], patchSet: json);
         Assert.Equal(("refused", "stub_code_unknown"), One(r, "patches", _ => true) is var e ? (e.Outcome, e.Reason) : default);
@@ -323,12 +319,12 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Il2Cpp_methods_map_by_metadata_identity_and_are_cross_checked()
+    public async Task Metadata_methods_map_by_identity_and_are_cross_checked()
     {
         using var h = new Harness();
         var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
         var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
-        // the new build's dummy assembly: the fixture with NativeThing.First at F1+Shift (the matched function) and Second at 0x1150
+        // The new build's dummy assembly: the fixture with NativeThing.First at F1+Shift (the matched function) and Second at 0x1150.
         var module = ModuleDefMD.Load(File.ReadAllBytes(Env.FixturePath));
         var thing = module.Find("Fixture.Native.NativeThing", false);
         void Move(string method, string rva)
@@ -344,17 +340,17 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         module.Write(path);
         var v2 = h.Env.Workspace.LoadAny(path).Assembly!;
 
-        var r = await h.Tools.Update(oldN.Id, newN.Id, include: ["il2cpp"], oldIl2Cpp: [h.Env.Fixture.Id], newIl2Cpp: [v2.Id], limit: 2000);
-        var map = r.Il2CppMapping!;
+        var r = await h.Tools.Update(oldN.Id, newN.Id, include: ["metadata"], oldMetadata: [h.Env.Fixture.Id], newMetadata: [v2.Id], limit: 2000);
+        var map = r.MethodMapping!;
         output.WriteLine(r.Summary);
         Assert.True(map.Agree >= 1, r.Summary);
-        var first = One(r, "il2cpp_mapping", i => i.Value.Contains("NativeThing::First"));
+        var first = One(r, "method_mapping", i => i.Value.Contains("NativeThing::First"));
         Assert.Equal(("carried", "agree", Va(F1 + Shift)), (first.Outcome, first.Reason, first.NewAddress));
-        var second = One(r, "il2cpp_mapping", i => i.Value.Contains("NativeThing::Second"));
+        var second = One(r, "method_mapping", i => i.Value.Contains("NativeThing::Second"));
         Assert.Equal(Va(0x1150), second.NewAddress);
         Assert.Contains(second.Reason, new[] { "metadata_only", "disagree" });
-        // the new build has its own metadata: its names are re-applied from it, not carried
-        Assert.Equal("reapply_from_metadata", One(r, "il2cpp_names", _ => true).Reason);
+        // The new build has its own metadata: its names are re-applied from it, not carried.
+        Assert.Equal("reapply_from_metadata", One(r, "metadata_names", _ => true).Reason);
     }
 
     /// <summary>compare_native_images: one view's rows as items, by old address, in both parts and paged by rows.</summary>
@@ -480,7 +476,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal("int mine(void)", carried.Types[F2 + Shift]);
         Assert.Equal(new Corvus.Native.Providers.NativeLocalEdit(F2 + Shift, "v1", null, "count", "int"), Assert.Single(carried.Locals[F2 + Shift]));
         Assert.Equal(new Corvus.Native.Providers.NativeStackVarEdit(F3 + Shift, 0x20, "buffer", "char[16]"), Assert.Single(carried.StackVars[F3 + Shift]));
-        // the edit keeps its length at the mapped start
+        // The edit keeps its length at the mapped start.
         Assert.Equal(new Corvus.Native.Providers.NativeAnalysisEdit(F1 + Shift, "function", F1 + Shift + 0x10, null), Assert.Single(carried.Analysis));
         Assert.Equal(new Corvus.Native.Providers.NativeOperandEdit(F1 + Shift, 1, "dec", null), Assert.Single(carried.Operands).Value);
         Assert.Equal(2, Assert.Single(carried.EnumMembers).Value.Value);
@@ -493,11 +489,11 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Il2Cpp_build_map_statuses()
+    public void The_metadata_build_map_gives_each_method_a_status()
     {
-        var old = new List<Il2CppBuildMap.Method> { new("a|A", 0x10), new("a|B", 0x20), new("a|C", 0x30), new("a|D", 0x40), new("a|E", 0x50), new("a|E", 0x58) };
-        var @new = new List<Il2CppBuildMap.Method> { new("a|A", 0x110), new("a|B", 0x120), new("a|C", 0x130), new("a|E", 0x150), new("a|F", 0x160) };
-        var r = Il2CppBuildMap.Map(old, @new, rva => rva switch
+        var old = new List<AotBuildMap.Method> { new("a|A", 0x10), new("a|B", 0x20), new("a|C", 0x30), new("a|D", 0x40), new("a|E", 0x50), new("a|E", 0x58) };
+        var @new = new List<AotBuildMap.Method> { new("a|A", 0x110), new("a|B", 0x120), new("a|C", 0x130), new("a|E", 0x150), new("a|F", 0x160) };
+        var r = AotBuildMap.Map(old, @new, rva => rva switch
         {
             0x10 => new(0x110, 1, "identical_bytes", 1, "function_start"),
             0x20 => new(0x199, 5, "fuzzy", 0.6, "function_start"),
@@ -532,7 +528,7 @@ public class NativeBuildUpdateRealTests(ITestOutputHelper output)
             if (oldIdx.Support != CodeSupport.Full || newIdx.Support != CodeSupport.Full) continue;
             load.Stop();
 
-            // work on the old build: names on 50 functions, a comment, and two patches
+            // Work on the old build: names on 50 functions, a comment, and two patches.
             var funcs = oldIdx.Functions.Where(f => f.End - f.Start >= 16).OrderBy(f => f.Start).ToList();
             var named = funcs.Where((_, i) => i % Math.Max(1, funcs.Count / 50) == 0).Take(50).ToList();
             var ann = h.Code.Annotations(oldN);

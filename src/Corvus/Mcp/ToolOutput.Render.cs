@@ -6,10 +6,7 @@ using Corvus.Core;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// Readable text of a record for tools without a renderer of their own: "key: value" lines, nested objects indented, arrays
-/// of objects as aligned columns, a list's rows with one footer. File-derived values have markers escaped and stay on one line.
-/// </summary>
+/// <summary>Readable text of a record for tools without a renderer: key: value lines, object arrays as columns; file values escaped, one line each.</summary>
 internal static class RecordText
 {
     private const int MaxColumn = 40, MaxColumns = 12, InlineList = 160;

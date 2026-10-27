@@ -6,14 +6,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// Calls through static delegate fields of an assembly (<c>ldsfld F; args; Invoke</c>) and the method each field's
-/// delegate calls, as the evaluator computes it from the field's type initializer (see
-/// <see cref="MethodSimplifier"/>'s delegate pass). For navigation: the call graph, find_references and find_callees show
-/// these calls as calls of the target. A field that is null during its own type's initialization still calls only that
-/// target, so unlike the rewrite the index does not need the call site to run after the initialization. Computed once
-/// per assembly version, within a time budget; fields it cannot resolve are left out.
-/// </summary>
+/// <summary>Calls through static delegate fields (<c>ldsfld F; args; Invoke</c>) and their evaluated targets, per assembly version; unresolved fields are left out.</summary>
 internal static class DelegateCalls
 {
     public sealed record Site(MethodDef Caller, uint Offset, FieldDef Field, IMethod Target);
@@ -54,7 +47,7 @@ internal static class DelegateCalls
     private static List<Site> Compute(LoadedAssembly asm, CancellationToken ct)
     {
         var module = asm.Module;
-        // Candidate sites first, from the raw IL: most assemblies have none, and then nothing is evaluated.
+        // Candidates come from raw IL first: most assemblies have none, so nothing is evaluated.
         var candidates = new List<(MethodDef Caller, uint Offset, FieldDef Field, int Arguments)>();
         foreach (var method in module.GetTypes().SelectMany(t => t.Methods))
         {

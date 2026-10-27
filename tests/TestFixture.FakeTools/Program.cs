@@ -3,13 +3,16 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using TestFixture.FakeTools;
 
-// Modes: "-version" answers like a JDK; "version" like adb; "... -jar vineflower*.jar ... <in> <out>" writes sources like Vineflower;
-// "... -jar <jar> ..." serves MCP over stdio like the JADX server;
-// anything else follows the rules of the JSON script named by ADB_FAKE_SCRIPT: the first rule whose "match" regex finds the
-// joined arguments prints "stdout" ("repeat" times), "bytes" (base64, "repeat" times), "printEnv" (a variable) and "stderr",
-// writes "file" (base64) to the last argument, and exits with "exit".
-// "job-parent <program> <arguments>" stands in for a test host: it enters a kill-on-close job, starts the program, prints its
-// process id and waits to be ended.
+// Modes:
+//   -version                               answers like a JDK
+//   version                                answers like adb
+//   ... -jar vineflower*.jar ... <in> <out> writes sources like Vineflower
+//   ... -jar <jar> ...                     serves MCP over stdio like the JADX server
+//   job-parent <program> <arguments>       enters a kill-on-close job, starts the program, prints its pid, waits
+//   anything else                          the first rule in the ADB_FAKE_SCRIPT JSON whose "match" regex finds the
+//                                          joined arguments: prints "stdout" and "bytes" (base64) "repeat" times,
+//                                          "printEnv" and "stderr", writes "file" (base64) to the last argument,
+//                                          exits with "exit".
 if (args is ["job-parent", var program, .. var arguments])
 {
     KillOnCloseJob.EnterCurrentProcess();
@@ -32,8 +35,7 @@ if (script["barriers"]?[string.Join(' ', args)] is JsonObject barrier)
     var limit = TimeSpan.FromSeconds(barrier["seconds"]?.GetValue<int>() ?? 20);
     for (var waited = System.Diagnostics.Stopwatch.StartNew(); !File.Exists(other); Thread.Sleep(20))
     {
-        // A deleted script means its test has ended: a call another test started on this copy stops waiting, so the
-        // running copy does not keep the test's folder from being deleted.
+        // A deleted script means its test ended: stop, so this copy does not hold the test's folder.
         if (!File.Exists(scriptPath))
             return 1;
         if (waited.Elapsed > limit)
@@ -58,8 +60,7 @@ if (args is ["spin", var spinMs])
     Console.ReadLine();
     return 0;
 }
-// "hold <MB>" writes that much memory, prints "held" and waits to be ended: a large address space makes its exit after a
-// kill take measurable time.
+// "hold <MB>" writes that much memory, prints "held" and waits; the large address space makes its exit take measurable time.
 if (args is ["hold", var holdMb])
 {
     var held = new byte[int.Parse(holdMb)][];
@@ -122,9 +123,8 @@ static int Vineflower(string[] args)
     return 0;
 }
 
-// Each call writes an entry of its own to the log folder, so calls started side by side (server_status probes every
-// tool at once) never wait on one file; a shared file failed a call when its holder was descheduled past the wait.
-// The name is a system-wide monotonic timestamp, so entries sort in call order; the rename makes each appear whole.
+// One file per call, so parallel calls never wait on a shared file; the timestamp name sorts entries in call order and
+// the rename makes each appear whole.
 static void Log(string? log, string line)
 {
     if (log == null) return;
@@ -144,7 +144,8 @@ static int Jadx(JsonObject script, string? log)
     {
         if (line.Length == 0) continue;
         var request = JsonNode.Parse(line)!.AsObject();
-        if (request["id"] is not { } id) continue; // notifications
+        // Notifications carry no id.
+        if (request["id"] is not { } id) continue;
         var method = request["method"]!.GetValue<string>();
         JsonNode result;
         if (method == "initialize")

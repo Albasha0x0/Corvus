@@ -29,7 +29,7 @@
             "type": "string"
           },
           "sources": {
-            "description": "user, pdb, nativeaot, il2cpp, objc, swift, ida, ghidra, export or symbol.",
+            "description": "user, pdb, nativeaot, metadata, objc, swift, ida, ghidra, export or symbol.",
             "type": "array",
             "items": {
               "type": "string"

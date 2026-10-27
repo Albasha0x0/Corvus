@@ -66,8 +66,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     private const string AllowUnsafeDescription = "Allow mid-instruction, past-function-end, header or loader-written bytes.";
 
     [McpServerTool(Name = "rename_native", Title = "Name a native address", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Name a native address: used by every native tool, pushed to the engines, kept per file SHA-256, undoable by editId. " +
-                 "C-identifier-like (max 255 chars), unique unless allowDuplicate. Empty clears. " + BatchNote)]
+    [Description("Name a native address for every native tool and the engines; kept per file and undoable. Letters, digits, _ $ @, up to " +
+                 "255 chars; empty clears. " + BatchNote)]
     public Task<string> RenameNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
@@ -119,7 +119,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             if (show != null)
             {
-                // the session is opened first so the pseudocode before the rename is the engine's with every earlier name
+                // Open the session first, so the pseudocode before the rename carries every earlier name.
                 if (engines == null) throw new ToolError(ErrorCode.Unsupported, "showDecompile needs a decompiler engine.", "omit showDecompile; decompile_native shows the function");
                 var session = await engines.Session(native, string.IsNullOrWhiteSpace(engine) ? null : engine, new Progress<NativeProviderProgress>(p =>
                     progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
@@ -134,7 +134,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             }
             else
             {
-                id = edits.ApplyNames(native, index, changes, allowDuplicate: true); // checked above, across the batch
+                // Duplicates were checked above, across the batch.
+                id = edits.ApplyNames(native, index, changes, allowDuplicate: true);
                 engineUsed = (await PushNames(native, engine, progress, cancellationToken)).Engine;
             }
         }
@@ -200,10 +201,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     /// <summary>Most items in one call.</summary>
     private const int MaxBatchItems = 5000;
 
-    /// <summary>
-    /// The items: lines "address = value" (the value may hold '='), or a JSON array of objects with address and
-    /// <paramref name="valueKey"/> (and scope, append for comments); without items the single address and value.
-    /// </summary>
+    /// <summary>Items from "address = value" lines or a JSON array; without items, the single address and value.</summary>
     internal static List<BatchItem> BatchItems(string? items, string? address, string? value, string valueKey)
     {
         if (string.IsNullOrWhiteSpace(items))
@@ -242,14 +240,12 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "comment_native", Title = "Comment a native address", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Comment a native address (undoable, pushed to engines). scope: line (repeatable: also where referenced), eol, pre or plate (engine " +
-                 "kinds; Ghidra pseudocode shows pre), pseudocode (on its statement), function, or auto (function at a function start, else line and " +
-                 "pseudocode). append adds a line; empty clears. " + BatchNote)]
+    [Description("Comment a native address; undoable and pushed to the engines. append adds a line; empty clears. " + BatchNote)]
     public Task<string> CommentNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
         [Description("Comment text; empty clears.")] string? text = null,
-        [Description("See the description; default auto.")] string? scope = null,
+        [Description("line: repeatable, shown where referenced; auto (default): function at its start, else line and pseudocode.")] string? scope = null,
         [Description("Add text as a new line of the comment; a line it has is skipped.")] bool append = false,
         [Description("With append: add the line even if the comment has it.")] bool repeatLine = false,
         [Description("Lines address = text, or JSON [{address, text, scope?, append?}].")] string? items = null,
@@ -330,10 +326,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     /// <summary>One comment request resolved: the change to record (null: nothing changes) and what it did per scope.</summary>
     internal sealed record CommentPlan(uint Rva, NativeEditService.CommentChange? Change, string Text);
 
-    /// <summary>
-    /// Resolves the scope (a function start in auto scope is the function comment; elsewhere the line and the pseudocode
-    /// comment) and the text (append onto the comment in effect there, which may be an imported one; dedupe).
-    /// </summary>
+    /// <summary>Resolves the scope and the text; append builds on the comment in effect, imported ones included.</summary>
     /// <param name="engineStart">The start of the function an engine places the address in, when the built-in index has none there.</param>
     internal CommentPlan PlanComment(LoadedNative native, NativeCodeIndex index, uint rva, string text, string scope, bool append, bool dedupe, uint? engineStart = null)
     {
@@ -414,9 +407,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("Names and comments of the imported layers beneath the user's.")] int Imported, long Bytes, string Sha256);
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations", UseStructuredContent = true, OutputSchemaType = typeof(AnnotationExportResult))]
-    [Description("Write the image's names and comments (also NativeAOT, Il2Cpp, ObjC, Swift) as IDAPython, a Ghidra script or JSON (IDA and JSON add " +
-                 "user engine types; scripts apply by rebased RVA). header: C header of declared types, prototypes, typed globals. objc-header: " +
-                 "class-dump style Objective-C (Mach-O), Swift types as comments.")]
+    [Description("Write the image's names, comments and user types as IDAPython, a Ghidra script, JSON or a C header. objc-header writes " +
+                 "the Objective-C and Swift declarations of a Mach-O.")]
     public Task<string> ExportNativeAnnotations(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
@@ -457,9 +449,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Replace bytes at a native address in memory, as an undoable edit all reads see. A partly overwritten instruction gets NOP " +
-                 "padding; mid-instruction, past the function end, header or ELF/Mach-O loader-rewritten bytes need allowUnsafe; encrypted bytes " +
-                 "are refused; signatures become invalid.")]
+    [Description("Replace bytes at a native address in memory as an undoable edit. Unsafe sites need allowUnsafe; encrypted bytes are " +
+                 "refused; signatures become invalid.")]
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -479,7 +470,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var rva = Address(index, address);
         if ((hex == null) == (value == null) || (value == null) != (type == null))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass hex, or value with type.", "e.g. value=0x10 type=u32");
-        // ptr takes a name or address too: the VA it resolves to
+        // A ptr value may be a name or address; it encodes the VA it resolves to.
         if (value != null && TypedValue.IsPointer(type) && !TypedValue.IsInteger(value))
             value = $"0x{index.Image.ImageBase + Address(index, value):X}";
         var bytes = value != null ? TypedValue.Encode(type!, value, index.Image.Is64Bit) : ParseHex(hex!);
@@ -490,13 +481,12 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Assemble x86/x64 instructions (multi-line; labels, branch targets; db <hex>) and write them at a native address in memory, branches " +
-                 "and RIP-relative references computed for that address. Safety rules, NOP padding and undo as patch_bytes; PE absolute addresses " +
-                 "([addr], offset name, imm64) get relocations.")]
+    [Description("Assemble x86/x64 instructions and write them at a native address in memory. Safety rules and undo as patch_bytes; " +
+                 "PE absolute addresses get relocations.")]
     public Task<string> PatchAsm(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Instructions, one per line.")] string assembly,
+        [Description("Instructions, one per line; labels and db <hex> allowed.")] string assembly,
         [Description(AllowUnsafeDescription)] bool allowUnsafe = false,
         [Description(ToolSupport.DryRunDefaultTrueDescription)] bool dryRun = true,
         [Description(RelocationsDescription)] string? relocations = null,
@@ -565,8 +555,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "list_native_edits", Title = "List native edits", UseStructuredContent = true, OutputSchemaType = typeof(NativeEditList))]
-    [Description("Native edits of an image in order, each with the editId undo_native_edit takes: byte patches, names, comments, engine type edits. " +
-                 "Then the name layers (user, pdb, il2cpp, ida...): counts and origin. search: matching names and comments instead.")]
+    [Description("Native edits of an image in order, each with its editId, then the name layers with counts. search lists matching names " +
+                 "and comments instead.")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Instead: matching names and comments: " + NameFilter.Description + ".")] string? search = null,
@@ -586,7 +576,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             rows = [.. edits.Journal.Entries(native).Select(e => Row(native, e))];
             header = $"{native.Id}: native edits in the order made (undo_native_edit editId=...)\n" +
-                     (layers.Count > 0 ? "Names (priority user > pdb > nativeaot > il2cpp > objc > swift > dart > napi > ida > ghidra > discovered):\n" + string.Concat(layers.Select(l => $"  {l}\n")) : "");
+                     (layers.Count > 0 ? "Names (priority user > pdb > nativeaot > metadata > objc > swift > dart > napi > ida > ghidra > discovered):\n" + string.Concat(layers.Select(l => $"  {l}\n")) : "");
         }
         else
         {
@@ -635,8 +625,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "undo_native_edit", Title = "Undo a native edit", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Undo native edits by editId (list_native_edits), the last by default: a patch, name, comment or engine type edit gets its previous " +
-                 "value back, pushed to the engines. Refused while a later edit changed the same item.")]
+    [Description("Undo native edits by editId, the last by default, and push the previous values to the engines. Refused while a later " +
+                 "edit changed the same item.")]
     public Task<string> UndoNativeEdit(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("image#n or #n; comma-separated for several, undone in order; default the last.")] string? editId = null,
@@ -700,8 +690,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "save_native", Title = "Save patched native image", UseStructuredContent = true, OutputSchemaType = typeof(NativeSaveResult))]
-    [Description("Write the patched native image to a new file: other bytes identical, PE checksum recomputed, a signature invalidated " +
-                 "(stripSignature removes it). Atomic and verified; replaceOriginal=true keeps a .bak and refuses a file changed on disk.")]
+    [Description("Write the patched native image to a new file; the PE checksum is recomputed and a signature becomes invalid. " +
+                 "replaceOriginal=true keeps a .bak and refuses a file changed on disk.")]
     public Task<string> SaveNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,

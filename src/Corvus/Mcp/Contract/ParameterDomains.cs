@@ -4,13 +4,9 @@ using ModelContextProtocol.Server;
 
 namespace Corvus.Mcp;
 
-/// <summary>
-/// The closed value sets of string parameters, advertised as JSON Schema "enum" (applied at startup by <see cref="Apply"/>)
-/// and checked by <see cref="ArgumentCheck"/> before the tool runs. Audited against each tool's parser: Values are the
-/// documented spellings, Aliases the other spellings the parser also takes (accepted, not advertised). Matching ignores
-/// case and surrounding white space; an empty string is passed to the tool, which treats it as the default.
-/// Comma-separated lists and open sets (a status or a reason code) are not listed.
-/// </summary>
+/// <summary>Closed value sets of string parameters, advertised as JSON Schema enums and checked by <see cref="ArgumentCheck"/> before a tool runs.</summary>
+// Values are the documented spellings; Aliases are accepted, not advertised. Matching ignores case and outer white space.
+// An empty string reaches the tool, which treats it as the default. Comma-separated lists and open sets are not listed.
 public static partial class ParameterDomains
 {
     public sealed record Domain(string[] Values, string[] Aliases);
@@ -40,7 +36,7 @@ public static partial class ParameterDomains
             ["dotnet"] = DotnetTools(),
             ["containers"] = ContainersTools(),
             ["edit"] = EditTools(),
-            ["il2cpp"] = Il2CppTools(),
+            ["aot"] = AotTools(),
             ["native"] = NativeTools(),
             ["native-edit"] = NativeEditTools(),
             ["builds"] = BuildsTools(),

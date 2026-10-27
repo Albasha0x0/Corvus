@@ -8,10 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// ledger.realm, built by build.js with the realm package 12.14.2 (Realm Core 14, file format 24): Holder, Account (every
-/// column type) and Journal classes in two commits; the second changes accounts 1 to 20 and deletes 191 to 200.
-/// </summary>
+/// <summary>ledger.realm built by build.js with realm 12.14.2 (file format 24) in two commits.</summary>
 public sealed class RealmTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();

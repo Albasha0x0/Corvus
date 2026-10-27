@@ -6,11 +6,7 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Live.Jdwp;
 
-/// <summary>
-/// A Java Debug Wire Protocol connection over one TCP socket: commands answered by id, composite events raised on the
-/// receive thread. ID sizes come from VirtualMachine.IDSizes once connected. Packets over <see cref="MaxPacket"/> end
-/// the connection.
-/// </summary>
+/// <summary>A JDWP connection over one TCP socket; a packet over <see cref="MaxPacket"/> ends it.</summary>
 internal sealed class JdwpConnection : IAsyncDisposable
 {
     private const int MaxPacket = 64 << 20;
@@ -34,10 +30,7 @@ internal sealed class JdwpConnection : IAsyncDisposable
     /// <summary>Completes with the reason once the connection ends.</summary>
     public Task<string> Closed => _closed.Task;
 
-    /// <summary>
-    /// Connects and reads the id sizes. <paramref name="composite"/> receives each Event.Composite packet on the receive
-    /// thread from the handshake on, so the VM start event is not lost; ids in events before the sizes are read use 8 bytes.
-    /// </summary>
+    /// <summary>Connects and reads the id sizes; <paramref name="composite"/> gets every event on the receive thread from the handshake on, so the VM start event is not lost (8-byte ids until sizes are read).</summary>
     public static async Task<JdwpConnection> ConnectAsync(string host, int port, TimeSpan timeout, Action<JdwpConnection, byte[]> composite, CancellationToken ct)
     {
         var c = new JdwpConnection { _composite = composite };

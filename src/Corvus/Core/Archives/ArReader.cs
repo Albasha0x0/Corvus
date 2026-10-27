@@ -2,11 +2,7 @@ using System.Text;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>
-/// ar archives (System V / GNU and BSD member names): static libraries list their object files, and a Debian package
-/// (deb(5): debian-binary, control.tar.*, data.tar.*) is laid out as dpkg-deb --raw-extract writes it, data at the root
-/// and the control files under DEBIAN/, with the control fields noted.
-/// </summary>
+/// <summary>ar archives (System V, GNU, BSD); a Debian package is laid out as dpkg-deb --raw-extract writes it.</summary>
 internal sealed class ArReader : IContainerReader
 {
     private const int MaxMembers = 100_000;
@@ -32,10 +28,7 @@ internal sealed class ArReader : IContainerReader
         return new ContainerContents(Kind, items, notes) { Entries = entries };
     }
 
-    /// <summary>
-    /// Each member's name and data range; long names come from the "//" member (GNU ends each with "/\n", Microsoft's
-    /// librarian with NUL), BSD ones ("#1/len") precede the data. Throws <see cref="ToolError"/> on a damaged header.
-    /// </summary>
+    /// <summary>Each member's name and data range, long names resolved; throws <see cref="ToolError"/> on a damaged header.</summary>
     internal static List<(string Name, int At, int Size)> Members(byte[] data, string name, CancellationToken ct)
     {
         var members = new List<(string, int, int)>();
@@ -125,7 +118,8 @@ internal sealed class ArReader : IContainerReader
         foreach (var line in control.Split('\n'))
         {
             if (line.Length == 0) continue;
-            if (line[0] is ' ' or '\t') continue; // continuation lines of a multi-line field
+            // Continuation lines of a multi-line field.
+            if (line[0] is ' ' or '\t') continue;
             int colon = line.IndexOf(':');
             if (colon <= 0) continue;
             fields.TryAdd(line[..colon].Trim(), line[(colon + 1)..].Trim());

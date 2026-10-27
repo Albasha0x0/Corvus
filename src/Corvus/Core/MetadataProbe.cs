@@ -3,11 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Whether System.Reflection.Metadata (the decompiler's reader) can read every row of an image: names, coded indexes and
-/// signature blobs. Toolchains leave out-of-range string offsets and coded indexes that dnlib reads leniently but the
-/// decompiler throws on, deep inside a decompilation. Reading each row once up front finds them.
-/// </summary>
+/// <summary>Whether System.Reflection.Metadata can read every row of an image, checked up front instead of mid-decompilation.</summary>
 public static class MetadataProbe
 {
     /// <summary>The first row that cannot be read, as "table row: message", or null when every row reads.</summary>

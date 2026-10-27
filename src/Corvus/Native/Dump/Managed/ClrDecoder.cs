@@ -31,13 +31,9 @@ internal interface ILiveClrReads
     IReadOnlyList<uint> Prepared(string path);
 }
 
-/// <summary>
-/// .NET (CoreCLR and .NET Framework) state of a dumped process through ClrMD and the runtime's own DAC: threads,
-/// stacks, exceptions and the GC heap. The dumped program is never run; the DAC is Microsoft's debugging library for
-/// that runtime build, loaded only after its signature is verified: into this process when the dump has this
-/// process's architecture, else (a 32-bit dump on a 64-bit server) into the 32-bit decoder process, which checks the
-/// file's hash before loading it. Calls are serialized on <see cref="Gate"/>; the decoder owns its dump file.
-/// </summary>
+/// <summary>.NET threads, stacks, exceptions and heap of a dump through ClrMD and the runtime's DAC; the dumped program never runs.</summary>
+/// <remarks>The DAC loads only after its signature is verified: in this process for the same architecture, else in the 32-bit
+/// decoder, which checks the file's hash first. Calls serialize on <see cref="Gate"/>; the decoder owns its dump file.</remarks>
 public sealed class ClrDecoder : IDisposable
 {
     public const int MaxInnerExceptions = ClrReads.MaxInnerExceptions;
@@ -68,10 +64,7 @@ public sealed class ClrDecoder : IDisposable
     /// <summary>A runtime decoded by <paramref name="backend"/> (tests script the 32-bit decoder).</summary>
     internal static ClrDecoder Of(string runtimeName, IClrBackend backend) => new(runtimeName, null, new DacState("loaded", null, ""), backend);
 
-    /// <summary>
-    /// The module that hosts the CLR: coreclr.dll or clr.dll, else a single-file app's executable, which links the runtime
-    /// in and exports DotNetRuntimeInfo; null for none.
-    /// </summary>
+    /// <summary>The CLR host module: coreclr.dll, clr.dll or a single-file executable exporting DotNetRuntimeInfo; null for none.</summary>
     public static DumpModule? RuntimeModule(IProcessMemory dump) =>
         dump.Modules.FirstOrDefault(m => m.FileName.Equals("coreclr.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("clr.dll", StringComparison.OrdinalIgnoreCase))
         ?? dump.Modules.FirstOrDefault(m => m.FileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && Exports(dump, m.Base, SingleFileRuntimeExport));
@@ -101,10 +94,7 @@ public sealed class ClrDecoder : IDisposable
         return false;
     }
 
-    /// <summary>
-    /// Opens the CLR of <paramref name="dump"/> (which the decoder then owns). Null when the process hosts no CLR. A DAC
-    /// that cannot be found or loaded gives a decoder without a runtime and the reason in <see cref="Dac"/>.
-    /// </summary>
+    /// <summary>Opens the CLR of <paramref name="dump"/>, taking ownership; null without a CLR; a DAC failure gives a decoder without a runtime.</summary>
     public static async Task<ClrDecoder?> Open(MinidumpFile dump, Func<DumpModule, PeFile?> image, IReadOnlyList<string> imageDirectories, DacRequest request, CancellationToken ct)
     {
         var module = RuntimeModule(dump);
@@ -120,11 +110,10 @@ public sealed class ClrDecoder : IDisposable
             return new ClrDecoder($"{flavor} {module.FileVersion}".TrimEnd(), module.FileVersion, new DacState(status, null, detail), null);
         }
         if (!OperatingSystem.IsWindows())
-            return Fail("host_unsupported", "the DAC of a Windows dump is a Windows DLL: decode .NET frames with this server on Windows");
+            return Fail("host_unsupported", "the DAC is a Windows DLL: run this server on Windows to decode .NET frames");
         // ClrMD reads a 32-bit runtime only from a 32-bit dump; a WoW64 process holds no other runtime.
         if (Wow64.IsWow64(dump))
-            return Fail("bitness_mismatch", "a 64-bit dump of a 32-bit (WoW64) process: its 32-bit runtime is decoded only from a dump written by a 32-bit tool " +
-                                            "(procdump without -64, or a 32-bit MiniDumpWriteDump); frames stay identified as managed");
+            return Fail("bitness_mismatch", "a 64-bit dump of a WoW64 process: write a 32-bit dump (procdump without -64); frames stay identified as managed");
         var hostArch = RuntimeInformation.ProcessArchitecture;
         var dumpArch = dump.Arch switch { NativeArch.X86 => Architecture.X86, NativeArch.Arm64 => Architecture.Arm64, NativeArch.Arm => Architecture.Arm, _ => Architecture.X64 };
         string? helper = null;
@@ -134,8 +123,7 @@ public sealed class ClrDecoder : IDisposable
                 return Fail("bitness_mismatch", $"a {dumpArch} process needs a {dumpArch} DAC, which this {hostArch} server cannot load; frames stay identified as managed");
             helper = ClrHelperClient.Locate(request.Decoder);
             if (helper == null)
-                return Fail("bitness_mismatch", $"a 32-bit process needs the 32-bit DAC, loaded by the 32-bit decoder ({ClrHelperClient.Folder}/{ClrHelperClient.FileName}), " +
-                                                "which is not installed beside this server; frames stay identified as managed");
+                return Fail("bitness_mismatch", $"a 32-bit process needs the 32-bit decoder ({ClrHelperClient.Folder}/{ClrHelperClient.FileName}), not installed; frames stay identified as managed");
         }
 
         var target = new DataTarget(new CustomDataTarget(new DumpDataReader(dump, image)) { FileLocator = new LocalImageLocator(imageDirectories) });
@@ -143,7 +131,7 @@ public sealed class ClrDecoder : IDisposable
         {
             if (helper == null)
                 return await Decode(target, module, flavor, request, dumpArch, (clr, c, _) => new InProcessClr(target, clr.CreateRuntime(c.Path)), ownsTarget: true, ct).ConfigureAwait(false);
-            // the DAC is found and checked here; the 32-bit process loads it and reads the dump file itself
+            // The DAC is found and checked here; the 32-bit process loads it and reads the dump file itself.
             var path = dump.Path;
             var decoder = await Decode(target, module, flavor, request, dumpArch,
                 (_, c, bytes) => ClrHelperClient.Start(helper, path, c.Path, Convert.ToHexStringLower(SHA256.HashData(bytes)), imageDirectories), ownsTarget: false, ct).ConfigureAwait(false);
@@ -157,11 +145,7 @@ public sealed class ClrDecoder : IDisposable
         }
     }
 
-    /// <summary>
-    /// Opens the CoreCLR of a Linux ELF core at <paramref name="path"/>, read by ClrMD's own core reader, with the
-    /// Windows-hosted DAC built for Linux targets (a .so DAC cannot load into a Windows process). <paramref name="runtimeFile"/>
-    /// is libcoreclr.so on disk, matched by build id: its folder is searched and its version checked against the DAC's.
-    /// </summary>
+    /// <summary>Opens the CoreCLR of a Linux core with the Windows-hosted DAC for Linux targets; <paramref name="runtimeFile"/> (libcoreclr.so) gives the folder and version.</summary>
     public static async Task<ClrDecoder> OpenCore(string path, DumpModule module, string? runtimeFile, Architecture arch, DacRequest request, CancellationToken ct)
     {
         string? version = null;
@@ -173,7 +157,7 @@ public sealed class ClrDecoder : IDisposable
         var core = new CoreRuntime(runtimeFile != null ? System.IO.Path.GetDirectoryName(runtimeFile) : null, version);
         string name = $".NET {version ?? "(version unknown)"} (CoreCLR)";
         if (!OperatingSystem.IsWindows())
-            return new ClrDecoder(name, version, new DacState("host_unsupported", null, "a Linux core's heap is decoded with the Microsoft-signed mscordaccore.dll for Linux targets, a Windows DLL: use this server on Windows"), null);
+            return new ClrDecoder(name, version, new DacState("host_unsupported", null, "a Linux core needs mscordaccore.dll for Linux targets, a Windows DLL: run this server on Windows"), null);
         if (arch != RuntimeInformation.ProcessArchitecture)
             return new ClrDecoder(name, version, new DacState("bitness_mismatch", null, $"a {arch} process needs a {arch} DAC, which this {RuntimeInformation.ProcessArchitecture} server cannot load"), null);
         DataTarget target;
@@ -184,7 +168,7 @@ public sealed class ClrDecoder : IDisposable
         }
         try
         {
-            // ClrMD reads no version from a core's libcoreclr.so: the DAC's file version is checked against the runtime file here
+            // ClrMD reads no version from a core's libcoreclr.so, so the DAC's file version is checked here.
             return await Decode(target, module, "CoreCLR", request, arch, (clr, c, _) =>
             {
                 if (DacVersionProblem(c.Path, version) is { } bad) throw new InvalidDataException(bad);
@@ -222,11 +206,7 @@ public sealed class ClrDecoder : IDisposable
         return dac == version ? null : $"DAC version {dac}, the runtime is {version}";
     }
 
-    /// <summary>
-    /// Opens the CLR of a running process read through <paramref name="reader"/> (which the decoder then owns); the process
-    /// is never suspended. Null when it hosts no CLR. A 32-bit process under this 64-bit server is read by the 32-bit
-    /// decoder process; another architecture gives a decoder without a runtime.
-    /// </summary>
+    /// <summary>Opens the CLR of a running process without suspending it, taking ownership of <paramref name="reader"/>; null without a CLR.</summary>
     public static async Task<ClrDecoder?> OpenLive(LiveDataReader reader, DacRequest request, CancellationToken ct)
     {
         var target = new DataTarget(new CustomDataTarget(reader) { FileLocator = new LocalImageLocator([]) });
@@ -247,10 +227,10 @@ public sealed class ClrDecoder : IDisposable
                     target.Dispose();
                     return new ClrDecoder($"{flavor} {module.FileVersion}".TrimEnd(), module.FileVersion,
                         new DacState("bitness_mismatch", null, reader.Architecture == Architecture.X86
-                            ? $"a 32-bit process needs the 32-bit DAC, loaded by the 32-bit decoder ({ClrHelperClient.Folder}/{ClrHelperClient.FileName}), which is not installed beside this server"
+                            ? $"a 32-bit process needs the 32-bit decoder ({ClrHelperClient.Folder}/{ClrHelperClient.FileName}), not installed"
                             : $"a {reader.Architecture} process needs a {reader.Architecture} DAC, which this {RuntimeInformation.ProcessArchitecture} server cannot load"), null);
                 }
-                // the DAC is found and checked here; the 32-bit process loads it and reads the process itself
+                // The DAC is found and checked here; the 32-bit process loads it and reads the process itself.
                 int pid = reader.ProcessId;
                 try
                 {
@@ -274,10 +254,7 @@ public sealed class ClrDecoder : IDisposable
     /// <summary>The reads of a running program's runtime, when one is decoded; calls go under <see cref="Gate"/>.</summary>
     internal ILiveClrReads? Live => _disposed ? null : _backend switch { InProcessClr p => p.Live, ILiveClrReads helper => helper, _ => null };
 
-    /// <summary>
-    /// Finds and verifies the DAC, and loads it through <paramref name="load"/>; a failure gives a decoder without a
-    /// runtime (and disposes <paramref name="target"/> when <paramref name="ownsTarget"/>).
-    /// </summary>
+    /// <summary>Finds, verifies and loads the DAC; a failure gives a decoder without a runtime and disposes an owned <paramref name="target"/>.</summary>
     private static async Task<ClrDecoder> Decode(DataTarget target, DumpModule module, string flavor, DacRequest request, Architecture arch,
         Func<ClrInfo, DacCandidate, byte[], IClrBackend> load, bool ownsTarget, CancellationToken ct, CoreRuntime? core = null)
     {
@@ -305,7 +282,7 @@ public sealed class ClrDecoder : IDisposable
         {
             try
             {
-                // held open without write sharing from the signature check until the library is loaded
+                // Held open without write sharing from the signature check until the library is loaded.
                 using var file = new FileStream(c.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
                 if (file.Length > DacLocator.MaxDownloadBytes) { problems.Add($"{c.Path}: larger than {DacLocator.MaxDownloadBytes >> 20} MB"); return null; }
                 var bytes = new byte[file.Length];
@@ -354,16 +331,10 @@ public sealed class ClrDecoder : IDisposable
     /// <summary>App domains, managed threads and heap facts; requires <see cref="Loaded"/>.</summary>
     public ManagedFacts Facts() => Require().Facts();
 
-    /// <summary>
-    /// The exception in flight: on <paramref name="threadId"/> when given (the faulting thread of a CLR exception), else
-    /// on the first thread that has one. Inner exceptions to <see cref="MaxInnerExceptions"/>, frames to <see cref="MaxExceptionFrames"/>.
-    /// </summary>
+    /// <summary>The exception in flight on <paramref name="threadId"/>, else on the first thread with one, inner exceptions and frames bounded; null for none.</summary>
     public ManagedException? Exception(uint? threadId) => Require().Exception(threadId);
 
-    /// <summary>
-    /// The managed stack of an OS thread, innermost first; empty when the runtime does not know the thread. A dump's
-    /// <paramref name="context"/> (the exception's) replaces the thread's own where this process decodes the runtime.
-    /// </summary>
+    /// <summary>A thread's managed stack, innermost first; empty for an unknown thread; <paramref name="context"/> overrides the thread's own.</summary>
     public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames, byte[]? context = null) =>
         context != null && Require() is InProcessClr clr ? clr.Frames(threadId, maxFrames, context) : Require().Frames(threadId, maxFrames);
 

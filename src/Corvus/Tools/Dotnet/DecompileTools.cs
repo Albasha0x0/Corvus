@@ -19,8 +19,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     private const int MaxMembersPerCall = 25;
 
     [McpServerTool(Name = "decompile_member", Title = "Decompile to C#", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
-    [Description("Decompile a type or member to C#: every overload unless a parameter list picks one; async and iterator state machines and lambdas " +
-                 "fold back into their method; a type whole, nested types included. Code the decompiler fails on shows as IL.")]
+    [Description("Decompile a member or a whole type to C#; every overload unless a parameter list picks one. " +
+                 "Code the decompiler fails on shows as IL.")]
     public Task<string> DecompileMember(
         [Description(SymbolDescription)] string member,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -92,8 +92,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }
 
     [McpServerTool(Name = "get_il", Title = "IL disassembly", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
-    [Description("IL disassembly (ildasm style, tokens, offsets, try blocks) of a member or type; each method starts with its normalized IL hash " +
-                 "(stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong; patch_method_il input.")]
+    [Description("IL disassembly of a member or type (tokens, offsets, try blocks); each method starts with its normalized IL hash " +
+                 "(stable across rebuilds) and raw IL SHA-256. Input for patch_method_il.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -153,7 +153,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
 
     [McpServerTool(Name = "export_project", Title = "Export C# project", UseStructuredContent = true, OutputSchemaType = typeof(ExportOutcome))]
     [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources); an .apk or .aab gives " +
-                 "a Gradle project (manifest, resources, Java via JADX or smali). Written whole or not at all.")]
+                 "a Gradle project. Written whole or not at all.")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,
         [Description("Empty or new output directory.")] string outputDirectory,
@@ -178,8 +178,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         Volatile.Write(ref answered, 1);
         if (options != null) LeftoverWork.For(options).Track(job);
         _ = job.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted);
-        throw new ToolError(ErrorCode.Timeout, $"The export of {assembly} is still running at the call's deadline ({done} of {total} units done); it goes on in the background " +
-            $"and {SafeFile.FullPath(outputDirectory)} appears once it is complete (nothing is written there before).",
+        throw new ToolError(ErrorCode.Timeout, $"The export of {assembly} is still running at the call's deadline ({done} of {total} units done); " +
+            $"it continues in the background and {SafeFile.FullPath(outputDirectory)} appears only when complete.",
             "list the output directory later; if it does not appear, export again (overwrite=true replaces a finished export)")
         {
             Partial = new { done, total, outputDirectory = SafeFile.FullPath(outputDirectory) },

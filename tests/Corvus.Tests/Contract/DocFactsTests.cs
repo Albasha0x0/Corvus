@@ -4,10 +4,7 @@ using Corvus.Setup;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Facts the README and docs state that the code decides: clients, release targets, commands, environment variables,
-/// the release-notes version, links, command-line examples and tool names.
-/// </summary>
+/// <summary>Facts the README and docs state that the code decides: clients, release targets, commands, variables, version, links, examples and tool names.</summary>
 public partial class DocFactsTests
 {
     private static readonly string Root = DocsTests.RepoRoot();
@@ -24,14 +21,14 @@ public partial class DocFactsTests
             .Select(f => f.Replace('\\', '/'));
 
     [Fact]
-    public void ReadmeNamesEveryClient()
+    public void The_installation_guide_names_every_client()
     {
         var env = new SetupHome();
         try
         {
             var names = ClientCatalog.All(env.Env(os: HostOs.Windows)).Select(c => c.Name).ToList();
-            var sentence = SupportedClients().Match(Read("README.md"));
-            Assert.True(sentence.Success, "README.md has no 'Supported clients:' sentence");
+            var sentence = SupportedClients().Match(Read("docs/installation.md"));
+            Assert.True(sentence.Success, "docs/installation.md has no 'Supported clients:' sentence");
             var listed = sentence.Groups[1].Value.ReplaceLineEndings(" ").Split([", ", " and "], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(names.Order(StringComparer.Ordinal), listed.Order(StringComparer.Ordinal));
         }
@@ -39,7 +36,7 @@ public partial class DocFactsTests
     }
 
     [Fact]
-    public void ReleaseTargetsMatchTheReleaseWorkflow()
+    public void Release_targets_match_the_release_workflow()
     {
         var rids = Rid().Matches(Read(".github/workflows/release.yml")).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
         Assert.Equal(8, rids.Count);
@@ -53,7 +50,7 @@ public partial class DocFactsTests
     }
 
     [Fact]
-    public void CommandsAreDocumented()
+    public void Commands_are_documented()
     {
         var cli = Read("docs/cli.md");
         foreach (var command in ToolCli.Commands.Where(c => c != "help"))
@@ -72,7 +69,7 @@ public partial class DocFactsTests
     }
 
     [Fact]
-    public void EveryEnvironmentVariableIsDocumented()
+    public void Every_environment_variable_is_documented()
     {
         var read = Directory.EnumerateFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories)
             .SelectMany(f => VariableLiteral().Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value))
@@ -84,7 +81,7 @@ public partial class DocFactsTests
     }
 
     [Fact]
-    public void EveryServerOptionIsDocumented()
+    public void Every_server_option_is_documented()
     {
         var options = new[] { "Core/ServerOptions.cs", "Core/Toolsets.cs", "Core/ClientProfiles.cs" }
             .SelectMany(f => OptionLiteral().Matches(File.ReadAllText(Path.Combine(Root, "src", "Corvus", f))).Select(m => m.Groups[1].Value))
@@ -96,17 +93,17 @@ public partial class DocFactsTests
     }
 
     [Fact]
-    public void ReleaseNotesHeadTheProjectVersion()
+    public void Release_notes_head_the_project_version()
     {
         var version = ProjectVersion().Match(Read("src/Corvus/Corvus.csproj")).Groups[1].Value;
         var first = ReleaseHeading().Match(Read("docs/release-notes.md"));
         Assert.True(first.Success, "docs/release-notes.md has no '## <version>' heading");
-        // the notes of the release being cut lead: release.ps1 bumps the project version after the suite passes
+        // The notes of the release being cut lead: release.ps1 bumps the project version after the suite passes.
         Assert.True(Version.Parse(first.Groups[1].Value) >= Version.Parse(version), $"the notes head {first.Groups[1].Value}, older than the project's {version}");
     }
 
     [Fact]
-    public void LinksResolve()
+    public void Doc_links_resolve()
     {
         var problems = new List<string>();
         foreach (var file in MarkdownFiles())
@@ -138,7 +135,7 @@ public partial class DocFactsTests
     }
 
     [Fact]
-    public void CommandLineExamplesUseRealToolsAndParameters()
+    public void Command_line_examples_use_real_tools_and_parameters()
     {
         var problems = new List<string>();
         int checkedCalls = 0;
@@ -162,7 +159,7 @@ public partial class DocFactsTests
         Directory.EnumerateFiles(Path.Combine(Root, "docs", "recipes"), "*.md").Select(f => Path.GetRelativePath(Root, f).Replace('\\', '/')).Order(StringComparer.Ordinal);
 
     [Fact]
-    public void RecipesRunRealCommandsWithRealOptions()
+    public void Recipes_run_real_commands_with_real_options()
     {
         // A recipe's other tools are checked by running it once; its Corvus command lines are checked here.
         var options = new[] { "Setup/CliArgs.cs", "Core/ServerOptions.cs", "Core/Toolsets.cs", "Core/ClientProfiles.cs" }
@@ -192,7 +189,7 @@ public partial class DocFactsTests
     }
 
     [Fact]
-    public void DocsNameOnlyRegisteredTools()
+    public void Docs_name_only_registered_tools()
     {
         // Prompt names read like tools; list_changed is a notification.
         var tools = ToolCli.CatalogTools.Concat(ToolCli.CatalogPrompts).Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);

@@ -80,7 +80,7 @@ internal static partial class HermesOpcodes
         return found;
     }
 
-    // closures and direct calls name a function; versions before 89 do not mark it in BytecodeList.def
+    // Closures and direct calls name a function; versions before 89 do not mark it in BytecodeList.def.
     private static readonly FrozenDictionary<string, int> FunctionOperands = new Dictionary<string, int>(StringComparer.Ordinal)
     {
         ["CreateClosure"] = 2, ["CreateClosureLongIndex"] = 2, ["CreateGeneratorClosure"] = 2, ["CreateGeneratorClosureLongIndex"] = 2,

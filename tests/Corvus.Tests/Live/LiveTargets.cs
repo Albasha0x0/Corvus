@@ -99,10 +99,7 @@ internal sealed class LiveTarget
         return dir.File(Library(name));
     }
 
-    /// <summary>
-    /// Signs a macOS program ad hoc with the get-task-allow entitlement, as Xcode signs a debug build: without it the
-    /// system lets no other process (Frida included) read the program's task.
-    /// </summary>
+    /// <summary>Signs a macOS program ad hoc with get-task-allow, as Xcode does for debug builds, so other processes can read its task.</summary>
     private static void Debuggable(TempDir dir, string exe)
     {
         File.WriteAllText(dir.File("debuggable.plist"), """
@@ -261,11 +258,9 @@ internal static class LivePrograms
         """;
 
     /// <summary>
-    /// lifecycle [steps] [calls]: steps joined by '+'; "line" waits for a line on stdin, "sleep" pauses 10 minutes, then
-    /// AddLine runs that many times (default 1000), the program prints the line count and ends: "fastexit" by _exit(3),
-    /// "fault" by a write through a null pointer, "stuck" by returning 7 with a TLS callback that holds the exit forever
-    /// and first creates hold-&lt;pid&gt; beside the program (MSVC), otherwise by returning 5.
-    /// AtExit is registered with atexit.
+    /// lifecycle [steps] [calls]: steps joined by '+' ("line" waits for stdin, "sleep" pauses 10 min), AddLine calls times
+    /// (default 1000), then the end: "fastexit" _exit(3), "fault" a null write, "stuck" returns 7 with a TLS callback that
+    /// creates hold-&lt;pid&gt; and holds the exit (MSVC), else returns 5. AtExit is registered with atexit.
     /// </summary>
     public const string Lifecycle = Platform + """
         #include <string.h>
@@ -364,11 +359,7 @@ internal static class LivePrograms
         }
         """;
 
-    /// <summary>
-    /// inrange start end (Windows, an image of over 2 MiB, x86 preferred base 0x30000000): commits a page in the first free
-    /// 64 KiB block between the addresses, writes 7 there and passes it to Hold; when every block is in use it prints the
-    /// range, its image base and the regions that hold the range, and exits 3.
-    /// </summary>
+    /// <summary>inrange start end (Windows, over 2 MiB, x86 base 0x30000000): writes 7 to a page in the first free 64 KiB block and passes it to Hold; exits 3 when none is free.</summary>
     public const string InImageRange = Platform + """
         #include <stdint.h>
         #ifndef _WIN64
@@ -537,11 +528,7 @@ internal static class LivePrograms
         }
         """;
 
-    /// <summary>
-    /// launcher [--restricted] [--parent pid] program [arguments]: starts the program as a child process (on Windows,
-    /// under a restricted token with --restricted, and named the child of process pid with --parent, as a broker
-    /// starts a process for another), waits for it, prints its exit code and returns it.
-    /// </summary>
+    /// <summary>launcher [--restricted] [--parent pid] program [arguments]: starts the program as a child, optionally restricted or reparented, and returns its exit code.</summary>
     public const string Launcher = Platform + """
         #include <string.h>
         #ifdef _WIN32

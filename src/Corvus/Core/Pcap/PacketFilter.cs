@@ -7,11 +7,7 @@ namespace Corvus.Core.Pcap;
 /// <summary>A filter syntax error: the message names the position and what was expected.</summary>
 public sealed class PacketFilterException(string message) : Exception(message);
 
-/// <summary>
-/// A display filter in Wireshark syntax over the fields <see cref="PacketFields"/> decodes: comparisons (==, !=, &gt;, &lt;,
-/// &gt;=, &lt;=, contains, matches, in {…}), bare fields and protocols as presence tests, and / or / not with parentheses.
-/// Field names outside the in-process set are kept in <see cref="Unknown"/>, so the caller can pass the filter on to TShark.
-/// </summary>
+/// <summary>A Wireshark display filter over <see cref="PacketFields"/>; unknown field names go to <see cref="Unknown"/> for TShark.</summary>
 public sealed class PacketFilter
 {
     /// <summary>The filter as given.</summary>
@@ -44,7 +40,7 @@ public sealed class PacketFilter
 
     internal bool Matches(PacketView v) => _root.Eval(v);
 
-    // ---- syntax tree ----
+    // Syntax tree.
 
     private abstract class Node { public abstract bool Eval(PacketView v); }
     private sealed class All : Node { public override bool Eval(PacketView v) => true; }
@@ -104,7 +100,7 @@ public sealed class PacketFilter
         public int Order(in FieldValue x) => Type == FieldType.Number ? x.Number.CompareTo(Number) : string.CompareOrdinal(x.Text, Text);
     }
 
-    // ---- tokens ----
+    // Tokens.
 
     private readonly record struct Token(string Text, int At, bool Quoted);
 
@@ -193,7 +189,8 @@ public sealed class PacketFilter
             var name = Next();
             if (name.Quoted) throw new PacketFilterException($"a field name was expected at {name.At}, not a string");
             var field = PacketFields.Find(name.Text);
-            string resolved = field?.Name ?? name.Text; // Wireshark names are case-sensitive (kerberos.CNameString)
+            // Wireshark names are case-sensitive (kerberos.CNameString).
+            string resolved = field?.Name ?? name.Text;
             if (!owner._fields.Contains(resolved)) owner._fields.Add(resolved);
             if (field == null && !owner._unknown.Contains(resolved)) owner._unknown.Add(resolved);
             if (field != null) owner.Layers |= field.Layers;
@@ -210,7 +207,8 @@ public sealed class PacketFilter
                 if (literals.Count == 0) throw new PacketFilterException("'in' needs at least one value");
             }
             else literals.Add(Next());
-            if (field == null) return new All(); // passed to TShark; never evaluated in-process
+            // Passed to TShark; never evaluated in-process.
+            if (field == null) return new All();
             return new Compare(field, op, [.. literals.Select(l => Literal(field, op, l))]);
         }
 

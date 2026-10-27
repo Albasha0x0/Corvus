@@ -29,7 +29,7 @@ public sealed class LuaBytecodeTests(ITestOutputHelper output)
         Assert.StartsWith($"{version} bytecode (", c.Notes[0]);
         Assert.Contains(": 5 function(s), ", c.Notes[0]);
         Assert.EndsWith("; source ledger.lua.", c.Notes[0]);
-        // main and Ledger.new, Ledger:add, Ledger:total and label, each named with its source lines.
+        // Main and Ledger.new, Ledger:add, Ledger:total and label, each named with its source lines.
         Assert.Equal(5, c.Entries!.Count);
         Assert.Contains(c.Entries, e => e.Path.EndsWith("function ledger.lua:5-7", StringComparison.Ordinal));
         var strings = Encoding.UTF8.GetString(c.Items.Single(i => i.Name == "strings.txt").Bytes).Split('\n');

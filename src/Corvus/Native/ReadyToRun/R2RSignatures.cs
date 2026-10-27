@@ -2,11 +2,9 @@ using System.Text;
 
 namespace Corvus.Native.ReadyToRun;
 
-/// <summary>
-/// Names for metadata tokens met in ReadyToRun signatures. <c>module</c> is a module index of the image
-/// (0 the image's own module, then its assembly references, then the manifest's) or -1 for the default context.
-/// Implementations return a placeholder rather than throw when a token cannot be resolved.
-/// </summary>
+/// <summary>Names for ReadyToRun signature tokens; a token that cannot be resolved gets a placeholder, never a throw.</summary>
+/// <remarks><c>module</c> is 0 for the image's own module, then its assembly references, then the manifest's; -1 is the
+/// default context.</remarks>
 public interface IR2RNames
 {
     /// <summary>A TypeDef, TypeRef or TypeSpec token.</summary>
@@ -19,11 +17,7 @@ public interface IR2RNames
     string UserString(int module, uint offset);
 }
 
-/// <summary>
-/// A decoded method signature (READYTORUN_METHOD_SIG_*). <see cref="TokenModule"/> is the module the token belongs
-/// to: the updated context, else the owner type's defining module (the runtime compares the token with the
-/// method's own MethodDef), else the signature's context.
-/// </summary>
+/// <summary>A decoded READYTORUN_METHOD_SIG; <see cref="TokenModule"/> is the module the token belongs to: the updated context, else the owner type's module, else the signature's context.</summary>
 public sealed record R2RMethodSig(uint Flags, int TokenModule, uint Token, string? Name)
 {
     public const uint UnboxingStub = 0x01, InstantiatingStub = 0x02, MethodInstantiation = 0x04, SlotInsteadOfToken = 0x08,
@@ -32,11 +26,7 @@ public sealed record R2RMethodSig(uint Flags, int TokenModule, uint Token, strin
     public bool IsMethodDef => (Token >> 24) == 0x06;
 }
 
-/// <summary>
-/// Walks ReadyToRun signatures (readytorun.h): ECMA-335 type signatures with the ZapSig extensions (module override,
-/// __Canon, native value type), method and field signatures, and import cell (fixup) signatures. With no
-/// <see cref="IR2RNames"/> only the length is decoded; names are null.
-/// </summary>
+/// <summary>Walks ReadyToRun signatures (readytorun.h); without <see cref="IR2RNames"/> only the length is decoded.</summary>
 public sealed class R2RSignatures(ImageView view, IR2RNames? names)
 {
     private const int MaxDepth = 64;
@@ -148,9 +138,7 @@ public sealed class R2RSignatures(ImageView view, IR2RNames? names)
         for (uint i = 0; i <= count; i++) Type(r, module, depth);
     }
 
-    /// <summary>
-    /// A method signature: flags, [module], [owner type], token (or slot), [method instantiation], [constrained type].
-    /// </summary>
+    /// <summary>A method signature: flags, [module], [owner type], token (or slot), [method instantiation], [constrained type].</summary>
     public R2RMethodSig Method(SigReader r, int module)
     {
         uint flags = r.Compressed();

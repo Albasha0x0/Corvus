@@ -5,10 +5,7 @@ using static Corvus.Tests.ToolRealDataTests;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The completion pass after a standard-profile Ghidra open: it runs while the worker is idle, a request during it is
-/// answered without waiting for the pass, and status ends at standard→full. A private analysis cache: the pass stamps the project.
-/// </summary>
+/// <summary>The completion pass after a standard-profile Ghidra open runs while idle, yields to requests, ends at standard→full and stamps the project.</summary>
 [Trait("Speed", "Slow")]
 public sealed class CompletionPassTests(ITestOutputHelper output) : IDisposable
 {

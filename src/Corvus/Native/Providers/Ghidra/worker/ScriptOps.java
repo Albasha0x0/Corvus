@@ -56,9 +56,8 @@ final class ScriptOps {
     }
 
     /**
-     * Compiles code (a GhidraScript class, or the body of run() with its imports first) in a private directory under the
-     * worker's home, runs it within timeout seconds holding the write lock, commits only when it returns normally and saves.
-     * Result: stdout, stderr, error (compile or run failure, null on success), committed.
+     * Compiles code (a GhidraScript class or a run() body) and runs it as {@link #execute}.
+     * Result: stdout, stderr, error (null on success), committed.
      */
     static JsonElement run(Worker w, Worker.Request r) throws Exception {
         String code = r.args.has("code") ? r.args.get("code").getAsString() : "";
@@ -113,8 +112,8 @@ final class ScriptOps {
     }
 
     /**
-     * Runs a script within timeout seconds holding the write lock, in one transaction committed only when it returns
-     * normally, and saves. Result: stdout, stderr, error (compile or run failure, null on success), committed.
+     * Runs a script within timeout seconds under the write lock, committed on normal return, then saves.
+     * Result: stdout, stderr, error (null on success), committed.
      */
     private static JsonElement execute(Worker w, Worker.Request r, double timeout, String[] scriptArgs, StringWriter out, StringWriter err,
         PrintWriter outWriter, PrintWriter errWriter, ScriptFactory factory) throws Exception {
@@ -165,10 +164,7 @@ final class ScriptOps {
         return o;
     }
 
-    /**
-     * A Python script through PyGhidra's script provider: an installed .py file, or code written to a private file. Only a
-     * worker hosted by PyGhidra (the server's Python setting) has the provider's Python runner.
-     */
+    /** A Python script (installed .py or code) through PyGhidra's provider; only a PyGhidra-hosted worker has it. */
     private static JsonElement runPython(Worker w, Worker.Request r, File installedFile, String code, String[] scriptArgs, double timeout) throws Exception {
         File file = installedFile;
         if (file == null) {
@@ -221,10 +217,7 @@ final class ScriptOps {
         return imports + "public class " + className + " extends GhidraScript {\n    @Override\n    public void run() throws Exception {\n" + run + "    }\n}\n";
     }
 
-    /**
-     * The script's class, compiled by javac against the worker's class path into dir/classes once per source hash and loaded
-     * by a class loader of its own whose parent is the worker's (Ghidra's classes resolve as they do for the worker).
-     */
+    /** The script's class, compiled once per source hash into dir/classes and loaded by a child of the worker's class loader. */
     private static Class<?> compile(String key, String qualified, String source, File dir, File file) throws Exception {
         synchronized (COMPILED) {
             Class<?> known = COMPILED.get(key);
@@ -257,7 +250,7 @@ final class ScriptOps {
                 monitor.cancel();
             }
             catch (InterruptedException e) {
-                // finished in time
+                // Finished in time.
             }
         }, "script deadline");
         t.setDaemon(true);

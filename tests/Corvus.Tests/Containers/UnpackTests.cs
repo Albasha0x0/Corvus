@@ -153,7 +153,8 @@ public sealed class ContainerFixtures : IDisposable
             foreach (var (name, data) in entries)
             {
                 var entry = zip.CreateEntry(name);
-                entry.LastWriteTime = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero); // deterministic bytes
+                // Deterministic bytes.
+                entry.LastWriteTime = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
                 using var s = entry.Open();
                 s.Write(data);
             }
@@ -192,7 +193,8 @@ public sealed class ContainerFixtures : IDisposable
             w.Write(0u);
             w.Write(count ?? placed.Count);
             w.Write("synthetic-bundle");
-            w.Write(new byte[40]); // deps.json / runtimeconfig.json locations, flags
+            // deps.json / runtimeconfig.json locations, flags.
+            w.Write(new byte[40]);
             foreach (var e in placed)
             {
                 w.Write(e.Offset);
@@ -245,7 +247,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void BlazorFolderWithoutItsAssembliesIsNotFound()
+    public void Blazor_folder_without_its_assemblies_is_not_found()
     {
         var app = Path.Combine(_dir.Path, "app");
         Directory.CreateDirectory(Path.Combine(app, "_framework"));
@@ -280,7 +282,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     private static string Sha(string path) => Blob.Sha256(System.IO.File.ReadAllBytes(path));
 
     [Fact]
-    public void SingleFileBundle_ExtractsTheAppAndItsHostFiles()
+    public void Single_file_bundle_extracts_the_app_and_its_host_files()
     {
         var r = Unpack(fx.Bundle, load: true);
 
@@ -298,7 +300,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void CompressedSelfContainedBundle_InflatesEveryEntry()
+    public void Compressed_self_contained_bundle_inflates_every_entry()
     {
         var r = Unpack(fx.CompressedBundle);
 
@@ -316,7 +318,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void UnpackingAgainReusesTheOutput_ButAnUnrelatedDirectoryIsRefused()
+    public void Unpacking_again_reuses_the_output_but_an_unrelated_directory_is_refused()
     {
         var output = _dir.File("reuse");
         var first = Unpack(fx.Bundle, output: output);
@@ -330,13 +332,14 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     [Theory]
     [InlineData("dnlib", "dnlib.dll")]
     [InlineData("K4os.Compression.LZ4", "K4os.Compression.LZ4.dll")]
-    public void NuGetPackageFromTheLocalCache(string id, string dll)
+    public void A_NuGet_package_extracts_and_loads_each_target_framework_copy(string id, string dll)
     {
         var r = Unpack(ContainerFixtures.NuGetPackage(id), load: true);
 
         Assert.Equal("NuGet package", r.Container);
         var assemblies = r.Files.Where(f => Path.GetFileName(f.Path) == dll).ToList();
-        Assert.NotEmpty(assemblies); // one per target framework
+        // One per target framework.
+        Assert.NotEmpty(assemblies);
         Assert.All(assemblies, f => Assert.Equal(".NET assembly", f.Kind));
         Assert.All(assemblies, f => Assert.NotNull(f.LoadedAs));
         Assert.All(assemblies, f => Assert.Contains($"{Path.DirectorySeparatorChar}lib{Path.DirectorySeparatorChar}", f.Path));
@@ -346,7 +349,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void NestedPackages_AreOpenedIntoTheirOwnFolders()
+    public void Nested_packages_are_opened_into_their_own_folders()
     {
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         var r = Unpack(Save("bundle.zip", ContainerFixtures.Zip(("packages/k4os.nupkg", nupkg))));
@@ -357,7 +360,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void CosturaHost_ExtractsCompressedAndPlainEmbeddedAssemblies()
+    public void Costura_host_extracts_compressed_and_plain_embedded_assemblies()
     {
         var fixture = System.IO.File.ReadAllBytes(Env.FixturePath);
         var consumer = System.IO.File.ReadAllBytes(Env.ConsumerPath);
@@ -381,7 +384,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void PlainAssembly_IsNotAContainer()
+    public void Plain_assembly_is_not_a_container()
     {
         var r = Unpack(Env.FixturePath);
         Assert.Equal("none", r.Container);
@@ -406,7 +409,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void ApkStyleZip_DecodesXalzAndAssemblyStores()
+    public void APK_style_zip_decodes_XALZ_and_assembly_stores()
     {
         var (apk, storeRaw, storeXalz) = BuildApk();
         var r = Unpack(Save("app.apk", apk), load: true);
@@ -430,7 +433,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
 
     [Trait("Smoke", "push")]
     [Fact]
-    public void StandaloneXalzFile_IsDecompressed()
+    public void Standalone_XALZ_file_is_decompressed()
     {
         var r = Unpack(Save("TestFixture.dll", ContainerFixtures.Xalz(System.IO.File.ReadAllBytes(Env.FixturePath))));
         Assert.Equal("Xamarin XALZ", r.Container);
@@ -438,7 +441,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void Bundle_HeaderOffsetOutsideTheFile()
+    public void A_bundle_header_offset_outside_the_file_is_refused()
     {
         var bytes = System.IO.File.ReadAllBytes(fx.Bundle);
         ContainerFixtures.SetBundleHeaderOffset(bytes, long.MaxValue - 4);
@@ -448,7 +451,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void Bundle_ManifestTruncatedOrImplausible()
+    public void A_truncated_or_implausible_bundle_manifest_is_refused()
     {
         var bytes = System.IO.File.ReadAllBytes(fx.Bundle);
         ContainerFixtures.SetBundleHeaderOffset(bytes, bytes.Length - 6);
@@ -462,7 +465,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void Bundle_EntriesWithBadOffsetsSizesOrCompression_AreSkippedWithNotes()
+    public void Bundle_entries_with_bad_offsets_sizes_or_compression_are_skipped_with_notes()
     {
         var good = ContainerFixtures.Module("Good");
         var bytes = ContainerFixtures.WithManifest(System.IO.File.ReadAllBytes(fx.Bundle),
@@ -483,12 +486,13 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void Pe_CorruptHeaders_FallBackToCarving()
+    public void PE_corrupt_headers_fall_back_to_carving()
     {
         var lfanew = System.IO.File.ReadAllBytes(Env.FixturePath);
         BinaryPrimitives.WriteInt32LittleEndian(lfanew.AsSpan(0x3C), int.MaxValue);
         Assert.Null(PeImage.TryParse(lfanew));
-        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Unpack(Save("lfanew.dll", lfanew))).Code); // not a container: nothing to unpack
+        // Not a container: nothing to unpack.
+        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => Unpack(Save("lfanew.dll", lfanew))).Code);
 
         var sections = System.IO.File.ReadAllBytes(Env.FixturePath);
         int pe = BinaryPrimitives.ReadInt32LittleEndian(sections.AsSpan(0x3C));
@@ -498,7 +502,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void Xalz_CorruptOrImplausibleSize()
+    public void A_corrupt_or_implausible_XALZ_size_is_refused()
     {
         var xalz = ContainerFixtures.Xalz(System.IO.File.ReadAllBytes(Env.FixturePath));
         var wrongSize = xalz.ToArray();
@@ -512,12 +516,13 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void Zip_CorruptCentralDirectoryOrEntries()
+    public void A_zip_with_a_bad_central_directory_or_entry_keeps_the_readable_entries()
     {
         var zip = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         int eocd = zip.AsSpan().LastIndexOf("PK\x05\x06"u8);
         var badDirectory = zip.ToArray();
-        BinaryPrimitives.WriteUInt32LittleEndian(badDirectory.AsSpan(eocd + 16), uint.MaxValue - 100); // central directory offset
+        // Central directory offset.
+        BinaryPrimitives.WriteUInt32LittleEndian(badDirectory.AsSpan(eocd + 16), uint.MaxValue - 100);
         // Without a central directory, entries are read from local headers.
         var recovered = Unpack(Save("a.nupkg", badDirectory));
         Assert.Contains(recovered.Notes, n => n.StartsWith("Damaged zip"));
@@ -533,11 +538,12 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void Costura_BadDeflateResource_IsNoted()
+    public void Costura_bad_deflate_resource_is_noted()
     {
         var host = ContainerFixtures.Module("Host", ("costura.broken.dll.compressed", [0xFF, 0xFF, 0xFF, 0xFF, 0x00]));
         var r = Unpack(Save("host.exe", host));
-        Assert.Equal(UnpackService.HostOrigin, Assert.Single(r.Files).Origin); // only the host
+        // Only the host.
+        Assert.Equal(UnpackService.HostOrigin, Assert.Single(r.Files).Origin);
         Assert.Contains(r.Notes, n => n.Contains("costura.broken.dll.compressed") && n.Contains("deflate"));
     }
 
@@ -546,7 +552,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void TruncatedAndFuzzedInputs_FailCleanly()
+    public void Truncated_and_fuzzed_inputs_fail_cleanly()
     {
         var host = ContainerFixtures.Module("Host", ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(System.IO.File.ReadAllBytes(Env.FixturePath))));
         var inputs = new Dictionary<string, byte[]>
@@ -564,7 +570,8 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
             var cases = new List<(string, byte[])>();
             foreach (var cut in new[] { 0, 1, 2, 3, 12, 64, 0x3C, 0x100, bytes.Length / 4, bytes.Length / 2, bytes.Length * 3 / 4, bytes.Length - 22, bytes.Length - 1 })
                 if (cut >= 0 && cut < bytes.Length) cases.Add(($"{name} cut at {cut}", bytes[..cut]));
-            if (name == "bundle") // truncated inside the manifest
+            // Truncated inside the manifest.
+            if (name == "bundle")
             {
                 long header = ContainerFixtures.GetBundleHeaderOffset(bytes);
                 foreach (var cut in new[] { header + 2, header + 20, header + 60, header + 100 })
@@ -601,7 +608,8 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
                 try
                 {
                     using var ws = new AssemblyWorkspace(new ServerOptions());
-                    new UnpackService(ws).List(input, AnalysisLimits.Default, default); // list_assemblies on a container
+                    // list_assemblies on a container.
+                    new UnpackService(ws).List(input, AnalysisLimits.Default, default);
                 }
                 catch (ToolError) { /* expected for corrupt input */ }
                 catch (Exception ex)
@@ -652,10 +660,11 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         check?.Invoke(r);
     }
 
-    private static byte[] Content(int i) => Encoding.UTF8.GetBytes($"content {i}"); // distinct content, or duplicates are skipped
+    // Distinct content, or duplicates are skipped.
+    private static byte[] Content(int i) => Encoding.UTF8.GetBytes($"content {i}");
 
     [Fact]
-    public void ZipEntries_WithTraversalNames_StayInsideTheOutput() =>
+    public void Zip_entries_with_traversal_names_stay_inside_the_output() =>
         AssertContained(ContainerFixtures.Zip([.. EscapingNames.Select((n, i) => (n, Content(i)))]), "escaping.zip", r =>
         {
             // An unpack takes every file of a plain zip; "outside12.dll\0.txt" is a .txt.
@@ -666,18 +675,19 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         });
 
     [Fact]
-    public void BundleEntries_WithTraversalNames_StayInsideTheOutput() =>
+    public void Bundle_entries_with_traversal_names_stay_inside_the_output() =>
         AssertContained(ContainerFixtures.WithManifest(System.IO.File.ReadAllBytes(fx.Bundle),
             EscapingNames.Select((n, i) => new ContainerFixtures.BundleEntry(n, Content(i)))), "escaping.exe",
             r => Assert.Equal(EscapingNames.Length, r.Files.Count));
 
     [Fact]
-    public void CosturaResources_WithTraversalNames_StayInsideTheOutput() =>
+    public void Costura_resources_with_traversal_names_stay_inside_the_output() =>
         AssertContained(ContainerFixtures.Module("Host", [.. EscapingNames.Where(n => !n.Contains('\0')).Select((n, i) => ("costura." + n, Content(i)))]), "escaping.dll",
-            r => Assert.Equal(EscapingNames.Length - 1 + 1, r.Files.Count)); // metadata strings cannot hold NUL; + the host itself
+            // Metadata strings cannot hold NUL; + the host itself.
+            r => Assert.Equal(EscapingNames.Length - 1 + 1, r.Files.Count));
 
     [Fact]
-    public void NestedContainers_WithTraversalNames_StayInsideTheOutput()
+    public void Nested_containers_with_traversal_names_stay_inside_the_output()
     {
         var inner = ContainerFixtures.Zip([.. EscapingNames.Select((n, i) => (n, Content(i)))]);
         var outer = ContainerFixtures.Zip(("../../../../inner.nupkg", inner), ("/abs/inner2.zip", ContainerFixtures.Zip(("../../deep.dll", Content(99)))));
@@ -690,7 +700,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void ContainerAtTheNestingLimit_IsNoted()
+    public void Container_at_the_nesting_limit_is_noted()
     {
         var inner = ContainerFixtures.Zip(("b.zip", ContainerFixtures.Zip(("c.dll", Content(1)))));
         var path = Save("nested.zip", ContainerFixtures.Zip(("a.zip", inner)));
@@ -699,7 +709,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
-    public void FileAndDirectoryWithTheSameName_IsNotedNotFatal()
+    public void File_and_directory_with_the_same_name_is_noted_not_fatal()
     {
         var zip = ContainerFixtures.Zip(("lib.dll", Content(1)), ("lib.dll/inner.dll", Content(2)));
         AssertContained(zip, "clash.zip", r =>

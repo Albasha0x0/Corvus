@@ -4,10 +4,7 @@ using System.Text;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Builds little-endian compiled asset catalogs: a BOM store with CARHEADER, EXTENDED_METADATA, KEYFORMAT, FACETKEYS,
-/// APPEARANCEKEYS and RENDITIONS. Rendition keys hold scale, idiom, identifier and appearance, in that order.
-/// </summary>
+/// <summary>Writes little-endian compiled asset catalogs (.car) in a BOM store.</summary>
 internal sealed class AssetCatalogWriter
 {
     public static readonly int[] KeyTypes = [12, 15, 17, 7];

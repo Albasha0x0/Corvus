@@ -11,7 +11,7 @@ public class IlPatchTests : IDisposable
         _env.Edit(() => _env.Edits.PatchMethodIL(_env.One(symbol), il, mode, dryRun));
 
     [Fact]
-    public void HandWrittenILWithLabelsAndFrameworkCalls()
+    public void Hand_written_IL_with_labels_and_framework_calls_applies()
     {
         Patch("Secret::Validate", """
             ldarg.0                       // key
@@ -28,7 +28,7 @@ public class IlPatchTests : IDisposable
     }
 
     [Fact]
-    public void RoundTripsEditedGetIlOutput()
+    public void Round_trips_edited_get_IL_output()
     {
         var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::Charge(int, string)").Member, default);
         Patch("Account::Charge(int, string)", il.Replace("\"charged by \"", "\"billed by \""));
@@ -36,7 +36,7 @@ public class IlPatchTests : IDisposable
     }
 
     [Fact]
-    public void RoundTripsGenericAndLambdaHeavyMethod()
+    public void Round_trips_generic_and_lambda_heavy_method()
     {
         // MethodSpec, cached lambda field, ldftn and delegate ctor round-trip via token comments.
         var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::SumPositive").Member, default);
@@ -45,7 +45,7 @@ public class IlPatchTests : IDisposable
     }
 
     [Fact]
-    public void ResolvesMembersBySymbolAcrossTypes()
+    public void Resolves_members_by_symbol_across_types()
     {
         Patch("Account::CheckPreview", """
             ldstr "anything"
@@ -62,7 +62,7 @@ public class IlPatchTests : IDisposable
 
     [Trait("Smoke", "push")]
     [Fact]
-    public void PrependKeepsOriginalAndBranchesIntoIt()
+    public void Prepend_keeps_original_and_branches_into_it()
     {
         Patch("Account::Charge(int)", """
             ldarg.1
@@ -76,7 +76,7 @@ public class IlPatchTests : IDisposable
     }
 
     [Fact]
-    public void FieldsArgumentsLocalsSwitchAndTypes()
+    public void IL_with_fields_arguments_locals_and_a_switch_applies()
     {
         Patch("Account::Score", """
             .local int
@@ -100,7 +100,7 @@ public class IlPatchTests : IDisposable
     }
 
     [Fact]
-    public void DryRunLeavesOriginalUntouchedIncludingPrepend()
+    public void Dry_run_leaves_original_untouched_including_prepend()
     {
         var before = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::Charge(int)").Member, default);
         Assert.StartsWith("Dry run", Patch("Account::Charge(int)", "ldarg.1\nldc.i4.0\nbge IL_0000\nret", "prepend", dryRun: true));
@@ -122,7 +122,7 @@ public class IlPatchTests : IDisposable
     [InlineData("ret 5", "takes no operand")]
     [InlineData(".try {\nret", "exception-handling")]
     [InlineData("", "No IL instructions")]
-    public void RejectsBadILWithoutTouchingTheMethod(string il, string expected)
+    public void Rejects_bad_IL_without_touching_the_method(string il, string expected)
     {
         var ex = Assert.Throws<ToolError>(() => Patch("Account::Score", il));
         Assert.Contains(expected, ex.Message);
@@ -140,7 +140,7 @@ public class CSharpPatchTests : IDisposable
 
     /// <summary>Internal types in the signature must not cause CS0051 in the separately compiled helper.</summary>
     [Fact]
-    public void InternalTypesInSignatures_CompileAndReportOnlyRealErrors()
+    public void Internal_types_in_signatures_compile_and_report_only_real_errors()
     {
         using var dir = new TempDir();
         var path = dir.File("Internals.dll");
@@ -178,7 +178,7 @@ public class CSharpPatchTests : IDisposable
     }
 
     [Fact]
-    public void ReplacesBodyUsingPrivateStateAndInternalTypes()
+    public void Replaces_body_using_private_state_and_internal_types()
     {
         // _balance is private and Secret is internal: both must be accessible.
         Patch("Account::CheckPreview", """
@@ -194,7 +194,7 @@ public class CSharpPatchTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void WorksOnMethodsWithInitializersExpressionBodiesAndOverloads()
+    public void Methods_with_initializers_expression_bodies_and_overloads_take_patches()
     {
         Patch("Shop::PriceOf(string, int)", "return PriceOf(item) * quantity - Discount;");
         Assert.Contains("- Discount", _env.Decompile("Shop::PriceOf(string, int)"));
@@ -204,7 +204,7 @@ public class CSharpPatchTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void ConstructorsAccessorsAndStatics()
+    public void Constructors_accessors_and_statics_take_patches()
     {
         Patch("Account::.ctor", "Name = name.ToUpperInvariant(); AccountCount += 10;");
         Assert.Contains("ToUpperInvariant", _env.Decompile("Account::.ctor"));
@@ -218,21 +218,21 @@ public class CSharpPatchTests : IDisposable
     }
 
     [Fact]
-    public void GenericMethod()
+    public void A_generic_method_takes_a_patch()
     {
         Patch("Shop::Pick", "return second;");
         Assert.Contains("return second;", _env.Decompile("Shop::Pick"));
     }
 
     [Fact]
-    public void PatchInOtherAssemblyReferencingFixture()
+    public void A_method_of_a_referencing_assembly_takes_a_patch()
     {
         Patch("Consumer.Branch::Total", "return entity.Score() + 1;");
         Assert.Contains("entity.Score() + 1", _env.Decompile("Consumer.Branch::Total"));
     }
 
     [Fact]
-    public void CompileErrorsPointAtUserCode()
+    public void Compile_errors_point_at_user_code()
     {
         var ex = Assert.Throws<ToolError>(() => Patch("Account::CheckPreview", "return doesNotExist;"));
         Assert.Contains("CS0103", ex.Message);
@@ -244,7 +244,7 @@ public class CSharpPatchTests : IDisposable
     }
 
     [Fact]
-    public void UnsupportedTargetsExplainAlternatives()
+    public void Unsupported_targets_explain_alternatives()
     {
         var auto = Assert.Throws<ToolError>(() => Patch("Shop::get_Discount", "return 1;"));
         Assert.Contains("auto-property", auto.Message);
@@ -254,7 +254,7 @@ public class CSharpPatchTests : IDisposable
     }
 
     [Fact]
-    public void PatchedCodeSavesAndRunsCorrectly()
+    public void Patched_code_saves_and_runs_correctly()
     {
         Patch("Shop::PriceOf(string)", "return item.Length * 100;");
         Patch("Account::.ctor", "Name = name.ToUpperInvariant();");

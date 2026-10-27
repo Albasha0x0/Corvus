@@ -4,11 +4,7 @@ namespace Corvus.Services.Simplify;
 
 internal sealed partial class IlEvaluator
 {
-    /// <summary>
-    /// A type test of an array: System.Array, or a one-dimensional array of a primitive or enum type stored as the same
-    /// integers or floats (the runtime lets an int[] and an int-based enum[] stand for each other). Arrays of references
-    /// do not keep their element type, so tests against them are not modelled.
-    /// </summary>
+    /// <summary>A type test of an array against System.Array or a primitive or enum vector of the same storage; reference arrays are refused.</summary>
     private bool IsArrayOf(ArrayObject array, TypeSig type)
     {
         if (type is not SZArraySig { Next: var element }) return true;
@@ -20,10 +16,7 @@ internal sealed partial class IlEvaluator
             : throw Bail(FallbackReason.UnsupportedValue, $"type test of a {array.Data.GetType().GetElementType()!.Name}[] against {type.FullName}");
     }
 
-    /// <summary>
-    /// Enum.GetValues of an enum of this module: its constants, sorted as the runtime sorts them (by the underlying value,
-    /// unsigned), duplicates included, in an array of the underlying integers.
-    /// </summary>
+    /// <summary>Enum.GetValues of a module enum: its constants sorted by unsigned value, duplicates kept, as underlying integers.</summary>
     private ArrayObject EnumValues(object? type)
     {
         var t = TypeOf(type);

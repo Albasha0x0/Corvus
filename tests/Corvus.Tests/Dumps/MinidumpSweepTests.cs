@@ -27,7 +27,7 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task LocalCrashDumpsAreReadAndWalked() => await Sweep(Dumps().ToList());
+    public async Task Local_crash_dumps_are_read_and_walked() => await Sweep(Dumps().ToList());
 
     [Fact]
     public async Task A_dump_deleted_during_the_sweep_is_counted_not_failed()
@@ -37,7 +37,7 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
         File.WriteAllBytes(core, SyntheticCore.Core(arm64: false));
         var (dumps, disappeared) = await Sweep([core, dir.File("pruned.dmp")]);
         Assert.Equal((1, 1), (dumps, disappeared));
-        // a sweep that reads none of the dumps still there fails
+        // A sweep that reads none of the dumps still there fails.
         File.WriteAllBytes(dir.File("unreadable.dmp"), new byte[64]);
         await Assert.ThrowsAsync<Xunit.Sdk.TrueException>(() => Sweep([dir.File("unreadable.dmp"), dir.File("pruned.dmp")]));
     }
@@ -53,7 +53,7 @@ public sealed class MinidumpSweepTests(ITestOutputHelper output)
         {
             MinidumpService.DumpReport summary;
             try { summary = await service.Summarize(path, null, default); }
-            // Windows Error Reporting prunes these folders on its own: a dump deleted mid-sweep is skipped, not failed
+            // Windows Error Reporting prunes these folders on its own: a dump deleted mid-sweep is skipped, not failed.
             catch (ToolError) when (!File.Exists(path)) { disappeared++; continue; }
             catch (ToolError e) when (e.Code is ErrorCode.MalformedInput or ErrorCode.Unsupported or ErrorCode.IoError)
             {

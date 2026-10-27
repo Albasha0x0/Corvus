@@ -17,7 +17,7 @@ public class PlistTests
     private static JsonElement Json(PlistNode node) => JsonDocument.Parse(Plist.ToJson(node)).RootElement;
 
     [Fact]
-    public void Binary_ReadsEveryType_WithExactIntegers()
+    public void Binary_reads_every_type_with_exact_integers()
     {
         var big = BigInteger.Pow(2, 100);
         var tree = Dict(
@@ -48,9 +48,9 @@ public class PlistTests
     }
 
     [Fact]
-    public void Binary_Cycle_AndBadReferences_AreIssuesNotHangs()
+    public void Binary_cycle_and_bad_references_are_issues_not_hangs()
     {
-        // object 0: an array holding itself and an out-of-range reference
+        // Object 0: an array holding itself and an out-of-range reference.
         byte[] objects = [0xA2, 0x00, 0x05];
         var bytes = BplistWriter.Raw(objects, [0], top: 0);
         var doc = Plist.Read(bytes);
@@ -61,7 +61,7 @@ public class PlistTests
     }
 
     [Fact]
-    public void Xml_ReadsTypes_ExactIntegers_AndNeverExpandsEntities()
+    public void XML_reads_types_exact_integers_and_never_expands_entities()
     {
         const string text = """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -106,7 +106,7 @@ public class PlistTests
     }
 
     [Fact]
-    public void Xml_Truncated_KeepsWhatWasRead()
+    public void XML_truncated_keeps_what_was_read()
     {
         var doc = Plist.Read("<plist><dict><key>a</key><string>1</string><key>b</key><array><integer>2</integer>"u8);
         Assert.NotEmpty(doc.Issues);
@@ -116,7 +116,7 @@ public class PlistTests
     }
 
     [Fact]
-    public void Ascii_OpenStep_GnuStep_AndStringsFiles()
+    public void ASCII_OpenStep_GNUstep_and_strings_files_read()
     {
         const string text = """
             // a comment
@@ -168,7 +168,7 @@ public class PlistTests
             Dict(("$classname", S("NSDate")), ("$classes", Array(S("NSDate"), S("NSObject")))))));
 
     [Fact]
-    public void KeyedArchive_ProjectsTheObjectGraph_WithClassesAndReferences()
+    public void Keyed_archive_projects_the_object_graph_with_classes_and_references()
     {
         var doc = Plist.Read(BplistWriter.Write(Archive()));
         Assert.Empty(doc.Issues);
@@ -182,7 +182,8 @@ public class PlistTests
         Assert.Equal("Ada", json.GetProperty("name").GetString());
         Assert.Equal(41, json.GetProperty("age").GetInt32());
         var friends = json.GetProperty("friends");
-        Assert.Equal(1, friends[0].GetProperty("$ref").GetInt32()); // the cycle back to the person
+        // The cycle back to the person.
+        Assert.Equal(1, friends[0].GetProperty("$ref").GetInt32());
         Assert.Equal("Ada", friends[1].GetString());
         Assert.Equal("Ada", json.GetProperty("meta").GetProperty("nickname").GetString());
         Assert.Equal("2001-01-02T00:00:00Z", json.GetProperty("born").GetProperty("$date").GetString());
@@ -213,7 +214,7 @@ public class PlistTests
 
     [Fact]
     [FuzzEntry(typeof(Plist))]
-    public void MutatedInput_NeverThrows()
+    public void Mutated_input_never_throws()
     {
         var binary = BplistWriter.Write(Archive());
         var xml = Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><plist><dict><key>a</key><array><integer>1</integer><real>2.5</real><data>AAEC</data><date>2020-01-01T00:00:00Z</date></array></dict></plist>");

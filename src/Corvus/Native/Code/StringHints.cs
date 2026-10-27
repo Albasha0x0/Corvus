@@ -5,17 +5,13 @@ using Iced.Intel;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// String facts that only code holds, read from the instructions of one linear run: the byte length loaded beside a data
-/// address passed as a pointer and length pair (Rust &amp;str), and Swift small strings, whose up to 15 UTF-8 bytes are
-/// two 64-bit immediates. x86-64 and ARM64 only; other code adds nothing.
-/// </summary>
+/// <summary>Reads Rust &amp;str lengths and Swift small strings from one linear run; x86-64 and ARM64 only.</summary>
 internal sealed class StringHints
 {
     /// <summary>Instructions between the two halves of a pair at most.</summary>
     private const int Window = 6;
 
-    /// <summary>A length loaded beside an address, above which it is taken for something else.</summary>
+    /// <summary>Largest value taken as a string length.</summary>
     public const int MaxLength = 4096;
 
     // Integer argument registers in order: a pointer in one and its length in the next.
@@ -138,7 +134,7 @@ internal sealed class StringHints
         }
     }
 
-    /// <summary>The text of a small string from its two words, or null when they are not one or it is shorter than the shortest string listed.</summary>
+    /// <summary>The text of a small string from its two words, or null when not one or shorter than <see cref="StringDetector.MinLength"/>.</summary>
     internal static string? Small(ulong first, ulong count)
     {
         byte top = (byte)(count >> 56);

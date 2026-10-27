@@ -15,7 +15,7 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
 {
     /// <summary>The fixture assembly with the COR header's IL-only flag cleared: loads as .NET and gets a native view.</summary>
     [Fact]
-    public void MixedModeAssembliesGetANativeViewThatFollowsTheirLifetime()
+    public void Mixed_mode_assemblies_get_a_native_view_that_follows_their_lifetime()
     {
         using var dir = new TempDir();
         var bytes = File.ReadAllBytes(Env.FixturePath);
@@ -84,7 +84,7 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
 
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public async Task CompiledMixedModeAssemblyNavigatesBothWays()
+    public async Task A_compiled_mixed_mode_assembly_navigates_both_ways()
     {
         using var dir = new TempDir();
         var path = BuildMixed(dir);
@@ -102,7 +102,7 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
         var map = link.Mixed(env.Fixture);
         output.WriteLine($"native bodies {map.Bodies.Count}, vtables {map.VTables}, slots {map.Slots.Count}");
 
-        // managed -> native: a native body and a P/Invoke into the same image
+        // Managed -> native: a native body and a P/Invoke into the same image.
         var callees = await graph.GetCallTree("Mixed::Call", "callees", depth: 3);
         output.WriteLine(callees);
         NativeLinkTests.Has(callees, "native: mixedtest.dll!NativeAdd at 0x");
@@ -110,7 +110,7 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
         NativeLinkTests.Has(callees, "GetCurrentProcessId");
         NativeLinkTests.Has(await graph.GetCallTree("Mixed::Call2", "callees", depth: 2), "native: mixedtest.dll!NativeAdd at 0x");
 
-        // native -> managed: the exported native function enters ManagedHelper through its vtfixup slot
+        // Native -> managed: the exported native function enters ManagedHelper through its vtfixup slot.
         var nativeTree = await calls.NativeCallTree("mixedtest.dll", "CallsManaged", depth: 3);
         output.WriteLine(nativeTree);
         NativeLinkTests.Has(nativeTree, "managed: <Module>::ManagedHelper(int)");
@@ -120,7 +120,7 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
         NativeLinkTests.Has(callers, "through vtfixup slot");
         NativeLinkTests.Has(await refs.FindReferences("ManagedHelper"), "native call: [mixedtest.dll]");
 
-        // the native export back to its managed callers, through both seams
+        // The native export back to its managed callers, through both seams.
         var back = await refs.FindReferences("mixedtest.dll!NativeAdd");
         output.WriteLine(back);
         NativeLinkTests.Has(back, "Mixed::Call(int)");
@@ -133,7 +133,7 @@ public sealed class NativeLinkMixedTests(ITestOutputHelper output)
     /// <summary>Mixed-mode assemblies found on this machine (IL with native code): loaded, with their seams counted.</summary>
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public async Task MixedModeAssembliesOnThisMachine()
+    public async Task Mixed_mode_assemblies_on_this_machine_get_a_native_view()
     {
         var roots = new[]
         {

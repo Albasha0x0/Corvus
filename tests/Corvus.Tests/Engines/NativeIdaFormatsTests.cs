@@ -9,11 +9,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The engines on ELF and Mach-O: header facts (architecture, image base) the sessions verify against (quick), and IDA
-/// on real ARM64 / ARM ELF and Mach-O libraries: base agreement with our model, function starts against the declared
-/// unwind starts, Thumb functions, and a universal slice opened as a thin file (slow, IDA installed).
-/// </summary>
+/// <summary>Engines on ELF and Mach-O: header facts (quick), and IDA on real ARM libraries for base, unwind starts, Thumb and universal slices (slow).</summary>
 public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -26,7 +22,7 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
-    public void HeadersComeFromTheImageModel()
+    public void Headers_come_from_the_image_model()
     {
         Assert.Equal((NativeArch.Arm64, 0UL), IdaSession.ReadHeader(NativeFixtures.LinuxArm64DbgShim, "libdbgshim.so"));
         Assert.Equal((NativeArch.Arm, 0UL), IdaSession.ReadHeader(NativeFixtures.LinuxArmDbgShim, "libdbgshim.so"));
@@ -64,15 +60,15 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
 
     [IdaFact]
     [Trait("Speed", "Slow")]
-    public Task ElfArm64() => Agree(NativeFixtures.LinuxArm64DbgShim, NativeArch.Arm64);
+    public Task An_ELF_ARM64_image_agrees_with_IDA() => Agree(NativeFixtures.LinuxArm64DbgShim, NativeArch.Arm64);
 
     [IdaFact]
     [Trait("Speed", "Slow")]
-    public Task MachOArm64() => Agree(NativeFixtures.OsxArm64DbgShim, NativeArch.Arm64);
+    public Task A_MachO_ARM64_image_agrees_with_IDA() => Agree(NativeFixtures.OsxArm64DbgShim, NativeArch.Arm64);
 
     [IdaFact]
     [Trait("Speed", "Slow")]
-    public async Task ElfArmFunctionsCarryTheThumbFlag()
+    public async Task ELF_ARM_functions_carry_the_Thumb_flag()
     {
         var functions = await Agree(NativeFixtures.LinuxArmDbgShim, NativeArch.Arm);
         int thumb = functions.Count(f => (f.Flags & NativeFunctionFlags.Thumb) != 0);
@@ -80,23 +76,20 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
         Assert.True(thumb > functions.Count / 2);
     }
 
-    /// <summary>
-    /// The smallest Android package of CORVUS_IL2CPP_MOBILE (see <see cref="Il2CppMobileTests"/>): IDA opens its libil2cpp.so
-    /// at our image base, and the Il2Cpp method starts are compared with IDA's functions.
-    /// </summary>
+    /// <summary>The smallest package of CORVUS_AOT_MOBILE: IDA opens its libil2cpp.so at our base, and metadata method starts match IDA's functions.</summary>
     [IdaFact]
     [Trait("Speed", "Slow")]
-    public async Task Il2CppMobileBinaryAgreesWithIda()
+    public async Task A_native_library_from_an_Android_package_agrees_with_IDA()
     {
-        if (RealData.Get("CORVUS_IL2CPP_MOBILE") is not { } root || !Directory.Exists(root)) { output.WriteLine("CORVUS_IL2CPP_MOBILE not set"); return; }
+        if (RealData.Get("CORVUS_AOT_MOBILE") is not { } root || !Directory.Exists(root)) { output.WriteLine("CORVUS_AOT_MOBILE not set"); return; }
         var package = Directory.EnumerateFiles(root, "*.apk").OrderBy(f => new FileInfo(f).Length).FirstOrDefault();
         if (package == null) return;
-        var cache = RealData.Get(Il2CppRawLoader.RootVariable) ?? _dir.File("il2cpp");
-        var files = Il2CppBuildFiles.Find(Il2CppPackages.Extract(package, null, cache)!)!;
+        var cache = RealData.Get(AotBuildLoader.RootVariable) ?? _dir.File("aot");
+        var files = AotBuildFiles.Find(AotPackages.Extract(package, null, cache)!)!;
         var options = new ServerOptions { TimeoutSeconds = 1800, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         _owned.Add(workspace);
-        var model = new Il2CppRawLoader(workspace).Load(files, loadBinary: true, null, default, cache).Model;
+        var model = new AotBuildLoader(workspace).Load(files, loadBinary: true, null, default, cache).Model;
         var native = Assert.Single(workspace.Natives);
         EngineSeed.Copy(_dir.File("cache"), files.Binary, "ida");
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
@@ -111,14 +104,14 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
         var methods = model.Methods.Select(m => m.Address).Distinct().ToList();
         int found = methods.Count(starts.Contains);
         output.WriteLine($"{Path.GetFileName(package)} libil2cpp.so ({native.Image.Arch}): IDA {starts.Count} functions in {watch.Elapsed.TotalSeconds:0} s{(partial ? " (open's analysis partial, completed by reanalysis)" : "")}, base 0x{session.ImageBase:X}; " +
-                         $"{found} of {methods.Count} Il2Cpp method starts are IDA functions");
-        Assert.True(found >= methods.Count * 0.85); // IDA alone misses starts reached only through method-pointer tables (92.5% on a Unity 2022 build)
+                         $"{found} of {methods.Count} AOT method starts are IDA functions");
+        Assert.True(found >= methods.Count * 0.85); // IDA alone misses starts reached only through method-pointer tables (92.5% on an engine 2022 build)
     }
 
     /// <summary>Ghidra on the same ELF and Mach-O libraries: loaded at our image base, with functions at the declared starts.</summary>
     [GhidraFact]
     [Trait("Speed", "Slow")]
-    public async Task GhidraLoadsElfAndMachOAtOurBase()
+    public async Task Ghidra_loads_ELF_and_MachO_at_the_image_model_base()
     {
         var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = _dir.File("ghidra") });
         _owned.Add(provider);
@@ -137,7 +130,7 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
 
     [IdaFact]
     [Trait("Speed", "Slow")]
-    public async Task UniversalSliceOpensAsAThinFile()
+    public async Task Universal_slice_opens_as_a_thin_file()
     {
         var fat = _dir.File("libdual.dylib");
         var arm64 = File.ReadAllBytes(NativeFixtures.OsxArm64DbgShim);

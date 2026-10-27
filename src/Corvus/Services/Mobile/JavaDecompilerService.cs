@@ -9,11 +9,7 @@ using Corvus.Native.Providers.Jadx;
 
 namespace Corvus.Services.Mobile;
 
-/// <summary>
-/// Java / Kotlin source through the JADX headless server, one session per package file kept while it is unchanged (two at most).
-/// Classes and methods are resolved by the DEX index first, so a method is one exact overload: it is matched to the server's
-/// overload list by its parameter types.
-/// </summary>
+/// <summary>Java source through the JADX server (one session per unchanged package, two at most); overloads matched by parameter types.</summary>
 public sealed class JavaDecompilerService(DexService dex) : IDisposable
 {
     public static readonly TimeSpan LoadTimeout = TimeSpan.FromMinutes(10);
@@ -45,10 +41,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         return text;
     }
 
-    /// <summary>
-    /// A class of a jar or a .class through Vineflower: the class and its nested classes are given to it, the jar as a library
-    /// for types; it writes nested classes inside their outer class, so a nested class or a method comes with that whole source.
-    /// </summary>
+    /// <summary>A class of a jar or .class through Vineflower, the jar as a library; a nested class or method returns its whole top-level class.</summary>
     private string DecompileClassFiles(string path, string symbol, CancellationToken ct)
     {
         if (!JvmClasses.IsClassInput(path))
@@ -112,10 +105,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         return names == null || names.IsEmpty ? source : WithNames(source, names, index, symbol, ct);
     }
 
-    /// <summary>
-    /// The source with original names in place (the JADX server takes no mapping), under a line counting them and naming
-    /// what stays as JADX wrote it.
-    /// </summary>
+    /// <summary>The source with original names applied, since the JADX server takes no mapping, under a line counting them.</summary>
     private static string WithNames(string source, DexNames names, DexIndex index, string symbol, CancellationToken ct)
     {
         bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
@@ -124,7 +114,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         var r = JavaSourceNames.Apply(source, names, index, descriptor, ct);
         var basis = names.Mapping is { } m ? Path.GetFileName(m) : "Kotlin metadata";
         var head = $"// original names from {basis}: {r.Renamed} identifier(s) replaced";
-        if (r.Undecided.Count > 0) head += $"; kept as JADX wrote them (the code's references name more than one): {string.Join(", ", r.Undecided.Take(20))}";
+        if (r.Undecided.Count > 0) head += $"; kept as JADX wrote them (ambiguous): {string.Join(", ", r.Undecided.Take(20))}";
         return head + "\n" + r.Text;
     }
 
@@ -154,10 +144,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
 
     private const int MaxHostDepth = 4;
 
-    /// <summary>
-    /// A class's source. JADX writes a member class inside its top-level class, and an anonymous class, local class or lambda
-    /// class inside the method that creates it: those come from there.
-    /// </summary>
+    /// <summary>A class's source, read from its outer class or creating method when JADX writes it there.</summary>
     private async Task<string> ClassSource(JadxServer server, DexIndex index, DexClassEntry cls, bool smaliFallback, int depth, CancellationToken ct)
     {
         var descriptor = cls.Class.Descriptor;
@@ -212,10 +199,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
 
     private static string Lf(string text) => text.Replace("\r\n", "\n");
 
-    /// <summary>
-    /// How JADX places a class: Kind null for a class it writes on its own; else "an anonymous class", "a local class" or "a
-    /// lambda class" with the method that holds it, or "a member class" (inside its outer class).
-    /// </summary>
+    /// <summary>How JADX places a class: Kind null when written on its own, else the nesting kind with its host method or outer class.</summary>
     internal static (string? Kind, string? HostMethod, string? OuterClass, string? InnerName) Nesting(DexIndex index, DexClassEntry cls, CancellationToken ct)
     {
         var system = cls.File.Annotations(cls.Class).Class;
@@ -241,10 +225,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         return null;
     }
 
-    /// <summary>
-    /// The top-level class a nested class is written in, with the member names from it down to the class; the path is null
-    /// when an anonymous or local class is on the way (its block has no name to find).
-    /// </summary>
+    /// <summary>The top-level class holding a nested class and the member path to it; path null when an anonymous or local class is on the way.</summary>
     private static (DexClassEntry Top, List<string>? Path) TopLevel(DexIndex index, DexClassEntry cls, CancellationToken ct)
     {
         var path = new List<string>();

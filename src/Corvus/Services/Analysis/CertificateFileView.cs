@@ -2,11 +2,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=certificate: a certificate file (PEM, DER, PKCS #7, PKCS #12): a page of its certificates (offset=, limit=) with
-/// fingerprints and SPKI pins, the chains its certificates form, keys and other blocks by type, and this machine's trust
-/// verdict per chain.
-/// </summary>
+/// <summary>view=certificate: a PEM, DER, PKCS #7 or PKCS #12 file's certificates, chains with local trust verdicts, and other blocks.</summary>
 internal sealed class CertificateFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxRows = 500;

@@ -3,13 +3,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// A file as summarize_file reads it. A file up to <see cref="StreamAbove"/> bytes is read whole; a larger one keeps only its
-/// <see cref="Head"/> in memory and is read through <see cref="OpenRead"/> by the views that stream (pcap, SQLite, zip, HAR,
-/// archives); <see cref="Image"/> holds a native image without the overlay after it; <see cref="Bytes"/> reads it whole on
-/// first use, for the formats that need the whole file. <see cref="Kind"/> is Blob.Identify of the head (of the image for an
-/// MZ file, whose PE checks need its sections).
-/// </summary>
+/// <summary>A file as summarize_file reads it: whole up to <see cref="StreamAbove"/> bytes, else its <see cref="Head"/> plus streamed reads.</summary>
 public sealed class FileInput
 {
     /// <summary>Files above this size are streamed rather than read whole up front.</summary>
@@ -57,10 +51,7 @@ public sealed class FileInput
     private byte[]? _image;
     private long? _imageLength;
 
-    /// <summary>
-    /// What the parsers of a native image read: a streamed PE, ELF or Mach-O file up to the end of its last section or
-    /// segment (<see cref="ImageExtent"/>), so an overlay appended after it is not held; the whole file otherwise.
-    /// </summary>
+    /// <summary>A streamed native image up to the end of its last section, without the overlay; the whole file otherwise.</summary>
     public byte[] Image
     {
         get
@@ -137,7 +128,8 @@ public sealed class FileInput
         var head = new byte[Math.Min(HeadBytes, length)];
         using (var f = File.OpenRead(full)) f.ReadExactly(head);
         var input = new FileInput(full, length, head);
-        if (head[0] == 'M' && head[1] == 'Z') input.Kind = Blob.Identify(input.Image); // the PE checks behind Identify read its sections
+        // The PE checks behind Identify read the sections.
+        if (head[0] == 'M' && head[1] == 'Z') input.Kind = Blob.Identify(input.Image);
         return input;
     }
 
@@ -182,10 +174,7 @@ public sealed class FileInput
     }
 }
 
-/// <summary>
-/// What summarize_file asked for beyond the file: the view, and for a view that lists rows a table, its columns, the first
-/// row and the row count. A view does its costly work only when it is the one asked for (or all).
-/// </summary>
+/// <summary>summarize_file's view and paging; a view does costly work only when it is the one asked for, or view=all.</summary>
 public sealed record FileViewOptions(string View = "overview", string? Table = null, IReadOnlyList<string>? Columns = null, long Offset = 0, int? Limit = null)
 {
     public static readonly FileViewOptions None = new();
@@ -196,7 +185,7 @@ public sealed record FileViewOptions(string View = "overview", string? Table = n
     /// <summary>A STIX bundle is to be written, which needs every network value, not the summary's first ten.</summary>
     public bool Stix { get; init; }
 
-    /// <summary>view=unity: only the MonoBehaviour assets of this script class (class name or namespace-qualified name).</summary>
+    /// <summary>view=assets: only the assets bound to this class (short or namespace-qualified name).</summary>
     public string? Script { get; init; }
 
     /// <summary>Whether <paramref name="view"/> is the one asked for (view=all asks for every view).</summary>

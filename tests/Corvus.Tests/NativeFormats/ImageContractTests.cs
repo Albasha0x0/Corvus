@@ -9,7 +9,7 @@ namespace Corvus.Tests.NativeFormats;
 public sealed class ImageContractTests
 {
     [Fact]
-    public void Detect_RecognizesEveryContainer()
+    public void Detection_recognizes_every_container()
     {
         Assert.Equal(NativeFileKind.Pe, NativeImageLoader.Detect("MZ\x90\0"u8));
         Assert.Equal(NativeFileKind.Elf, NativeImageLoader.Detect([0x7F, (byte)'E', (byte)'L', (byte)'F', 2, 1]));
@@ -22,7 +22,7 @@ public sealed class ImageContractTests
     }
 
     [Fact]
-    public void Open_ReadsEveryFormat()
+    public void Open_reads_every_format()
     {
         Assert.Equal(ImageFormat.Elf, NativeImageLoader.Open(NativeFixtures.LinuxArm64DbgShim).Format);
         Assert.Equal(ImageFormat.MachO, NativeImageLoader.Open(NativeFixtures.OsxFatSkia).Format);
@@ -34,7 +34,7 @@ public sealed class ImageContractTests
     }
 
     [Fact]
-    public void PeFile_FillsTheFormatNeutralMembers()
+    public void PE_files_fill_the_format_neutral_members()
     {
         var pe = PeFile.Open(NativeFixtures.WinArm64DbgShim);
         INativeImage image = pe;
@@ -51,7 +51,7 @@ public sealed class ImageContractTests
     }
 
     [Fact]
-    public void RequirePe_RefusesOtherFormatsWithReason()
+    public void Requiring_PE_refuses_other_formats_with_a_reason()
     {
         var elf = new FormatImage(PeFile.FromBytes(NativePeTests.KitchenSink(true), "lib.so"), ImageFormat.Elf);
         var native = new LoadedNative("lib.so", "lib.so", elf);

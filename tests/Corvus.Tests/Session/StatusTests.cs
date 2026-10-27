@@ -24,7 +24,7 @@ public sealed class StatusTests : IDisposable
     private static JsonNode Client(JsonNode report, string id) => report["clients"]!.AsArray().Single(c => c!["id"]!.GetValue<string>() == id)!;
 
     [Fact]
-    public void ARelayWhosePublishFolderIsGone_IsAMissingProgram()
+    public void A_relay_whose_publish_folder_is_gone_is_a_missing_program()
     {
         var gone = _home.Path("publish-gone");
         _home.Write($$"""{ "mcpServers": { "corvus": { "command": "corvus-host", "args": ["relay", "--target", {{Q(gone)}}] } } }""", ".cursor", "mcp.json");
@@ -36,7 +36,7 @@ public sealed class StatusTests : IDisposable
     }
 
     [Fact]
-    public void Install_RemovesStagedRelayCopiesNoConfigurationNames()
+    public void Install_removes_staged_relay_copies_no_configuration_names()
     {
         var hosts = _home.Path("AppData", "Local", "Corvus", "relay", "host");
         foreach (var name in new[] { "1.2.0-aaaaaaaaaaaa", "1.3.0-bbbbbbbbbbbb", "1.3.0-cccccccccccc.tmp-42" })
@@ -50,7 +50,7 @@ public sealed class StatusTests : IDisposable
     }
 
     [Fact]
-    public void ClientScope_ChecksOnlyThoseClients_AndFailsOnlyForThem()
+    public void Client_scope_checks_only_those_clients_and_fails_only_for_them()
     {
         Registrations();
         var before = _home.Snapshot();
@@ -76,7 +76,7 @@ public sealed class StatusTests : IDisposable
     }
 
     [Fact]
-    public void Audit_ReportsEveryDetectedClient_TheServerAndTheEngines()
+    public void Audit_reports_every_detected_client_the_server_and_the_engines()
     {
         Registrations();
         var (code, output) = _home.Run("status", "--json");
@@ -92,7 +92,7 @@ public sealed class StatusTests : IDisposable
     }
 
     [Fact]
-    public void EngineScope_IdaPythonGhidra()
+    public void Engine_scope_checks_IDA_Python_and_Ghidra()
     {
         Assert.Equal(1, _home.Run("status", "--engine", "ida").Code);
         var (code, output) = _home.Run(_home.Env(idaAvailable: true), "status", "--engine", "ida", "--deep", "--json");
@@ -128,7 +128,7 @@ public sealed class StatusTests : IDisposable
     }
 
     [Fact]
-    public void TargetScope_ClassifiesTheFileWithoutLoadingIt()
+    public void Target_scope_classifies_the_file_without_loading_it()
     {
         var (code, output) = _home.Run("status", "--target", Env.FixturePath, "--json");
         Assert.Equal(0, code);
@@ -144,7 +144,7 @@ public sealed class StatusTests : IDisposable
         File.WriteAllBytes(_home.Path("app.apk"), [(byte)'P', (byte)'K', 3, 4, 0, 0]);
         Assert.Contains("ZIP container", _home.Run("status", "--target", _home.Path("app.apk")).Output);
         File.WriteAllBytes(_home.Path("global-metadata.dat"), [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0]);
-        Assert.Contains("Il2Cpp metadata", _home.Run("status", "--target", _home.Path("global-metadata.dat")).Output);
+        Assert.Contains("AOT metadata", _home.Run("status", "--target", _home.Path("global-metadata.dat")).Output);
 
         if (OperatingSystem.IsWindows())
         {

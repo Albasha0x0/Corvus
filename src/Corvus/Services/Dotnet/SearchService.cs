@@ -87,8 +87,7 @@ public sealed class SearchService(ServerOptions? options = null)
     public SearchResult<ConstantHit> SearchConstants(string value, IReadOnlyList<LoadedAssembly> scope, int limit, CancellationToken ct)
     {
         var target = ParseConstant(value);
-        // Constant tables (CRC, S-boxes, round constants) live in array initializer data, not IL; each is decoded
-        // with the element type of the newarr / span creation that uses it.
+        // Constant tables live in array initializer data, decoded with the element type of the array that uses it.
         var dataFields = new System.Collections.Concurrent.ConcurrentBag<(LoadedAssembly Asm, FieldDef Field)>();
         // Every user: the compiler shares one data field between identical initializers in different methods.
         var users = new System.Collections.Concurrent.ConcurrentDictionary<FieldDef, System.Collections.Concurrent.ConcurrentDictionary<MethodDef, TypeSig?>>();
@@ -147,9 +146,8 @@ public sealed class SearchService(ServerOptions? options = null)
     }
 
     /// <summary>
-    /// Where the value is in the data, as "[index]": element by element for a known element type (and as the low /
-    /// high half of a 64-bit element for a 32-bit value of 0x10000 or more, as in SHA-512's tables); without one,
-    /// aligned 4- or 8-byte words for values of 0x10000 or more only (small values would match everywhere).
+    /// Where the value is in the data: by element for a known element type, else aligned words for values of 0x10000 or
+    /// more only, since small values would match everywhere.
     /// </summary>
     private static IEnumerable<string> ArrayMatches(byte[] data, TypeSig? element, decimal target)
     {
@@ -164,7 +162,7 @@ public sealed class SearchService(ServerOptions? options = null)
             int width = fits32 ? 4 : 8;
             for (int i = 0; i + width <= data.Length; i += width)
             {
-                // unsigned or signed reading of the word
+                // Unsigned or signed reading of the word.
                 decimal unsigned = width == 4 ? BitConverter.ToUInt32(data, i) : BitConverter.ToUInt64(data, i);
                 decimal signed = width == 4 ? BitConverter.ToInt32(data, i) : BitConverter.ToInt64(data, i);
                 if (unsigned == target || signed == target)
@@ -241,7 +239,7 @@ public sealed class SearchService(ServerOptions? options = null)
             && ulong.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex))
             result = hex;
         else if (!decimal.TryParse(s.TrimEnd('f', 'F', 'd', 'D', 'L', 'l', 'u', 'U'), NumberStyles.Float, CultureInfo.InvariantCulture, out result))
-            throw new ToolError(ErrorCode.InvalidArgument, $"'{value}' is not a number. Use search_strings for text.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{value}' is not a number; search_strings searches text.");
         return negative ? -result : result;
     }
 

@@ -21,7 +21,7 @@
       "type": "boolean"
     },
     "runtime": {
-      "description": "Managed runtime loaded in the process (CoreCLR, CLR, Mono) or Il2Cpp; null for none.",
+      "description": "Managed runtime loaded in the process (CoreCLR, CLR, Mono) or AOT; null for none.",
       "type": "string"
     },
     "access": {

@@ -37,10 +37,7 @@ public sealed partial class NativeCodeTools
         }
     }
 
-    /// <summary>
-    /// Linear listing from <paramref name="rva"/> of at most <paramref name="max"/> lines: known data items (strings, pointers, IAT slots,
-    /// switch tables) are rendered as data and skipped; landing inside a known instruction resynchronizes to the next instruction start.
-    /// </summary>
+    /// <summary>Linear listing of at most <paramref name="max"/> lines; data items render as data and mid-instruction starts resynchronize.</summary>
     internal static void AppendLinear(StringBuilder sb, NativeCodeIndex index, AddressClassifier classifier, uint rva, int max, List<string> warnings, CancellationToken ct)
     {
         var image = index.Image;
@@ -112,7 +109,7 @@ public sealed partial class NativeCodeTools
                     int o = (int)(at - from);
                     if (o + 4 > n) break;
                     uint entry = BitConverter.ToUInt32(bytes, o);
-                    // x64 tables hold RVAs, x86 tables absolute addresses
+                    // x64 tables hold RVAs, x86 tables absolute addresses.
                     uint target = image.Is64Bit ? entry : (uint)(entry - image.ImageBase);
                     sb.AppendLine(Row(at, Hex(o, 4), $"dd {(image.Is64Bit ? "rva " : "offset ")}{index.NameAt(target) ?? $"loc_{target:X}"}"));
                 }

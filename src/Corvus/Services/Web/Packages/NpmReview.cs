@@ -27,7 +27,7 @@ public static partial class PackageReview
             foreach (var p in s.EnumerateObject())
                 if (p.Value.ValueKind == JsonValueKind.String)
                     scripts.Add(new PackageScript(p.Name, p.Value.GetString()!, NpmInstallScripts.Contains(p.Name) || source && NpmLocalInstallScripts.Contains(p.Name)));
-        // node-gyp builds a binding.gyp at install even without an install script
+        // node-gyp builds a binding.gyp at install even without an install script.
         bool gyp = files.Has(root + "binding.gyp") && !scripts.Any(x => x.Name is "install" or "preinstall");
         if (gyp) scripts.Add(new PackageScript("install", "node-gyp rebuild (binding.gyp)", true));
         foreach (var script in scripts.Where(x => x.AtInstall))
@@ -36,7 +36,7 @@ public static partial class PackageReview
             foreach (var f in Scan(manifestPath + "#scripts." + script.Name, script.Command, install: true, ct)) findings.Add(f);
             if (NetworkCommand.IsMatch(script.Command))
                 findings.Add(new PackageFinding("noteworthy", "install script", $"{script.Name} runs a network tool: {Clip(script.Command, 160)}", manifestPath));
-            // node file.js, node --require ./file, node -e "require('./file.js')": read the code it runs
+            // Reads the file a node, node --require or node -e "require(...)" command runs.
             foreach (var run in NodeTargets(script.Command))
             {
                 var target = Resolve(root, run);
@@ -60,7 +60,7 @@ public static partial class PackageReview
             else if (exports.ValueKind == JsonValueKind.Object)
                 foreach (var e in exports.EnumerateObject().Take(50)) entries.Add(new PackageEntryPoint("exports", e.Name, Target(e.Value)));
         }
-        // the code the package runs when loaded: its main file (index.js when none is present), binaries, then its other scripts
+        // Loaded code: main and bin files, else index.js.
         var loaded = entries.Where(e => e.Kind is "main" or "bin" && e.Target != null).Take(10).Select(e => Resolve(root, e.Target!))
             .Select(t => files.Has(t) || !files.Has(t + ".js") ? t : t + ".js").ToList();
         if (!loaded.Any(files.Has)) loaded.Add(root + "index.js");
@@ -88,7 +88,7 @@ public static partial class PackageReview
         return runs.Distinct();
     }
 
-    /// <summary>Install-time code with the package files it loads or starts by a literal path, two levels deep (a runner that spawns the real script).</summary>
+    /// <summary>Install-time code joined with the package files it loads by literal path, two levels deep.</summary>
     private static string InstallCode(PackageFiles files, string root, string target, string code)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal) { target };
@@ -100,8 +100,9 @@ public static partial class PackageReview
             foreach (Match m in LocalScript.Matches(item.Code))
             {
                 var rel = m.Groups[1].Value;
+                // Runners start small scripts; a bundled CLI's chunks over 64 KiB are scanned as loaded code.
                 var found = new[] { Resolve(Folder(item.Path), rel), Resolve(root, rel) }.SelectMany(c => new[] { c, c + ".js", c + "/index.js" })
-                    .FirstOrDefault(c => files.Has(c) && files.Size(c) <= 64 << 10); // runners start small scripts; a bundled CLI's chunks are read as loaded code
+                    .FirstOrDefault(c => files.Has(c) && files.Size(c) <= 64 << 10);
                 if (found == null || seen.Count >= 8 || !seen.Add(found) || files.Text(found) is not { } more) continue;
                 text.Append('\n').Append(more);
                 queue.Enqueue((found, more, item.Depth + 1));

@@ -3,11 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// UBI images: erase blocks found by their erase-counter and volume-identifier headers (CRC-checked), the volume table,
-/// and each volume rebuilt from its logical erase blocks (the newest copy of each by sequence number); every volume is an
-/// item, opened in turn by its own reader (UBIFS, squashfs). Headers are read in ranges.
-/// </summary>
+/// <summary>UBI images: each volume rebuilt from the newest copy of its logical erase blocks and opened by its own reader.</summary>
 internal sealed class UbiReader : IContainerReader
 {
     public string Kind => "UBI";
@@ -54,7 +50,7 @@ internal sealed class UbiReader : IContainerReader
         long lebSize = peb - dataAt;
         notes.Add($"UBI, {peb >> 10} KiB erase blocks ({lebSize:N0}-byte logical blocks), {blocks:N0} blocks, {unmapped:N0} unmapped" + (bad > 0 ? $", {bad} with damaged headers" : ""));
 
-        // the volume table: one 172-byte record per volume id, CRC-checked
+        // The volume table: one 172-byte record per volume id, CRC-checked.
         var names = new Dictionary<uint, (string Name, uint DataPad, byte Type)>();
         if (lebs.TryGetValue((LayoutVolume, 0), out var layout) || lebs.TryGetValue((LayoutVolume, 1), out layout))
         {
@@ -78,7 +74,7 @@ internal sealed class UbiReader : IContainerReader
             ct.ThrowIfCancellationRequested();
             var (name, pad, type) = names.TryGetValue(volume, out var n) ? n : ($"volume_{volume}", 0u, (byte)0);
             if (!FsTree.UsableName(name)) name = $"volume_{volume}";
-            // a volume in the table with no block written yet (an autoresize volume formatted at first boot) is empty
+            // A volume with no block written yet (an autoresize volume formatted at first boot) is empty.
             if (!byVolume.TryGetValue(volume, out var map))
             {
                 entries.Add(new ContainerEntry(name, 0, $"{(type == 2 ? "static" : "dynamic")} volume {volume}, no logical blocks mapped"));
@@ -100,7 +96,8 @@ internal sealed class UbiReader : IContainerReader
                 long take = isStatic ? (map.TryGetValue(l, out var s) ? s.DataSize : 0) : usable;
                 take = Math.Min(take, size - o);
                 if (map.TryGetValue(l, out var leb)) src.Read(leb.Peb + dataAt, (int)Math.Min(take, src.Length - leb.Peb - dataAt)).CopyTo(bytes, o);
-                else bytes.AsSpan((int)o, (int)take).Fill(0xFF); // an unmapped block reads as erased flash
+                // An unmapped block reads as erased flash.
+                else bytes.AsSpan((int)o, (int)take).Fill(0xFF);
                 o += take;
             }
             items.Add(new ExtractedItem(name, bytes, $"UBI {detail}"));
@@ -118,11 +115,7 @@ internal sealed class UbiReader : IContainerReader
     }
 }
 
-/// <summary>
-/// UBIFS volumes: every node of every logical erase block found by magic and CRC, the newest inode, directory entry and data
-/// block by sequence number (a deletion entry removes its name), files rebuilt from 4 KiB data blocks (LZO, deflate,
-/// Zstandard or stored); the index is not needed.
-/// </summary>
+/// <summary>UBIFS volumes rebuilt from the newest nodes by sequence number, without the index.</summary>
 internal sealed class UbifsReader : IContainerReader
 {
     public string Kind => "UBIFS";

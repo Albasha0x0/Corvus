@@ -17,7 +17,7 @@ public sealed class PerfRegressionsTests
             "a" or "b" => (10, "ms"), "r" => (30, "MB/s"), "units" => (10, "s"), _ => null,
         };
         var found = PerfRegressions.Find(samples, Baseline);
-        // a: worst per sample 16, 20, 14, median 16 > 15; b: median 1; r: median 19 < 20; no baseline or another unit: skipped.
+        // A: worst per sample 16, 20, 14, median 16 > 15; b: median 1; r: median 19 < 20; no baseline or another unit: skipped.
         Assert.Equal(["a", "r"], found.Select(r => r.Name));
         Assert.Equal("a: median 16 ms of 3 sample(s), baseline <= 10 ms", found[0].Text);
         Assert.Equal(["C.T"], found[0].Tests);

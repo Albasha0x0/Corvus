@@ -9,10 +9,7 @@ public enum PdbTypeKind { Simple, Pointer, Modifier, Array, Struct, Class, Inter
 
 public enum PdbMemberKind { Data, Base, VirtualBase, Vfptr, Static }
 
-/// <summary>
-/// A member of a struct, class or union. <see cref="Offset"/> in bytes, -1 for static members and virtual bases (reached
-/// through the vbtable); a bit field when <see cref="BitLength"/> &gt;= 0, <see cref="Type"/> then the storage unit's type.
-/// </summary>
+/// <summary>An aggregate member; <see cref="Offset"/> in bytes (-1 static or virtual base), a bit field when <see cref="BitLength"/> &gt;= 0.</summary>
 public sealed record PdbTypeMember(PdbMemberKind Kind, long Offset, string Name, uint Type, int BitLength = -1, int BitPosition = 0);
 
 public sealed record PdbEnumerator(string Name, long Value);
@@ -20,11 +17,7 @@ public sealed record PdbEnumerator(string Name, long Value);
 /// <summary>A procedure or member function type; <see cref="Class"/> and <see cref="This"/> are 0 for a procedure or a static member.</summary>
 public sealed record PdbFunctionType(uint Return, IReadOnlyList<uint> Parameters, bool Variadic, string Convention, uint Class, uint This);
 
-/// <summary>
-/// One type record. <see cref="Element"/>: the pointee, modified type, array element, enum's underlying type or bit field's
-/// storage type; <see cref="Count"/>: array elements; <see cref="Size"/> -1 when unknown. <see cref="Name"/> is the PDB's
-/// name for aggregates and enums, the C spelling for the others.
-/// </summary>
+/// <summary>A type record; <see cref="Element"/> is the referenced type, <see cref="Size"/> -1 when unknown.</summary>
 public sealed record PdbTypeNode(
     uint Index,
     PdbTypeKind Kind,
@@ -46,11 +39,7 @@ public sealed record PdbTypeNode(
     public bool IsAggregate => Kind is PdbTypeKind.Struct or PdbTypeKind.Class or PdbTypeKind.Interface or PdbTypeKind.Union;
 }
 
-/// <summary>
-/// The TPI (types) and IPI (ids) streams of a PDB as immutable nodes: aggregates with members, bases and bit fields,
-/// enums, pointers, arrays, modifiers and function types; forward references resolve to their definition by
-/// (unique) name. Malformed records are skipped, never thrown. Safe for concurrent readers.
-/// </summary>
+/// <summary>A PDB's TPI and IPI streams as immutable nodes; malformed records are skipped; safe for concurrent readers.</summary>
 public sealed class PdbTypeModel
 {
     private const int TpiStream = 2, IpiStream = 4;
@@ -101,7 +90,7 @@ public sealed class PdbTypeModel
         Ipi = ipi;
         PointerSize = pointerSize;
         Notes = notes;
-        // definitions by name, for forward references
+        // Definitions by name, for forward references.
         for (uint i = 0; i < Tpi.Offsets.Length; i++)
         {
             if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
@@ -143,10 +132,7 @@ public sealed class PdbTypeModel
 
     private static readonly ConditionalWeakTable<PdbFile, Cache> Models = new();
 
-    /// <summary>
-    /// <see cref="Read"/>, kept for the lifetime of <paramref name="pdb"/>. One read is shared by all callers; a caller's
-    /// cancellation ends its wait, not the read, and a failed read is tried again by the next call.
-    /// </summary>
+    /// <summary><see cref="Read"/> shared for the lifetime of <paramref name="pdb"/>; cancellation ends a wait, a failed read is retried.</summary>
     public static PdbTypeModel Of(PdbFile pdb, int pointerSize, CancellationToken ct = default)
     {
         var cache = Models.GetValue(pdb, _ => new Cache());
@@ -265,7 +251,7 @@ public sealed class PdbTypeModel
                 if (!Numeric(d, ref at, out size)) return null;
                 break;
             case LF_CLASS2 or LF_STRUCTURE2 or LF_INTERFACE2:
-                // property (32-bit), field list, derived, vshape, member count, then the size
+                // Property (32-bit), field list, derived, vshape, member count, then the size.
                 if (d.Length < 20) return null;
                 property = (ushort)U32(d, 0);
                 field = U32(d, 4);
@@ -396,11 +382,7 @@ public sealed class PdbTypeModel
         }
     }
 
-    /// <summary>
-    /// The members of an aggregate's field list (continuations followed): data members, bases, virtual bases, static
-    /// members and the vftable pointer the class introduces; enumerators for an enum. <paramref name="skipped"/> gets a
-    /// reason per member or list not read.
-    /// </summary>
+    /// <summary>Members of a field list, continuations followed; <paramref name="skipped"/> gets a reason per member not read.</summary>
     internal List<PdbTypeMember> Members(Aggregate a, out List<PdbEnumerator> enumerators, List<string>? skipped = null)
     {
         var members = new List<PdbTypeMember>();
@@ -451,7 +433,7 @@ public sealed class PdbTypeModel
                         at += 10;
                         if (!Numeric(d, ref at, out _) || !Numeric(d, ref at, out _)) goto bad;
                         skipped?.Add("virtual_base");
-                        // an indirect virtual base belongs to a base class
+                        // An indirect virtual base belongs to a base class.
                         if (leaf == 0x1401) members.Add(new PdbTypeMember(PdbMemberKind.VirtualBase, -1, "", type));
                         break;
                     }
@@ -505,7 +487,7 @@ public sealed class PdbTypeModel
         done:
             list = next;
         }
-        // the class introduces a vftable pointer: at offset 0 unless a base subobject there holds one
+        // The class introduces a vftable pointer: at offset 0 unless a base subobject there holds one.
         if (vfptr && !members.Any(m => m.Kind == PdbMemberKind.Base && m.Offset == 0))
             members.Insert(0, new PdbTypeMember(PdbMemberKind.Vfptr, 0, "__vftable", PointerSize == 4 ? 0x0403u : 0x0603u)); // T_32PVOID / T_64PVOID
         return members;
@@ -515,7 +497,7 @@ public sealed class PdbTypeModel
     public uint FunctionTypeOf(uint typeIndex)
     {
         uint type = typeIndex;
-        // the _ID procedure kinds carry an IPI index (the linker normally rewrites them to TPI indices)
+        // The _ID procedure kinds carry an IPI index (the linker normally rewrites them to TPI indices).
         if (!(Tpi.TryGet(type, out var tk0, out _) && tk0 is LF_PROCEDURE or LF_MFUNCTION) && Ipi.TryGet(type, out var ik, out var id) && ik is LF_FUNC_ID or LF_MFUNC_ID)
             type = U32(id, 4);
         return Tpi.TryGet(type, out var k, out _) && k is LF_PROCEDURE or LF_MFUNCTION ? type : 0;
@@ -679,7 +661,7 @@ public sealed class PdbTypeModel
         for (uint i = 0; i < Tpi.Offsets.Length; i++)
         {
             if (ReadAggregate(Tpi.First + i) is not { } a || Unnamed(a.Name)) continue;
-            // a forward reference stands for its definition, which is listed on its own
+            // A forward reference stands for its definition, which is listed on its own.
             if (a.Forward && _definitionByName.ContainsKey(Key(a))) continue;
             if (!keys.Add(Key(a))) continue;
             (byName.TryGetValue(a.Name, out var list) ? list : byName[a.Name] = []).Add(a.Index);

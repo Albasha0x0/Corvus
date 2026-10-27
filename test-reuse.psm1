@@ -1,21 +1,20 @@
-# Per-family reuse of full-suite passes (test.ps1 -Reuse): which families a change touches, each family's input key,
-# which families must run again, and which passed in a run's TRX results.
+# Per-family reuse of full-suite passes (test.ps1 -Reuse): family input keys, stale families, and passes from TRX.
 
 # How a test run lowers its priority on each OS, and the CORVUS_TEST_PRIORITY value that keeps it at normal priority.
 $script:RunPriority = @{ Windows = 'BelowNormal'; Nice = 10; Normal = 'normal' }
 
 # Test folders whose classes always run: cross-cutting contract tests and shared helpers.
 $script:AlwaysRunFolders = 'Contract', 'Support', 'ContractSweepData'
-# Flaky under load (OI-T1): a pass on another machine state proves little, so they always run.
+# Flaky under load: a pass under another machine state proves little, so they always run.
 $script:AlwaysRunClasses = 'McpProtocolTests', 'DeadlineTests', 'ConcurrencyTests', 'CallDeadlineTests', 'TokenEstimateCalibrationTests', 'ReanalyzeNativeTests'
 
-# The family a tracked file belongs to for reuse: a family name, '*' (every family) or 'root' (the families whose tests
-# read repository files). Stricter than test.ps1's Get-Family: only a family's own Tools/Services folders are its own.
+# A tracked file's reuse scope: a family, '*' (every family) or 'root' (families that read repository files).
+# Stricter than test.ps1's Get-Family: only a family's own Tools/Services folders count.
 function Get-ReuseScope([string]$path) {
     $p = $path -replace '\\', '/'
     switch -Regex ($p) {
         '^src/Corvus/(Tools|Services)/Shared/' { return '*' }
-        '^src/Corvus/(Tools|Services)/(Dotnet|DotnetEdits|NativeAnalysis|Engines|NativeEdits|Builds|Containers|Mobile|Dumps|Il2Cpp|NativeAot|Session|Web)/' { return $Matches[2] }
+        '^src/Corvus/(Tools|Services)/(Dotnet|DotnetEdits|NativeAnalysis|Engines|NativeEdits|Builds|Containers|Mobile|Dumps|AotMetadata|NativeAot|Session|Web)/' { return $Matches[2] }
         '^tests/Corvus\.Tests/(Support|ContractSweepData)/' { return '*' }
         '^tests/Corvus\.Tests/(Ratchets|ProtocolSamples|TokenCorpus)/' { return 'Contract' }
         '^tests/Corvus\.Tests/PipelineSamples/' { return 'DotnetEdits' }
@@ -38,8 +37,7 @@ function Get-ClassMap([string]$testsDir) {
     return $map
 }
 
-# Test classes whose summed duration in a TRX file is at least $minSeconds: the ones worth a coverage run and a reuse
-# key of their own (a few slow classes hold most of a full run's time).
+# Test classes whose summed TRX duration is at least $minSeconds, worth their own coverage run and reuse key.
 function Get-SlowClasses([string]$trxPath, [double]$minSeconds = 30) {
     if (-not (Test-Path $trxPath)) { return @() }
     [xml]$trx = Get-Content $trxPath -Raw
@@ -67,11 +65,9 @@ function Get-RootReaders([string]$testsDir) {
     } | ForEach-Object Name
 }
 
-# The state of a file or folder a setting names (a tool, an engine install, a data folder), so one changed in place
-# changes every key: a file's size and write time; a folder's entries to three levels down, by relative name and a
-# file's size and write time (the first 20000, so a file copied in with its old time counts too). A subfolder's own
-# write time is left out: it moves again shortly after a file in it changes, so two reads in a row differ. $null for
-# a value that names no existing path.
+# State of a path a setting names, so an in-place change changes every key; $null when the path does not exist.
+# A file: size and write time. A folder: up to 20000 entries three levels deep, by relative name, size and write time.
+# Subfolder write times are left out: they move shortly after a file changes, so two reads in a row would differ.
 function Get-PathStamp([string]$value) {
     if (-not $value -or $value.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $null }
     try {
@@ -90,8 +86,8 @@ function Get-PathStamp([string]$value) {
     catch { return $null }
 }
 
-# The inputs every family key shares: SDK, OS build, the settings (with the state of the paths they name) and the
-# located tools' lines ($tools, from Get-LocatedTools), with $override in place of the current values.
+# Inputs every family key shares: SDK, OS build, settings with their paths' state, and $tools; $override replaces
+# current values.
 function Get-RunEnvironment([hashtable]$override = @{}, [string[]]$tools = @()) {
     $os = if ($IsWindows) { $v = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; "windows $($v.CurrentBuild).$($v.UBR)" } else { uname -srm }
     $values = @{}
@@ -108,8 +104,8 @@ function Get-RunEnvironment([hashtable]$override = @{}, [string[]]$tools = @()) 
     (@("sdk $(dotnet --version)", $os) + $settings + $tools) -join "`n"
 }
 
-# Lowers process $processId (this one by default) to below-normal priority (Windows) or nice 10, which the processes it
-# starts inherit; nothing when CORVUS_TEST_PRIORITY is 'normal'. A failure to lower it is ignored.
+# Lowers $processId (default: this one) to BelowNormal or nice 10, inherited by children; skipped when
+# CORVUS_TEST_PRIORITY is 'normal'; failures are ignored.
 function Set-RunPriority([int]$processId = $PID) {
     if ($env:CORVUS_TEST_PRIORITY -eq $RunPriority.Normal) { return }
     try {
@@ -131,17 +127,15 @@ function Get-LocatedTools([string]$testsDir) {
     @(& dotnet exec $assembly.FullName --located-tools 2>$null | Where-Object { $_ -like 'tool *' })
 }
 
-# The test classes whose collection runs alone, as "Outer+Nested" names (AloneClasses.cs); none when the test
-# assembly is not built.
+# Test classes whose collection runs alone, as "Outer+Nested" names; none when the test assembly is not built.
 function Get-AloneClasses([string]$testsDir) {
     $assembly = Get-BuiltTestAssembly $testsDir
     if (-not $assembly) { return @() }
     @(& dotnet exec $assembly.FullName --alone-classes 2>$null | Where-Object { $_ -like 'class *' } | ForEach-Object { $_.Substring(6) })
 }
 
-# Two dotnet test filters that split the tests $filter selects (every test when it is empty): Rest without the
-# classes in $alone, Alone with only them. A term names the class between dots, so DeadlineTests leaves out
-# CallDeadlineTests and the classes nested in it.
+# Splits $filter (empty: every test) into Rest without the $alone classes and Alone with only them.
+# Terms match the class between dots, so DeadlineTests excludes CallDeadlineTests.
 function Get-AloneFilters([string]$filter, [string[]]$alone) {
     $base = if ($filter) { "($filter)&" } else { '' }
     [pscustomobject]@{
@@ -150,8 +144,8 @@ function Get-AloneFilters([string]$filter, [string[]]$alone) {
     }
 }
 
-# One key per family from `git ls-tree -r` lines ("<mode> blob <sha>\t<path>") and an environment string. With a
-# coverage map (Read-CoverageMap), a source file the families' tests ran keys only those families.
+# One key per family from `git ls-tree -r` lines and an environment string; with a coverage map, a source file keys
+# only the families whose tests ran it.
 function Get-FamilyKeys([string[]]$treeLines, [string[]]$families, [string[]]$rootReaders, [string]$environment, [hashtable]$coverage = $null) {
     $own = @{}; $shared = [System.Text.StringBuilder]::new(); $root = [System.Text.StringBuilder]::new()
     foreach ($line in $treeLines) {
@@ -173,8 +167,7 @@ function Get-FamilyKeys([string[]]$treeLines, [string[]]$families, [string[]]$ro
     return $keys
 }
 
-# The map test.ps1 -CoverageMap writes, as a hashtable; $null when there is none or it is older than $maxDays (calls
-# added since would be missed; the folder rules then apply).
+# The test.ps1 -CoverageMap map as a hashtable; $null when missing or older than $maxDays (folder rules apply then).
 function Read-MapFile([string]$file, [int]$maxDays) {
     if (-not (Test-Path $file)) { return $null }
     $map = Get-Content $file -Raw | ConvertFrom-Json -AsHashtable
@@ -182,8 +175,8 @@ function Read-MapFile([string]$file, [int]$maxDays) {
     return $map
 }
 
-# Which source files each family's tests ran, as @{ path = @(families) }; $null without a current map. A class mapped
-# on its own (Read-ClassCoverage) counts for its family, or with -Classes for itself as 'class:<name>' (Split-ClassMap).
+# Source files each family's tests ran, as @{ path = @(families) }; $null without a current map. A class mapped on
+# its own counts for its family, or with -Classes as 'class:<name>'.
 function Read-CoverageMap([string]$file, [int]$maxDays = 7, [switch]$Classes) {
     $map = Read-MapFile $file $maxDays
     if (-not $map) { return $null }
@@ -205,8 +198,7 @@ function Read-ClassCoverage([string]$file, [int]$maxDays = 7) {
     return $map.classes
 }
 
-# A class map with each class mapped on its own moved out of its family into a family of its own, 'class:<name>', so the
-# reuse functions key, filter and record it like a family.
+# A class map with each separately mapped class moved into its own family, 'class:<name>'.
 function Split-ClassMap([hashtable]$classMap, [hashtable]$classCoverage) {
     $split = @{}
     foreach ($family in $classMap.Keys) {
@@ -217,8 +209,8 @@ function Split-ClassMap([hashtable]$classMap, [hashtable]$classCoverage) {
     return $split
 }
 
-# Coverage scopes with the test files of each class mapped on its own: every file of its family's test folder keys the
-# family and each such class of it (a class may use any helper or fixture of its folder).
+# Coverage scopes plus test files: each file of a family's test folder keys the family and its separately mapped
+# classes, which may use any helper in the folder.
 function Add-ClassTestScopes([hashtable]$coverage, [hashtable]$classCoverage, [string[]]$paths) {
     $scoped = @{} + $coverage
     $byFamily = @{}
@@ -259,8 +251,8 @@ function Get-ReuseFilter([string[]]$stale, [hashtable]$classMap) {
     return $filter
 }
 
-# Families whose every executed test passed in a TRX file; empty when a failure is not attributed to a known class, or
-# when the run failed (a leak guard, a crashed host) with no failed test to blame.
+# Families whose every executed test passed in a TRX file; empty when a failure has no known class or the run failed
+# with no failed test to blame.
 function Get-PassedFamilies([string]$trxPath, [hashtable]$classMap, [int]$exitCode = 0) {
     [xml]$trx = Get-Content $trxPath -Raw
     $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
@@ -283,8 +275,7 @@ function Get-PassedFamilies([string]$trxPath, [hashtable]$classMap, [int]$exitCo
     @($ran.Keys | Where-Object { -not $failed[$_] } | Sort-Object)
 }
 
-# Families with a failed test although their recorded pass is on the same key: a run reusing passes would have skipped
-# them, so selection would have missed the failure. Empty without failures; the always-run folders never count.
+# Families that failed under the key of their recorded pass: selection misses. Always-run folders never count.
 function Get-SelectionMisses([string[]]$failedTests, [hashtable]$classMap, [hashtable]$keys, $stamps) {
     if (-not $stamps) { return @() }
     $familyOf = @{}; foreach ($f in $classMap.Keys) { foreach ($c in $classMap[$f]) { $familyOf[$c] = $f } }
@@ -292,7 +283,7 @@ function Get-SelectionMisses([string[]]$failedTests, [hashtable]$classMap, [hash
     @($failed | Where-Object { $_ -notin $script:AlwaysRunFolders -and $stamps.$_ -and $stamps.$_.key -eq $keys[$_] })
 }
 
-# Records the families a run passed in the stamps file -Reuse reads; a sampled pass never replaces an exhaustive one on the same key.
+# Records passed families in the stamps file; a sampled pass never replaces an exhaustive one on the same key.
 function Save-FamilyPasses([string]$stampsPath, [string[]]$passed, [hashtable]$keys, [string]$mode, [string]$commit) {
     $stamps = if (Test-Path $stampsPath) { Get-Content $stampsPath -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
     foreach ($family in $passed) {
@@ -304,8 +295,7 @@ function Save-FamilyPasses([string]$stampsPath, [string[]]$passed, [hashtable]$k
     Move-Item -Force $temp $stampsPath
 }
 
-# Whether every changed path (git's forward-slash form) is documentation outside src/ and tests/: such a change leaves
-# every family key but those of the families reading repository files, so a whole pass before it holds for the rest.
+# Whether every changed path is documentation outside src/ and tests/, which changes only the 'root' families' keys.
 function Test-DocsOnly([string[]]$paths) {
     $paths = @($paths | Where-Object { $_ })
     $paths.Count -gt 0 -and -not ($paths | Where-Object { $_ -match '^(src|tests)/' -or -not ($_ -match '^docs/' -or $_ -match '\.md$') })
@@ -323,8 +313,7 @@ function Get-FailedTests([string]$trxPath) {
         ForEach-Object { $nameOf[$_.Node.testId] } | Sort-Object -Unique)
 }
 
-# Each failed test's first failure message in a TRX file, by the name Get-FailedTests gives it; a test without a
-# message is left out.
+# Each failed test's first failure message, keyed as Get-FailedTests names it; tests without one are left out.
 function Get-FailureMessages([string]$trxPath) {
     [xml]$trx = Get-Content $trxPath -Raw
     $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
@@ -341,8 +330,7 @@ function Get-FailureMessages([string]$trxPath) {
     $messages
 }
 
-# Copies a failed run's result files into $folder under $name and keeps the newest $keep runs there. The next run
-# replaces corvus-last-run.trx, so this copy is what still holds the failure messages afterwards.
+# Copies a failed run's results into $folder as $name, keeping the newest $keep; the next run replaces the last TRX.
 function Save-FailedRun([string]$folder, [string]$name, [string[]]$files, [int]$keep = 10) {
     New-Item -ItemType Directory -Force $folder | Out-Null
     $n = 0
@@ -373,8 +361,7 @@ function Test-RunCompleted([string]$trxPath) {
     $summary.outcome -ne 'Aborted' -and [int]$counters.aborted -eq 0 -and [int]$counters.timeout -eq 0 -and [int]$counters.error -eq 0
 }
 
-# The label of each failed test after one rerun: "failed", "failed, passed on rerun (suspected flaky)", or, when the
-# rerun did not complete ($passedAgain is $null), "failed (rerun did not complete)". The labels never change a verdict.
+# Labels each failed test after one rerun ($passedAgain $null: rerun incomplete); labels never change a verdict.
 function Get-FailureLabels([string[]]$failed, [string[]]$passedAgain) {
     @($failed | ForEach-Object {
         if ($null -eq $passedAgain) { "$_`: failed (rerun did not complete)" }
@@ -383,8 +370,8 @@ function Get-FailureLabels([string[]]$failed, [string[]]$passedAgain) {
     })
 }
 
-# The quarantine list: one "test | owner | issue | yyyy-MM-dd" line per test (the date by which it is fixed or
-# removed), lines starting with '#' are comments. Returns no entries for a missing file; throws on a malformed line.
+# Quarantine list: "test | owner | issue | yyyy-MM-dd (fix-by date)" lines, '#' comments. Empty for a missing file;
+# throws on a malformed line.
 function Read-Quarantine([string]$path) {
     if (-not (Test-Path $path)) { return @() }
     $number = 0
@@ -402,8 +389,7 @@ function Read-Quarantine([string]$path) {
     })
 }
 
-# Splits failed tests into those that fail the run (Blocking) and those a quarantine entry dated $today or later
-# covers (Quarantined); an expired entry covers nothing.
+# Splits failed tests into Blocking and Quarantined (an entry dated $today or later); expired entries cover nothing.
 function Split-Quarantined([string[]]$failed, $entries, [datetime]$today) {
     $covered = @{}
     foreach ($entry in $entries) { if ($entry.Until -ge $today.Date) { $covered[$entry.Test] = $true } }
@@ -413,9 +399,8 @@ function Split-Quarantined([string[]]$failed, $entries, [datetime]$today) {
     }
 }
 
-# Takes the machine-wide heavy lock a whole-suite run holds, so lanes' engine loops and load generators wait for it.
-# CORVUS_HEAVY_LOCK names a script taking `heavy <name> -OwnerPid <pid>` (waits, then holds the lock exclusively) and
-# `release <name>`; unset, there is no lock. Returns whether the lock was taken.
+# Takes the machine-wide heavy lock; returns whether it was taken. CORVUS_HEAVY_LOCK names a script taking
+# `heavy <name> -OwnerPid <pid>` (waits, then holds it) and `release <name>`; unset means no lock.
 function Enter-HeavyLock([string]$name) {
     if (-not $env:CORVUS_HEAVY_LOCK) { return $false }
     Write-Host "Waiting for the heavy lock ($env:CORVUS_HEAVY_LOCK)."
@@ -423,15 +408,15 @@ function Enter-HeavyLock([string]$name) {
     return $true
 }
 
-# The background run queued in $file as @{ Strength; Commit }: routine and no commit when nothing is queued; a file
-# written before the queue named its commit gives no commit (the run then tests HEAD).
+# The run queued in $file as @{ Strength; Commit }: routine with no commit when nothing is queued; an older file
+# without a commit gives no commit (the run tests HEAD).
 function Read-QueuedRun([string]$file) {
     $strength, $commit = if (Test-Path $file) { "$(Get-Content $file -Raw)".Trim() -split '\s+', 2 } else { 'routine', '' }
     @{ Strength = $(if ($strength) { $strength } else { 'routine' }); Commit = "$commit" }
 }
 
-# Queues a background run of $commit in $file at the strongest of $strength and the strength queued already; a later
-# commit replaces the queued one, so pushes in between share one run of the newest pushed commit.
+# Queues a run of $commit at the strongest strength asked; a later commit replaces the queued one, so pushes in
+# between share one run of the newest commit.
 function Save-QueuedRun([string]$file, [string]$strength, [string]$commit) {
     $order = 'routine', 'exhaustive', 'whole'
     $asked = (Read-QueuedRun $file).Strength
@@ -440,8 +425,7 @@ function Save-QueuedRun([string]$file, [string]$strength, [string]$commit) {
     $asked
 }
 
-# The heavy lock of a whole-suite run: one without reuse (the nightly run, a release gate) waits for it; a push run
-# (reusing passes) takes none, as the machine-wide permits bound its engines and live sessions. True when taken.
+# Whole-suite heavy lock: runs without reuse wait for it; push runs take none, as permits bound them. True when taken.
 function Enter-RunLock([string]$name, [bool]$reuse) {
     if ($reuse) { return $false }
     Enter-HeavyLock $name
@@ -453,8 +437,7 @@ function Add-FullPass([string]$ledger, [string]$commit, [string]$stamp) {
     Set-Content -Path $ledger -Value ($lines | Select-Object -Last 200)
 }
 
-# The newest full pass on HEAD's history in a repository: the ledger's newest line whose commit is HEAD or an ancestor,
-# else the commit a legacy file names (the last background pass) when it is one. $null when there is none.
+# Newest full pass on HEAD's history: the ledger's newest ancestor commit, else the legacy last-pass file; else $null.
 function Get-FullPass([string]$repo, [string]$ledger, [string]$legacyFile) {
     $candidates = @(if (Test-Path $ledger) { Get-Content $ledger | Where-Object { $_ } | ForEach-Object { ($_ -split ' ')[0] } })
     [array]::Reverse($candidates)

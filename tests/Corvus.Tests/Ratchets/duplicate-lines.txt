@@ -27,6 +27,6 @@ Corvus/Native/Providers/Ida/IdaSession.cs <-> Corvus/Native/Providers/WorkerRows
 Corvus/Native/RawCodeImage.cs <-> Corvus/Native/WasmImage.cs = 22
 Corvus/Native/Swift/SwiftDemangler.OldParser.cs <-> Corvus/Native/Swift/SwiftDemangler.Parser.cs = 20
 Corvus/Services/Analysis/DexRuleScan.cs <-> Corvus/Services/Analysis/Endpoints/DexEndpoints.cs = 16
-Corvus/Services/Il2Cpp/CppBindingGenerator.Il2Cpp.cs <-> Corvus/Services/Il2Cpp/CppBindingGenerator.cs = 88
-Corvus/Services/Il2Cpp/CppBindingGenerator.cs <-> Corvus/Services/Il2Cpp/CppBindingGenerator.cs = 36
+Corvus/Services/AotMetadata/CppBindingGenerator.Aot.cs <-> Corvus/Services/AotMetadata/CppBindingGenerator.cs = 88
+Corvus/Services/AotMetadata/CppBindingGenerator.cs <-> Corvus/Services/AotMetadata/CppBindingGenerator.cs = 36
 Corvus/Tools/NativeEdits/NativeEditTools.cs <-> Corvus/Tools/NativeEdits/NativeEditTools.cs = 20

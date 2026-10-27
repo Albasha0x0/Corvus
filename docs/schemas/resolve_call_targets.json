@@ -14,7 +14,7 @@
       "type": "string"
     },
     "engineNote": {
-      "description": "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).",
+      "description": "Why that engine answered: the engine parameter, the server default, or auto and the engine's analysis state.",
       "type": "string"
     },
     "total": {

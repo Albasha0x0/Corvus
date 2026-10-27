@@ -1,9 +1,6 @@
 namespace Corvus.Native.Elf;
 
-/// <summary>
-/// Hardening an ELF image shows in its own structures: PIE, NX stack, RELRO, BIND_NOW, the stack protector and FORTIFY
-/// imports, and the control-flow protection its GNU property note declares (x86 IBT and shadow stack, AArch64 BTI and PAC).
-/// </summary>
+/// <summary>Hardening an ELF image declares: PIE, NX stack, RELRO, BIND_NOW, stack protector, FORTIFY and control-flow protection.</summary>
 public static class ElfMitigations
 {
     private const uint NtGnuPropertyType0 = 5;

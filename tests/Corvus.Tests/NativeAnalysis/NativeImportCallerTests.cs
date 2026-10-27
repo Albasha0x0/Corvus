@@ -63,7 +63,7 @@ public sealed class NativeImportCallerTests : IDisposable
         Assert.Contains("imported by app.exe, app2.exe", text);
         foreach (var id in new[] { "app.exe", "app2.exe" })
             Assert.Matches($@"-> \[{Regex.Escape(id)}\] provider_2c9d!OpenThing at 0x[0-9A-F]+  \(import at", text);
-        // the import slot by address, as native:<image>!<va>
+        // The import slot by address, as native:<image>!<va>.
         var native = ws.FindNative("app.exe")!;
         var slot = native.Image.Imports.Single(i => i.Name == "OpenThing").SlotRva;
         var bySlot = await paths.FindCallPaths($"native:app.exe!0x{native.Image.ImageBase + slot:X}");

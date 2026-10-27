@@ -2,7 +2,7 @@
   "type": "object",
   "properties": {
     "summary": {
-      "description": "One paragraph: what carried over, what did not, and the next step.",
+      "description": "What carried over, what did not, and the next step.",
       "type": "string"
     },
     "oldImage": {
@@ -40,11 +40,11 @@
         "type": "object",
         "properties": {
           "category": {
-            "description": "names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes or dotnet.",
+            "description": "names, pdb, metadata_names, patches, patterns, method_mapping, notes or dotnet.",
             "type": "string"
           },
           "status": {
-            "description": "applied, previewed (dryRun), reported (patterns and the Il2Cpp mapping change nothing), not_applicable, not_included or out_of_scope.",
+            "description": "applied, previewed (dryRun), reported (changes nothing), not_applicable, not_included or out_of_scope.",
             "type": "string"
           },
           "considered": {
@@ -104,8 +104,8 @@
         ]
       }
     },
-    "il2CppMapping": {
-      "description": "The Il2Cpp method mapping (null when not applicable).",
+    "methodMapping": {
+      "description": "The method mapping; null when not applicable.",
       "type": "object",
       "properties": {
         "oldSource": {
@@ -190,7 +190,7 @@
             "type": "string"
           },
           "reason": {
-            "description": "Reason code: how it was carried or why not. Patterns: still_unique, now_ambiguous, not_found, points_elsewhere, not_unique_in_old. Il2Cpp mapping: agree, disagree, metadata_only, removed.",
+            "description": "Reason code: how it was carried or why not. Patterns: still_unique, now_ambiguous, not_found, points_elsewhere, not_unique_in_old. Method mapping: agree, disagree, metadata_only, removed.",
             "type": "string"
           },
           "confidence": {

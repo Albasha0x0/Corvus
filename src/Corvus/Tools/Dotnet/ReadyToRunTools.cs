@@ -17,8 +17,8 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
 {
 
     [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method", UseStructuredContent = true, OutputSchemaType = typeof(CodePage))]
-    [Description("Precompiled native code of a method in a ReadyToRun assembly (shared framework too): entry, code ranges, fixup cells and x86 / x64 " +
-                 "disassembly with cells named by their targets; generics per compiled instantiation, composite images included.")]
+    [Description("Precompiled native code of a method in a ReadyToRun assembly: entry, code ranges, fixup cells and x86 / x64 " +
+                 "disassembly, per compiled generic instantiation.")]
     public Task<string> GetR2RCode(
         [Description(SymbolDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -121,8 +121,8 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
     }
 
     [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address", UseStructuredContent = true, OutputSchemaType = typeof(R2rLookup))]
-    [Description("Managed method whose ReadyToRun code holds a native address (dump, profiler, debugger): name, token, range, offset and " +
-                 "instruction, or what an import cell resolves to. Addresses are in the file holding the code.")]
+    [Description("Managed method whose ReadyToRun code holds a native address: name, token, range, offset and instruction, " +
+                 "or what an import cell resolves to.")]
     public Task<string> FindR2RMethod(
         [Description(AssemblyDescription)] string assembly,
         [Description("A VA or RVA in the code image (rva:/va:/off: prefix).")] string address,

@@ -4,23 +4,18 @@ using System.Runtime.CompilerServices;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A test that reads real-world data runs for as long as its data takes, so it stays out of the quick set: it carries
-/// Speed=Slow on the method or its class. Real data is a test attribute named for it (RequiresRealDataFact,
-/// LiveRealDataFact, RequiresPathFact), or a variable of <see cref="RealData"/> or <see cref="DataVariables"/> named in
-/// the test's code or in the methods of this assembly it calls.
-/// </summary>
+/// <summary>A test that reads real data carries Speed=Slow, by its attribute or by a <see cref="RealData"/> or <see cref="DataVariables"/> variable it reads.</summary>
 public class RealDataSpeedTests
 {
     /// <summary>Variables naming data outside the repository that tests read directly instead of through <see cref="RealData"/>.</summary>
     private static readonly string[] DataVariables =
     [
         "CORVUS_ACCURACY_DIR", "CORVUS_ARK_DIR", "CORVUS_AUTOIT_RELEASES", "CORVUS_AUTOIT_SCRIPTS", "CORVUS_BDB_FILES", "CORVUS_CAPTURES", "CORVUS_DIFF_PAIRS", "CORVUS_ESE_FILES", "CORVUS_EXPORT_LIST", "CORVUS_FIRMWARE_IMAGES",
-        "CORVUS_GAMEMAKER_DATA", "CORVUS_GO_SAMPLES", "CORVUS_GODOT_PACKS", "CORVUS_HBC_DIR", "CORVUS_IDA_ORACLE_FILES", "CORVUS_IL2CPP_BUILD", "CORVUS_IL2CPP_BUILD_DUMP",
-        "CORVUS_IL2CPP_GENERICS_BUILD", "CORVUS_IL2CPP_MOBILE", "CORVUS_INSTALLERS", "CORVUS_JAVA_JARS", "CORVUS_LUA_CHUNKS",
+        "CORVUS_GAMEMAKER_DATA", "CORVUS_GO_SAMPLES", "CORVUS_GODOT_PACKS", "CORVUS_HBC_DIR", "CORVUS_IDA_ORACLE_FILES", "CORVUS_AOT_BUILD", "CORVUS_AOT_BUILD_DUMP",
+        "CORVUS_AOT_GENERICS_BUILD", "CORVUS_AOT_MOBILE", "CORVUS_INSTALLERS", "CORVUS_JAVA_JARS", "CORVUS_LUA_CHUNKS",
         "CORVUS_NATIVE_ADAPTER_SAMPLE", "CORVUS_NATIVE_LARGE_IMAGE", "CORVUS_NATIVE_STDIO_SAMPLE", "CORVUS_PACKAGES_BAD",
         "CORVUS_PACKAGES_GOOD", "CORVUS_PDB_SAMPLE", "CORVUS_PIPELINE_SAMPLE", "CORVUS_PIPELINE_SAMPLES", "CORVUS_R2R_COMPOSITE_DIR", "CORVUS_LEVELDB_DIRS", "CORVUS_LINUX_APPS", "CORVUS_LMDB_FILES", "CORVUS_REALM_FILES", "CORVUS_RPM_PACKAGES",
-        "CORVUS_STUB_APPS", "CORVUS_UNITY_BUILDS", "CORVUS_VCALL_SAMPLE", "CORVUS_WASM_DIR", "CORVUS_WPF_APPS",
+        "CORVUS_STUB_APPS", "CORVUS_ASSET_BUILDS", "CORVUS_VCALL_SAMPLE", "CORVUS_WASM_DIR", "CORVUS_WPF_APPS",
     ];
 
     /// <summary>Real-data tests that finish in seconds and stay in the quick set ("Class.Method": reason).</summary>

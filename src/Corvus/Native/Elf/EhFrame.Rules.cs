@@ -27,11 +27,7 @@ internal static partial class EhFrame
     private const int MaxCfiSteps = 1 << 16;
     private const int MaxRememberDepth = 64;
 
-    /// <summary>
-    /// The CFI row in effect at <paramref name="pc"/> (a link-time address inside the FDE): the CIE's initial
-    /// instructions, then the FDE's up to the last location not above <paramref name="pc"/>. Null with a reason when
-    /// the instructions are malformed or unknown.
-    /// </summary>
+    /// <summary>The CFI row in effect at link-time address <paramref name="pc"/>; null with a reason when the instructions are malformed or unknown.</summary>
     public static CfiRow? Row(ByteView data, ulong dataVa, bool is64, CfiFde fde, ulong pc, out string? failure)
     {
         var initial = new CfiRow { ReturnColumn = fde.Cie.ReturnColumn };

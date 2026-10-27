@@ -3,10 +3,7 @@ using Corvus.Native.Providers.Worker;
 
 namespace Corvus.Native.Providers.Live.Jdwp;
 
-/// <summary>
-/// Sessions on a JVM through its JDWP agent (<c>jdwp:PORT</c>), served by this program's own <c>jdwp-worker</c>
-/// command; nothing else is installed.
-/// </summary>
+/// <summary>Sessions on a JVM through its JDWP agent (<c>jdwp:PORT</c>), served by this program's <c>jdwp-worker</c> command; nothing else is installed.</summary>
 public sealed class JdwpBackend : ILiveBackend
 {
     public string Name => "jdwp";

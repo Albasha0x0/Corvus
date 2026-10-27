@@ -86,15 +86,15 @@ public sealed class WasmGcTests(ITestOutputHelper output)
             Assert.Equal("invalid", v.Verdict);
             return Assert.Single(v.Errors);
         }
-        // struct.set on the immutable field 0
+        // struct.set on the immutable field 0.
         Assert.Contains("struct.set: field 0 of type 0 is immutable", Error(b => b.FuncRawLocals(3, [0], [0x20, 0, 0x41, 1, 0xFB, 5, 0, 0, 0x41, 0])));
-        // a sub type of the final type 1
+        // A sub type of the final type 1.
         Assert.Contains("supertype 1 is final", Error(b => b.RawType(0x50, 1, 1, 0x5F, 3, 0x7F, 0, 0x63, 0, 1, 0x78, 0)));
-        // a non-nullable local read before it is set
+        // A non-nullable local read before it is set.
         Assert.Contains("local 1 ((ref 0)) is read before it is set", Error(b => b.FuncRawLocals(3, [1, 1, 0x64, 0], [0x20, 1, 0xFB, 2, 0, 0])));
-        // array.get of a packed array without _s / _u
+        // array.get of a packed array without _s / _u.
         Assert.Contains("array.get: a packed field is read with _s or _u", Error(b => b.FuncRawLocals(4, [0], [0x41, 1, 0xFB, 7, 2, 0x41, 0, 0xFB, 11, 2, 0x1A, 0x41, 1, 0xFB, 7, 2])));
-        // a struct where a (ref 2) array is expected
+        // A struct where a (ref 2) array is expected.
         Assert.Contains("type mismatch: expected (ref 2), got (ref 0)", Error(b => b.FuncRawLocals(4, [0], [0x41, 1, 0xD0, 0x71, 0xFB, 0, 0])));
     }
 }

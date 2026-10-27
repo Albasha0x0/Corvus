@@ -3,12 +3,7 @@ namespace Corvus.Native.MachO;
 /// <summary>Names, comments and function starts of a metadata name layer, by RVA.</summary>
 public sealed record AppleNameSet(Dictionary<uint, string> Names, Dictionary<uint, string> Comments, uint[] FunctionStarts, int Methods, int Classes);
 
-/// <summary>
-/// The Objective-C name layer: implementations "-[Class sel]" / "+[Class sel]" ("-[Class(Category) sel]" for
-/// categories), "_OBJC_CLASS_$_X" / "_OBJC_METACLASS_$_X" class objects, "__OBJC_CLASS_RO_$_X" read-only data,
-/// "_OBJC_IVAR_$_X.ivar" offset variables, "__OBJC_$_CATEGORY_X_$_Cat", "_OBJC_PROTOCOL_$_P", and reference slots
-/// "selRef_sel" (':' as '_'), "classRef_X", "superRef_X", "protocolRef_P". A name already used elsewhere gets "_&lt;RVA hex&gt;".
-/// </summary>
+/// <summary>Objective-C names for implementations ("-[Class sel]"), class objects, ivars and reference slots; duplicates get "_&lt;RVA hex&gt;".</summary>
 public static class AppleObjcNames
 {
     public static AppleNameSet Build(MachOFile image, AppleObjcMetadata objc)

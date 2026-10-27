@@ -107,7 +107,7 @@ public sealed class FlatpakBundleTests
         var commitBody = Gv.Tuple("(a{sv}aya(say)sstayay)", [], [], [], Gv.Str("test build"), Gv.Str(""), timestamp, root, dirMeta);
         var commit = Meta(4, commitBody);
 
-        // the part: modes, one empty xattr set, the raw data and the operations
+        // The part: modes, one empty xattr set, the raw data and the operations.
         var raw = new MemoryStream();
         var ops = new MemoryStream();
         void Var(long v) { do { byte b = (byte)(v & 0x7F); v >>= 7; ops.WriteByte((byte)(b | (v > 0 ? 0x80 : 0))); } while (v > 0); }
@@ -117,7 +117,7 @@ public sealed class FlatpakBundleTests
             if (type != 1) { ops.WriteByte((byte)'S'); Var(data.Length); Var(Put(data)); }
             else if (ReferenceEquals(data, App))
             {
-                // an object opened, written in two pieces and closed
+                // An object opened, written in two pieces and closed.
                 ops.WriteByte((byte)'o'); Var(mode); Var(0); Var(data.Length);
                 ops.WriteByte((byte)'w'); Var(1000); Var(Put(data[..1000]));
                 ops.WriteByte((byte)'w'); Var(data.Length - 1000); Var(Put(data[1000..]));
@@ -147,7 +147,7 @@ public sealed class FlatpakBundleTests
         Assert.Equal(["files/bin/link", "files/bin/viewer", "metadata"], c.Entries!.Select(e => e.Path).Order(StringComparer.Ordinal));
         Assert.Equal("symbolic link to viewer", c.Entries!.Single(e => e.Path == "files/bin/link").Detail);
         Assert.Equal(App, c.Items.Single(i => i.Name == "files/bin/viewer").Bytes);
-        // read from a stream, the same listing
+        // Read from a stream, the same listing.
         var streamed = new FlatpakBundleReader().Open(new MemoryStream(Bundle()), "viewer.flatpak", true, AnalysisLimits.Default, default)!;
         Assert.Equal(c.Entries!.Select(e => e.Path), streamed.Entries!.Select(e => e.Path));
     }

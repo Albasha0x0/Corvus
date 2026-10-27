@@ -104,7 +104,7 @@ public sealed class AabTests : IDisposable
         ("base/lib/arm64-v8a/libnative.so", [0x7F])));
 
     [Fact]
-    public void ManifestAndResources_FromProtobuf()
+    public void A_bundle_reads_its_manifest_and_resources_from_protobuf()
     {
         var service = new AndroidPackageService();
         var aab = Bundle();
@@ -130,13 +130,13 @@ public sealed class AabTests : IDisposable
     }
 
     [Fact]
-    public void Summary_ReportsTheBundlesJarSignature()
+    public void Summary_reports_the_bundles_jar_signature()
     {
         (string, byte[])[] entries = [("BundleConfig.pb", [0]), ("base/manifest/AndroidManifest.xml", Manifest()), ("base/dex/classes.dex", AndroidSamples.Dex())];
         var signed = AndroidSamples.Save(_dir, "signed.aab", ApkTestSigner.Zip(ApkTestSigner.SignV1(entries, ApkTestSigner.Rsa("CN=Upload Key"), apkSigned: null)));
         var facts = AndroidPackageService.Facts(signed, File.ReadAllBytes(signed), default)!;
         Assert.StartsWith("verified (v1 verified; ", facts.Signature);
-        Assert.Contains("signed at upload", facts.Signature);
+        Assert.Contains("a bundle has a JAR (v1) signature only", facts.Signature);
         Assert.StartsWith("v1 signer 1: CN=Upload Key", facts.Signers.Single());
 
         var unsigned = AndroidSamples.Save(_dir, "unsigned.aab", ApkTestSigner.Zip(entries));
@@ -144,7 +144,7 @@ public sealed class AabTests : IDisposable
     }
 
     [Fact]
-    public void DamagedProtobuf_NeverThrows()
+    public void Damaged_protobuf_never_throws()
     {
         var manifest = Manifest();
         var resources = Resources();

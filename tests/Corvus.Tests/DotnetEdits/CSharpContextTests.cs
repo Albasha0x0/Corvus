@@ -36,7 +36,7 @@ public sealed class CSharpContextTests : IDisposable
     }
 
     [Fact]
-    public void AFrameworkAssemblyNewerThanTheRuntimesFacadeOfTheSameNameIsKept()
+    public void A_framework_assembly_newer_than_the_runtimes_facade_of_the_same_name_is_kept()
     {
         var desktop = Directory.CreateDirectory(_dir.File("desktop")).FullName;
         var windowsBase = CompileWithout("WindowsBase", "[assembly: System.Reflection.AssemblyVersion(\"9.0.0.0\")] namespace System.Windows { public class DependencyObject { public int Id; } }",
@@ -47,12 +47,9 @@ public sealed class CSharpContextTests : IDisposable
         Assert.Contains("compiled OK", Patch(Path.Combine(desktop, "App.dll"), "App.View::Run", "return Id + 1;"));
     }
 
-    /// <summary>
-    /// A type of an enclosing namespace binds before an imported one of the same name, as at file level: the decompiled
-    /// usings moved into the type's namespace made CSharpSyntaxNode the imported InternalSyntax one (CS0115, CS1503: Roslyn).
-    /// </summary>
+    /// <summary>Regression: usings moved into the type's namespace bound an imported type before the enclosing namespace's (CS0115, CS1503).</summary>
     [Fact]
-    public void AnEnclosingNamespacesTypeBindsBeforeAnImportedOneOfTheSameName()
+    public void An_enclosing_namespaces_type_binds_before_an_imported_one_of_the_same_name()
     {
         File.WriteAllBytes(_dir.File("Nest.dll"), Roslyn.Compile("Nest", """
             namespace A.B { public abstract class Node { protected Node(int x) { } public abstract int Run(); } }
@@ -70,12 +67,9 @@ public sealed class CSharpContextTests : IDisposable
         Assert.Contains("compiled OK", AddMember(_dir.File("Nest.dll"), "A.B.C.X"));
     }
 
-    /// <summary>
-    /// The stand-in for a missing base library declared an overridden method's out parameter as ref, so every override in
-    /// the decompiled context failed (CS0115: WinFsp's memfs).
-    /// </summary>
+    /// <summary>Regression: the stand-in for a missing base library declared an out parameter as ref, failing every override (CS0115).</summary>
     [Fact]
-    public void OverridesWithOutParametersOfAMissingBaseCompile()
+    public void Overrides_with_out_parameters_of_a_missing_base_compile()
     {
         var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary);
         var baseLib = Roslyn.Compile("BaseLib", "namespace BaseLib { public abstract class FileSystem { public virtual int Info(out int size) { size = 0; return 0; } } }", options);

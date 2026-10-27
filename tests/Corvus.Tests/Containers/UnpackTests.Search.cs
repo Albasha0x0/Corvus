@@ -41,7 +41,7 @@ public partial class UnpackTests
         ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(System.IO.File.ReadAllBytes(Env.FixturePath))));
 
     [Fact]
-    public void Search_SingleFileBundle()
+    public void Search_finds_types_and_methods_in_a_single_file_bundle()
     {
         var program = Assert.Single(Search(fx.Bundle, "Program", "type").Items);
         Assert.Equal(new ContainerMatch("Hello.dll", "Program", "type") { Assembly = "Hello" }, program);
@@ -51,30 +51,34 @@ public partial class UnpackTests
         Assert.StartsWith("Program::<Main>$(", main.Name);
 
         AssertNothingFound(Search(fx.Bundle, NoSuchSymbol));
-        Assert.Empty(Search(fx.Bundle, "Program", "method").Items); // only the type has that name
+        // Only the type has that name.
+        Assert.Empty(Search(fx.Bundle, "Program", "method").Items);
         Assert.Equal(".NET single-file bundle", Search(fx.Bundle, "Program").Container);
     }
 
     [Fact]
-    public void Search_NuGetPackage()
+    public void Search_finds_a_type_in_every_target_framework_of_a_NuGet_package()
     {
         var package = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4");
         var codec = Search(package, "LZ4Codec", "type").Items.Where(m => m.Name == "K4os.Compression.LZ4.LZ4Codec").ToList();
         var assemblies = List(package).Assemblies;
-        Assert.Equal(assemblies.Count, codec.Count); // one per target framework
+        // One per target framework.
+        Assert.Equal(assemblies.Count, codec.Count);
         Assert.All(codec, m => Assert.Matches(@"^lib/[^/]+/K4os\.Compression\.LZ4\.dll$", m.Path));
         Assert.All(codec, m => Assert.Equal("K4os.Compression.LZ4", m.Assembly));
 
         AssertNothingFound(Search(package, NoSuchSymbol));
-        AssertKindFilterNarrows(package, "Decode", "type", "method"); // LZ4Decoder* types, Decode methods
+        // LZ4Decoder* types, Decode methods.
+        AssertKindFilterNarrows(package, "Decode", "type", "method");
     }
 
     [Fact]
-    public void Search_ApkStyleZip()
+    public void Search_finds_types_and_members_in_an_APK_assembly_store()
     {
         var apk = Save("app.apk", BuildApk().Apk);
         var account = Assert.Single(Search(apk, "Account", "type").Items, m => m.Name == "Fixture.Model.Account");
-        Assert.Equal(("assemblies/TestFixture.dll", "TestFixture"), (account.Path, account.Assembly)); // decoded from XALZ
+        // Decoded from XALZ.
+        Assert.Equal(("assemblies/TestFixture.dll", "TestFixture"), (account.Path, account.Assembly));
         Assert.Contains(Search(apk, "Marker", "type").Items, m => m.Assembly == "StoreRaw" && m.Path.StartsWith("carved_0x"));
 
         AssertNothingFound(Search(apk, NoSuchSymbol));
@@ -85,7 +89,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void Search_NestedContainers()
+    public void Search_finds_types_in_nested_containers()
     {
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         var outer = Save("outer.zip", ContainerFixtures.Zip(("packages/k4os.nupkg", nupkg), ("app/CosturaHost.exe", CosturaHostWithFixture())));
@@ -100,17 +104,18 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void Search_PlainAssembly_AndFullNameQueries()
+    public void Search_in_a_plain_assembly_matches_full_names_and_wildcards()
     {
         var s = Search(Env.FixturePath, "Account::Charge", "method");
         Assert.Equal("none (plain .NET assembly)", s.Container);
-        Assert.Equal(2, s.Items.Count); // both overloads, matched on the full name
+        // Both overloads, matched on the full name.
+        Assert.Equal(2, s.Items.Count);
         Assert.All(s.Items, m => Assert.Equal("TestFixture.dll", m.Path));
         Assert.Contains(Search(Env.FixturePath, "Charg*").Items, m => m.Name.StartsWith("Fixture.Model.Account::Charge("));
     }
 
     [Fact]
-    public void Search_CapsResults_BestMatchesFirst()
+    public void Search_caps_results_best_matches_first()
     {
         var many = Save("Many.dll", ContainerFixtures.Module("Many", m =>
         {
@@ -137,7 +142,7 @@ public partial class UnpackTests
         Assert.Equal(601, all.Items.Count);
         Assert.False(all.Truncated);
 
-        // offset pages the same ranked order (G1: the continuation is a row offset in the record).
+        // Offset pages the same ranked order: the continuation is a row offset in the record.
         var next = Unpacker.Search(zip, "hit", SymbolKind.Any, 50, AnalysisLimits.Default, default, offset: 50);
         Assert.Equal(50, next.Offset);
         Assert.Equal(all.Items.Skip(50).Take(50), next.Items);
@@ -147,7 +152,7 @@ public partial class UnpackTests
     }
 
     [Fact]
-    public void Search_WritesNothing()
+    public void Search_writes_nothing()
     {
         using var sandbox = new TempDir();
         var input = Path.Combine(sandbox.Path, $"app-{Guid.NewGuid():N}.apk");
@@ -156,14 +161,14 @@ public partial class UnpackTests
         Assert.NotEmpty(Search(input, "Account").Items);
 
         Assert.Equal([input], Directory.GetFileSystemEntries(sandbox.Path));
-        // default unpack folders are named after their input, which no other run shares
+        // Default unpack folders are named after their input, which no other run shares.
         var unpacked = Path.GetDirectoryName(UnpackService.DefaultOutput(input, new string('0', 64)))!;
         Assert.Empty(Directory.Exists(unpacked) ? Directory.GetDirectories(unpacked, Path.GetFileNameWithoutExtension(input) + "*") : []);
         Assert.Empty(_workspace.Assemblies);
     }
 
     [Fact]
-    public void Search_BadArguments()
+    public void Search_refuses_an_unknown_kind_an_empty_query_and_a_missing_file()
     {
         Assert.Contains("Unknown kind 'event'", Assert.Throws<ToolError>(() => UnpackService.ParseSearchKind("event")).Message);
         Assert.Contains("Query is empty", Assert.Throws<ToolError>(() => Search(fx.Bundle, "")).Message);
@@ -172,7 +177,7 @@ public partial class UnpackTests
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task SearchContainerTool_CorruptContainers_ErrorClearly_AndTheServerKeepsServing()
+    public async Task Search_container_tool_corrupt_containers_error_clearly_and_the_server_keeps_serving()
     {
         await using var client = await McpProtocolTests.StartServerAsync("--no-index");
 

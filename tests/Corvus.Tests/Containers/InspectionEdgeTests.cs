@@ -7,7 +7,7 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>Inspection edge cases: damaged files, IL2CPP builds, apphost launchers, large containers, heuristics.</summary>
+/// <summary>Inspection edge cases: damaged files, AOT builds, apphost launchers, large containers, heuristics.</summary>
 public class InspectionEdgeTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -29,7 +29,7 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void DamagedFiles_StillGetTheirFileFacts()
+    public void Damaged_files_still_get_their_file_facts()
     {
         var fixture = File.ReadAllBytes(Env.FixturePath);
         var truncated = Inspection.Summarize(null, Save("truncated.dll", fixture[..(fixture.Length / 3)]), default);
@@ -43,29 +43,30 @@ public class InspectionEdgeTests : IDisposable
         var cut = Inspection.Summarize(null, cutPath, default);
         Assert.Equal("unreadable container", cut.Container);
         Assert.Contains(cut.Highlights, h => h.StartsWith("The file is damaged:", StringComparison.Ordinal));
-        File.Delete(cutPath); // no handle left open (Windows refuses the delete otherwise)
+        // No handle left open (Windows refuses the delete otherwise).
+        File.Delete(cutPath);
         Assert.False(File.Exists(cutPath));
     }
 
     [Fact]
-    public void Il2CppBuilds_AreRecognized()
+    public void AOT_builds_are_recognized()
     {
-        // Unity IL2CPP layout: GameAssembly.dll + *_Data/il2cpp_data/Metadata/global-metadata.dat
-        var root = _dir.File("il2cppbuild");
-        Save("il2cppbuild/GameAssembly.dll", [0x4D, 0x5A, 0, 0]);
-        var metadata = Save("il2cppbuild/App_Data/il2cpp_data/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0, 1, 2, 3, 4]);
-        Assert.Contains(UnityLayout.FolderHints(root), h => h.StartsWith("Unity IL2CPP build") && h.Contains(Path.GetFullPath(metadata)));
-        Assert.StartsWith("Unity IL2CPP metadata", UnityLayout.FileHint(metadata, File.ReadAllBytes(metadata)));
-        Assert.Contains(Inspection.Summarize(null, metadata, default).Highlights, h => h.StartsWith("Unity IL2CPP metadata"));
+        // AOT build layout: GameAssembly.dll + *_Data/il2cpp_data/Metadata/global-metadata.dat.
+        var root = _dir.File("aotbuild");
+        Save("aotbuild/GameAssembly.dll", [0x4D, 0x5A, 0, 0]);
+        var metadata = Save("aotbuild/App_Data/il2cpp_data/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0, 1, 2, 3, 4]);
+        Assert.Contains(PlayerLayout.FolderHints(root), h => h.StartsWith("AOT build: the code is native in GameAssembly.dll") && h.Contains(Path.GetFullPath(metadata)));
+        Assert.StartsWith("AOT metadata (global-metadata.dat)", PlayerLayout.FileHint(metadata, File.ReadAllBytes(metadata)));
+        Assert.Contains(Inspection.Summarize(null, metadata, default).Highlights, h => h.StartsWith("AOT metadata (global-metadata.dat)"));
 
-        // Unity Mono layout: assemblies in *_Data/Managed
+        // Mono build layout: assemblies in *_Data/Managed.
         var mono = _dir.File("monobuild");
         Save("monobuild/App_Data/Managed/Assembly-CSharp.dll", ContainerFixtures.Module("Assembly-CSharp", _ => { }));
-        Assert.Contains(UnityLayout.FolderHints(mono), h => h.StartsWith("Unity (Mono) build") && h.Contains(Path.Combine(mono, "App_Data", "Managed")));
+        Assert.Contains(PlayerLayout.FolderHints(mono), h => h.StartsWith("Mono build") && h.Contains(Path.Combine(mono, "App_Data", "Managed")));
     }
 
     [Fact]
-    public void FolderLoad_GroupsNativeFiles_AndHintsUnityLayouts()
+    public void Folder_load_groups_native_files_and_hints_build_layouts()
     {
         var root = _dir.File("mixed");
         File.Copy(Env.FixturePath, Save("mixed/TestFixture.dll", []), overwrite: true);
@@ -73,13 +74,14 @@ public class InspectionEdgeTests : IDisposable
         Save("mixed/native2.dll", Encoding.ASCII.GetBytes("not a PE at all"));
         Save("mixed/GameAssembly.dll", [0x4D, 0x5A]);
         var text = WorkspaceTools.FormatLoad(_workspace, root, _workspace.LoadDirectory(root, false));
-        Assert.True(text.Contains("skipped 2 native or non-PE files: native1.dll, native2.dll"), text); // the 2-byte GameAssembly.dll counts as a damaged PE
+        // The 2-byte GameAssembly.dll counts as a damaged PE.
+        Assert.True(text.Contains("skipped 2 native or non-PE files: native1.dll, native2.dll"), text);
         Assert.DoesNotContain("data directory RVA", text);
-        Assert.Contains("Note: Unity IL2CPP build", text);
+        Assert.Contains("Note: AOT build", text);
     }
 
     [Fact]
-    public void ApphostLauncher_SummarizesTheAppNextToIt()
+    public void An_apphost_launcher_summarizes_the_app_next_to_it()
     {
         var root = new DirectoryInfo(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory());
         while (root != null && !Directory.Exists(Path.Combine(root.FullName, "packs"))) root = root.Parent;
@@ -100,14 +102,15 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void BigContainers_AreListedInPages()
+    public void Big_containers_are_listed_in_pages()
     {
         var entries = Enumerable.Range(0, 130).Select(i => ($"lib/A{i:D3}.dll", ContainerFixtures.Module($"A{i:D3}", _ => { })))
             .Concat(Enumerable.Range(0, 10).Select(i => ($"de/App{i}.resources.dll", ContainerFixtures.Module($"App{i}.resources", _ => { })))).ToArray();
         var zip = Save("big.zip", ContainerFixtures.Zip(entries));
         var listing = new UnpackService(_workspace).List(zip, AnalysisLimits.Default, default);
         Assert.Equal(UnpackService.MaxListed, listing.Assemblies.Count);
-        Assert.DoesNotContain(listing.Assemblies, a => a.Path.Contains(".resources")); // translations last, past the cut
+        // Translations last, past the cut.
+        Assert.DoesNotContain(listing.Assemblies, a => a.Path.Contains(".resources"));
         Assert.Contains(listing.Notes, n => n.StartsWith("140 assemblies; 100 listed"));
         Assert.Equal(140, listing.Total);
         // list_assemblies path= ignored offset, limit and filter, so entries past the first 100 could not be listed.
@@ -125,10 +128,10 @@ public class InspectionEdgeTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public async Task ListAssemblies_FiltersAndPages()
+    public async Task List_assemblies_filters_and_pages()
     {
         _workspace.LoadDirectory(Path.GetDirectoryName(Env.FixturePath)!, false);
-        var tools = new WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
+        var tools = new WorkspaceTools(_workspace, new AotMetadataService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
         async Task<(string Text, WorkspaceTools.WorkspaceList List)> List(int offset = 0, int limit = 100, string? filter = null)
         {
             var collector = Corvus.Mcp.ToolOutput.Collect();
@@ -141,7 +144,7 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(2, page.Items.Count);
         Assert.Equal(all.Total, page.Total);
         Assert.Equal(all.Items[1].Id, page.Items[0].Id);
-        // S4: rows of loaded assemblies are counted as assemblies, not files
+        // Rows of loaded assemblies are counted as assemblies, not files.
         Assert.Contains($"{all.Total} assemblies (showing 2-3):\n  {page.Items[0].Id}  ", text);
         Assert.Contains("[More: offset=3]", text);
         var (_, fixtures) = await List(filter: "testfixture");
@@ -154,9 +157,9 @@ public class InspectionEdgeTests : IDisposable
     /// loaded images (kind, path, name and version or machine and SHA-256), the search directories; never a copy of the text.
     /// </summary>
     [Fact]
-    public async Task WorkspaceChangesReturnTheirRecords()
+    public async Task Workspace_changes_return_their_records()
     {
-        var tools = new WorkspaceTools(_workspace, new Il2CppService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
+        var tools = new WorkspaceTools(_workspace, new AotMetadataService(_workspace), new IndexingService(_workspace, new CallGraphService(_workspace), new ServerOptions()), new UnpackService(_workspace));
         async Task<T> Change<T>(Func<Task<string>> call)
         {
             var collector = Corvus.Mcp.ToolOutput.Collect();
@@ -178,7 +181,7 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void StringDecoder_NeedsDecoding_NotJustAnIntToStringHelper()
+    public void String_decoder_needs_decoding_not_just_an_int_to_string_helper()
     {
         var calls = string.Join(" ", Enumerable.Range(0, 12).Select(i => $"public static string C{i}() => Pad({i}) + D({i});"));
         var path = Save("Strings.dll", ReferenceResolutionTests.Compile("Strings", $$"""
@@ -196,7 +199,7 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void SummaryEvidence_PrefersTheDecidingString()
+    public void Summary_evidence_prefers_the_deciding_string()
     {
         var path = Save("Runner.dll", ReferenceResolutionTests.Compile("Runner",
             "public static class R { public static void Go() { System.Diagnostics.Process.Start(\"powershell.exe\", \"-NoProfile\"); } }"));
@@ -205,7 +208,7 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void CosturaEmbeddedAssemblies_AreCountedNotHighlightedOneByOne()
+    public void Costura_embedded_assemblies_are_counted_not_highlighted_one_by_one()
     {
         var host = Save("Host.exe", ContainerFixtures.Module("Host",
             ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(File.ReadAllBytes(Env.FixturePath)))));
@@ -222,7 +225,8 @@ public class InspectionEdgeTests : IDisposable
             using (var s = zip.CreateEntry("classes/module-info.class").Open()) s.Write([0xCA, 0xFE, 0xBA, 0xBE]);
             using (var s = zip.CreateEntry("lib/A.dll").Open()) s.Write(ReferenceResolutionTests.Compile("A", "public class AType { }"));
         }
-        byte[] bytes = [(byte)'J', (byte)'M', 1, 0, .. ms.ToArray()]; // the zip's offsets count from after the header, as jmod writes them
+        // The zip's offsets count from after the header, as jmod writes them.
+        byte[] bytes = [(byte)'J', (byte)'M', 1, 0, .. ms.ToArray()];
         Assert.Equal("jmod", Blob.Identify(bytes));
         var contents = Containers.Open(bytes, "a.jmod", AnalysisLimits.Default, default);
         Assert.Equal("JMOD (Java module)", contents.Kind);
@@ -230,7 +234,7 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void TruncatedZip_RecoversTheCompleteEntries()
+    public void Truncated_zip_recovers_the_complete_entries()
     {
         var ms = new MemoryStream();
         using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
@@ -264,7 +268,7 @@ public class InspectionEdgeTests : IDisposable
 
     [Trait("Smoke", "push")]
     [Fact]
-    public void StreamedZip_WithoutCentralDirectory_RecoversEveryEntry_AndStepsOverBadOnes()
+    public void Streamed_zip_without_central_directory_recovers_every_entry_and_steps_over_bad_ones()
     {
         var ms = new MemoryStream();
         using (var zip = new System.IO.Compression.ZipArchive(new ForwardOnly(ms), System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
@@ -282,7 +286,8 @@ public class InspectionEdgeTests : IDisposable
             i = nextAt < 0 ? -1 : i + 4 + nextAt;
         }
         Assert.Equal(4, headers.Count);
-        Assert.All(headers, h => Assert.True((full[h + 6] & 0x08) != 0)); // sizes in descriptors
+        // Sizes in descriptors.
+        Assert.All(headers, h => Assert.True((full[h + 6] & 0x08) != 0));
 
         // Drop the central directory.
         var central = full.AsSpan().IndexOf("PK\u0001\u0002"u8);

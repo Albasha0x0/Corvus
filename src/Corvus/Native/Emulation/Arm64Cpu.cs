@@ -2,12 +2,7 @@ using System.Numerics;
 
 namespace Corvus.Native.Emulation;
 
-/// <summary>
-/// ARM64 integer execution decoded from the A64 encodings: data processing (immediate, shifted, extended, carry,
-/// conditional, bitfield, multiply and divide), branches, loads and stores of general registers (all addressing modes,
-/// pairs, exclusives), and 8- to 128-bit vector register loads, stores and zeroing as compilers emit for copies.
-/// Floating point, vector arithmetic and system registers are refused by name.
-/// </summary>
+/// <summary>ARM64 integer execution of A64 encodings; floating point, vector arithmetic and system registers are refused by name.</summary>
 public sealed class Arm64Cpu : IEmulatorCpu
 {
     private readonly ulong[] _x = new ulong[31];

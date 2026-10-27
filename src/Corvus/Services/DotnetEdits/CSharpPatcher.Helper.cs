@@ -8,14 +8,8 @@ using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Helper-method compilation of new method bodies.
-///
-/// A shadow type has a different identity from the original, so code passing `this` as the original type does not compile.
-/// Each body is bound inside the shadow, rewritten so `this` becomes an explicit `@this` parameter and type members become
-/// fully qualified, then compiled as a static `R M(T @this, ...params)` against the original assembly. Argument 0 maps to
-/// `this` of the target method, so the IL transfers unchanged.
-/// </summary>
+/// <summary>Compiles new bodies as static helpers <c>R M(T @this, ...)</c> against the original assembly, so code passing
+/// <c>this</c> as the original type compiles; argument 0 maps to <c>this</c> and the IL transfers unchanged.</summary>
 public sealed partial class CSharpPatcher
 {
     private const string HelperClass = "__PatchHelpers__";
@@ -36,10 +30,8 @@ public sealed partial class CSharpPatcher
         return false;
     }
 
-    /// <summary>
-    /// Compiles every job's body as a method of one helper class and copies the results into the target methods.
-    /// <paramref name="model"/> must belong to the tree that contains the job bodies (a shadow compilation, bound only).
-    /// </summary>
+    /// <summary>Compiles all job bodies into one helper class and copies them into the targets; <paramref name="model"/>
+    /// must bind the tree that holds the bodies.</summary>
     private Outcome CompileViaHelper(LoadedAssembly asm, SemanticModel model, IReadOnlyList<HelperJob> jobs, ModuleDef target, Func<byte[]>? targetImage, CancellationToken ct)
     {
         var root = (CompilationUnitSyntax)model.SyntaxTree.GetRoot(ct);
@@ -193,10 +185,8 @@ public sealed partial class CSharpPatcher
             new Importer(module, ImporterOptions.TryToUseDefs, new GenericParamContext(target.DeclaringType, target)), IsStateMachineAttribute);
     }
 
-    /// <summary>
-    /// Rewrites a body bound in the shadow so it compiles outside the type: `this` and implicit instance member access
-    /// become `@this`, and static members / nested types of the type (or its base and outer types) become fully qualified.
-    /// </summary>
+    /// <summary>Rewrites a shadow-bound body to compile outside the type: instance access becomes <c>@this</c>, static
+    /// members and nested types become fully qualified.</summary>
     private sealed class ThisRewriter(SemanticModel model, INamedTypeSymbol type) : CSharpSyntaxRewriter
     {
         private static readonly SymbolDisplayFormat Fq = SymbolDisplayFormat.FullyQualifiedFormat;

@@ -40,7 +40,7 @@ public sealed partial class WasmTextTests(ITestOutputHelper output) : IDisposabl
             : [(name, bytes)];
 
     [Fact]
-    public void Text_of_a_function_with_names_blocks_and_floats()
+    public void A_function_prints_as_text_with_names_blocks_and_floats()
     {
         var m = WasmBinary.Read(WasmFixtures.Valid().Single(f => f.Name == "names").Bytes);
         Assert.Empty(m.Issues);

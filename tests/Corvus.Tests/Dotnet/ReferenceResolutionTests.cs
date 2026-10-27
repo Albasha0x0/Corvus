@@ -41,7 +41,7 @@ public class ReferenceResolutionTests : IDisposable
     }
 
     [Fact]
-    public void TwoBuildsSideBySide_AReferenceBindsToItsSiblingInTheSameFolder()
+    public void Two_builds_side_by_side_a_reference_binds_to_its_sibling_in_the_same_folder()
     {
         var older = Folder("build-old");
         var newer = Folder("build-new");
@@ -61,16 +61,16 @@ public class ReferenceResolutionTests : IDisposable
         var resolved = ws.Read(() => reference.ResolveTypeDef());
         Assert.NotNull(resolved);
         Assert.Same(siblingBase.Module, resolved!.Module);
-        Assert.Contains("loaded as Base#2", ws.Read(() => new AssemblyReport(ws, new Il2CppService(ws)).Build(app)));
+        Assert.Contains("loaded as Base#2", ws.Read(() => new AssemblyReport(ws, new AotMetadataService(ws)).Build(app)));
         Assert.Contains("typeof(New)", new DecompilerService(ws, new ServerOptions()).DecompileMembers(app,
             [ws.Read(() => app.Module.Types.Single(t => t.Name == "App").Methods.Single(m => m.Name == "T"))], default));
     }
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void Il2CppDummyMscorlib_DoesNotStandInForTheRealOne()
+    public void A_dummy_mscorlib_does_not_stand_in_for_the_real_one()
     {
-        // Il2Cpp dummy set: a tokenless "mscorlib" defining its own List<T>.
+        // Dummy set: a tokenless "mscorlib" defining its own List<T>.
         var dummy = Folder("DummyDll");
         Write(dummy, "mscorlib.dll", ContainerFixtures.Module("mscorlib", m =>
         {
@@ -103,16 +103,16 @@ public class ReferenceResolutionTests : IDisposable
         Assert.True(patched.Contains("new List<int> { 1 }"), patched);
 
         // The dummy mscorlib must not serve Plugin's reference.
-        var report = env.Workspace.Read(() => new AssemblyReport(env.Workspace, new Il2CppService(env.Workspace)).Build(env.Workspace.Get("Plugin")));
+        var report = env.Workspace.Read(() => new AssemblyReport(env.Workspace, new AotMetadataService(env.Workspace)).Build(env.Workspace.Get("Plugin")));
         Assert.DoesNotContain("[loaded as mscorlib]", report);
         Assert.True(System.Text.RegularExpressions.Regex.IsMatch(report,
             @"mscorlib, Version=[0-9.]+, Culture=neutral, PublicKeyToken=b77a5c561934e089\s+\[resolvable from search path(, version [^\]]+)?\]"), report);
     }
 
     [Fact]
-    public void WithinOneFolder_TokenlessReferencesStillBind()
+    public void Within_one_folder_tokenless_references_still_bind()
     {
-        // Il2Cpp dummy DLLs reference each other without tokens.
+        // Dummy DLLs reference each other without tokens.
         var dummy = Folder("Dummies");
         Write(dummy, "Core.dll", ContainerFixtures.Module("Core", m => AddType(m, "Core", "Thing")));
         using var ws = new AssemblyWorkspace(new ServerOptions());

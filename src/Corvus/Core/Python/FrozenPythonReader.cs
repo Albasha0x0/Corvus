@@ -1,9 +1,6 @@
 namespace Corvus.Core.Python;
 
-/// <summary>
-/// The PyInstaller and Nuitka onefile executables a stream opens (a file too large to read whole); the built-in path in
-/// <see cref="Containers.Open"/> reads every freezer, files beside the executable included.
-/// </summary>
+/// <summary>PyInstaller and Nuitka onefile executables opened as streams, for files too large to read whole; <see cref="Containers.Open"/> reads every freezer.</summary>
 internal sealed class FrozenPythonReader : IContainerReader
 {
     public string Kind => "frozen python";

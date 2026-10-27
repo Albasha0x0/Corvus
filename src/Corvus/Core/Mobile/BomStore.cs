@@ -3,10 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Mobile;
 
-/// <summary>
-/// BOM store files (bill of materials, big-endian): the block index, named variables and B+ trees whose leaves list
-/// key and value blocks. Damaged ranges, cycles and unknown tree forms throw <see cref="InvalidDataException"/>.
-/// </summary>
+/// <summary>BOM store files: blocks, variables and B+ trees; damage throws <see cref="InvalidDataException"/>.</summary>
 internal sealed class BomStore
 {
     private readonly byte[] _data;
@@ -62,10 +59,7 @@ internal sealed class BomStore
         return Range(_blocks[id].At, _blocks[id].Length, $"block {id}").ToArray();
     }
 
-    /// <summary>
-    /// The (key, value) blocks of a named tree in key order: down the first child of each branch, then along the leaves'
-    /// forward links. Null when the store has no such variable.
-    /// </summary>
+    /// <summary>The (key, value) blocks of a named tree in key order; null when the store has no such variable.</summary>
     public List<(byte[] Key, byte[] Value)>? Tree(string name)
     {
         if (Variable(name) is not { } header) return null;

@@ -48,7 +48,7 @@ public sealed partial class LiveSessionTools
     private sealed record TimelineDiffRow(int Index, bool InA, string Category, string Name);
 
     [McpServerTool(Name = "live_timeline", Title = "Activity trace of a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveTimelinePage))]
-    [Description("Trace the files, registry keys, endpoints and child processes a session's program opens, with times (event tracing on Windows); entries page with a cursor, report counts each name, diff lists names unique to each of two traces.")]
+    [Description("Trace the files, registry keys, endpoints and child processes a session's program opens, with times; report counts each name, diff compares two traces.")]
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
@@ -143,7 +143,7 @@ public sealed partial class LiveSessionTools
             var text = new StringBuilder();
             if (dropped > 0) text.AppendLine($"{dropped:N0} entries before this page were dropped (a timeline keeps {LiveTimelineRun.Capacity:N0})");
             foreach (var e in entries) text.AppendLine($"#{e.Sequence} {Since(r, e.Time)} {e.Category} {e.Name}{(e.ProcessId is { } pid ? $" (process {pid})" : "")}");
-            // past the last match the whole ring was scanned: the next poll starts after its end
+            // Past the last match the whole ring was scanned: the next poll starts after its end.
             var cut = entries.Count > 0 && (count < page.Count || more);
             var next = cut ? entries[^1].Sequence + 1 : Math.Max(Math.Max(start, firstKept), last + 1);
             string? nextCursor = cut ? next.ToString(CultureInfo.InvariantCulture) : null;
@@ -178,7 +178,7 @@ public sealed partial class LiveSessionTools
             .Concat(onlyB.Select((p, i) => new TimelineDiffRow(onlyA.Count + i, false, p.Category, p.Name))).ToList();
         var head = $"{a.Id} {Path.GetFileName(a.Program)} and {b.Id} {Path.GetFileName(b.Program)}: {ToolSupport.Plural(onlyA.Count, "name")} only in {a.Id}, " +
                    $"{onlyB.Count:N0} only in {b.Id}, {common:N0} in both\n";
-        // a heading row's entry continues on the next line at column 4 (ToolOutput.Line); other entries, after the row's 2, match it
+        // A heading row's entry continues on the next line at column 4 (ToolOutput.Line); other entries match it.
         string Render(TimelineDiffRow x) =>
             (x.Index == Math.Max(0, offset) || x.Index == onlyA.Count ? $"only in {(x.InA ? a.Id : b.Id)}:\n" : "  ") + $"{x.Category,-8}  {x.Name}";
         return ToolOutput.List(rows, offset, limit, Render, page => new LiveTimelinePage(TimelineSummary(a), [], null, [])

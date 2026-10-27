@@ -99,10 +99,7 @@ internal static class ArkBundles
         return sb.ToString();
     }
 
-    /// <summary>
-    /// A method by "#id", a bare id, its full name (class.name), its name alone or its source name (after the last '#')
-    /// when one method has it.
-    /// </summary>
+    /// <summary>A method by #id, id, full name, or a name or source name only one method has; throws not_found otherwise.</summary>
     public static int Function(ArkBundle b, string? query)
     {
         var q = query?.Trim() ?? "";
@@ -220,10 +217,7 @@ internal static class ArkBundles
 
     internal static string Label(int offset) => $"L{offset:x4}";
 
-    /// <summary>
-    /// One instruction as text: mnemonic and operands; registers past the locals are the arguments (a0, a1, ...),
-    /// strings quoted, methods named, literal arrays by offset, jumps by label.
-    /// </summary>
+    /// <summary>One instruction as text; registers past the locals print as arguments (a0, a1), jumps as labels.</summary>
     internal static string Text(ArkFile file, ArkMethod method, ArkInstruction ins, int arguments, int registers)
     {
         var parts = new List<string>();

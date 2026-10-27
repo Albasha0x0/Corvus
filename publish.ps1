@@ -11,7 +11,7 @@ $marker = Join-Path $out '.build-complete'
 # A development relay (corvus relay) starts a new server only once the marker is back; it is written last.
 if (Test-Path $marker) { Remove-Item $marker -Force }
 
-# A running server's files cannot be overwritten on Windows, but they can be renamed: move them aside, delete earlier ones once free.
+# Windows refuses to overwrite a running server's files but allows a rename: move them aside, delete old ones once free.
 if (Test-Path $out) {
     Get-ChildItem $out -Recurse -File -Filter '*.aside-*' | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
     foreach ($file in Get-ChildItem $out -Recurse -File | Where-Object { $_.Name -notlike '*.aside-*' }) {

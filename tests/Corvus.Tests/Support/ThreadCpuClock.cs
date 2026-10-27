@@ -2,10 +2,7 @@ using System.Diagnostics;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// CPU time of the calling thread (<see cref="Core.ThreadCpuTime"/>): a per-call work bound that a loaded machine does
-/// not inflate, as it does a wall clock when the thread waits for a processor.
-/// </summary>
+/// <summary>CPU time of the calling thread (<see cref="Core.ThreadCpuTime"/>), which machine load does not inflate.</summary>
 internal static class ThreadCpuClock
 {
     public static TimeSpan Now() => Core.ThreadCpuTime.Now();
@@ -14,7 +11,7 @@ internal static class ThreadCpuClock
 public class ThreadCpuClockTests
 {
     [Fact]
-    public void WaitingCostsNoCpuTimeAndSpinningDoes()
+    public void Waiting_costs_no_CPU_time_and_spinning_does()
     {
         var start = ThreadCpuClock.Now();
         Thread.Sleep(300);

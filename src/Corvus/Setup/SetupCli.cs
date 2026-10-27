@@ -61,44 +61,41 @@ internal static class SetupCli
         Corvus: .NET and native decompiler MCP server. Without a command it serves MCP over stdio.
 
         Commands:
-          install [client...]   Register the server with MCP clients, then start it once to check it works.
-                                Existing registrations are refreshed. Detected clients without one are listed in a
-                                plan and added after one confirmation (Enter = yes); without a terminal they are
-                                added only with --yes (or CORVUS_YES=1) or --all-detected.
+          install [client...]   Register the server with MCP clients and check that it starts.
+                                Existing registrations are refreshed. New detected clients are added after one
+                                confirmation (Enter = yes); without a terminal, only with --yes (CORVUS_YES=1)
+                                or --all-detected.
                                 --client X      only these clients (repeatable or comma-separated), detected or not
                                 --dry-run       print the plan and write nothing (--check also runs the server check)
                                 --json          print the plan and result as JSON (needs --yes to add new clients)
                                 --strict        write nothing when any client's file cannot be read
                                 --no-check      skip the server check
                                 --command PATH  register this program instead of the running one
-                                --dev-reload DIR  local development: register the relay, which runs the server
-                                                published in DIR (./publish.ps1) and switches to each new publish
-                                --skill         also write the agent skill for clients that read skills; skills
-                                                written earlier are kept current by every install and update
-                                --enable        turn on an entry the client has turned off (its switch, disable
-                                                lists, Claude Code's per-project list); otherwise it is kept off
+                                --dev-reload DIR  development: register the relay, which runs the server
+                                                published in DIR (./publish.ps1) and follows each new publish
+                                --skill         also write the agent skill for clients that read skills
+                                                (install and update keep written skills current)
+                                --enable        turn on an entry the client has turned off; otherwise it stays off
                                 --set S         add a security switch to every entry, e.g. --set allow-live-attach
                                 --unset S       remove it (docs/configuration.md lists the switches)
                                 --project DIR   with --set/--unset: only this folder's Claude Code entry,
                                                 made from the global one when the folder has none
                                 --with-live     install the tested Frida into a private Python environment now
                                                 and --set live-install-frida (sessions use it)
-          uninstall [client...] Remove the registration from every client (or the named ones). With no names it
-                                also deletes an installed copy's program files; --keep-files keeps them. Your data
-                                (annotations, caches, symbols) is kept; --purge-data deletes it as well.
-                                Skill folders written by install --skill are removed.
+          uninstall [client...] Remove the registration from every client, or the named ones, and the skill
+                                folders install wrote. Without names it also deletes an installed copy's program
+                                files (--keep-files keeps them). Data is kept; --purge-data deletes it too.
                                 --dry-run and --json as for install.
-          status | doctor       Read-only check. Starts each client's registered command with that entry's own args
-                                and env, checks this build's server and tool catalog (digest), the engines, and
-                                installed skills (aligned with this build, or stale).
+          status | doctor       Read-only check: starts each client's registered command with its args and env,
+                                and checks this build's server and catalog digest, the engines and installed skills.
                                 --client X      only these clients (fails only for them)
                                 --engine E      only ida, python, ghidra or all (--deep also starts IDA's worker)
                                 --target PATH   what the file is and which engines read it
                                 --json          the report as JSON
           config [client]       Print the configuration to add by hand (for clients not listed).
                                 --dev-reload DIR  the relay's configuration (see install)
-          update                Install the latest release (installed copies only) and refresh existing registrations;
-                                it never adds clients.
+          update                Install the latest release (installed copies only) and refresh existing
+                                registrations; it never adds clients.
                                 --version X     install release X instead, also an older one (rollback)
                                 --dry-run       show the release, asset and checksum manifest it would use
           version               Print the version.
@@ -116,16 +113,16 @@ internal static class SetupCli
           describe <name>       A tool's or prompt's description, parameters and an example (help <name> too).
           batch <file|->        Run steps ({"tool": ..., "args": {...}} as a JSON array or JSON Lines) in one session,
                                 so ids and in-memory edits carry over. --stop-on-error, --json (one line per step).
-          batch --file <path> --json   Read one file with fixed read-only steps (summary, container, strings, yara) into
-                                one corvus.batch/1 document. --rules <file|folder>, --time-limit S,
+          batch --file <path> --json   Read one file with fixed read-only steps (summary, container, strings,
+                                yara) into one corvus.batch/1 document. --rules <file|folder>, --time-limit S,
                                 --limit containerFiles=N, --limit strings=N, --limit yaraMatches=N.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.
           rules [list]          Installed and known YARA rule packs; rules fetch <pack> downloads one (SHA-256 checked)
                                 for search_container kind=yara query=pack:<name>.
-          ida-script [folder]   Write corvus_connect.py (and the worker it imports) for IDA's File > Script file:
-                                it serves the open database to Corvus when CORVUS_IDA_CONNECT=1.
+          ida-script [folder]   Write corvus_connect.py and its worker for IDA's File > Script file; it serves
+                                the open database to Corvus when CORVUS_IDA_CONNECT=1.
         Tool exit codes: 0 success, 1 tool error, 2 usage or invalid_argument, 3 engine missing or unsupported,
         124 timeout, 130 cancelled (Ctrl+C).
         """;
@@ -161,10 +158,7 @@ internal static class SetupCli
         return chosen;
     }
 
-    /// <summary>
-    /// With --dev-reload DIR: the relay, started from a staged copy of <paramref name="launch"/>'s program (a publish then never
-    /// replaces the running relay), watching DIR. Without it: <paramref name="launch"/>. Null after reporting a usage error.
-    /// </summary>
+    /// <summary>With --dev-reload DIR, the relay for DIR from a staged copy of the program; else <paramref name="launch"/>; null after a usage error.</summary>
     private static ServerLaunch? DevReload(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a, bool dryRun)
     {
         if (a.Value("--dev-reload") is not { } target) return launch;
@@ -209,11 +203,7 @@ internal static class SetupCli
         return (dotnet ? new ServerLaunch(launch.Command, [staged, .. relay]) : new ServerLaunch(staged, relay), null);
     }
 
-    /// <summary>
-    /// Migration only: moves each entry under the name used before the rename to ours, run by this program with the
-    /// entry's arguments and env (a relay entry stays a relay, staged from this program, for the same publish folder).
-    /// Returns the clients' rows; they are done and left out of the plan.
-    /// </summary>
+    /// <summary>Migration only: renames each old-name entry to ours, keeping its arguments and env; returns the rows, left out of the plan.</summary>
     private static List<ClientReport> RenameLegacy(TextWriter text, SetupEnvironment env, IEnumerable<McpClient> clients, ServerLaunch launch, bool dryRun)
     {
         var rows = new List<ClientReport>();
@@ -251,10 +241,7 @@ internal static class SetupCli
 
     private static LaunchReport Describe(ServerLaunch launch) => new(launch.Command, launch.Args);
 
-    /// <summary>
-    /// install --set/--unset --project: the switches in one folder's Claude Code local entry, made from the global entry
-    /// (or a new registration) when the folder has none. Nothing else is touched.
-    /// </summary>
+    /// <summary>install --set/--unset --project: the switches of one folder's Claude Code local entry, made from the global one when absent.</summary>
     private static int ProjectSwitches(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a, string folder, bool dryRun)
     {
         if (launch.Set.Count + launch.Unset.Count == 0) { output.WriteLine("--project needs --set or --unset."); return 2; }
@@ -481,10 +468,7 @@ internal static class SetupCli
         return Finish(failed == 0 ? 0 : 1);
     }
 
-    /// <summary>
-    /// Skill folders of the registered clients: folders this program wrote are kept current; --skill also writes new ones.
-    /// A folder of the same name that we did not write is never touched.
-    /// </summary>
+    /// <summary>Keeps skill folders we wrote current; --skill also writes new ones; folders we did not write are never touched.</summary>
     private static void Skills(TextWriter text, SetupEnvironment env, SetupReport report, IEnumerable<ClientReport> rows, bool add, bool dryRun)
     {
         var clients = rows.Where(r => r.Action is SetupAction.Add or SetupAction.Refresh or SetupAction.Unchanged or SetupAction.Rename).Select(r => r.Id).ToList();
@@ -614,10 +598,7 @@ internal static class SetupCli
         return 0;
     }
 
-    /// <summary>
-    /// Read-only. Without a scope: detected clients, this build's server and the engines; it fails only for a broken
-    /// registration or server. With --client, --engine or --target only those are checked and only they can fail.
-    /// </summary>
+    /// <summary>Read-only status; without a scope only a broken registration or server fails, with one only the scoped checks.</summary>
     private static int Status(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
         bool json = a.Has("--json"), deep = a.Has("--deep");

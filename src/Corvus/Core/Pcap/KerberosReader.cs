@@ -3,10 +3,7 @@ namespace Corvus.Core.Pcap;
 /// <summary>A Kerberos message's type and the principal and realm names it carries.</summary>
 internal sealed record KerberosFacts(long MsgType, List<string> CNames, List<string> SNames, List<string> Realms, List<string> CRealms);
 
-/// <summary>
-/// Kerberos 5 messages (RFC 4120) over UDP or TCP port 88, read from their DER: AS / TGS requests (with the ticket of a
-/// PA-TGS-REQ), replies and KRB-ERROR; client and service name strings, realms. Encrypted parts are not opened.
-/// </summary>
+/// <summary>Kerberos 5 messages (RFC 4120) on port 88: names and realms; encrypted parts are not opened.</summary>
 internal static class KerberosReader
 {
     private const int MaxDepth = 12;
@@ -28,7 +25,8 @@ internal static class KerberosReader
     {
         foreach (var (n, v) in Fields(fields))
         {
-            if (n == 3) // padata: the AP-REQ of a PA-TGS-REQ carries the ticket
+            // padata: the AP-REQ of a PA-TGS-REQ carries the ticket.
+            if (n == 3)
                 foreach (var pa in Elements(v))
                 {
                     long type = -1;

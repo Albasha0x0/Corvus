@@ -14,7 +14,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     private static byte[] Bytes(string s) => System.Text.Encoding.UTF8.GetBytes(s);
 
     [Fact]
-    public void ExistingFile_IsRefusedUnlessOverwrite_AndNoTempFileIsLeft()
+    public void An_existing_file_is_refused_unless_overwrite_and_no_temp_file_is_left()
     {
         var path = _dir.File("sub/out.bin");
         Assert.Equal(Path.GetFullPath(path), SafeFile.WriteAllBytes(path, Bytes("one"), overwrite: false));
@@ -27,7 +27,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void ConcurrentNoClobberWriters_ExactlyOneWins()
+    public void Concurrent_no_clobber_writers_exactly_one_wins()
     {
         var path = _dir.File("race.txt");
         int won = 0, refused = 0;
@@ -68,10 +68,10 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     [InlineData("LPT")]
     [InlineData("nul_file")]
     [InlineData("my.con")]
-    public void SimilarNames_AreNotReserved(string name) => Assert.False(SafeFile.IsReservedName(name));
+    public void Similar_names_are_not_reserved(string name) => Assert.False(SafeFile.IsReservedName(name));
 
     [Fact]
-    public void TrailingDotOrSpace_IsRefusedOnWindows()
+    public void A_trailing_dot_or_space_is_refused_on_Windows()
     {
         if (!OperatingSystem.IsWindows()) return;
         Assert.Throws<ToolError>(() => SafeFile.WriteAllText(_dir.File("name."), "x", false));
@@ -79,7 +79,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void ArchiveNames_WithDeviceSegments_ArePrefixed()
+    public void Archive_names_with_device_segments_are_prefixed()
     {
         var relative = Blob.SafeRelativePath("lib/COM1/LPT².dll", "x");
         Assert.Equal(Path.Combine("lib", "_COM1", "_LPT².dll"), relative);
@@ -94,7 +94,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [DirectoryLinkFact]
-    public void LinkUnderTheOutputRoot_IsRefused()
+    public void A_link_under_the_output_root_is_refused()
     {
         var root = Directory.CreateDirectory(_dir.File("root")).FullName;
         var outside = Directory.CreateDirectory(_dir.File("outside")).FullName;
@@ -107,7 +107,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [DirectoryLinkFact]
-    public void LinkAtTheTarget_IsRefusedEvenWithOverwrite()
+    public void A_link_at_the_target_is_refused_even_with_overwrite()
     {
         var outside = Directory.CreateDirectory(_dir.File("outside")).FullName;
         var link = _dir.File("out.json");
@@ -118,7 +118,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [DirectoryLinkFact]
-    public void Unpack_IntoAnEarlierOutputWithAPlantedLink_IsRefused()
+    public void Unpack_into_an_earlier_output_with_a_planted_link_is_refused()
     {
         var source = _dir.File("app.zip");
         File.WriteAllBytes(source, ContainerFixtures.Zip(("lib/a.dll", Bytes("not an assembly"))));
@@ -135,7 +135,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void WriteUnique_SharesEqualContentWhileAnotherWriterStillHoldsTheFile()
+    public void Write_unique_shares_equal_content_while_another_writer_still_holds_the_file()
     {
         var root = _dir.File("held");
         var first = Blob.WriteUnique(root, "same.bin", Bytes("content"));
@@ -144,7 +144,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void WriteUnique_ConcurrentWritersOfDifferentContent_KeepEveryOne()
+    public void Write_unique_concurrent_writers_of_different_content_keep_every_one()
     {
         var root = _dir.File("unique");
         var written = new System.Collections.Concurrent.ConcurrentBag<(string Path, string Text)>();
@@ -154,7 +154,7 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
-    public void Exports_RefuseAnExistingFile_UnlessOverwrite()
+    public void Exports_refuse_an_existing_file_unless_overwrite()
     {
         using var env = new Env();
         var res = env.Fixture.Module.Resources.First(r => r.Name.String.EndsWith("hello.txt")).Name.String;

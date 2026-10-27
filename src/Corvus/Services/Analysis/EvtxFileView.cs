@@ -3,11 +3,7 @@ using Corvus.Core.Logs;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=evtx: a Windows event log file as a timeline: header facts, record and recovered-record counts, the time span,
-/// counts by level, provider and event id, then a page of events (offset=, limit=) in file order; table= keeps the events
-/// of one provider, one event id or one provider/id pair.
-/// </summary>
+/// <summary>view=evtx: an event log's header, counts by level, provider and id, and a page of events (offset=, limit=); table= filters by provider and/or id.</summary>
 internal sealed class EvtxFileView : IFileSummaryView
 {
     private const int DefaultLimit = 50, MaxLimit = 1000, MaxNames = 40, MaxData = 24, MaxValue = 400;

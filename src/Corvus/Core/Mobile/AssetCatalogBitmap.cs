@@ -6,11 +6,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Core.Mobile;
 
-/// <summary>
-/// Bitmaps of compiled asset catalogs (CELM payloads): uncompressed, zip and LZFSE pixels, whole or in KCBC row chunks,
-/// and deepmap-2. ARGB (stored BGRA) and GA8 pixels become premultiplied RGBA. Damaged data throws
-/// <see cref="InvalidDataException"/>; a compression or pixel format not read throws <see cref="NotSupportedException"/>.
-/// </summary>
+/// <summary>Asset catalog bitmaps (CELM) as premultiplied RGBA; damaged data throws InvalidDataException, unsupported NotSupportedException.</summary>
 internal static class AssetCatalogBitmap
 {
     private static readonly string[] Compressions =
@@ -99,11 +95,7 @@ internal static class AssetCatalogBitmap
     }
 }
 
-/// <summary>
-/// Deepmap-2 bitmaps (CoreUI, no vendor documentation): raw, default (YCoCg-R residuals with a predictor per row),
-/// lossless and palette methods, each segment LZFSE or LZVN, in KCBC row chunks or whole. Returns the stored pixels
-/// (BGRA for four components, gray and alpha for two), rows top to bottom.
-/// </summary>
+/// <summary>Deepmap-2 bitmaps (undocumented CoreUI format) decoded to their stored pixels, rows top to bottom.</summary>
 internal static class Deepmap2
 {
     private const int Raw = 1, Default = 2, Lossless = 3, Palette = 4;
@@ -164,8 +156,7 @@ internal static class Deepmap2
         return all;
     }
 
-    // Container: version 1, encoding, 64-bit length, then 'dmp2', method, blob version 1, a byte not read, pixel format,
-    // 16-bit width and height, and the method's data.
+    // Container: version, encoding, length, 'dmp2', method, blob version, a byte, pixel format, width, height, data.
     private static (int Format, int Width, int Height, byte[] Pixels) Blob(ReadOnlySpan<byte> src, long maxBytes)
     {
         if (src.Length < 28) throw new InvalidDataException($"a deepmap-2 payload of {src.Length} bytes");
@@ -222,11 +213,7 @@ internal static class Deepmap2
     // Default segment bytes per row: alpha, the predictor byte, and two bytes per residual component.
     private static int PerRow(int width, Layout layout) => (layout.Alpha ? width : 0) + 1 + 2 * layout.Residuals * width;
 
-    /// <summary>
-    /// The decoded segments: the first is <paramref name="first"/> bytes long, each later one has a 32-bit length before
-    /// it. An LZFSE segment decodes whole; a raw LZVN one, which has no size, into at most <paramref name="expected"/>
-    /// bytes, less what earlier ones gave when they share it. The blob's height counts only the first segment's rows.
-    /// </summary>
+    /// <summary>The decoded segments; an LZVN segment, having no size, decodes into at most <paramref name="expected"/> bytes.</summary>
     private static List<byte[]> Segments(ReadOnlySpan<byte> src, uint first, int expected, bool shrink, long maxBytes)
     {
         var segments = new List<byte[]>();
@@ -253,8 +240,7 @@ internal static class Deepmap2
         }
     }
 
-    // Planes: alpha, one predictor per row, then the residuals' high bytes and their low bytes, each residual's low bit
-    // its sign. Rows keep three residuals; the inverse YCoCg-R transform gives the stored channels in BGRA order.
+    // Planes: alpha, row predictors, residual high and low bytes (low bit the sign); inverse YCoCg-R gives BGRA.
     private static byte[] DefaultRows(byte[] src, int width, int height, Layout layout)
     {
         int n = width * height, residuals = layout.Residuals, alphaBytes = layout.Alpha ? n : 0;
@@ -332,9 +318,7 @@ internal static class Deepmap2
         }
     }
 
-    // Descriptor: palette size in the low 16 bits, components the palette holds in the high 16. The palette entries
-    // (whole pixels) come first, then the length of the compressed stream of the other components' planes and the
-    // one-byte indices.
+    // Descriptor: palette size low 16 bits, palette components high 16; palette, then other planes and indices.
     private static byte[] PaletteImage(ReadOnlySpan<byte> payload, uint descriptor, int width, int height, Layout layout)
     {
         int count = (int)(descriptor & 0xFFFF), held = (int)(descriptor >> 16), bpp = layout.Components;

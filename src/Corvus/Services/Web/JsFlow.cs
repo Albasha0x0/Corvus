@@ -23,14 +23,7 @@ public sealed record JsFlowPath(string End, IReadOnlyList<JsFlowStep> Steps);
 public sealed record JsFlowResult(string Query, int Seeds, int Steps, int Sinks, int Unknowns, int Origins, int Total, string? Partial,
     IReadOnlyList<JsFlowPath> Flows);
 
-/// <summary>
-/// Data flow over one parsed file, on its syntax tree: assignments and destructuring, call arguments to parameters, returns
-/// to call sites (also through webpack module requires, exports and getters), closures, object and class properties,
-/// promise chains (then, await, new Promise resolve), and effect sinks (fetch, XMLHttpRequest, WebSocket, EventSource,
-/// sendBeacon, HTTP clients, child_process, fs, eval / Function, postMessage, Electron IPC, windows, shell, workers, dynamic import, DOM
-/// HTML). Where the tree cannot follow (a computed key or call, an external module, a caller nobody resolves) the flow ends
-/// in an explicit unknown step. Walks are breadth-first, each state once, inside a step, time and allocation budget.
-/// </summary>
+/// <summary>Data flow over one file's syntax tree to sinks and origins; what the tree cannot follow ends in an unknown step, walks bounded by a budget.</summary>
 internal sealed class JsFlow
 {
     public sealed record Budget(int Steps, TimeSpan Time, long Bytes)
@@ -70,7 +63,7 @@ internal sealed class JsFlow
     };
     private static readonly HashSet<string> Globals = new(StringComparer.Ordinal) { "window", "globalThis", "self", "global" };
 
-    // calls whose result carries their arguments: globals, module members and methods of any receiver
+    // Calls whose result carries their arguments: globals, module members and methods of any receiver.
     private static readonly HashSet<string> PassCalls = new(StringComparer.Ordinal)
     {
         "JSON.stringify", "JSON.parse", "String", "Number", "encodeURIComponent", "encodeURI", "decodeURIComponent", "decodeURI", "escape", "unescape", "btoa", "atob",
@@ -94,7 +87,7 @@ internal sealed class JsFlow
     private static readonly HashSet<string> AddTo = new(StringComparer.Ordinal) { "push", "unshift", "set", "add", "append", "splice" };
     private static readonly HashSet<string> Each = new(StringComparer.Ordinal) { "forEach", "map", "filter", "find", "findIndex", "findLast", "some", "every", "flatMap" };
 
-    // method names of built-in types: never resolved by name alone
+    // Method names of built-in types, never resolved by name alone.
     private static readonly HashSet<string> Builtin = new(StringComparer.Ordinal)
     {
         "get", "set", "has", "add", "delete", "clear", "push", "pop", "shift", "unshift", "splice", "slice", "map", "filter", "forEach", "find", "includes",
@@ -311,7 +304,7 @@ internal sealed class JsFlow
             var owner = OwnerOf(me.Object);
             if (owner is Node cls && cls is IClass && Method(cls, key, 0) is { } m) return new Target([m], 0, null, null);
             if (owner is ObjectExpression o && PropertyValue(o, key) is { } pv && FunctionValue(pv, ScopeOf(pv)) is { } of) return new Target([of], 0, null, null);
-            // an unresolved receiver: a method name only one class of the file defines, and no built-in type has
+            // An unresolved receiver resolves by a method name only one class defines and no built-in type has.
             if (owner == null && !Builtin.Contains(key) && _methods.GetValueOrDefault(key) is [var only]) return new Target([only], 0, null, null) { ByName = true };
             return new Target([], 0, null, $".{key}() on an unresolved receiver ({Snip(me.Object)})");
         }
@@ -382,7 +375,8 @@ internal sealed class JsFlow
     {
         expr = JsProgram.Unwrap(expr);
         if (_owners.TryGetValue(expr, out var cached)) return cached;
-        _owners[expr] = null; // cycles
+        // Breaks cycles.
+        _owners[expr] = null;
         var owner = Owner(expr);
         _owners[expr] = owner;
         return owner;
@@ -495,7 +489,7 @@ internal sealed class JsFlow
         while (parts.Length > 1 && Globals.Contains(parts[0])) parts = parts[1..];
         var name = parts[^1];
         var owner = parts.Length > 1 ? parts[^2] : null;
-        // a URL wrapper's row sits at its caller: the flow goes into the wrapper and meets the row there (EndpointOf)
+        // A URL wrapper's row sits at its caller; the flow meets it there (EndpointOf).
         if (Endpoints().TryGetValue(Line(call), out var endpoint) && endpoint.Client.Split(' ')[0] is not ("url" or "next" or "graphql")
             && !endpoint.Client.Contains(" via ", StringComparison.Ordinal))
             return new Sink("network", endpoint.Client, null, endpoint);
@@ -565,7 +559,6 @@ internal sealed class JsFlow
         return _endpoints;
     }
 
-    /// <summary>The Electron graph's pairing of an IPC call, over the scripts of the app the file belongs to.</summary>
     /// <summary>The name a contextBridge.exposeInMainWorld call gives a function (api.invoke), or null.</summary>
     private string? BridgeName(IFunction f)
     {
@@ -591,12 +584,13 @@ internal sealed class JsFlow
         return _ipc.GetValueOrDefault("bridge:" + bridge) is { } sites ? "called by the page at " + sites : "no page call found in the app's scripts";
     }
 
+    /// <summary>The Electron graph's pairing of an IPC call, over the scripts of the app the file belongs to.</summary>
     private string? IpcLink(Node call)
     {
         if (_fullPath == null) return null;
         if (_ipc == null) (_ipcFile, _ipc) = JsFlowIpc.Links(_fullPath, default);
         if (_ipc.GetValueOrDefault($"{_ipcFile}:{Line(call)}") is { } link) return link;
-        // a channel forwarded by a wrapper: the graph's row is at the wrapper's call site, an earlier step
+        // A channel forwarded by a wrapper has its row at the wrapper's call site, an earlier step.
         for (int i = _current, n = 0; i >= 0 && n < 16; i = _steps[i].From, n++)
             if (_ipc.GetValueOrDefault($"{_ipcFile}:{Line(_steps[i].At)}") is { } wrapped) return wrapped;
         return null;
@@ -774,7 +768,7 @@ internal sealed class JsFlow
             }
             return [.. seeds.OrderBy(s => s.Item4.Start)];
         }
-        // a name: variables and parameters, functions and methods (Class.method)
+        // A name: variables, parameters, functions and methods (Class.method).
         var functions = new HashSet<IFunction>();
         foreach (var b in _bindings.GetValueOrDefault(q) ?? [])
         {
@@ -901,7 +895,7 @@ internal sealed class JsFlow
 
     private IEnumerable<(string, string)> ExportsOf(IFunction f)
     {
-        // a webpack getter (key: () => value) is its result's export
+        // A webpack getter (key: () => value) is its result's export.
         foreach (var r in Returns(f))
             if (_exportExprs.TryGetValue(r, out var e) && _parent.GetValueOrDefault((Node)f) is Property) yield return e;
     }
@@ -932,7 +926,7 @@ internal sealed class JsFlow
                     any = true;
                     Go(call, "import", $"module {mod[7..]} required (export {s.Key} inside)", call);
                 }
-        // an object literal's own flow continues past it; only named objects and classes end here
+        // An object literal's flow continues past it; only named objects and classes end here.
         if (!any && s.Owner is not ObjectExpression) Leaf("end", "end", $"{OwnerName(s.Owner)}.{s.Key} is never read where the tree resolves the object", AnyNode(s));
     }
 
@@ -1115,7 +1109,7 @@ internal sealed class JsFlow
             return;
         }
         var callee = JsProgram.Unwrap(call is CallExpression c ? c.Callee : ((NewExpression)call).Callee);
-        // new Promise((resolve) => resolve(v)): v is the promise's value
+        // In new Promise((resolve) => resolve(v)), v is the promise's value.
         if (callee is Identifier rid && ScopeOf(call).Lookup(rid.Name) is { ParamIndex: 0, ParamOf: { } exec } && _executors.TryGetValue(exec, out var promise))
         {
             Go(promise, "promise", "resolves " + Snip(promise), call);
@@ -1284,7 +1278,7 @@ internal sealed class JsFlow
         }
         else if (!any && b.Scope.Owner is IFunction pf)
         {
-            // a destructured parameter: the whole argument
+            // A destructured parameter takes the whole argument.
             for (int i = 0; i < pf.Params.Count; i++)
                 if (PatternNames(pf.Params[i]).Any(id => id.Name == b.Name))
                 {
@@ -1312,7 +1306,7 @@ internal sealed class JsFlow
             any = true;
             Go(tm.Object, "promise", $"then of {Snip(tm.Object)}", tm.Object);
         }
-        // arr.forEach(x => ...): the element comes from the receiver
+        // In arr.forEach(x => ...), the element comes from the receiver.
         if (!any && index == 0 && _parent.GetValueOrDefault((Node)f) is CallExpression { Callee: MemberExpression em } ec && Key(em) is { } ek && Each.Contains(ek)
             && ReferenceEquals(ec.Arguments[0], f))
         {

@@ -3,11 +3,7 @@ using Corvus.Core.Mobile;
 
 namespace Corvus.Core.Firmware;
 
-/// <summary>
-/// Apple disk images (UDIF, .dmg): the koly trailer and the partition table (blkx) of its XML property list. HFS+ and
-/// APFS partitions are read in place through their chunks (raw, zero, ADC, zlib, bzip2, LZFSE, xz); other partitions are
-/// named, and a partition holding no filesystem read here is extracted as an image within the item limit.
-/// </summary>
+/// <summary>Apple disk images (UDIF, .dmg); HFS+ and APFS partitions are read in place, others extracted as images.</summary>
 internal sealed class UdifReader : IContainerReader
 {
     public string Kind => "dmg";
@@ -218,8 +214,7 @@ internal sealed class UdifReader : IContainerReader
             return Keep(i, Decode(i, Packed(i)));
         }
 
-        // Chunks decoded at once on a miss: readers walk a volume in allocation order, so the next ones are read soon.
-        // The cache holds a whole batch.
+        // Chunks decoded at once on a miss; readers walk in allocation order, so the next ones are read soon.
         private const int Batch = 16;
 
         /// <summary>Decodes, in parallel, chunk <paramref name="i"/> and the uncached ones after it.</summary>

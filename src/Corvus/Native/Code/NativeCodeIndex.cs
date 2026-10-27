@@ -42,26 +42,21 @@ public sealed class CallTreeNode
     public bool Truncated { get; set; }
 }
 
-/// <summary>
-/// Code analysis of one native image, built once (on a background thread if wanted; every loop is cancellable):
-/// functions, their code extents, cross-references (code -> code, calls through import slots, code -> data,
-/// relocated data pointers, string references) and per-function control-flow graphs on demand. Immutable after
-/// <see cref="Build"/>; queries are thread-safe.
-/// </summary>
+/// <summary>Code analysis of one native image: functions, extents, cross-references, strings and graphs on demand; immutable after <see cref="Build"/>, queries are thread-safe.</summary>
 public sealed partial class NativeCodeIndex : ICodeSymbols
 {
     private readonly CodeContext? _ctx;
     private readonly NativeFunction[] _functions;
     private readonly Dictionary<uint, NativeFunction> _byStart;
     private readonly Dictionary<string, uint[]> _discoveredByName;
-    // per function code ranges, grouped by function (NativeFunction.FirstRange / RangeCount)
+    // Code ranges grouped by function (NativeFunction.FirstRange / RangeCount).
     private readonly uint[] _rangeStarts;
     private readonly uint[] _rangeEnds;
-    // non-overlapping owner map: code range -> function index, sorted by start
+    // Non-overlapping owner map from code range to function index, sorted by start.
     private readonly uint[] _ownerStarts;
     private readonly uint[] _ownerEnds;
     private readonly int[] _ownerFunctions;
-    // cross-references sorted by (From, To, Kind), and an index sorted by (To, From)
+    // Cross-references sorted by (From, To, Kind), and an index sorted by (To, From).
     private readonly CodeXref[] _xrefs;
     private readonly int[] _byTo;
     private readonly StringLiteral[] _strings;
@@ -78,15 +73,12 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public IReadOnlyList<StringLiteral> Strings => _strings;
     /// <summary>Everything a limit cut short; empty when the index is complete.</summary>
     public IReadOnlyList<string> Truncations { get; }
-    /// <summary>Where the analysis and what the image declares disagree (code walks past a Go function's own end).</summary>
+    /// <summary>Where the analysis and the image's declarations disagree.</summary>
     public IReadOnlyList<string> Issues { get; private set; } = [];
     public CodeIndexStats Stats { get; }
-    /// <summary>Relocations in an x86 image are missing, so absolute operands were accepted by range alone.</summary>
+    /// <summary>An x86 image without relocations: absolute operands were accepted by range alone.</summary>
     public bool AbsoluteRefsUnconfirmed { get; }
-    /// <summary>
-    /// The image has no relocations, so data pointers are pointer-sized values in data sections that are function starts and stand
-    /// in runs of two or more, accepted by address range alone.
-    /// </summary>
+    /// <summary>No relocations: data pointers were accepted by range alone, in runs of two or more function starts.</summary>
     public bool PointersUnconfirmed { get; }
 
     private NativeCodeIndex(INativeImage image, CodeSupport support, string? note, CodeContext? ctx, NativeFunction[] functions,
@@ -115,7 +107,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         foreach (var e in image.Exports)
             if (e.ForwardedTo == null && e.Name != null) _exportNames.TryAdd(e.Rva, e.Name);
 
-        // owner map: first function (lowest index) wins where ranges of several functions overlap
+        // On overlap the lowest function index owns the range.
         var ownerKeys = new ulong[rangeStarts.Length];
         var ownerEnds = new uint[rangeStarts.Length];
         int at = 0;
@@ -142,10 +134,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return byTo;
     }
 
-    /// <summary>
-    /// This analysis over <paramref name="image"/>, a patched copy of the indexed image: functions, extents and references
-    /// as they were, instructions decoded from the new bytes. Cheap; for previews while the full index rebuilds.
-    /// </summary>
+    /// <summary>This analysis over a patched copy <paramref name="image"/>, decoding its new bytes; for previews while the index rebuilds.</summary>
     public NativeCodeIndex Rebase(INativeImage image)
     {
         CodeContext? ctx = null;
@@ -163,7 +152,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         };
     }
 
-    /// <summary>Builds the index. Long-running for large images: run it on a background thread.</summary>
+    /// <summary>Builds the index; long-running on large images.</summary>
     public static NativeCodeIndex Build(INativeImage image, CodeIndexOptions? options = null, Action<CodeIndexProgress>? progress = null, CancellationToken ct = default)
     {
         options ??= new CodeIndexOptions();
@@ -209,7 +198,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return new NativeCodeIndex(image, CodeSupport.DeclaredFunctionsOnly, note, null, functions, [], [], [], [], [], stats);
     }
 
-    /// <summary>Names the image gives function starts: exports, function symbols (ELF .dynsym / .symtab, Mach-O nlist), then the Go function table.</summary>
+    /// <summary>Names the image gives function starts: exports, then function symbols, then the Go function table.</summary>
     private static Dictionary<uint, string> FunctionNames(INativeImage image)
     {
         var names = new Dictionary<uint, string>();
@@ -233,7 +222,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         if (i >= 0 && rva < _ownerEnds[i]) return _functions[_ownerFunctions[i]];
         if (Support != CodeSupport.Full)
         {
-            // declared functions only: the nearest start whose .pdata range contains the address
+            // Declared functions only: the nearest start whose range contains the address.
             int lo = 0, hi = _functions.Length - 1, best = -1;
             while (lo <= hi) { int mid = (lo + hi) >>> 1; if (_functions[mid].Start <= rva) { best = mid; lo = mid + 1; } else hi = mid - 1; }
             if (best >= 0 && rva < _functions[best].End) return _functions[best];
@@ -312,10 +301,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return result;
     }
 
-    /// <summary>
-    /// Calls and tail calls to <paramref name="f"/> (and, for a thunk, to its import), with the calling function; with
-    /// <paramref name="edges"/> All or Virtual also the virtual call sites that may reach it. Sorted by source.
-    /// </summary>
+    /// <summary>Calls and tail calls to <paramref name="f"/>, plus virtual call sites per <paramref name="edges"/>; sorted by source.</summary>
     public List<CallSite> Callers(NativeFunction f, CallEdgeFilter edges = CallEdgeFilter.All)
     {
         var result = new List<CallSite>();
@@ -349,10 +335,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return result;
     }
 
-    /// <summary>
-    /// Direct calls, tail calls and import calls made by <paramref name="f"/>, with <paramref name="edges"/> All or Virtual also
-    /// the implementations its virtual call sites may reach; in address order.
-    /// </summary>
+    /// <summary>Calls made by <paramref name="f"/>, plus virtual call targets per <paramref name="edges"/>; in address order.</summary>
     public List<CallSite> Callees(NativeFunction f, CallEdgeFilter edges = CallEdgeFilter.All)
     {
         var result = new List<CallSite>();
@@ -382,10 +365,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return result;
     }
 
-    /// <summary>
-    /// Callers (<paramref name="callers"/> = true) or callees of <paramref name="root"/> to <paramref name="depth"/> levels,
-    /// at most <paramref name="maxNodes"/> nodes; repeated functions are listed once and not expanded again.
-    /// </summary>
+    /// <summary>Callers or callees of <paramref name="root"/> to <paramref name="depth"/> levels; repeated functions are not expanded again.</summary>
     public CallTreeNode CallTree(NativeFunction root, int depth, bool callers, int maxNodes = 2000, CallEdgeFilter edges = CallEdgeFilter.All)
     {
         var node = new CallTreeNode { Function = root, Address = root.Start };
@@ -435,7 +415,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
     /// <summary>A function walker over this index's analysis, or null without one. One per caller.</summary>
     internal FunctionWalker? NewWalker() => _ctx == null ? null : new FunctionWalker(_ctx);
-    /// <summary>A decoder over this index's code (relocations, import slots, data in code), or null without one. One per caller.</summary>
+    /// <summary>A decoder over this index's code, or null without one. One per caller.</summary>
     internal ICodeDecoder? NewDecoder() => _ctx?.NewDecoder(computeAccess: true);
 
     /// <summary>Sorted byte ranges inside code that hold data (Mach-O data in code, ELF $d mapping symbols).</summary>
@@ -455,11 +435,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public List<DisasmLine> Disassemble(uint rva, int maxInstructions, uint end = uint.MaxValue) =>
         CreateDisassembler().Disassemble(rva, maxInstructions, end);
 
-    /// <summary>
-    /// Disassembly of a function's blocks in address order, each block preceded by its label line
-    /// ("name:" for the entry, "loc_&lt;rva&gt;:" otherwise). At most <paramref name="maxInstructions"/> instructions;
-    /// <paramref name="truncated"/> tells whether that cut the listing.
-    /// </summary>
+    /// <summary>Disassembly of a function's blocks in address order, each after its label line; at most <paramref name="maxInstructions"/>.</summary>
     public List<(string? Label, DisasmLine? Line)> DisassembleFunction(NativeFunction f, int maxInstructions, out bool truncated, CancellationToken ct = default)
     {
         var graph = GetGraph(f, ct);
@@ -504,9 +480,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     /// <summary>The text of each inline string (<see cref="StringEncoding.Inline"/>) by its instruction.</summary>
     internal IReadOnlyDictionary<uint, string> InlineText { get; init; } = new Dictionary<uint, string>();
 
-    // Names and comments by source (user annotations mirrored from NativeAnnotations, imported pdb / il2cpp layers);
-    // the highest source wins over discovered names, and KnownName of the matching function is updated so
-    // list_functions and labels show it.
+    // Names and comments by source; the highest wins over discovered names and updates the function's KnownName.
     private readonly SourcedNames _sourced = new();
     private readonly Dictionary<uint, string?> _builtinNames = new();
 
@@ -539,20 +513,16 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         if (!_byStart.TryGetValue(rva, out var f)) return;
         if (!_builtinNames.ContainsKey(rva)) _builtinNames[rva] = f.KnownName;
         f.KnownName = name ?? _builtinNames[rva];
-        // jump thunks to it follow its name (j_<name>) unless a source named them
+        // Jump thunks to it follow its name (j_<name>) unless a source named them.
         foreach (uint t in _thunksTo.GetValueOrDefault(rva) ?? [])
             if (_sourced.NameAt(t) == null && _byStart.TryGetValue(t, out var thunk) && (thunk.KnownName == null || thunk.KnownName.StartsWith("j_", StringComparison.Ordinal)))
                 ApplyKnownName(t, f.KnownName is { } target ? "j_" + target : null);
     }
 
-    // jump thunk -> the function it jumps to, and back
+    // Target function to the jump thunks that reach it.
     private readonly Dictionary<uint, List<uint>> _thunksTo = [];
 
-    /// <summary>
-    /// Functions that are one direct jump to another function (x86 / x64 jmp rel32 / rel8, ARM64 b, ARM32 b and veneers): incremental-link thunks
-    /// and the like, named j_&lt;target&gt; as IDA names them while they have no name of their own. ELF PLT stubs of a
-    /// function this image exports jump to it too.
-    /// </summary>
+    /// <summary>Finds functions that are one direct jump to another and names unnamed ones j_&lt;target&gt;.</summary>
     private void FindJumpThunks()
     {
         Span<byte> b = stackalloc byte[12];
@@ -587,7 +557,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             if (!_thunksTo.TryGetValue(to.Start, out var list)) _thunksTo[to.Start] = list = [];
             list.Add(f.Start);
         }
-        // thunks to thunks: named in chain order, as a saved index (which holds the names) reads them back
+        // Thunks to thunks are named in chain order, as a saved index reads them back.
         bool changed = true;
         for (int guard = 0; changed && guard < 8; guard++)
         {
@@ -599,10 +569,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         }
     }
 
-    /// <summary>
-    /// ARM32 jump thunks: Thumb b / b.w, ARM b, and the linker's Thumb long-branch veneer (movw ip / movt ip / add ip, pc / bx ip);
-    /// -1 for anything else.
-    /// </summary>
+    /// <summary>Target of an ARM32 b / b.w or Thumb long-branch veneer, or -1.</summary>
     internal static long Arm32JumpThunkTarget(uint start, ReadOnlySpan<byte> b, bool thumb)
     {
         static ushort H(ReadOnlySpan<byte> s, int at) => System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(s[at..]);
@@ -630,11 +597,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return -1;
     }
 
-    /// <summary>
-    /// Every address <paramref name="name"/> is in effect at: names set by a source (user, pdb, il2cpp, ida, ghidra), and the
-    /// discovered names (exports, import thunks) of functions no source renamed. A C-decorated name no name matches
-    /// resolves as the undecorated name a PDB public shows ("_f@8" -> "f").
-    /// </summary>
+    /// <summary>Every address <paramref name="name"/> is in effect at; an unmatched C-decorated name falls back to its undecorated form.</summary>
     public IReadOnlyList<AddressCandidate> AddressesOfName(string name)
     {
         var exact = AddressesOfExactName(name);
@@ -676,7 +639,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return (s.Encoding == StringEncoding.Utf16 ? "L" : "") + StringDetector.Quote(ReadString(s, max), s.Length > max);
     }
 
-    /// <summary>The C string of a Mach-O CFString constant (__cfstring: isa, flags, chars, length) at <paramref name="rva"/>, or null.</summary>
+    /// <summary>The C string of a Mach-O CFString constant at <paramref name="rva"/>, or null.</summary>
     public StringLiteral? CfStringAt(uint rva)
     {
         if (Image.Format != ImageFormat.MachO || Image.SectionAt(rva) is not { } section || !section.Name.EndsWith(",__cfstring", StringComparison.Ordinal)) return null;
@@ -712,7 +675,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
         public CodeCover(uint[] starts, uint[] ends)
         {
-            // ties in start order do not change the union
+            // Ties in start order do not change the union.
             var keys = new ulong[starts.Length];
             var order = new int[starts.Length];
             for (int i = 0; i < starts.Length; i++) { keys[i] = (ulong)starts[i] << 32 | (uint)i; order[i] = i; }
@@ -765,12 +728,12 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
         public NativeCodeIndex Run()
         {
-            // RTTI depends on the image alone: read while the code is analyzed
+            // RTTI depends on the image alone, so it is read while the code is analyzed.
             var rtti = options.ResolveVirtualCalls && ResolvesVirtualCalls(image) ? Task.Run(() => Itanium.CppRtti.Analyze(image, ct), ct) : null;
             try { return Build(rtti); }
             finally
             {
-                // an early exit (cancel, failure) must not leave the read running over the image or its fault unobserved
+                // An early exit must not leave the read running or its fault unobserved.
                 if (rtti != null) try { rtti.Wait(CancellationToken.None); } catch (Exception) { }
             }
         }
@@ -790,9 +753,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             bool demoted = DemoteLocalSubroutines(starts, results);
             if (demoted || CodeFollowsNoReturnCalls(results))
             {
-                // again with the noreturn functions and local subroutines known: code after calls to noreturn
-                // functions is no longer followed, so function starts found only there disappear and gaps open for
-                // the gap scan; local subroutines are explored as part of their function
+                // Rediscover with noreturn functions and local subroutines known, dropping starts found only after noreturn calls.
                 starts = Discover();
                 _ctx.NoReturn = new HashSet<uint>(baseNoReturn);
                 foreach (var (start, slot) in _ctx.Thunks) if (_ctx.NoReturn.Contains(slot)) _ctx.NoReturn.Add(start);
@@ -811,10 +772,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             return index;
         }
 
-        /// <summary>
-        /// Functions known only as call targets that their single calling function also runs into without a branch
-        /// (x86 __finally blocks are called and fallen into): recorded as local subroutines of that function.
-        /// </summary>
+        /// <summary>Records call-only targets their one caller also falls into (x86 __finally blocks) as local subroutines.</summary>
         private bool DemoteLocalSubroutines(uint[] starts, WalkResult[] results)
         {
             var callOnly = starts.Where(s => _sources[s] == FunctionSource.Call).ToHashSet();
@@ -844,10 +802,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             return i >= 0 && rva < r.RangeEnds[i];
         }
 
-        /// <summary>
-        /// Discovery followed some call to a function later found not to return into code that is not a known
-        /// function start or padding: that code (and what it calls) may not be code at all.
-        /// </summary>
+        /// <summary>Discovery followed a call later found not to return into code that is neither a start nor padding.</summary>
         private bool CodeFollowsNoReturnCalls(WalkResult[] results)
         {
             var local = _ctx.NoReturn.Where(r => !_ctx.ImportSlots.ContainsKey(r) && !_ctx.Thunks.ContainsKey(r)).ToHashSet();
@@ -919,7 +874,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             return results;
         }
 
-        /// <summary>marks[i] = test(i) for every i below <paramref name="count"/>, on several threads (the sets read are not changed meanwhile).</summary>
+        /// <summary>Sets marks[i] = test(i) for every i below <paramref name="count"/> on several threads.</summary>
         private void Mark(int count, bool[] marks, Func<int, bool> test) => ForEachIndex(count, i => marks[i] = test(i));
 
         /// <summary>Runs <paramref name="body"/> for every index below <paramref name="count"/> on several threads.</summary>
@@ -962,7 +917,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             int totalRanges = firstRange[starts.Length];
             var rangeStarts = new uint[totalRanges];
             var rangeEnds = new uint[totalRanges];
-            // the functions on several threads (reads of the sets only), the counts after
+            // Functions in parallel (set reads only), counts after.
             ForEachIndex(starts.Length, i =>
             {
                 var r = results[i];
@@ -1017,10 +972,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 parallelism: options.MaxParallelism) { InlineText = inlineText };
         }
 
-        /// <summary>
-        /// Go functions whose decoded code runs past the end their own pc-value tables give. Walks ending short are not
-        /// listed: trailing padding, literal pools and code after noreturn calls are in the table's extent only.
-        /// </summary>
+        /// <summary>Go functions whose decoded code runs past the end their pc-value tables give; short walks are not listed.</summary>
         private List<string> GoExtentIssues(NativeCodeIndex index)
         {
             if (Go.GoFunctionTable.Of(image) is not { } go) return [];
@@ -1030,7 +982,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             {
                 var g = fs[i];
                 if (!g.OwnSize || index.FunctionByStart(g.Rva) is not { } f) continue;
-                // code between its own end and the next function: blocks shared with other functions elsewhere do not count
+                // Only code between its own end and the next function counts.
                 uint end = g.Rva + g.Size, next = i + 1 < fs.Count ? fs[i + 1].Rva : uint.MaxValue;
                 if (index.Ranges(f).Any(r => r.End > end && r.Start < next)) over.Add((g.Rva, g.Name));
             }
@@ -1048,16 +1000,14 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             foreach (var reloc in _ctx.Relocations)
             {
                 if ((++i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
-                // inside decoded functions a relocation is an instruction operand, already a cross-reference
+                // A relocation inside decoded functions is an operand, already a cross-reference.
                 if (_ctx.Code.IsCode(reloc) && functionCode.Contains(reloc)) continue;
                 if (!_ctx.TryReadPointer(reloc, out uint target)) continue;
-                // 32-bit ARM: a Thumb code pointer points one byte past its function
+                // 32-bit ARM: a Thumb code pointer points one byte past its function.
                 if (_ctx.ArmModes != null && (target & 1) != 0 && _ctx.Code.IsCode(target)) target &= ~1u;
                 pointers.Add(new CodeXref(reloc, target, XrefKind.Pointer));
             }
-            // no relocations (PointersUnconfirmed): runs of at least two values that are function starts. A value merely
-            // inside code is too often a small integer or an offset where the image base is low. A Go function table lists
-            // every Go function: other starts found only through such values, or inside a declared function, are not believed.
+            // No relocations: accept runs of two or more starts outside declared functions; a Go table rejects starts found only via such values.
             bool go = Go.GoFunctionTable.Of(image) != null;
             var starts = new Dictionary<uint, uint>();
             foreach (var (slot, value) in _ctx.UnrelocatedPointers())
@@ -1098,7 +1048,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             for (int k = 0; k < n; k++)
             {
                 if (w > 0 && all[w - 1] == all[k]) continue;
-                // same (From, To) with different kinds: keep each kind once
+                // Keep each kind of a (From, To) pair once.
                 bool dup = false;
                 for (int j = w - 1; j >= 0 && all[j].From == all[k].From && all[j].To == all[k].To; j--)
                     if (all[j].Kind == all[k].Kind) { dup = true; break; }
@@ -1108,12 +1058,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             return all;
         }
 
-        /// <summary>
-        /// Strings at data addresses that code reads or takes, or that relocated pointers point at; in executable
-        /// sections (data merged into code) only outside the decoded functions. In a Rust build a length the code or a
-        /// pointer and length pair in data gives wins over the NUL-terminated run. Swift small strings join at the
-        /// instructions that complete them.
-        /// </summary>
+        /// <summary>Strings that code or relocated pointers reference, in code sections only outside decoded functions; Rust lengths win over NUL runs; plus Swift inline strings.</summary>
         private (StringLiteral[] Strings, Dictionary<uint, string> InlineText) FindStrings(CodeXref[] xrefs, CodeCover functionCode, WalkResult[] results)
         {
             var lengths = StringLengths(xrefs, results);
@@ -1145,10 +1090,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             return (result.ToArray(), inlineText);
         }
 
-        /// <summary>
-        /// The byte length of each data address that code loads beside it or a pointer and length pair in data gives
-        /// (Rust builds; empty otherwise); of several, the most frequent, then the longest.
-        /// </summary>
+        /// <summary>Rust: the explicit byte length of each string address, most frequent then longest; empty otherwise.</summary>
         private Dictionary<uint, int> StringLengths(CodeXref[] xrefs, WalkResult[] results)
         {
             var seen = new Dictionary<(uint, int), int>();

@@ -18,10 +18,7 @@ internal sealed class SafeKernelHandle : SafeHandleZeroOrMinusOneIsInvalid
     }
 }
 
-/// <summary>
-/// The Win32 calls live inspection makes. Every one of them only queries or reads: there is no entry point here that
-/// writes memory, changes protection, suspends, resumes or creates threads, or debugs (see docs/live-inspection.md).
-/// </summary>
+/// <summary>The Win32 calls live inspection makes; each only queries or reads (see docs/live-inspection.md).</summary>
 internal static class LiveNative
 {
     // Access rights: the only ones ever requested.

@@ -5,7 +5,7 @@ namespace Corvus.Tests;
 public class WorkspaceTests
 {
     [Fact]
-    public void DirectoryLoadSkipsNonDotNetAndDoesNotLockFiles()
+    public void Directory_load_skips_non_NET_and_does_not_lock_files()
     {
         using var dir = new TempDir();
         var copy = dir.File("TestFixture.dll");
@@ -28,7 +28,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void DuplicateNamesGetDistinctIdsAndAmbiguityIsReported()
+    public void Duplicate_names_get_distinct_IDs_and_ambiguity_is_reported()
     {
         using var dir = new TempDir();
         var copy = dir.File("TestFixture.dll");
@@ -45,7 +45,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void GetByIdFileNameAndPath()
+    public void Assemblies_are_found_by_ID_file_name_and_path()
     {
         using var ws = new AssemblyWorkspace();
         var a = ws.Load(Env.FixturePath);
@@ -56,7 +56,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void ErrorsForMissingAndInvalidInput()
+    public void Missing_and_invalid_input_get_tool_errors()
     {
         using var ws = new AssemblyWorkspace();
         Assert.Contains("No assemblies are loaded", Assert.Throws<ToolError>(() => ws.Get("x")).Message);
@@ -70,7 +70,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void OnlyNativeImagesLoadedSaysSoAndPointsToTheNativeTools()
+    public void Only_native_images_loaded_says_so_and_points_to_the_native_tools()
     {
         using var ws = new AssemblyWorkspace();
         ws.LoadAny(NativeFormats.NativeFixtures.WinArm64DbgShim);
@@ -154,7 +154,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void UnloadAndGenerationInvalidation()
+    public void Loads_and_unloads_advance_the_generation()
     {
         using var ws = new AssemblyWorkspace();
         var a = ws.Load(Env.FixturePath);
@@ -166,7 +166,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void ResolvesReferencesFromSearchPathAndRuntime()
+    public void Resolves_references_from_search_path_and_runtime()
     {
         using var ws = new AssemblyWorkspace();
         ws.Load(Env.ConsumerPath); // TestFixture is next to it -> found via the auto-added search directory
@@ -176,7 +176,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void PagerSplitsOnLinesCachesAndPagesRows()
+    public void Pager_splits_on_lines_caches_and_pages_rows()
     {
         var pager = new OutputPager(new ServerOptions { MaxOutputChars = 2_000 });
         var text = string.Join("\n", Enumerable.Range(0, 500).Select(i => $"line {i:D4}"));
@@ -200,7 +200,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void ServerOptionsParsing()
+    public void Server_options_parse_from_arguments()
     {
         var o = ServerOptions.Parse(["--load", "a.dll", "--load", "b", "--search-dir", "c", "--max-output", "5000", "--timeout", "30"]);
         Assert.Equal(["a.dll", "b"], o.Preload.Take(2));
@@ -212,7 +212,7 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void AttachSpawnAndScripting_EachTurnOnTheSessionTools()
+    public void Attach_spawn_and_scripting_each_turn_on_the_session_tools()
     {
         Assert.False(new ServerOptions().AllowLive);
         Assert.True(new ServerOptions { AllowLiveAttach = true }.AllowLive);

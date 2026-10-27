@@ -36,7 +36,7 @@ public class AndroidResourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Manifest_ReadsTree_Attributes_AndResolvesReferencesThroughTheTable(bool utf8)
+    public void Manifest_reads_tree_attributes_and_resolves_references_through_the_table(bool utf8)
     {
         var (manifestBytes, tableBytes) = Sample(utf8);
         Assert.True(AxmlDocument.IsAxml(manifestBytes));
@@ -67,7 +67,7 @@ public class AndroidResourceTests
     }
 
     [Fact]
-    public void StrippedAttributeNames_AreNamedFromTheirResourceIds()
+    public void Stripped_attribute_names_are_named_from_their_resource_ids()
     {
         var bytes = AxmlWriter.Write(new Node("manifest", new Attr(Android, "", 0x0101021b, ResValue.IntDec, 7), new Attr(Android, "", 0x01017777, ResValue.IntDec, 1)));
         var root = AxmlDocument.Read(bytes).Root!;
@@ -80,7 +80,7 @@ public class AndroidResourceTests
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
-    public void Table_ReadsEveryEntryLayout_ConfigsAndTypedValues(int layoutNumber)
+    public void Table_reads_every_entry_layout_configs_and_typed_values(int layoutNumber)
     {
         var layout = (ArscWriter.Layout)layoutNumber;
         var table = ArscTable.Read(Sample(layout: layout).Table);
@@ -98,7 +98,8 @@ public class AndroidResourceTests
         Assert.Equal("true", table.Format(tablet[1].Value!.Value));
         Assert.Equal("#ff3366cc", table.DefaultText(0x7f030000));
         Assert.Equal("16dp", table.DefaultText(0x7f040000));
-        Assert.Equal("Example", table.DefaultText(0x7f010001)); // a reference is followed
+        // A reference is followed.
+        Assert.Equal("Example", table.DefaultText(0x7f010001));
         if (layout != ArscWriter.Layout.Compact)
         {
             var style = Assert.Single(table.Values(0x7f050000));
@@ -125,11 +126,11 @@ public class AndroidResourceTests
     [InlineData("en", null, 160, 21, false, null, "en-mdpi-v21")]
     [InlineData(null, null, 0xFFFE, 0, true, null, "night-anydpi")]
     [InlineData("sr", "RS", 0, 0, false, "Latn", "b+sr+Latn+RS")]
-    public void ConfigQualifiers_MatchAaptDirectoryNames(string? lang, string? region, int density, int sdk, bool night, string? script, string expected) =>
+    public void Config_qualifiers_match_aapt_directory_names(string? lang, string? region, int density, int sdk, bool night, string? script, string expected) =>
         Assert.Equal(expected, new ArscConfig(ArscWriter.Config(lang, region, (ushort)density, (ushort)sdk, night, script)).Qualifiers);
 
     [Fact]
-    public void PackedThreeLetterLanguage_IsUnpacked()
+    public void Packed_three_letter_language_is_unpacked()
     {
         var c = ArscWriter.Config();
         // "fil" packed: 0x80 | third << 2 | second >> 3, second << 5 | first (letters from 'a').
@@ -140,7 +141,7 @@ public class AndroidResourceTests
     }
 
     [Fact]
-    public void Truncated_AndCorruptInput_GivesPartialResultsWithIssues()
+    public void Truncated_and_corrupt_input_gives_partial_results_with_issues()
     {
         var (manifest, table) = Sample();
         var half = AxmlDocument.Read(manifest.AsSpan(0, manifest.Length * 2 / 3));
@@ -155,7 +156,7 @@ public class AndroidResourceTests
 
     [Fact]
     [FuzzEntry(typeof(AxmlDocument), typeof(ArscTable), typeof(ResStringPool), typeof(ResValue))]
-    public void MutatedInput_NeverThrows()
+    public void Mutated_input_never_throws()
     {
         var (manifest, table) = Sample();
         var failures = FormatFuzz.Run(manifest, b => AxmlDocument.Read(b).ToXml(), 1500);

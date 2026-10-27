@@ -1,10 +1,10 @@
 namespace Corvus.Tests;
 
-/// <summary>Ratchets are gates: every list under Ratchets/ holds only reviewed exemptions ("# permanent: reason"), nothing left to fix; the measured lists (CountRatchet, perf-baseline) hold values instead.</summary>
+/// <summary>Every Ratchets/ list holds only reviewed permanent exemptions; measured lists hold values.</summary>
 public class RatchetTests
 {
     [Fact]
-    public void EveryExemptionIsReviewedPermanent()
+    public void Every_exemption_is_reviewed_or_permanent()
     {
         var folder = Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "Ratchets");
         var lists = Directory.EnumerateFiles(folder, "*.txt").Select(Path.GetFileNameWithoutExtension)

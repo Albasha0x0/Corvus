@@ -4,21 +4,13 @@ using Corvus.Native.Code;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// The <see cref="NativeNameSource.Dart"/> layer of a Dart AOT image (libapp.so, App.framework/App, a dart compile
-/// aot-snapshot output): code named from the snapshot's Function and Class objects, set when the code index is built
-/// (no tool call needed; see <see cref="DartProgramReader"/> for the layouts read). Cheap to rebuild, so not saved.
-/// </summary>
+/// <summary>The Dart name layer of a Dart AOT image (libapp.so, App.framework/App), built from its snapshot with the code index; not saved.</summary>
 public static class DartNames
 {
     /// <summary>Set to 0 to turn off naming Dart AOT images from their snapshot.</summary>
     public const string AutoVariable = "CORVUS_AUTO_DART_NAMES";
 
-    /// <summary>
-    /// The program of an image whose symbols name a program snapshot (kDartSnapshotData, kDartSnapshotText) or VM and
-    /// isolate snapshots (kDartVmSnapshotData, kDartIsolateSnapshotData, kDartIsolateSnapshotInstructions), with the RVA of
-    /// the instructions its code offsets count from; null for other images.
-    /// </summary>
+    /// <summary>The Dart program of an image with kDartSnapshot* or kDart*SnapshotData symbols, and its instructions RVA; null for other images.</summary>
     public static (DartProgram Program, uint TextRva)? Read(INativeImage image, CancellationToken ct = default)
     {
         var symbols = new Dictionary<string, uint>(StringComparer.Ordinal);

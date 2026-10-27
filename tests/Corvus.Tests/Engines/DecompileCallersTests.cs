@@ -51,7 +51,7 @@ public sealed class DecompileCallersTests : IDisposable
         Assert.Contains("return target() + target();", text);
         Assert.DoesNotContain("reader", text); // a data reference is not a call
         Assert.Equal([2], engine.Batches);
-        // a caller's input is its start VA: the row and its header name it once
+        // A caller's input is its start VA: the row and its header name it once.
         Assert.DoesNotContain("(input \"", text);
         var report = await NativeQuerySurfaceTests.Structured<NativeAnalysisTools.DecompileReport>(() => tools.DecompileNative(native.Id, callersOf: "rva:0x1004"));
         Assert.All(report.Items, i => Assert.Equal((null, null), (i.Address, i.Function)));

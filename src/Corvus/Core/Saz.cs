@@ -4,10 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace Corvus.Core;
 
-/// <summary>
-/// Fiddler session archives (.saz): a zip with raw/NN_c.txt (request), raw/NN_s.txt (response) and raw/NN_m.xml (session
-/// metadata) per session. Read as request and status lines plus headers; bodies are not read.
-/// </summary>
+/// <summary>Fiddler session archives (.saz): request and status lines plus headers per session; bodies are not read.</summary>
 public static partial class Saz
 {
     private const int MaxSessions = 100_000, MaxHead = 64 * 1024;
@@ -74,10 +71,7 @@ public static partial class Saz
         return result;
     }
 
-    /// <summary>
-    /// The sessions' request side in session order: request headers and cookies, the request body's type and size, and its
-    /// text from the first <see cref="MaxHead"/> bytes; status and response type from the response head.
-    /// </summary>
+    /// <summary>Each session's request in order, body text from the first <see cref="MaxHead"/> bytes, with response status and type.</summary>
     public static void ReadRequests(Stream stream, Action<CapturedRequest> request, CancellationToken ct = default)
     {
         try

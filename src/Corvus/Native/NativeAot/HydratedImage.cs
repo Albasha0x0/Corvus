@@ -4,12 +4,7 @@ using Corvus.Native.ReadyToRun;
 
 namespace Corvus.Native.NativeAot;
 
-/// <summary>
-/// The image as the NativeAOT startup code leaves it: the DehydratedData section (207) expanded into its destination
-/// (StartupCodeHelpers.RehydrateData, DehydratedData.cs) and overlaid on the mapped bytes, plus the set of pointer
-/// slots = base relocations ∪ pointers the rehydration wrote. Derived bytes have no file offset; <see cref="Sha256"/>
-/// identifies them. Images that are not dehydrated get an empty overlay.
-/// </summary>
+/// <summary>The image after NativeAOT rehydration (section 207) with its pointer slots; empty overlay when not dehydrated. Derived bytes have no file offset; <see cref="Sha256"/> identifies them.</summary>
 public sealed class HydratedImage
 {
     /// <summary>Largest destination expanded.</summary>
@@ -75,7 +70,8 @@ public sealed class HydratedImage
         var slot = b[..PointerSize];
         if (Read(rva, slot) != slot.Length) return null;
         ulong va = PointerSize == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(slot) : BinaryPrimitives.ReadUInt32LittleEndian(slot);
-        return va != 0 && va >= Image.ImageBase && va - Image.ImageBase < Image.SizeOfImage ? (uint)(va - Image.ImageBase) : null; // ELF images load at 0
+        // ELF images load at 0.
+        return va != 0 && va >= Image.ImageBase && va - Image.ImageBase < Image.SizeOfImage ? (uint)(va - Image.ImageBase) : null;
     }
 
     /// <summary>The target of the 32-bit relative pointer at <paramref name="rva"/>; null when it leaves the image.</summary>

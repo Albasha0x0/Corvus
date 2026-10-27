@@ -17,10 +17,7 @@ public sealed record NativeAotSectionInfo(int Id, string Name, uint Rva, uint Si
 public sealed record NativeAotSummary(string Runtime, string ReadyToRunVersion, int? DebugHeaderVersion, bool Dehydrated, uint HeaderRva,
     int Modules, IReadOnlyList<NativeAotSectionInfo> Sections, IReadOnlyList<NativeAotStage> Stages, IReadOnlyDictionary<string, int> Counts);
 
-/// <summary>
-/// The NativeAOT view of a native image. <see cref="Open"/> only locates the module header; the recovery stages run on
-/// first use and are cached. Reads only mapped bytes; never executes or patches the image.
-/// </summary>
+/// <summary>NativeAOT view of an image; stages run on first use and are cached; never executes or patches the image.</summary>
 public sealed class NativeAotImage
 {
     private NativeAotImage(INativeImage image, IReadOnlyList<NativeAotHeader> headers, int? debugHeaderMajor)

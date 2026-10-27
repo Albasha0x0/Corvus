@@ -2,12 +2,7 @@ using dnlib.DotNet;
 
 namespace Corvus.Native.Linking;
 
-/// <summary>
-/// The managed / native seams of a mixed-mode (C++/CLI) module: methods whose body is native code at their RVA
-/// (IJW: "pinvokeimpl native unmanaged" with no ImplMap; managed calls to them run the native function), and the
-/// VTableFixups slots the runtime fills with native-callable entry points of managed methods (native code calls a
-/// managed method through its slot, directly or from a "jmp [slot]" thunk; exported managed functions are such thunks).
-/// </summary>
+/// <summary>Managed/native seams of a C++/CLI module: methods with a native body (IJW) and the VTableFixups slots that enter managed methods.</summary>
 public sealed class MixedModeMap
 {
     private const int MaxSlots = 1 << 20;
@@ -29,10 +24,7 @@ public sealed class MixedModeMap
 
     public IReadOnlyList<uint> SlotsOf(MethodDef method) => _slotsOf.TryGetValue(method, out var list) ? list : [];
 
-    /// <summary>
-    /// Whether a module carries native code of its own (C++/CLI). The IL-only flag alone does not tell: ReadyToRun images
-    /// clear it too (IL library flag, managed native header), and their precompiled code belongs to the R2R tools.
-    /// </summary>
+    /// <summary>Whether a module carries C++/CLI native code; ReadyToRun images also clear the IL-only flag and are excluded.</summary>
     public static bool IsMixedMode(ModuleDef module) =>
         !module.IsILOnly && (module.Cor20HeaderFlags & dnlib.DotNet.MD.ComImageFlags.ILLibrary) == 0
         && !(module is ModuleDefMD md && md.Metadata.ImageCor20Header.ManagedNativeHeader.VirtualAddress != 0);

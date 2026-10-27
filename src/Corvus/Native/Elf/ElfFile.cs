@@ -24,13 +24,7 @@ public sealed record ElfSection(int Index, string Name, uint Type, ulong Flags, 
     public bool HasFileData => Type != 8;
 }
 
-/// <summary>
-/// An ELF32 / ELF64 image of either byte order, parsed from an in-memory snapshot. Construction throws only when the
-/// file is not ELF; anything else that cannot be read is reported in <see cref="Issues"/>. The image is the loader's
-/// view: PT_LOAD segments at their link-time addresses with dynamic relocations applied (see <see cref="Read"/>).
-/// Section headers are optional: without them (stripped or damaged) sections are synthesized from the segments and
-/// the dynamic tables are found through PT_DYNAMIC. Thread-safe for reading.
-/// </summary>
+/// <summary>An ELF32/ELF64 image as the loader maps it; throws only when not ELF, other problems go to <see cref="Issues"/>. Without section headers, sections come from the segments. Thread-safe for reading.</summary>
 public sealed partial class ElfFile : INativeImage
 {
     private const ulong PageSize = 0x1000;
@@ -138,12 +132,10 @@ public sealed partial class ElfFile : INativeImage
     public uint SizeOfImage { get; private set; }
     public uint EntryPointRva => CodeAddress(Entry) is var e && e >= ImageBase && e - ImageBase < SizeOfImage ? (uint)((e - ImageBase) & (Machine == ElfNames.EmArm ? ~1UL : ~0UL)) : 0;
 
-    /// <summary>
-    /// The code address of a function address: on PPC64 ELFv1 function symbols and e_entry name a descriptor in .opd whose
-    /// first doubleword is the code; else the address itself. Keyed on .opd, not e_flags: ld.lld writes ABI 2 over v1 objects.
-    /// </summary>
+    /// <summary>The code address of a function address: the .opd descriptor's first doubleword on PPC64 ELFv1, else the address.</summary>
     public ulong CodeAddress(ulong va)
     {
+        // Keyed on .opd, not e_flags: ld.lld writes ABI 2 over v1 objects.
         if (Machine != ElfNames.EmPpc64 || Section(".opd") is not { } opd || va < opd.Address || va - opd.Address + 8 > opd.Size || !TryVaToRva(va, out uint rva)) return va;
         Span<byte> b = stackalloc byte[8];
         if (Read(rva, b) != 8) return va;

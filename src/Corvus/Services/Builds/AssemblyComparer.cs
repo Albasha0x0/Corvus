@@ -10,15 +10,9 @@ using static Corvus.Core.MetadataUtil;
 namespace Corvus.Services;
 
 /// <summary>
-/// Compares two builds of an assembly: added, removed and renamed types and members, signature and body changes,
-/// and Il2Cpp field-offset / address changes. Renamed or moved definitions are matched by content (IL shape,
-/// string literals, field and member structure).
-///
-/// Members are matched in tiers (full name and signature, matched type and name, normalized IL hash, body shape,
-/// structure, similarity). A tier pairs two members only when its key is unique among the unmatched members on both
-/// sides; a member whose key is shared at some tier and that no later tier pairs is reported as ambiguous with its
-/// candidates instead of being guessed. Methods left over in every type are then paired across types (moved) by identical
-/// bodies, under the same rule.
+/// Compares two builds of an assembly: added, removed, renamed and moved types and members, signature, body, offset and
+/// address changes. Members match in tiers; a tier pairs only keys unique on both sides, and a key still shared after
+/// every tier is reported as ambiguous with its candidates.
 /// </summary>
 public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
 {
@@ -73,7 +67,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
     public Comparison Compare(LoadedAssembly oldAsm, LoadedAssembly newAsm, CancellationToken ct)
     {
         if (oldAsm == newAsm)
-            throw new ToolError(ErrorCode.InvalidArgument, "Pick two different assemblies (load both builds; the second gets an id like Name#2).");
+            throw new ToolError(ErrorCode.InvalidArgument, "Pick two different assemblies; the second load of a name gets an id like Name#2.");
         long key = ((long)workspace.Generation << 32) | (uint)(oldAsm.Version * 65_537 + newAsm.Version);
         var inner = _cache.GetOrCreateValue(oldAsm);
         if (inner.TryGetValue(newAsm, out var cached) && cached.Key == key)
@@ -149,9 +143,8 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
     }
 
     /// <summary>
-    /// One old type or member and where it went. Status: matched; removed; ambiguous (Candidates lists the tied new
-    /// tokens); unknown (no counterpart, but the other build's bodies or signatures could not be read); type_unmatched
-    /// (its type has no counterpart). BodyHashEqual: methods with a normalized IL hash on both sides.
+    /// One old type or member and where it went; Status is matched, removed, ambiguous, unknown (evidence unreadable) or
+    /// type_unmatched; BodyHashEqual is null unless both methods have an IL hash.
     /// </summary>
     public sealed record TokenMapEntry(string Kind, string Old, string OldToken, string? New, string? NewToken, string Status,
         string? Tier, string? Confidence, bool? BodyHashEqual, IReadOnlyList<string>? Candidates);
@@ -205,15 +198,13 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         : ("content", "structural");
 
     /// <summary>
-    /// Shape: opcodes and literals. Skeleton: opcodes and string literals only. Control-flow transformers plant random integer
-    /// constants that change with every build, so only the skeleton survives a rebuild.
+    /// Shape hashes opcodes and literals; Skeleton drops numeric literals, which control-flow transformers change per build.
+    /// IlHash is null with no body or invalid IL; Structure is a coarse profile for bodies too changed to share a shape.
     /// </summary>
-    /// <remarks>IlHash: <see cref="Services.IlHash"/> (null: no body or not valid IL). Structure: signature shape, size bucket,
-    /// opcode histogram, call / field reference shape and exception region shape, for bodies too changed to share a shape.</remarks>
     private sealed record MethodPrint(MethodDef Method, string Signature, ulong Shape, ulong Skeleton, int Size, HashSet<string> Strings,
         string? IlHash, string Structure);
 
-    /// <summary>RareShapes: method bodies that occur in at most two types of the build — boilerplate shared by many types is no evidence of identity.</summary>
+    /// <summary>RareShapes: bodies found in at most two types; boilerplate shared by many types is no evidence.</summary>
     private sealed record TypePrint(TypeDef Type, string Kind, int Arity, string BaseName, List<string> FieldTypes, HashSet<ulong> Shapes,
         HashSet<ulong> Skeletons, HashSet<string> Strings)
     {
@@ -276,7 +267,8 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
     private static IEnumerable<string> ConstantValues(TypeDef t) =>
         t.Fields.Where(f => f.IsLiteral && f.Constant?.Value is not null)
             .Select(f => "c:" + Convert.ToString(f.Constant.Value, CultureInfo.InvariantCulture))
-            .Where(v => v.Length > 4); // "c:0", "c:1": no evidence
+            // "c:0", "c:1" are no evidence.
+            .Where(v => v.Length > 4);
 
     private static MethodPrint MethodFingerprint(LoadedAssembly asm, MethodDef m)
     {
@@ -394,8 +386,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
                     }
                 }
             }
-            // Best score first; a pair whose score another free pair with the same old or new type ties is not decided:
-            // the old types involved are ambiguous and the tied new types stay unpaired.
+            // Best score first; a tie on either side is not decided: the old types are ambiguous, the new ones stay unpaired.
             var usedOld = new HashSet<TypeDef>();
             var usedNew = new HashSet<TypeDef>();
             var ordered = candidates.OrderByDescending(c => c.Score).ToList();
@@ -427,9 +418,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
     }
 
     /// <summary>
-    /// 0..1 likelihood that two types with different full names are the same type. A type that moved namespace keeps
-    /// its simple name; a renamed type must share real content (method bodies or string literals) or a very similar
-    /// name — small look-alike types (a removed feature vs. a new one) must not pair up.
+    /// 0..1 likelihood that two differently named types are one; a renamed type must share bodies, strings or a close name.
     /// </summary>
     private static double TypeScore(TypePrint o, TypePrint n)
     {
@@ -446,8 +435,9 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         double structural = 0.4 * Math.Max(shapes, rareStrings) + 0.2 * fields + 0.2 * strings + 0.1 * counts + 0.1 * baseSame;
 
         string oName = NormalizeName(o.Type.Name), nName = NormalizeName(n.Type.Name);
+        // Moved to another namespace, or a generated name renumbered.
         if (oName == nName)
-            return 0.6 + 0.4 * structural; // moved to another namespace (or generated name renumbered)
+            return 0.6 + 0.4 * structural;
 
         int sharedShapes = Math.Max(o.RareShapes.Count(n.RareShapes.Contains), o.RareSkeletons.Count(n.RareSkeletons.Contains));
         int sharedStrings = o.Strings.Count(n.Strings.Contains);
@@ -457,10 +447,10 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
                         || o.BigShapes.Overlaps(n.BigShapes) || o.BigSkeletons.Overlaps(n.BigSkeletons)
                         || (nameSimilarity >= 0.8 && structural >= 0.5);
         if (!evidence) return 0;
-        // Content that only these two types share decides on its own: code transformers rename every type at each build,
-        // so the names carry no evidence at all.
+        // Content only these two share decides alone, since code transformers rename every type per build; enum member
+        // names often survive.
         bool strong = (sharedRareStrings >= 3 && rareStrings >= 0.6) || (sharedShapes >= 2 && shapes >= 0.6)
-                      || (o.Type.IsEnum && sharedStrings >= 4 && strings >= 0.6); // an enum's member names, often kept by code transformers
+                      || (o.Type.IsEnum && sharedStrings >= 4 && strings >= 0.6);
         double score = 0.3 * nameSimilarity + 0.7 * structural;
         return strong ? Math.Max(score, structural) : score;
     }
@@ -510,16 +500,13 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
     private sealed record Tier<T>(string Name, string How, Func<T, string?> OldKey, Func<T, string?> NewKey, Func<T, T, string> Confidence);
 
     /// <summary>
-    /// Pairs old and new members tier by tier; a key pairs two members only when exactly one unmatched old and one unmatched
-    /// new member have it. Returns the pairs; old members whose key was shared at some tier get their first such tier and
-    /// the tied new members in <paramref name="ties"/>.
+    /// Returns pairs matched tier by tier on keys unique on both sides; old members left on a shared key go to <paramref name="ties"/>.
     /// </summary>
     private static List<(T Old, T New, string How, string Tier, string Confidence)> MatchInTiers<T>(List<T> olds, List<T> news, IReadOnlyList<Tier<T>> tiers,
         Dictionary<T, (string Tier, List<T> Candidates)> ties) where T : notnull
     {
         var pairs = new List<(T, T, string, string, string)>();
-        // Repeated while a pass pairs anything: a key shared at one pass can become unique once a later tier has paired
-        // the others. The ties of the last pass are those of the members left over.
+        // Repeat while a pass pairs anything: a later tier can make a shared key unique.
         for (int found = -1; found != pairs.Count;)
         {
             found = pairs.Count;
@@ -550,7 +537,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         return pairs;
     }
 
-    /// <summary>Every way a matched method changed: renamed, signature, body, metadata, Il2Cpp address.</summary>
+    /// <summary>Every way a matched method changed: renamed, signature, body, metadata, native address.</summary>
     private static List<ChangeDimension> MethodChanges(Info oldInfo, Info newInfo, MethodPrint om, MethodPrint nm, string how)
     {
         static string Body(MethodPrint p) => p.IlHash ?? (p.Size <= 2 ? "small" : "?" + p.Shape.ToString(CultureInfo.InvariantCulture));
@@ -570,18 +557,16 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         }
         if (MetadataDifference(om.Method, nm.Method) is { } metadata)
             dimensions.Add(new("metadata", metadata));
-        var oldAddress = Il2CppService.CompactSummary(om.Method);
-        var newAddress = Il2CppService.CompactSummary(nm.Method);
+        var oldAddress = AotMetadataService.CompactSummary(om.Method);
+        var newAddress = AotMetadataService.CompactSummary(nm.Method);
         if (oldAddress != null && newAddress != null && oldAddress != newAddress)
             dimensions.Add(new("address", $"{oldAddress} -> {newAddress}"));
         return dimensions;
     }
 
     /// <summary>
-    /// Methods moved to another type. After the per-type matching, the methods left over (removed from a matched type or
-    /// in a removed type; added to a matched type or in an added type) are paired across types by identical body (IL
-    /// hash), then by identical body but for numeric constants, with the signature in both keys. Unique-only, like the
-    /// per-type tiers; an old method listed as removed whose key is shared becomes ambiguous.
+    /// Pairs leftover methods across types (moved) by signature and identical body, then body but for numeric constants;
+    /// a removed method on a shared key becomes ambiguous.
     /// </summary>
     private static void MatchMoves(Info oldInfo, Info newInfo, IReadOnlyDictionary<TypeDef, TypeDef> typeMap, Dictionary<TypeDef, List<MemberChange>> members,
         List<TypeDef> addedTypes, Dictionary<IMemberDef, Match> memberMap, Dictionary<IMemberDef, Ambiguity> ambiguous)
@@ -632,10 +617,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
     }
 
     /// <summary>
-    /// A method or field without a counterpart is "unknown" instead of removed or added when the evidence to pair it is
-    /// missing: its own body is not valid IL or its signature is unreadable, most bodies of the other build are not valid
-    /// IL, or the counterpart type has an unpaired member of the same kind with such a body or signature (it may be this
-    /// member). The detail says which.
+    /// Marks an unpaired method or field "unknown" instead of removed or added when the evidence to pair it is unreadable.
     /// </summary>
     private static void MarkUnknown(LoadedAssembly oldAsm, LoadedAssembly newAsm, IReadOnlyDictionary<TypeDef, TypeDef> typeMap,
         Dictionary<TypeDef, List<MemberChange>> members)
@@ -680,15 +662,12 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         string NameConfidence() => sameType ? "exact" : "strong";
         string nameTier = sameType ? "full name + signature" : "type match + name + signature";
 
-        // Methods. Signatures are compared with old types replaced by their counterparts, so a parameter whose type was
-        // renamed still has the same signature.
+        // Old signatures name new types, so a parameter whose type was renamed keeps its signature.
         var oldMethods = o.Methods.Select(m => oldInfo.Methods[m]).ToList();
         var newMethods = n.Methods.Select(m => newInfo.Methods[m]).ToList();
         var oldSig = oldMethods.ToDictionary(p => p, p => NormalizedSignature(p.Method, t => typeMap.TryGetValue(t, out var nt) ? nt.FullName : t.FullName));
         var newSig = newMethods.ToDictionary(p => p, p => NormalizedSignature(p.Method, t => t.FullName));
-        // Identical content outranks an identical name: code transformers hand out names (a, b, c...) afresh at each build, so
-        // the method called r() in the new build may be another method than the old r(). The first tier therefore wants the
-        // body shape as well; the name and signature alone count after the content tiers.
+        // Content outranks a name: code transformers reassign short names per build, so name alone counts after content.
         var methodTiers = new List<Tier<MethodPrint>>
         {
             new(nameTier, "same name", p => p.Size <= 2 ? $"{p.Method.Name}|{oldSig[p]}" : $"{p.Method.Name}|{oldSig[p]}|{p.Shape}",
@@ -769,7 +748,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
                 dimensions.Add(new("type", $"{Format.Type(of.FieldType)} -> {Format.Type(nf.FieldType)}"));
             if (MetadataDifference(of, nf) is { } metadata)
                 dimensions.Add(new("metadata", metadata));
-            var (oldOffset, newOffset) = (Il2CppService.CompactSummary(of), Il2CppService.CompactSummary(nf));
+            var (oldOffset, newOffset) = (AotMetadataService.CompactSummary(of), AotMetadataService.CompactSummary(nf));
             if (oldOffset != null && newOffset != null && oldOffset != newOffset)
                 dimensions.Add(new("offset", $"{oldOffset} -> {newOffset}"));
             if (dimensions.Count > 0) changes.Add(MemberChange.Of(of, nf, dimensions));
@@ -807,10 +786,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         return changes;
     }
 
-    /// <summary>
-    /// Last tier: content similarity (signature, size, string literals). A pair is taken only when each is the other's
-    /// single best candidate; equal best scores are ties.
-    /// </summary>
+    /// <summary>Last tier: pairs methods that are each other's single best similarity candidate; equal best scores are ties.</summary>
     private static List<(MethodPrint Old, MethodPrint New, string How, string Tier, string Confidence)> MatchBySimilarity(
         List<MethodPrint> olds, List<MethodPrint> news, Dictionary<MethodPrint, (string Tier, List<MethodPrint> Candidates)> ties)
     {
@@ -845,8 +821,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
     }
 
     /// <summary>
-    /// A compiler-generated name with the numbers that count methods or closures replaced (&lt;Run&gt;b__37_0 -> &lt;Run&gt;b__#_0,
-    /// &lt;&gt;9__37_0 -> &lt;&gt;9__#_0); null for other names. Adding a method elsewhere in the type renumbers them.
+    /// A compiler-generated name with its ordinal numbers replaced (&lt;Run&gt;b__37_0 -> &lt;Run&gt;b__#_0); null for other names.
     /// </summary>
     private static string? RenumberedName(string name) =>
         name.StartsWith('<') && GeneratedNumber().IsMatch(name) ? GeneratedNumber().Replace(name, "$1#") : null;

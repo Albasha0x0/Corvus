@@ -8,12 +8,8 @@ using Corvus.Native.Pe;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Cross-image navigation: binds the imports of loaded native images (and P/Invoke declarations of loaded assemblies)
-/// to the export they reach, prefers images loaded in the workspace, and walks call trees across image boundaries.
-/// Bindings are memoized per workspace state (the set of loaded images); thunk hops (a function that only jumps
-/// through an import slot) are followed at query time when the provider's code index is built.
-/// </summary>
+// Bindings are memoized per set of loaded images; thunk hops are followed at query time once the provider is indexed.
+/// <summary>Cross-image navigation: binds imports and P/Invokes to the exports they reach and walks call trees across images.</summary>
 public sealed partial class NativeLinkService(AssemblyWorkspace workspace, NativeCodeService code)
 {
     public const string Bound = "bound", NotLoaded = "not_loaded", Unresolved = "unresolved";
@@ -24,11 +20,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     private const int MaxDiskImages = 48;
     private const int MaxThunkHops = 4;
 
-    /// <summary>
-    /// An import or P/Invoke bound to code: <see cref="Status"/> is bound (the code is in <see cref="Target"/> at
-    /// <see cref="Rva"/>), not_loaded (resolved to a file that is not loaded: <see cref="LinkResult.Final"/>) or
-    /// unresolved (<see cref="Reason"/> says why). <see cref="Link"/> holds every hop, thunks included.
-    /// </summary>
+    /// <summary>An import or P/Invoke binding: bound (at <see cref="Target"/>+<see cref="Rva"/>), not_loaded, or unresolved with <see cref="Reason"/>.</summary>
     public sealed record Binding(LinkResult Link, string Status, LoadedNative? Target, uint? Rva)
     {
         public string Reason => Status == Unresolved ? Link.Status : "";
@@ -105,10 +97,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     /// <summary>Longest wait of <see cref="WarmUp"/>; images still indexing after it are reported as such in results.</summary>
     public static readonly TimeSpan MaxWarmUp = TimeSpan.FromSeconds(30);
 
-    /// <summary>
-    /// Waits (at most <see cref="MaxWarmUp"/>) for the code indexes of <paramref name="natives"/> (all loaded images
-    /// when null), so thunks and provider functions resolve; failures are skipped.
-    /// </summary>
+    /// <summary>Waits up to <see cref="MaxWarmUp"/> for the code indexes of <paramref name="natives"/> (all when null); failures are skipped.</summary>
     public async Task WarmUp(IEnumerable<LoadedNative>? natives, CancellationToken ct)
     {
         var list = (natives ?? workspace.Natives).Distinct().Where(n => code.Ready(n) == null).ToList();
@@ -158,11 +147,8 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
             : new Binding(link, NotLoaded, null, null);
     }
 
-    /// <summary>
-    /// Continues a bound binding through jump thunks (functions that only jump through an import slot, such as
-    /// kernel32!CreateFileW -> KERNELBASE!CreateFileW) while the provider's index is built. The result stays bound to
-    /// the last loaded code; a thunk into an image that is not loaded adds that hop for display only.
-    /// </summary>
+    // A thunk into an image that is not loaded adds that hop for display only.
+    /// <summary>Follows a bound binding through jump thunks in indexed providers; stays bound to the last loaded code.</summary>
     public Binding FollowThunks(Binding b)
     {
         var current = b;
@@ -182,10 +168,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         return current;
     }
 
-    /// <summary>
-    /// Every (importer, import) in the loaded images whose binding reaches <paramref name="target"/> at
-    /// <paramref name="rva"/> directly (thunks are code of their own image, reached as calls).
-    /// </summary>
+    /// <summary>Every (importer, import) whose binding reaches <paramref name="target"/> at <paramref name="rva"/> directly, thunks excluded.</summary>
     public IReadOnlyList<(LoadedNative Importer, NativeImport Import)> ImportersOf(LoadedNative target, uint rva, CancellationToken ct = default)
     {
         Dictionary<(LoadedNative, uint), List<(LoadedNative, NativeImport)>> map;
@@ -228,10 +211,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         return (bound, notLoaded, unresolved);
     }
 
-    /// <summary>
-    /// Loads the provider images (final files of not-loaded bindings) of <paramref name="bindings"/>, at most
-    /// <paramref name="max"/>; returns the loaded ids and the files left out. Never follows the new images' own imports.
-    /// </summary>
+    /// <summary>Loads up to <paramref name="max"/> provider files of not-loaded bindings, one level only; returns loaded ids and skipped files.</summary>
     public (List<string> Loaded, List<string> Skipped) LoadProviders(IEnumerable<Binding> bindings, int max)
     {
         var files = bindings.Where(b => b.Status == NotLoaded && b.FinalFile != null).Select(b => b.FinalFile!)
@@ -311,14 +291,8 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     private static string? VirtualNote(NativeCodeIndex index, Native.Code.CallSite site) =>
         site.Kind == XrefKind.VirtualPossible ? $"one of {index.VirtualCalls.SiteAt(site.From)?.TargetCount ?? 0}" : null;
 
-    /// <summary>
-    /// Callers or callees of <paramref name="root"/> in <paramref name="native"/>, several levels deep and across
-    /// loaded images: callees continue from module!import into the provider's function, callers include call sites
-    /// in other loaded images that import it. Written to <paramref name="sb"/> from indent <paramref name="indent"/>
-    /// (the root line included when <paramref name="withRoot"/>); returns the number of nodes written.
-    /// </summary>
-    /// <param name="rows">Receives the nodes written, in the same order: ids continue from its count, the top nodes hang under
-    /// <paramref name="parent"/> at depth <paramref name="indent"/>; images other than <paramref name="home"/> (every one when null) are named.</param>
+    /// <summary>Writes a caller or callee tree of <paramref name="root"/> across loaded images to <paramref name="sb"/>; returns the node count.</summary>
+    /// <param name="rows">Receives the same nodes; top nodes hang under <paramref name="parent"/>; images other than <paramref name="home"/> are named.</param>
     public int AppendTree(StringBuilder sb, LoadedNative native, NativeFunction root, bool callers, int depth, int maxNodes, int indent, bool withRoot,
         CancellationToken ct, CallEdgeFilter edges = CallEdgeFilter.All, List<NativeTreeNode>? rows = null, int? parent = null, LoadedNative? home = null)
     {
@@ -401,7 +375,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         }
         if (edges == CallEdgeFilter.Virtual) return result;
         AddManagedCallees(result, node, index);
-        // late-bound imports called through a GetProcAddress pointer stored once
+        // Late-bound imports called through a GetProcAddress pointer stored once.
         if (Native.Calls.CallAnalysis.Supports(index)
             && Native.Calls.CallAnalysis.For(index).DynamicImports().CallsByFunction.TryGetValue(node.Function!.Start, out var late))
             foreach (var (_, d) in late.DistinctBy(c => c.Import.FullName))

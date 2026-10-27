@@ -6,9 +6,7 @@ using static Corvus.Tests.IlLab;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Minimal inputs that misbehaved in the simplify_methods fuzz test or library sweep, kept as permanent fixtures.
-/// </summary>
+/// <summary>Minimal inputs from the simplify fuzz test and library sweep, kept as permanent fixtures.</summary>
 public sealed class SimplifyRegressionTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -17,13 +15,9 @@ public sealed class SimplifyRegressionTests : IDisposable
 
     private static Instruction I(OpCode op, object? operand = null) => operand == null ? op.ToInstruction() : new Instruction(op, operand);
 
-    /// <summary>
-    /// Sweep (Microsoft.CodeAnalysis.VisualBasic and others): reading a body resolved a member of a generic type from a
-    /// missing assembly; the reference stub built for it read every loaded body through dnlib, including the one being
-    /// read, and dnlib threw "Recursive locks aren't supported" out of MethodDef.HasBody.
-    /// </summary>
+    /// <summary>Regression: a stub for a missing generic reference re-read the body being read ("Recursive locks aren't supported").</summary>
     [Fact]
-    public void MissingGenericReferenceDoesNotReenterTheBodyBeingRead()
+    public void Missing_generic_reference_does_not_reenter_the_body_being_read()
     {
         var lab = new IlLab("UsesMissing");
         var module = lab.Module;
@@ -45,13 +39,9 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Contains(changes, c => c.Method.Name == "Folds" && c.Changed);
     }
 
-    /// <summary>
-    /// Fuzz: <c>try {} catch {} try {} ...</c> — the first region's leave targets the first instruction of the next try,
-    /// which ECMA allows (and C# emits). The verifier refused it as "leave enters a protected region", so such methods
-    /// were reported original-unverifiable and never simplified.
-    /// </summary>
+    /// <summary>Regression: a leave into the next try block, which ECMA allows, was refused as entering a protected region.</summary>
     [Fact]
-    public void LeaveIntoTheNextTryBlockVerifies()
+    public void Leave_into_the_next_try_block_verifies()
     {
         var lab = new IlLab("BackToBack");
         var exception = lab.Module.CorLibTypes.GetTypeRef("System", "Exception");
@@ -80,13 +70,9 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Equal(((object?)7, (Exception?)null), runner.Call("Lab.P", "Run"));
     }
 
-    /// <summary>
-    /// Fuzz seed 468: folding a constant branch at the start of two nested try regions and dropping <c>br L</c> left
-    /// <c>blt L; L:</c>, a conditional branch whose target is its own fall-through. Valid IL, but it crashes the .NET 10
-    /// JIT (access violation) when L starts nested try regions. Such branches now become pops.
-    /// </summary>
+    /// <summary>Regression (fuzz seed 468): a conditional branch to its own fall-through crashes the .NET 10 JIT at nested try regions; it now becomes pops.</summary>
     [Fact]
-    public void ConditionalBranchToNextBecomesPops()
+    public void Conditional_branch_to_next_becomes_pops()
     {
         var lab = new IlLab("CondToNext");
         var exception = lab.Module.CorLibTypes.GetTypeRef("System", "Exception");
@@ -120,15 +106,9 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Equal(((object?)0, (Exception?)null), runner.Call("Lab.P", "Run", 5));
     }
 
-    /// <summary>
-    /// Real application (RebornBuddy): virtual calls were taken to reach every method of the same name, and code transformers
-    /// give hundreds of unrelated methods the same short names, so nearly every method seemed able to run during every
-    /// type initializer and no static state could be used. A virtual call now reaches the methods of its name and
-    /// signature in the types deriving from the class it names, and in any type for an interface (an interface method
-    /// may be implemented by a method inherited from a base class that lists no interface).
-    /// </summary>
+    /// <summary>Regression: a virtual call reached every method of its name; it now reaches same-signature methods of derived types, or any type for an interface.</summary>
     [Fact]
-    public void VirtualCallsReachOnlyWhatTheyCanDispatchTo()
+    public void Virtual_calls_reach_only_what_they_can_dispatch_to()
     {
         const string source = """
             public interface IRun { int Run(); }
@@ -152,13 +132,9 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.False(facts.RunsDuringInitialization(T("Y"), T("Unrelated2").FindMethod("M"))); // same name and signature, unrelated type
     }
 
-    /// <summary>
-    /// Real application (RebornBuddy): a type initializer that ran inside another one whose evaluation then failed kept
-    /// its "initialized" mark while the failed one's rollback erased its static state, so later reads saw default values:
-    /// B.X (set to 5 by B's initializer, run from A's) read back as 0 and a branch on it folded the wrong way.
-    /// </summary>
+    /// <summary>Regression: an initializer run inside a failed one kept its mark after the rollback erased its state.</summary>
     [Fact]
-    public void InitializationsInsideAFailedOneAreForgottenWithIt()
+    public void Initializations_inside_a_failed_one_are_forgotten_with_it()
     {
         var lab = new IlLab("Rollback");
         var t = lab.T;
@@ -186,13 +162,9 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Equal(((object?)1, (Exception?)null), runner.Call("Lab.P", "Uses"));
     }
 
-    /// <summary>
-    /// Fuzz seed 16: simplifying a method that always throws left a fault handler of one endfinally at the very end of
-    /// the body. Valid IL, but dnlib reads a region ending at the end of the code as ending at the last instruction, so
-    /// the saved image read back without the handler. Such results are refused; the method is left unchanged.
-    /// </summary>
+    /// <summary>Regression (fuzz seed 16): a one-endfinally fault handler at the end of the body did not survive dnlib's save; such results are refused.</summary>
     [Fact]
-    public void OneInstructionHandlerAtTheEndIsRefused()
+    public void One_instruction_handler_at_the_end_is_refused()
     {
         var lab = new IlLab("FaultAtEnd");
         var ctor = lab.Module.Import(typeof(InvalidOperationException).GetConstructor([typeof(string)]));
@@ -221,13 +193,9 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Empty(module.Find("Lab.P", false)!.FindMethod("Run").Body.ExceptionHandlers);
     }
 
-    /// <summary>
-    /// Round-trip testing (a module whose integrity check restores its method bodies at run time): bytes decoded as IL gave
-    /// a switch a target outside the body, which dnlib leaves null;
-    /// the verifier looked the null up and the simplifier crashed (unexpected) instead of rejecting the body.
-    /// </summary>
+    /// <summary>Regression: a switch target outside the body crashed the simplifier instead of rejecting the body.</summary>
     [Fact]
-    public void ABranchTargetDnlibCouldNotPlaceIsRejectedNotACrash()
+    public void A_branch_target_dnlib_could_not_place_is_rejected_not_a_crash()
     {
         var lab = new IlLab("NotIl");
         var ret = Ret();
@@ -237,16 +205,11 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Contains("branch target outside the body", change.Rejected!.Detail);
     }
 
-    /// <summary>
-    /// Round-trip testing: a module whose integrity check stores its method bodies in another form on disk and restores
-    /// them at run time. Some bodies decoded by chance and were "simplified", and the image written back dropped the
-    /// unreadable ones. With a quarter or more of the bodies unreadable, nothing is rewritten; a lone unreadable body
-    /// (filler a code transformer added) does not stop the others.
-    /// </summary>
+    /// <summary>With a quarter or more of the bodies unreadable nothing is rewritten; a lone unreadable body does not stop the others.</summary>
     [Theory]
     [InlineData(6, true)]
     [InlineData(1, false)]
-    public void UnreadableBodiesAreNotRewritten(int corrupted, bool refused)
+    public void Unreadable_bodies_are_not_rewritten(int corrupted, bool refused)
     {
         var lab = new IlLab("Unreadable");
         for (int k = 0; k < 8; k++)

@@ -45,7 +45,7 @@ public sealed class NativeTypeEditTests : IDisposable
         Assert.Equal([new NativeTypeEdit("Packet", "Msg")], layer.TypeEdits);
         Assert.NotEqual(Seeded().Stamp, layer.Stamp);
 
-        // a chain follows the type; an enum's members follow its rename
+        // A chain follows the type; an enum's members follow its rename.
         var chained = layer.WithTypeEdit(new("Msg", "Frame")).WithTypeEdit(new("Mode", "Speed"));
         Assert.Equal([new NativeTypeEdit("Packet", "Frame"), new("Msg", "Frame"), new("Mode", "Speed")], chained.TypeEdits);
         Assert.Equal(("Speed", "Fast"), Assert.Single(chained.EnumMembers).Key);
@@ -58,13 +58,13 @@ public sealed class NativeTypeEditTests : IDisposable
         var layer = Seeded().WithTypeEdit(new("Mode", null));
         Assert.Empty(layer.EnumMembers);
         Assert.Equal(Seeded().Types, layer.Types);
-        // an edit of the same name replaces the earlier one
+        // An edit of the same name replaces the earlier one.
         Assert.Equal([new NativeTypeEdit("Mode", "Speed")], layer.WithTypeEdit(new("Mode", "Speed")).TypeEdits);
 
         var redeclared = layer.WithTypeEdit(new("Packet", "Msg")).WithDeclarations("enum Mode { A = 1 };", ["Mode"]);
         Assert.Equal([new NativeTypeEdit("Packet", "Msg")], redeclared.TypeEdits);
         Assert.Equal(2, redeclared.Declarations.Count);
-        // the same block again still drops the edit
+        // The same block again still drops the edit.
         Assert.DoesNotContain(redeclared.WithTypeEdit(new("Mode", null)).WithDeclarations("enum Mode { A = 1 };", ["Mode"]).TypeEdits, e => e.Name == "Mode");
     }
 
@@ -125,7 +125,7 @@ public sealed class NativeTypeEditTests : IDisposable
         await tools.DeclareNativeTypes(native.Id, "struct Packet { int length; };\nenum Mode { Slow = 1 };");
         code.Annotations(native).ChangeUserTypes(l => l.WithType(0x1000, "Packet *").WithEnumMember(new("Mode", "Fast", 2)));
 
-        // the edit goes alone, followed by the stamp of the new layer
+        // The edit goes alone, followed by the stamp of the new layer.
         IReadOnlyList<NativeTypeEdit>? Sent() => engine.Batches[^2].TypeEdits;
         Assert.Contains("Renamed type Packet to Msg", await tools.DeclareNativeTypes(native.Id, rename: "Packet=Msg"));
         Assert.Equal([new NativeTypeEdit("Packet", "Msg")], Sent());
@@ -143,12 +143,12 @@ public sealed class NativeTypeEditTests : IDisposable
         Assert.Contains("exists", (await Assert.ThrowsAsync<ToolError>(() => tools.DeclareNativeTypes(native.Id, rename: "Msg=Other"))).Message);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.DeclareNativeTypes(native.Id, "struct X { int a; };", delete: "Msg"))).Code);
 
-        // declaring Mode again drops its deletion, and the engine's kept list follows
+        // Declaring Mode again drops its deletion, and the engine's kept list follows.
         await tools.DeclareNativeTypes(native.Id, "enum Mode { Again = 1 };");
         Assert.Equal([new NativeTypeEdit("Packet", "Msg")], code.Annotations(native).UserTypes.TypeEdits);
         Assert.Equal([new NativeTypeEdit("Packet", "Msg")], engine.Batches[^1].TypeEdits);
         Assert.Null(engine.Batches[^3].TypeEdits);
-        // an engine refusal records nothing
+        // An engine refusal records nothing.
         engine.Refuse = "Other";
         await Assert.ThrowsAsync<ToolError>(() => tools.DeclareNativeTypes(native.Id, delete: "Other"));
         Assert.DoesNotContain(code.Annotations(native).UserTypes.TypeEdits, e => e.Name == "Other");
@@ -180,7 +180,7 @@ public sealed class NativeTypeEditTests : IDisposable
     {
         var layer = Seeded().WithField(new("Packet", "len", null, "int")).WithField(new("Packet", null, 8, "PacketSize"))
             .WithField(new("PacketSize", "p", null, "Packet *")).WithField(new("Packet", "len", 4, "short"));
-        // the same member again replaces the earlier edit and moves after the others
+        // The same member again replaces the earlier edit and moves after the others.
         Assert.Equal(["@0x8", "p", "len"], layer.Fields.Select(f => f.Key));
         Assert.Equal(4, layer.Fields[^1].Offset);
 
@@ -286,7 +286,7 @@ public sealed class NativeTypeEditTests : IDisposable
             foreach (var t in batch.Types) items.Add(new("type", t.Rva, t.Declaration, true, null, null, null, t.Declaration));
             foreach (var l in batch.Locals)
             {
-                // as the Ghidra worker reports a local without storage: the rename was verified and did not take
+                // As the Ghidra worker reports a local without storage: the rename was verified and did not take.
                 bool ok = l.Local != Storageless;
                 items.Add(new("local", l.Function, l.Local, ok, ok ? null : $"the decompiler kept the name {l.Local}; the edit did not take", l.Local, l.Stack,
                     ok ? $"int {l.Name}" : null));

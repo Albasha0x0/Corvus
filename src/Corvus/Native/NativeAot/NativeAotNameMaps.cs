@@ -9,11 +9,7 @@ public sealed record NativeAotMethod(uint Rva, NativeAotMethodName Name, string 
 /// <summary>A MethodTable named by the reflection type map.</summary>
 public sealed record NativeAotTypeName(uint MethodTableRva, string Name);
 
-/// <summary>
-/// The name-bearing tables of a NativeAOT module: the stack-trace method map (blob 27; .NET 7 token pairs, .NET 8+
-/// command stream, StackTraceMetadata.cs), the reflection TypeMap (blob 1) and InvokeMap (blob 6, ReflectionInvokeMapNode.cs),
-/// both resolving MethodTables and entry points through the CommonFixupsTable (blob 8, ExternalReferencesTableNode.cs).
-/// </summary>
+/// <summary>Name tables of a NativeAOT module: stack-trace map (blob 27), TypeMap (blob 1) and InvokeMap (blob 6).</summary>
 public sealed class NativeAotNameMaps
 {
     private const int MaxEntries = 4_000_000;
@@ -70,7 +66,8 @@ public sealed class NativeAotNameMaps
         for (int i = 0; i + 4 <= bytes.Length; i += 4)
         {
             int value = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(i));
-            long target = blob!.StartRva + (long)i + value; // relative pointers on every target but WebAssembly
+            // Relative pointers on every target but WebAssembly.
+            long target = blob!.StartRva + (long)i + value;
             fixups.Add(target > 0 && target < aot.Image.SizeOfImage ? (uint)target : 0);
         }
         return fixups;

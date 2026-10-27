@@ -3,13 +3,10 @@ using System.Text;
 
 namespace Corvus.Services.Web.Scripts;
 
-/// <summary>One layer of a script: its depth (0 is the file), language, how it is reached (the call that runs it and the decoding chain) and its text.</summary>
+/// <summary>One script layer: depth (0 is the file), language, the call and decoding chain that reach it, and its text.</summary>
 public sealed record ScriptLayer(int Depth, string Language, string Via, string Text);
 
-/// <summary>
-/// A script read with its transformation layers peeled: <see cref="Plain"/> is the file with every peeled call replaced by
-/// the layer it runs and constant expressions folded to literals. Nothing is executed: a bounded evaluator folds constants.
-/// </summary>
+/// <summary>A script with layers peeled: <see cref="Plain"/> has each peeled call replaced by its layer and constants folded.</summary>
 public sealed record ScriptReading(string Language, string Plain, IReadOnlyList<ScriptLayer> Layers, int Folded,
     IReadOnlyList<string> Calls, IReadOnlyList<string> Notes)
 {
@@ -20,16 +17,11 @@ public sealed record ScriptReading(string Language, string Plain, IReadOnlyList<
     public IReadOnlyList<string> Recovered { get; init; } = [];
 }
 
-/// <summary>
-/// The budget of one reading: evaluation steps, the largest string built, and a time cap that stops a reading whose
-/// steps are costly before the steps run out.
-/// </summary>
+/// <summary>One reading's budget: evaluation steps, the largest string built, and a time cap.</summary>
 internal sealed class ScriptBudget(long steps = ScriptBudget.DefaultSteps, int milliseconds = ScriptBudget.DefaultMilliseconds,
     int maxChars = 8 << 20, CancellationToken ct = default)
 {
-    // Every reading keeps the 2.4.x ceiling of 4,000,000 steps: the fastest quiet rate measured, about 13,000 steps
-    // per millisecond on a VBScript loop, reaches it within every 2.4.x time limit, so a quiet machine reads at least
-    // as far as 2.4.x did. Caps are three times the 2.4.x time limits.
+    // 4,000,000 steps at about 13,000 per ms fit every 2.4.x time limit; caps are three times those limits.
 
     /// <summary>Steps of every reading.</summary>
     public const long DefaultSteps = 4_000_000;

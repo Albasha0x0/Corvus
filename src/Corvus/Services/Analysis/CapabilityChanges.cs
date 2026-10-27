@@ -4,20 +4,13 @@ using FeatureReport = Corvus.Services.Analysis.InspectionService.FeatureReport;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// What one build can do that the other cannot: the survey features and capa labels added or removed between two
-/// builds, and the findings added or removed between two versions of a package. A capability both sides have is not
-/// listed, whatever its evidence; capa labels are compared only when capa labelled both files.
-/// </summary>
+/// <summary>Capabilities and package findings added or removed between two builds; rows present on both sides are not listed.</summary>
 public static class CapabilityChanges
 {
     /// <summary>Evidence entries shown per row.</summary>
     private const int MaxEvidence = 3;
 
-    /// <summary>
-    /// Rows keyed "category/name", added (only in <paramref name="new"/>) or removed (only in <paramref name="old"/>), in key
-    /// order, each with the evidence of the side that has it; and notes naming what was left out.
-    /// </summary>
+    /// <summary>Added or removed rows keyed "category/name" in key order, with evidence; capa only when both sides were labelled.</summary>
     public static (IReadOnlyList<EvidenceChange> Rows, IReadOnlyList<string> Notes) Of((FeatureReport Report, bool CapaLabelled) old,
         (FeatureReport Report, bool CapaLabelled) @new)
     {
@@ -28,7 +21,7 @@ public static class CapabilityChanges
                       "build; survey_features category=capa on each build runs it");
         foreach (var (side, report) in new[] { ("old", old.Report), ("new", @new.Report) })
             if (Limits(report) is { Count: > 0 } limits)
-                notes.Add($"the {side} build's survey is partial, so a row may stand for code it could not read: {string.Join("; ", limits.Take(MaxLimits))}" +
+                notes.Add($"the {side} build's survey is partial, so a row may stand for unread code: {string.Join("; ", limits.Take(MaxLimits))}" +
                           (limits.Count > MaxLimits ? $" (+{limits.Count - MaxLimits} more)" : ""));
         Dictionary<string, Feature> Keyed(FeatureReport r) => r.Features.Where(f => capa || f.Category != "capa")
             .GroupBy(f => $"{f.Category}/{f.Name}", StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -40,10 +33,7 @@ public static class CapabilityChanges
         return (rows, notes);
     }
 
-    /// <summary>
-    /// Findings keyed "category: detail", added or removed between two versions of a package, with level and file:line;
-    /// a finding both versions have is not listed, wherever it moved.
-    /// </summary>
+    /// <summary>Findings keyed "category: detail" added or removed between two package versions; a moved finding is not a change.</summary>
     public static IReadOnlyList<EvidenceChange> Of(PackageReport old, PackageReport @new)
     {
         static Dictionary<string, PackageFinding> Keyed(PackageReport r) => r.Findings.GroupBy(f => $"{f.Category}: {f.Detail}", StringComparer.Ordinal)
@@ -56,12 +46,8 @@ public static class CapabilityChanges
                 after.TryGetValue(k, out var n) ? Where(n) : null, null))];
     }
 
-    /// <summary>
-    /// The policy facts added or removed between two versions of a package, as rows keyed "endpoint: host", "native file:
-    /// path", "permission granted: name" and "runs: kind name"; and one line counting them with the findings rows by policy
-    /// group (finding keys are "category: detail", so fact keys use words no category does). Hosts
-    /// not read on a side (null) leave endpoints out, and the line says so.
-    /// </summary>
+    /// <summary>Policy facts added or removed between two package versions, and a summary line counting them with the findings by group.</summary>
+    // Fact keys use prefixes no finding category uses. Null hosts on either side leave endpoints out.
     public static (IReadOnlyList<EvidenceChange> Rows, string Summary) Policy(PackageReport old, PackageReport @new, IReadOnlyList<EvidenceChange> findings)
     {
         static IEnumerable<string> Facts(PackageReport r) =>
@@ -114,16 +100,12 @@ public static class CapabilityChanges
     private static string Evidence(Feature f) => string.Join("; ", f.Evidence.Take(MaxEvidence).Select(e =>
         $"{e.Feature} x{e.Count}{(e.Locations.Count > 0 ? $" at {e.Locations[0]}" : "")}"));
 
-    /// <summary>
-    /// The capability rows of two loaded builds (assemblies or native images) and the text that reports them; null rows,
-    /// with the reason in the text, when a build could not be surveyed or both surveys outlast <paramref name="budget"/>
-    /// (default <see cref="SurveyBudget"/>); with the malcontent pack installed, its behaviours added or removed too.
-    /// </summary>
+    /// <summary>Capability rows of two loaded builds and their report text; null rows, with the reason, when a survey fails or outlasts <paramref name="budget"/>.</summary>
     public static (IReadOnlyList<EvidenceChange>? Rows, string Text) Between(InspectionService inspection, string old, string @new, CancellationToken ct,
         TimeSpan? budget = null)
     {
         var (rows, text) = Surveys(inspection, old, @new, ct, budget);
-        // malcontent behaviours join the survey rows; they run only with the pack installed.
+        // Malcontent behaviours run only with the pack installed.
         var (behaviours, behaviourText) = MalcontentChanges.Between(inspection.BuildFile(old), inspection.BuildFile(@new), ct);
         if (behaviourText == null) return (rows, text);
         return (rows == null && behaviours.Count == 0 ? null : [.. rows ?? [], .. behaviours], text + behaviourText);

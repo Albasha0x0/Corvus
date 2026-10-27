@@ -22,26 +22,18 @@ public sealed class RegexTimeouts
         public void Dispose() => Override.Value = null;
     }
 
-    /// <summary>
-    /// A regex for a pattern a caller or an analyzed script supplies: NonBacktracking, which matches in linear time with no
-    /// timeout, when the pattern and options allow it; else backtracking under <paramref name="limit"/> (default
-    /// <see cref="Limit"/>). Throws ArgumentException for a malformed pattern.
-    /// </summary>
+    /// <summary>A linear-time NonBacktracking regex when possible, else one bounded by <paramref name="limit"/> (default <see cref="Limit"/>); throws ArgumentException when malformed.</summary>
     public static Regex Create(string pattern, RegexOptions options = RegexOptions.None, TimeSpan? limit = null)
     {
-        // NonBacktracking refuses lookarounds, backreferences, atomic groups,
-        // conditionals and automata over its size limit; those patterns keep a
-        // time limit. It takes no RightToLeft or ECMAScript option.
+        // NonBacktracking refuses lookarounds, backreferences, atomic groups, conditionals, RightToLeft, ECMAScript and
+        // automata over its size limit; those patterns keep a time limit.
         if ((options & (RegexOptions.RightToLeft | RegexOptions.ECMAScript)) == 0)
             try { return new Regex(pattern, options | RegexOptions.NonBacktracking); }
             catch (NotSupportedException) { }
         return new Regex(pattern, options, limit ?? Limit);
     }
 
-    /// <summary>
-    /// The error for a pattern that ran out of time on <paramref name="input"/>: a timeout, not retryable, naming the
-    /// pattern and its limit.
-    /// </summary>
+    /// <summary>A non-retryable timeout error naming the pattern and its limit.</summary>
     public static ToolError TimedOut(Regex regex, string input = "an input") =>
         new(ErrorCode.Timeout, $"The regex '{regex}' ran out of time on {input} ({LimitText(regex.MatchTimeout)} limit).",
             "drop lookarounds and backreferences: without them a pattern matches in linear time") { Retryable = false };

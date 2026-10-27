@@ -8,10 +8,7 @@ namespace Corvus.Services;
 /// <summary>A Java frame as ART prints it: the method (class and name) and its source (File.java:12, Native method).</summary>
 public sealed record LiveJavaFrame(string Method, string? Source);
 
-/// <summary>
-/// A thread's Java stack from ART's dump: its name, its state (Native, Runnable, Sleeping), its frames, innermost first,
-/// and the package and DEX files the process's class loaders list (empty when the dump lists none).
-/// </summary>
+/// <summary>A thread's Java stack from ART's dump: name, state, frames innermost first, and the class loaders' files (empty when none listed).</summary>
 public sealed record ArtThreadStack(string Name, string State, IReadOnlyList<LiveJavaFrame> Frames)
 {
     public IReadOnlyList<string> ClassPath { get; init; } = [];
@@ -77,10 +74,7 @@ public static partial class ArtStacks
         return files;
     }
 
-    /// <summary>
-    /// The DEX method of <paramref name="frame"/> (pkg.Outer$Inner.method, File.java:12) in <paramref name="index"/>; overloads
-    /// are told apart by the line the frame names. Null when the class or method is not in the index, or overloads remain.
-    /// </summary>
+    /// <summary>The DEX method of <paramref name="frame"/>, overloads told apart by the frame's line; null when not found or still ambiguous.</summary>
     public static DexFrameMatch? Match(DexIndex index, LiveJavaFrame frame)
     {
         int dot = frame.Method.LastIndexOf('.');
@@ -113,10 +107,7 @@ public sealed partial class LiveSessionService
 
     private DeviceService Adb => _adb ??= new DeviceService(options ?? new ServerOptions());
 
-    /// <summary>
-    /// The file of a device module, pulled from the device once per server and path; the module's own path when the pull
-    /// fails (the file is then unknown here, and the frame keeps its module and offset).
-    /// </summary>
+    /// <summary>The local file of a device module, pulled once per server and path; the module's own path when the pull fails.</summary>
     private string DeviceFile(LiveSession session, LiveModuleState m)
     {
         if (m.Copy != null || session.Device is not { } serial) return m.LocalPath;
@@ -147,11 +138,8 @@ public sealed partial class LiveSessionService
         return id == null ? null : workspace.Natives.FirstOrDefault(n => n.SliceName == null && n.Image.BuildId == id);
     }
 
-    /// <summary>
-    /// The Java stack of a held thread in a device session, from the thread dump ART writes to /data/anr (read as root);
-    /// null with the reason when it is unknown: a thread outside ART, or no dump in time (ART suspends every thread for
-    /// it, and cannot suspend one held while it runs managed code).
-    /// </summary>
+    /// <summary>The Java stack of a held thread from ART's /data/anr dump, read as root; null with the reason when unknown
+    /// (not an ART thread, or no dump in time: ART cannot suspend a thread held while it runs managed code).</summary>
     public async Task<(ArtThreadStack? Stack, string? Unknown)> JavaStackAsync(LiveSession session, long thread, CancellationToken ct)
     {
         if (session.Device is not { } serial) return (null, "not a device session");
@@ -161,7 +149,7 @@ public sealed partial class LiveSessionService
             var before = (await Task.Run(() => Adb.Listing(serial, AnrDirectory, ct), ct).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
             var r = await session.Worker.RequestAsync("art_dump", null, RequestTimeout, ct).ConfigureAwait(false);
             if (r.GetProperty("catcher").ValueKind == System.Text.Json.JsonValueKind.Null)
-                return (null, "the program has no Signal Catcher thread (no ART, or ART has not started it yet)");
+                return (null, "no Signal Catcher thread (no ART, or ART has not started it)");
             string head = $"----- pid {session.ProcessId} at ", tail = $"----- end {session.ProcessId} -----";
             var until = DateTime.UtcNow + JavaStackWait;
             while (DateTime.UtcNow < until)

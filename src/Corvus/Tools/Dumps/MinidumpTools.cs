@@ -18,9 +18,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         "Program binary folders (';'-separated), kept for the dump, plus its own folder.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
-    [Description("Reads a Windows minidump (.dmp), an ELF or Mach-O core, or a region-set manifest; returns the dump id. view=summary: OS, process, exception " +
-                 "(thread, module!function, registers, C++ type), .NET state (managed exception and heap); modules (version, " +
-                 "PDB, image match), threads, memory, unloaded: paged rows. .NET loads Microsoft's signature-checked DAC.")]
+    [Description("Open a Windows minidump, an ELF or Mach-O core, or a region-set manifest and return its id. view=summary shows the " +
+                 "OS, process, exception and .NET state (Microsoft's signature-checked DAC); other views page rows.")]
     public Task<string> OpenMinidump(
         [Description("The .dmp path (or an open dump's id).")] string path,
         [Description("summary, modules, threads, memory or unloaded.")] string view = "summary",
@@ -44,10 +43,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         return Rows(r.Id!, v, r.Unloaded ?? [], offset, limit, r.Total, u => $"{u.Base}  {u.Name}  size {u.Size}  stamp {u.TimeDateStamp}", "unloaded module");
     }, cancellationToken);
 
-    /// <summary>
-    /// Options for <see cref="FileIsolation"/>: none while images are loaded, since a dump read then names frames from their
-    /// indexes and in-memory names, which only this process holds.
-    /// </summary>
+    /// <summary>Options for <see cref="FileIsolation"/>; null while images are loaded, since frame names come from this process's indexes.</summary>
     private ServerOptions? Isolation => workspace != null && workspace.Read(() => workspace.Natives.Count > 0 || workspace.Assemblies.Count > 0) ? null : options;
 
     private FileWork.DumpTarget Target(string dump, string? imageDirectories)
@@ -61,9 +57,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total }, noun);
 
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
-    [Description("Call stack of a minidump thread: x64 unwind data, x86 PDB frame data, call targets, EBP chain; JIT code without " +
-                 "unwind data: a stack scan. Names from loaded images (code index, PDB, Il2Cpp) or exports. .NET frames (DAC): token, IL " +
-                 "offset, assembly, C# statement; Mono JIT frames from the runtime's report beside the dump. Cores: CFI, then frame pointer.")]
+    [Description("Walk the call stack of a dump thread, naming frames from loaded images, PDBs or exports. .NET frames add token, IL " +
+                 "offset and C# statement.")]
     public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,
         [Description("Thread id, '#index', name or 'exception' (default: faulting thread, else first).")] string? thread = null,
@@ -85,8 +80,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     }, cancellationToken);
 
     [McpServerTool(Name = "dump_heap", Title = ".NET heap of a dump or session", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.HeapReport))]
-    [Description("Lists the .NET GC heap of a minidump or session (via the DAC). stats: count and size per type, largest first; objects: matching objects " +
-                 "(address, type, size, a string's value). Needs heap memory in the dump (else heap_not_captured).")]
+    [Description("Lists the .NET GC heap of a dump or session: per-type counts and sizes, or matching objects. Needs heap memory in the " +
+                 "dump, else heap_not_captured.")]
     public Task<string> DumpHeap(
         [Description(HeapSourceDescription)] string dump,
         [Description("stats (per type) or objects (one row each).")] string? mode = "stats",
@@ -107,8 +102,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     }, cancellationToken);
 
     [McpServerTool(Name = "dump_object", Title = ".NET object of a dump or session", UseStructuredContent = true)]
-    [Description("One .NET object of a dump or session (DAC): type, size, fields (references expanded depth levels), a string's or " +
-                 "boxed value, or array elements.")]
+    [Description("Read one .NET object of a dump or session: type, size, fields, a string's or boxed value, or array elements.")]
     public Task<MinidumpService.ObjectReport> DumpObject(
         [Description(HeapSourceDescription)] string dump,
         [Description("Hex address of the object.")] string address,
@@ -143,8 +137,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     }
 
     [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.MemoryRead))]
-    [Description("Hex dump of a dump's memory at an address, with what is there (module!function, captured range, protection). " +
-                 "Bytes the dump lacks come from the module image (writable data: initial values) unless dumpOnly.")]
+    [Description("Hex dump of a dump's memory at an address, with its module, captured range and protection. Bytes the dump lacks " +
+                 "come from the module image (writable data: initial values) unless dumpOnly.")]
     public Task<string> ReadDumpMemory(
         [Description(DumpDescription)] string dump,
         [Description("Hex address, 'module+0x1234', or a module name (its base).")] string address,

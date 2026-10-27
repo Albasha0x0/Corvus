@@ -12,15 +12,13 @@ public sealed class DeviceTools(DeviceService devices)
     private const string SerialDescription = "Device serial; omit with one device.";
 
     [McpServerTool(Name = "list_android_devices", Title = "List Android devices", UseStructuredContent = true)]
-    [Description("Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else SDK " +
-                 "platform-tools.")]
+    [Description("Android devices and emulators adb sees, with serial, state and model. adb: CORVUS_ADB, else PATH, else SDK platform-tools.")]
     public Task<AndroidDeviceList> ListAndroidDevices(CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "get_android_device_info", Title = "Android device info", UseStructuredContent = true, OutputSchemaType = typeof(AndroidDeviceInfo))]
-    [Description("Device properties (getprop) with a summary: SDK, release, model, ABIs, fingerprint, patch level, build type, ro.debuggable, " +
-                 "ro.secure, emulator; view=: processes, features, services, settings, files, screen (PNG), window (focused activity), display, " +
-                 "bugreport (zip). Read-only.")]
+    [Description("Device properties (getprop) with a summary: SDK, model, ABIs, patch level, debug flags. view= reads processes, files, " +
+                 "screenshots, bug reports. Read-only.")]
     public Task<string> GetAndroidDeviceInfo(
         [Description(SerialDescription)] string? serial = null,
         [Description("Name or value filter; view=files: directory (default /data/local/tmp); window: local APK.")] string? query = null,
@@ -63,8 +61,7 @@ public sealed class DeviceTools(DeviceService devices)
     }, cancellationToken);
 
     [McpServerTool(Name = "get_android_package_info", Title = "Installed package info", UseStructuredContent = true)]
-    [Description("One installed package (dumpsys package): versions, SDKs, paths, ABI, flags, install times, installer, uid, requested " +
-                 "permissions with their grant state, and per-user state.")]
+    [Description("One installed package (dumpsys package): versions, SDKs, paths, flags, installer, uid, permissions with grant state.")]
     public Task<AndroidPackageDetails> GetAndroidPackageInfo(
         [Description("Package name (com.example.app).")] string package,
         [Description(SerialDescription)] string? serial = null,
@@ -72,8 +69,8 @@ public sealed class DeviceTools(DeviceService devices)
         Task.Run(() => devices.PackageInfo(package, serial, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "pull_android_package", Title = "Pull installed package", UseStructuredContent = true)]
-    [Description("Copy every APK of an installed package (base and splits) into a new or empty directory, with size and SHA-256 each; summarizes the " +
-                 "base APK. A failed pull leaves no files.")]
+    [Description("Copy every APK of an installed package (base and splits) into a new or empty directory, with sizes and SHA-256. " +
+                 "A failed pull leaves no files.")]
     public Task<PulledPackage> PullAndroidPackage(
         [Description("Package name (com.example.app).")] string package,
         [Description("A new or empty directory to write the APKs to.")] string outputDirectory,
@@ -82,7 +79,7 @@ public sealed class DeviceTools(DeviceService devices)
         Task.Run(() => devices.PullPackage(package, outputDirectory, serial, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "pull_android_file", Title = "Pull device file", UseStructuredContent = true)]
-    [Description("Copies one device file (not a directory) to outputPath with its size and SHA-256; a failed pull leaves nothing.")]
+    [Description("Copy one device file (not a directory) to outputPath with its size and SHA-256; a failed pull leaves nothing.")]
     public Task<PulledFile> PullAndroidFile(
         [Description("Path on the device.")] string remotePath,
         [Description("The local file to write.")] string outputPath,
@@ -114,8 +111,8 @@ public sealed class DeviceTools(DeviceService devices)
     }, cancellationToken);
 
     [McpServerTool(Name = "install_android_package", Title = "Install package on device", UseStructuredContent = true, OutputSchemaType = typeof(EditOutcome))]
-    [Description("Install an APK, a split set or a folder of APKs on a device in one session; failures come back by INSTALL_FAILED_ code. Changes the " +
-                 "device: needs --allow-device-changes.")]
+    [Description("Install an APK, split set or folder of APKs on a device; failures report their INSTALL_FAILED_ code. " +
+                 "Changes the device: needs --allow-device-changes.")]
     public Task<string> InstallAndroidPackage(
         [Description("An .apk, split set or folder of APKs.")] string path,
         [Description("Fail if the app is installed instead of replacing it.")] bool keepInstalled = false,

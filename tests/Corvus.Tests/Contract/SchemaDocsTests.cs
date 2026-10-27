@@ -9,7 +9,7 @@ public class SchemaDocsTests
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, NewLine = "\n" };
 
     [Fact]
-    public void SchemaFilesMatchTheCatalog()
+    public void Schema_files_match_the_catalog()
     {
         var dir = Path.Combine(DocsTests.RepoRoot(), "docs", "schemas");
         var expected = Catalog.DescribedOutputSchemas().ToDictionary(s => s.Key + ".json", s => JsonSerializer.Serialize(s.Value, Indented).ReplaceLineEndings("\n") + "\n");

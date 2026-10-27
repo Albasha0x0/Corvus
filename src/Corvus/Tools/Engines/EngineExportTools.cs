@@ -19,11 +19,11 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
     public sealed record DatabaseExport(string Image, string Engine, [property: Description("The file written.")] string Path, long Bytes, string Note);
 
     [McpServerTool(Name = "export_engine_database", Title = "Export the engine database", UseStructuredContent = true, OutputSchemaType = typeof(DatabaseExport))]
-    [Description("Write the engine database of a native image (analysis plus names, comments and types from here) for the engine GUI: IDA " +
-                 ".i64, Ghidra .gzf; Ghidra types also as .h or .gdt. Written whole or not at all.")]
+    [Description("Write the engine database of a native image, with the names, comments and types made here, to open in IDA (.i64) or " +
+                 "Ghidra (.gzf); written whole or not at all.")]
     public Task<string> ExportEngineDatabase(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The .i64 (IDA), .gzf, .h or .gdt (Ghidra) to write.")] string outputPath,
+        [Description("The .i64 (IDA), .gzf, or Ghidra types alone as .h or .gdt.")] string outputPath,
         [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description("Default: the engine of the extension, else IDA.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -34,7 +34,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         var given = Path.GetExtension(full).ToLowerInvariant();
         var id = !auto ? engine!.Trim().ToLowerInvariant() : given is ".gzf" or ".h" or ".gdt" ? "ghidra" : "ida";
         if (id is not ("ida" or "ghidra")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{engine}'.", "omit engine or pass engine=ida or ghidra");
-        // Ghidra also writes its types alone: a C header or a data type archive
+        // Ghidra also writes its types alone: a C header or a data type archive.
         var extension = id == "ghidra" ? given is ".h" or ".gdt" ? given : ".gzf" : ".i64";
         if (Path.GetExtension(full).Length == 0) full += extension;
         if (!Path.GetExtension(full).Equals(extension, StringComparison.OrdinalIgnoreCase))
@@ -42,7 +42,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         if (File.Exists(full) && !overwrite)
             throw new ToolError(ErrorCode.Conflict, $"{full} already exists.", "pass overwrite=true to replace it, or another outputPath");
         engines.Provider(id);
-        // the target is checked before the engine works: a path the system cannot write fails now, not after the export
+        // Check the target before the engine works, so an unwritable path fails now, not after the export.
         var staging = Staging(full);
         var (native, _) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, "rva:0"), cancellationToken);
         var session = await engines.Session(native, id, new Progress<NativeProviderProgress>(p =>
@@ -51,7 +51,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         if (names != null) await names.EnsureAsync(native, session, cancellationToken);
         if (types != null) await types.EnsureAsync(native, session, cancellationToken);
         if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
-        // the engine writes a short private path (IDA opens at most 259 characters on Windows); the file moves to the target whole
+        // The engine writes a short private path, then the file moves to the target whole; IDA opens at most 259 characters on Windows.
         var temp = Path.Combine(Path.GetTempPath(), $"corvus-export-{Guid.NewGuid().ToString("N")[..12]}{extension}");
         try
         {

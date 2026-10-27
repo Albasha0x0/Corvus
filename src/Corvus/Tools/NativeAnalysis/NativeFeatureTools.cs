@@ -41,12 +41,11 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
-    [Description("Native code behind a behaviour: strings, names, imports (also late-bound), exports, RTTI classes and constants matching query " +
-                 "(\"quoted\": exact) lead to their references, ranked by function; hubs: callers within callerDepth reaching several. An engine adds " +
-                 "strings, references, pseudocode.")]
+    [Description("Find the native functions behind a behaviour: strings, names, imports, exports, classes and constants matching query " +
+                 "lead to their references, ranked by function, with the callers that reach several.")]
     public Task<string> TraceNativeFeature(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Case-insensitive substring, or regex with regex=true.")] string query,
+        [Description("Case-insensitive substring (\"quoted\": exact), or a regex with regex=true.")] string query,
         [Description("query is a regex.")] bool regex = false,
         [Description("Comma-separated: strings, names, imports, exports, classes, constants (default all).")] string? kinds = null,
         [Description("Matches followed (1-500); the rest are counted.")] int maxSeeds = 50,
@@ -67,7 +66,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), cancellationToken);
-        // the same rule as the code tools: the result does not depend on which sessions earlier calls opened
+        // As in the code tools, the result does not depend on which sessions earlier calls opened.
         var choice = EngineChoice.Of(mode, named, engines, native, null);
         ToolOutput.Engine(choice.Engine, choice.Note);
         var session = choice.External

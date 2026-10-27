@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Native.Swift;
 
-/// <summary>
-/// Demangles Swift symbol and type names into the text swift-demangle prints (sugared types): the Swift 4+ manglings
-/// ("$s", "_$s", "$S", "_T0", "$e", "@__swiftmacro_", "async_Main"), the Swift 1-3 mangling ("_T", including the "_Tt"
-/// ObjC runtime names of Swift classes) and metadata type references with symbolic references resolved by the caller.
-/// Names it cannot parse yield null; no input throws.
-/// </summary>
+/// <summary>Demangles Swift 1-3 and 4+ symbols and metadata type names to swift-demangle's text; null when unparsed, never throws.</summary>
 public static partial class SwiftDemangler
 {
     /// <summary>Longest name accepted; longer input is returned as not demangled.</summary>
@@ -23,10 +18,7 @@ public static partial class SwiftDemangler
     private static readonly string[] Prefixes = ["_T0", "$S", "_$S", "$s", "_$s", "$e", "_$e", "@__swiftmacro_"];
     private const string AsyncMain = "async_Main";
 
-    /// <summary>
-    /// The demangled form of <paramref name="name"/>, or null when it is not a Swift mangled name or does not parse.
-    /// A Mach-O symbol's extra leading underscore is accepted ("__T0...", "_$s...").
-    /// </summary>
+    /// <summary>The demangled form of <paramref name="name"/> (Mach-O leading underscore accepted), or null when it does not parse.</summary>
     public static string? Demangle(string? name)
     {
         if (string.IsNullOrEmpty(name) || name.Length > MaxLength) return null;
@@ -52,10 +44,7 @@ public static partial class SwiftDemangler
         return name.StartsWith("_T", StringComparison.Ordinal) || PrefixLength(name) > 0 || AsyncMainLength(name) > 0;
     }
 
-    /// <summary>
-    /// A metadata mangled type name (field types, superclasses, generic arguments) as text. <paramref name="text"/> holds
-    /// one char per byte; <paramref name="resolver"/> turns symbolic references into nodes (null refuses them).
-    /// </summary>
+    /// <summary>A metadata mangled type name (one char per byte) as text; <paramref name="resolver"/> resolves symbolic references.</summary>
     internal static string? DemangleType(string text, SymbolicResolver? resolver)
     {
         if (text.Length == 0 || text.Length > MaxLength) return null;
@@ -113,10 +102,7 @@ public static partial class SwiftDemangler
 /// <summary>Kinds of symbolic reference in metadata mangled names.</summary>
 internal enum SymbolicReferenceKind { Context, AccessorFunctionReference, UniqueExtendedExistentialTypeShape, NonUniqueExtendedExistentialTypeShape, ObjectiveCProtocol }
 
-/// <summary>
-/// Resolves a symbolic reference: <paramref name="value"/> is the 32-bit relative offset stored at char
-/// <paramref name="offset"/> of the mangled text; null refuses it.
-/// </summary>
+/// <summary>Resolves a symbolic reference whose 32-bit relative offset <paramref name="value"/> is at char <paramref name="offset"/>; null refuses it.</summary>
 internal delegate SwiftNode? SymbolicResolver(SymbolicReferenceKind kind, bool direct, int value, int offset);
 
 /// <summary>A node of a demangled Swift name: a kind with text, an index or children.</summary>

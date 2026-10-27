@@ -5,11 +5,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Every session tool and action on programs built for each target (Windows x64 and x86 with MSVC, Linux x64 and x86
-/// with gcc): start and attach, stop points by name and file:line, held-thread reads, watches, events, scripts,
-/// coverage, snapshots, close; a 16-thread program under stops and watches; the Windows-only tools on Linux.
-/// </summary>
+/// <summary>Every session tool and action on MSVC and gcc programs for each target, a 16-thread program under load, and the Windows-only tools on Linux.</summary>
 [Trait("Speed", "Slow")]
 [Trait("Data", "Real")]
 [Permit("live")]
@@ -70,7 +66,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("[1] 0", fields);
         Assert.Matches($@"pc +0x[0-9a-f]+  {name}!AddLine", await Ok(server, "live_read", new() { ["session"] = "live-1", ["registers"] = "pc" }));
 
-        // the second stop of the same call, reported however the resume and the stop interleave
+        // The second stop of the same call, reported however the resume and the stop interleave.
         Assert.Contains("resumed thread(s)", await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "continue" }));
         var second = await Ok(server, "live_break", new() { ["session"] = "live-1", ["wait"] = true, ["waitSeconds"] = 60 });
         Assert.Matches($@"stopped at s2 \({name}!AddLine\+0x[0-9A-F]+\)", second);
@@ -136,8 +132,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
     [LiveTargetFact("linux-x64", attaches: true)] public Task A_session_starts_no_process_in_the_program_on_linux_x64() => NoProcessStarted(LiveTarget.LinuxX64);
     [LiveTargetFact("linux-x86", attaches: true)] public Task A_session_starts_no_process_in_the_program_on_linux_x86() => NoProcessStarted(LiveTarget.LinuxX86);
 
-    // Frida reads a thread's registers through a process it starts in the program, which signals SIGCHLD when it ends;
-    // a session that reads only thread ids starts none, so the program counts no SIGCHLD.
+    // Frida's register reads start a helper process that signals SIGCHLD; reading only thread ids starts none.
     private async Task NoProcessStarted(LiveTarget target)
     {
         var exe = target.Build(_dir, "children", LivePrograms.ChildSignals);
@@ -190,7 +185,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         try
         {
             await using var server = await Server();
-            // the session's worker is not the program's parent
+            // The session's worker is not the program's parent.
             if (Corvus.Native.Live.PtraceScope.Refusing(started: false) is { } scope)
             {
                 Assert.Contains($"ptrace_scope is {scope}", await Refused(server, "live_session", new() { ["action"] = "attach", ["program"] = $"{program.Id}" }, "access_denied"));
@@ -238,11 +233,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         }
     }
 
-    /// <summary>
-    /// A snapshot while a thread is held at a system library's export: the dump's exception (a Linux core's signal thread)
-    /// is that stop, so the stack walk starts at the export with the stop's registers and reaches the program, not the
-    /// backend's wait. An x86 Windows program's stop is its 32-bit side's.
-    /// </summary>
+    /// <summary>A snapshot at a held export stop records that stop as the exception, so the walk reaches the program, not the backend's wait.</summary>
     [LiveTargetFact("win-x64")] public Task A_snapshot_at_a_stop_walks_from_the_stop_on_win_x64() => SnapshotAtStop(LiveTarget.WinX64);
     [LiveTargetFact("win-x86")] public Task A_snapshot_at_a_stop_walks_from_the_stop_on_win_x86() => SnapshotAtStop(LiveTarget.WinX86);
     [LiveTargetFact("linux-x64")] public Task A_snapshot_at_a_stop_walks_from_the_stop_on_linux_x64() => SnapshotAtStop(LiveTarget.LinuxX64);
@@ -275,7 +266,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         }
         else
         {
-            // the core's signal thread is the stopped one, with the stop's registers in place of those it waits with
+            // The core's signal thread is the stopped one, with the stop's registers in place of those it waits with.
             Assert.Matches($@"thread {thread}, ", stack);
             Assert.Matches(@"#0 0x[0-9A-F]+ libc\.so\.6!\S+ .*  native, context,", stack);
             Assert.DoesNotContain("frida-agent", stack);
@@ -354,7 +345,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         Assert.Contains("u1 unloaded", await Ok(server, "live_script", new() { ["session"] = "live-1", ["action"] = "unload", ["script"] = "u1" }));
         Assert.Contains(", 0 script(s)", await Ok(server, "live_script", new() { ["session"] = "live-1" }));
 
-        // an error in the top-level code, a later one with a message carrying data, and a script from a file
+        // An error in the top-level code, a later one with a message carrying data, and a script from a file.
         Assert.Contains("u2 reported error: Error: on purpose",
             await Ok(server, "live_script", new() { ["session"] = "live-1", ["action"] = "load", ["source"] = "throw new Error('on purpose');" }));
         await Ok(server, "live_script", new()
@@ -421,7 +412,7 @@ public sealed class LiveTargetRealTests(ITestOutputHelper output) : LiveToolCall
         var name = Regex.Escape(target.Exe("workers"));
         await using var server = await Server();
 
-        // stops: each continue releases every held thread, each wait returns the next stop
+        // Stops: each continue releases every held thread, each wait returns the next stop.
         const int calls = 300;
         var pid = await Spawn(server, exe, "live-1", $"{calls}", "1");
         await Ok(server, "live_break", new() { ["session"] = "live-1", ["action"] = "set", ["at"] = "Work" });

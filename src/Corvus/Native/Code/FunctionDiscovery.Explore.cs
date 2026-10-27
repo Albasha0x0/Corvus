@@ -9,13 +9,11 @@ internal sealed partial class FunctionDiscovery
     private const int ExploreBatch = 8192;
 
     private List<Explorer>? _workers;
-    // pending switches added or removed while a batch commits: speculative runs that looked near them are not taken
+    // Pending switches changed while a batch commits; speculative runs that read near them are redone.
     private readonly SortedSet<uint> _pendingChanged = [];
     private bool _trackPending;
 
-    /// <summary>
-    /// Parallel explorers, or null: one thread, or ARM32 (decoding reads the ARM / Thumb hints exploring writes).
-    /// </summary>
+    /// <summary>Parallel explorers, or null on one thread.</summary>
     private List<Explorer>? Workers()
     {
         if (_workers != null) return _workers.Count > 0 ? _workers : null;
@@ -26,10 +24,10 @@ internal sealed partial class FunctionDiscovery
 
     private Explorer NewWorker() => new(this, _ctx.NewDecoder(computeAccess: false), _ctx.NewDecoder(computeAccess: false), _ctx.NewDecoder(computeAccess: false), speculative: true);
 
-    /// <summary>The thunk slots of many starts found on several threads (a slot depends on the bytes alone), so adding them stays cheap.</summary>
+    /// <summary>Finds the thunk slots of many starts on several threads; a slot depends on the bytes alone.</summary>
     private void FindThunkSlots(IEnumerable<uint> starts)
     {
-        // ARM32: a slot depends on the start's state, which exploring may still learn
+        // ARM32: a slot depends on the start's state, which exploring may still learn.
         if (_ctx.ArmModes != null || Workers() is not { } workers) return;
         var list = starts.Where(s => !_thunkCache.ContainsKey(s)).Distinct().ToArray();
         if (list.Length < _ctx.Options.ParallelExploreMin) return;
@@ -44,11 +42,7 @@ internal sealed partial class FunctionDiscovery
         for (int i = 0; i < list.Length; i++) _thunkCache[list[i]] = slots[i];
     }
 
-    /// <summary>
-    /// Explores queued roots on several threads against the state as it is, then commits them one by one in queue order: a
-    /// run whose reads still hold is applied from its log, any other is explored again directly. The result is the serial
-    /// one whatever the thread count or scheduling.
-    /// </summary>
+    /// <summary>Explores queued roots in parallel, then commits in queue order; the result equals the serial one.</summary>
     private void ExploreInParallel(List<Explorer> workers)
     {
         int n = Math.Min(_roots.Count, ExploreBatch);
@@ -68,7 +62,7 @@ internal sealed partial class FunctionDiscovery
             }
             return w;
         }, free.Add);
-        // workers created when the bag ran dry stay for later batches
+        // Workers created when the bag ran dry stay for later batches.
         foreach (var w in free) if (!workers.Contains(w)) workers.Add(w);
         _pendingChanged.Clear();
         _trackPending = true;
@@ -76,7 +70,7 @@ internal sealed partial class FunctionDiscovery
         {
             if ((i & 255) == 0) Heartbeat();
             var (w, start, count) = runs[i];
-            // ARM32: the start takes its neighbour's state first, as a direct run does
+            // ARM32: the start takes its neighbour's state first, as a direct run does.
             if (_ctx.ArmModes != null) HintFromNeighbor(batch[i]);
             if (!Commit(CollectionsMarshal.AsSpan(w.Log).Slice(start, count), w)) _direct.Explore(batch[i]);
         }
@@ -105,9 +99,9 @@ internal sealed partial class FunctionDiscovery
             if (op.Kind == OpKind.AddFunction) adds++;
             else if (op.Kind == OpKind.ModeOps) modeOps = ((int)op.A, (int)op.B);
         }
-        // near the function limit an add may be dropped, which the run did not foresee
+        // Near the function limit an add may be dropped, which the run did not foresee.
         if (adds > 0 && _functions.Count + adds >= _ctx.Options.MaxFunctions) return false;
-        // ARM32: the states the run read are the ones it would read now; its hints are then taken
+        // ARM32: the states the run read must still hold before its hints are taken.
         if (_ctx.ArmModes is { } modes && !modes.Commit(worker.Modes!, modeOps.From, modeOps.Count)) return false;
         foreach (ref readonly var op in log)
             switch (op.Kind)
@@ -115,7 +109,7 @@ internal sealed partial class FunctionDiscovery
                 case OpKind.Decoded: SetStart(op.A, (int)op.B); break;
                 case OpKind.Covered: MarkData((uint)op.A, op.B); break;
                 case OpKind.AddFunction:
-                    // the run found the slot already (0: none, the image header is never an import slot)
+                    // The run found the slot already; 0 is none, as the image header is never an import slot.
                     _thunkCache.TryAdd((uint)op.A, (uint)(op.A >> 32) is var slot and not 0 ? slot : null);
                     Add((uint)op.A, (FunctionSource)op.B, strong: true);
                     break;
@@ -166,21 +160,18 @@ internal sealed partial class FunctionDiscovery
 
     private enum OpKind : byte
     {
-        // reads that answered false (true answers stay true: what they read only grows)
+        // Reads that answered false; true answers stay true, as what they read only grows.
         Decoded, Invalid, NotFunction, NoStartBetween, NotLocalSubroutine, NotNoReturn, PendingQuery,
-        // writes, replayed in order
+        // Writes, replayed in order.
         Covered, AddFunction, AddressCandidate, DataInCode, CodeTable, PendingAdd, PendingRemove, FarJump, LocalSubroutine, Jump,
-        // ARM32: an A32 instruction start and a literal pool halfword (code bit indexes); the run's state reads and hints (Modes)
+        // ARM32: A32 instruction start, literal pool halfword (code bit indexes) and the run's state operations.
         ArmInsn, Literal, ModeOps,
     }
 
-    /// <summary>One read or write of a speculative run: an address or bit index (an added function's thunk slot above it) and a length, bound or source.</summary>
+    /// <summary>One read or write of a speculative run: an address or bit index and a length, bound or source.</summary>
     private readonly record struct Op(OpKind Kind, long A, uint B);
 
-    /// <summary>
-    /// Recursive descent from one root. Direct: reads and writes the discovery state. Speculative: reads it as it was when the
-    /// batch began plus the run's own writes, and logs both for <see cref="Commit"/>.
-    /// </summary>
+    /// <summary>Recursive descent from one root; speculative runs log their reads and writes for <see cref="Commit"/>.</summary>
     private sealed class Explorer
     {
         private readonly FunctionDiscovery d;
@@ -190,18 +181,18 @@ internal sealed partial class FunctionDiscovery
         private readonly ICodeDecoder? _thunks;
         private readonly X86Decoder? _x86Dec;
         private readonly X86Decoder? _x86Peek;
-        // jumps that may leave the function are recorded (FunctionDiscovery.TailTargets)
+        // Records jumps that may leave the function, for FunctionDiscovery.TailTargets.
         private readonly bool _tailJumps;
         private readonly bool _speculative;
         private readonly Func<uint, uint, bool> _anyStartBetween;
         private readonly Func<uint, bool> _inNoReturn;
         private readonly Stack<(uint Rva, IndexBound Bound)> _work = new();
         public readonly List<Op> Log = [];
-        // speculative: thunk slots found by this worker during the batch (the discovery's cache is read-only meanwhile)
+        // Speculative: thunk slots this worker found; the discovery's cache is read-only during a batch.
         private readonly Dictionary<uint, uint?> _thunkSlots = [];
-        // ARM32 speculative runs: the state reads and hints of the batch's runs
+        // ARM32 speculative runs: the state reads and hints of the batch's runs.
         public readonly Arm32Modes.Speculation? Modes;
-        // the run's own writes, seen by its later reads
+        // The run's own writes, seen by its later reads.
         private readonly ScratchSet _starts = new();
         private readonly ScratchSet _literals = new();
         private readonly ScratchSet _functions = new();
@@ -209,8 +200,7 @@ internal sealed partial class FunctionDiscovery
         private readonly HashSet<uint> _pendingAdded = [];
         private readonly HashSet<uint> _pendingRemoved = [];
         private long _decoded;
-        // exploring a landing pad: part of another function, so neither a jump as its first instruction nor a far jump (into
-        // the function's cold part) is a tail call
+        // A landing pad belongs to another function, so its first jump and far jumps are no tail calls.
         private bool _chunk;
 
         /// <param name="thunks">Speculative runs find thunk slots with their own decoder (null: the discovery's).</param>
@@ -265,7 +255,7 @@ internal sealed partial class FunctionDiscovery
                 _literals.Clear();
             }
             List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
-            // speculative: the neighbour's state is taken when the run commits
+            // Speculative runs take the neighbour's state when they commit.
             if (_ctx.ArmModes != null && !_speculative) d.HintFromNeighbor(root);
             _ctx.ArmModes?.Fix(root);
             _dec.BeginFunction(root);
@@ -292,7 +282,7 @@ internal sealed partial class FunctionDiscovery
                     long bit = region.BitBase + (a - region.Rva);
                     if (IsStart(bit)) break;
                     _dec.Decode(region, a, out var insn);
-                    // ARM32: a literal pool known code loads ends the run (after a call that does not return)
+                    // ARM32: a literal pool known code loads ends the run.
                     if (insn.Flow == FlowKind.Invalid || IsLiteralAt(bit, a, (int)Math.Min(insn.Length, region.End - a)))
                     {
                         if (_speculative) Log.Add(new Op(OpKind.Invalid, bit, 0));
@@ -305,7 +295,7 @@ internal sealed partial class FunctionDiscovery
                         else
                         {
                             Write(OpKind.DataInCode, insn.MemTarget);
-                            // [index*4 + table] in code: an x86 switch table (or another pointer table), whatever the dispatch
+                            // [index*4 + table] in code: an x86 switch or pointer table.
                             if (_x86Dec is { } x86 && x86.Last.MemoryIndex != Iced.Intel.Register.None && x86.Last.MemoryIndexScale == 4) Write(OpKind.CodeTable, insn.MemTarget);
                         }
                     }
@@ -328,7 +318,7 @@ internal sealed partial class FunctionDiscovery
             return false;
         }
 
-        /// <summary>ARM32: the instruction's state and the literal it loads (<see cref="FunctionDiscovery.NoteArm32"/>), logged when speculative.</summary>
+        /// <summary>ARM32: <see cref="FunctionDiscovery.NoteArm32"/>, logged when speculative.</summary>
         private void NoteArm32(in Insn insn, long bit)
         {
             if (!_speculative) { d.NoteArm32(_dec, in insn, bit); return; }
@@ -391,7 +381,7 @@ internal sealed partial class FunctionDiscovery
             else if (_localSubroutines.Add(rva)) Log.Add(new Op(OpKind.LocalSubroutine, rva, 0));
         }
 
-        /// <summary>A direct call target or memory operand known not to return (thunks to such imports join the set as they are found).</summary>
+        /// <summary>A direct call target or memory operand known not to return.</summary>
         private bool InNoReturn(uint rva)
         {
             if (_ctx.NoReturn.Contains(rva)) return true;
@@ -421,14 +411,14 @@ internal sealed partial class FunctionDiscovery
         {
             if (!_speculative) return d.ThunkSlot(rva);
             if (d._thunkCache.TryGetValue(rva, out var slot)) return slot;
-            // ARM32: a slot found in another state is found again (the read is logged either way)
+            // ARM32: a slot found in another state is found again.
             bool? thumb = _ctx.ArmModes?.StartMode(rva);
             if (_thunkSlots.TryGetValue(rva, out slot) && (thumb == null || _thunkModes[rva] == thumb)) return slot;
             if (thumb is { } t) _thunkModes[rva] = t;
             return _thunkSlots[rva] = _thunks!.ThunkSlot(rva, _ctx.ImportSlots.ContainsKey);
         }
 
-        // ARM32: the state each slot in _thunkSlots was found in
+        // ARM32: the state each slot in _thunkSlots was found in.
         private readonly Dictionary<uint, bool> _thunkModes = [];
 
         private bool IsNoReturnTarget(uint target) =>
@@ -442,7 +432,7 @@ internal sealed partial class FunctionDiscovery
                 case FlowKind.Call:
                     if (insn.HasTarget && insn.Target != insn.Next && _ctx.Code.IsCode(insn.Target))
                     {
-                        // whether the target is a function matters only for a call that may be a local subroutine
+                        // Whether the target is a function matters only for a possible local subroutine.
                         if (IsLocalSubroutine(insn.Target) || ((LocalFinallyCall(in insn) || UsesCallerFrame(insn.Target)) && !IsFunction(insn.Target)))
                         {
                             AddLocalSubroutine(insn.Target);
@@ -457,8 +447,7 @@ internal sealed partial class FunctionDiscovery
                     return !(insn.HasMem && InNoReturn(insn.MemTarget));
                 case FlowKind.Jump:
                     if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
-                    // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a standard
-                    // prologue, an ARM32 jump that changes state, is computed (a veneer) or reaches a bx pc stub: tail calls to functions
+                    // Tail calls: a jump-only function, a jump to an import thunk or x86 prologue, an ARM32 state switch or veneer.
                     if (own == null && !_chunk && d.IsFarJump(in insn, root, _anyStartBetween) && !IsFunction(insn.Target))
                     {
                         Write(OpKind.FarJump, insn.Target);
@@ -469,7 +458,7 @@ internal sealed partial class FunctionDiscovery
                         AddFunction(insn.Target, FunctionSource.TailJump);
                     else
                     {
-                        // without unwind ranges: a jump that may leave the function (a tail call, decided after discovery)
+                        // Without unwind ranges, record a jump that may be a tail call; decided after discovery.
                         if (own == null && !_chunk && _tailJumps && (insn.Target < root || insn.Target - insn.Rva > 16 || d.JumpOverBarrier(insn.Rva, insn.Target))) WriteJump(insn.Rva, insn.Target, root);
                         Branch(insn.Target, root, own, IndexBound.None);
                     }
@@ -477,8 +466,7 @@ internal sealed partial class FunctionDiscovery
                 case FlowKind.ConditionalJump:
                     if (insn.HasTarget && _ctx.Code.IsCode(insn.Target))
                     {
-                        // a conditional tail call to an import stub or a linker veneer (ARM32 bne.w): exploring it here would make the stub a
-                        // block of this function; other far conditional targets stay blocks (functions larger than any distance rule)
+                        // A conditional tail call to an import stub or linker veneer; other far targets stay blocks.
                         if (own == null && (ThunkSlot(insn.Target) != null ? !IsFunction(insn.Target) && !FallsInto(insn.Target) : !IsFunction(insn.Target) && d.IsVeneer(insn.Target)))
                         {
                             AddFunction(insn.Target, FunctionSource.TailJump);
@@ -489,7 +477,7 @@ internal sealed partial class FunctionDiscovery
                     }
                     return true;
                 case FlowKind.IndirectJump:
-                    // a conditional dispatch (ARM32 ldrls pc / addls pc) falls through to its default
+                    // A conditional dispatch (ARM32 ldrls pc / addls pc) falls through to its default.
                     if (insn.HasMem && _ctx.ImportSlots.ContainsKey(insn.MemTarget)) return insn.Conditional;
                     if (_dec.MatchSwitch(out _) is { } m && _ctx.ReadSwitch(insn.Rva, m, own, out _) is { } table) FollowSwitch(table);
                     else if (!insn.Conditional) AddPending(insn.Rva);
@@ -503,7 +491,7 @@ internal sealed partial class FunctionDiscovery
             }
         }
 
-        /// <summary>ARM64: the instruction before <paramref name=target/> runs on into it, so an import stub there is the function's own tail, not a thunk.</summary>
+        /// <summary>ARM64: the instruction before <paramref name="target"/> runs into it, so a stub there is no thunk.</summary>
         private bool FallsInto(uint target) =>
             _ctx.Image.Arch == NativeArch.Arm64 && target >= 4 && _ctx.Code.RegionAt(target - 4) is { } region && !_peek.IsPadding(region, target - 4)
             && _peek.Decode(target - 4, out var prev) && prev.Flow is FlowKind.Next or FlowKind.ConditionalJump or FlowKind.Call or FlowKind.IndirectCall;
@@ -511,8 +499,7 @@ internal sealed partial class FunctionDiscovery
         private void Branch(uint target, uint root, List<(uint Begin, uint End)>? own, IndexBound bound)
         {
             if (target != root && IsFunction(target)) return;
-            // x64: a jump out of a .pdata function into code no .pdata entry covers is a tail call to a leaf function,
-            // unless it lands right after the function's own range (an epilogue the unwind data leaves out)
+            // x64: a jump out of .pdata coverage is a tail call to a leaf, unless it lands on the epilogue just after the range.
             if (own != null && !InRanges(own, target) && _ctx.PdataOwner(target) == null && !JustAfter(own, target))
             {
                 AddFunction(target, FunctionSource.TailJump);
@@ -581,10 +568,7 @@ internal sealed partial class FunctionDiscovery
         private bool LocalFinallyCall(in Insn call) =>
             call.Target > call.Rva && call.Target - call.Rva < 0x400 && _x86Dec?.PreviousLeavesSehScope() == true;
 
-        /// <summary>
-        /// x86: the code at <paramref name="rva"/> reads or writes [ebp+x] before it sets ebp, so it runs in its
-        /// caller's frame (a __finally block called by the function that owns it), not as a function of its own.
-        /// </summary>
+        /// <summary>x86: the code at <paramref name="rva"/> uses [ebp+x] before setting ebp, so it runs in its caller's frame.</summary>
         private bool UsesCallerFrame(uint rva)
         {
             if (_x86Peek is not { Is64: false } peek) return false;

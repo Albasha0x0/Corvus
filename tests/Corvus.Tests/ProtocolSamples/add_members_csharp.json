@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "[TestFixture] Dry run — compiled OK; would add to Fixture.Model.Account: Fixture.Model.Account::Twice(int)\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 85ac887bf6031124 (the applied edit and the save report the same)."
+    "[TestFixture] Dry run — compiled OK; would add to Fixture.Model.Account: Fixture.Model.Account::Twice(int)\nNothing changed (dry run); pass dryRun=false to apply.\nDigest 21e6ac20bb012378 (the applied edit and the save report the same)."
   ],
   "structuredContent": {
     "applied": false,
@@ -18,6 +18,6 @@
       }
     ],
     "editIds": [],
-    "digest": "85ac887bf6031124"
+    "digest": "21e6ac20bb012378"
   }
 }

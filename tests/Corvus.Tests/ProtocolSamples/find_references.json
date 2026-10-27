@@ -5,7 +5,7 @@
   },
   "isError": false,
   "content": [
-    "References to method Fixture.Model.Account::Charge(int) [TestFixture]: 1 reference (showing 1-1):\n  Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000019  IL_0014  call\n[End: 1 reference]\n"
+    "References to method Fixture.Model.Account::Charge(int) [TestFixture]: 1 reference (showing 1-1):\n  Fixture.Model.Account::Charge(int, string)  [TestFixture] 0x06000012  IL_0014  call\n[End: 1 reference]\n"
   ],
   "structuredContent": {
     "target": "Fixture.Model.Account::Charge(int) [TestFixture]",
@@ -14,7 +14,7 @@
         "kind": "call",
         "basis": "observed",
         "where": "Fixture.Model.Account::Charge(int, string)",
-        "token": "0x06000019",
+        "token": "0x06000012",
         "assembly": "TestFixture",
         "ilOffset": 20
       }

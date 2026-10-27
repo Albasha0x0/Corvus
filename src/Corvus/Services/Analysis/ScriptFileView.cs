@@ -5,11 +5,7 @@ using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=script: a PowerShell, batch, VBScript / VBA or JavaScript file (or the script blocks of an .hta, .wsf or .html
-/// page) read with its transformation layers peeled to plain text by a bounded evaluator; nothing runs. The plain text
-/// pages by character offset. The overview reads a JavaScript file only when it shows signs of a transformation.
-/// </summary>
+/// <summary>view=script: a script's transformation layers peeled to plain text by a bounded evaluator, paged by character offset; nothing runs.</summary>
 internal sealed class ScriptFileView : IFileSummaryView
 {
     private const int MaxText = 8 << 20, OverviewText = 2 << 20, Window = 24_000, LayerText = 2_000;
@@ -46,7 +42,7 @@ internal sealed class ScriptFileView : IFileSummaryView
         {
             var language = ScriptReader.Detect(file.Path, text);
             if (language == null) return null;
-            // a JavaScript file in the overview: only with signs of a transformation (decoders, eval layers, packers)
+            // The overview reads a JavaScript file only with signs of a transformation.
             if (language == "javascript" && !asked && !Regex.IsMatch(text.Length > 200_000 ? text[..200_000] : text,
                     @"\b_0x[0-9a-f]{4,6}\b.{0,200}\b_0x[0-9a-f]{4,6}\b|\beval\s*\(\s*(?:atob|unescape|String\.fromCharCode|decodeURIComponent|function\s*\(p,a,c,k)|\b(?:new\s+)?Function\s*\(\s*(?:atob|unescape|String\.fromCharCode)|(?:\\x[0-9a-f]{2}){8}|\bActiveXObject\b"))
                 return null;
@@ -81,8 +77,7 @@ internal sealed class ScriptFileView : IFileSummaryView
 
     private sealed record Block(string Language, string Text);
 
-    // A whole page is read: NonBacktracking matches in linear time, so no match
-    // timeout.
+    // NonBacktracking matches a whole page in linear time, so no match timeout.
     private static readonly Regex ScriptBlock = new(@"<script\b([^>]*)>(.*?)</script\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.NonBacktracking);
 
     /// <summary>The script blocks of an HTML application, Windows Script File or page, with their languages.</summary>

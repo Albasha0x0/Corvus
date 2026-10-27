@@ -2,11 +2,7 @@ using System.IO.Compression;
 
 namespace Corvus.Core.Models;
 
-/// <summary>
-/// A file torch.save wrote: the zip format (archive/data.pkl, data/&lt;key&gt; per storage, version, byteorder) or the
-/// legacy format (magic number, protocol and system pickles, the object pickle, the storage keys, then the storages).
-/// The object pickle is scanned, never unpickled; storage entries are checked against the sizes the pickle declares.
-/// </summary>
+/// <summary>A torch.save file, zip or legacy format; the pickle is scanned, never unpickled, and storage sizes checked.</summary>
 public sealed class TorchCheckpoint
 {
     // torch.serialization.MAGIC_NUMBER, 0x1950a86a20f9469cfc6c, as LONG1 writes it.

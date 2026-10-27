@@ -23,10 +23,7 @@ public sealed class LoadedNative
     public string Id { get; }
     public string FilePath { get; }
 
-    /// <summary>
-    /// For the native view of a mixed-mode (C++/CLI) assembly: the assembly, loaded from the same file, whose lifetime
-    /// this view follows (unloaded and reloaded with it). Null for plain native images.
-    /// </summary>
+    /// <summary>The managed view of a mixed-mode assembly, whose lifetime this view follows; null for plain native images.</summary>
     public LoadedAssembly? ManagedView { get; internal init; }
 
     /// <summary>The current image: the file as loaded, or, once bytes have been patched in memory, the patched image.</summary>
@@ -70,10 +67,7 @@ public sealed class LoadedNative
     /// <summary>Per-image analysis state (code index, engine sessions); created on first use and cleared on a patch.</summary>
     public System.Collections.Concurrent.ConcurrentDictionary<Type, object> Analysis { get; } = new();
 
-    /// <summary>
-    /// The analysis of type <typeparamref name="T"/>, created on first use. Disposable state (background builds, engine
-    /// sessions) is not kept for an image that was unloaded or reloaded meanwhile: it is disposed and the call fails.
-    /// </summary>
+    /// <summary>The analysis of type <typeparamref name="T"/>, created on first use; fails if the image was unloaded meanwhile.</summary>
     public T GetAnalysis<T>(Func<LoadedNative, T> create) where T : class
     {
         var value = (T)Analysis.GetOrAdd(typeof(T), _ => create(this));
@@ -126,10 +120,7 @@ public sealed class LoadedNative
     /// <summary>The loaded annotations, or null when none has been created yet.</summary>
     public NativeAnnotations? AnnotationsOrNull { get { lock (_gate) return _annotations; } }
 
-    /// <summary>
-    /// Replaces the current image with <paramref name="image"/> (built from patched bytes) and discards cached analysis
-    /// so the code index and engine sessions rebuild against the patched bytes. Patches and annotations are kept.
-    /// </summary>
+    /// <summary>Replaces the image with a patched one and discards cached analysis; patches and annotations are kept.</summary>
     internal void ReplaceImage(INativeImage image)
     {
         lock (_gate)

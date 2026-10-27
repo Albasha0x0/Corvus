@@ -3,18 +3,13 @@ using Corvus.Core;
 
 namespace Corvus.Services.Web;
 
-/// <summary>
-/// Bytecode read from a file or from one entry of a ZIP package, parsed once and kept by path, size and write time; the
-/// four most recent are kept.
-/// </summary>
+/// <summary>Bytecode from a file or one ZIP entry, parsed once; the four most recent are cached by path, size and write time.</summary>
 internal sealed class PackagedBytecode<T> where T : class
 {
     private readonly List<((string Path, long Size, DateTime Written) Key, T Value)> _recent = [];
 
-    /// <summary>
-    /// The parsed file at <paramref name="path"/>. A ZIP is read through <paramref name="entry"/>; null there throws
-    /// <paramref name="none"/>. <paramref name="parse"/> gets the full path, the entry name (null for a plain file) and the bytes.
-    /// </summary>
+    /// <summary>The parsed file at <paramref name="path"/>; a ZIP is read through <paramref name="entry"/>, and a null entry throws <paramref name="none"/>.</summary>
+    /// <remarks><paramref name="parse"/> gets the full path, the entry name (null for a plain file) and the bytes.</remarks>
     public T Open(string path, string what, Func<ZipArchive, ZipArchiveEntry?> entry, Func<ToolError> none, Func<string, string?, byte[], T> parse, CancellationToken ct)
     {
         var info = new FileInfo(InputFiles.RequireRegularFile(path, what));

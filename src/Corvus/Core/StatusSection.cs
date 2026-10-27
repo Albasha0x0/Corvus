@@ -7,10 +7,8 @@ public sealed record StatusField(string Name, string Value, string? Source = nul
 
 public sealed record StatusSection(string Name, IReadOnlyList<StatusField> Fields);
 
-/// <summary>
-/// One section of server_status. Every non-abstract implementation with a parameterless constructor in this assembly is
-/// found by type scan, so a lane adds a section by adding a class; services come from the call's provider.
-/// </summary>
+/// <summary>One section of server_status, found by type scan; a new section is a new class.</summary>
+/// <remarks>Implementations need a parameterless constructor; services come from the call's provider.</remarks>
 public interface IStatusSection
 {
     /// <summary>Lower-case section name (budget, results, caches, calls, workers, run).</summary>
@@ -32,10 +30,7 @@ public static class StatusSections
     public static IReadOnlyList<StatusSection> Collect(IServiceProvider services) =>
         Collect(services, Types.Value.Select(t => (IStatusSection)Activator.CreateInstance(t, nonPublic: true)!));
 
-    /// <summary>
-    /// <paramref name="sections"/> by order then name, each read on a thread of its own, so a status call waits for the
-    /// slowest section rather than for all of them in turn (a cache folder count waits up to 2 s).
-    /// </summary>
+    /// <summary>The sections by order then name, each read on its own thread so a call waits only for the slowest.</summary>
     internal static IReadOnlyList<StatusSection> Collect(IServiceProvider services, IEnumerable<IStatusSection> sections)
     {
         var reads = sections.OrderBy(s => s.Order).ThenBy(s => s.Name, StringComparer.Ordinal)

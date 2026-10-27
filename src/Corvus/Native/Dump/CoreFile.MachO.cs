@@ -4,11 +4,7 @@ using Corvus.Native.MachO;
 
 namespace Corvus.Native.Dump;
 
-/// <summary>
-/// A macOS Mach-O core (MH_CORE, as lldb's process save-core and the kernel write them): LC_SEGMENT_64 as the process
-/// memory, LC_THREAD for ARM64 and x86_64 thread state, and the images from lldb's "all image infos" note, else from
-/// dyld_all_image_infos found in the core's memory, each with the UUID its header (LC_UUID) or the image list holds.
-/// </summary>
+/// <summary>A Mach-O core (MH_CORE): segments as memory, LC_THREAD registers, images from lldb's note or dyld_all_image_infos.</summary>
 public sealed partial class CoreFile
 {
     private const uint MhMagic64 = 0xFEEDFACF, MhCore = 4, MhExecute = 2, MhDylibInCache = 0x80000000;
@@ -22,11 +18,9 @@ public sealed partial class CoreFile
     /// <summary>dyld_all_image_infos (64-bit) through dyldAllImageInfosAddress, the field that holds the structure's own address.</summary>
     private const int ImageInfosSize = 112, ImageInfosSelf = 104;
 
-    // ARM_THREAD_STATE64 holds x0-x28, fp, lr, sp and pc as 64-bit words, then
-    // cpsr.
+    // ARM_THREAD_STATE64 holds x0-x28, fp, lr, sp and pc as 64-bit words, then cpsr.
     private static readonly int[] ArmStateMap = [.. Enumerable.Range(0, 33)];
-    // x86_THREAD_STATE64 holds rax, rbx, rcx, rdx, rdi, rsi, rbp, rsp, r8-r15,
-    // rip, rflags, cs, fs and gs.
+    // x86_THREAD_STATE64 holds rax, rbx, rcx, rdx, rdi, rsi, rbp, rsp, r8-r15, rip, rflags, cs, fs and gs.
     private static readonly int[] X64StateMap = [0, 3, 2, 1, 5, 4, 6, 7, .. Enumerable.Range(8, 8), 16, 17, -1, -1, -1];
 
     private sealed record MachImage(ulong Base, string Path, string? Uuid, IReadOnlyList<ulong> Segments);
@@ -66,8 +60,7 @@ public sealed partial class CoreFile
             var c = cmds.Slice(at, cmdsize);
             if (cmd == 0x19 && cmdsize >= 72)
             {
-                // VM_PROT_READ, WRITE and EXECUTE (1, 2, 4) become PF_R, PF_W
-                // and PF_X (4, 2, 1).
+                // VM_PROT_READ, WRITE and EXECUTE (1, 2, 4) become PF_R, PF_W and PF_X (4, 2, 1).
                 uint prot = c.U32(60);
                 AddSegment("LC_SEGMENT_64", c.U64(24), c.U64(32), c.U64(48), c.U64(40), ((prot & 1) << 2) | (prot & 2) | ((prot & 4) >> 2), ranges);
             }
@@ -81,7 +74,7 @@ public sealed partial class CoreFile
         var images = notes.TryGetValue("all image infos", out var infos) ? NoteImages(infos.Offset) : null;
         if (images != null) ImageList = "lldb's all image infos note";
         else if ((images = DyldImages()) != null) ImageList = "dyld_all_image_infos";
-        else Issue("modules", "no image list: neither an all image infos note nor dyld_all_image_infos in the core's memory");
+        else Issue("modules", "no image list note and no dyld_all_image_infos in memory");
         if (images != null) MachModules(images);
         AddModulesAndRegions();
     }
@@ -107,8 +100,7 @@ public sealed partial class CoreFile
                 regs.Complete = state.Length >= 268;
             }
             else if (Registers == CoreArch.X64 && flavor == 4) regs = MachState(state, X64StateMap);
-            // x86_THREAD_STATE puts an x86_state_hdr (flavor, count) before the
-            // state it names.
+            // x86_THREAD_STATE puts an x86_state_hdr (flavor, count) before the state it names.
             else if (Registers == CoreArch.X64 && flavor == 7 && state.Length >= 8 && state.U32(0) == 4) regs = MachState(state.Slice(8, state.Length - 8), X64StateMap);
             p += 8 + bytes;
         }
@@ -145,7 +137,7 @@ public sealed partial class CoreFile
         catch (JsonException) { Issue("threads", "the process metadata note is not JSON", (long)offset); }
     }
 
-    /// <summary>lldb's all image infos note: a header (version, count, the entries' file offset and size), then per image its path, UUID, load address and segment addresses.</summary>
+    /// <summary>Images from lldb's all image infos note; null when the note is unreadable.</summary>
     private List<MachImage>? NoteImages(ulong offset)
     {
         var h = new ByteView(offset < (ulong)FileSize ? Block((long)offset, 24) : [], false);
@@ -189,8 +181,7 @@ public sealed partial class CoreFile
         int un = ReadMemory(v.U64(96), u);
         for (int at = 0; at + 24 <= un; at += 24) uuids.TryAdd(BinaryPrimitives.ReadUInt64LittleEndian(u.AsSpan(at)), Convert.ToHexStringLower(u.AsSpan(at + 8, 16)));
         if (array == 0 && count > 0) Issue("modules", "dyld_all_image_infos has no image array: dyld was updating it");
-        // A dyld_image_info is imageLoadAddress, imageFilePath, then
-        // imageFileModDate.
+        // A dyld_image_info is imageLoadAddress, imageFilePath, then imageFileModDate.
         var e = new byte[array == 0 ? 0 : (int)count * 24];
         int n = ReadMemory(array, e);
         if (n < e.Length) Issue("modules", $"dyld_all_image_infos lists {count} images; the core holds {n / 24} of them");
@@ -225,7 +216,7 @@ public sealed partial class CoreFile
         return null;
     }
 
-    /// <summary>Each image as a module: extent, UUID and type from its Mach-O header when the core holds it, else the list's UUID and an extent up to its next segment or the next image.</summary>
+    /// <summary>Adds each image as a module; without a header in the core, the extent ends at the next segment or image.</summary>
     private void MachModules(List<MachImage> images)
     {
         var bases = images.Select(i => i.Base).Where(b => b != 0).Distinct().Order().ToArray();
@@ -253,7 +244,7 @@ public sealed partial class CoreFile
         _machMain = executable ?? first;
     }
 
-    /// <summary>The Mach-O header at <paramref name="address"/> as the core holds it: the image's extent (its __TEXT when it is in the shared cache), LC_UUID and file type.</summary>
+    /// <summary>Extent, LC_UUID and file type of the Mach-O header at <paramref name="address"/>; null when the core lacks it.</summary>
     private (ulong Size, string? Uuid, uint FileType)? MachHeader(ulong address)
     {
         var bytes = new byte[MaxImageHeaderBytes];

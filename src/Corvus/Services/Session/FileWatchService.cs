@@ -4,10 +4,8 @@ using Corvus.Core;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Reloads loaded assemblies when their files change on disk, unless they have unsaved edits (the client is notified
-/// instead). Each event becomes a workspace notice and raises <see cref="Changed"/> for MCP notifications.
-/// </summary>
+/// <summary>Reloads loaded files that change on disk unless they hold unsaved edits; each event becomes a notice and
+/// raises <see cref="Changed"/>.</summary>
 public sealed class FileWatchService : IDisposable
 {
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(750);
@@ -86,14 +84,15 @@ public sealed class FileWatchService : IDisposable
                 Report($"{asm.Id}: {path} changed on disk but could not be read (still being written?); the previous version stays loaded.");
                 return;
             }
+            // Touched, rewritten with identical content, or our own save_assembly over the original.
             if (bytes.AsSpan().SequenceEqual(asm.OriginalBytes))
-                return; // touched, or rewritten with identical content
+                return;
             if (asm.IsDirty && bytes.AsSpan().SequenceEqual(_workspace.Read(() => asm.GetImageBytes())))
-                return; // our own save_assembly over the original file
+                return;
             if (asm.IsDirty)
             {
-                Report($"{asm.Id}: {path} changed on disk, but the loaded copy has {asm.Edits.Count} unsaved edit(s), so it was NOT reloaded. " +
-                       "export_edits to keep them (they are also journaled until saved), then reload_assembly (and apply_edits with targetBuild=other) to move to the new version.");
+                Report($"{asm.Id}: {path} changed on disk; not reloaded, as the loaded copy has {asm.Edits.Count} unsaved edit(s). " +
+                       "export_edits to keep them (they are journaled until saved), then reload_assembly and apply_edits targetBuild=other to move to the new version.");
                 return;
             }
             var fresh = _workspace.Reload(asm);
@@ -120,16 +119,17 @@ public sealed class FileWatchService : IDisposable
             return;
         }
         var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        // Touched, rewritten with identical content, or our own save_native of the patched image.
         if (sha == native.OriginalSha256 || sha == native.Image.Sha256)
-            return; // touched, rewritten with identical content, or our own save_native of the patched image
+            return;
         if (native.HasPatches)
         {
-            Report($"{native.Id}: {path} changed on disk, but the loaded copy has unsaved patches, so it was NOT reloaded. " +
+            Report($"{native.Id}: {path} changed on disk; not reloaded, as the loaded copy has unsaved patches. " +
                    "save_native them elsewhere first, then reload_assembly to move to the new version.");
             return;
         }
         var fresh = _workspace.ReloadNative(native);
-        Report($"{fresh.Id} was reloaded: {path} changed on disk (names and comments are kept per file content, so the new version starts without them).");
+        Report($"{fresh.Id} was reloaded: {path} changed on disk (names and comments are kept per file content, so the new version has none).");
     }
 
     private static byte[]? ReadWithRetry(string path)

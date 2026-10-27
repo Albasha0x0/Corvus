@@ -37,10 +37,7 @@ public class NativeAotHydrationTests
 
     private static readonly byte[] Bytes40 = [.. Enumerable.Range(10, 40).Select(i => (byte)i)];
 
-    /// <summary>
-    /// Every command, short and extended payloads, both pointer forms, both fixup forms; inline operands are rel32 from
-    /// their own position, so they are written for the stream's final RVA.
-    /// </summary>
+    /// <summary>Every command with short and extended payloads, both pointer forms and both fixup forms; inline operands are rel32 from their own position.</summary>
     private static HydratedImage Build(ushort major, bool lengthPrefixed)
     {
         var b = new B { Major = major };
@@ -95,7 +92,7 @@ public class NativeAotHydrationTests
     }
 
     [Fact]
-    public void NotDehydrated_PointerSlotsAreRelocations()
+    public void Without_dehydration_pointer_slots_are_relocations()
     {
         var b = new B();
         uint slot = b.Pointer(b.Data, B.TextRva);
@@ -109,7 +106,7 @@ public class NativeAotHydrationTests
     }
 
     [Fact]
-    public void Malformed_StopsWithPartialStage()
+    public void Malformed_hydration_data_stops_with_a_partial_stage()
     {
         var b = new B();
         Dehydrated(b, [.. Command(0, 3), 1, 2, 3, 6], []); // command 6 does not exist

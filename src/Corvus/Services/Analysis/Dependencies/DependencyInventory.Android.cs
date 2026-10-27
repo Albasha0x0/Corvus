@@ -36,10 +36,8 @@ internal static partial class DependencyInventory
     private static partial Regex MavenVersion();
 
     /// <summary>
-    /// An Android package's Java libraries (Maven pom.properties, AndroidX META-INF/*.version files) and native
-    /// libraries with the library versions compiled into them; the app named by its manifest is the subject. A split
-    /// set (.apks, .xapk, .apkm) is one app: each APK in it is read, and its entries are located as "split.apk!/entry".
-    /// Returns true when an APK of a split set holds Il2Cpp metadata.
+    /// Adds an Android package's Java and native libraries; a split set is one app, located as "split.apk!/entry".
+    /// Returns true when an APK of a split set holds global-metadata.dat.
     /// </summary>
     private static bool FromAndroid(Builder b, FileInput input, IReadOnlyDictionary<string, FileView> views, CancellationToken ct)
     {
@@ -50,7 +48,7 @@ internal static partial class DependencyInventory
             b.Subject = new DependencyComponent(b.NewRef($"android:{app.Package}"), app.Package, app.VersionName, "android", "application", null, Manifest,
                 "manifest-analysis", "AndroidManifest.xml package and versionName");
         var opened = new List<ZipArchive>();
-        bool il2cpp = false;
+        bool aot = false;
         try
         {
             var outer = new ZipArchive(input.OpenRead(), ZipArchiveMode.Read);
@@ -82,7 +80,7 @@ internal static partial class DependencyInventory
                 {
                     ct.ThrowIfCancellationRequested();
                     var location = prefix + e.FullName;
-                    il2cpp |= prefix.Length > 0 && e.FullName.EndsWith("/global-metadata.dat", StringComparison.Ordinal);
+                    aot |= prefix.Length > 0 && e.FullName.EndsWith("/global-metadata.dat", StringComparison.Ordinal);
                     // An app bundle keeps the files of META-INF under base/root/ and the libraries under base/lib/.
                     var name = e.FullName.StartsWith("base/root/", StringComparison.Ordinal) ? e.FullName["base/root/".Length..]
                         : e.FullName.StartsWith("base/lib/", StringComparison.Ordinal) ? e.FullName["base/".Length..] : e.FullName;
@@ -110,8 +108,7 @@ internal static partial class DependencyInventory
                     "Maven pom.properties") { Locations = [location] }, location);
             foreach (var (stem, version, location) in versionFiles)
             {
-                // AndroidX writes META-INF/<group>_<artifact>.version; a stem without one dotted group before the
-                // first underscore (kotlinx_coroutines_core) names a module, not a Maven coordinate.
+                // AndroidX writes META-INF/<group>_<artifact>.version; a stem without a dotted group is a module name.
                 int cut = stem.IndexOf('_');
                 var group = cut > 0 ? stem[..cut] : null;
                 var artifact = cut > 0 ? stem[(cut + 1)..] : null;
@@ -135,7 +132,7 @@ internal static partial class DependencyInventory
         {
             foreach (var z in opened) z.Dispose();
         }
-        return il2cpp;
+        return aot;
     }
 
     /// <summary>Each native library once, with the ABIs it ships for, and the libraries its code names by version string.</summary>

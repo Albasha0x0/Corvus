@@ -110,7 +110,7 @@ public sealed class EngineOpenProfileTests : IDisposable
         var progress = new SyncProgress(p => { if (p.Stage == "analysis") deadline.CancelAfter(300); });
         var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, progress, deadline.Token));
         Assert.Equal(ErrorCode.Timeout, error.Code);
-        Assert.Matches(@"still opening .+: analysis, \d+ s so far", error.Message);
+        Assert.Matches(@"still opening .+ \(analysis, \d+ s; a first analysis can take minutes\)", error.Message);
         var details = System.Text.Json.JsonDocument.Parse(error.ToJson()).RootElement.GetProperty("details");
         Assert.True(details.GetProperty("stillRunning").GetBoolean());
         Assert.Equal("analysis", details.GetProperty("stage").GetString());

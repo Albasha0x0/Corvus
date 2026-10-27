@@ -9,23 +9,14 @@ public sealed record SearchResult<T>(List<T> Items, int Total)
     public static SearchResult<T> From(List<T> all, int limit) => new(all.Count <= limit ? all : all.GetRange(0, limit), all.Count);
 }
 
-/// <summary>
-/// Defensive helpers over dnlib metadata. Transformed or Il2Cpp-generated assemblies routinely contain
-/// bodies or references that throw when touched, so everything here degrades to "nothing" instead of failing.
-/// </summary>
+/// <summary>dnlib metadata helpers that return nothing instead of throwing on broken bodies or references.</summary>
 public static class MetadataUtil
 {
-    /// <summary>
-    /// Visits every type of the given assemblies in parallel and returns the collected results in deterministic
-    /// (assembly, type) order. The visitor must only read metadata; callers hold the workspace read lock.
-    /// </summary>
+    /// <summary>Visits every type in parallel, results in (assembly, type) order; the visitor only reads, under the read lock.</summary>
     public static List<T> ParallelCollect<T>(IEnumerable<LoadedAssembly> scope, Action<LoadedAssembly, TypeDef, List<T>> visit, CancellationToken ct) =>
         ParallelCollect(scope, visit, ct, Timeout.InfiniteTimeSpan, null);
 
-    /// <summary>
-    /// As above, stopping after <paramref name="timeLimit"/>: a timeout error whose partial result counts the types searched
-    /// and lists what <paramref name="describe"/> makes of the results found until then (keep it short: it travels with the error).
-    /// </summary>
+    /// <summary>As above; after <paramref name="timeLimit"/> throws a timeout carrying <paramref name="describe"/>'s partial result.</summary>
     public static List<T> ParallelCollect<T>(IEnumerable<LoadedAssembly> scope, Action<LoadedAssembly, TypeDef, List<T>> visit, CancellationToken ct,
         TimeSpan timeLimit, Func<List<T>, object?>? describe)
     {
@@ -38,8 +29,7 @@ public static class MetadataUtil
         else limit.CancelAfter(timeLimit);
         try
         {
-            // Capped: uncapped, it took every thread the pool injected, and visitors waiting on pool work (a reference pack
-            // download) stalled the process until the time limit.
+            // Capped: uncapped, it took every pool thread and visitors waiting on pool work stalled until the time limit.
             Parallel.For(0, work.Length, new ParallelOptions { CancellationToken = limit.Token, MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
             {
                 var found = new List<T>();
@@ -99,10 +89,7 @@ public static class MetadataUtil
         catch { return null; }
     }
 
-    /// <summary>
-    /// The types every tool counts and lists: all types, nested ones included, except the &lt;Module&gt; pseudo-type.
-    /// A nested type belongs to the namespace of its top-level type (its own Namespace is empty).
-    /// </summary>
+    /// <summary>All types including nested ones, except &lt;Module&gt;; a nested type belongs to its top-level type's namespace.</summary>
     public static List<TypeDef> CountedTypes(ModuleDef module) => module.GetTypes().Where(t => t.FullName != "<Module>").ToList();
 
     /// <summary>Distinct namespaces of <paramref name="types"/>, nested types counted under their top-level type's.</summary>
@@ -128,16 +115,10 @@ public static class MetadataUtil
     /// <summary>Marks a module read only to resolve references (a framework or dependency file, not a loaded assembly).</summary>
     public static void MarkReferenceOnly(ModuleDef module) => ReferenceOnly.AddOrUpdate(module, true);
 
-    /// <summary>
-    /// A member of a reference-only module: the same API can come from several files (System.IDisposable from
-    /// mscorlib for one assembly and System.Private.CoreLib for another), so such members match by name and signature.
-    /// </summary>
+    /// <summary>Whether a member is from a reference-only module, whose members match by name and signature across files.</summary>
     public static bool IsReferenceOnly(IMemberDef member) => member.Module is { } m && ReferenceOnly.TryGetValue(m, out _);
 
-    /// <summary>
-    /// Name, signature and declaring type, ignoring the assembly a type is referenced from. dnlib compares methods
-    /// without their declaring type unless asked: every unresolved ".ctor()" would match every other.
-    /// </summary>
+    /// <summary>Name, signature and declaring type, ignoring type scope; without the declaring type every ".ctor()" would match.</summary>
     private const SigComparerOptions SameMember = SigComparerOptions.DontCompareTypeScope | SigComparerOptions.CompareMethodFieldDeclaringType;
 
     public static bool IsSameMethod(IMethod? op, MethodDef target)

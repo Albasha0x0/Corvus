@@ -4,18 +4,8 @@ using Corvus.Core;
 
 namespace Corvus.Services.Simplify;
 
-/// <summary>
-/// Whole-module facts the evaluator needs to read static state soundly, computed once per simplifier on first use:
-/// <list type="bullet">
-/// <item>which methods can run while a type's static constructor runs (the state is partial then);</item>
-/// <item>whether the array or builder held in a readonly static field can be modified by code other than its type's
-/// initialization (the evaluator only uses state that stays as the static constructor left it).</item>
-/// </list>
-/// The call graph covers the module's own code: call, callvirt (a virtual call reaches the methods of the same name and
-/// signature in the types deriving from the class it names, or in any type for an interface, and the methods that
-/// explicitly override it), newobj, ldftn and the static constructors that member accesses trigger. Code in other modules and reflection are
-/// assumed not to call back into initialization or modify static arrays.
-/// </summary>
+// Assumes code in other modules and reflection neither call back into initialization nor modify static objects.
+/// <summary>Module call graph facts for sound static reads: what runs during a type initializer, and which statics stay as it left them.</summary>
 internal sealed class ModuleFacts(ModuleDef module)
 {
     private const int MaxParameterDepth = 6;
@@ -23,10 +13,12 @@ internal sealed class ModuleFacts(ModuleDef module)
 
     // Nodes are methods, and virtual slots (a method name) through which virtual calls reach every override.
     private Dictionary<object, HashSet<object>>? _callees;
-    private Dictionary<MethodDef, HashSet<MethodDef>>? _callers; // direct callers (virtual methods count as externally callable)
+    // Direct callers; virtual methods count as externally callable.
+    private Dictionary<MethodDef, HashSet<MethodDef>>? _callers;
     private Dictionary<FieldDef, List<(MethodDef Method, int Index)>>? _fieldUses;
-    private Dictionary<FieldDef, List<MethodDef>>? _fieldWrites; // stsfld, and ldsflda (the address may be written through)
-    private HashSet<FieldDef>? _writtenInstanceFields; // stfld, ldflda
+    // Stsfld, and ldsflda since the address may be written through.
+    private Dictionary<FieldDef, List<MethodDef>>? _fieldWrites;
+    private HashSet<FieldDef>? _writtenInstanceFields;
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _reach = new();
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _initOnly = new();
     private readonly Dictionary<FieldDef, bool> _frozen = new();
@@ -57,10 +49,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         return reach;
     }
 
-    /// <summary>
-    /// Methods that only run as part of the type's initialization: its static constructor, and methods it reaches that
-    /// nothing else calls and other assemblies cannot call.
-    /// </summary>
+    /// <summary>The static constructor and the methods it reaches that nothing else, in or out of the module, can call.</summary>
     private HashSet<MethodDef> InitOnly(TypeDef type)
     {
         if (_initOnly.TryGetValue(type, out var set)) return set;
@@ -85,11 +74,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         return set;
     }
 
-    /// <summary>
-    /// Whether the object held in a static field stays as the type's initialization leaves it: every load of the field
-    /// outside the initialization only reads it (element loads, length, comparisons, read-only intrinsics, or passing it
-    /// to module methods that only read their parameter, transitively).
-    /// </summary>
+    /// <summary>Whether every load of the static field outside its initialization only reads the object, transitively.</summary>
     public bool IsFrozen(FieldDef field)
     {
         if (_frozen.TryGetValue(field, out bool frozen)) return frozen;
@@ -115,11 +100,8 @@ internal sealed class ModuleFacts(ModuleDef module)
         return frozen;
     }
 
-    /// <summary>
-    /// Whether a static field is only written while its type initializes: every stsfld (and ldsflda, except of the
-    /// immutable framework handle structs) is in the type's initialization (<see cref="InitOnly"/>). Writes by reflection
-    /// from other code are not seen (see the class remarks).
-    /// </summary>
+    /// <summary>Whether every stsfld or ldsflda of the static field, framework handle structs aside, is in its type's
+    /// initialization; reflection writes are not seen.</summary>
     public bool WrittenOnlyByInitialization(FieldDef field)
     {
         if (!Hidden(field)) return false;
@@ -128,15 +110,8 @@ internal sealed class ModuleFacts(ModuleDef module)
         return (_fieldWrites!.GetValueOrDefault(field) ?? []).All(init.Contains);
     }
 
-    /// <summary>
-    /// The one other type whose initialization writes a static field of <paramref name="field"/>'s type B, when every
-    /// read of the field is ordered against that write; null otherwise. Holds when no other assembly can access the
-    /// field, every write is in the initialization of B or of one other type A (<see cref="InitOnly"/>, at least one in
-    /// A's), A is a non-generic type with a static constructor that runs precisely (not beforefieldinit: the first access
-    /// to any member of A runs it), A's initialization cannot run during B's (so B's completes before A's first access
-    /// to the field, which triggers it), and every read is in B's initialization (before A's write), in A's (in its own
-    /// order), or in a method declared by A that cannot run during A's initialization (after it completed).
-    /// </summary>
+    // Reads must be in the owner's initializer, in A's, or in A's methods that cannot run during A's initializer.
+    /// <summary>The one other precise-init type A whose initializer writes the field, when every read is ordered against it; else null.</summary>
     public TypeDef? CrossInitializer(FieldDef field)
     {
         if (_cross.TryGetValue(field, out var known)) return known;
@@ -145,7 +120,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         Build();
         var owner = field.DeclaringType;
         var ownInit = InitOnly(owner);
-        // The writers outside B's initialization: all in the initialization of one type A that declares one of them.
+        // Writers outside the owner's initializer must all be in one type A's initializer.
         var writers = (_fieldWrites!.GetValueOrDefault(field) ?? []).Where(m => !ownInit.Contains(m)).Distinct().ToList();
         if (writers.Count == 0) return null;
         var a = writers.Select(m => m.DeclaringType).Distinct()
@@ -165,10 +140,8 @@ internal sealed class ModuleFacts(ModuleDef module)
 
     private readonly Dictionary<FieldDef, TypeDef?> _cross = new();
 
-    /// <summary>
-    /// Whether an instance field of a class is never written: no stfld or ldflda of it in the module, and no other assembly
-    /// can access it. Every object of the class then holds the field's default value (reflection aside).
-    /// </summary>
+    /// <summary>Whether a class instance field other assemblies cannot access has no stfld or ldflda, so it always
+    /// holds its default.</summary>
     public bool NeverWritten(FieldDef field)
     {
         if (field.IsStatic || field.DeclaringType.IsValueType || !Hidden(field)) return false;
@@ -176,11 +149,8 @@ internal sealed class ModuleFacts(ModuleDef module)
         return !_writtenInstanceFields!.Contains(field);
     }
 
-    /// <summary>
-    /// Whether a static field always holds its default value: no other assembly can access it, and every method that
-    /// writes it can never run - nothing in the module calls it or takes its address, no other assembly can call it, and
-    /// it is no static constructor, virtual method or entry point (a generated Culture setter nobody calls, say).
-    /// </summary>
+    /// <summary>Whether a static field other assemblies cannot access holds its default because every writer is
+    /// uncallable, such as an unused generated Culture setter.</summary>
     public bool AlwaysDefault(FieldDef field)
     {
         if (!field.IsStatic || !Hidden(field)) return false;
@@ -199,11 +169,8 @@ internal sealed class ModuleFacts(ModuleDef module)
         _ => false,
     };
 
-    /// <summary>
-    /// For a lazily created static field (<c>if (f == null) f = new ...; return f;</c>): every store to it (stsfld only,
-    /// no address taken), as (method, index of the stsfld), when no other assembly can access the field and every load of
-    /// it is in a method that also stores it; otherwise null.
-    /// </summary>
+    /// <summary>The stsfld sites of a lazily filled field other assemblies cannot access, whose loads all sit in its
+    /// writers; null otherwise.</summary>
     public List<(MethodDef Method, int Index)>? LazyStores(FieldDef field)
     {
         if (!field.IsStatic || !Hidden(field)) return null;
@@ -275,13 +242,13 @@ internal sealed class ModuleFacts(ModuleDef module)
             case Code.Ldind_I8: case Code.Ldind_I: case Code.Ldind_R4: case Code.Ldind_R8: case Code.Ldobj:
                 return true;
             case Code.Ldelema:
-                // readonly. ldelema: an element address used for reading; followed to its consumer.
+                // A readonly. ldelema is followed to its consumer.
                 return j > 0 && body.Instructions[j - 1].OpCode.Code == Code.Readonly && ValueOnlyRead(m, body, j, immutableElements, depth, visited);
             case Code.Ldelem_Ref: case Code.Ldelem:
-                // Elements that are themselves mutable objects are followed in turn.
+                // Mutable elements are followed in turn.
                 return immutableElements || ValueOnlyRead(m, body, j, false, depth, visited);
             case Code.Ldfld:
-                // A field of the object: a number or string is only read; an object it holds is followed in turn.
+                // A number or string field is only read; an object field is followed in turn.
                 return ins.Operand is IField { FieldSig.Type: var type } && (type.IsPrimitive || type.ElementType == ElementType.String || IsEnum(type))
                        || ValueOnlyRead(m, body, j, false, depth, visited);
             case Code.Stloc: case Code.Stloc_S: case Code.Stloc_0: case Code.Stloc_1: case Code.Stloc_2: case Code.Stloc_3:
@@ -303,14 +270,12 @@ internal sealed class ModuleFacts(ModuleDef module)
             case Code.Call: case Code.Callvirt: case Code.Newobj:
             {
                 if (MetadataUtil.AsMethod(ins.Operand) is not { } callee) return false;
-                // Reading a modelled collection through its own methods.
                 if (operand == 0 && IsCollection(callee.DeclaringType) && callee.Name.String is "get_Item" or "TryGetValue" or "ContainsKey" or "get_Count"
                         or "Contains" or "IndexOf" or "GetEnumerator")
                     return immutableElements || callee.Name.String is not ("get_Item" or "GetEnumerator") || ValueOnlyRead(m, body, j, false, depth, visited);
                 if (IlEvaluator.IntrinsicNames.Contains(callee.FullName))
                     return !IlEvaluator.MutatedArguments(callee.FullName).Contains(operand);
-                // A call through a static delegate field whose delegate passes its arguments on unchanged: the value is
-                // followed into the target, as if the call were the target's.
+                // A call through a forwarding static delegate field is followed into its target.
                 if (ins.OpCode.Code is Code.Call or Code.Callvirt && callee.Name == "Invoke" && callee.MethodSig is { HasThis: true } sig && operand >= 1 &&
                     ProxyTarget(m, body, j, callee, sig) is var (target, call))
                 {
@@ -328,17 +293,12 @@ internal sealed class ModuleFacts(ModuleDef module)
         }
     }
 
-    /// <summary>
-    /// The method a static delegate field's delegate passes its arguments on to, unchanged and in order, and the call,
-    /// callvirt or newobj it does so with; null when that is not known. Set by the evaluator, which runs the field's
-    /// type initialization to find out (on an evaluator of its own); without it, calls through delegate fields are not
-    /// followed.
-    /// </summary>
+    /// <summary>Resolves a static delegate field's forwarding target and call opcode, or null; unset, delegate calls are not followed.</summary>
     public Func<FieldDef, int, (IMethod Target, Code Call)?>? DelegateTarget { get; set; }
 
     private readonly Dictionary<FieldDef, (IMethod, Code)?> _delegateTargets = new();
 
-    /// <summary>For the Invoke at code[j]: what the delegate it calls passes its arguments on to, when a static delegate field of the module loaded it.</summary>
+    /// <summary>The forwarding target of the Invoke at code[j] when a module static delegate field supplies the delegate, or null.</summary>
     private (IMethod Target, Code Call)? ProxyTarget(MethodDef m, CilBody body, int j, IMethod invoke, MethodSig sig)
     {
         if (DelegateTarget == null) return null;
@@ -354,11 +314,7 @@ internal sealed class ModuleFacts(ModuleDef module)
     private static bool IsCollection(ITypeDefOrRef? type) => type?.TryGetGenericInstSig()?.GenericType.FullName is
         "System.Collections.Generic.Dictionary`2" or "System.Collections.Generic.List`1";
 
-    /// <summary>
-    /// Why a static Dictionary or List is not a cache the evaluator may fill, or null when it is: no other assembly can
-    /// access it, only its type's initialization writes it, and every other load of it is the receiver of one of its own
-    /// methods (or of Monitor.Enter / Exit, for lock).
-    /// </summary>
+    /// <summary>Why a static Dictionary or List is not a cache the evaluator may fill, or null when it is.</summary>
     public string? CacheUse(FieldDef field)
     {
         if (!IsCollection(field.FieldType.ToTypeDefOrRef())) return "is not a Dictionary or List";
@@ -378,10 +334,7 @@ internal sealed class ModuleFacts(ModuleDef module)
 
     private static bool IsMonitor(IMethod method) => method.FullName.StartsWith("System.Void System.Threading.Monitor::", StringComparison.Ordinal);
 
-    /// <summary>
-    /// Whether code[j], which takes the cache as its first operand, is one of the cache's own methods or Monitor.Enter /
-    /// Exit, or stores it in a local that only lock uses (lock (cache) { ... } compiles to that).
-    /// </summary>
+    /// <summary>Whether code[j] calls a cache method or Monitor, or stores the cache in a local only lock uses.</summary>
     private bool CacheConsumer(MethodDef method, CilBody body, int j, FieldDef field)
     {
         var ins = body.Instructions[j];
@@ -400,17 +353,14 @@ internal sealed class ModuleFacts(ModuleDef module)
         return true;
     }
 
-    /// <summary>
-    /// The instruction that consumes the value code[k] pushes, and the operand it is (0: the first), or null. The value is
-    /// followed through straight-line code, and through a br into code that only that br enters (control-flow
-    /// transformations split straight-line code that way); any other merge point may bring other values.
-    /// </summary>
+    /// <summary>The consumer of code[k]'s value and its operand position, through straight-line code and single-entry brs; null at merges.</summary>
     private (int Index, int Operand)? Consumer(MethodDef m, CilBody body, int k)
     {
         var code = body.Instructions;
         var (targets, entries, index) = Shape(m, body);
         bool hasReturn = m.MethodSig?.RetType.RemovePinnedAndModifiers().ElementType != ElementType.Void;
-        int position = 0; // stack slots above the value
+        // Stack slots above the value.
+        int position = 0;
         bool viaBranch = false;
         for (int j = k + 1, steps = 0; j < code.Count && steps <= MaxConsumerScan; steps++)
         {
@@ -455,10 +405,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         return true;
     }
 
-    /// <summary>
-    /// The method's merge points (branch targets and handler starts), how many ways each is entered (branches to it,
-    /// handlers starting there, and falling into it), and each instruction's index.
-    /// </summary>
+    /// <summary>The method's merge points, how many ways each is entered, and each instruction's index.</summary>
     private (HashSet<Instruction> Targets, Dictionary<Instruction, int> Entries, Dictionary<Instruction, int> Index) Shape(MethodDef m, CilBody body)
     {
         if (_shapes.TryGetValue(m, out var shape)) return shape;
@@ -474,7 +421,8 @@ internal sealed class ModuleFacts(ModuleDef module)
         }
         foreach (var eh in body.ExceptionHandlers)
             foreach (var start in new[] { eh.TryStart, eh.HandlerStart, eh.FilterStart })
-                if (start != null) entries[start] = entries.GetValueOrDefault(start) + 2; // never a single way in
+                // Region starts never count as a single way in.
+                if (start != null) entries[start] = entries.GetValueOrDefault(start) + 2;
         shape = (targets, entries, index);
         _shapes[m] = shape;
         return shape;
@@ -553,10 +501,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         (_callees, _callers, _fieldUses, _fieldWrites, _writtenInstanceFields) = (callees, callers, fieldUses, fieldWrites, writtenInstanceFields);
     }
 
-    /// <summary>
-    /// The module's virtual methods a callvirt can reach: by name and signature in the types that derive from or implement
-    /// the type the call names (System.Object: every type), and by explicit overrides of the method it names.
-    /// </summary>
+    /// <summary>The module's virtual methods a callvirt can reach, by name and signature in derived types and by explicit override.</summary>
     private sealed class VirtualDispatch
     {
         private readonly Dictionary<string, List<MethodDef>> _byKey = new(StringComparer.Ordinal);
@@ -594,7 +539,8 @@ internal sealed class ModuleFacts(ModuleDef module)
         private HashSet<string> Ancestors(TypeDef type)
         {
             if (_ancestors.TryGetValue(type, out var set)) return set;
-            _ancestors[type] = set = new HashSet<string>(StringComparer.Ordinal) { type.FullName }; // guards against cycles
+            // Seeding the set guards against cycles.
+            _ancestors[type] = set = new HashSet<string>(StringComparer.Ordinal) { type.FullName };
             void Include(ITypeDefOrRef? t)
             {
                 if (t == null || !set.Add(Definition(t))) return;
@@ -616,8 +562,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         {
             if (_cache.TryGetValue(target.FullName, out var cached)) return cached;
             var declaring = Definition(target.DeclaringType);
-            // An interface method can be implemented by a method a base class declares, which lists no interface:
-            // calls through interfaces (or types that do not resolve) reach every method of the name and signature.
+            // A base class may implement an interface method without listing it, so interface calls reach every match.
             bool anyType = declaring == "System.Object" || target.DeclaringType == null || Resolve(target.DeclaringType) is not { IsInterface: false };
             var result = (_byKey.GetValueOrDefault(Key(target.Name, target.MethodSig)) ?? [])
                 .Where(m => anyType || Ancestors(m.DeclaringType).Contains(declaring))

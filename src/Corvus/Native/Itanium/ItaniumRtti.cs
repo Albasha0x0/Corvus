@@ -13,7 +13,7 @@ public static class CppRtti
         var cpp = image.Format == ImageFormat.Pe ? MsvcRtti.Analyze(image, ct: ct) : ItaniumRtti.Analyze(image, ct);
         var pascal = Pascal.PascalVmt.Analyze(image, ct);
         if (pascal.Classes.Count == 0) return cpp;
-        // the rejected counts stay C++'s: VMT candidates fail far more often and say nothing about the classes found
+        // Rejected counts stay C++ only: VMT candidates fail far more often and say nothing about the classes found.
         var classes = cpp.Classes.Concat(pascal.Classes)
             .OrderBy(c => c.Name, StringComparer.Ordinal).ThenBy(c => c.TypeDescriptorRva).ToList();
         var (a, b) = (cpp.Stats, pascal.Stats);
@@ -25,17 +25,11 @@ public static class CppRtti
     }
 }
 
-/// <summary>
-/// Recovers Itanium C++ ABI RTTI (ELF and Mach-O, any pointer size): typeinfo objects found through their vptr to the
-/// __class_type_info, __si_class_type_info or __vmi_class_type_info vtable (an imported symbol bound at the typeinfo, or a
-/// defined one the typeinfo points into), their names and bases (offsets, virtual and public flags), and the vtables that
-/// hold a pointer to them: offset-to-top, then the slots from the address point. The result uses the MSVC model:
-/// <see cref="MsvcRttiClass.TypeDescriptorRva"/> is the typeinfo, <see cref="MsvcRttiVtable.LocatorRva"/> the offset-to-top
-/// word, <see cref="MsvcRttiVtable.Offset"/> the subobject offset (minus offset-to-top), a virtual base's
-/// <see cref="MsvcRttiBase.Vdisp"/> the vtable offset of its offset; a slot bound to an import (__cxa_pure_virtual) is 0.
-/// </summary>
+/// <summary>Recovers Itanium C++ ABI RTTI (typeinfos, bases, vtables) into the MSVC model; a slot bound to an import (__cxa_pure_virtual) is 0.</summary>
 public static class ItaniumRtti
 {
+    // MSVC model: TypeDescriptorRva is the typeinfo, LocatorRva the offset-to-top word, Offset the subobject
+    // offset (minus offset-to-top), and a virtual base's Vdisp the vtable offset of its offset.
     private const int MaxSlots = 4096;
     private const int MaxBases = 64;
     private const long MaxSectionBytes = 512L << 20;
@@ -98,7 +92,7 @@ public static class ItaniumRtti
                 if (Vtables.TryGetValue(name, out var kind)) candidates.TryAdd(imp.SlotRva, kind);
                 else if (name.StartsWith("_ZTVN10__cxxabiv1", StringComparison.Ordinal)) _otherTypeInfos.Add(imp.SlotRva);
             }
-            // statically linked runtimes (and copy relocations): the vtables are defined here and typeinfos point 2 words in
+            // Statically linked runtimes and copy relocations: the vtables are defined here and typeinfos point 2 words in.
             var defined = new Dictionary<ulong, Kind>();
             foreach (var sym in image.Symbols)
             {
@@ -167,10 +161,7 @@ public static class ItaniumRtti
             return TryPointer(at, out var va, name: true) && ToRva(va, out var rva) ? ReadString(rva) : null;
         }
 
-        /// <summary>
-        /// A base typeinfo reference: a typeinfo in the image (directly, or bound by name to a _ZTI symbol the image defines)
-        /// or an import (a class of another library, RVA 0).
-        /// </summary>
+        /// <summary>A base typeinfo reference: a typeinfo in the image, or an import (RVA 0).</summary>
         private (uint Rva, string Name)? Base(uint at)
         {
             if (_importAt.TryGetValue(at, out var imp) && imp.Name != null)
@@ -183,10 +174,7 @@ public static class ItaniumRtti
             return (rva, NameAt(rva + (uint)_ptr) is { } mangled ? TypeName(mangled) : $"typeinfo_{image.ImageBase + rva:X}");
         }
 
-        /// <summary>
-        /// Pointer-aligned words holding a typeinfo's address, preceded by an offset-to-top (0 or negative) and followed by at
-        /// least one code pointer: the address points of the vtables.
-        /// </summary>
+        /// <summary>Vtable address points: words holding a typeinfo address after an offset-to-top (0 or negative) and before a code pointer.</summary>
         private void FindVtables()
         {
             var byVa = _types.Keys.ToDictionary(r => image.ImageBase + r, r => r);
@@ -217,8 +205,7 @@ public static class ItaniumRtti
             }
             foreach (var (rva, value) in Words(executable: false))
                 if (byVa.TryGetValue(value, out var type)) Vtable(rva, type);
-            // a typeinfo slot bound by name (weak definitions on Mach-O)
-            // a name two typeinfos share (internal linkage, e.g. anonymous namespaces in two units) binds neither
+            // A typeinfo slot bound by name (weak definitions on Mach-O); a name two typeinfos share (internal linkage) binds neither.
             var byName = _types.Values.GroupBy(t => "_ZTI" + t.Mangled, StringComparer.Ordinal).Where(g => g.Count() == 1)
                 .ToDictionary(g => g.Key, g => g.First().Rva, StringComparer.Ordinal);
             foreach (var imp in image.Imports)
@@ -231,7 +218,7 @@ public static class ItaniumRtti
             {
                 if (_importAt.TryGetValue(at, out var imp))
                 {
-                    // a function bound by name (__cxa_pure_virtual, a base's method in another library); data imports end the table
+                    // A function bound by name (__cxa_pure_virtual, a base's method in another library); data imports end the table.
                     if (imp.Name == null || Bare(image, imp.Name).StartsWith("_ZT", StringComparison.Ordinal)) return "a data import";
                     slots.Add(0);
                     continue;
@@ -278,7 +265,7 @@ public static class ItaniumRtti
             value = 0;
             if (image.Read(rva, b[.._ptr]) != _ptr) return false;
             value = _ptr == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(b) : BinaryPrimitives.ReadUInt32LittleEndian(b);
-            // the type name pointer's top bit marks a name compared by string (arm64 Apple non-unique RTTI)
+            // The type name pointer's top bit marks a name compared by string (arm64 Apple non-unique RTTI).
             if (name && _ptr == 8) value &= ~(1UL << 63);
             return true;
         }

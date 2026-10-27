@@ -9,13 +9,8 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// Pushes the names and comments in effect for an image (user annotations over the il2cpp layer; PDB names are the engine's own) into its
-/// engine session before engine output is shown, so decompile_native uses the same names as the built-in tools.
-/// Batched (<see cref="BatchSize"/> per request); the last batch records a stamp (SHA-256 of the pushed set) in the
-/// database and saves it, so a later session on the same database skips the push when nothing changed. Within a
-/// session only the differences since the last push are sent, including removals; they are journaled, not saved at once.
-/// </summary>
+/// <summary>Pushes an image's effective names and comments into its engine session in batches; a stamp saved with the full
+/// set skips unchanged pushes, and later pushes send only differences.</summary>
 public sealed class NativeNamePush(NativeCodeService code)
 {
     public const string StampKey = "names";
@@ -23,16 +18,11 @@ public sealed class NativeNamePush(NativeCodeService code)
 
     private static readonly ConditionalWeakTable<INativeDecompilerSession, State> States = new();
 
-    /// <summary>
-    /// A name and comment in effect at an address; <see cref="Function"/>: an imported name in code (a function start);
-    /// <see cref="Pseudo"/>: the user's pseudocode comment.
-    /// </summary>
+    /// <summary>A name and comments at an address; <see cref="Function"/> marks a name in code.</summary>
     public readonly record struct Entry(string? Name, string? Comment, bool Function, string? Pseudo = null, string? CommentKind = null);
 
-    /// <summary>
-    /// What a push did: entries sent, of them removals, the engine's counts, or that the database already had this set;
-    /// pseudocode comments the engine could not place.
-    /// </summary>
+    /// <summary>What a push sent and removed, the engine's counts or that the database already had the set, and unplaced
+    /// pseudocode comments.</summary>
     public sealed record PushResult(int Sent, int Removed, NameBatchResult? Totals, bool AlreadyInDatabase, string Stamp, TimeSpan Elapsed)
     {
         public IReadOnlyList<PseudoCommentOutcome> PseudoFailures { get; init; } = [];
@@ -46,12 +36,8 @@ public sealed class NativeNamePush(NativeCodeService code)
         public object[]? Inputs;
     }
 
-    /// <summary>
-    /// The names and comments in effect from every source above discovered names, by RVA. PDB names are left out
-    /// (unless <paramref name="withPdb"/>: the engine's PDB loader was not used): the engine loads the same PDB itself
-    /// and keeps its decorated, typed names, which lower layers do not override; so are the engine's own library names
-    /// (the ida and ghidra layers).
-    /// </summary>
+    /// <summary>The effective names and comments by RVA; PDB names (unless <paramref name="withPdb"/>) and the engines' own
+    /// layers are left out, since the engine keeps its own.</summary>
     public static Dictionary<uint, Entry> Effective(NativeAnnotations? user, IReadOnlyList<NativeNameLayers.Layer> layers, INativeImage image, bool withPdb = false)
     {
         var result = new Dictionary<uint, Entry>();
@@ -79,8 +65,7 @@ public sealed class NativeNamePush(NativeCodeService code)
     /// <summary>SHA-256 of a set of entries in RVA order.</summary>
     public static string StampOf(Dictionary<uint, Entry> entries)
     {
-        // per entry: rva (4 bytes) and function flag, then name \0 comment \0 [K kind \0] [P pseudo \0]; encoded into one buffer
-        // (this runs on every edit, over every name of a large image)
+        // Per entry: rva, function flag, name\0 comment\0 [K kind\0] [P pseudo\0]; one buffer, as this runs on every edit.
         var w = new StampWriter();
         var keys = entries.Keys.ToArray();
         Array.Sort(keys);
@@ -92,7 +77,8 @@ public sealed class NativeNamePush(NativeCodeService code)
             head[4] = e.Function ? (byte)1 : (byte)0;
             w.Text(e.Name).Byte(0).Text(e.Comment).Byte(0);
             if (e.CommentKind != null) w.Byte((byte)'K').Text(e.CommentKind).Byte(0);
-            if (e.Pseudo != null) w.Byte((byte)'P').Text(e.Pseudo).Byte(0); // absent: stamps of earlier builds hold
+            // Absent pseudocode keeps stamps of earlier builds valid.
+            if (e.Pseudo != null) w.Byte((byte)'P').Text(e.Pseudo).Byte(0);
         }
         return w.Finish();
     }
@@ -147,10 +133,7 @@ public sealed class NativeNamePush(NativeCodeService code)
         }
     }
 
-    /// <summary>
-    /// Brings the session's names up to date; null when nothing had changed since the last call. Engine failures
-    /// during the push propagate (the session restarts on the next request).
-    /// </summary>
+    /// <summary>Brings the session's names up to date; null when nothing changed. Engine failures propagate.</summary>
     public async Task<PushResult?> EnsureAsync(LoadedNative native, INativeDecompilerSession session, CancellationToken ct)
     {
         var state = States.GetValue(session, _ => new State());
@@ -159,7 +142,7 @@ public sealed class NativeNamePush(NativeCodeService code)
         {
             var user = code.Annotations(native);
             var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
-            // PDB names go in when the engine did not load the PDB with its own loader
+            // PDB names go in when the engine did not load the PDB with its own loader.
             bool withPdb = NativePdbTypes.OwnRoute(NativePdbTypes.Current(session)?.Route);
             // Layers are immutable and replaced as a whole, so they compare by reference; user annotations by content.
             object[] inputs = [withPdb, .. layers, .. user.Names().Select(n => (object)n), "|", .. user.Comments().Select(c => (object)(c, user.CommentKindAt(c.Rva))), "|",
@@ -189,7 +172,8 @@ public sealed class NativeNamePush(NativeCodeService code)
                 {
                     var before = state.Pushed.GetValueOrDefault(rva);
                     bool kindChanged = e.CommentKind != before.CommentKind && before.Comment != null;
-                    if (kindChanged) items.Add(new NativeNameItem(rva, null, "") { CommentKind = before.CommentKind }); // the old kind goes first
+                    // Clear the old comment kind first.
+                    if (kindChanged) items.Add(new NativeNameItem(rva, null, "") { CommentKind = before.CommentKind });
                     if (e.Name != before.Name || e.Comment != before.Comment || e.Function != before.Function || kindChanged)
                         items.Add(new NativeNameItem(rva, e.Name != before.Name ? e.Name ?? ExportName(native, rva) : null, e.Comment != before.Comment || kindChanged ? e.Comment ?? "" : null,
                             e.Function && !before.Function) { CommentKind = e.Comment != null ? e.CommentKind : before.CommentKind });
@@ -210,7 +194,7 @@ public sealed class NativeNamePush(NativeCodeService code)
                 return null;
             }
 
-            // pseudocode comments go first: the last names batch records the stamp of the whole set and saves
+            // Pseudocode comments go first, since the last names batch records the stamp and saves.
             IReadOnlyList<PseudoCommentOutcome> pseudoFailures = [];
             if (pseudo.Count > 0)
             {
@@ -223,7 +207,7 @@ public sealed class NativeNamePush(NativeCodeService code)
 
             int named = 0, failed = 0, commented = 0, created = 0;
             var failures = new List<string>();
-            // a whole set is saved with its stamp; differences are journaled (saving a large database takes longer than the edit)
+            // A full set is saved with its stamp; differences are journaled, as saving a large database outlasts the edit.
             bool full = state.Pushed == null;
             for (int i = 0; i < Math.Max(1, items.Count); i += BatchSize)
             {
@@ -243,7 +227,7 @@ public sealed class NativeNamePush(NativeCodeService code)
         finally { state.Gate.Release(); }
     }
 
-    /// <summary>Drops what is known of the session's names (its database's names were replaced): the next push sends the whole set.</summary>
+    /// <summary>Forgets the session's pushed names, so the next push sends the whole set.</summary>
     public static void Forget(INativeDecompilerSession session) => States.Remove(session);
 
     /// <summary>The stamp of the set last pushed to <paramref name="session"/>, or "" before any push.</summary>

@@ -3,10 +3,7 @@ using System.Text.Json;
 
 namespace Corvus.Core.Models;
 
-/// <summary>
-/// A safetensors file: the JSON header (tensor name, dtype, shape, data offsets) and its __metadata__, checked as the
-/// safetensors library checks it: offsets contiguous from zero, each tensor's size equal to its shape times its dtype.
-/// </summary>
+/// <summary>A safetensors file's header and __metadata__, checked as the safetensors library checks it.</summary>
 public sealed class Safetensors
 {
     // The library's own limit on the header (safetensors::tensor::MAX_HEADER_SIZE).

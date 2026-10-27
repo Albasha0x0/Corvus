@@ -10,18 +10,11 @@ public enum AsarEntryKind { File, Directory, Link }
 /// <summary>Declared integrity of a file: whole-file hash and per-block hashes (hex), as @electron/asar writes them.</summary>
 public sealed record AsarIntegrity(string Algorithm, string Hash, long BlockSize, IReadOnlyList<string> Blocks);
 
-/// <summary>
-/// One archive entry. Offset is relative to the data start (-1 when missing or not a number). UnsafeName marks a name with
-/// a separator, "..", ":", a control character or nothing in it: listed, never extracted.
-/// </summary>
+/// <summary>One archive entry; Offset is from the data start (-1 when unusable); an UnsafeName entry is never extracted.</summary>
 public sealed record AsarEntry(string Path, AsarEntryKind Kind, long Offset, long Size, bool Unpacked, bool Executable, string? Link,
     AsarIntegrity? Integrity, bool UnsafeName);
 
-/// <summary>
-/// An Electron ASAR archive: a Chromium pickle holding the JSON header, then the packed file data. Reads only the header
-/// eagerly; file data is read and verified on request through the stream. Malformed input gives issues, not exceptions,
-/// except a header that cannot be located at all.
-/// </summary>
+/// <summary>An Electron ASAR archive; reads the header eagerly, file data on request; malformed input gives issues.</summary>
 public sealed class AsarArchive
 {
     /// <summary>Largest header accepted; a 50,000-file app has a header of a few MB.</summary>
@@ -85,7 +78,8 @@ public sealed class AsarArchive
         var entries = new List<AsarEntry>();
         var parser = new HeaderParser(entries, issues, ct);
         try { parser.Parse(bytes); }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException) // InvalidOperationException: invalid UTF-8 in a string
+        // InvalidOperationException: invalid UTF-8 in a string.
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             issues.Add($"malformed_header: the JSON stops being valid ({ex.Message}); entries before that point are kept.");
         }
@@ -184,10 +178,7 @@ public sealed class AsarArchive
         return bytes;
     }
 
-    /// <summary>
-    /// Where an unpacked entry lives (<c>&lt;archive&gt;.unpacked/&lt;path&gt;</c>); null with the reason when the name is unsafe,
-    /// it would leave that folder, a component is a link or junction, or the file is missing.
-    /// </summary>
+    /// <summary>The path of an unpacked entry under &lt;archive&gt;.unpacked; null with the reason when unsafe, linked or missing.</summary>
     public static string? UnpackedPath(string archivePath, AsarEntry e, out string? problem)
     {
         problem = null;
@@ -215,16 +206,10 @@ public sealed class AsarArchive
         return current;
     }
 
-    /// <summary>
-    /// Integrity verdict of one file: ok, ok_signed_after_packing (an unpacked PE matches once the Authenticode signature added
-    /// later is taken off), hash_mismatch, block_mismatch, size_mismatch, no_integrity, unsupported_algorithm or a read problem.
-    /// </summary>
+    /// <summary>Integrity verdict of one file; ok_signed_after_packing means an unpacked PE matches without its later signature.</summary>
     public sealed record Verdict(string Status, int? FirstBadBlock = null, string? Computed = null);
 
-    /// <summary>
-    /// Hashes the file (packed, or unpacked beside <paramref name="archivePath"/>) in one streamed pass and compares the
-    /// whole-file and block hashes. <paramref name="buffer"/> is reused across calls; it grows to the block size.
-    /// </summary>
+    /// <summary>Compares the file's whole and block hashes in one pass; <paramref name="buffer"/> is reused and grows to the block size.</summary>
     public Verdict Verify(Stream stream, string? archivePath, AsarEntry e, ref byte[] buffer, CancellationToken ct = default)
     {
         if (e.Kind != AsarEntryKind.File) return new("not_a_file");
@@ -263,7 +248,8 @@ public sealed class AsarArchive
             int? badBlock = null;
             int count = 0;
             long done = 0;
-            do // an empty file has one (empty) block
+            // An empty file has one empty block.
+            do
             {
                 ct.ThrowIfCancellationRequested();
                 int n = (int)Math.Min(blockSize, e.Size - done);
@@ -275,7 +261,7 @@ public sealed class AsarArchive
                 count++;
                 done += n;
             } while (done < e.Size);
-            // the writer adds an empty block after a file that fills its last block exactly
+            // The writer adds an empty block after a file that fills its last block exactly.
             bool extraEmpty = integrity.Blocks.Count == count + 1 && e.Size % blockSize == 0 && BlockMatches([], integrity.Blocks[count]);
             if (badBlock == null && integrity.Blocks.Count != count && !extraEmpty) badBlock = Math.Min(count, integrity.Blocks.Count);
             var computed = Convert.ToHexStringLower(whole.GetHashAndReset());
@@ -287,10 +273,7 @@ public sealed class AsarArchive
         finally { if (own) source.Dispose(); }
     }
 
-    /// <summary>
-    /// For a PE whose Authenticode table starts at <paramref name=declared/> (8-byte aligned) and runs to the end: the header
-    /// fields signing changed (checksum, security directory), which were zero when the file was packed. Null otherwise.
-    /// </summary>
+    /// <summary>The header fields signing changed when a PE's appended signature starts at <paramref name="declared"/>; else null.</summary>
     private static (int Offset, int Length)[]? SignatureFields(Stream s, long declared)
     {
         Span<byte> head = stackalloc byte[1024];

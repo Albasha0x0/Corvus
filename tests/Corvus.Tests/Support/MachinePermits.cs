@@ -6,22 +6,14 @@ using Xunit.Sdk;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Takes machine-wide permits for a test class's heavy resource (<see cref="MachinePermits"/>) while the class runs. A
-/// class needs one through this attribute on it, an enclosing class or a test method; <see cref="IdaFactAttribute"/> and
-/// <see cref="GhidraFactAttribute"/> tests need their engine's without it.
-/// </summary>
+/// <summary>Takes machine-wide permits for a class's heavy resource while it runs; IDA and Ghidra facts take their engine's without it.</summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
 public sealed class PermitAttribute(string resource) : Attribute
 {
     public string Resource { get; } = resource;
 }
 
-/// <summary>
-/// Machine-wide permits for heavy resources, shared by every test process on the machine (lanes' runs and the background
-/// run alike), so engines and real programs stay bounded however many runs start. A permit is a slot file opened for
-/// exclusive use: a process that crashes releases its permits with its handles.
-/// </summary>
+/// <summary>Machine-wide permits for heavy resources, shared by every test process; a permit is an exclusively opened slot file, released when its process dies.</summary>
 public static class MachinePermits
 {
     /// <summary>Permits per resource on any machine.</summary>
@@ -36,8 +28,7 @@ public static class MachinePermits
         ["engine-ida"] = 1, ["engine-ghidra"] = 1, ["reference-tool"] = 2,
     };
 
-    // A third engine of each kind keeps more than 20 GB free in a push run on an 80 GB machine; 16 GB hosts stay at two.
-    // Six reference tools let all six pipeline round trip parts start at once in a full run.
+    // Three engines per kind keep 20 GB free on an 80 GB machine, 16 GB hosts stay at two; six reference tools let all pipeline parts start at once.
     private const long LargeMemory = 64L << 30;
 
     /// <summary>The permits per resource on this machine: <see cref="Counts"/>, plus <see cref="LargeMachineExtra"/> on a large one.</summary>
@@ -53,8 +44,7 @@ public static class MachinePermits
     /// </summary>
     public static readonly TimeSpan WaitLimit = TimeSpan.FromMinutes(10);
 
-    // The Restart Manager reads every handle on the machine: 0.6-6.7 s under load in quick runs, and past 30 s
-    // beside a whole run, so a wait that runs out names the holders it learns within this bound.
+    // The Restart Manager reads every handle: 0.6-6.7 s under load, over 30 s beside a whole run, so the holder lookup is bounded.
     private static readonly TimeSpan HolderLookupLimit = TimeSpan.FromSeconds(30);
 
     /// <summary>How often a holder reports progress while a test runs, so only a holder that stopped runs out a wait.</summary>
@@ -86,12 +76,7 @@ public static class MachinePermits
         return [.. needed];
     }
 
-    /// <summary>
-    /// Waits for one permit of each resource, taken in the order given (name order, so two holders never wait on each
-    /// other), and returns them as one handle with the time waited. Cancellation releases what was taken and throws; so
-    /// does a wait that sees no progress for <see cref="WaitLimit"/>, with a <see cref="TimeoutException"/> naming the
-    /// slots and their holders.
-    /// </summary>
+    /// <summary>Waits for one permit per resource in name order and returns them with the time waited; cancellation or <see cref="WaitLimit"/> without progress releases them and throws, naming holders.</summary>
     public static Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, CancellationToken cancellation = default) =>
         // The perf run holds every permit itself (test.ps1 -Perf), so its own tests take none.
         Environment.GetEnvironmentVariable("CORVUS_PERMITS_HELD") == "1"
@@ -179,11 +164,7 @@ public static class MachinePermits
         return string.Join("; ", named);
     }
 
-    /// <summary>
-    /// The owner records of a resource's slots, joined: "pid test token progress" from a test process, "pid script" from
-    /// a script. A record a holder is rewriting reads as unknown; a script's record whose process lives reads as new on
-    /// every call, since a script reports no progress of its own.
-    /// </summary>
+    /// <summary>Owner records of a resource's slots: "pid test token progress" or "pid script"; a record being rewritten reads unknown.</summary>
     private static string Owners(string dir, int count) => string.Join("|", Enumerable.Range(0, count).Select(i =>
     {
         string record;

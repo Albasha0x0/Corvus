@@ -30,7 +30,7 @@ public static partial class PackageReview
             record = Record(files, info + "RECORD", findings);
             foreach (var script in files.Paths.Where(p => Regex.IsMatch(p, @"^[^/]+\.data/scripts/[^/]+$")))
                 entries.Add(new PackageEntryPoint("script", script[(script.LastIndexOf('/') + 1)..], script));
-            // .pth files at the top of site-packages: their import lines run at every interpreter start
+            // Import lines in top-level .pth files run at every interpreter start.
             foreach (var pth in files.Paths.Where(p => !p.Contains('/') && p.EndsWith(".pth", StringComparison.Ordinal)))
             {
                 var text = files.Text(pth) ?? "";
@@ -48,7 +48,7 @@ public static partial class PackageReview
             if (files.Text(root + "PKG-INFO") is { } pkgInfo) (name, version, summary, author, deps) = Metadata(pkgInfo);
             if (files.Text(root + "setup.py") is { } setup)
             {
-                // pip runs setup.py to build or install an sdist: its module-level code runs at install
+                // pip runs setup.py to build an sdist, so its module-level code runs at install.
                 scripts.Add(new PackageScript("setup.py", "python setup.py (run by pip to build the package)", true));
                 if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)"))
                     findings.Add(new PackageFinding("review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
@@ -75,14 +75,13 @@ public static partial class PackageReview
             if (files.Text(root + "setup.cfg") is { } cfg && Regex.Match(cfg, @"(?ms)^\[options\.entry_points\]\s*$(.*?)(?=^\[|\z)") is { Success: true } cfgEntries)
                 entries.AddRange(EntryPoints("[x]\n" + cfgEntries.Groups[1].Value.Replace("\n    ", "\n")).Select(e => e with { Kind = "entry point" }));
         }
-        // import-time code: package __init__ modules (and the rest within a bound)
-        // tests, examples and docs ship in sdists but are not imported
+        // Import-time code, __init__ modules first; tests, examples and docs are not imported.
         foreach (var source in files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
                      .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/')).Take(MaxScannedSources))
             if (files.Text(source) is { } code)
                 findings.AddRange(Scan(source, code, install: false, ct, entry: source.EndsWith("__init__.py", StringComparison.Ordinal))
                     .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
-        // dependencies that together make a credential stealer: browser cookies, Discord webhooks, Roblox sessions
+        // Cookie, webhook and session libraries together mark a credential collector.
         var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))
             .Select(p => files.Text(p) ?? ""));

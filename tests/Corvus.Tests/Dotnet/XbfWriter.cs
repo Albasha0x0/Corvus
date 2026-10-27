@@ -4,10 +4,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Builds XBF 2.1 files as the XAML compiler lays them out: header, string, assembly, type namespace, type, property
-/// and XML namespace tables, then the stream table and node streams of object writer nodes.
-/// </summary>
+/// <summary>Builds XBF 2.1 files in the XAML compiler's layout.</summary>
 internal sealed class XbfWriter
 {
     public const string Presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";

@@ -6,11 +6,7 @@ using Corvus.Services;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// A synthetic x64 crash: a module (only in dump memory) with three exported functions whose .pdata / UNWIND_INFO use
-/// push nonvol, alloc small / large, set frame register, save nonvol and a chained fragment, and a stack where
-/// Big calls Outer (from its chained fragment) which calls Crash, which writes through a null pointer.
-/// </summary>
+/// <summary>A synthetic x64 crash whose stack unwinds through every UNWIND_INFO form and a chained fragment.</summary>
 internal static class SyntheticCrash
 {
     public const ulong Base = 0x7FF6_1000_0000;
@@ -32,15 +28,15 @@ internal static class SyntheticCrash
     {
         var b = new PeBuilder { ImageBase = Base, Characteristics = 0x2022 };
         var text = new byte[0x100];
-        // Crash: push rbx; sub rsp, 20h; mov [rax], ecx; add rsp, 20h; pop rbx; ret
+        // Crash: push rbx; sub rsp, 20h; mov [rax], ecx; add rsp, 20h; pop rbx; ret.
         new byte[] { 0x53, 0x48, 0x83, 0xEC, 0x20, 0x89, 0x08, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3 }.CopyTo(text, 0x00);
-        // Outer: push rbp; push rsi; sub rsp, 30h; lea rbp, [rsp+20h]; jmp fragment
+        // Outer: push rbp; push rsi; sub rsp, 30h; lea rbp, [rsp+20h]; jmp fragment.
         new byte[] { 0x55, 0x56, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8D, 0x6C, 0x24, 0x20, 0xE9, 0x20, 0x00, 0x00, 0x00 }.CopyTo(text, 0x20);
-        // fragment: call Crash; lea rsp, [rbp+10h]; pop rsi; pop rbp; ret
+        // Fragment: call Crash; lea rsp, [rbp+10h]; pop rsi; pop rbp; ret.
         text[0x50] = 0xE8;
         BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0x51), (int)CrashRva - (int)(FragmentRva + 5));
         new byte[] { 0x48, 0x8D, 0x65, 0x10, 0x5E, 0x5D, 0xC3 }.CopyTo(text, 0x55);
-        // Big: sub rsp, 1000h; mov [rsp+1010h], rdi; call Outer; ...; ret
+        // Big: sub rsp, 1000h; mov [rsp+1010h], rdi; call Outer; ...; ret.
         new byte[] { 0x48, 0x81, 0xEC, 0x00, 0x10, 0x00, 0x00, 0x48, 0x89, 0xBC, 0x24, 0x10, 0x10, 0x00, 0x00, 0xE8 }.CopyTo(text, 0x80);
         BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0x90), (int)OuterRva - (int)(BigRva + 20));
         new byte[] { 0x48, 0x8B, 0xBC, 0x24, 0x10, 0x10, 0x00, 0x00, 0x48, 0x81, 0xC4, 0x00, 0x10, 0x00, 0x00, 0xC3 }.CopyTo(text, 0x94);
@@ -122,13 +118,13 @@ internal static class SyntheticCrash
         d.Regions.Add(new MinidumpBuilder.Region(Stack, 0x1100, 0x04));
         var crash = MinidumpBuilder.ContextX64(moduleBase + CrashRva + faultOffset, Stack, rbp: Stack + 0x50, rcx: 0x2A);
         d.Threads.Add(new MinidumpBuilder.Thread(100, Stack, crash, "main"));
-        // inside Crash's epilog: after add rsp, before pop rbx
+        // Inside Crash's epilog: after add rsp, before pop rbx.
         d.Threads.Add(new MinidumpBuilder.Thread(101, Stack, MinidumpBuilder.ContextX64(moduleBase + CrashRva + 11, Stack + 0x20, rbp: Stack + 0x50)));
-        // inside Crash's prolog: after push rbx, before sub rsp
+        // Inside Crash's prolog: after push rbx, before sub rsp.
         d.Threads.Add(new MinidumpBuilder.Thread(102, Stack, MinidumpBuilder.ContextX64(moduleBase + CrashRva + 1, Stack + 0x20, rbp: Stack + 0x50)));
-        // in code outside any module (JIT): only a scan finds the caller
+        // In code outside any module (JIT): only a scan finds the caller.
         d.Threads.Add(new MinidumpBuilder.Thread(103, Stack, MinidumpBuilder.ContextX64(JitCode, Stack, rbp: Stack + 0x50)));
-        // a call to a bad address from Outer's fragment: the return address is at the stack pointer
+        // A call to a bad address from Outer's fragment: the return address is at the stack pointer.
         d.Threads.Add(new MinidumpBuilder.Thread(104, Stack, MinidumpBuilder.ContextX64(0x1234, Stack + 0x28, rbp: Stack + 0x50)));
         if (exception) d.Exception = (100, code, moduleBase + CrashRva + faultOffset, [1, 0], crash);
         return d;
@@ -142,11 +138,7 @@ internal static class SyntheticCrash
     }
 }
 
-/// <summary>
-/// Synthetic x86 crashes. synth32.dll: Top (an EBP frame) calls Mid, which calls Leaf; Mid and Leaf keep no frame pointer,
-/// so EBP still holds Top's frame when Leaf faults. Jump calls through eax to a bad address; Trap calls halt.dll!Halt
-/// through its import slot.
-/// </summary>
+/// <summary>Synthetic x86 crashes: frame-pointer-less frames, a bad call target and a call through an import slot.</summary>
 internal static class SyntheticCrashX86
 {
     public const uint Base = 0x1000_0000, HaltBase = 0x2000_0000, Stack = 0x00E0_0000;
@@ -363,7 +355,7 @@ public sealed class MinidumpTests
 
     /// <summary>x86 frames without a frame pointer are found by the return address whose call targets the function, not lost to the EBP chain.</summary>
     [Fact]
-    public async Task X86FramePointerOmittedFramesAreWalked()
+    public async Task X86_frame_pointer_omitted_frames_are_walked()
     {
         using var dir = new TempDir();
         var path = SyntheticCrashX86.Write(dir);
@@ -374,16 +366,17 @@ public sealed class MinidumpTests
         Assert.Equal(["context", "call_target", "call_target"], stack.Items.Select(f => f.Method));
         Assert.Equal(0, stack.ScannedFrames);
         Assert.Equal("end_of_stack", stack.Stop);
-        // a call to a bad address: the return address is at the stack pointer
+        // A call to a bad address: the return address is at the stack pointer.
         var bad = await service.Stack(path, "101", true, 64, 0, 64, null, default);
         Assert.Equal(("leaf", "synth32!Jump+0x2"), (bad.Items[1].Method, bad.Items[1].Symbol));
-        // a call through an import slot the dump holds unbound: matched by the import's name
+        // A call through an import slot the dump holds unbound: matched by the import's name.
         var trap = await service.Stack(path, "102", true, 64, 0, 64, null, default);
         Assert.Equal(["halt!Halt+0x2", "synth32!Trap+0x6"], trap.Items.Take(2).Select(f => f.Symbol));
-        Assert.Equal(("call_target", "inferred"), (trap.Items[1].Method, trap.Items[1].Basis)); // a nearest-export name
+        // The name of the nearest export.
+        Assert.Equal(("call_target", "inferred"), (trap.Items[1].Method, trap.Items[1].Basis));
         Assert.Equal("derived", MinidumpService.FrameBasis("call_target", false, "export"));
         Assert.Null(MinidumpService.FrameBasis("unwind_info", false, "pdb"));
-        // Leaf reached by a tail jump from Tail: the return address is Outer's call to Tail; the EBP chain would skip Outer
+        // Leaf reached by a tail jump from Tail: the return address is Outer's call to Tail; the EBP chain would skip Outer.
         var tail = await service.Stack(path, "103", true, 64, 0, 64, null, default);
         Assert.Equal(["synth32!Leaf", "synth32!Outer+0x8"], tail.Items.Select(f => f.Symbol));
         Assert.Equal("call_target", tail.Items[1].Method);
@@ -537,7 +530,7 @@ public sealed class MinidumpTests
         var ntdll = SyntheticCrashX86.Mapped(SyntheticCrashX86.Pe32("ntdll.dll", Ntdll, _ =>
         {
             var text = new byte[0x30];
-            // KiUserExceptionDispatcher: cld; mov ecx, [esp+4]; mov ebx, [esp]; push ecx; push ebx; call RtlDispatchException
+            // KiUserExceptionDispatcher: cld; mov ecx, [esp+4]; mov ebx, [esp]; push ecx; push ebx; call RtlDispatchException.
             new byte[] { 0xFC, 0x8B, 0x4C, 0x24, 0x04, 0x8B, 0x1C, 0x24, 0x51, 0x53, 0xE8 }.CopyTo(text, 0);
             BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(11), 0x20 - 0x0F);
             new byte[] { 0x8B, 0xFF, 0xCC, 0xC3 }.CopyTo(text, 0x20); // RtlDispatchException: mov edi, edi; int3; ret
@@ -615,16 +608,17 @@ public sealed class MinidumpTests
     /// return address (not the end of the stack), and the scan above reaches the program's frame.
     /// </summary>
     [Fact]
-    public async Task X86GuessedFramePointersDoNotEndTheWalk()
+    public async Task X86_guessed_frame_pointers_do_not_end_the_walk()
     {
-        const uint Stack2 = 0x00E1_0000, Heap = 0x0100_0000; // the heap block lies above the stack, where a chain could follow it
+        // The heap block lies above the stack, where a chain could follow it.
+        const uint Stack2 = 0x00E1_0000, Heap = 0x0100_0000;
         using var dir = new TempDir();
         var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
         var stack = new byte[0x100];
         void Put(byte[] to, int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(to.AsSpan(at), v);
         Put(stack, 0x04, Stack2 + 0x20); // below the return address: the scan's guessed frame pointer
         Put(stack, 0x08, SyntheticCrashX86.Base + SyntheticCrashX86.MidRva + 6); // found by the scan
-        // 0x20: the guessed frame holds zeros (saved ebp, return address)
+        // 0x20: the guessed frame holds zeros (saved ebp, return address).
         Put(stack, 0x30, SyntheticCrashX86.Base + SyntheticCrashX86.OuterRva + 8); // found by the scan above it
         var heap = new byte[0x10];
         Put(heap, 0x00, Stack2 + 0x40);
@@ -649,7 +643,7 @@ public sealed class MinidumpTests
 
     /// <summary>A frame chained from the scan's guessed frame pointer is a guess too, marked inferred: the zero return address after it does not end the walk.</summary>
     [Fact]
-    public async Task X86FramesChainedFromAGuessDoNotEndTheWalk()
+    public async Task X86_frames_chained_from_a_guess_do_not_end_the_walk()
     {
         const uint Stack2 = 0x00E1_0000;
         using var dir = new TempDir();
@@ -660,7 +654,7 @@ public sealed class MinidumpTests
         Put(0x08, SyntheticCrashX86.Base + SyntheticCrashX86.MidRva + 6); // found by the scan
         Put(0x20, Stack2 + 0x40); // the guessed frame chains on
         Put(0x24, SyntheticCrashX86.Base + SyntheticCrashX86.OuterRva + 8);
-        // 0x40: zeros (saved ebp, return address)
+        // 0x40: zeros (saved ebp, return address).
         Put(0x50, SyntheticCrashX86.Base + SyntheticCrashX86.TopRva + 8); // found by the scan above it
         var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
         d.Modules.Add(new MinidumpBuilder.Module(SyntheticCrashX86.Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
@@ -681,13 +675,13 @@ public sealed class MinidumpTests
 
     /// <summary>Caller searches that find nothing over many frames without a frame pointer leave the scan its own budget (fails without 7fba2d2e).</summary>
     [Fact]
-    public async Task X86CallerSearchesDoNotSpendTheScanBudget()
+    public async Task X86_caller_searches_do_not_spend_the_scan_budget()
     {
         const uint Stack2 = 0x00E2_0000;
         const int Frames = 10;
         using var dir = new TempDir();
         var image = SyntheticCrashX86.Mapped(SyntheticCrashX86.FileImage());
-        // each search for Mid's caller (Top+8) reads 0x4000 slots of the stack and finds none
+        // Each search for Mid's caller (Top+8) reads 0x4000 slots of the stack and finds none.
         var stack = new byte[0x11000];
         for (int i = 0; i < Frames; i++) BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(4 * i), SyntheticCrashX86.Base + SyntheticCrashX86.MidRva + 6);
         var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
@@ -706,13 +700,14 @@ public sealed class MinidumpTests
 
     /// <summary>An unwind that reads something other than code as the return address (a stale slot) scans on instead of reporting it.</summary>
     [Fact]
-    public async Task AnUnwoundReturnAddressThatIsNotCodeScansOn()
+    public async Task An_unwound_return_address_that_is_not_code_scans_on()
     {
         const ulong Stack2 = 0xE0_0002_0000;
         using var dir = new TempDir();
         var stack = new byte[0x100];
         void Put(int at, ulong v) => BinaryPrimitives.WriteUInt64LittleEndian(stack.AsSpan(at), v);
-        Put(0x28, 0x43BF_8000_443E_C000); // where Crash's unwind finds its return address
+        // Where Crash's unwind finds its return address.
+        Put(0x28, 0x43BF_8000_443E_C000);
         Put(0x40, SyntheticCrash.Base + SyntheticCrash.BigRva + 20);
         var d = SyntheticCrash.Builder(exception: false);
         d.Memory.Add((Stack2, stack));
@@ -731,7 +726,7 @@ public sealed class MinidumpTests
     /// CPU area that TEB64 TLS slot 1 points to, with the 32-bit stack bounds from the TEB32 at TEB64 + 0x2000.
     /// </summary>
     [Fact]
-    public async Task Wow64ThreadsShowTheir32BitSide()
+    public async Task WOW64_threads_show_their_32_bit_side()
     {
         using var dir = new TempDir();
         const uint id = 7;
@@ -769,7 +764,7 @@ public sealed class MinidumpTests
 
     /// <summary>A module name two modules share (a WoW64 process's two ntdll.dll) is ambiguous alone and with an offset alike.</summary>
     [Fact]
-    public async Task ModuleNamesSharedByTwoModulesAreAmbiguousInEveryForm()
+    public async Task Module_names_shared_by_two_modules_are_ambiguous_in_every_form()
     {
         using var dir = new TempDir();
         var d = new MinidumpBuilder();
@@ -790,7 +785,7 @@ public sealed class MinidumpTests
 
     /// <summary>Frames without a name (JIT code, unknown places) are left out of a signature, so a dump that holds less memory lands in the same bucket.</summary>
     [Fact]
-    public async Task UnnamedFramesDoNotSplitABucket()
+    public async Task Unnamed_frames_do_not_split_a_bucket()
     {
         using var dir = new TempDir();
         SyntheticCrashX86.Write(dir, "with-jit.dmp", jit: true);
@@ -801,9 +796,9 @@ public sealed class MinidumpTests
     }
 
     /// <summary>read_dump_memory pages by bytes within the budget: the pages' hex, walked by nextOffset, is the whole read.</summary>
-    /// <summary>dump_stack starts the faulting thread at the exception context unless dumpTimeContext (the default of the former exceptionContext=true).</summary>
+    /// <summary>dump_stack starts the faulting thread at the exception context unless dumpTimeContext.</summary>
     [Fact]
-    public async Task DumpStackStartsAtTheExceptionContextUnlessDumpTimeContext()
+    public async Task Dump_stack_starts_at_the_exception_context_unless_dump_time_context()
     {
         using var dir = new TempDir();
         var path = SyntheticCrash.Write(dir);
@@ -814,7 +809,7 @@ public sealed class MinidumpTests
     }
 
     [Fact]
-    public async Task ReadDumpMemoryPagesWalkTheWholeRange()
+    public async Task Read_dump_memory_pages_walk_the_whole_range()
     {
         using var dir = new TempDir();
         var path = SyntheticCrash.Write(dir);
@@ -843,7 +838,7 @@ public sealed class MinidumpTests
 
     /// <summary>open_minidump: the summary names the faulting module and thread; each list view pages its rows with one offset.</summary>
     [Fact]
-    public async Task OpenMinidumpViewsPageTheirRows()
+    public async Task Open_minidump_views_page_their_rows()
     {
         using var dir = new TempDir();
         var path = SyntheticCrash.Write(dir);
@@ -875,7 +870,7 @@ public sealed class MinidumpTests
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.OpenMinidump(path, view: "stacks"))).Code);
     }
 
-    /// <summary>unload_assembly closes an open dump id (it named only the loaded images before) and leaves the file.</summary>
+    /// <summary>unload_assembly closes an open dump id and leaves the file.</summary>
     [Fact]
     public async Task Unload_closes_an_open_dump_id()
     {
@@ -885,7 +880,7 @@ public sealed class MinidumpTests
         using var ws = new AssemblyWorkspace();
         await new Corvus.Tools.MinidumpTools(service).OpenMinidump(path);
         var id = Assert.Single(service.OpenIds);
-        var tools = new Corvus.Tools.WorkspaceTools(ws, new Il2CppService(ws), new IndexingService(ws, new CallGraphService(ws), new ServerOptions()), new Corvus.Services.Analysis.UnpackService(ws), dumps: service);
+        var tools = new Corvus.Tools.WorkspaceTools(ws, new AotMetadataService(ws), new IndexingService(ws, new CallGraphService(ws), new ServerOptions()), new Corvus.Services.Analysis.UnpackService(ws), dumps: service);
         Assert.StartsWith($"Closed dump {id}", await tools.UnloadAssembly(id));
         Assert.Empty(service.OpenIds);
         Assert.True(File.Exists(path));
@@ -893,7 +888,7 @@ public sealed class MinidumpTests
     }
 
     [Fact]
-    public async Task SyntheticCrashIsSummarizedAndUnwound()
+    public async Task Synthetic_crash_is_summarized_and_unwound()
     {
         using var dir = new TempDir();
         var path = SyntheticCrash.Write(dir);
@@ -922,7 +917,7 @@ public sealed class MinidumpTests
         Assert.Equal(0, stack.ScannedFrames);
         Assert.Contains(stack.Notes, n => n.StartsWith("synth.dll: image dump_memory", StringComparison.Ordinal));
 
-        // epilog, prolog and a scan from code outside any module
+        // Epilog, prolog and a scan from code outside any module.
         var epilog = await service.Stack(path, "101", true, 64, 0, 64, null, default);
         Assert.Equal(["synth!Crash+0xB", "synth!Outer+0x35", "synth!Big+0x14"], epilog.Items.Select(f => f.Symbol));
         Assert.Equal("epilog", epilog.Items[1].Method);
@@ -951,13 +946,13 @@ public sealed class MinidumpTests
 
     [Fact]
     [FuzzEntry(typeof(MinidumpFile))]
-    public void NotADumpIsRejectedAndMalformedDumpsNeverThrow()
+    public void Not_a_dump_is_rejected_and_malformed_dumps_never_throw()
     {
         var error = Assert.Throws<ToolError>(() => MinidumpFile.FromBytes(new byte[64]));
         Assert.Equal(ErrorCode.MalformedInput, error.Code);
         var good = SyntheticCrash.Builder().Build();
 
-        // truncated anywhere after the header
+        // Truncated anywhere after the header.
         foreach (int cut in new[] { 32, 40, 100, 200, 400, 1000, good.Length / 2, good.Length - 100 })
         {
             using var dump = MinidumpFile.FromBytes(good[..cut]);
@@ -965,7 +960,7 @@ public sealed class MinidumpTests
             if (cut < good.Length / 2) Assert.NotEmpty(dump.Issues);
         }
 
-        // a stream directory past the end of the file
+        // A stream directory past the end of the file.
         var bad = (byte[])good.Clone();
         BinaryPrimitives.WriteUInt32LittleEndian(bad.AsSpan(12), 0x7FFFFFF0);
         using (var dump = MinidumpFile.FromBytes(bad))
@@ -974,9 +969,10 @@ public sealed class MinidumpTests
             Assert.Empty(dump.Threads);
         }
 
-        // two directory entries on the same data; a stream past the end
+        // Two directory entries on the same data; a stream past the end.
         bad = (byte[])good.Clone();
-        Array.Copy(bad, 32 + 8, bad, 32 + 12 + 8, 4); // second stream's RVA = first stream's
+        // Second stream's RVA = first stream's.
+        Array.Copy(bad, 32 + 8, bad, 32 + 12 + 8, 4);
         BinaryPrimitives.WriteUInt32LittleEndian(bad.AsSpan(32 + 2 * 12 + 8), (uint)good.Length - 4);
         using (var dump = MinidumpFile.FromBytes(bad))
         {
@@ -985,7 +981,7 @@ public sealed class MinidumpTests
             Exercise(dump);
         }
 
-        // huge counts: thread list, memory list, stream count
+        // Huge counts: thread list, memory list, stream count.
         bad = (byte[])good.Clone();
         using (var probe = MinidumpFile.FromBytes(good))
         {
@@ -1002,7 +998,7 @@ public sealed class MinidumpTests
             Exercise(dump);
         }
 
-        // random byte mutations
+        // Random byte mutations.
         var random = new Random(11);
         for (int round = 0; round < 150; round++)
         {

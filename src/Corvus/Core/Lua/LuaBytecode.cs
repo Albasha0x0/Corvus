@@ -7,21 +7,14 @@ namespace Corvus.Core.Lua;
 /// <summary>A constant of a Lua function: its type letter (N nil, B boolean, F float, I integer, S string) and value.</summary>
 public sealed record LuaConstant(char Type, string Text, byte[]? Bytes = null);
 
-/// <summary>
-/// One function prototype of a Lua chunk. <see cref="Upvalues"/>, <see cref="Locals"/> and <see cref="Lines"/> count what
-/// the file records; a stripped chunk keeps no locals or lines (Lines is null).
-/// </summary>
+/// <summary>One function prototype of a Lua chunk; a stripped chunk has no locals and null <see cref="Lines"/>.</summary>
 public sealed record LuaFunction(string Source, int Line, int LastLine, int Params, bool Vararg, int Slots, uint[] Code,
     IReadOnlyList<LuaConstant> Constants, int Upvalues, int Locals, IReadOnlyList<LuaFunction> Children, int[]? Lines);
 
 /// <summary>A Lua chunk: the version, the function tree from the main function, and whether debug information is stripped.</summary>
 public sealed record LuaChunk(string Version, LuaFunction Main, bool Stripped, string Layout);
 
-/// <summary>
-/// Reads precompiled Lua chunks (luac output) of Lua 5.1, 5.2, 5.3 and 5.4: the header, every function prototype with its
-/// code, constants, upvalue and local counts and line information. Throws InvalidDataException on a damaged or unknown
-/// chunk.
-/// </summary>
+/// <summary>Reads luac chunks of Lua 5.1 to 5.4; throws InvalidDataException on a damaged or unknown chunk.</summary>
 public static class LuaBytecode
 {
     public const string Kind = "Lua bytecode";
@@ -65,7 +58,8 @@ public static class LuaBytecode
             // The test integer 0x5678 tells the byte order.
             r.Little = r.U8() == 0x78;
             r.Skip(r.IntegerSize - 1 + r.NumberSize);
-            r.U8(); // upvalues of the main closure
+            // Upvalues of the main closure.
+            r.U8();
             layout = $"{(r.Little ? "little" : "big")}-endian, {r.IntegerSize}-byte integers, {r.NumberSize}-byte floats";
         }
         var main = Function(r, "=?", 0);
@@ -146,8 +140,7 @@ public static class LuaBytecode
         int names = r.Count();
         for (int i = 0; i < names; i++) r.String();
         if (v == 0x51) upvalues = nups;
-        // A function without its own source name shares its parent's, except in 5.2, which writes it in every function's
-        // debug information; a stripped chunk records none.
+        // A function without a source name shares its parent's, except in 5.2, which writes it in every function.
         string shown = source ?? (v != 0x52 && depth > 0 ? parentSource : "=?");
         return new LuaFunction(shown, line, lastLine, parameters, vararg != 0, slots, code, constants, upvalues, locals, children, lines);
     }

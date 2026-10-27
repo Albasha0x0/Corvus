@@ -96,10 +96,7 @@ final class NameOps {
         };
     }
 
-    /**
-     * items: [[rva, text; "" removes]]: the decompiler shows pre-comments above the statement made from the instruction
-     * holding the address. Rows [rva, applied, anchor rva, error].
-     */
+    /** items: [[rva, text; "" removes]] as pre-comments above the statement at the address. Rows [rva, applied, anchor rva, error]. */
     static JsonObject pseudoComments(Worker w, Worker.Request r) {
         Listing listing = w.program.getListing();
         JsonArray rows = new JsonArray();
@@ -131,8 +128,8 @@ final class NameOps {
     }
 
     /**
-     * items: [[rva, name or null, comment or null, make_function, comment kind (optional: eol, pre, plate)]]; an empty name or comment removes it. Names are
-     * forced (Ghidra allows the same label name at several addresses); a comment at a function start is the function's.
+     * items: [[rva, name or null, comment or null, make_function, kind (eol, pre, plate)]]; empty removes. Names are forced
+     * (Ghidra allows duplicate labels); a comment at a function start is the function's.
      */
     static JsonObject applyNames(Worker w, Worker.Request r) {
         long start = System.nanoTime();

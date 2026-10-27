@@ -46,7 +46,7 @@ public sealed class GoFunctionTableTests
         int entrySize = wide ? 2 * ptr : 8;
         int records = functab + (count + 1) * entrySize + 8;
         int recordSize = wide ? ptr + 24 : 28;
-        // one pcsp table shared by every function (offset 0 means none): sp delta 0 up to ownSize (zigzag value delta, pc delta, end)
+        // One pcsp table shared by every function (offset 0 means none): sp delta 0 up to ownSize (zigzag value delta, pc delta, end).
         const int PcTables = 0x1800;
         int pctab = version == GoTableVersion.Go12 ? 0 : PcTables;
         if (ownSize > 0) new byte[] { 2, (byte)(ownSize | 0x80), (byte)(ownSize >> 7), 0 }.CopyTo(t, PcTables + 1);
@@ -110,7 +110,7 @@ public sealed class GoFunctionTableTests
         var table = Assert.IsType<GoFunctionTable>(GoFunctionTable.Of(image));
         Assert.Equal(version, table.Version);
         Assert.Equal(Count, table.Functions.Count);
-        // sizes are the code the pcsp tables cover, not the 0x20 to the next entry (int3 padding)
+        // Sizes are the code the pcsp tables cover, not the 0x20 to the next entry (int3 padding).
         Assert.All(table.Functions, f => Assert.Equal((0x11u, true), (f.Size, f.OwnSize)));
 
         var index = NativeCodeIndex.Build(image);
@@ -193,7 +193,7 @@ public sealed class GoFunctionTableTests
     [Fact]
     public async Task Code_decoded_past_a_functions_own_end_is_an_index_issue()
     {
-        // nops up to 0x14, then ret; the tables say each function ends at 0x11
+        // Nops up to 0x14, then ret; the tables say each function ends at 0x11.
         var text = new byte[3 * 0x20];
         Array.Fill(text, (byte)0xCC);
         for (int i = 0; i < 3; i++) { Array.Fill(text, (byte)0x90, i * 0x20, 0x14); text[i * 0x20 + 0x14] = 0xC3; }
@@ -233,7 +233,7 @@ public sealed class GoFunctionTableTests
     [Fact]
     public void Windows_arm_go_functions_are_arm_state()
     {
-        // Go emits A32 even on Windows, whose other ARM code is Thumb only: bx lr per function
+        // Go emits A32 even on Windows, whose other ARM code is Thumb only: bx lr per function.
         const int Count = 4;
         var text = new byte[Count * 0x20];
         for (int i = 0; i < Count; i++) BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(i * 0x20), 0xE12FFF1E);
@@ -284,7 +284,7 @@ public sealed class GoFunctionTableTests
     public void Images_without_a_table_have_none()
     {
         Assert.Null(GoFunctionTable.Of(CodeTestImage.Synthetic(NativeArch.X64, [0xC3])));
-        // a header with entries outside code is not a table
+        // A header with entries outside code is not a table.
         var data = Pclntab(GoTableVersion.Go120, 8, 0x7000_0000, 4);
         Assert.Null(GoFunctionTable.Of(CodeTestImage.Synthetic(NativeArch.X64, [0xC3], data)));
     }

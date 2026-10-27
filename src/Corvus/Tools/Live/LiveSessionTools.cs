@@ -9,11 +9,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>
-/// Sessions on local programs: open, stop points, typed reads and the event ring. Observation only; every tool refuses
-/// calls unless the server starts with --allow-live; starting a program also needs --allow-live-spawn, attaching --allow-live-attach,
-/// and --live-allow limits both to listed programs.
-/// </summary>
+/// <summary>Sessions on local programs, observation only; refused without --allow-live; spawn and attach need their own flags, and --live-allow limits both to listed programs.</summary>
 [McpServerToolType]
 public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null, Services.Mobile.DexService? dex = null)
 {
@@ -120,7 +116,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
-        [Description("attach: pid, name, inspector:PORT, jdwp:PORT (JVM), ttd:PATH (recording); spawn: program path (started suspended); processes: name filter; *_child: child pid.")] string? program = null,
+        [Description("attach: pid, name, inspector:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: NAME=value variables.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
@@ -238,13 +234,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         var path = string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetTempPath(), "corvus-snapshots", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}{(OperatingSystem.IsWindows() ? ".dmp" : ".core")}")
             : outputPath;
-        // a held thread waits inside the backend: its stop's registers let the walk start at the stop (on Windows the dump's
-        // exception, an x86 program's x86 CONTEXT taken as the WoW64 thread's 32-bit side; in a Linux core the thread's own)
+        // A held thread waits inside the backend; its stop's registers let the stack walk start at the stop.
         Native.Diagnostics.ProcessSnapshot.Stop? stop = null;
         var held = s.Held.FirstOrDefault();
-        // A macOS core keeps lldb's registers. An ARM64 stop is recorded in a
-        // Windows dump only, since a Linux core's ARM64 NT_PRSTATUS is not
-        // rewritten.
+        // A macOS core keeps lldb's registers; an ARM64 stop is recorded in a Windows dump only (a Linux core's NT_PRSTATUS is not rewritten).
         if (held != null && !OperatingSystem.IsMacOS() && (s.Arch is "x64" or "ia32" || s.Arch == "arm64" && OperatingSystem.IsWindows()))
         {
             var registers = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
@@ -341,7 +334,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         List<LiveProcessRow>? children = null;
         if (s.ChildNames != null)
         {
-            // a child's row: its command line, and its state with the session attached to it
+            // A child's row: its command line, and its state with the session attached to it.
             lock (s.Children)
                 children = s.Children.Select(c => new LiveProcessRow(c.ProcessId, c.CommandLine) { State = c.State + (c.Session != null ? " in " + c.Session : "") }).ToList();
             text.AppendLine($"follows child processes{(s.ChildNames.Count > 0 ? " named " + string.Join(", ", s.ChildNames) : "")}: {children.Count} started, {children.Count(c => c.State == "held")} held");
@@ -506,7 +499,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     }
 
     [McpServerTool(Name = "live_watch", Title = "Record calls in a session", UseStructuredContent = true, OutputSchemaType = typeof(LiveWatchReport))]
-    [Description("Record every call of a function with arguments and result, decoded by prototype (PDB, DWARF) or known API, as events (live_events from=WATCH).")]
+    [Description("Record each call of a function with arguments and result, decoded by prototype or known API, as events (live_events from=WATCH).")]
     public Task<string> LiveWatchCalls(
         [Description(SessionDescription)] string session,
         [Description("What to do.")] string action = "list",
@@ -693,7 +686,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 var at = live.Name(s, address, ct: cancellationToken);
                 if (at.Named is { } n) named.Add(n);
                 text.AppendLine($"{Hex(address)}{(at.Module != null ? " " + at.Display : "")}: {kind}{(type != null && count > 1 ? $"[{count}]" : "")}");
-                // untyped bytes go in rows, so a page too small for the whole read keeps its first rows
+                // Untyped bytes go in rows, so a page too small for the whole read keeps its first rows.
                 if (kind == "bytes" && bytes.Length > BytesPerRow) (size, count) = (BytesPerRow, (bytes.Length + BytesPerRow - 1) / BytesPerRow);
                 for (int i = 0; i < count; i++)
                     if (kind == "bytes" && count > 1)
@@ -757,10 +750,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     private const int MaxRead = 4096;
 
-    /// <summary>
-    /// The element kind, its size and the count to read; untyped reads are one "bytes" element of <paramref name="length"/>
-    /// (default 64), strings one element whose size is the most bytes read (default <see cref="MaxRead"/>).
-    /// </summary>
+    /// <summary>The element kind, size and count to read; untyped reads are one "bytes" element (default 64), strings one element of at most <see cref="MaxRead"/>.</summary>
     private static (string Kind, int Size, int Count) ParseType(string? type, int? length, int pointerSize)
     {
         if (string.IsNullOrWhiteSpace(type)) return ("bytes", Math.Clamp(length ?? 64, 1, MaxRead), 1);
@@ -768,7 +758,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         int count = 1;
         if (t.EndsWith(']') && t.IndexOf('[') is > 0 and var open)
         {
-            // spaces around the count and before the bracket are allowed, as in a C declaration
+            // Spaces around the count and before the bracket are allowed, as in a C declaration.
             if (!int.TryParse(t[(open + 1)..^1].Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out count) || count < 1)
                 throw new ToolError(ErrorCode.InvalidArgument, $"Bad array count in '{type}'.", "type=uint32[4]");
             t = t[..open].TrimEnd();
@@ -802,10 +792,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     private static ToolError Unreadable(ulong address) =>
         new(ErrorCode.NotFound, $"The program has no readable memory at {Hex(address)}.", "check the address with live_session action=status (module ranges)");
 
-    /// <summary>
-    /// A string's bytes up to its terminator, at most <paramref name="limit"/>, read a page at a time so a string that ends
-    /// just before unreadable memory still reads; Cut says why it stopped without a terminator.
-    /// </summary>
+    /// <summary>A string's bytes up to its terminator, at most <paramref name="limit"/>, read a page at a time; Cut says why it stopped without one.</summary>
     private async Task<(byte[] Bytes, string? Cut)> ReadStringAsync(Services.LiveSession s, ulong address, bool wide, int limit, CancellationToken ct)
     {
         const int Page = 4096;
@@ -875,7 +862,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             (string, object) Render(int count)
             {
                 var kept = rows.Take(count).ToList();
-                // past the last matching event the whole ring was scanned: the next poll starts after its end
+                // Past the last matching event the whole ring was scanned: the next poll starts after its end.
                 var cut = kept.Count > 0 && (count < rows.Count || more);
                 var next = cut ? kept[^1].Sequence + 1 : Math.Max(start, last + 1);
                 string? nextCursor = cut ? next.ToString(CultureInfo.InvariantCulture) : null;
@@ -894,10 +881,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 
     private static readonly string[] EventKinds = ["stop", "call", "script", "exception", "module", "thread", "child", "output", "error", "exit"];
 
-    /// <summary>
-    /// A cursor page cut to the call's output budget by rows, before its cursor is set: the cursor follows the last row shown,
-    /// so a page the output layer would cut no longer skips the rows between. At least one row is kept.
-    /// </summary>
+    /// <summary>A cursor page cut to the output budget by rows before its cursor is set, so no rows are skipped; at least one row is kept.</summary>
     private static string FitPage(int count, Func<int, (string Text, object Record)> render)
     {
         var whole = render(count);
@@ -939,10 +923,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             : $"{d.Point.Id} deferred: {d.Point.Module} is not loaded; it is set when {d.Point.Module} loads" +
               (d.Held ? ", before the module's code runs (a module whose entry point writes its code: once that returns)" : " (calls before then are missed)");
 
-    /// <summary>
-    /// Says once which deferred points and watches could not be set since the last call; returns the first one's next step,
-    /// and in <paramref name="failed"/> the failed points (or watches) to list.
-    /// </summary>
+    /// <summary>Reports once the deferred points and watches that failed since the last call; returns the first one's next step.</summary>
     private static string? Dropped(Services.LiveSession s, StringBuilder text, bool watch, out List<LiveFailedPoint> failed)
     {
         string? next = null;

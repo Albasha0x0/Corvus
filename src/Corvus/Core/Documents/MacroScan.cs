@@ -12,15 +12,10 @@ internal sealed record MacroFinding(string Type, string Keyword, string Descript
     public string? Location { get; init; }
 }
 
-/// <summary>
-/// Keyword and pattern rules over VBA and Excel 4.0 macro text, the same keyword sets and word-boundary matching as
-/// olevba: entry points that run on open or close, calls that run programs, write files, download, load libraries or change
-/// macro security, and URLs, IP addresses and executable names; hex and base64 strings are decoded and scanned again.
-/// </summary>
+/// <summary>olevba's keyword rules over VBA and XLM macro text; hex and base64 strings are decoded and scanned again.</summary>
 internal static class MacroScan
 {
-    // Macro text is read whole: NonBacktracking matches in linear time, so the
-    // rules take no match timeout.
+    // NonBacktracking matches in linear time, so the rules take no match timeout.
     private const RegexOptions Linear = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 
     private static readonly (string Description, string[] Keywords)[] AutoExec =
@@ -135,10 +130,7 @@ internal static class MacroScan
         }
     }
 
-    /// <summary>
-    /// Findings over the modules' text joined, one row per type and keyword; a plain-text finding names the first module
-    /// and line it occurs on.
-    /// </summary>
+    /// <summary>One finding per type and keyword; a plain-text finding names its first module and line.</summary>
     public static List<MacroFinding> Scan(IReadOnlyList<(string Module, string Text)> modules)
     {
         var code = string.Join("\n", modules.Select(m => m.Text));

@@ -4,17 +4,14 @@ using System.Xml;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// Config file text (JSON, XML, INI) and its values: JSON string values, XML attribute values and element text, INI
-/// values after '='. Text that is not UTF-8, holds NUL, or does not parse in one of the three formats is not config.
-/// </summary>
+/// <summary>Reads the values of JSON, XML or INI config text; non-UTF-8, NUL-holding or unparsable text is not config.</summary>
 internal static class ConfigText
 {
     public const int MaxBytes = 4 << 20, MaxValues = 50_000;
     private const int MaxDepth = 64;
     private static readonly UTF8Encoding Strict = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    /// <summary>The format ("json", "xml", "ini") and its values, one more than <see cref="MaxValues"/> when there are more; null when the bytes are not config text or exceed <see cref="MaxBytes"/>.</summary>
+    /// <summary>The format and values (<see cref="MaxValues"/> + 1 means more); null when not config text or over <see cref="MaxBytes"/>.</summary>
     public static (string Kind, List<string> Values)? Read(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length > MaxBytes) return null;

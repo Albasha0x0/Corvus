@@ -7,11 +7,7 @@ namespace Corvus.Core.Mobile;
 /// <summary>A rendition's link into a packed image: the rectangle (lower-left origin) and the packed rendition's key.</summary>
 internal sealed record CatalogLink(int X, int Y, int Width, int Height, IReadOnlyList<(int Type, int Value)> Key);
 
-/// <summary>
-/// One rendition of a compiled asset catalog: its asset (facet) name, null when no facet names it; its CSI name, layout,
-/// pixel format, size in pixels, scale in hundredths, key attributes, payload tag (CELM, RAWD, COLR, ARGG; empty for
-/// none) and the payload bytes after the tag's header.
-/// </summary>
+/// <summary>One asset catalog rendition; Asset is null when no facet names it, scale is in hundredths.</summary>
 internal sealed record CatalogRendition(int Index, string? Asset, string Name, int Layout, string PixelFormat, int Width, int Height, int Scale,
     IReadOnlyList<(int Type, int Value)> Key, string Tag, uint Compression, byte[] Payload)
 {
@@ -20,11 +16,7 @@ internal sealed record CatalogRendition(int Index, string? Asset, string Name, i
     public int Attribute(int type) => Key.FirstOrDefault(k => k.Type == type).Value;
 }
 
-/// <summary>
-/// A compiled asset catalog (Assets.car): a BOM store whose CARHEADER, KEYFORMAT, FACETKEYS, APPEARANCEKEYS and
-/// RENDITIONS hold the renditions. CAR data is little-endian ('RATC') or big-endian ('CTAR'). Damaged structure throws
-/// <see cref="InvalidDataException"/>.
-/// </summary>
+/// <summary>A compiled asset catalog (Assets.car) in either byte order; damaged structure throws <see cref="InvalidDataException"/>.</summary>
 internal sealed class AssetCatalog
 {
     // Rendition key attributes (CoreUI's rendition attribute types) used in names.
@@ -155,11 +147,7 @@ internal sealed class AssetCatalog
     }
 }
 
-/// <summary>
-/// Compiled asset catalogs (Assets.car) as a container: each rendition listed under its asset with its size, scale,
-/// idiom and appearance; bitmaps extracted as PNG, images cropped from packed images, original data (PNG, JPEG, PDF,
-/// SVG) as stored, and colors and gradients described. Compressions not read are named per rendition and counted.
-/// </summary>
+/// <summary>Asset catalogs as containers: renditions by asset, bitmaps as PNG; unread compressions are named and counted.</summary>
 internal sealed class AssetCatalogReader : IContainerReader
 {
     private static readonly Dictionary<int, string> Layouts = new()
@@ -290,8 +278,7 @@ internal sealed class AssetCatalogReader : IContainerReader
         return $"{what} {name} {string.Join(' ', parts)}";
     }
 
-    // Asset/stem~idiom~appearance~gamut@scale.ext: a bitmap ends in .png, original data keeps its name's extension or
-    // takes one from its format; a name already taken gets -2, -3 and so on.
+    // Asset/stem~idiom~appearance~gamut@scale.ext; a name already taken gets -2, -3 and so on.
     private static string UniquePath(AssetCatalog catalog, CatalogRendition r, string ext, HashSet<string> taken)
     {
         static string Clean(string s) => s.Replace('/', '_').Replace('\\', '_');

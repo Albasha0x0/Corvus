@@ -77,13 +77,7 @@ public sealed record CallSiteInfo(uint Rva, NativeFunction Caller, string Callee
     public string ShortCallee => Kind is CalleeKind.Import or CalleeKind.Dynamic && Callee.LastIndexOf('!') is var bang and >= 0 ? Callee[(bang + 1)..] : Callee;
 }
 
-/// <summary>
-/// Call sites of a native image with their targets and argument values, recovered by backward constant propagation
-/// (<see cref="ValueResolver"/>) under the platform calling conventions: x64 per <see cref="X64Abi"/> (Microsoft on PE,
-/// System V on ELF and Mach-O); x86 the stack slots pushed (or stored) before the call. Known APIs
-/// (<see cref="ApiSignatures"/>) give parameter names, counts and constant decoding; other callees get the
-/// registers and slots set just before the call. One instance per code index (<see cref="For"/>), thread-safe.
-/// </summary>
+/// <summary>x86 / x64 call sites with targets and argument values, recovered by backward constant propagation; one per code index, thread-safe.</summary>
 public sealed partial class CallAnalysis : ITraceHost
 {
     private static readonly ConditionalWeakTable<NativeCodeIndex, CallAnalysis> Table = new();
@@ -133,11 +127,11 @@ public sealed partial class CallAnalysis : ITraceHost
         return true;
     }
 
-    /// <summary>The analysis of an index (created once per index).</summary>
-    /// <exception cref="NotSupportedException">The index does not decode instructions (not x86 / x64).</exception>
-    /// <summary>The analysis reads x86 / x64 code; other instruction sets have no call analysis yet.</summary>
+    /// <summary>Whether the index holds fully decoded x86 / x64 code.</summary>
     public static bool Supports(NativeCodeIndex index) => index.Support == CodeSupport.Full && index.Image.Arch is NativeArch.X86 or NativeArch.X64;
 
+    /// <summary>The analysis of an index, created once.</summary>
+    /// <exception cref="NotSupportedException">The index does not decode x86 / x64 code.</exception>
     public static CallAnalysis For(NativeCodeIndex index)
     {
         if (!Supports(index)) throw new NotSupportedException(index.SupportNote ?? $"call analysis reads x86 / x64 code, not {index.Image.Arch}");
@@ -161,7 +155,7 @@ public sealed partial class CallAnalysis : ITraceHost
                 result.Add(Site(code, b, i));
             }
         result.Sort((a, b) => a.Rva.CompareTo(b.Rva));
-        // blocks can overlap: one row per call instruction
+        // Blocks can overlap: one row per call instruction.
         var distinct = result.DistinctBy(s => s.Rva).ToList();
         if (cache)
         {
@@ -186,10 +180,7 @@ public sealed partial class CallAnalysis : ITraceHost
         return Site(code, b, i);
     }
 
-    /// <summary>
-    /// Every call to <paramref name="import"/>: through its slot, through thunks, and through registers loaded from the
-    /// slot (x86 "mov esi, [__imp_X]; call esi").
-    /// </summary>
+    /// <summary>Every call to <paramref name="import"/>: through its slot, thunks, and registers loaded from the slot.</summary>
     public List<CallSiteInfo> CallsTo(NativeImport import, int max = 100_000, CancellationToken ct = default)
     {
         var result = new Dictionary<uint, CallSiteInfo>();
@@ -225,10 +216,7 @@ public sealed partial class CallAnalysis : ITraceHost
 
     private readonly ConcurrentDictionary<uint, bool> _dispatchThunks = new();
 
-    /// <summary>
-    /// x64 CFG: a local function that is only "jmp rax" (__guard_dispatch_icall_nop, called directly once the dispatch
-    /// pointer is bound at link time): a call or jump to it is a call through rax.
-    /// </summary>
+    /// <summary>Whether <paramref name="target"/> is an x64 CFG dispatch thunk ("jmp rax"), so a call to it is a call through rax.</summary>
     internal bool IsDispatchThunk(uint target) => Is64 && _dispatchThunks.GetOrAdd(target, rva =>
     {
         Span<byte> b = stackalloc byte[6];
@@ -238,7 +226,7 @@ public sealed partial class CallAnalysis : ITraceHost
             if (n >= 2 && b[0] == 0xFF && b[1] == 0xE0 || n >= 3 && b[0] == 0x48 && b[1] == 0xFF && b[2] == 0xE0) return true;
             // jmp [__guard_dispatch_icall_fptr]
             if (n >= 6 && b[0] == 0xFF && b[1] == 0x25) return _dispatchSlots.Contains((uint)(rva + 6 + BinaryPrimitives.ReadInt32LittleEndian(b[2..])));
-            // jmp rel32 / rel8 to the thunk (incremental linking, folded stubs)
+            // jmp rel32 / rel8 to the thunk (incremental linking, folded stubs).
             if (n >= 5 && b[0] == 0xE9) rva = (uint)(rva + 5 + BinaryPrimitives.ReadInt32LittleEndian(b[1..]));
             else if (n >= 2 && b[0] == 0xEB) rva = (uint)(rva + 2 + (sbyte)b[1]);
             else return false;
@@ -276,7 +264,7 @@ public sealed partial class CallAnalysis : ITraceHost
         var code = Code(f, ct);
         var (b, i) = code.Position(address);
         if (b < 0 || OursSliceProvider.ParseLocation(location, Is64) is not { } loc) return null;
-        // just after the instruction: what it defines, else what it sees
+        // Just after the instruction: what it defines, else what it sees.
         var v = new ValueResolver(this, code) { Budget = 2000 }.ValueBefore(loc, b, i + 1);
         return v.Kind == VKind.Const ? v.Num : null;
     }
@@ -328,11 +316,7 @@ public sealed partial class CallAnalysis : ITraceHost
 
     [ThreadStatic] private static int _nesting;
 
-    /// <summary>
-    /// x86: bytes the callee at a call removes from the stack (its stdcall arguments), or null when not known: 0 when an
-    /// "add esp, n" follows (cdecl) or the API is cdecl; the signature's size for a known API; "ret n" for a local function;
-    /// otherwise (stdcall assumed) the bytes pushed since the previous call.
-    /// </summary>
+    /// <summary>x86 bytes the callee pops (0 for cdecl, else signature, "ret n", or bytes pushed since the previous call); null when unknown.</summary>
     internal int? CalleePops(FunctionCode code, int block, int index)
     {
         var insns = code.Blocks[block];
@@ -451,10 +435,7 @@ public sealed partial class CallAnalysis : ITraceHost
 
     internal string Va(uint rva) => $"0x{Image.ImageBase + rva:X}";
 
-    /// <summary>
-    /// 0: not a call site; 1: a call; 2: a tail call (jmp through an import slot, or to another function's start), whose
-    /// stack arguments sit above the caller's return address. Guard-check calls and thunks are not call sites.
-    /// </summary>
+    /// <summary>0: not a call site (guard checks and thunks included); 1: a call; 2: a tail call, arguments above the return address.</summary>
     private int SiteKind(FunctionCode code, in Decoded d)
     {
         ref readonly var x = ref d.I;
@@ -477,7 +458,7 @@ public sealed partial class CallAnalysis : ITraceHost
         var sig = ApiSignatures.Find(apiName, Image);
         var args = new List<CallArgument>();
         bool guessed = sig == null;
-        // System V: a local callee that returns its rdi, given a local buffer there, returns a struct through it
+        // System V: a local callee that returns its rdi, given a local buffer there, returns a struct through it.
         bool structReturn = Is64 && Abi.IsSystemV && callee is { Kind: CalleeKind.Function, Target: { } target } && ReturnsIncomingRdi(target)
             && resolver.ValueBefore(Loc.Of(Register.RDI), block, index).Kind == VKind.StackAddr;
         if (structReturn) args.Add(Argument(resolver, block, index, 0, new ApiParam("sret", ApiParamType.Pointer), (Loc.Of(Register.RDI), "rdi", null)));
@@ -548,10 +529,7 @@ public sealed partial class CallAnalysis : ITraceHost
         return returns > 0;
     });
 
-    /// <summary>
-    /// Arguments of a call without a signature: the argument registers (x64) and stack slots set between the previous
-    /// call (or the block start) and this call; on x86 also ecx / edx set there (thiscall / fastcall).
-    /// </summary>
+    /// <summary>Without a signature: argument registers (ecx / edx on x86) and stack slots set since the previous call.</summary>
     private List<(int Index, Loc Loc, string Label)> GuessLocations(FunctionCode code, int block, int index)
     {
         var insns = code.Blocks[block];
@@ -575,9 +553,9 @@ public sealed partial class CallAnalysis : ITraceHost
                         written.Add((int)(disp - home) / 8);
                 }
             }
-            // stack arguments fill the slots from the first one up; a store above a gap is a local (a saved cookie, a spill)
+            // Stack arguments fill the slots from the first one up; a store above a gap is a local.
             while (written.Contains(highestSlot + 1)) highestSlot++;
-            // System V: [rsp] also holds locals, so stack slots count only once every register argument is set
+            // System V: [rsp] also holds locals, so stack slots count only once every register argument is set.
             if (Abi.IsSystemV && highest < regs.Length - 1) highestSlot = -1;
             int count = highestSlot >= 0 ? regs.Length + highestSlot + 1 : highest + 1;
             for (int k = 0; k < Math.Min(count, MaxGuessedArguments); k++)
@@ -585,12 +563,12 @@ public sealed partial class CallAnalysis : ITraceHost
                 int slot = home + 8 * (k - regs.Length);
                 result.Add(k < regs.Length ? (k, Loc.Of(regs[k]), regs[k].ToString().ToLowerInvariant()) : (k, Loc.Stack(slot), $"[rsp+{slot:X}h]"));
             }
-            // System V variadic call: al holds the number of vector registers that carry arguments
+            // System V variadic call: al holds the number of vector registers that carry arguments.
             if (Abi.IsSystemV && VectorCount(insns, index) is { } vectors)
                 for (int v = 0; v < vectors; v++) result.Add((result.Count, Loc.Of(Register.XMM0 + v), $"xmm{v}"));
             return result;
         }
-        // x86: pushes (and esp stores) since the previous call, contiguous from [esp]
+        // x86: pushes and esp stores since the previous call, contiguous from [esp].
         var slots = new HashSet<int>();
         bool ecx = false, edx = false;
         int off = 0;
@@ -604,7 +582,7 @@ public sealed partial class CallAnalysis : ITraceHost
                 if ((d.Writes & (1UL << FunctionCode.Bit(Register.RCX))) != 0 && x.Mnemonic != Mnemonic.Pop) ecx = true;
                 if ((d.Writes & (1UL << FunctionCode.Bit(Register.RDX))) != 0 && x.Mnemonic != Mnemonic.Pop) edx = true;
             }
-            // off: the stack pointer after this instruction minus the one at the call
+            // off: the stack pointer after this instruction minus the one at the call.
             if (x.Mnemonic == Mnemonic.Push) { slots.Add(off); off += 4; continue; }
             if (x.Op0Kind == OpKind.Memory && x.MemoryBase == Register.ESP && x.MemoryIndex == Register.None && x.Mnemonic is Mnemonic.Mov)
                 slots.Add(off + (int)(uint)x.MemoryDisplacement64);
@@ -641,7 +619,7 @@ public sealed partial class CallAnalysis : ITraceHost
         var (kind, value, rva, text) = Format(v, p is { IsPair: true } ? Half(p) : p, resolver.Code);
         if (loc.Second is { } second)
         {
-            // a struct in two eightbytes: both halves
+            // A struct in two eightbytes: both halves.
             var high = resolver.ValueBefore(second, block, index);
             var (_, _, _, highText) = Format(high, Half(p!), resolver.Code);
             return new CallArgument(k, p?.Name, p?.TypeName, loc.Label, kind == ArgKind.Immediate && high.Kind == VKind.Const ? ArgKind.Immediate : ArgKind.Unknown,

@@ -15,7 +15,7 @@ public class NativeToolsTests
     }
 
     [WindowsFact]
-    public async Task Kernel32OverviewImportsExportsAndAddresses()
+    public async Task Kernel32_shows_its_overview_imports_exports_and_addresses()
     {
         var (env, tools) = Setup();
         using var _ = env;
@@ -50,7 +50,7 @@ public class NativeToolsTests
     }
 
     [WindowsFact]
-    public async Task Kernel32FunctionsDisassemblyGraphsAndReferences()
+    public async Task Kernel32_shows_functions_disassembly_graphs_and_references()
     {
         using var env = new Env();
         var code = new Corvus.Services.NativeCodeService(env.Workspace, env.Options);
@@ -81,7 +81,7 @@ public class NativeToolsTests
 
         var strings = await tools.SearchNativeStrings("kernel32.dll", ".dll", limit: 5);
         Assert.Contains("refs", strings);
-        // long strings are clipped with their length in both parts
+        // Long strings are clipped with their length in both parts.
         var collector = Corvus.Mcp.ToolOutput.Collect();
         var clipped = await tools.SearchNativeStrings("kernel32.dll", ".dll", limit: 50, maxLength: 16);
         Assert.Contains("chars)\"", clipped);
@@ -92,7 +92,7 @@ public class NativeToolsTests
     }
 
     [WindowsFact]
-    public async Task Win32ResourcesThroughTheResourceTools()
+    public async Task Win32_resources_read_through_the_resource_tools()
     {
         var (env, tools) = Setup();
         using var _ = env;
@@ -113,7 +113,7 @@ public class NativeToolsTests
     }
 
     [WindowsFact]
-    public async Task ErrorsAreTyped()
+    public async Task Native_tool_errors_are_typed()
     {
         var (env, tools) = Setup();
         using var _ = env;
@@ -132,7 +132,7 @@ public class NativeToolsTests
 
     [Trait("Speed", "Slow")]
     [WindowsFact]
-    public async Task DecompilesThroughIdaAndRecoversCppClasses()
+    public async Task Decompiles_through_IDA_and_recovers_CPP_classes()
     {
         using var env = new Env();
         using var engines = new Corvus.Services.NativeEngineService();
@@ -153,7 +153,7 @@ public class NativeToolsTests
     }
 
     [Fact]
-    public async Task CallTreeOfAnImportSlotListsTheFunctionsCallingThroughIt()
+    public async Task The_call_tree_of_an_import_slot_lists_the_functions_calling_through_it()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -162,14 +162,14 @@ public class NativeToolsTests
         var tree = await tools.NativeCallTree(path, "KERNEL32.dll!ExitProcess", direction: "callers", depth: 2);
         Assert.Contains("KERNEL32!ExitProcess  (import slot at 0x", tree);
         Assert.Contains("nothing calls through it", tree); // the sample only imports it
-        // callees of a slot: still no function there
+        // Callees of a slot: still no function there.
         var error = await Assert.ThrowsAsync<ToolError>(() => tools.NativeCallTree("native.dll", "KERNEL32.dll!ExitProcess"));
         Assert.Contains("is the import slot of KERNEL32!ExitProcess, not a function", error.Message);
         Assert.Contains("native_call_tree direction=callers function=KERNEL32!ExitProcess", error.Remediation);
     }
 
     [Fact]
-    public async Task FunctionRangeEndingPastTheImageListsToItsEnd()
+    public async Task A_function_range_ending_past_the_image_lists_to_its_end()
     {
         using var env = new Env();
         using var dir = new TempDir();
@@ -184,7 +184,7 @@ public class NativeToolsTests
 
     /// <summary>ReadyToRun images clear the IL-only flag too; they are not mixed-mode and get no native view.</summary>
     [Fact]
-    public void ReadyToRunAssembliesGetNoNativeView()
+    public void ReadyToRun_assemblies_get_no_native_view()
     {
         var linq = Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "System.Linq.dll");
         using var env = new Env();
@@ -196,7 +196,7 @@ public class NativeToolsTests
     }
 
     [WindowsFact]
-    public void LoadAnyLoadsNativeImagesAndKeepsIdsUnique()
+    public void Load_any_loads_native_images_and_keeps_IDs_unique()
     {
         using var env = new Env();
         var (assembly, native) = env.Workspace.LoadAny(Kernel32);

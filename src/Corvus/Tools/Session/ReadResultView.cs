@@ -10,10 +10,7 @@ namespace Corvus.Tools;
 /// <summary>A line of a kept result matching read_result's query, at its character offset.</summary>
 public sealed record ReadResultMatch(int Offset, string Line);
 
-/// <summary>
-/// read_result's record: a page of the kept result (code, offset, nextOffset, totalChars), the matching lines of a query, or
-/// the file the whole result was written to.
-/// </summary>
+/// <summary>read_result's record: a page of the kept result, the lines matching a query, or the file the result was written to.</summary>
 public sealed record ReadResultRecord(string Id, string Tool, int TotalChars)
 {
     public int? Offset { get; init; }

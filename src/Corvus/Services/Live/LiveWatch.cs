@@ -7,10 +7,7 @@ using Corvus.Native.Pdb;
 
 namespace Corvus.Services;
 
-/// <summary>
-/// One recorded argument: <see cref="Kind"/> is what the session script reads (int, uint, hex, bool, ptr, cstr, wstr,
-/// proc, skip); <see cref="Size"/> the integer's bytes; <see cref="Names"/> names its values (an enum or flag set).
-/// </summary>
+/// <summary>One recorded argument: the script's read <see cref="Kind"/>, integer <see cref="Size"/> in bytes, and enum or flag <see cref="Names"/>.</summary>
 public sealed record LiveWatchArg(string Name, string Type, string Kind, int Size, Func<ulong, string?>? Names = null);
 
 /// <summary>How a watched function's calls are decoded, and where the decoding came from.</summary>
@@ -46,11 +43,7 @@ public sealed class LiveWatchState(string id, string where, ulong address, LiveF
     public double? Rate => Calls > 1 && LastMs > FirstMs ? (Calls - 1) * 1000.0 / (LastMs - FirstMs) : null;
 }
 
-/// <summary>
-/// Decode plans for watched functions: the known-API table (names, strings, flags and enums by name), else the PDB
-/// or DWARF prototype (parameter names from the procedure's frame or entries, types from the type records, enums by
-/// name), else DWARF parameter names, else raw pointer-size values.
-/// </summary>
+/// <summary>Decode plans for watched functions: known-API table, else PDB or DWARF prototype, else DWARF names, else raw values.</summary>
 public static class LiveWatchPlans
 {
     public const int DefaultRawArguments = 4;
@@ -79,7 +72,7 @@ public static class LiveWatchPlans
         var args = new List<LiveWatchArg>();
         foreach (var p in api.Params)
         {
-            // x86 passes 64-bit values in two stack slots; x64 passes floating point in vector registers the script does not read
+            // x86 passes 64-bit values in two stack slots; x64 floating point goes in vector registers the script does not read.
             if (!x64 && p.Slots32 > 1)
             {
                 args.Add(new(p.Name, p.TypeName, "skip", 0));
@@ -107,8 +100,7 @@ public static class LiveWatchPlans
         return new(function, args, new("ret", ret?.Enum?.Name ?? "", "hex", 8, ret?.Enum is { } re ? re.Describe : null), "known API table");
     }
 
-    /// <param name="sysV">The System V x64 convention: floating-point and aggregate values take no integer slot or several, so
-    /// a prototype with one is not decoded by slot.</param>
+    /// <param name="sysV">System V x64: a prototype with floating-point or aggregate parameters is not decoded by slot.</param>
     private static LiveWatchPlan? FromPdb(string function, PdbFile pdb, PdbSymbol symbol, bool x64, bool sysV = false)
     {
         var model = PdbTypeModel.Of(pdb, x64 ? 8 : 4);
@@ -152,7 +144,7 @@ public static class LiveWatchPlans
             return [new(name, spelled, "int", bytes, v => values.FirstOrDefault(e => (ulong)e.Value == Truncate(v, bytes) || e.Value == Signed(v, bytes))?.Name)];
         }
         if (node.IsAggregate)
-            // by value up to the pointer size; larger ones go by address on x64 and by stack copy on x86
+            // By value up to the pointer size; larger ones by address on x64 and by stack copy on x86.
             return size is 1 or 2 or 4 or 8 && (x64 || size <= 4) ? [new(name, spelled, "hex", (int)size)] : x64 ? [new(name, spelled, "ptr", 8)] : Slots(name, spelled, size);
         if (!x64 && size == 8) return Slots(name, spelled, size);
         var n = node.Name;
@@ -184,7 +176,8 @@ public static class LiveWatchPlans
         for (int i = 0; i < plan.Args.Count; i++)
         {
             var a = plan.Args[i];
-            if (a.Kind == "skip" && a.Type == "") continue; // the second slot of a two-slot value
+            // The second slot of a two-slot value.
+            if (a.Kind == "skip" && a.Type == "") continue;
             if (!first) sb.Append(", ");
             first = false;
             sb.Append(a.Name).Append('=').Append(Value(a, i < values.Count ? values[i] : null));
@@ -201,7 +194,7 @@ public static class LiveWatchPlans
             return Quote(v);
         if (v == null) return a.Kind is "cstr" or "wstr" ? "NULL" : "?";
         if (!v.StartsWith("0x", StringComparison.Ordinal) || !ulong.TryParse(v.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var x)) return v;
-        // the upper half of a register holding a 32-bit argument is whatever was there before
+        // The upper half of a register holding a 32-bit argument is stale.
         if (a.Names?.Invoke(Truncate(x, a.Size)) is { } named) return named;
         return a.Kind switch
         {

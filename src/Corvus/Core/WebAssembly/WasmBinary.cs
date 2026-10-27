@@ -2,21 +2,14 @@ using System.Text;
 
 namespace Corvus.Core.WebAssembly;
 
-/// <summary>
-/// A value type: numbers, v128, the nullable abstract reference shorthands by their byte, and any other reference type
-/// "(ref null? heap)" packed by <see cref="WasmRef"/>.
-/// </summary>
+/// <summary>A value type: numbers, v128, reference shorthands by byte, other reference types packed by <see cref="WasmRef"/>.</summary>
 public enum WasmType
 {
     I32 = 0x7F, I64 = 0x7E, F32 = 0x7D, F64 = 0x7C, V128 = 0x7B, FuncRef = 0x70, ExternRef = 0x6F, ExnRef = 0x69,
     AnyRef = 0x6E, EqRef = 0x6D, I31Ref = 0x6C, StructRef = 0x6B, ArrayRef = 0x6A, NullRef = 0x71, NullExternRef = 0x72, NullFuncRef = 0x73, NullExnRef = 0x74,
 }
 
-/// <summary>
-/// Reference types of the GC and typed function reference proposals. A heap type is a type index (0 and up) or an
-/// abstract heap type by its byte (func 0x70 ... noexn 0x74). A nullable abstract reference is its shorthand byte
-/// (anyref = 0x6E); any other is packed: bit 28 marks it, bit 27 nullable, bit 24 abstract (its byte below), else the index.
-/// </summary>
+/// <summary>GC reference types: shorthand byte for nullable abstract ones, else packed (bit 28 set, 27 nullable, 24 abstract).</summary>
 public static class WasmRef
 {
     private const int Marker = 1 << 28, Null = 1 << 27, Abstract = 1 << 24;
@@ -69,10 +62,7 @@ public readonly record struct WasmField(WasmType Type, byte Packed, bool Mutable
     public WasmType Unpacked => Packed != 0 ? WasmType.I32 : Type;
 }
 
-/// <summary>
-/// A defined type of the GC proposal: func, struct (fields) or array (one element field); whether it is final, its declared
-/// supertypes, and its recursion group (first index and size).
-/// </summary>
+/// <summary>A GC defined type (func, struct or array) with finality, supertypes and recursion group.</summary>
 public sealed record WasmTypeDef(WasmComposite Kind, WasmFuncType? Func, WasmField[] Fields, bool Final, uint[] Supers, int Group, int GroupSize)
 {
     /// <summary>A plain function type: final, no supertypes, alone in its group (the MVP form 0x60).</summary>
@@ -140,11 +130,8 @@ public sealed class WasmNames
     public Dictionary<uint, string> Tags { get; } = [];
 }
 
-/// <summary>
-/// A WebAssembly module read completely, without running it: every section's entries with their file ranges, function
-/// bodies located but not decoded (code is decoded on demand), the name section. Structural problems stop the read
-/// with an issue and keep what came before; nothing throws. Offsets are file offsets.
-/// </summary>
+/// <summary>A WebAssembly module read completely, bodies decoded on demand; a structural problem stops with an issue, never throws.</summary>
+/// <remarks>What came before a problem is kept; offsets are file offsets.</remarks>
 public sealed class WasmBinary
 {
     public byte[] Bytes { get; }
@@ -227,7 +214,8 @@ public sealed class WasmBinary
             catch (WasmFormatException ex)
             {
                 m.Issues.Add($"section {Name(id)} at 0x{start:X}: {ex.Message}");
-                if (id is 1 or 2 or 3 or 10) break; // later sections would be read against a wrong count
+                // Later sections would be read against a wrong count.
+                if (id is 1 or 2 or 3 or 10) break;
             }
             p = end;
         }
@@ -614,7 +602,7 @@ public sealed class WasmBinary
         }
     }
 
-    // ---- lookups ----
+    // Lookups.
 
     /// <summary>The type of function <paramref name="index"/> (imports first), or null when out of range.</summary>
     public WasmFuncType? FunctionType(uint index)
@@ -731,7 +719,7 @@ internal struct WasmReader(byte[] bytes, int pos, int end)
         {
             if (shift >= 35) throw new WasmFormatException("bad LEB128 s32");
             b = Byte();
-            // the last byte's unused bits sign-extend bit 31
+            // The last byte's unused bits sign-extend bit 31.
             if (shift == 28 && ((b & 0x80) != 0 || (b & 0x78) is not (0 or 0x78))) throw new WasmFormatException("bad LEB128 s32");
             result |= (b & 0x7F) << shift;
             shift += 7;

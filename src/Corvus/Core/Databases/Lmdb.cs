@@ -3,12 +3,7 @@ using System.Text;
 
 namespace Corvus.Core.Databases;
 
-/// <summary>
-/// LMDB environments (data.mdb, or one file without a subdirectory), 64-bit layout: the two meta pages (the live commit
-/// and the one before it), the main database and its named databases walked from their roots, with duplicate values
-/// (sub-pages, sub-databases, fixed-size pages) and overflow values. Records only the previous commit or an unreachable
-/// leaf page still holds are recovered and labelled. Pages are read on demand from the stream.
-/// </summary>
+/// <summary>LMDB environments (64-bit layout), pages read on demand; previous-commit and unreachable records are recovered and labelled.</summary>
 internal sealed class Lmdb : IDisposable
 {
     private const uint Magic = 0xBEEFC0DE;
@@ -229,11 +224,7 @@ internal sealed class Lmdb : IDisposable
         return bytes;
     }
 
-    /// <summary>
-    /// Records no live tree shows: those of the previous commit, and those of leaf pages up to the last page that neither
-    /// commit reaches (freed pages LMDB has not reused). Each page is read at most once; <paramref name="live"/> holds the
-    /// live records, keyed by database, key and value.
-    /// </summary>
+    /// <summary>Records of the previous commit and of freed leaf pages that no live tree shows; each page is read once.</summary>
     public List<Recovered> Recover(HashSet<string> live, HashSet<long> reached, int max, CancellationToken ct)
     {
         var result = new List<Recovered>();

@@ -66,9 +66,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     private const int MaxBatch = 16;
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
-    [Description("Everything known about one native function, in sections of at most maxItems facts: identity, signature (parameters, this class, " +
-                 "result use), frame (unwind, locals, EH), callers, callees (targets, arguments), data (strings, globals, imports), flow (blocks, " +
-                 "loops, switches), annotations; optional constants, params, pseudocode.")]
+    [Description("Everything known about one native function, in sections: identity, signature, frame, callers, callees, data, flow, " +
+                 "annotations; constants, params and pseudocode on request.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("In the function; up to 16 comma-separated (a dossier each): " + NativeTools.AddressDescription)] string address,
@@ -127,7 +126,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                 {
                     foreach (var w in hit.Warnings) ToolOutput.Warn(w);
                     if (hit.Coverage is { } c) call?.Coverage = c;
-                    // the facets the build reported, so a repeat answers the same record
+                    // Replay the facets the build reported, so a repeat answers the same record.
                     foreach (var (name, unavailable) in hit.Facets) ToolOutput.Facet(name, unavailable);
                     return (cached, hit.Report);
                 }
@@ -197,7 +196,6 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         catch (ToolError) { return null; }
     }
 
-    /// <summary>Collects one section's facts; an exception becomes the section's error.</summary>
     /// <summary>The facet a dossier section shows.</summary>
     private static string? FacetOf(string section) => section switch
     {
@@ -223,14 +221,11 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         public DossierSection Record() => new(name, Total, Items, Error);
     }
 
-    /// <summary>
-    /// The bytes after a no-return call when they look like the body going on (in no function, not padding, decoding up to a
-    /// return or jump); null when the call plausibly ends the function.
-    /// </summary>
+    /// <summary>Bytes after a no-return call that decode as the body going on, up to a return or jump; null when the call ends the function.</summary>
     internal static int? CutAfter(NativeCodeIndex index, FunctionGraph graph, BasicBlock call)
     {
         uint after = call.End;
-        // a function discovered there that nothing references is the same code split off
+        // A function discovered there that nothing references is the same code split off.
         if (graph.BlockAt(after) != null || index.FunctionAt(after) is { } next && (next.Start != after || index.CountRefsTo(after) > 0)) return null;
         var bytes = new byte[8];
         int read = index.Image.Read(after, bytes);
@@ -340,7 +335,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             x.Add(null, $"found by: {f.Sources}", "discovery");
             if (name.StartsWith('?') && MsvcDemangler.Undecorate(name) is { } msvc && msvc != name) x.Add(null, $"demangled: {msvc}", "demangled");
             else if (NativeTools.Demangled(name, image.Format) is { } it) x.Add(null, $"demangled: {it}", "demangled");
-            foreach (var line in Il2CppNativeNames.Describe(native, index, f.Start)) x.Add(null, line, "il2cpp");
+            foreach (var line in AotNativeNames.Describe(native, index, f.Start)) x.Add(null, line, "metadata");
             foreach (var slot in slots)
                 x.Add(Va(slot.Vtable.VftableRva), $"slot {slot.Slot} of {slot.Class.Name}'s vftable at {Va(slot.Vtable.VftableRva)} (subobject +0x{slot.Vtable.Offset:X})", "vftable_slot");
             if (PdbService.StateOf(native)?.Pdb is { } pdb && PdbPrototype(pdb, image, f.Start) is { } proto) x.Add(Va(f.Start), $"prototype (pdb): {proto}", "prototype");
@@ -456,7 +451,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             Reachability(x, importers);
         }
 
-        // how control reaches the function: calls, or only its address (a callback passed to a call, a stored pointer)
+        // How control reaches the function: calls, or only its address (a callback or a stored pointer).
         void Reachability(Section x, int importers)
         {
             bool root = f.Start == image.EntryPointRva || image.Exports.Any(e => e.Rva == f.Start) || image.TlsCallbackRvas.Contains(f.Start);
@@ -543,7 +538,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
         void Constants(Section x)
         {
-            // the masked decoder keeps only immediates worth matching on: not addresses, small counts, all-ones masks or frame sizes
+            // The masked decoder drops addresses, small counts, all-ones masks and frame sizes.
             var decoder = new MaskedDecoder(image);
             var insns = new List<MaskedInsn>();
             foreach (var (s, e) in ranges) decoder.Decode(s, e, insns);
@@ -655,11 +650,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     /// <summary>Most parameters the params section traces.</summary>
     private const int MaxParams = 12;
 
-    /// <summary>
-    /// The parameters a function reads as they arrive (0-based position, entry location): argument registers read before
-    /// written, and caller stack slots read (x64 [rsp+28h] up, System V [rsp+8h] up, x86 [esp+4h] up, ARM64 [sp+0h] up at entry), through the
-    /// frame pointer and pushes too.
-    /// </summary>
+    /// <summary>Parameters a function reads on entry (0-based position, location): argument registers read before written and caller stack slots.</summary>
     internal static List<(int Index, string Location)> IncomingParameters(NativeCodeIndex index, NativeFunction f, CancellationToken ct)
     {
         var found = new SortedDictionary<int, string>();
@@ -706,7 +697,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         return found.Select(p => (p.Key, p.Value)).ToList();
     }
 
-    /// <summary>"int __cdecl helper(Player *, int)" from the PDB procedure at <paramref name="start"/>, or null.</summary>
+    /// <summary>"int __cdecl helper(Widget *, int)" from the PDB procedure at <paramref name="start"/>, or null.</summary>
     private static string? PdbPrototype(Native.Pdb.PdbFile pdb, INativeImage image, uint start)
     {
         var proc = pdb.Symbols.FirstOrDefault(s => s.Kind is Native.Pdb.PdbSymbolKind.GlobalProc or Native.Pdb.PdbSymbolKind.LocalProc && s.Rva == start && s.TypeIndex != 0);
@@ -754,10 +745,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         return read;
     }
 
-    /// <summary>
-    /// Pushes of volatile registers in the entry prologue (MSVC push ecx, clang push rax): stack allocation, not a save or an
-    /// argument read. Pushes right before a call pass arguments instead.
-    /// </summary>
+    /// <summary>Prologue pushes of volatile registers (MSVC push ecx, clang push rax) that allocate stack; pushes before a call pass arguments.</summary>
     private static HashSet<uint> AllocationPushes(FunctionCode fc, CallAnalysis calls)
     {
         var result = new HashSet<uint>();

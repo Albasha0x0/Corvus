@@ -9,10 +9,7 @@ namespace Corvus.Setup;
 /// <summary>A tool CLI usage error: exit code 2.</summary>
 internal sealed class UsageException(string message) : Exception(message);
 
-/// <summary>
-/// The tool CLI's command line: positionals, tool arguments (k=v, k:=json, k=@file, k=@-), --args / --json JSON,
-/// --args-file, output flags, and server options passed to <see cref="ServerOptions.Parse"/>.
-/// </summary>
+/// <summary>The tool CLI's command line: positionals, tool arguments, JSON arguments, output flags and server options.</summary>
 internal sealed partial class CliArgs
 {
     public List<string> Positionals { get; } = [];
@@ -61,11 +58,8 @@ internal sealed partial class CliArgs
         return a;
     }
 
-    /// <summary>
-    /// Server options for a CLI session: no file watching, whole results instead of pages (unless --max-output), and
-    /// warnings only on stderr (unless --log-level or CORVUS_LOG_LEVEL). A <paramref name="oneShot"/> session (one call)
-    /// builds indexes only when its tool asks for them: a background pass would compete with the call and then be discarded.
-    /// </summary>
+    /// <summary>Server options for a CLI session: no file watching, whole results, warnings only on stderr.</summary>
+    // A one-shot session builds indexes only on demand: a background pass would compete with the call and be discarded.
     public ServerOptions Server(bool oneShot = false)
     {
         Core.ServerOptions options;
@@ -81,10 +75,7 @@ internal sealed partial class CliArgs
 
     private bool Has(string option) => ServerArgs.Contains(option, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// The call's arguments: the JSON object (--args, --json or --args-file), then each assignment coerced by the
-    /// parameter's schema type. Unknown names are passed on, so the server names the closest declared ones.
-    /// </summary>
+    /// <summary>The call's arguments: the JSON object, then each assignment coerced to its schema type; unknown names pass through.</summary>
     public Dictionary<string, object?> ToolArguments(JsonNode? inputSchema, TextReader stdin)
     {
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);

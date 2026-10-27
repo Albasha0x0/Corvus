@@ -39,10 +39,8 @@ final class FieldOps {
     }
 
     /**
-     * The member of the first of types that exists, by name (member) or by an offset it covers: references to it inside
-     * defined instances of the type, then PTRSUB accesses in the high p-code of the functions whose signature names the
-     * type, the functions referencing an instance, and the functions given, within seconds. Rows [rva, read|write|address,
-     * function rva or null].
+     * References to a member (by name or covered offset) of the first existing type: inside instances, then PTRSUB accesses
+     * in functions naming the type, referencing an instance or given, within seconds. Rows [rva, read|write|address, function or null].
      */
     static JsonElement fieldXrefs(Worker w, Worker.Request r) throws Exception {
         long deadline = System.nanoTime() + (long) ((r.args.has("seconds") ? r.args.get("seconds").getAsDouble() : 30) * 1e9);
@@ -81,7 +79,7 @@ final class FieldOps {
         JsonArray rows = new JsonArray();
         TreeSet<String> seen = new TreeSet<>();
         TreeSet<Long> functions = new TreeSet<>();
-        // instances in memory: references into the member's bytes
+        // Instances in memory: references into the member's bytes.
         DataIterator it = w.program.getListing().getDefinedData(true);
         while (it.hasNext()) {
             r.monitor.checkCancelled();
@@ -105,7 +103,7 @@ final class FieldOps {
         }
         for (JsonElement e : Worker.array(r.args, "functions")) functions.add(e.getAsLong());
         if (r.args.has("all_from") && !r.args.get("all_from").isJsonNull()) {
-            // every function from that rva on (scope all, resumed where the last call stopped)
+            // Every function from that rva on (scope all, resumed where the last call stopped).
             long first = r.args.get("all_from").getAsLong();
             for (Function f : w.program.getFunctionManager().getFunctions(true))
                 if (f.getEntryPoint().getOffset() - w.base >= first) functions.add(f.getEntryPoint().getOffset() - w.base);
@@ -160,10 +158,7 @@ final class FieldOps {
         return o;
     }
 
-    /**
-     * write when the member's address (or an element or field address derived from it) is stored to, read when loaded from,
-     * else address (passed on, taken).
-     */
+    /** write when the member's address (or one derived from it) is stored to, read when loaded from, else address. */
     private static String access(Varnode address) {
         boolean read = false;
         List<Varnode> work = new ArrayList<>();

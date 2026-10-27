@@ -5,12 +5,7 @@ using Corvus.Services.Simplify;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// The extended tier for type initializers: a static constructor that builds a large table runs past the instruction
-/// budget while it commits new state, and calls reading what it computed fold; one that loops without committing new
-/// state (a running sum, the same element written again) stops at the budget as before, and so does an ordinary method.
-/// The ceiling stops a run; a stopped run is remembered; the run is not charged to the method's total budget.
-/// </summary>
+/// <summary>Type initializers that commit new state run past the instruction budget; loops that commit nothing stop at it, and a stopped run is remembered.</summary>
 public sealed class SimplifyProgressTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -144,7 +139,7 @@ public sealed class SimplifyProgressTests : IDisposable
         env.Edit(() => env.Edits.SimplifyMethods(env.One("Big.Use").Assembly, env.One("Big.Use"), new SimplifyOptions(Limits: limits ?? Unhurried), dryRun, default));
 
     [Fact]
-    public void InitializersThatCommitStateRunPastTheBudget()
+    public void Initializers_that_commit_state_run_past_the_budget()
     {
         using var env = new Env(Fixture());
         var expected = Run(env.Fixture.OriginalBytes).Split('|');
@@ -163,7 +158,7 @@ public sealed class SimplifyProgressTests : IDisposable
     }
 
     [Fact]
-    public void LoopsThatCommitNothingStopAtTheBudget()
+    public void Loops_that_commit_nothing_stop_at_the_budget()
     {
         using var env = new Env(Fixture());
         var report = Simplify(env);
@@ -177,11 +172,11 @@ public sealed class SimplifyProgressTests : IDisposable
     }
 
     [Fact]
-    public void TheCeilingStopsARunAndTheStopIsRemembered()
+    public void The_ceiling_stops_a_run_and_the_stop_is_remembered()
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, Unhurried with { InitializerInstructionCeiling = 300_000 });
-        Assert.Matches(@"Big\.Table::Get\(\): static constructor of Big\.Table cannot be evaluated: the type initializer ran past the instruction budget in the extended tier for initializers that make progress, and stopped: it reached the ceiling of 300,000 instructions \[instruction-budget\]", report);
+        Assert.Matches(@"Big\.Table::Get\(\): static constructor of Big\.Table cannot be evaluated: the type initializer's extended tier stopped: it reached the ceiling of 300,000 instructions \[instruction-budget\]", report);
         Assert.Matches(@"Big\.Table: [\d,]+ instructions, stopped: it reached the ceiling of 300,000 instructions", report);
         // Table1 and Table2 both need it: the stopped run is not repeated.
         Assert.Single(report.Split('\n'), l => l.Contains("Big.Table: "));
@@ -190,7 +185,7 @@ public sealed class SimplifyProgressTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void TheRunIsNotChargedToTheMethodsTotalBudget()
+    public void The_run_is_not_charged_to_the_methods_total_budget()
     {
         using var env = new Env(Fixture());
         var expected = Run(env.Fixture.OriginalBytes).Split('|');
@@ -202,7 +197,7 @@ public sealed class SimplifyProgressTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void TheFoldedResultRunsTheSame()
+    public void The_folded_result_runs_the_same()
     {
         using var env = new Env(Fixture());
         var before = Run(env.Fixture.OriginalBytes);

@@ -4,12 +4,7 @@ using Corvus.Core.Firmware;
 
 namespace Corvus.Core.Disks;
 
-/// <summary>
-/// NTFS volumes: the MFT located from the boot sector and read along its own data runs; every in-use file record with its
-/// update sequence fixups applied, attributes from extension records joined to their base record; names from $FILE_NAME
-/// (Win32 over DOS), paths from parent references; file data resident or along data runs (sparse runs as zeros, LZNT1
-/// compressed runs decompressed); named data streams (Zone.Identifier among them) listed as file:stream. System files are skipped.
-/// </summary>
+/// <summary>NTFS volumes read through the MFT; LZNT1 runs are decompressed, named streams listed as file:stream, system files skipped.</summary>
 internal sealed class NtfsReader : IContainerReader
 {
     public string Kind => "ntfs";
@@ -61,7 +56,7 @@ internal sealed class NtfsReader : IContainerReader
             if (_recordSize is < 256 or > 65536) throw src.Malformed($"NTFS file record size {_recordSize} is out of range");
             long mftCluster = BinaryPrimitives.ReadInt64LittleEndian(bs.AsSpan(48));
             _tree = new FsTree("NTFS", allFiles, limits, ct);
-            // record 0 is $MFT itself: its data runs give where the rest of the table lies
+            // Record 0 is $MFT itself: its data runs locate the rest of the table.
             var first = Fixup(src.Read(mftCluster * _clusterSize, _recordSize), 0) ?? throw src.Malformed("the first MFT record is damaged");
             var data = Attributes(first).FirstOrDefault(a => a.Type == 0x80 && a.Name.Length == 0 && !a.Resident) ?? throw src.Malformed("$MFT has no data runs");
             _mftRuns = data.Runs!;
@@ -167,7 +162,7 @@ internal sealed class NtfsReader : IContainerReader
             n = Math.Min(n, a.Size);
             if (a.Resident) return a.Value!.Length > n ? a.Value[..(int)n] : a.Value;
             if (!a.Compressed) return ReadRuns(a.Runs!, n);
-            // compressed: units of 16 clusters, each LZNT1 data or stored as is when it fills the unit
+            // Compressed: units of 16 clusters, each LZNT1 data or stored as is when it fills the unit.
             int unitClusters = 1 << a.CompressionUnit;
             long unitBytes = (long)unitClusters * _clusterSize;
             var o = new MemoryStream();
@@ -198,7 +193,8 @@ internal sealed class NtfsReader : IContainerReader
                 var raw = mft.Record(i);
                 if (raw == null || Fixup(raw, i) is not { } r) continue;
                 int flags = BinaryPrimitives.ReadUInt16LittleEndian(r.AsSpan(22));
-                if ((flags & 1) == 0) continue; // not in use
+                // Not in use.
+                if ((flags & 1) == 0) continue;
                 long baseRef = BinaryPrimitives.ReadInt64LittleEndian(r.AsSpan(32)) & 0xFFFFFFFFFFFF;
                 long owner = baseRef != 0 ? baseRef : i;
                 if (!records.TryGetValue(owner, out var rec)) records[owner] = rec = new Record();
@@ -210,7 +206,7 @@ internal sealed class NtfsReader : IContainerReader
                     {
                         int ns = a.Value[65], len = a.Value[64];
                         if (66 + len * 2 > a.Value.Length) continue;
-                        // Win32 (1), Win32 and DOS (3) and POSIX (0) names over DOS (2) ones
+                        // Win32 (1), Win32 and DOS (3) and POSIX (0) names over DOS (2) ones.
                         int rank = ns == 2 ? 0 : 1;
                         if (rec.Name == null || rank > (rec.NameSpace == 2 ? 0 : 1))
                         {
@@ -237,7 +233,8 @@ internal sealed class NtfsReader : IContainerReader
             int orphans = 0;
             foreach (var (number, rec) in records.OrderBy(r => r.Key))
             {
-                if (number < 24 || rec.Directory || rec.Name == null) continue; // system files and directories
+                // System files and directories.
+                if (number < 24 || rec.Directory || rec.Name == null) continue;
                 var path = Path(number);
                 if (path == null) { orphans++; continue; }
                 if (path.StartsWith('$')) continue;
@@ -245,7 +242,7 @@ internal sealed class NtfsReader : IContainerReader
                 if (streams.Count == 0) { _tree.File(path, 0, _ => []); continue; }
                 foreach (var g in streams)
                 {
-                    // an attribute list splits large data over records: the pieces ordered by their first cluster
+                    // An attribute list splits large data over records: pieces ordered by their first cluster.
                     var pieces = g.OrderBy(a => a.StartVcn).ToList();
                     var a0 = pieces[0];
                     var a = pieces.Count == 1 ? a0 : a0 with { Runs = [.. pieces.Where(p => !p.Resident).SelectMany(p => p.Runs!)] };
@@ -259,7 +256,7 @@ internal sealed class NtfsReader : IContainerReader
                 }
             }
             if (orphans > 0) _tree.Notes.Add($"{orphans} file record(s) whose folder chain does not reach the root (deleted folders): not listed");
-            // $Volume (record 3) holds the volume name
+            // $Volume (record 3) holds the volume name.
             if (records.TryGetValue(3, out var volume) && volume.Attributes.FirstOrDefault(a => a.Type == 0x60 && a.Resident) is { Value.Length: > 0 } label)
                 _tree.Notes[0] += $", volume '{Encoding.Unicode.GetString(label.Value!)}'";
             return _tree.Done();

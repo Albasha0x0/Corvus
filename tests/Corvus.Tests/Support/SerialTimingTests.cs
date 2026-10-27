@@ -6,10 +6,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>
-/// Tests that run alone after the parallel ones: deadline and cancellation timings, which parallel classes delay by
-/// starving the process's thread pool, and tests that rebuild repository folders other classes read.
-/// </summary>
+/// <summary>Runs alone after the parallel tests: timing tests a starved pool would delay, and tests that rebuild shared folders.</summary>
 [CollectionDefinition(nameof(SerialTimingTests), DisableParallelization = true)]
 public class SerialTimingCollection;
 
@@ -19,7 +16,7 @@ public class SerialTimingTests(ITestOutputHelper output)
     /// <summary>Path search stays fast on a cyclic real call graph (target: CORVUS_CALLPATH_TARGET or auto-picked).</summary>
     [RequiresRealDataFact(RealData.AssemblyDir)]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
-    public void PathSearchIsFastOnRealAssemblies()
+    public void Path_search_on_real_assemblies_stays_within_its_time_budget()
     {
         using var ws = new AssemblyWorkspace();
         ws.LoadDirectory(RealData.Path(RealData.AssemblyDir), false);

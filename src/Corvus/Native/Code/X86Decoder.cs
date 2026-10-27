@@ -2,10 +2,7 @@ using Iced.Intel;
 
 namespace Corvus.Native.Code;
 
-/// <summary>
-/// x86 / x64 decoding over the code of an image (Iced). Keeps the last instructions of the current linear run so
-/// switch dispatch sequences can be matched. One instance per thread.
-/// </summary>
+/// <summary>x86 / x64 decoder over an image's code that keeps the current run's last instructions; one instance per thread.</summary>
 internal sealed class X86Decoder : ICodeDecoder
 {
     private sealed class Reader : CodeReader
@@ -24,7 +21,7 @@ internal sealed class X86Decoder : ICodeDecoder
     private readonly uint _sizeOfImage;
     private readonly uint[] _relocs;
     private readonly bool _is64;
-    // not PE: user code ends crash paths with hlt (musl a_crash, glibc _start), and i386 code is position independent
+    // Outside PE, hlt ends crash paths (musl a_crash, glibc _start) and i386 code is position independent.
     private readonly bool _hltEnds;
     private readonly Reader _reader = new();
     private readonly Decoder _decoder;
@@ -37,7 +34,7 @@ internal sealed class X86Decoder : ICodeDecoder
     public X86Decoder(ImageCode code, uint[] sortedRelocations) : this(code.Image, code, sortedRelocations) { }
 
     /// <param name="code">Executable code for <see cref="Decode"/>; null when only <see cref="DecodeMapped"/> is used.</param>
-    /// <param name="is64">64-bit code in an image of another architecture (an ARM64X image's x64 ranges); default from the image.</param>
+    /// <param name="is64">64-bit code in an image of another architecture (ARM64X x64 ranges); default from the image.</param>
     public X86Decoder(INativeImage image, ImageCode? code, uint[] sortedRelocations, bool? is64 = null)
     {
         _image = image;
@@ -52,14 +49,11 @@ internal sealed class X86Decoder : ICodeDecoder
     }
 
     public bool Is64 => _is64;
-    /// <summary>Tell reads from writes of memory operands (costs an instruction info lookup); otherwise only lea is told apart.</summary>
+    /// <summary>Distinguish memory reads from writes at the cost of an instruction info lookup; otherwise only lea is distinguished.</summary>
     public bool ComputeAccess { get; set; } = true;
     /// <summary>Treat instructions user-mode compiled code never contains (<see cref="LastIsImplausible"/>) as invalid.</summary>
     public bool RejectImplausible { get; set; }
-    /// <summary>
-    /// Treat an instruction as invalid when a base relocation touches it anywhere but its displacement or immediate:
-    /// the loader patches only pointer-sized operands, so such bytes are data (pointer tables), not code.
-    /// </summary>
+    /// <summary>Treat an instruction as invalid when a base relocation touches it outside its displacement or immediate: the loader patches only pointer-sized operands, so such bytes are data.</summary>
     public bool CheckRelocations { get; set; }
 
     private bool RelocationsFit(uint rva, int length)
@@ -68,7 +62,8 @@ internal sealed class X86Decoder : ICodeDecoder
         int size = _is64 ? 8 : 4;
         int i = Array.BinarySearch(_relocs, rva);
         if (i < 0) i = ~i;
-        if (i > 0 && _relocs[i - 1] + (uint)size > rva) return false; // a pointer that overlaps the first bytes
+        // A pointer overlaps the first bytes.
+        if (i > 0 && _relocs[i - 1] + (uint)size > rva) return false;
         if (i >= _relocs.Length || _relocs[i] >= rva + (uint)length) return true;
         var o = _decoder.GetConstantOffsets(in _last);
         for (; i < _relocs.Length && _relocs[i] < rva + (uint)length; i++)
@@ -80,7 +75,7 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         return true;
     }
-    /// <summary>The image has base relocations (the decoder may hold only those inside code).</summary>
+    /// <summary>The image has base relocations; the decoder may hold only those inside code.</summary>
     public bool HasRelocations => _relocs.Length > 0 || ImageHasRelocations;
     public bool ImageHasRelocations { get; set; }
     /// <summary>The last decoded instruction.</summary>
@@ -188,8 +183,7 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         if (_walking)
         {
-            // a branch target reached by falling through a call and alignment padding: the call does not return (padding is never
-            // laid where flow continues after a call), so the target starts in the state of the branch to it
+            // Padding after a call means the call does not return, so a branch target there takes the branch's state.
             if (_runStart || (_padAfterCall == 2 && _stateAt.ContainsKey(rva))) RestoreState(rva);
             _padAfterCall = insn.Flow is FlowKind.Call or FlowKind.IndirectCall ? 1 : _padAfterCall > 0 && IsFill(in i) ? 2 : 0;
         }
@@ -198,11 +192,7 @@ internal sealed class X86Decoder : ICodeDecoder
         if (_walking) TrackKnown(in i, in insn);
     }
 
-    /// <summary>
-    /// A retpoline or return thunk at the call at <paramref name="pos"/>: "call L; capture loop (pause / lfence / int3); L: mov [rsp], reg; ret"
-    /// is an indirect jump through reg, "L: lea rsp, [rsp+8]; ret" (or add rsp, 8) a return. The thunk decodes as that one
-    /// instruction, so its capture loop and L are neither code to follow nor a call target. Null for any other call.
-    /// </summary>
+    /// <summary>An inline retpoline (indirect jump) or return thunk at the call at <paramref name="pos"/>, decoded as one instruction; null otherwise.</summary>
     private (FlowKind Flow, int Length)? Retpoline(byte[] data, int pos, int end)
     {
         int gap = BitConverter.ToInt32(data, pos + 1);
@@ -225,17 +215,15 @@ internal sealed class X86Decoder : ICodeDecoder
         return null;
     }
 
-    // Register (rax..r15) -> the RVA it holds, 0 = unknown, in the function being walked; a block starts from the state of the
-    // branch that first reached it. i386 position-independent code outside PE: the GOT pointer from "call __x86.get_pc_thunk.reg"
-    // or "call $+5; pop reg", then "add reg, imm"; x64: "lea reg, [rip+x]" (switch table bases the compiler hoists out of loops).
+    // RVA each of rax..r15 holds in the walked function, 0 when unknown: the i386 GOT pointer or an x64 lea [rip+x].
     private readonly uint[]? _known;
     private readonly Dictionary<uint, int> _pcThunks = [];
-    // after "call $+5": the address a "pop reg" there loads
+    // After "call $+5": the address a "pop reg" there loads.
     private uint _popPc;
-    // per ring slot: what the registers of operand 0, operand 1, the memory base and the memory index held before the instruction ran
+    // Per ring slot: the values of operand 0, operand 1, memory base and index before the instruction.
     private readonly uint[] _ringOp0 = new uint[RingSize], _ringOp1 = new uint[RingSize], _ringBase = new uint[RingSize], _ringIndex = new uint[RingSize];
 
-    // register values are tracked between BeginFunction and the next single-instruction query (ThunkSlot)
+    // Register values are tracked from BeginFunction to the next single-instruction query (ThunkSlot).
     private bool _walking;
 
     /// <summary>Starts a function: register values known from its own code only.</summary>
@@ -247,7 +235,7 @@ internal sealed class X86Decoder : ICodeDecoder
         _spills = 0;
         _esp = 0;
         _espKnown = true;
-        // Clear costs the capacity a large function left: shrink it back
+        // Clear keeps the capacity a large function left, so shrink it back.
         if (_stateAt.Count > 0) { _stateAt.Clear(); if (_stateAt.EnsureCapacity(0) > 4096) _stateAt.TrimExcess(256); }
         _states = 0;
         _dispatchState = -1;
@@ -255,13 +243,10 @@ internal sealed class X86Decoder : ICodeDecoder
         _maskedSlots.Clear();
     }
 
-    // frame slots [ebp + d] holding another frame slot's value times four (a switch index scaled once and kept), by displacement
+    // Frame slots [ebp + d] holding another slot's value times four (a kept switch index), by displacement.
     private readonly Dictionary<ulong, ulong> _scaledSlots = [];
 
-    /// <summary>
-    /// "mov [ebp + d2], r" (the last instruction) after "mov r, [ebp + d1]; shl r, 2" (or lea r, [r'*4] of such a load):
-    /// records d2 as d1 scaled; any other store to a recorded slot forgets it.
-    /// </summary>
+    /// <summary>Records "mov [ebp + d2], r" after "mov r, [ebp + d1]; shl r, 2" as d1 scaled; other stores forget the slot.</summary>
     private void TrackScaledSlot(in Instruction i)
     {
         var frame = _is64 ? Register.RBP : Register.EBP;
@@ -290,8 +275,7 @@ internal sealed class X86Decoder : ICodeDecoder
         _scaledSlots.Remove(d2);
     }
 
-    // i386 frame slots (offset from esp at entry) holding a value an and-mask bounds: the count, 0 once stored with anything
-    // else; per ring step, the count a load from such a slot read
+    // i386 frame slots holding an and-masked value, by entry esp offset: the count, 0 after any other store.
     private readonly Dictionary<int, uint> _maskedSlots = [];
     private readonly uint[] _ringSlotCount = new uint[RingSize];
 
@@ -335,10 +319,11 @@ internal sealed class X86Decoder : ICodeDecoder
         else if (insn.Flow == FlowKind.IndirectJump) _dispatchState = SaveState();
         if (insn.Flow is FlowKind.Call or FlowKind.IndirectCall)
         {
-            known[0] = known[1] = known[2] = 0; // eax, ecx, edx do not survive a call
+            // eax, ecx, edx do not survive a call.
+            known[0] = known[1] = known[2] = 0;
             if (_is64)
             {
-                // nor rsi, rdi (System V) and r8-r11
+                // Nor rsi, rdi (System V) and r8-r11.
                 known[6] = known[7] = 0;
                 Array.Clear(known, 8, 4);
             }
@@ -361,7 +346,7 @@ internal sealed class X86Decoder : ICodeDecoder
                 if (frame != int.MinValue && _maskedSlots.TryGetValue(frame + (int)i.MemoryDisplacement64, out uint masked)) _ringSlotCount[slot] = masked;
                 return;
             case Mnemonic.Pop:
-                // an epilogue restores the caller's value on one path; the function's other paths keep the known one
+                // An epilogue pop restores the caller's value on one path; other paths keep the known one.
                 if (insn.Rva == popPc) known[reg] = popPc;
                 return;
             case Mnemonic.Add when i.Op1Kind is OpKind.Immediate32 or OpKind.Immediate8to32:
@@ -380,11 +365,10 @@ internal sealed class X86Decoder : ICodeDecoder
         if (WritesRegister(in i, i.Op0Register)) known[reg] = 0;
     }
 
-    // known values spilled to the stack (i386 code that runs out of registers keeps the GOT pointer there), by offset from
-    // esp at the function's entry; esp tracked through push / pop / add / sub, per block from the branch that reaches it
+    // Esp offset from entry, tracked through push, pop, add and sub; i386 spills the GOT pointer by this offset.
     private int _esp;
     private bool _espKnown, _runStart;
-    // the register values, esp and (i386) the spills at a block start, from the branch that first reached it (case labels: the last dispatch)
+    // Registers, esp and i386 spills at each block start, from the first branch there; case labels take the last dispatch.
     private readonly Dictionary<uint, int> _stateAt = [];
     private uint[] _statePool = new uint[I386StateSize * 64];
     private int _states, _dispatchState = -1;
@@ -410,7 +394,7 @@ internal sealed class X86Decoder : ICodeDecoder
         return _states++;
     }
 
-    // 1 right after a call, 2 after a call and alignment fill, else 0
+    // 1 right after a call, 2 after a call and alignment fill, else 0.
     private int _padAfterCall;
 
     /// <summary>A nop form compilers pad with: nop, xchg ax, ax, mov / lea of a register to itself.</summary>
@@ -489,15 +473,11 @@ internal sealed class X86Decoder : ICodeDecoder
         return _pcThunks[rva] = r;
     }
 
-    /// <summary>
-    /// The last instruction is one compilers do not emit in user-mode code (port I/O, BCD arithmetic, segment
-    /// loads, privileged state, ds/es/ss/cs overrides; with <paramref name="strict"/> also far transfers and iret,
-    /// which system code such as WoW64 transitions and context restore does use): decoding it means the bytes are data.
-    /// </summary>
+    /// <summary>True when the last instruction is one user-mode compilers never emit; <paramref name="strict"/> adds far transfers and iret, which system code uses.</summary>
     public bool LastIsImplausible(bool strict = true)
     {
         ref readonly var i = ref _last;
-        // segment overrides on data accesses (not on nops, which pad with cs:, nor on branches, where 3E is notrack)
+        // Segment overrides on data accesses; nops pad with cs: and 3E on branches is notrack.
         if (i.SegmentPrefix is Register.ES or Register.CS or Register.SS or Register.DS
             && i.Mnemonic != Mnemonic.Nop && i.FlowControl == FlowControl.Next) return true;
         if (strict)
@@ -507,7 +487,7 @@ internal sealed class X86Decoder : ICodeDecoder
             if (i.MemorySize is MemorySize.SegPtr16 or MemorySize.SegPtr32 or MemorySize.SegPtr64) return true;
             if (i.Mnemonic is Mnemonic.Iret or Mnemonic.Iretd or Mnemonic.Iretq or Mnemonic.Retf) return true;
         }
-        // "00 00": add [eax], al
+        // "00 00": add [eax], al.
         if (i.Code == Iced.Intel.Code.Add_rm8_r8 && i.Op0Kind == OpKind.Memory && i.MemoryBase is Register.EAX or Register.RAX
             && i.MemoryIndex == Register.None && i.MemoryDisplacement64 == 0 && i.Op1Register == Register.AL) return true;
         if (i.Mnemonic == Mnemonic.Hlt) return !_hltEnds;
@@ -521,10 +501,7 @@ internal sealed class X86Decoder : ICodeDecoder
             or Mnemonic.Wrmsr or Mnemonic.Sysexit or Mnemonic.Sysret;
     }
 
-    /// <summary>
-    /// The last instruction has a 32-bit displacement compiled code would not produce: large, not covered by a
-    /// relocation, not an RVA (x64 __ImageBase-relative tables) and not the fixed shared user data page.
-    /// </summary>
+    /// <summary>True when the last instruction has a large unrelocated 32-bit displacement that is neither an RVA nor the shared user data page.</summary>
     public bool LastHasImplausibleDisplacement(uint rva)
     {
         ref readonly var i = ref _last;
@@ -536,18 +513,15 @@ internal sealed class X86Decoder : ICodeDecoder
         if (disp is > -0x10000 and < 0x10000) return false;
         if (disp is >= 0x7FFE0000 and < 0x7FFF0000) return false;
         if (_is64 && disp >= 0 && disp < _sizeOfImage) return false;
-        // i386 position-independent code addresses the image from the GOT pointer
+        // i386 position-independent code addresses the image from the GOT pointer.
         if (_hltEnds && !_is64 && i.MemoryBase != Register.None && Math.Abs(disp) < _sizeOfImage) return false;
-        // an array inside a large structure: [base + index*s + field], or its offset formed by lea
+        // An array inside a large structure, or its offset formed by lea.
         if (i.MemoryIndex != Register.None && (i.MemoryBase != Register.None || i.Mnemonic == Mnemonic.Lea) && disp is > -0x100000 and < 0x100000) return false;
         var offsets = _decoder.GetConstantOffsets(in i);
         return !(offsets.HasDisplacement && IsRelocated(rva + offsets.DisplacementOffset));
     }
 
-    /// <summary>
-    /// The instruction before the last one sets the x86 SEH state [ebp-4] to -1 / -2 (leaving the guarded
-    /// block): the call that follows runs the __finally block.
-    /// </summary>
+    /// <summary>True when the previous instruction sets the x86 SEH state [ebp-4] to -1 / -2, so the next call runs a __finally block.</summary>
     public bool PreviousLeavesSehScope()
     {
         if (_is64 || _ringCount < 2) return false;
@@ -561,7 +535,7 @@ internal sealed class X86Decoder : ICodeDecoder
 
     public uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot)
     {
-        // one instruction on its own: no register value from earlier queries applies
+        // A lone instruction takes no register values from earlier queries.
         if (_known != null) Array.Clear(_known);
         _walking = false;
         return Decode(rva, out var insn) && insn.Flow == FlowKind.IndirectJump && insn.HasMem && isImportSlot(insn.MemTarget) ? insn.MemTarget : null;
@@ -618,10 +592,7 @@ internal sealed class X86Decoder : ICodeDecoder
 
     private Dictionary<uint, uint>? _pltSlots;
 
-    /// <summary>
-    /// i386 ELF PLT stubs ("jmp [ebx + slot]", ebx the caller's GOT pointer) -> their GOT slots, as the ELF reader matched them:
-    /// the stub's jump goes through the slot of its import.
-    /// </summary>
+    /// <summary>i386 ELF PLT stub ("jmp [ebx + slot]") to its GOT slot, as the ELF reader matched them.</summary>
     private Dictionary<uint, uint> PltSlots => _pltSlots ??= !_is64 && _image is Elf.ElfFile elf
         ? elf.PltEntries.GroupBy(e => e.StubRva).ToDictionary(g => g.Key, g => g.First().SlotRva) : [];
 
@@ -630,7 +601,7 @@ internal sealed class X86Decoder : ICodeDecoder
         var info = _info.GetInfo(in i, InstructionInfoOptions.NoRegisterUsage);
         foreach (var m in info.GetUsedMemory())
         {
-            // skip the implicit stack access of push [mem] / pop [mem]
+            // Skip the implicit stack access of push [mem] / pop [mem].
             if (m.Base is Register.RSP or Register.ESP && i.MemoryBase is not (Register.RSP or Register.ESP)) continue;
             return m.Access switch
             {
@@ -657,8 +628,7 @@ internal sealed class X86Decoder : ICodeDecoder
                 var offsets = _decoder.GetConstantOffsets(in i);
                 if (!offsets.HasImmediate || !IsRelocated(insn.Rva + offsets.ImmediateOffset)) return;
             }
-            // without relocations the image loads at its base: x86 push / mov and x64 mov of an address in a section
-            // (a fixed-address ELF executable writes function pointers as "mov edi, offset main")
+            // Without relocations the image loads at its base, so push / mov of a section address is a pointer.
             else if (i.Mnemonic is not (Mnemonic.Push or Mnemonic.Mov) || (_is64 && i.Mnemonic != Mnemonic.Mov) || _image.SectionAt(target) == null)
                 return;
             insn.HasImm = true;
@@ -670,10 +640,7 @@ internal sealed class X86Decoder : ICodeDecoder
     /// <summary>Instruction <paramref name="k"/> steps back in the current run (0 = the last one).</summary>
     private ref Instruction Back(int k) => ref _ring[(_ringHead - 1 - k + RingSize * 2) % RingSize];
 
-    /// <summary>
-    /// After a conditional jump (the last instruction): the bounds that hold on its taken and fall-through paths,
-    /// from a preceding "cmp reg, imm".
-    /// </summary>
+    /// <summary>The bounds a "cmp reg, imm" before the last conditional jump sets on its taken and fall-through paths.</summary>
     public void ConditionalBounds(out IndexBound taken, out IndexBound fallThrough)
     {
         taken = fallThrough = IndexBound.None;
@@ -682,7 +649,7 @@ internal sealed class X86Decoder : ICodeDecoder
         if (cc is not (ConditionCode.a or ConditionCode.ae or ConditionCode.be or ConditionCode.b)) return;
         ulong imm;
         ref var jcc = ref Back(0);
-        // out of range: the taken path of ja / jae, the fall-through of jbe / jb
+        // Out of range is the taken path of ja / jae and the fall-through of jbe / jb.
         uint? dflt = TryRva(cc is ConditionCode.a or ConditionCode.ae ? jcc.NearBranchTarget : jcc.NextIP, out uint d) ? d : null;
         IndexBound Make(uint n)
         {
@@ -706,10 +673,7 @@ internal sealed class X86Decoder : ICodeDecoder
 
     private bool TryCompare(int k, int jcc, out Register reg, out ulong imm) => TryCompare(k, jcc, out reg, out imm, out _);
 
-    /// <summary>
-    /// The flags-setting instruction at or before step <paramref name="k"/> (at <paramref name="step"/>) is "cmp reg, imm",
-    /// and reg is unchanged up to the conditional jump at step <paramref name="jcc"/>.
-    /// </summary>
+    /// <summary>True when the flags setter at or before step <paramref name="k"/> is "cmp reg, imm" and reg holds up to step <paramref name="jcc"/>.</summary>
     private bool TryCompare(int k, int jcc, out Register reg, out ulong imm, out int step)
     {
         reg = Register.None;
@@ -722,7 +686,7 @@ internal sealed class X86Decoder : ICodeDecoder
             if (x.Mnemonic != Mnemonic.Cmp || x.Op0Kind != OpKind.Register) return false;
             if (x.Op1Kind == OpKind.Register)
             {
-                // cmp reg, reg2 with reg2 loaded by "mov reg2, imm" or "push imm; pop reg2"
+                // cmp reg, reg2 with reg2 from "mov reg2, imm" or "push imm; pop reg2".
                 int w = FindWriter(k + 1, x.Op1Register.GetFullRegister());
                 if (w < 0) return false;
                 ref var set = ref Back(w);
@@ -743,11 +707,7 @@ internal sealed class X86Decoder : ICodeDecoder
         return false;
     }
 
-    /// <summary>
-    /// The constant <paramref name="reg"/> was adjusted by before step <paramref name="k"/> (sub / add / inc / dec, or
-    /// lea reg, [src + disp]), following register copies: the switched value is the register's value plus this bias.
-    /// One adjustment at most, within the last few instructions.
-    /// </summary>
+    /// <summary>The one constant adjustment to <paramref name="reg"/> within 8 steps before <paramref name="k"/>, through copies; 0 when none.</summary>
     private long BiasBefore(int k, Register reg)
     {
         for (int n = 0; k < _ringCount && n < 8; k++, n++)
@@ -775,22 +735,15 @@ internal sealed class X86Decoder : ICodeDecoder
         return 0;
     }
 
-    /// <summary>
-    /// A load of a switch index from memory: the bound may compare the memory itself ("cmp dword [esp+0x84], 10; ja;
-    /// mov ebx, [esp+0x84]"). Not an x86 byte index table "movzx eI, byte [rJ + table]".
-    /// </summary>
+    /// <summary>A switch index load from memory whose bound may compare the memory itself; not an x86 byte index table.</summary>
     private bool IsSlotLoad(in Instruction x) =>
         x.Mnemonic is Mnemonic.Mov or Mnemonic.Movsxd or Mnemonic.Movzx && x.Op1Kind == OpKind.Memory && x.MemoryBase != Register.None
-        // with an index register: an element [base + index + small disp], not a byte index table at [base + index + table]
+        // With an index register, a small displacement is an element, not a byte index table.
         && (x.MemoryIndex == Register.None || (long)x.MemoryDisplacement64 is > -0x1000 and < 0x1000)
         && x.MemorySize is MemorySize.UInt8 or MemorySize.UInt16 or MemorySize.UInt32 or MemorySize.Int32 or MemorySize.UInt64 or MemorySize.Int64
         && !(x.Mnemonic == Mnemonic.Movzx && !_is64 && TryRva(x.MemoryDisplacement64, out uint table) && _image.SectionAt(table) != null);
 
-    /// <summary>
-    /// The load at step <paramref name="k"/> reads memory a "cmp [same], imm; ja / jae" just before it bounds (an element of a
-    /// table of bytes at a large GOT offset; x64, the same table through another register holding its address), with the
-    /// index register not written between: the loaded value is the index, and the compare gives its count.
-    /// </summary>
+    /// <summary>True when a "cmp [same], imm; ja / jae" just before the load at step <paramref name="k"/> bounds the loaded index.</summary>
     private bool ComparedBefore(int k, in Instruction x, out uint count, out uint? dflt)
     {
         count = 0;
@@ -862,14 +815,7 @@ internal sealed class X86Decoder : ICodeDecoder
         (x.Op0Kind == OpKind.Register && x.Op0Register.GetFullRegister() == full && x.Mnemonic is not (Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Bt))
         || (x.Mnemonic == Mnemonic.Xchg && x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == full);
 
-    /// <summary>
-    /// Matches the instructions before the last one (an indirect jump) against the switch dispatch sequences:
-    /// x64 MSVC "lea rB, __ImageBase; mov eT, [rB + rI*4 + table]; add rT, rB; jmp rT",
-    /// x64 relative "lea rB, table; movsxd rT, [rB + rI*4]; add rT, rB; jmp rT",
-    /// x86 "jmp [rI*4 + table]" / "mov rT, [rI*4 + table]; jmp rT",
-    /// each bounded by "cmp rI, n; ja" on the path (optionally through a byte index table).
-    /// Returns null (with a reason) when the dispatch or its bound is not recognized.
-    /// </summary>
+    /// <summary>Matches the run before the last indirect jump against bounded switch dispatch sequences; null with a reason when none matches.</summary>
     public SwitchMatch? MatchSwitch(out string reason)
     {
         reason = SwitchMatch.NoDispatch;
@@ -882,7 +828,7 @@ internal sealed class X86Decoder : ICodeDecoder
         int k;
         if (jmp.Op0Kind == OpKind.Memory)
         {
-            // "jmp [table + index*4]"; x64: a fixed-address image's "jmp [table + index*8]", or Go's "lea rB, [rip+table]; jmp [rB + index*8]"
+            // "jmp [table + index*4]"; x64 also "jmp [table + index*8]" and Go's "jmp [rB + index*8]".
             if (jmp.MemoryIndex == Register.None || jmp.MemoryIndexScale != entrySize) return null;
             if (jmp.MemoryBase == Register.None ? !TryRva(jmp.MemoryDisplacement64, out table)
                 : !_is64 || jmp.MemoryDisplacement64 != 0 || BaseOf(1, jmp.MemoryBase.GetFullRegister(), out table) != BaseKind.Table) return null;
@@ -909,13 +855,13 @@ internal sealed class X86Decoder : ICodeDecoder
                 if (addBase == BaseKind.Table && load.MemoryDisplacement64 == 0 && load.Mnemonic == Mnemonic.Movsxd
                     && loadBase == b && FindWriter(k + 1, b) > l)
                 {
-                    // entries are offsets from the table itself
+                    // Entries are offsets from the table itself.
                     table = addRva;
                     relative = true;
                 }
                 else if (addBase is BaseKind.ImageBase or BaseKind.Unknown && load.MemoryDisplacement64 is > 0 and < uint.MaxValue)
                 {
-                    // entries are RVAs: [__ImageBase + index*4 + table RVA]
+                    // Entries are RVAs: [__ImageBase + index*4 + table RVA].
                     var lb = BaseOf(l + 1, loadBase, out _);
                     if (lb is not (BaseKind.ImageBase or BaseKind.Unknown)) return MatchKnownBase(k, t, out reason);
                     table = (uint)load.MemoryDisplacement64;
@@ -935,7 +881,7 @@ internal sealed class X86Decoder : ICodeDecoder
             else if (_is64 && w.Mnemonic == Mnemonic.Mov && w.Op1Kind == OpKind.Memory && w.MemoryBase != Register.None && w.MemoryDisplacement64 == 0
                      && w.MemoryIndex != Register.None && w.MemoryIndexScale == 8 && BaseOf(k + 1, w.MemoryBase.GetFullRegister(), out table) == BaseKind.Table)
             {
-                // lea rB, [rip+table]; mov rT, [rB + index*8]; jmp rT (absolute 8-byte entries, as Go writes them)
+                // Go: lea rB, [rip+table]; mov rT, [rB + index*8]; jmp rT.
                 index = w.MemoryIndex.GetFullRegister();
                 absolute = true;
                 k++;
@@ -946,7 +892,7 @@ internal sealed class X86Decoder : ICodeDecoder
 
         if (!TryFindBound(k, index, ref baseAssumed, out uint count, out uint? indexTable, out reason, out var bound))
         {
-            // PE: each entry of an absolute table carries a base relocation, so the relocated run bounds the table
+            // PE: each absolute entry carries a base relocation, so the relocated run bounds the table.
             if (!absolute || entrySize != 4 || _image.Format != ImageFormat.Pe || !TryRva(jmp.IP, out uint at) || (count = RelocatedEntries(table, at)) == 0) return null;
             return new SwitchMatch(table, 4, true, false, count, null, 0, false) { BoundByRelocations = true, Window = KnownBaseWindow };
         }
@@ -961,10 +907,7 @@ internal sealed class X86Decoder : ICodeDecoder
 
     private const uint MaxRelocatedEntries = 1024;
 
-    /// <summary>
-    /// Entries of the absolute table at <paramref name="table"/> up to the first one without a base relocation or whose
-    /// target is not code within <see cref="KnownBaseWindow"/> of the jump at <paramref name="jump"/>.
-    /// </summary>
+    /// <summary>Entries of the absolute table up to the first without a relocation or a code target near <paramref name="jump"/>.</summary>
     private uint RelocatedEntries(uint table, uint jump)
     {
         Span<byte> b = stackalloc byte[4];
@@ -978,17 +921,12 @@ internal sealed class X86Decoder : ICodeDecoder
         return n;
     }
 
-    /// <summary>
-    /// A dispatch whose table and entry base are registers with values the walk knows (<see cref="_known"/>): i386 PIC
-    /// "mov eT, [eG + eI*4 - k]; add eT, eG" (or lea eT, [eT + eG], or "add eG, [eG + eI*4 - k]" into the jump register),
-    /// entries signed offsets from the GOT pointer eG; x64 "movsxd rT, [rB + rI*4]; add rT, rB" (either order) with rB set
-    /// before the run. <paramref name="k"/> is the step writing the jump register <paramref name="t"/>.
-    /// </summary>
+    /// <summary>A dispatch whose table and entry base registers hold values in <see cref="_known"/>; <paramref name="k"/> writes jump register <paramref name="t"/>.</summary>
     private SwitchMatch? MatchKnownBase(int k, Register t, out string reason)
     {
         reason = SwitchMatch.NoDispatch;
         if (_known == null) return null;
-        // "xchg rT, rX; jmp rT": the target was computed in rX
+        // "xchg rT, rX; jmp rT": the target was computed in rX.
         for (int n = 0; n < 2 && Back(k) is { Mnemonic: Mnemonic.Xchg, Op0Kind: OpKind.Register, Op1Kind: OpKind.Register } xchg; n++)
         {
             t = xchg.Op0Register.GetFullRegister() == t ? xchg.Op1Register.GetFullRegister() : xchg.Op0Register.GetFullRegister();
@@ -1005,7 +943,7 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         else
         {
-            // the two summands and what they held before the combining instruction
+            // The two summands and their values before the combining instruction.
             Register x, y;
             uint xv, yv;
             if (w.Mnemonic == Mnemonic.Add && w.Op1Kind == OpKind.Register)
@@ -1032,7 +970,7 @@ internal sealed class X86Decoder : ICodeDecoder
         int s = l.MemoryIndexScale == 1 ? FindWriter(next, index) : -1;
         if (s >= 0 && Back(s) is { Mnemonic: Mnemonic.And } masked && CompareImmediate(in masked, out ulong mask) && (mask & 3) == 0 && mask < uint.MaxValue)
         {
-            // an index scaled before the load and masked: "and rI, 0xfc" bounds it to 64 entries
+            // A pre-scaled masked index: "and rI, 0xfc" bounds it to 64 entries.
             count = (uint)(mask >> 2) + 1;
             bound = (null, 0, true);
         }
@@ -1041,7 +979,7 @@ internal sealed class X86Decoder : ICodeDecoder
             ulong? slot = null;
             if (l.MemoryIndexScale == 1)
             {
-                // the index scaled before the load: lea rI, [rJ*4] or shl rI, 2, or a frame slot holding another one scaled
+                // A pre-scaled index: lea rI, [rJ*4], shl rI, 2, or a scaled frame slot.
                 if (s < 0) return null;
                 ref var x = ref Back(s);
                 if (x.Mnemonic == Mnemonic.Lea && x.MemoryBase == Register.None && x.MemoryIndexScale == 4 && x.MemoryDisplacement64 == 0) index = x.MemoryIndex.GetFullRegister();
@@ -1066,7 +1004,7 @@ internal sealed class X86Decoder : ICodeDecoder
 
     private uint RingValue(uint[] values, int k) => values[(_ringHead - 1 - k + RingSize * 2) % RingSize];
 
-    /// <summary>Step of the load of a 32-bit table entry into <paramref name="reg"/> ("mov / movsxd reg, [base + index*s + disp]") at or before step <paramref name="k"/>, or -1.</summary>
+    /// <summary>Step of the 32-bit table entry load into <paramref name="reg"/> at or before step <paramref name="k"/>, or -1.</summary>
     private int EntryLoad(int k, Register reg)
     {
         int s = FindWriter(k, reg);
@@ -1077,10 +1015,7 @@ internal sealed class X86Decoder : ICodeDecoder
 
     private enum BaseKind { ImageBase, Table, Unknown, Other }
 
-    /// <summary>
-    /// What <paramref name="reg"/> holds at step <paramref name="k"/>: __ImageBase or a table (set by "lea reg, [rip+x]"
-    /// in the run), unknown (no write in the run), or something else.
-    /// </summary>
+    /// <summary>What <paramref name="reg"/> holds at step <paramref name="k"/>: __ImageBase or a table from "lea reg, [rip+x]", unknown, or other.</summary>
     private BaseKind BaseOf(int k, Register reg, out uint rva)
     {
         rva = 0;
@@ -1108,11 +1043,8 @@ internal sealed class X86Decoder : ICodeDecoder
         return -1;
     }
 
-    /// <summary>
-    /// Walks back from step <paramref name="k"/> to the compare bounding <paramref name="index"/>, following register
-    /// copies and at most one byte index table ("movzx rI, byte [rJ + table]"). <paramref name="frameSlot"/>: the index is the
-    /// frame slot [ebp + d] instead.
-    /// </summary>
+    /// <summary>Walks back from step <paramref name="k"/> to the compare bounding <paramref name="index"/>, through copies and one byte index table.</summary>
+    /// <param name="frameSlot">Displacement of the frame slot [ebp + d] holding the index instead.</param>
     private bool TryFindBound(int k, Register index, ref bool baseAssumed, out uint count, out uint? indexTable, out string reason,
         out (uint? Default, long Bias, bool Mask) bound, ulong? frameSlot = null)
     {
@@ -1123,13 +1055,12 @@ internal sealed class X86Decoder : ICodeDecoder
         var current = index;
         var pending = ConditionCode.None;
         int pendingStep = 0;
-        // the index was loaded from memory [base + disp] (a frame slot, a field): follow the slot instead of a register
+        // An index loaded from memory is followed through its slot instead of a register.
         bool inSlot = frameSlot != null;
         Register slotBase = inSlot ? Register.RBP : Register.None, slotIndex = Register.None;
         int slotScale = 1;
         ulong slotDisp = frameSlot ?? 0;
-        // "cmp byte [esp+d], n; ja" bounds the index when [esp+d] was stored from the register the index copies (clang:
-        // movzx esi, cl; mov [esp+d], cl): the compared slot, its count and default, and the register stored there
+        // "cmp byte [esp+d], n; ja" bounds the index when the slot was stored from the register it copies (clang).
         Register cmpBase = Register.None, storedFrom = Register.None;
         ulong cmpDisp = 0;
         var cmpSize = MemorySize.Unknown;
@@ -1172,7 +1103,7 @@ internal sealed class X86Decoder : ICodeDecoder
             }
             if (pending != ConditionCode.None && x.RflagsModified != RflagsBits.None)
             {
-                // the run continues on the fall-through side of the pending jump: ja / jae bound the index
+                // The run continues on the fall-through side, so ja / jae bound the index.
                 ulong imm = 0;
                 bool bounded = x.Mnemonic == Mnemonic.Cmp && (inSlot
                     ? IsSlot(in x, slotBase, slotDisp, slotIndex, slotScale) && CompareImmediate(in x, out imm)
@@ -1206,7 +1137,7 @@ internal sealed class X86Decoder : ICodeDecoder
             if (!WritesRegister(in x, current)) continue;
             if (x.Mnemonic == Mnemonic.And && CompareImmediate(in x, out ulong mask) && mask < uint.MaxValue)
             {
-                // "and rI, mask" bounds the index by itself
+                // "and rI, mask" bounds the index by itself.
                 count = (uint)mask + 1;
                 bound = (null, 0, true);
                 return true;
@@ -1220,7 +1151,7 @@ internal sealed class X86Decoder : ICodeDecoder
             {
                 if (_walking && RingValue(_ringSlotCount, k) is var masked and > 0)
                 {
-                    // a frame slot stored right after an and-mask (in another block)
+                    // A frame slot stored right after an and-mask in another block.
                     count = masked;
                     bound = (null, 0, true);
                     return true;

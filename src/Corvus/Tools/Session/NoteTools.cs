@@ -24,8 +24,8 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     private const string EvidenceDescription = "At most 10: {result: r-... or last:N, expect: supports|refutes}, {tool, args} of a call made here, or {text}.";
 
     [McpServerTool(Name = "record_note", Title = "Record a note", UseStructuredContent = true)]
-    [Description("Record a finding, question, hypothesis or todo anchored to a native address, .NET member, file or dump; notes persist per user, " +
-                 "keyed by SHA-256 or MVID to follow the binary; decompile_member and decompile_native count open notes of a target.")]
+    [Description("Record a finding, question, hypothesis or todo on a native address, .NET member, file or dump. Notes persist per user " +
+                 "and follow the binary by SHA-256 or MVID.")]
     public Task<Note> RecordNote(
         [Description("At most 4,000 characters.")] string text,
         [Description("Default finding.")] string? kind = null,
@@ -41,8 +41,8 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     }, cancellationToken);
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]
-    [Description("Change part of a note: status, kind, text, tags, evidence; verify=true re-checks linked records and sets a hypothesis confirmed or " +
-                 "refuted when they verify and name its anchor, else open. A stale expectedRevision is a conflict, with the note.")]
+    [Description("Change a note's status, kind, text, tags or evidence. verify=true re-checks linked records and sets a hypothesis " +
+                 "confirmed or refuted; a stale expectedRevision is a conflict.")]
     public Task<Note> UpdateNote(
         [Description("Note id.")] string id,
         [Description("The revision last read.")] int expectedRevision,
@@ -74,8 +74,8 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     }
 
     [McpServerTool(Name = "list_notes", Title = "List notes", UseStructuredContent = true, OutputSchemaType = typeof(NoteList))]
-    [Description("Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists all its notes, <image>@<address> those in the " +
-                 "containing function, <assembly>:<type> those on its members too.")]
+    [Description("Notes, newest first, filtered by status, kind, anchor, tag and text. A file anchor lists all its notes, an address " +
+                 "its function's, a type its members' too.")]
     public Task<string> ListNotes(
         [Description("Default open; all for every status.")] string? status = null,
         [Description("Only this kind.")] string? kind = null,
@@ -183,7 +183,7 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
         {
             case NoteAnchor.File:
                 {
-                    // the whole file: its file, address and member notes
+                    // The whole file: its file, address and member notes.
                     var mvid = workspace.Read(() => workspace.Assemblies.FirstOrDefault(x => x.OriginalSha256 == r.Sha256)?.Module.Mvid?.ToString());
                     var keys = new List<string> { r.Sha256!.ToLowerInvariant() };
                     if (mvid != null) keys.Add(new NoteAnchor(NoteAnchor.DotNet, Mvid: mvid).StoreKey);

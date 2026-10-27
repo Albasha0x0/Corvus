@@ -3,11 +3,7 @@ using Corvus.Core.Documents;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// view=pdf: a PDF's structure and active content (<see cref="PdfDocument"/>): version, objects, streams, incremental
-/// updates, encryption, pdfid's keyword counts (with #xx-escaped names counted apart), actions with what triggers them,
-/// JavaScript and XFA scripts with noteworthy calls by object and line, launched programs, URIs and embedded files.
-/// </summary>
+/// <summary>view=pdf: a PDF's structure and active content: updates, encryption, keyword counts, actions, scripts, embedded files.</summary>
 internal sealed class PdfFileView : IFileSummaryView
 {
     public sealed record Script(int Object, string Trigger, int Length, string Start);

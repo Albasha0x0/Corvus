@@ -25,7 +25,7 @@ public partial class ReleaseProvenanceTests
 
     // Regression: ci.yml pinned actions by tag, the pattern the March 2026 trivy-action tag rewrite exploited.
     [Fact]
-    public void EveryActionIsPinnedByCommitSha()
+    public void Every_action_is_pinned_by_commit_SHA()
     {
         var uses = GitHubFiles().SelectMany(f => Uses().Matches(f.Text).Select(u => (f.Name, Match: u)))
             .Where(u => !u.Match.Groups[1].Value.StartsWith("./", StringComparison.Ordinal)).ToList();
@@ -33,8 +33,7 @@ public partial class ReleaseProvenanceTests
         var unpinned = uses.Where(u => !Pinned().IsMatch(u.Match.Groups[1].Value) || !VersionComment().IsMatch(u.Match.Groups[2].Value.TrimEnd('\r')))
             .Select(u => $"{u.Name}: {u.Match.Value.Trim()}").ToList();
         Assert.True(unpinned.Count == 0, "pin by commit SHA with '# vX.Y.Z' after it:\n" + string.Join("\n", unpinned));
-        // One action, one SHA: two pins of the same action at different commits would be a missed update. Actions in
-        // one repository (actions/cache, actions/cache/restore) share its commit.
+        // One SHA per action, shared within a repository; two pins of one action are a missed update.
         var bySha = uses.Select(u => u.Match.Groups[1].Value.Split('@')).GroupBy(p => string.Join('/', p[0].Split('/').Take(2)))
             .Where(g => g.Select(p => p[1]).Distinct().Count() > 1).Select(g => g.Key);
         Assert.Empty(bySha);
@@ -48,7 +47,7 @@ public partial class ReleaseProvenanceTests
     }
 
     [Fact]
-    public void ReleaseAssetsCarryProvenanceAndAnSbom()
+    public void Release_assets_carry_provenance_and_an_SBOM()
     {
         var release = Workflow[Workflow.IndexOf("\n  release:", StringComparison.Ordinal)..Workflow.IndexOf("\n  publish:", StringComparison.Ordinal)];
         foreach (var permission in new[] { "id-token: write", "attestations: write", "artifact-metadata: write", "contents: write" })

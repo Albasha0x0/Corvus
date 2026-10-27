@@ -1,9 +1,6 @@
 namespace Corvus.Core;
 
-/// <summary>
-/// The output state of one tool call: its budget per part (text and structured content each) and what the tool's paging
-/// produced, read by the call filter to fit both parts together. Flows into the tool's tasks.
-/// </summary>
+/// <summary>One tool call's output budget per part and its paging state, read by the call filter.</summary>
 public sealed class OutputCall
 {
     private static readonly AsyncLocal<OutputCall?> Active = new();
@@ -30,10 +27,7 @@ public sealed class OutputCall
     /// <summary>Estimated tokens each part may take.</summary>
     public int Tokens { get; private set; }
 
-    /// <summary>
-    /// Fits this call's parts to <paramref name="percent"/>% of its budget: for text the estimate counts low, such as packed
-    /// string tables of rare names read from an image (up to 1.25x their o200k count).
-    /// </summary>
+    /// <summary>Shrinks this call's budget to <paramref name="percent"/>%, for text whose estimate counts low (up to 1.25x for packed tables of rare names).</summary>
     public void Tighten(int percent) => Tokens = Tokens * Math.Clamp(percent, 1, 100) / 100;
 
     /// <summary>The client's character cap per part, if any.</summary>
@@ -96,10 +90,7 @@ public sealed record TextPageState(int Offset, int End, int Total, string Slice)
 /// <summary>A row page: <see cref="Rendered"/> shows rows Offset..Offset+Shown; <see cref="Render"/> renders it with fewer rows.</summary>
 public sealed record RowPageState(int Offset, int Limit, int Shown, int Total, string Rendered, Func<int, string> Render);
 
-/// <summary>
-/// Pages long tool output and keeps an LRU cache of produced texts so later pages are not regenerated. Inside a call the
-/// page size is the call's token budget; outside one (direct calls) it is the server's character page.
-/// </summary>
+/// <summary>Pages long tool output, with an LRU cache of produced texts; the page is the call's budget or the server's page.</summary>
 public sealed class OutputPager(ServerOptions options)
 {
     private const int CacheCapacity = 24;
@@ -160,7 +151,8 @@ public sealed class OutputPager(ServerOptions options)
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = rows.Skip(offset).Take(limit).Select(r => r.Replace("\r\n", "\n")).ToList();
-        int fit = FitRows(page.Select(r => "  " + r).ToList(), 1_000); // room for the caller's header lines too
+        // Room for the caller's header lines too.
+        int fit = FitRows(page.Select(r => "  " + r).ToList(), 1_000);
         string Render(int shown)
         {
             shown = Math.Min(shown, page.Count);
@@ -188,10 +180,7 @@ public sealed class OutputPager(ServerOptions options)
         : noun.EndsWith('y') && noun.Length > 1 && !"aeiou".Contains(noun[^2]) ? noun[..^1] + "ies"
         : noun + "s";
 
-    /// <summary>
-    /// A character count that holds a page: the token budget at the densest text (2 characters per token) inside a call,
-    /// else maxTokens at 4 characters per token, else the server's page.
-    /// </summary>
+    /// <summary>The characters in a page: the call budget at 2 per token, else maxTokens at 4 per token, else the server's page.</summary>
     public int MaxChars(int? maxTokens = null) => OutputCall.Budgeted is { } call
         ? Math.Min(call.Tokens * 4, call.Chars ?? int.MaxValue)
         : maxTokens is > 0 ? Math.Clamp(maxTokens.Value * 4, 1_000, 500_000) : Math.Clamp(options.MaxOutputChars, 1_000, 500_000);
@@ -221,21 +210,20 @@ public sealed class OutputPager(ServerOptions options)
                 n++;
             }
         }
-        return Math.Max(n, Math.Min(1, lines.Count)); // at least one row, so paging always advances
+        // At least one row, so paging always advances.
+        return Math.Max(n, Math.Min(1, lines.Count));
     }
 
     /// <summary>The footer of a row list cut by the page size: the next offset.</summary>
     public static string CapNote(int fit, int asked, int next) => More(next);
 
-    /// <summary>
-    /// The slice starting at <paramref name="offset"/> that fits the page, cut at a line break when possible, with one footer:
-    /// [More: offset=N] to continue, [End: N chars] on a last page past the first.
-    /// </summary>
+    /// <summary>The page from <paramref name="offset"/>, cut at a line break, with a [More: offset=N] or [End: N chars] footer.</summary>
     /// <param name="complete">False when <paramref name="text"/> was produced only past the page: the total is not known.</param>
     public string Page(string text, int offset = 0, int? maxTokens = null)
     {
         if (offset < 0) throw new ToolError(ErrorCode.InvalidArgument, $"offset must be 0 or more, not {offset}.");
-        text = text.Replace("\r\n", "\n"); // before the bound check: offsets and totalChars count the normalized text
+        // Before the bound check: offsets and totalChars count the normalized text.
+        text = text.Replace("\r\n", "\n");
         if (offset >= text.Length && text.Length > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"offset {offset} is past the end of the output ({text.Length} chars).");
         offset = Math.Min(offset, text.Length);
@@ -277,10 +265,7 @@ public sealed class OutputPager(ServerOptions options)
         return FitEnd(text, offset, (call?.Tokens ?? maxTokens!.Value) - 40, call?.Chars is { } c ? c - 160 : null);
     }
 
-    /// <summary>
-    /// The end of the longest run of whole lines from <paramref name="offset"/> within <paramref name="tokens"/> estimated
-    /// tokens and <paramref name="chars"/> characters; a first line larger than that is cut inside (never empty).
-    /// </summary>
+    /// <summary>The end of the longest run of whole lines within the budgets; an oversized first line is cut, never empty.</summary>
     public static int FitEnd(string text, int offset, long tokens, long? chars)
     {
         long room = chars ?? long.MaxValue;

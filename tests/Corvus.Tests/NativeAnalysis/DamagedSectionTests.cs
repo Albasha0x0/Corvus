@@ -34,7 +34,7 @@ public class DamagedSectionTests
     [Theory]
     [InlineData("feature trace")]
     [InlineData("itanium rtti")]
-    [InlineData("il2cpp registration")]
+    [InlineData("aot registration")]
     [InlineData("code pattern")]
     [InlineData("itanium eh")]
     [InlineData("jni tables")]
@@ -58,9 +58,9 @@ public class DamagedSectionTests
             case "itanium rtti":
                 var rtti = Elf(".data");
                 return () => ItaniumRtti.Analyze(rtti);
-            case "il2cpp registration":
-                var il2cpp = Pe(Data);
-                return () => { Il2CppRegistrationSearch.GenericMethodPointers(il2cpp, 4, []); Il2CppRegistrationSearch.CodeRegistration(il2cpp); };
+            case "aot registration":
+                var registration = Pe(Data);
+                return () => { AotRegistrationSearch.GenericMethodPointers(registration, 4, []); AotRegistrationSearch.CodeRegistration(registration); };
             case "code pattern":
                 var pattern = Pe(Data);
                 return () => CodePatterns.CodeSections(pattern, allSections: true);

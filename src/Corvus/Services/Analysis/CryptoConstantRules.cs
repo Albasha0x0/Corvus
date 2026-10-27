@@ -3,11 +3,9 @@ using Corvus.Native;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>
-/// survey_features over native images: crypto and hash algorithms by their constants ("const:name"). Tables (S-boxes, IV and
-/// round-constant arrays) are found as little-endian bytes in any section; single constants only in executable sections,
-/// where x86 encodes them as immediates (ARM builds them from 16-bit halves, so there only the tables are found).
-/// </summary>
+/// <summary>survey_features "const:name" rules: crypto and hash algorithms found in native images by their constants.</summary>
+// Tables match in any section; single constants only in code, as x86 immediates. ARM builds constants from 16-bit
+// halves, so there only tables match.
 internal sealed class CryptoConstantRules : ISurveyRuleProvider
 {
     private const int MaxLocations = 5;
@@ -34,7 +32,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["crc32"] = new("CRC-32 table", false, [Le(0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA)]),
         ["blowfish"] = new("Blowfish P-array", false, [Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344)]),
         ["chacha"] = new("ChaCha20 / Salsa20 constant", false, ["expand 32-byte k"u8.ToArray(), "expand 16-byte k"u8.ToArray()]),
-        // x86 code writes initial values word by word as immediates, never as one table
+        // x86 code writes initial values word by word as immediates, never as one table.
         ["sha256-code"] = new("SHA-256 initial values as immediates", true, [Le(0x6A09E667), Le(0xBB67AE85)]),
         ["sha1-md5-code"] = new("MD5 / SHA-1 initial values as immediates", true, [Le(0x67452301), Le(0x98BADCFE)]),
         ["tea"] = new("TEA / XTEA delta", true, [Le(0x9E3779B9), Le(0x61C88647)]),
