@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
+using Corvus.Core;
 
 namespace Corvus.Native.Providers;
 
@@ -243,9 +244,31 @@ public static partial class ExternalTools
     public static List<string> Arguments(ExternalTool tool, string op, params (string Name, string Value)[] values)
     {
         var map = values.ToDictionary(v => "{" + v.Name + "}", v => v.Value, StringComparer.Ordinal);
-        return [.. tool.Options[op].Select(a => map.TryGetValue(a, out var whole) ? whole
-            : map.Aggregate(a, (text, p) => text.Replace(p.Key, p.Value, StringComparison.Ordinal)))];
+        var result = new List<string>();
+        bool shell = false;
+        foreach (var a in tool.Options[op])
+        {
+            // One pass: a value holding "{name}" stays literal; elements after adb's shell or exec-out reach a device shell, so their values are quoted.
+            bool quote = shell;
+            result.Add(Placeholder().Replace(a, m => map.TryGetValue(m.Value, out var v) ? Value(m.Value, v, quote) : m.Value));
+            if (a is "shell" or "exec-out") shell = true;
+        }
+        return result;
     }
+
+    private static string Value(string name, string value, bool shell)
+    {
+        if (value.Contains('\0', StringComparison.Ordinal) || shell && value.AsSpan().IndexOfAny('\r', '\n') >= 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"{name.Trim('{', '}')} holds a NUL or a line break, which a program argument cannot carry.");
+        return shell ? ShellQuoted(value) : value;
+    }
+
+    /// <summary><paramref name="value"/> as one POSIX shell word: unchanged when it holds only safe characters, else single-quoted.</summary>
+    public static string ShellQuoted(string value) =>
+        value.Length > 0 && value.All(c => char.IsAsciiLetterOrDigit(c) || "_@%+=:,./-".Contains(c)) ? value : "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
+
+    [GeneratedRegex(@"\{[A-Za-z]+\}")]
+    private static partial Regex Placeholder();
 
     private static IEnumerable<(string, string)> AndroidSdkDirectories()
     {

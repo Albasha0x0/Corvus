@@ -21,6 +21,22 @@ public class ExternalToolsTests : IDisposable
     public void Dispose() => ExternalTools.VersionTimeout = _versionTimeout;
 
     [Fact]
+    public void Values_after_adb_shell_reach_the_device_shell_as_one_word_and_are_substituted_once()
+    {
+        Assert.Equal(["-s", "emulator-5554", "shell", "cat", "'/sdcard/a;id'"],
+            ExternalTools.Arguments(ExternalTools.Adb, "cat", ("serial", "emulator-5554"), ("remote", "/sdcard/a;id")));
+        Assert.Equal(["-s", "emulator-5554", "shell", "cat", "'/sdcard/it'\\''s $(id)'"],
+            ExternalTools.Arguments(ExternalTools.Adb, "cat", ("serial", "emulator-5554"), ("remote", "/sdcard/it's $(id)")));
+        Assert.Equal(["-s", "emulator-5554", "shell", "cat", "/sdcard/Download/a-1.txt"],
+            ExternalTools.Arguments(ExternalTools.Adb, "cat", ("serial", "emulator-5554"), ("remote", "/sdcard/Download/a-1.txt")));
+        // A value naming another placeholder stays literal; before the shell element nothing is quoted.
+        Assert.Equal(["-s", "a{local}b", "pull", "/sdcard/x", "{remote}"],
+            ExternalTools.Arguments(ExternalTools.Adb, "pull", ("serial", "a{local}b"), ("remote", "/sdcard/x"), ("local", "{remote}")));
+        var e = Assert.Throws<Corvus.Core.ToolError>(() => ExternalTools.Arguments(ExternalTools.Adb, "cat", ("serial", "s"), ("remote", "/sdcard/a\nid")));
+        Assert.Contains("remote holds a NUL or a line break", e.Message);
+    }
+
+    [Fact]
     public void Locate_takes_the_variable_as_file_or_folder_and_never_falls_back_from_a_bad_one()
     {
         using var fake = new FakeTool();
