@@ -6,6 +6,15 @@ namespace Corvus.Services.Web.Packages;
 public static partial class PackageReview
 {
     private const int MaxScannedSources = 200;
+    private const long MaxScannedSourceBytes = 16 << 20;
+
+    /// <summary>The first <see cref="MaxScannedSources"/> of <paramref name="sources"/>; the rest are named in the package's not-read list.</summary>
+    private static List<string> Capped(PackageFiles files, List<string> sources)
+    {
+        if (sources.Count > MaxScannedSources)
+            files.NotRead.Add($"{sources.Count - MaxScannedSources} source(s) past the first {MaxScannedSources}, from {sources[MaxScannedSources]}");
+        return sources.Take(MaxScannedSources).ToList();
+    }
 
     private static readonly Regex NotImported = new(@"(?:^|/)(?:tests?|testing|examples?|docs?|benchmarks?)/|(?:^|/)(?:test_[^/]*|[^/]*_test|conftest)\.py$", RegexOptions.Compiled);
 
@@ -76,8 +85,8 @@ public static partial class PackageReview
                 entries.AddRange(EntryPoints("[x]\n" + cfgEntries.Groups[1].Value.Replace("\n    ", "\n")).Select(e => e with { Kind = "entry point" }));
         }
         // Import-time code, __init__ modules first; tests, examples and docs are not imported.
-        foreach (var source in files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
-                     .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/')).Take(MaxScannedSources))
+        foreach (var source in Capped(files, [.. files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
+                     .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/'))]))
             if (files.Text(source) is { } code)
                 findings.AddRange(Scan(source, code, install: false, ct, entry: source.EndsWith("__init__.py", StringComparison.Ordinal))
                     .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));

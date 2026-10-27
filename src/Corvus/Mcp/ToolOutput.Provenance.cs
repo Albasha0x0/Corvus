@@ -50,7 +50,7 @@ public static partial class ToolOutput
         if (result.IsError == true) return p;
         p["resultSha256"] = resultSha256 ?? ResultSha256(result);
         ResultHashes.Remember(tool, ResultHashes.Sha256(ResultHashes.Canonical(args == null ? new JsonObject() : JsonSerializer.SerializeToNode(args))), (string)p["resultSha256"]!);
-        p["coverage"] = call.Coverage?.Status ?? "complete";
+        p["coverage"] = call.Coverage?.Status ?? (call.Whole || !ToolContract.ScanOutput.Contains(tool) ? "complete" : "unknown");
         if (call.Facets is { Count: > 0 } facets) p["facets"] = Facets(facets);
         if (call.Coverage is { Limitations.Count: > 0 } c)
             p["limitations"] = new JsonArray(c.Limitations.Concat(p["limitations"] is JsonArray stated ? stated.Select(l => (string)l!) : [])

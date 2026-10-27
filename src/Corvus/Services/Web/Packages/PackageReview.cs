@@ -37,6 +37,9 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     [Description("A wheel's RECORD: files whose sha256 matches, differs, or is not listed.")]
     public string? Record { get; init; }
 
+    [Description("Files the review did not read, named with the limit that stopped each; null when it read every file.")]
+    public string? Partial { get; init; }
+
     [Description("noteworthy, worth reviewing, or none: the strongest finding.")]
     public string Review { get; init; } = "none";
 
@@ -93,7 +96,22 @@ public static partial class PackageReview
         }
         var findings = report.Findings.Distinct().OrderBy(f => f.Level == "noteworthy" ? 0 : 1).ThenBy(f => f.Category, StringComparer.Ordinal).ToList();
         var review = findings.Any(f => f.Level == "noteworthy") ? "noteworthy" : findings.Count > 0 ? "worth reviewing" : "none";
-        return report with { Findings = findings, Review = review, Files = files.Count, Notes = [.. files.Notes, .. report.Notes], Hosts = hosts ? Hosts(files, ct) : null };
+        return report with
+        {
+            Findings = findings, Review = review, Files = files.Count, Notes = [.. files.Notes, .. report.Notes], Hosts = hosts ? Hosts(files, ct) : null,
+            Partial = Partial(files),
+        };
+    }
+
+    /// <summary>The files a review did not read, the first few named; null when it read them all.</summary>
+    private static string? Partial(PackageFiles files)
+    {
+        var notRead = files.NotRead.Distinct().ToList();
+        if (notRead.Count == 0 && files.Unlisted == 0) return null;
+        var parts = new List<string>();
+        if (notRead.Count > 0) parts.Add($"{notRead.Count} not read: {string.Join("; ", notRead.Take(5))}{(notRead.Count > 5 ? "; …" : "")}");
+        if (files.Unlisted > 0) parts.Add($"{files.Unlisted:N0} past the first {PackageFiles.MaxEntries:N0} files neither listed nor read");
+        return string.Join("; ", parts);
     }
 
     // An sdist holds one top folder; some archives carry setup.py at their root.
@@ -317,10 +335,12 @@ public static partial class PackageReview
             if (files.Text(entry) is { } code)
                 foreach (var f in Scan(entry, code, install: false, ct, entry: true))
                     if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials") yield return f;
-        var others = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
-                                            && !p.Contains("node_modules/", StringComparison.Ordinal) && !entryFiles.Contains(p) && files.Size(p) <= 16 << 20)
-            .OrderBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).Take(MaxScannedSources);
-        foreach (var other in others)
+        var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
+                                             && !p.Contains("node_modules/", StringComparison.Ordinal) && !entryFiles.Contains(p))
+            .OrderBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();
+        files.NotRead.AddRange(sources.Where(p => files.Size(p) > MaxScannedSourceBytes && files.Bytes(p) != null)
+            .Select(p => $"{p} (source over {MaxScannedSourceBytes >> 20} MiB)"));
+        foreach (var other in Capped(files, [.. sources.Where(p => files.Size(p) <= MaxScannedSourceBytes)]))
             if (files.Text(other) is { } code)
                 foreach (var f in Scan(other, code, install: false, ct, entry: Folder(other) == root, peel: false))
                     if (f.Level == "noteworthy") yield return f;

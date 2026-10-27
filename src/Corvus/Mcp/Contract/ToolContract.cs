@@ -36,6 +36,10 @@ public sealed partial record ToolContract(string Tool, OutputClass Output, Laten
     /// <summary>Tools whose results hold only the server's own text and the caller's numbers.</summary>
     internal static readonly IReadOnlySet<string> ServerOnlyOutput = new HashSet<string>(StringComparer.Ordinal) { "server_status", "convert_number" };
 
+    /// <summary>Tools whose result scans many files or members: coverage is unknown until the reader calls <see cref="ToolOutput.Complete"/>.</summary>
+    internal static readonly IReadOnlySet<string> ScanOutput = new HashSet<string>(StringComparer.Ordinal)
+        { "summarize_file", "survey_features", "search_container", "compare_folders" };
+
     /// <param name="sort">The default row order of a list.</param>
     /// <param name="dryRun">Takes dryRun and defaults it to true.</param>
     /// <param name="noDryRun">Why a tool that changes something has no dryRun.</param>

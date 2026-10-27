@@ -73,9 +73,9 @@ public static partial class PackageReview
             findings.Add(new PackageFinding("review", "update", $"updates from outside the browser's store: {update}", path));
         if (m.TryGetProperty("externally_connectable", out var ec) && Strings(ec, "matches").Any(IsBroadHost))
             findings.Add(new PackageFinding("review", "permission", "any site can message the extension (externally_connectable)", path));
-        var scripts = entries.Where(e => e.Target != null && e.Target.EndsWith(".js", StringComparison.Ordinal)).Select(e => Resolve(root, e.Target!))
+        var scripts = Capped(files, [.. entries.Where(e => e.Target != null && e.Target.EndsWith(".js", StringComparison.Ordinal)).Select(e => Resolve(root, e.Target!))
             .Concat(files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && p.EndsWith(".js", StringComparison.Ordinal)))
-            .Distinct().Take(MaxScannedSources).ToList();
+            .Distinct()]);
         foreach (var script in scripts)
         {
             if (files.Text(script) is not { } code) continue;

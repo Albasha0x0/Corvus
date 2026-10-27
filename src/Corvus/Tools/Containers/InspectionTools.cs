@@ -63,6 +63,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             {
                 var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath);
                 record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
+                Coverage(record);
                 return ToolOutput.Report(ContainerText.Summary(record), record);
             }
             InspectionService.FileSummary summary;
@@ -82,8 +83,17 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                 var facts = await Task.Run(() => graph.Build(summary.File.Path, (int)Math.Min(offset, int.MaxValue), limit ?? Services.Mobile.AppGraph.DefaultLimit, cancellationToken), cancellationToken);
                 record = record with { Detail = ToolOutput.Serialize(facts) as System.Text.Json.Nodes.JsonObject };
             }
+            Coverage(record);
             return ToolOutput.Report(ContainerText.Summary(record), record);
         });
+
+    /// <summary>view=package states what it read: partial with the files not read, else complete; other views leave coverage unknown.</summary>
+    private static void Coverage(FileSummaryRecord record)
+    {
+        if (record.View != "package" || record.Detail == null) return;
+        if ((string?)record.Detail["partial"] is { Length: > 0 } partial) ToolOutput.Coverage("partial", partial, Limitations.Id(Limitation.RowCap));
+        else ToolOutput.Complete();
+    }
 
     /// <summary>The loaded native image an argument names (a managed assembly of that name wins), or null.</summary>
     private LoadedNative? NativeNamed(string? assembly, string? path)

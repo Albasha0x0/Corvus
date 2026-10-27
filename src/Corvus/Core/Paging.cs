@@ -58,6 +58,9 @@ public sealed class OutputCall
 
     public (string Status, string Reason, IReadOnlyList<string> Limitations)? Coverage { get; set; }
 
+    /// <summary>The reader said it read all of its input; a scan tool's result is complete only then.</summary>
+    public bool Whole { get; set; }
+
     /// <summary>Facets of a function result (pseudocode, callers, callees, xrefs, strings, cfg): null when available, else why not.</summary>
     public SortedDictionary<string, string?>? Facets { get; set; }
 

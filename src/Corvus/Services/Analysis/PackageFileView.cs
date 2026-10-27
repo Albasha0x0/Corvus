@@ -50,6 +50,7 @@ internal sealed class PackageFileView : IFileSummaryView
             $"{who}: {r.Review}" + (r.Findings.Count > 0 ? $" ({r.Findings.Count} finding(s))" : "") +
             (install.Count > 0 ? $"; runs at install: {string.Join(", ", install)}" : "") + "; view=package lists scripts, entry points and findings.",
         };
+        if (r.Partial != null) list.Add($"Partial: {r.Partial}.");
         static string Counts(IEnumerable<AgentEntry> entries) => string.Join(", ", entries.GroupBy(a => a.Kind).Select(g => $"{g.Count()} {g.Key}{(g.Count() > 1 ? "s" : "")}"));
         if (r.Agents?.Where(a => !RepositoryKinds.Contains(a.Kind)).ToList() is { Count: > 0 } agents) list.Add("Agent configuration: " + Counts(agents) + ".");
         if (r.Agents?.Where(a => RepositoryKinds.Contains(a.Kind)).ToList() is { Count: > 0 } runs) list.Add("Runs on open, checkout or build: " + Counts(runs) + ".");

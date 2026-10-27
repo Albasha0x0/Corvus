@@ -636,6 +636,38 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_file_over_the_read_limit_is_named_and_the_review_is_partial()
+    {
+        var r = Review(Zip("big-1.0.zip", ("package/package.json", U("""{"name":"big","version":"1.0.0","main":"index.js"}""")),
+            ("package/index.js", U("module.exports = 1;")), ("package/data.js", new byte[33 << 20])));
+        Assert.Equal("none", r.Review);
+        Assert.Contains("package/data.js (over 32 MiB)", r.Partial);
+        Assert.Null(Review(Zip("small-1.0.zip", ("package/package.json", U("""{"name":"small","version":"1.0.0"}""")),
+            ("package/index.js", U("module.exports = 1;")))).Partial);
+    }
+
+    [Fact]
+    public async Task Summarize_file_coverage_is_partial_for_an_unread_file_complete_for_a_whole_package_and_unknown_for_the_overview()
+    {
+        var big = Zip("big-1.0.zip", ("package/package.json", U("""{"name":"big","version":"1.0.0","main":"index.js"}""")),
+            ("package/index.js", U("module.exports = 1;")), ("package/data.js", new byte[33 << 20]));
+        var small = Zip("small-1.0.zip", ("package/package.json", U("""{"name":"small","version":"1.0.0"}""")), ("package/index.js", U("module.exports = 1;")));
+        await using var server = await InProcessServer.StartAsync();
+        async Task<(string Provenance, string Text)> Summarize(string path, string view)
+        {
+            var r = await server.Client.CallToolAsync("summarize_file", new Dictionary<string, object?> { ["path"] = path, ["view"] = view });
+            Assert.NotEqual(true, r.IsError);
+            var text = string.Concat(r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+            return ((string)r.Meta![Corvus.Mcp.ToolOutput.ProvenanceKey]!["coverage"]!, text);
+        }
+        var partial = await Summarize(big, "package");
+        Assert.Equal("partial", partial.Provenance);
+        Assert.StartsWith("[Partial: 1 not read: package/data.js (over 32 MiB)", partial.Text);
+        Assert.Equal("complete", (await Summarize(small, "package")).Provenance);
+        Assert.Equal("unknown", (await Summarize(small, "overview")).Provenance);
+    }
+
+    [Fact]
     public void A_folder_that_runs_nothing_reports_none_rather_than_unread()
     {
         var r = Review(Repository("plain", ("README.md", "# Plain\n"), ("src/main.c", "int main(void) { return 0; }\n"), ("Makefile", "all:\n\tcc src/main.c\n")));

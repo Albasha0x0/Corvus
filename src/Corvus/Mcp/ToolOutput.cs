@@ -74,6 +74,9 @@ public static partial class ToolOutput
     /// <summary>The result is not complete: <paramref name="status"/> is partial or unknown; limitations are from the closed vocabulary.</summary>
     public static void Coverage(string status, string reason, params string[] limitations) => OutputCall.Current?.Coverage = (status, reason, limitations);
 
+    /// <summary>The reader read all of its input: a scan tool's result reports complete coverage instead of unknown.</summary>
+    public static void Complete() => OutputCall.Current?.Whole = true;
+
     /// <summary>The facets a function result can have; comparisons treat a facet missing on either side as unknown.</summary>
     public static readonly IReadOnlyList<string> FacetNames = ["pseudocode", "callers", "callees", "xrefs", "strings", "cfg"];
 

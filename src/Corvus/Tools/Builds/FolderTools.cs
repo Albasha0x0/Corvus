@@ -3,6 +3,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Corvus.Core;
+using Corvus.Mcp;
 using Corvus.Services.Analysis;
 
 namespace Corvus.Tools;
@@ -49,9 +50,11 @@ public sealed class FolderTools(FolderCompare folders)
     {
         static bool Package(string p) => File.Exists(p) && PackageExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase))
                                          || Directory.Exists(p) && FolderManifests.Any(m => File.Exists(Path.Combine(p, m)));
+        if (comparison.Old.Complete && comparison.New.Complete) ToolOutput.Complete();
         if (!Package(oldPath) || !Package(newPath)) return comparison;
         if (Services.Web.Packages.PackageReview.Review(oldPath, ct, hosts: true) is not { Ecosystem: not "repository" } old
             || Services.Web.Packages.PackageReview.Review(newPath, ct, hosts: true) is not { Ecosystem: not "repository" } @new) return comparison;
+        if ((old.Partial ?? @new.Partial) is { } partial) ToolOutput.Coverage("partial", "package review: " + partial, Limitations.Id(Limitation.RowCap));
         var findings = CapabilityChanges.Of(old, @new);
         var (facts, summary) = CapabilityChanges.Policy(old, @new, findings);
         var rows = findings.Concat(facts).ToList();

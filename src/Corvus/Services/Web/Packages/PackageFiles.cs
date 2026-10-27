@@ -16,6 +16,12 @@ internal sealed class PackageFiles
     public string Container { get; private set; } = "folder";
     public List<string> Notes { get; } = [];
 
+    /// <summary>Listed files whose bytes were not read, each with the limit that stopped it.</summary>
+    public List<string> NotRead { get; } = [];
+
+    /// <summary>Files past <see cref="MaxEntries"/>: neither listed nor read.</summary>
+    public int Unlisted { get; private set; }
+
     /// <summary>The CRX header when the package is a Chrome extension file.</summary>
     public CrxHeader? Crx { get; private set; }
 
@@ -123,11 +129,16 @@ internal sealed class PackageFiles
         if (path.Length == 0 || path.EndsWith('/')) return;
         if (_sizes.Count >= MaxEntries)
         {
-            if (_sizes.Count == MaxEntries) Notes.Add($"over {MaxEntries:N0} files: the rest are not listed");
+            if (Unlisted++ == 0) Notes.Add($"over {MaxEntries:N0} files: the rest are not listed");
             return;
         }
         _sizes[path] = size;
-        if (size > MaxFile || _total + size > MaxTotal) { _files[path] = null; return; }
+        if (size > MaxFile || _total + size > MaxTotal)
+        {
+            _files[path] = null;
+            NotRead.Add(size > MaxFile ? $"{path} (over {MaxFile >> 20} MiB)" : $"{path} (past {MaxTotal >> 20} MiB read)");
+            return;
+        }
         var bytes = read();
         _total += bytes?.Length ?? 0;
         _files[path] = bytes;
