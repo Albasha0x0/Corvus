@@ -100,7 +100,7 @@ public static class RelayBuilds
     {
         var exe = Path.Combine(directory, ProgramName);
         if (File.Exists(exe)) return ChildProcess.Start(new ChildProcessStart(exe, serverArgs));
-        return ChildProcess.Start(new ChildProcessStart(DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs]));
+        return ChildProcess.Start(new ChildProcessStart(Native.Providers.Worker.WorkerPool.DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs]));
     }
 
     /// <summary>Copies <paramref name="program"/>'s folder to a versioned, content-addressed folder under <paramref name="state"/>; returns the copy's program.</summary>
@@ -172,15 +172,5 @@ public static class RelayBuilds
             return !process.HasExited;
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return false; }
-    }
-
-    private static string DotnetHost()
-    {
-        if (Environment.ProcessPath is { } self && Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) return self;
-        var name = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
-        if (Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host && File.Exists(host)) return host;
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-            if (Path.Combine(dir.Trim('"'), name) is var candidate && File.Exists(candidate)) return candidate;
-        return name;
     }
 }

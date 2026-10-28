@@ -224,8 +224,19 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         var dll = typeof(WorkerPool).Assembly.Location;
         var apphost = Path.Combine(Path.GetDirectoryName(dll)!, Path.GetFileNameWithoutExtension(dll) + (OperatingSystem.IsWindows() ? ".exe" : ""));
         if (File.Exists(apphost)) return new ChildProcessStart(apphost, [command]);
-        var host = Environment.ProcessPath is { } p && Path.GetFileNameWithoutExtension(p) == "dotnet" ? p : "dotnet";
-        return new ChildProcessStart(host, [dll, command]);
+        return new ChildProcessStart(DotnetHost(), [dll, command]);
+    }
+
+    /// <summary>The dotnet host running this program, else DOTNET_HOST_PATH, else the host beside the running runtime; "dotnet" (found on PATH) when none exists.</summary>
+    internal static string DotnetHost()
+    {
+        var file = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+        if (Environment.ProcessPath is { } p && Path.GetFileNameWithoutExtension(p).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) return p;
+        // The runtime folder is <root>/shared/Microsoft.NETCore.App/<version>/;
+        // the host is <root>/dotnet.
+        string?[] candidates = [Environment.GetEnvironmentVariable("DOTNET_HOST_PATH"),
+            Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", file))];
+        return candidates.FirstOrDefault(c => c != null && Path.IsPathFullyQualified(c) && File.Exists(c)) ?? "dotnet";
     }
 
     public void Dispose()

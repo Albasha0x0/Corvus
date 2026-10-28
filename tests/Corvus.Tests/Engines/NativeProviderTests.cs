@@ -280,6 +280,25 @@ public class NativeProviderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_program_is_found_only_through_fully_qualified_folders()
+    {
+        using var temp = new TempDir();
+        var dir = temp.Path;
+        var name = $"probe-{Guid.NewGuid():N}.exe";
+        File.WriteAllBytes(Path.Combine(dir, name), []);
+        Assert.Equal(Path.Combine(dir, name), ChildProcess.ProgramPath(name, $"{dir}{Path.PathSeparator}"));
+        if (OperatingSystem.IsWindows()) Assert.Equal(Path.Combine(dir, name), ChildProcess.ProgramPath(name[..^4], dir), ignoreCase: true);
+        // The same folder named relative to the current folder is not searched.
+        var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), dir);
+        if (!Path.IsPathRooted(relative))
+            Assert.Throws<System.ComponentModel.Win32Exception>(() => ChildProcess.ProgramPath(name, relative));
+        Assert.Throws<System.ComponentModel.Win32Exception>(() => ChildProcess.ProgramPath(Path.Combine(".", name), dir));
+        Assert.Throws<System.ComponentModel.Win32Exception>(() => ChildProcess.ProgramPath(Path.Combine("sub", name), dir));
+        var host = Corvus.Native.Providers.Worker.WorkerPool.DotnetHost();
+        Assert.True(Path.IsPathFullyQualified(host) && File.Exists(host), host);
+    }
+
+    [Fact]
     public async Task A_childs_exit_code_is_kept_after_dispose()
     {
         using var fake = new FakeTool(log: false).On("finish", exit: 7);

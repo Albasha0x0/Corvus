@@ -65,8 +65,11 @@ public abstract class ChildProcess : IDisposable
     private protected static void ReportTreeRunning(int id, TimeSpan waited) =>
         Console.Error.WriteLine($"Process tree {id} still running {waited.TotalSeconds:0.0} s after kill; its files may stay open.");
 
+    /// <summary>Starts <paramref name="start"/>; a bare program name is found as <see cref="ProgramPath"/> finds it; throws Win32Exception when it is not found or relative.</summary>
     public static ChildProcess Start(ChildProcessStart start)
     {
+        var path = start.Environment.TryGetValue("PATH", out var p) && p != null ? p : Environment.GetEnvironmentVariable("PATH");
+        start = start with { FileName = ProgramPath(start.FileName, path) };
         ChildProcess child = OperatingSystem.IsWindows() ? WindowsJobProcess.Launch(start) : PosixGroupProcess.Launch(start);
         Running[child] = (Path.GetFileName(start.FileName), DateTimeOffset.UtcNow);
         child.Exited.ContinueWith(_ => Running.TryRemove(child, out var _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -74,6 +77,23 @@ public abstract class ChildProcess : IDisposable
     }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ChildProcess, (string Program, DateTimeOffset Started)> Running = new();
+
+    /// <summary>The full path of <paramref name="name"/>: kept when fully qualified; a bare name is looked up in this program's folder,
+    /// then in the fully qualified entries of <paramref name="path"/> (with PATHEXT on Windows); throws Win32Exception for a relative path or no match.</summary>
+    /// <remarks>The current folder is never searched: Windows CreateProcess completes a bare application name against it.</remarks>
+    internal static string ProgramPath(string name, string? path)
+    {
+        if (Path.IsPathFullyQualified(name)) return name;
+        if (name.IndexOfAny(['/', '\\']) >= 0 || Path.IsPathRooted(name))
+            throw new Win32Exception(2, $"An error occurred trying to start process '{name}': a relative program path is not started");
+        string[] extensions = OperatingSystem.IsWindows() && !Path.HasExtension(name)
+            ? ["", .. (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").Split(';', StringSplitOptions.RemoveEmptyEntries)]
+            : [""];
+        var folders = new[] { Path.GetDirectoryName(Environment.ProcessPath) }.Concat((path ?? "").Split(Path.PathSeparator))
+            .Where(d => !string.IsNullOrEmpty(d) && Path.IsPathFullyQualified(d));
+        return folders.SelectMany(d => extensions.Select(e => Path.Combine(d!, name + e))).FirstOrDefault(File.Exists)
+               ?? throw new Win32Exception(2, $"An error occurred trying to start process '{name}': No such file or directory");
+    }
 
     /// <summary>Children of this process still running (workers, helpers, external tools): id, program file name and start time.</summary>
     public static IReadOnlyList<(int Id, string Program, DateTimeOffset Started)> Live() =>
@@ -221,15 +241,8 @@ internal sealed class PosixGroupProcess : ChildProcess
     private static string Resolve(ChildProcessStart start)
     {
         var name = start.FileName;
-        string? path;
-        if (name.Contains('/')) path = Path.GetFullPath(name);
-        else
-        {
-            var search = start.Environment.TryGetValue("PATH", out var p) && p != null ? p : Environment.GetEnvironmentVariable("PATH") ?? "";
-            path = new[] { Path.GetDirectoryName(Environment.ProcessPath), Directory.GetCurrentDirectory() }.Concat(search.Split(':'))
-                .Where(d => !string.IsNullOrEmpty(d)).Select(d => Path.Combine(d!, name)).FirstOrDefault(File.Exists);
-        }
-        if (path == null || !File.Exists(path)) throw new Win32Exception(2, $"An error occurred trying to start process '{name}': No such file or directory");
+        var path = start.FileName;
+        if (!File.Exists(path)) throw new Win32Exception(2, $"An error occurred trying to start process '{name}': No such file or directory");
         if (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(path) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) == 0)
             throw new Win32Exception(13, $"An error occurred trying to start process '{name}': Permission denied");
         return path;
