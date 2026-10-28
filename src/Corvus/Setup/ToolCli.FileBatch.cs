@@ -35,6 +35,7 @@ internal static partial class ToolCli
         ["summaryHighlights"] = Corvus.Tools.ContainerText.MaxHighlights,
         // Files --recurse reads under a folder.
         ["members"] = 10_000,
+        ["embeddedItems"] = 500,
     };
 
     internal sealed record FileBatchStep(string Name, string Tool, string? Limit);
@@ -59,7 +60,7 @@ internal static partial class ToolCli
         {
             var (name, value) = spec.IndexOf('=') is var eq and > 0 ? (spec[..eq], spec[(eq + 1)..]) : (spec, "");
             if (!limits.ContainsKey(name) || name == "timeSeconds" || name == "summaryHighlights")
-                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches, assetBytes, members.");
+                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches, assetBytes, members, embeddedItems.");
             limits[name] = int.TryParse(value, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : throw new UsageException($"--limit {name} needs a positive count.");
         }
         if (a.TimeLimit != null)
@@ -69,10 +70,14 @@ internal static partial class ToolCli
         if (rules != null && !File.Exists(rules) && !Directory.Exists(rules)) throw new UsageException($"No such rule file or folder: {a.Rules}.");
         if (a.FailOn is not (null or FindingLevel.Noteworthy or FindingLevel.Review)) throw new UsageException("--fail-on takes noteworthy or review.");
         if (a.AllowIncomplete && a.FailOn == null) throw new UsageException("--allow-incomplete goes with --fail-on.");
+        var extract = a.Extract == null ? null : Path.GetFullPath(a.Extract);
+        if (extract != null && (File.Exists(extract) || Directory.Exists(extract) && Directory.EnumerateFileSystemEntries(extract).Any()))
+            throw new UsageException($"--extract needs a new or empty folder: {a.Extract}.");
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
-        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken);
+        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract };
+        if (extract != null) Directory.CreateDirectory(extract);
         JsonObject document;
         try
         {
@@ -84,6 +89,7 @@ internal static partial class ToolCli
         {
             if (run.Session != null) await run.Session.DisposeAsync();
         }
+        WriteExtractIndex(run);
         if (a.FailOn == null)
         {
             io.Out.WriteLine(document.ToJsonString(Compact));
@@ -142,12 +148,15 @@ internal static partial class ToolCli
         public System.Diagnostics.Stopwatch Clock { get; } = System.Diagnostics.Stopwatch.StartNew();
         public ToolSession? Session { get; set; }
         public bool TimedOut { get; set; }
+        public string? Extract { get; init; }
+        public JsonArray Index { get; } = [];
     }
 
     /// <summary>The single-file document: run fields, the file, its summary, its keyed findings and its sections.</summary>
     private static async Task<JsonObject> FileDocument(FileBatchRun run, string path)
     {
         var (sections, summary) = await Steps(run, path);
+        var extracted = await Extract(run, path, (string?)summary?["sha256"], summary, sections, [path]);
         var file = new JsonObject { ["path"] = path };
         if (summary != null)
             foreach (var key in new[] { "size", "sha256", "type" })
@@ -158,6 +167,7 @@ internal static partial class ToolCli
         document["summary"] = Verdict(summary);
         document["findings"] = KeyedFindings((string?)summary?["sha256"], summary);
         document["sections"] = sections;
+        if (extracted != null) document["extracted"] = extracted;
         return document;
     }
 
@@ -249,13 +259,15 @@ internal static partial class ToolCli
             return (string?)summary["container"] is { } container && !container.StartsWith("none", StringComparison.Ordinal)
                 ? (new() { ["path"] = path, ["kind"] = "file", ["query"] = "*", ["limit"] = (int)limits["containerFiles"] }, null)
                 : (null, Section(step, SectionStatus.NotApplicable, "The file is not a container."));
-        bool managed = ((string?)summary["type"])?.StartsWith(".NET assembly", StringComparison.Ordinal) == true
-                       || (!Directory.Exists(path) && (string?)summary["container"] is { } holder && !holder.StartsWith("none", StringComparison.Ordinal)
-                           && summary["assemblies"] is JsonArray { Count: > 0 });
-        return managed
+        return HoldsManagedCode(path, summary)
             ? (new() { ["path"] = path, ["limit"] = (int)limits["strings"] }, null)
             : (null, Section(step, SectionStatus.NotApplicable, "Typed strings are read from .NET assemblies, files that hold them, and serialized asset files."));
     }
+
+    private static bool HoldsManagedCode(string path, JsonNode summary) =>
+        ((string?)summary["type"])?.StartsWith(".NET assembly", StringComparison.Ordinal) == true
+        || (!Directory.Exists(path) && (string?)summary["container"] is { } holder && !holder.StartsWith("none", StringComparison.Ordinal)
+            && summary["assemblies"] is JsonArray { Count: > 0 });
 
     private static JsonObject Section(FileBatchStep step, string status, string reason)
     {

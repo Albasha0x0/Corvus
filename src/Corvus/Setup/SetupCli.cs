@@ -119,6 +119,7 @@ internal static class SetupCli
                                 --recurse: every file under a folder, one record per SHA-256.
                                 --fail-on noteworthy|review: exit 1 on a finding at that level or an
                                 incomplete record; --allow-incomplete fails on findings only.
+                                --extract <folder>: write decoded payloads with their chain.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.

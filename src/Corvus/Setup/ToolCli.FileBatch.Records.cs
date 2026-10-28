@@ -34,14 +34,16 @@ internal static partial class ToolCli
             ruleTable ??= (string?)summary?["ruleTable"];
             var sha = hashed ?? (string?)summary?["sha256"];
             var findings = KeyedFindings(sha, summary);
+            var relative = paths.Select(p => Relative(root, p)).ToList();
+            var extracted = await Extract(run, paths[0], sha, summary, sections, relative);
             var file = new JsonObject
             {
                 ["sha256"] = sha ?? "unknown",
                 ["size"] = summary?["size"]?.DeepClone(),
                 ["type"] = summary?["type"]?.DeepClone(),
-                ["paths"] = new JsonArray([.. paths.Select(p => (JsonNode?)Relative(root, p))]),
+                ["paths"] = new JsonArray([.. relative.Select(p => (JsonNode?)p)]),
             };
-            records.Add(new JsonObject
+            var record = new JsonObject
             {
                 ["file"] = file,
                 ["complete"] = Complete(sections),
@@ -49,7 +51,9 @@ internal static partial class ToolCli
                 ["counts"] = Counts(findings),
                 ["findings"] = findings,
                 ["sections"] = sections,
-            });
+            };
+            if (extracted != null) record["extracted"] = extracted;
+            records.Add(record);
         }
         // Noteworthy count first, then review count; the first path breaks ties
         // so the order is stable.

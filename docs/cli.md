@@ -103,9 +103,14 @@ without an agent. Nothing in the file runs; no network calls are made.
   - Each finding at or above the level is a reason, so two findings of one rule are two reasons.
   - A section that is not `complete` or `not_applicable`, an `unread` entry, or unlisted findings that may reach the level are reasons too.
   - `--allow-incomplete` keeps only the finding reasons.
+- `--extract <folder>` (new or empty) writes decoded payloads under `<folder>/<sha256>/` and adds two sections.
+  - `embedded`: `extract_embedded save=true` on .NET code; each item keeps its encoding chain (`base64`, `gzip`, ...).
+  - `script`: the `script` view's plain text, layers peeled and constants folded, as `script.txt`; the chain names each layer.
+  - `extracted` lists each file written with `path`, `kind`, `source` and `chain`; `index.json` holds the same per SHA-256.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
 - `--limit members=N`: files `--recurse` reads (default 10000).
+- `--limit embeddedItems=N`: items the `embedded` section lists (default 500).
 - `--limit assetBytes=N`: asset bytes the `strings` step reads (default 1 GiB; a direct `extract_strings` call reads up to 4 GiB).
   The `strings` step reads assets for at most half the time left.
 - At most 25 summary highlights. The `limits` record holds the values used.

@@ -439,6 +439,42 @@ public class FileBatchTests
     }
 
     [Fact]
+    public async Task Extract_writes_a_peeled_script_and_a_decoded_literal_with_their_chains()
+    {
+        using var dir = new TempDir();
+        var input = Directory.CreateDirectory(Path.Combine(dir.Path, "in")).FullName;
+        var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes("Write-Host 'extract marker'"));
+        File.WriteAllText(Path.Combine(input, "run.bat"), $"@echo off\r\npowershell.exe -NoP -Enc {encoded}\r\n");
+        var compressed = new MemoryStream();
+        using (var gz = new GZipStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+            gz.Write(System.Text.Encoding.UTF8.GetBytes(string.Concat(Enumerable.Repeat("decoded literal text for the extract step. ", 4))));
+        var literal = Convert.ToBase64String(compressed.ToArray());
+        File.WriteAllBytes(Path.Combine(input, "Lib.dll"), Roslyn.Release("Lib", $$"""public static class C { public static string P() => "{{literal}}"; }"""));
+        var output = Path.Combine(dir.Path, "out");
+        var (code, document, _) = await Batch("--file", input, "--recurse", "--extract", output);
+        Assert.Equal(0, code);
+        var extracted = document!["records"]!.AsArray().SelectMany(r => r!["extracted"]!.AsArray()).ToList();
+        var script = Assert.Single(extracted, e => (string?)e!["kind"] == "script")!;
+        Assert.Contains("extract marker", File.ReadAllText(Path.Combine(output, (string)script["path"]!)));
+        Assert.Contains(script["chain"]!.AsArray(), c => ((string)c!).StartsWith("powershell via ", StringComparison.Ordinal));
+        var embedded = Assert.Single(extracted, e => e!["chain"]!.AsArray().Select(c => (string?)c).SequenceEqual(["base64", "gzip"]))!;
+        Assert.Contains("decoded literal text", File.ReadAllText(Path.Combine(output, (string)embedded["path"]!)));
+        var index = JsonNode.Parse(File.ReadAllText(Path.Combine(output, "index.json")))!.AsArray();
+        Assert.Equal(2, index.Count);
+        Assert.Contains(index, e => (string?)e!["paths"]![0] == "run.bat" && e["extracted"]!.AsArray().Count == 1);
+    }
+
+    [Fact]
+    public async Task Extract_refuses_a_folder_that_is_not_empty()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("notes.txt"), "text");
+        var (code, _, output) = await Batch("--file", dir.File("notes.txt"), "--extract", dir.Path);
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+    }
+
+    [Fact]
     public void A_summary_step_without_a_result_leaves_the_level_unknown()
     {
         Assert.Equal("unknown", (string?)ToolCli.Verdict(null)["level"]);
