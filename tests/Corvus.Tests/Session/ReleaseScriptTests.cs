@@ -88,8 +88,10 @@ public class ReleaseScriptTests
         Assert.Equal("unknown", families["Containers"]);
     }
 
-    // Regression for the 2.7.1 release: a second run with -Push stopped on the tag the first run made.
-    // Fixture: a repository holding the script and workflow, its main tagged, and a bare repository as origin.
+    // Regression for c43ad0b8: a second run with -Push stopped on the tag the
+    // first run made (v2.7.1).
+    // Fixture: a repository holding the script and workflow, its main tagged,
+    // and a bare repository as origin.
     [Fact]
     [Trait("Speed", "Slow")]
     public void A_run_with_push_pushes_a_tag_an_earlier_run_made_and_refuses_one_on_another_commit()
@@ -115,7 +117,8 @@ public class ReleaseScriptTests
         Assert.True(code == 1 && log.Contains("tag v9.8.6 exists"), log);
 
         Git(work, "tag", "-a", "v9.8.7", "-m", "Corvus 9.8.7");
-        // The script waits for the release workflow after pushing; the pushed refs are the result.
+        // The script waits for the release workflow after pushing; the pushed
+        // refs are the result.
         RunRelease(pwsh, work, "9.8.7", TimeSpan.FromSeconds(60), until: () => Git(origin, "tag", "--list", "v9.8.7").Length > 0);
         Assert.Equal(Git(work, "rev-parse", "main"), Git(origin, "rev-parse", "main"));
         Assert.Equal(Git(work, "rev-parse", "v9.8.7"), Git(origin, "rev-parse", "v9.8.7"));

@@ -156,8 +156,9 @@ function hookJit(m, running) {
       },
     });
   };
-  // The module notice can come after the runtime's one getJit call, so a JIT that already exists is hooked now:
-  // CoreCLR's getJit returns null until jitStartup, .NET Framework's makes its one JIT.
+  // The module notice can come after the runtime's one getJit call, so a JIT
+  // that already exists is hooked now: CoreCLR's getJit returns null until
+  // jitStartup, .NET Framework's makes its one JIT.
   hookCompiler(new NativeFunction(getJit, 'pointer', [])());
   if (compilerHooked || running) return;
   // A starting runtime asks once, after the library's start-up.
@@ -261,7 +262,8 @@ let moduleObserver = null;
 if (typeof Process.attachModuleObserver === 'function') {
   moduleObserver = Process.attachModuleObserver({
     onAdded(m) {
-      // The module event goes out before the JIT is hooked, so a stall while hooking still shows the JIT loaded.
+      // The module event goes out before the JIT is hooked, so a stall while
+      // hooking still shows the JIT loaded.
       const running = !observing;
       try {
         if (!observing) return;

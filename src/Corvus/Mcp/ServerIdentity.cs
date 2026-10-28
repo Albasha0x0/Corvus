@@ -56,7 +56,8 @@ public static class ServerIdentity
         if (p.Contains("/.nuget/packages/", StringComparison.Ordinal)
             || Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } cache && IsUnder(dir, cache)) return "dnx";
         if (p.Contains("/winget/packages/", StringComparison.Ordinal) || p.Contains("/winget/links/", StringComparison.Ordinal)) return "winget";
-        // A Scoop root set elsewhere (SCOOP, SCOOP_GLOBAL) keeps the apps/<name>/<version> layout beside its shims folder.
+        // A Scoop root set elsewhere (SCOOP, SCOOP_GLOBAL) keeps the
+        // apps/<name>/<version> layout beside its shims folder.
         if (p.Contains("/scoop/apps/", StringComparison.Ordinal)
             || Path.GetDirectoryName(parent) is { } apps && Path.GetFileName(apps) == "apps" && Path.GetDirectoryName(apps) is { } scoopRoot
                && Directory.Exists(Path.Combine(scoopRoot, "shims"))) return "scoop";

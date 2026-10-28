@@ -149,7 +149,8 @@ public sealed partial class RegexPolicyTests
     {
         foreach (var input in inputs)
         {
-            // NonBacktracking builds its states on first use: a short line of the same shape builds them, so only the scan is timed.
+            // NonBacktracking builds its states on first use: a short line of the
+            // same shape builds them, so only the scan is timed.
             _ = regex.Count(input[..200] + input[^2..]);
             var clock = System.Diagnostics.Stopwatch.StartNew();
             _ = regex.Count(input);

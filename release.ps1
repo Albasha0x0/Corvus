@@ -221,7 +221,8 @@ if (-not $VerifyOnly) {
     try {
         if ((git branch --show-current) -ne 'main') { Fail 'release from main' }
         if (git status --porcelain) { Fail 'the working tree is not clean' }
-        # A bump committed and tagged without -Push is pushed by running again with -Push.
+        # A bump committed and tagged without -Push is pushed by running again
+        # with -Push.
         $resume = $Push -and (git tag --list $tag) -and (git rev-parse "$tag^{commit}") -eq (git rev-parse HEAD)
         if ((git tag --list $tag) -and -not $resume) { Fail "tag $tag exists" }
         if ($resume) { Write-Host "Pushing the existing $tag." }

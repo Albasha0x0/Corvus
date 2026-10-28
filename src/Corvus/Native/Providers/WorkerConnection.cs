@@ -441,7 +441,8 @@ public sealed class WorkerConnection : IDisposable
         var what = reason != null ? $"{_name} was stopped ({reason})" : $"{_name} exited{exit}";
         if (_process.MemoryLimitReached() is { } limit)
             what += $" after reaching its memory limit of {limit >> 20} MB ({_options.MemoryLimitVariable})";
-        // Windows does not guarantee the job memory-limit notice, so a crash without one names the peak against the limit.
+        // Windows does not guarantee the job memory-limit notice, so a crash
+        // without one names the peak use against the limit.
         else if (reason == null && _process.MemoryUse() is { } use)
             what += $" (peak memory {use.Peak >> 20} MB of its {use.Limit >> 20} MB limit, {_options.MemoryLimitVariable}; no limit notice was sent)";
         var message = $"{what} while handling '{op}'.{StderrSuffix()}";
