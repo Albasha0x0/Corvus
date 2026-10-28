@@ -62,6 +62,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private readonly object _sync = new();
     private readonly List<(string Op, JsonObject Args)> _unsaved = [];
     private WorkerConnection? _worker;
+    /// <summary>The worker a close is shutting down, until the close disposes it.</summary>
+    private WorkerConnection? _closing;
     private int _failures;
     private int _restarts;
     private int _calls;
@@ -84,6 +86,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>Engine name in messages ("IDA").</summary>
     protected abstract string EngineName { get; }
     protected abstract TimeSpan ShutdownGrace { get; }
+    /// <summary>How long <see cref="Dispose"/> lets the close run before it ends the worker.</summary>
+    protected virtual TimeSpan DisposeLimit => ShutdownGrace * 2 + TimeSpan.FromSeconds(5);
     protected abstract int MaxRestarts { get; }
     /// <summary>Whether requests that do not change the database may run while others are in flight.</summary>
     protected virtual bool ConcurrentRequests => false;
@@ -698,6 +702,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         {
             w = _worker;
             _worker = null;
+            _closing = w;
         }
         if (w != null)
         {
@@ -708,7 +713,11 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
                 await w.ShutdownAsync("close", CloseArgs(save && !ReadOnlySnapshot), ShutdownGrace).ConfigureAwait(false);
                 if (save && DatabaseLocation is { } saved && EngineOutputCache.Identity(saved) != before) Saved();
             }
-            finally { w.Dispose(); }
+            finally
+            {
+                lock (_sync) _closing = null;
+                w.Dispose();
+            }
         }
         Entry?.Dispose();
         Forget();
@@ -721,8 +730,16 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         try
         {
             var close = Task.Run(() => CloseAsync(save: true));
-            if (!close.Wait(ShutdownGrace * 2 + TimeSpan.FromSeconds(5)))
+            if (!close.Wait(DisposeLimit))
+            {
                 KillWorker("dispose timeout");
+                // A late close still holds its worker: end it, then wait for
+                // the close to dispose it, so its files are closed on return.
+                WorkerConnection? closing;
+                lock (_sync) closing = _closing;
+                closing?.Kill("dispose timeout");
+                close.Wait(ChildProcess.TreeExitWait + TimeSpan.FromSeconds(5));
+            }
         }
         catch (AggregateException) { KillWorker("dispose failed"); }
         finally

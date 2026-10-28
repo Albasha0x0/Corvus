@@ -191,6 +191,34 @@ public sealed class WorkerSessionBaseTests : IDisposable
         Assert.Equal(1, s.Starts);
     }
 
+    // Reproduces CI run 40700423840: a Ghidra test's Dispose hit its limit and
+    // returned while the closing worker held the test's cache folder.
+    [Fact]
+    public async Task A_close_past_the_dispose_limit_ends_its_worker_before_dispose_returns()
+    {
+        var input = _tmp.File("image.bin");
+        File.WriteAllBytes(input, [1, 2, 3]);
+        var release = new ManualResetEventSlim();
+        var s = new TestSession(new AnalysisCache(_tmp.File("cache-c")), false, 3)
+        {
+            Limit = TimeSpan.FromMilliseconds(300),
+            // The close holds past the limit, within the 2 s grace.
+            WorkerOps = (op, _) =>
+            {
+                if (op == "close") release.Wait(TimeSpan.FromSeconds(30));
+                return null;
+            },
+        };
+        await s.OpenAsync(input, null, default);
+        var worker = s.Current!;
+        try
+        {
+            s.Dispose();
+            Assert.True(worker.HasExited);
+        }
+        finally { release.Set(); }
+    }
+
     private sealed class TestSession(AnalysisCache cache, bool concurrent, int maxRestarts) : WorkerSessionBase(new NativeOpenOptions())
     {
         public bool HasDatabase;
@@ -202,10 +230,13 @@ public sealed class WorkerSessionBaseTests : IDisposable
         public int Deleted;
         public bool Forgotten;
         public FakeWorkerProcess? Current;
+        public Func<string, JsonObject, JsonNode?>? WorkerOps;
+        public TimeSpan? Limit;
 
         public override string ProviderId => "test";
         protected override string EngineName => "test engine";
         protected override TimeSpan ShutdownGrace => TimeSpan.FromSeconds(2);
+        protected override TimeSpan DisposeLimit => Limit ?? base.DisposeLimit;
         protected override int MaxRestarts => maxRestarts;
         protected override bool ConcurrentRequests => concurrent;
         protected override int JournalSaveThreshold => SaveThreshold;
@@ -224,7 +255,7 @@ public sealed class WorkerSessionBaseTests : IDisposable
             Starts++;
             if (FailStarts) throw new ToolError(ErrorCode.ProviderUnavailable, "engine did not start");
             if (TransientFailures-- > 0) throw new ToolError(ErrorCode.ProviderUnavailable, "worker exited: transient race");
-            Current = new FakeWorkerProcess(ready: true);
+            Current = new FakeWorkerProcess(ready: true) { Ops = WorkerOps };
             var worker = Current.Connect(concurrent ? new WorkerConnectionOptions { Concurrent = true, CancelGrace = TimeSpan.FromSeconds(10) } : null);
             SetWorker(worker);
             await worker.WaitReadyAsync(TimeSpan.FromSeconds(5), cancellationToken);
