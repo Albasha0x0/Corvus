@@ -547,5 +547,6 @@ ret
 - `export_project` writes a project meant to build.
 - References: the project's own framework (its reference pack when not installed), NuGet cache, Windows SDK metadata.
 - Costura-wrapped dependencies go to `lib\` and are referenced.
+- Build-convention files (`Directory.Build.*`, `*.props`, `*.targets`, `NuGet.config`, `global.json`, `gradle/wrapper/*`, `init.gradle`) and shell-parsed files get a `.bin` suffix. `renamedFiles` lists them.
 - Missing dependencies are rebuilt as stand-ins from how the code uses them. The project still builds.
 - Known decompiler output errors are rewritten. A method that cannot be decompiled throws `NotSupportedException`.

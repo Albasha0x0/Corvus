@@ -64,6 +64,25 @@ public sealed class ExportDirectory : IDisposable
             .FirstOrDefault(f => !listed.Contains(f));
     }
 
+    /// <summary>Relative paths <see cref="Commit"/> wrote with ".bin" appended to a build-convention or shell-parsed name; empty before the commit.</summary>
+    public IReadOnlyList<string> Renamed { get; private set; } = [];
+
+    /// <summary>
+    /// True for a file MSBuild, NuGet, the SDK resolver or Gradle reads from a project's folders by name, so a build in
+    /// the export would run it: Directory.Build.*, *.props, *.targets, NuGet.config, global.json, gradle/wrapper/*, init.gradle.
+    /// </summary>
+    public static bool IsBuildConvention(string relative)
+    {
+        relative = relative.Replace('\\', '/');
+        var name = Path.GetFileName(relative);
+        var extension = Path.GetExtension(name);
+        return name.StartsWith("Directory.Build.", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".props", StringComparison.OrdinalIgnoreCase) || extension.Equals(".targets", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("NuGet.config", StringComparison.OrdinalIgnoreCase) || name.Equals("global.json", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("init.gradle", StringComparison.OrdinalIgnoreCase)
+            || ("/" + relative).Contains("/gradle/wrapper/", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>A path in the staging folder as it will be after the commit.</summary>
     public string ToFinal(string stagedPath) => Path.Combine(Final, Path.GetRelativePath(Staging, stagedPath));
 
@@ -73,6 +92,17 @@ public sealed class ExportDirectory : IDisposable
     /// </summary>
     public IReadOnlyList<string> Commit(TimeSpan? patience = null)
     {
+        var renamed = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(Staging, "*", SearchOption.AllDirectories).ToList())
+        {
+            var relative = Path.GetRelativePath(Staging, file).Replace('\\', '/');
+            if (!IsBuildConvention(relative) && !Blob.IsShellParsed(Path.GetFileName(relative))) continue;
+            var target = file + ".bin";
+            for (int n = 2; File.Exists(target); n++) target = $"{file}_{n}.bin";
+            File.Move(file, target);
+            renamed.Add(Path.GetRelativePath(Staging, target).Replace('\\', '/'));
+        }
+        Renamed = [.. renamed.Order(StringComparer.Ordinal)];
         var files = Directory.EnumerateFiles(Staging, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(Staging, f).Replace('\\', '/'))
             .Order(StringComparer.Ordinal).ToList();
         SafeFile.CheckOutputFiles(Final, files);

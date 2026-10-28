@@ -327,6 +327,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
         /// <summary>References written under a stub name, one line each; empty when every name was safe.</summary>
         public IReadOnlyList<string> Renamed { get; init; } = [];
+
+        /// <summary>Files written with ".bin" appended (<see cref="ExportDirectory.Renamed"/>).</summary>
+        public IReadOnlyList<string> RenamedFiles { get; init; } = [];
     }
 
     /// <summary>
@@ -370,6 +373,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         {
             Replaced = output.Replace,
             Renamed = snapshot.Names.Notes(),
+            RenamedFiles = output.Renamed,
         };
     }
 

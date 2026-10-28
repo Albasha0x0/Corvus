@@ -38,6 +38,13 @@
         "type": "string"
       }
     },
+    "renamedFiles": {
+      "description": "Build-convention and shell-parsed files, written with .bin appended.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "notices": {
       "type": "array",
       "items": {

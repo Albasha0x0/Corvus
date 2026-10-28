@@ -28,6 +28,28 @@ public sealed class ExportProjectTests
     }
 
     [Fact]
+    public void An_export_lists_the_build_and_shell_files_it_renamed()
+    {
+        using var dir = new TempDir();
+        using var export = ExportDirectory.Begin(dir.File("out"), overwrite: false);
+        string[] kept = ["a.cs", "build.gradle", "app/build.gradle", "x.csproj", "gradle.properties"];
+        string[] renamed = ["Directory.Build.props", "src/Directory.Build.rsp", "src/App.targets", "NuGet.Config", "global.json", "init.gradle",
+            "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties", "res/desktop.ini", "a.url"];
+        foreach (var f in kept.Concat(renamed).Append("a.url.bin"))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(export.Staging, f))!);
+            File.WriteAllText(Path.Combine(export.Staging, f), f);
+        }
+        var files = export.Commit();
+        // The export wrote a.url.bin itself, so a.url takes the next free name.
+        var expected = renamed.Select(f => f == "a.url" ? "a.url_2.bin" : f + ".bin").Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(expected, export.Renamed);
+        Assert.Equal(kept.Concat(expected).Append("a.url.bin").Order(StringComparer.Ordinal), files);
+        Assert.Equal("Directory.Build.props", File.ReadAllText(Path.Combine(dir.File("out"), "Directory.Build.props.bin")));
+        Assert.False(File.Exists(Path.Combine(dir.File("out"), "Directory.Build.props")));
+    }
+
+    [Fact]
     public void Overwrite_replaces_only_a_previous_export()
     {
         using var env = new Env();

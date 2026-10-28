@@ -192,7 +192,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     {
         var asm = workspace.Read(() => workspace.Get(assembly), ct);
         var r = decompiler.ExportProject(asm, outputDirectory, progress, ct, overwrite);
-        return new ExportOutcome(true, asm.Id, r.Directory, r.FileCount, r.ProjectFile, r.FailedTypes) { Replaced = r.Replaced, Notes = r.Renamed.Count > 0 ? r.Renamed : null };
+        return new ExportOutcome(true, asm.Id, r.Directory, r.FileCount, r.ProjectFile, r.FailedTypes) { Replaced = r.Replaced, Notes = r.Renamed.Count > 0 ? r.Renamed : null, RenamedFiles = r.RenamedFiles.Count > 0 ? r.RenamedFiles : null };
     }
 
     private async Task<ExportOutcome> ExportPackage(string path, string outputDirectory, bool overwrite, Action<int, int, string> progress, CancellationToken ct)
@@ -203,13 +203,14 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         var notes = new List<string> { $"{r.Classes} classes as {r.Sources}" + (r.SourceFailures > 0 ? $" ({r.SourceFailures} failed; their files hold the error)" : "") };
         notes.AddRange(r.Notes.Take(20));
         return new ExportOutcome(true, Path.GetFileName(path), output.Final, files.Count, files.FirstOrDefault(f => f.StartsWith("build.gradle", StringComparison.Ordinal)) is { } gradle
-            ? Path.Combine(output.Final, gradle) : null, []) { Replaced = output.Replace, Notes = notes };
+            ? Path.Combine(output.Final, gradle) : null, []) { Replaced = output.Replace, Notes = notes, RenamedFiles = output.Renamed.Count > 0 ? output.Renamed : null };
     }
 
     private static string Render(ExportOutcome r)
     {
         var text = $"Exported {r.Source} to {r.OutputDirectory}: {r.Files} files.{(r.ProjectFile != null ? $" Project: {r.ProjectFile}" : "")}{(r.Replaced ? " (replaced the previous export)" : "")}";
         if (r.Notes is { Count: > 0 } notes) text += "\n" + string.Join("\n", notes);
+        if (r.RenamedFiles is { Count: > 0 } renamed) text += $"\nWritten with .bin appended: {string.Join(", ", renamed.Take(20))}";
         if (r.FailedTypes.Count > 0)
             text += $"\n{Plural(r.FailedTypes.Count, "type")} failed to decompile (their files contain the error):\n  " + string.Join("\n  ", r.FailedTypes.Take(20));
         return ToolOutput.With(text, r);

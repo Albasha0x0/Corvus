@@ -304,4 +304,5 @@ public sealed record ExportOutcome(
 {
     [Description("A previous export in the directory was replaced (overwrite=true).")] public bool Replaced { get; init; }
     [Description("Renamed references; package source notes.")] public IReadOnlyList<string>? Notes { get; init; }
+    [Description("Build-convention and shell-parsed files, written with .bin appended.")] public IReadOnlyList<string>? RenamedFiles { get; init; }
 }
