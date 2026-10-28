@@ -43,31 +43,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     {
         // The server's last error output lines, timed, name the start phase it reached when initialize times out.
         var stderr = new System.Collections.Concurrent.ConcurrentQueue<string>();
-        var psi = new System.Diagnostics.ProcessStartInfo("dotnet")
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            WorkingDirectory = workingDirectory ?? "",
-        };
-        foreach (var arg in (string[])[ServerDll, .. args]) psi.ArgumentList.Add(arg);
-        // One annotation folder per server, so one test's renames and journals never reach another's; a working directory keeps its own.
-        var variables = new Dictionary<string, string?>(FakeDevice.ServerEnvironment)
-        {
-            ["CORVUS_ANNOTATIONS_DIR"] = workingDirectory != null
-                ? Path.Combine(workingDirectory, ".corvus-annotations")
-                : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
-            // The dump bucketing cache is private: outside the working directory the contract sweep watches.
-            [Corvus.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".corvus-dumpbuckets"),
-            // The server starts some tools through cmd /c, which expands no variable over 8,191 characters.
-            ["PATH"] = Corvus.Tests.Tools.CmdPath(),
-        }.Concat(environment ?? new Dictionary<string, string?>()).GroupBy(v => v.Key).ToDictionary(g => g.Key, g => g.Last().Value);
-        foreach (var (name, value) in variables)
-        {
-            if (value == null) psi.Environment.Remove(name);
-            else psi.Environment[name] = value;
-        }
+        var psi = ServerStartInfo(workingDirectory, args, environment);
         var server = System.Diagnostics.Process.Start(psi) ?? throw new InvalidOperationException("dotnet did not start");
         server.ErrorDataReceived += (sender, e) =>
         {
@@ -101,6 +77,37 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 (file != null ? $"\nserver dump: {file}" : ""), ex);
         }
         finally { answered.Cancel(); }
+    }
+
+    /// <summary>The start of a server process on <paramref name="args"/> with the test run's folders and PATH; standard streams redirected.</summary>
+    internal static System.Diagnostics.ProcessStartInfo ServerStartInfo(string? workingDirectory, string[] args, IReadOnlyDictionary<string, string?>? environment = null)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("dotnet")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = workingDirectory ?? "",
+        };
+        foreach (var arg in (string[])[ServerDll, .. args]) psi.ArgumentList.Add(arg);
+        // One annotation folder per server, so one test's renames and journals never reach another's; a working directory keeps its own.
+        var variables = new Dictionary<string, string?>(FakeDevice.ServerEnvironment)
+        {
+            ["CORVUS_ANNOTATIONS_DIR"] = workingDirectory != null
+                ? Path.Combine(workingDirectory, ".corvus-annotations")
+                : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
+            // The dump bucketing cache is private: outside the working directory the contract sweep watches.
+            [Corvus.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".corvus-dumpbuckets"),
+            // The server starts some tools through cmd /c, which expands no variable over 8,191 characters.
+            ["PATH"] = Corvus.Tests.Tools.CmdPath(),
+        }.Concat(environment ?? new Dictionary<string, string?>()).GroupBy(v => v.Key).ToDictionary(g => g.Key, g => g.Last().Value);
+        foreach (var (name, value) in variables)
+        {
+            if (value == null) psi.Environment.Remove(name);
+            else psi.Environment[name] = value;
+        }
+        return psi;
     }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<McpClient, System.Runtime.CompilerServices.StrongBox<int>> ServerIds = new();

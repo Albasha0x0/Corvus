@@ -7,10 +7,11 @@ internal static class StdioStreams
     public static Stream Input() => new CancellableInput(Console.OpenStandardInput());
 
     /// <summary>
-    /// <paramref name="inner"/> buffered, its asynchronous writes and flushes done on the calling thread: the console
-    /// stream's own asynchronous write takes a thread-pool thread, so a stop's answer waited for one.
+    /// <paramref name="inner"/> written by a thread of its own: a write queues its bytes and a flush completes, on that
+    /// thread, once everything queued before it is written. The console stream's own asynchronous write takes a
+    /// thread-pool thread, and a write on the caller's thread blocks it while the client is not reading.
     /// </summary>
-    public static Stream Output(Stream inner) => new BufferedStream(new CallerThreadOutput(inner));
+    public static Stream Output(Stream inner) => new QueuedOutput(inner);
 
     private sealed class CancellableInput(Stream inner) : Stream
     {
@@ -42,37 +43,114 @@ internal static class StdioStreams
         }
     }
 
-    private sealed class CallerThreadOutput(Stream inner) : Stream
+    private sealed class QueuedOutput : Stream
     {
+        private readonly Stream _inner;
+        private readonly Thread _writer;
+        // Byte chunks, flush markers (a TaskCompletionSource) and null for
+        // the end.
+        private readonly Queue<object?> _queue = new();
+        private Exception? _failed;
+        private bool _ended;
+
+        public QueuedOutput(Stream inner)
+        {
+            _inner = inner;
+            _writer = new Thread(Drain) { IsBackground = true, Name = "Corvus standard output" };
+            _writer.Start();
+        }
+
         public override bool CanRead => false;
         public override bool CanSeek => false;
         public override bool CanWrite => true;
         public override long Length => throw new NotSupportedException();
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
-        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
-        public override void Write(ReadOnlySpan<byte> buffer) => inner.Write(buffer);
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            if (buffer.Length > 0) Enqueue(buffer.ToArray());
+        }
 
         public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            inner.Write(buffer, offset, count);
+            Write(buffer.AsSpan(offset, count));
             return Task.CompletedTask;
         }
 
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            inner.Write(buffer.Span);
+            Write(buffer.Span);
             return ValueTask.CompletedTask;
         }
 
-        public override void Flush() => inner.Flush();
+        // The writer thread runs a flush's continuation: a flush it waited for
+        // itself would never complete.
+        public override void Flush()
+        {
+            if (Thread.CurrentThread == _writer) _inner.Flush();
+            else FlushAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }
 
         public override Task FlushAsync(CancellationToken cancellationToken)
         {
-            inner.Flush();
-            return Task.CompletedTask;
+            var flushed = new TaskCompletionSource();
+            Enqueue(flushed);
+            return flushed.Task.WaitAsync(cancellationToken);
+        }
+
+        private void Enqueue(object item)
+        {
+            lock (_queue)
+            {
+                if (_failed != null) throw new IOException("standard output failed", _failed);
+                ObjectDisposedException.ThrowIf(_ended, this);
+                _queue.Enqueue(item);
+                Monitor.Pulse(_queue);
+            }
+        }
+
+        private void Drain()
+        {
+            while (true)
+            {
+                object? item;
+                lock (_queue)
+                {
+                    while (_queue.Count == 0) Monitor.Wait(_queue);
+                    item = _queue.Dequeue();
+                }
+                if (item == null) break;
+                try
+                {
+                    if (item is byte[] bytes) _inner.Write(bytes);
+                    else
+                    {
+                        _inner.Flush();
+                        ((TaskCompletionSource)item).TrySetResult();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Fail(ex, item as TaskCompletionSource);
+                    return;
+                }
+            }
+            _inner.Dispose();
+        }
+
+        // Every flush still queued fails with the write's exception.
+        private void Fail(Exception ex, TaskCompletionSource? current)
+        {
+            List<TaskCompletionSource> waiting;
+            lock (_queue)
+            {
+                _failed = ex;
+                waiting = [.. _queue.OfType<TaskCompletionSource>()];
+                _queue.Clear();
+            }
+            current?.TrySetException(ex);
+            foreach (var flush in waiting) flush.TrySetException(ex);
         }
 
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
@@ -81,7 +159,16 @@ internal static class StdioStreams
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) inner.Dispose();
+            if (disposing)
+                lock (_queue)
+                {
+                    if (!_ended)
+                    {
+                        _ended = true;
+                        _queue.Enqueue(null);
+                        Monitor.Pulse(_queue);
+                    }
+                }
             base.Dispose(disposing);
         }
     }
