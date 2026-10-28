@@ -68,7 +68,6 @@ public sealed class WasmCodeTests(ITestOutputHelper output) : IDisposable
         output.WriteLine(lifted.Length > 3000 ? lifted[..3000] : lifted);
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task A_function_gives_its_CFG_and_instructions()
     {

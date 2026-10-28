@@ -266,7 +266,6 @@ public class InspectionEdgeTests : IDisposable
         public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public void Streamed_zip_without_central_directory_recovers_every_entry_and_steps_over_bad_ones()
     {

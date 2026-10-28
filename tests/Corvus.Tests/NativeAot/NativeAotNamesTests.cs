@@ -184,7 +184,6 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.DoesNotContain("L\"hi\"", text);
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task NativeAOT_info_views_return_their_own_sections()
     {
@@ -291,7 +290,6 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     }
 
     /// <summary>vtable calls on this and interface calls through a dispatch cell become call edges: find_virtual_calls, callees and callers see them.</summary>
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task Virtual_calls_become_call_edges()
     {

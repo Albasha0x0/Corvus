@@ -522,7 +522,6 @@ public sealed class MinidumpTests
     /// ntdll.dll: KiUserExceptionDispatcher calls RtlDispatchException, stopped in its prolog; the kernel copied the
     /// EXCEPTION_RECORD and CONTEXT above the dispatcher's two arguments.
     /// </summary>
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task X86_exception_dispatcher_frame_continues_at_the_faulting_context()
     {

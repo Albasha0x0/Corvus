@@ -222,7 +222,6 @@ public sealed class AotMobileTests(ITestOutputHelper output) : IDisposable
         Assert.Null(AotPackages.Extract(Put("in/plain.apk", Zip(("classes.dex", [0]))), null, cache));
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task Load_assembly_reads_a_package_and_reports_why_not()
     {

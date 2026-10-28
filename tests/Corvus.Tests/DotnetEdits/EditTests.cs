@@ -14,7 +14,6 @@ public class EditTests : IDisposable
         _dir.Dispose();
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public void Renames_are_visible_immediately()
     {

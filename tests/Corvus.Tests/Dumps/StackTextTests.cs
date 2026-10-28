@@ -33,7 +33,6 @@ public sealed class StackTextTests : IDisposable
     private Task<StackTextService.SymbolizedStack> Run(string text, string format = "auto", string? moduleBases = null) =>
         _service.Symbolize(text, null, format, null, moduleBases, 0, 200, default);
 
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task Dotnet_exception_text_keeps_the_inner_chain()
     {

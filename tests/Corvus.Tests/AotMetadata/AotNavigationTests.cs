@@ -126,7 +126,6 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
         Assert.Equal("method_info", Assert.Single(Assert.IsType<Corvus.Tools.MethodAddressLookup>(collector.Value).Items).Kind);
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task Entities_name_their_code_and_slots()
     {

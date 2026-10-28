@@ -210,7 +210,7 @@ jobs:
           if (-not (Get-ChildItem $dir -File -ErrorAction SilentlyContinue)) { ./tests/Corvus.Tests/Support/fetch-yara-x.ps1 -Destination $dir }
           "CORVUS_TEST_YARA_X=$dir" >> $env:GITHUB_ENV
 
-      # The Ghidra release and the JDK it runs on, pinned in remote-tools-assets.json as on a test host.
+      # The Ghidra release and the JDK it runs on, pinned in remote-tools-assets.json.
       - name: Ghidra
         if: matrix.group == 'ghidra'
         shell: pwsh

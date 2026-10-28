@@ -133,7 +133,7 @@ function Get-TestSummary([string]$gitDir, [string]$passedAt, [string]$why) {
     # Classes the pass left to the nightly runs, when the last run is the pass.
     $lastRun = Join-Path $gitDir 'corvus-last-run.json'
     if ((Test-Path $lastRun) -and ($last = Get-Content $lastRun -Raw | ConvertFrom-Json) -and $last.commit -and $passedAt.StartsWith($last.commit)) {
-        $summary.deferred = [ordered]@{ reason = 'left to the nightly whole run and the test host tier run'; classes = @($last.deferred | Sort-Object) }
+        $summary.deferred = [ordered]@{ reason = 'left to the nightly whole run'; classes = @($last.deferred | Sort-Object) }
     }
 
     # External tools the suite looks for; the tests that need a tool not found skip.

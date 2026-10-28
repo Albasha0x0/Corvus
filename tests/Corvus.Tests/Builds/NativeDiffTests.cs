@@ -322,7 +322,6 @@ public class NativeDiffTests
         Assert.Null(code.Annotations(newNative).NameAt(first));
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public async Task Code_pattern_formats_and_a_range_pattern()
     {

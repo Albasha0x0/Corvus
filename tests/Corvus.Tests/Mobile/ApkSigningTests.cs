@@ -167,7 +167,6 @@ public class ApkSigningTests
         Assert.All(ApkSigning.Verify(changed).Schemes, s => Assert.Equal(ApkSigning.Mismatch, s.Verdict));
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public void Multiple_signers_v3_ranges_v31_rotation_and_v4_blocks_verify()
     {

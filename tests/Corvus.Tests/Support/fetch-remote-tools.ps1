@@ -1,10 +1,10 @@
-# Downloads the tools remote-tools-assets.json pins for the offloaded test groups and the test host, checks each download
+# Downloads the tools remote-tools-assets.json pins for the offloaded test groups, checks each download
 # against its recorded SHA-256 and unpacks it into -Destination (into its own folder when the archive has no top
 # folder): a zip or tar.gz archive is extracted, a Windows Installer package is extracted by an administrative install
 # (nothing is registered on the machine), and any other file (a jar) is kept as it is. A tool already there is kept.
 # Prints NAME=path lines for the variables the tests read, which a CI step appends to its environment. -Check downloads
 # nothing and prints "missing <name> <version>" per absent tool.
-# Runs on Windows PowerShell 5.1 too (a new test host has no PowerShell 7 yet).
+# Runs on Windows PowerShell 5.1 too.
 # Usage:  pwsh tests/Corvus.Tests/Support/fetch-remote-tools.ps1 -Destination <folder> [-Name ghidra,jdk] [-Check]
 param([Parameter(Mandatory)][string]$Destination, [string[]]$Name, [switch]$Check)
 $ErrorActionPreference = 'Stop'

@@ -197,7 +197,8 @@ public class NativeProviderTests(ITestOutputHelper output)
     [Fact]
     public void A_decompiler_the_IDA_license_lacks_names_Ghidra_rather_than_the_license_terms()
     {
-        // The worker's message for Hex-Rays MERR_LICENSE, as the test host's IDA 9.3 gave it for a RISC-V file.
+        // The worker's message for Hex-Rays MERR_LICENSE, as IDA 9.3 gave it
+        // for a RISC-V file.
         var next = Corvus.Native.Providers.Ida.IdaProvider.Remediation(ErrorCode.Unsupported,
             "the Hex-Rays decompiler for riscv (32-bit) is not licensed on this machine (license not available (HEXRV))");
         Assert.Contains("engine=ghidra", next);

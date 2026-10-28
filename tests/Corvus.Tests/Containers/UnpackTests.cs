@@ -466,7 +466,6 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Equal(loaded[0], loaded[1]);
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public void Standalone_XALZ_file_is_decompressed()
     {

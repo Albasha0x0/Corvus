@@ -101,7 +101,6 @@ public sealed partial class HermesTests(ITestOutputHelper output) : IDisposable
         return path;
     }
 
-    [Trait("Smoke", "push")]
     [Fact]
     public void Analyze_js_reads_a_bundle_and_the_one_in_an_apk()
     {
