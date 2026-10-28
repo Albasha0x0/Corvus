@@ -216,7 +216,9 @@ jobs:
         if: matrix.group == 'live' && runner.os == 'Windows'
         shell: pwsh
         run: |
-          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          # dotnet-install.ps1 from a pinned dotnet/install-scripts commit, checked by SHA-256.
+          Invoke-WebRequest https://raw.githubusercontent.com/dotnet/install-scripts/4a37a9f9d1a061fc389d6515100336db4e51710e/src/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          if ((Get-FileHash dotnet-install.ps1 -Algorithm SHA256).Hash -ne '3bb07bc8025211836c1e4f9d3f6a044e55b1fb6eec518a6c78851d04e210442b') { throw 'dotnet-install.ps1 does not match its pinned SHA-256' }
           ./dotnet-install.ps1 -Channel 9.0 -Runtime dotnet -Architecture x86 -InstallDir "${env:ProgramFiles(x86)}\dotnet" -NoPath
           # setup-dotnet's DOTNET_ROOT names the x64 install, which an x86 apphost reads when DOTNET_ROOT(x86) is unset.
           "DOTNET_ROOT(x86)=${env:ProgramFiles(x86)}\dotnet" >> $env:GITHUB_ENV

@@ -168,9 +168,6 @@ public partial class ReleaseProvenanceTests
         foreach (Match install in Regex.Matches(Workflow, @"(?:dotnet tool install|cargo install)[^\n]*"))
             if (!install.Value.StartsWith("cargo install", StringComparison.Ordinal) || !install.Value.Contains("--locked --version", StringComparison.Ordinal))
                 problems.Add($"not locked: {install.Value}");
-        foreach (Match download in Regex.Matches(Workflow, @"curl [^\n]*-o (\S+) https://[^\n]*"))
-            if (!Regex.IsMatch(Workflow, $@"[0-9a-f]{{64}}  {Regex.Escape(download.Groups[1].Value)}"" \| sha256sum --check --strict"))
-                problems.Add($"no pinned SHA-256: {download.Value}");
         Assert.True(problems.Count == 0, string.Join("\n", problems));
         using var table = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "Support", "yara-x-assets.json")));
         Assert.Matches(@"^\d+\.\d+\.\d+$", table.RootElement.GetProperty("rust").GetString());
@@ -178,5 +175,22 @@ public partial class ReleaseProvenanceTests
         var tool = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), ".config", "dotnet-tools.json")))!["tools"]!["cyclonedx"]!;
         Assert.Matches(@"^\d+\.\d+\.\d+$", (string?)tool["version"]);
         Assert.False((bool?)tool["rollForward"]);
+    }
+
+    [Fact]
+    public void Every_download_in_a_workflow_is_checked_by_a_pinned_SHA_256()
+    {
+        var problems = new List<string>();
+        var downloads = 0;
+        foreach (var (name, text) in GitHubFiles())
+            foreach (Match download in Regex.Matches(text, @"(?:curl [^\n]*-o (?<file>\S+) https://|Invoke-WebRequest https://\S+ -OutFile (?<file>\S+)|wget [^\n]*-O (?<file>\S+))[^\n]*"))
+            {
+                downloads++;
+                var file = Regex.Escape(download.Groups["file"].Value);
+                if (!Regex.IsMatch(text, $@"[0-9a-f]{{64}}  {file}"" \| sha256sum --check --strict|Get-FileHash {file} -Algorithm SHA256\)\.Hash -ne '[0-9a-f]{{64}}'"))
+                    problems.Add($"{name}: no pinned SHA-256: {download.Value.Trim()}");
+            }
+        Assert.True(downloads >= 2, "the download pattern no longer finds the known downloads");
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 }
