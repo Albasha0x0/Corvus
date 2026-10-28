@@ -586,6 +586,32 @@ public class FileBatchTests
     }
 
     [Fact]
+    public async Task A_run_baselined_against_its_own_earlier_result_passes_the_gate_and_a_level_rise_fails()
+    {
+        using var dir = new TempDir();
+        Package(Path.Combine(dir.Path, "in", "pkg.tgz"));
+        var input = Path.Combine(dir.Path, "in");
+        var (_, first, output) = await Batch("--file", input, "--recurse");
+        var earlier = WriteText(dir.File("earlier.json"), output);
+        var (code, document, _) = await Batch("--file", input, "--recurse", "--baseline", earlier, "--fail-on", "review");
+        Assert.Equal(0, code);
+        var suppressed = document!["records"]!.AsArray().SelectMany(r => r!["suppressed"]!.AsArray()).ToList();
+        Assert.NotEmpty(suppressed);
+        Assert.All(suppressed, f => Assert.Equal("from earlier.json", (string?)f!["baseline"]!["reason"]));
+        Assert.Null(suppressed[0]!["baseline"]!["owner"]);
+
+        // The earlier result held the noteworthy finding at review level.
+        var record = first!["records"]![0]!;
+        var sha = (string)record["file"]!["sha256"]!;
+        var finding = record["findings"]!.AsArray().First(f => (string?)f!["level"] == "noteworthy")!;
+        finding["key"] = ToolCli.FindingKey(sha, (string?)finding["rule"], "review", (string?)finding["evidence"], (string?)finding["location"]);
+        earlier = WriteText(dir.File("earlier.json"), first.ToJsonString());
+        (code, document, _) = await Batch("--file", input, "--recurse", "--baseline", earlier, "--fail-on", "noteworthy");
+        Assert.Equal(1, code);
+        Assert.Contains(document!["records"]![0]!["findings"]!.AsArray(), f => (string?)f!["baseline"]?["rose"] == "review");
+    }
+
+    [Fact]
     public async Task A_baseline_entry_without_an_owner_is_a_usage_error()
     {
         using var dir = new TempDir();

@@ -11,7 +11,8 @@ internal static partial class ToolCli
     /// <summary>The baseline file's schema.</summary>
     public const string BaselineSchema = "corvus.baseline/1";
 
-    internal sealed record BaselineEntry(string Key, string Reason, string Owner, DateOnly Expires);
+    /// <summary>A known finding; an entry from an earlier result has no owner and never expires.</summary>
+    internal sealed record BaselineEntry(string Key, string Reason, string? Owner, DateOnly? Expires);
 
     /// <summary>Known findings by key, as of one day; Used holds the keys the run matched.</summary>
     internal sealed class Baseline(IReadOnlyDictionary<string, BaselineEntry> entries, DateOnly today)
@@ -41,9 +42,19 @@ internal static partial class ToolCli
         JsonNode? root;
         try { root = JsonNode.Parse(File.ReadAllText(path)); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { throw new UsageException($"Cannot read baseline {path}: {ex.Message}"); }
-        if ((string?)root?["schema"] != BaselineSchema || root["entries"] is not JsonArray entries)
-            throw new UsageException($"The baseline needs schema {BaselineSchema} and an entries array.");
         var byKey = new Dictionary<string, BaselineEntry>(StringComparer.Ordinal);
+        if ((string?)root?["schema"] == FileBatchSchema)
+        {
+            var reason = $"from {Path.GetFileName(path)}";
+            IEnumerable<JsonNode> records = root["records"] is JsonArray all ? all.Select(r => r!) : [root];
+            foreach (var record in records)
+                foreach (var finding in (record["findings"] as JsonArray ?? []).Concat(record["suppressed"] as JsonArray ?? []))
+                    if ((string?)finding?["key"] is { Length: > 0 } key)
+                        byKey[key] = new BaselineEntry(key, reason, null, null);
+            return new Baseline(byKey, today);
+        }
+        if ((string?)root?["schema"] != BaselineSchema || root["entries"] is not JsonArray entries)
+            throw new UsageException($"The baseline needs schema {BaselineSchema} and an entries array, or a {FileBatchSchema} result.");
         for (int i = 0; i < entries.Count; i++)
         {
             string Field(string name) => (string?)entries[i]?[name] is { Length: > 0 } value ? value : throw new UsageException($"Baseline entry {i + 1} has no {name}.");
@@ -68,14 +79,14 @@ internal static partial class ToolCli
             {
                 baseline.Used.Add(entry.Key);
                 // The expiry date is the last day the entry applies.
-                if (entry.Expires >= baseline.Today)
+                if (entry.Expires is not { } expires || expires >= baseline.Today)
                 {
                     finding["baseline"] = Note(entry);
                     suppressed.Add(finding);
                     baseline.Suppressed++;
                     continue;
                 }
-                finding["baseline"] = Note(entry, "expired", entry.Expires.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                finding["baseline"] = Note(entry, "expired", expires.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
                 baseline.Expired++;
             }
             else
@@ -103,7 +114,7 @@ internal static partial class ToolCli
         {
             ["reason"] = entry.Reason,
             ["owner"] = entry.Owner,
-            ["expires"] = entry.Expires.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["expires"] = entry.Expires?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         };
         if (state != null) note[state] = value;
         return note;

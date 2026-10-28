@@ -111,6 +111,7 @@ without an agent. Nothing in the file runs; no network calls are made.
   - `extracted` lists each file written with `path`, `kind`, `source` and `chain`; `index.json` holds the same per SHA-256.
 - `--baseline <file>` drops known findings by `key` before the levels, counts and gate are set.
   - The file: `{"schema": "corvus.baseline/1", "entries": [{"key", "reason", "owner", "expires": "yyyy-MM-dd"}]}`.
+  - An earlier `corvus.batch/1` result works too: each finding is an entry with reason `from <file name>`, no owner, no expiry.
   - A dropped finding moves to `suppressed` with its entry's `reason`, `owner` and `expires`.
   - An entry applies through its `expires` day; after it, the finding stays with `baseline.expired`.
   - A level rise changes the key: the finding stays with `baseline.rose` naming the earlier level.
