@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Corvus.Core;
-using Corvus.Services.Analysis;
 using ModelContextProtocol.Protocol;
 
 namespace Corvus.Setup;
@@ -21,6 +20,23 @@ internal static partial class ToolCli
         public const string Unavailable = "unavailable";
         public const string Error = "error";
         public const string Timeout = "timeout";
+    }
+
+    /// <summary>Finding levels as the records name them, in the order the views rank them; any other string ranks 0.</summary>
+    // Setup may not reference Services, so the batch reads levels as strings;
+    // a test keeps this order equal to the views' own.
+    internal static class BatchLevel
+    {
+        public const string Noteworthy = "noteworthy";
+        public const string Review = "review";
+        public const string Info = "info";
+
+        /// <summary>3 for noteworthy, 2 for review, 1 for info; 0 for anything else.</summary>
+        public static int Rank(string? level) => level switch { Noteworthy => 3, Review => 2, Info => 1, _ => 0 };
+
+        /// <summary>The highest level of <paramref name="levels"/>; "none" when there is none.</summary>
+        public static string Strongest(IEnumerable<string> levels) =>
+            levels.MaxBy(Rank) is { } top && Rank(top) > 0 ? top : "none";
     }
 
     /// <summary>The named limits and their defaults; --limit name=N overrides one, --time-limit sets timeSeconds.</summary>
@@ -68,7 +84,7 @@ internal static partial class ToolCli
                 ? s : throw new UsageException("--time-limit needs a number of seconds above 0, at most 86400.");
         var rules = a.Rules == null ? null : Path.GetFullPath(a.Rules);
         if (rules != null && !File.Exists(rules) && !Directory.Exists(rules)) throw new UsageException($"No such rule file or folder: {a.Rules}.");
-        if (a.FailOn is not (null or FindingLevel.Noteworthy or FindingLevel.Review)) throw new UsageException("--fail-on takes noteworthy or review.");
+        if (a.FailOn is not (null or BatchLevel.Noteworthy or BatchLevel.Review)) throw new UsageException("--fail-on takes noteworthy or review.");
         if (a.AllowIncomplete && a.FailOn == null) throw new UsageException("--allow-incomplete goes with --fail-on.");
         var extract = OutputPath("--extract", a.Extract);
         if (extract != null && (File.Exists(extract) || Directory.Exists(extract) && Directory.EnumerateFileSystemEntries(extract).Any()))
@@ -137,19 +153,19 @@ internal static partial class ToolCli
         var records = document["records"] is JsonArray all
             ? all.Select(r => ((string?)r!["file"]!["paths"]?[0] ?? "", r!))
             : [((string?)document["file"]?["path"] ?? "", (JsonNode)document)];
-        int threshold = FindingLevel.Rank(failOn);
+        int threshold = BatchLevel.Rank(failOn);
         foreach (var (label, record) in records)
         {
             var findings = record["findings"] as JsonArray ?? [];
             foreach (var finding in findings)
-                if (FindingLevel.Rank((string?)finding!["level"]) >= threshold)
+                if (BatchLevel.Rank((string?)finding!["level"]) >= threshold)
                     failures.Add($"{label}: {(string?)finding["level"]} finding {(string?)finding["rule"]}, key {(string?)finding["key"]}");
             if (allowIncomplete) continue;
             // The overview lists the strongest findings first, so an unlisted one
             // is at most as strong as the last listed.
             var listed = findings.Concat(record["suppressed"] as JsonArray ?? []).ToList();
             if ((int?)record["summary"]?["findingTotal"] is { } total && total > listed.Count
-                && (listed.Count == 0 || listed.Min(f => FindingLevel.Rank((string?)f!["level"])) >= threshold))
+                && (listed.Count == 0 || listed.Min(f => BatchLevel.Rank((string?)f!["level"])) >= threshold))
                 failures.Add($"{label}: {total - listed.Count} findings past the first {listed.Count} are not listed");
             foreach (var section in record["sections"] as JsonArray ?? [])
                 if ((string?)section!["status"] is { } status and not (SectionStatus.Complete or SectionStatus.NotApplicable))

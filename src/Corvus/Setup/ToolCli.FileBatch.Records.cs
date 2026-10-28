@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
-using Corvus.Services.Analysis;
 
 namespace Corvus.Setup;
 
@@ -83,8 +82,8 @@ internal static partial class ToolCli
         // Noteworthy count first, then review count; the first path breaks ties
         // so the order is stable.
         var ordered = records
-            .OrderByDescending(r => (int)r["counts"]![FindingLevel.Noteworthy]!)
-            .ThenByDescending(r => (int)r["counts"]![FindingLevel.Review]!)
+            .OrderByDescending(r => (int)r["counts"]![BatchLevel.Noteworthy]!)
+            .ThenByDescending(r => (int)r["counts"]![BatchLevel.Review]!)
             .ThenBy(r => (string?)r["file"]!["paths"]![0], StringComparer.Ordinal)
             .ToList();
 
@@ -92,11 +91,11 @@ internal static partial class ToolCli
         document["file"] = new JsonObject { ["path"] = root };
         document["complete"] = unread.Count == 0 && ordered.All(r => (bool)r["complete"]!);
         var levels = ordered.Select(r => (string)r["summary"]!["level"]!).ToList();
-        var strongest = FindingLevel.Strongest(levels);
+        var strongest = BatchLevel.Strongest(levels);
         document["summary"] = new JsonObject
         {
             // A record of unknown level may hold anything below noteworthy.
-            ["level"] = levels.Contains("unknown") && strongest != FindingLevel.Noteworthy ? "unknown" : strongest,
+            ["level"] = levels.Contains("unknown") && strongest != BatchLevel.Noteworthy ? "unknown" : strongest,
             ["records"] = ordered.Count,
             ["files"] = members.Count,
             ["members"] = groups.Sum(g => g.Paths.Count) - members.Count,
@@ -253,8 +252,8 @@ internal static partial class ToolCli
 
     private static JsonObject Counts(JsonArray findings) => new()
     {
-        [FindingLevel.Noteworthy] = findings.Count(f => (string?)f!["level"] == FindingLevel.Noteworthy),
-        [FindingLevel.Review] = findings.Count(f => (string?)f!["level"] == FindingLevel.Review),
-        [FindingLevel.Info] = findings.Count(f => (string?)f!["level"] == FindingLevel.Info),
+        [BatchLevel.Noteworthy] = findings.Count(f => (string?)f!["level"] == BatchLevel.Noteworthy),
+        [BatchLevel.Review] = findings.Count(f => (string?)f!["level"] == BatchLevel.Review),
+        [BatchLevel.Info] = findings.Count(f => (string?)f!["level"] == BatchLevel.Info),
     };
 }

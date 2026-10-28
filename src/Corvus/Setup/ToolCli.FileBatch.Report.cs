@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using Corvus.Core;
-using Corvus.Services.Analysis;
 
 namespace Corvus.Setup;
 
@@ -39,7 +38,7 @@ internal static partial class ToolCli
             var level = record["summary"]?["level"];
             md.Append($"\n## {i + 1}. {T(level)}: {T(paths.FirstOrDefault())}\n\n");
             var counts = record["counts"];
-            md.Append($"- Level: {T(level)}; findings {T(counts?[FindingLevel.Noteworthy])} noteworthy, {T(counts?[FindingLevel.Review])} review, {T(counts?[FindingLevel.Info])} info\n");
+            md.Append($"- Level: {T(level)}; findings {T(counts?[BatchLevel.Noteworthy])} noteworthy, {T(counts?[BatchLevel.Review])} review, {T(counts?[BatchLevel.Info])} info\n");
             md.Append("- SHA-256: ").Append(T(file?["sha256"])).Append('\n');
             md.Append("- Type: ").Append(T(file?["type"])).Append('\n');
             var gaps = (record["sections"] as JsonArray ?? [])
@@ -76,13 +75,15 @@ internal static partial class ToolCli
         }
     }
 
-    /// <summary>Network values from finding evidence and the strings section, then payload hashes; distinct, in order.</summary>
+    /// <summary>The views' indicator findings and network strings, then payload hashes; distinct, in order.</summary>
     private static List<(string Type, string Value)> Indicators(JsonObject record)
     {
         var found = new List<(string, string)>();
-        var evidence = (record["findings"] as JsonArray ?? []).Select(f => ((string?)f!["evidence"] ?? "", (string?)f["location"] ?? ""));
-        foreach (var value in Values.FromFields(evidence, out _, CancellationToken.None))
-            if (IndicatorTypes.Contains(value.Type)) found.Add((value.Type, value.Value));
+        // The views name an indicator finding by an "/ioc" rule; its evidence
+        // is the value.
+        foreach (var finding in record["findings"] as JsonArray ?? [])
+            if (((string?)finding!["rule"])?.EndsWith("/ioc", StringComparison.Ordinal) == true && (string?)finding["evidence"] is { Length: > 0 } evidence)
+                found.Add((Uri.TryCreate(evidence, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" or "ftp" ? "url" : "value", evidence));
         var strings = (record["sections"] as JsonArray ?? []).FirstOrDefault(s => (string?)s!["name"] == "strings");
         foreach (var item in strings?["result"]?["items"] as JsonArray ?? [])
             if ((string?)item?["type"] is { } type && IndicatorTypes.Contains(type) && (string?)item["value"] is { } value)

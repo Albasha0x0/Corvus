@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Corvus.Services.Analysis;
 
 namespace Corvus.Setup;
 
@@ -93,7 +92,7 @@ internal static partial class ToolCli
             {
                 // A level rise changes the key, so the entry for a lower level is
                 // named, never applied.
-                foreach (var lower in new[] { FindingLevel.Review, FindingLevel.Info }.Where(l => FindingLevel.Rank(l) < FindingLevel.Rank(level)))
+                foreach (var lower in new[] { BatchLevel.Review, BatchLevel.Info }.Where(l => BatchLevel.Rank(l) < BatchLevel.Rank(level)))
                 {
                     var key = FindingKey(sha256, (string?)finding["rule"], lower, (string?)finding["evidence"], (string?)finding["location"]);
                     if (!baseline.Entries.TryGetValue(key, out var earlier)) continue;
@@ -124,7 +123,7 @@ internal static partial class ToolCli
     internal static JsonObject Verdict(JsonNode? summary, JsonArray kept, JsonArray suppressed)
     {
         if (summary == null || suppressed.Count == 0) return Verdict(summary);
-        var level = FindingLevel.Strongest(kept.Select(f => (string?)f!["level"] ?? ""));
+        var level = BatchLevel.Strongest(kept.Select(f => (string?)f!["level"] ?? ""));
         var verdict = new JsonObject
         {
             ["level"] = level,

@@ -446,6 +446,16 @@ public class FileBatchTests
     }
 
     [Fact]
+    public void Batch_levels_rank_as_the_finding_levels_of_the_views()
+    {
+        foreach (var level in new[] { "noteworthy", "review", "info", "none", "unknown", "" })
+            Assert.Equal(Corvus.Services.Analysis.FindingLevel.Rank(level), ToolCli.BatchLevel.Rank(level));
+        Assert.Equal(
+            (Corvus.Services.Analysis.FindingLevel.Noteworthy, Corvus.Services.Analysis.FindingLevel.Review, Corvus.Services.Analysis.FindingLevel.Info),
+            (ToolCli.BatchLevel.Noteworthy, ToolCli.BatchLevel.Review, ToolCli.BatchLevel.Info));
+    }
+
+    [Fact]
     public void Markdown_escaping_keeps_read_text_on_one_inert_line()
     {
         var escaped = Corvus.Core.Format.EscapeMarkdown("# title\n- [link](http://x) `code` <b>\u202e");
