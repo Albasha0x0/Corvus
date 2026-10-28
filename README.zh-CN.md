@@ -1,6 +1,6 @@
 # Corvus
 
-[English](README.md) · **简体中文** · [日本語](README.ja.md)
+[English](README.md)（原文，以其为准） · **简体中文** · [日本語](README.ja.md)
 
 用于已编译程序逆向工程与安全分析的 MCP 服务器：.NET 程序集，以及原生 PE、ELF 和 Mach-O 二进制文件。
 
@@ -9,7 +9,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
 - 单个自包含二进制文件。不上传任何内容；默认不执行它读取的任何内容。
-- 工具和输出可能在版本之间变化；见[发行说明](docs/release-notes.md)。本文译自 [README.md](README.md)，以英文版为准。
+- 工具和输出可能在版本之间变化；见[发行说明](docs/release-notes.md)。
 
 ## 快速开始
 

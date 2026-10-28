@@ -1,16 +1,15 @@
 # Corvus
 
-[English](README.md) · [简体中文](README.zh-CN.md) · **日本語**
+[English](README.md)（原文、こちらが優先） · [简体中文](README.zh-CN.md) · **日本語**
 
-コンパイル済みプログラムのリバースエンジニアリングとセキュリティ分析のための MCP サーバー：.NET アセンブリと、ネイティブの
-PE、ELF、Mach-O バイナリ。
+コンパイル済みプログラムのリバースエンジニアリングとセキュリティ分析のための MCP サーバー：.NET アセンブリと、ネイティブの PE、ELF、Mach-O バイナリ。
 
 [![Release](https://img.shields.io/github/v/release/Albasha0x0/Corvus?style=flat-square)](https://github.com/Albasha0x0/Corvus/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Albasha0x0/Corvus/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Albasha0x0/Corvus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
 - 自己完結型の単一バイナリ。何もアップロードせず、既定では読み取ったものを実行しません。
-- ツールと出力はリリース間で変わることがあります。[リリースノート](docs/release-notes.md)を参照してください。本書は [README.md](README.md) の翻訳で、英語版が優先します。
+- ツールと出力はリリース間で変わることがあります。[リリースノート](docs/release-notes.md)を参照してください。
 
 ## クイックスタート
 
@@ -28,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 
 インストーラーはダウンロードを検証し、見つかった MCP クライアントに Corvus を登録します。クライアントを再起動して次のように尋ねます：
 
-> Corvus で app.dll を読み込み、エクスポートファイルをどう作るか説明して。読んだメソッドを示して。
+> Corvus で app.dll を読み込み、エクスポートファイルをどう作るか説明して。根拠として読んだメソッドを挙げて。
 
 - プラグイン、コンテナーイメージ、その他のクライアント：[インストール](docs/installation.md)。
 - ターミナルから：`corvus decompile_member --load app.dll member=Ns.Type::Method`（[コマンドライン](docs/cli.md)）。

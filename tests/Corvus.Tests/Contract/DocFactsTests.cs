@@ -202,6 +202,44 @@ public partial class DocFactsTests
         }
     }
 
+    private static readonly string[] Translations = ["README.zh-CN.md", "README.ja.md"];
+
+    /// <summary>What a translation keeps from its source: heading levels, links, code, table shape and numbers.</summary>
+    private static (List<string> Headings, List<string> Links, List<string> Code, List<string> Tables, List<string> Numbers) Skeleton(string text)
+    {
+        var withoutBlocks = CodeBlock().Replace(text, "");
+        var code = CodeBlock().Matches(text).Concat(InlineCode().Matches(withoutBlocks)).Select(m => m.Value).ToList();
+        var prose = InlineCode().Replace(withoutBlocks, "");
+        // The language line links the other two READMEs, so it differs by design.
+        var links = Link().Matches(prose).Select(m => m.Groups[1].Value).Where(l => !IsReadme(l)).ToList();
+        var tables = text.Split('\n').Where(l => l.StartsWith('|')).Select(l => $"{l.Count(c => c == '|')} bars").ToList();
+        var numbers = Number().Matches(Link().Replace(prose, "")).Select(m => m.Value).Order(StringComparer.Ordinal).ToList();
+        var headings = Heading().Matches(text).Select(m => m.Value[..m.Value.IndexOf(' ')]).ToList();
+        return (headings, links, code, tables, numbers);
+    }
+
+    private static bool IsReadme(string link) => link.StartsWith("README", StringComparison.Ordinal);
+
+    private static HashSet<string> ReadmeLinks(string file) =>
+        Link().Matches(Read(file)).Select(m => m.Groups[1].Value).Where(IsReadme).ToHashSet(StringComparer.Ordinal);
+
+    [Fact]
+    public void The_translated_READMEs_keep_the_headings_links_code_tables_and_counts_of_README_md()
+    {
+        var source = Skeleton(Read("README.md"));
+        foreach (var file in Translations)
+        {
+            var translated = Skeleton(Read(file));
+            Assert.True(source.Headings.SequenceEqual(translated.Headings), $"{file}: heading levels differ from README.md");
+            Assert.Equal(source.Links, translated.Links);
+            Assert.Equal(source.Code, translated.Code);
+            Assert.Equal(source.Tables, translated.Tables);
+            Assert.Equal(source.Numbers, translated.Numbers);
+            Assert.Equal(new[] { "README.md" }.Concat(Translations).Where(r => r != file).ToHashSet(), ReadmeLinks(file));
+        }
+        Assert.Equal(Translations.ToHashSet(), ReadmeLinks("README.md"));
+    }
+
     [GeneratedRegex(@"Supported clients: ([^.]+)\.")]
     private static partial Regex SupportedClients();
 
@@ -245,4 +283,13 @@ public partial class DocFactsTests
     /// <summary>A quoted argument list that runs corvus batch: argv=[..., "batch", ...].</summary>
     [GeneratedRegex(@"argv=\[[^\]]*""batch""[^\]]*\]")]
     private static partial Regex Argv();
+
+    [GeneratedRegex(@"^```[^\n]*\n.*?^```", RegexOptions.Multiline | RegexOptions.Singleline)]
+    private static partial Regex CodeBlock();
+
+    [GeneratedRegex(@"`[^`\n]+`")]
+    private static partial Regex InlineCode();
+
+    [GeneratedRegex(@"\d+(?:\.\d+)*")]
+    private static partial Regex Number();
 }
