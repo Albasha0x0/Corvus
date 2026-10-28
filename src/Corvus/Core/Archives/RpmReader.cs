@@ -72,6 +72,8 @@ internal sealed class RpmReader : IContainerReader
 
     private static string[] Strings(ReadOnlySpan<byte> d, int n)
     {
+        // Each string takes at least its terminating zero.
+        if (n > d.Length) throw new InvalidDataException($"{n:N0} strings run past their header");
         var v = new string[n];
         for (int i = 0; i < n; i++)
         {

@@ -53,6 +53,21 @@ public sealed class RpmReaderTests(ITestOutputHelper output)
         Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => Open(data, "x.rpm")).Code);
     }
 
+    // Regression: a string array's count of 0x7FFFFFFF allocated 2.3 GB before
+    // its first string was read.
+    [Fact]
+    public void A_string_count_past_the_header_is_refused_before_it_is_allocated()
+    {
+        var data = File.ReadAllBytes(Fixture("ledger-tools-gzip.rpm"));
+        int Be(int at) => System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(at));
+        int main = (96 + 16 + 16 * Be(96 + 8) + Be(96 + 12) + 7) & ~7;
+        int entry = Enumerable.Range(0, Be(main + 8)).Select(i => main + 16 + 16 * i).First(e => Be(e + 4) is 8 or 9);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(entry + 12), int.MaxValue);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Equal(ErrorCode.MalformedInput, Assert.Throws<ToolError>(() => Open(data, "x.rpm")).Code);
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 64 << 20);
+    }
+
     [Fact]
     [FuzzEntry(typeof(Corvus.Core.Archives.RpmReader))]
     public void Fuzzed_packages_never_throw_past_a_tool_error()
