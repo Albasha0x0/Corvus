@@ -38,6 +38,8 @@ public abstract class ChildProcess : IDisposable
     public abstract void Kill();
     /// <summary>The memory limit in bytes when the tree's peak usage reached it (allocations failed), else null.</summary>
     public virtual long? MemoryLimitReached() => null;
+    /// <summary>The tree's peak committed memory and its limit in bytes while a limit is set and the tree is open, else null.</summary>
+    public virtual (long Peak, long Limit)? MemoryUse() => null;
 
     /// <summary>User plus kernel CPU time of the running tree processes (can fall when one exits); null when none could be read.</summary>
     public virtual TimeSpan? TreeCpuTime()
@@ -436,6 +438,20 @@ internal sealed class WindowsJobProcess : ChildProcess
             while (!_limitHit && GetQueuedCompletionStatus(port, out var message, out _, out _, 0))
                 _limitHit = message == JobMessageJobMemoryLimit;
         return _limitHit ? limit : null;
+    }
+
+    public override (long Peak, long Limit)? MemoryUse()
+    {
+        if (_memoryLimit is not { } limit || _job.IsClosed) return null;
+        var size = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (!QueryInformationJobObject(_job, JobObjectExtendedLimitInformation, buffer, (uint)size, out _)) return null;
+            return ((long)(ulong)Marshal.PtrToStructure<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>(buffer).PeakJobMemoryUsed, limit);
+        }
+        catch (ObjectDisposedException) { return null; }
+        finally { Marshal.FreeHGlobal(buffer); }
     }
 
     public override void Dispose()

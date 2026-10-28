@@ -221,6 +221,11 @@ internal sealed class FakeWorkerProcess : ChildProcess
 
     public override TimeSpan? TreeCpuTime() => Cpu?.Invoke();
 
+    /// <summary>The peak memory and limit the process reports, as a job with a memory limit does.</summary>
+    public (long Peak, long Limit)? Memory { get; init; }
+
+    public override (long Peak, long Limit)? MemoryUse() => Memory;
+
     public override void Kill()
     {
         _stop.Cancel();

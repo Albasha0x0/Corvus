@@ -107,6 +107,15 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_worker_that_exits_under_a_memory_limit_without_a_notice_names_its_peak_and_the_limit()
+    {
+        using var worker = new FakeWorkerProcess { Memory = (300L << 20, 512L << 20) };
+        using var c = worker.Connect(Concurrent);
+        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("exit_late", new JsonObject { ["message"] = "out of memory" }, NoLimit, default));
+        Assert.Contains("exited with code 1 (0x00000001) (peak memory 300 MB of its 512 MB limit, CORVUS_ENGINE_MEMORY_MB; no limit notice was sent)", e.Message);
+    }
+
+    [Fact]
     public async Task A_worker_stopped_for_time_names_what_it_was_doing()
     {
         int? asked = null, id = null;

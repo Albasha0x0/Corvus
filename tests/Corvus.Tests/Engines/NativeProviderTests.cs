@@ -509,6 +509,7 @@ public class NativeProviderTests(ITestOutputHelper output)
         Assert.True(reached == limit || reached == null && text.Contains("MemoryError"),
             $"{python.Executable} exited {capped.ExitCode}, limit {reached?.ToString() ?? "not reported"}: {text}");
         if (reached == null) output.WriteLine("allocation refused at the limit; the job sent no notice");
+        Assert.Equal(limit, capped.MemoryUse()?.Limit);
 
         // The same allocation without the limit succeeds, so the refusal above is the job's.
         using var free = ChildProcess.Start(new ChildProcessStart(python.Executable, ["-I", "-c", "b = bytearray(1 << 30)"]));
@@ -518,6 +519,8 @@ public class NativeProviderTests(ITestOutputHelper output)
         using var within = ChildProcess.Start(new ChildProcessStart(python.Executable, ["-I", "-c", "b = bytearray(16 << 20)"]) { MemoryLimitBytes = limit });
         Assert.True(within.Exited.Wait(30_000));
         Assert.Equal(0, within.ExitCode);
+        Assert.True(within.MemoryUse() is { Peak: >= 16L << 20 } use && use.Peak < limit, $"peak {within.MemoryUse()?.Peak}");
+        Assert.Null(free.MemoryUse());
         Assert.Null(within.MemoryLimitReached());
     }
 
