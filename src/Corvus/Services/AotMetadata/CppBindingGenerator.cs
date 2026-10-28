@@ -104,7 +104,7 @@ public sealed partial class CppBindingGenerator
             while (System.Text.RegularExpressions.Regex.IsMatch(used, $@"(?<![\w$]){System.Text.RegularExpressions.Regex.Escape(names[i])}(?![\w$])") || names.Take(i).Contains(names[i]))
                 names[i] += "_";
         for (int i = names.Count - 1; i >= 0; i--) code = code.Replace(TypeParameter(i), names[i]);
-        return $"// Style {target.Style}: {target.Reason}.{Environment.NewLine}" + code;
+        return $"// Style {target.Style}: {CText.Line(target.Reason)}.{Environment.NewLine}" + code;
     }
 
     private static string Relative(string fromFolder, string file) => Path.GetRelativePath(fromFolder, file).Replace('\\', '/');
@@ -306,13 +306,13 @@ public sealed partial class CppBindingGenerator
         {
             var off = Unique($"m_{Camel(f.Name)}{(f.IsStatic ? "StaticOff" : "Off")}");
             var (cpp, isPointer, isStruct) = CppType(f.FieldType);
-            decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{Format.Type(f.FieldType)} {f.Name}");
-            resolve.AppendLine($"        {off} = FieldOffset(api, klass, \"{f.Name}\");");
+            decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{CText.Line(Format.Type(f.FieldType))} {CText.Line(f.Name)}");
+            resolve.AppendLine($"        {off} = FieldOffset(api, klass, {CText.Quote(f.Name)});");
             checks.Add($"{off} >= 0");
             var accessor = ReserveAccessor(wrapperSignatures, f.Name);
             var (target, objParam, constObjParam) = f.IsStatic ? ("m_static", "", "") : ("obj", "void* obj", "const void* obj");
             if (isStruct)
-                accessors.AppendLine($"    void* {accessor}Addr({objParam}) const {{ return {target} && {off} >= 0 ? static_cast<char*>({target}) + {off} : nullptr; }}  // embedded {Format.Type(f.FieldType)}");
+                accessors.AppendLine($"    void* {accessor}Addr({objParam}) const {{ return {target} && {off} >= 0 ? static_cast<char*>({target}) + {off} : nullptr; }}  // embedded {CText.Line(Format.Type(f.FieldType))}");
             else if (isPointer)
                 accessors.AppendLine($"    MonoObject* {accessor}({constObjParam}) const {{ return Read<MonoObject*>({target}, {off}); }}");
             else
@@ -328,10 +328,10 @@ public sealed partial class CppBindingGenerator
         {
             var getter = p.GetMethod!;
             var m = Unique($"m_get{Pascal(p.Name)}");
-            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {PropertyComment(type, p)}");
+            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {CText.Line(PropertyComment(type, p))}");
             resolve.AppendLine(viaHierarchy || getter.DeclaringType != type
-                ? $"        {m} = MethodInHierarchy(api, klass, \"{getter.Name}\", 0);"
-                : $"        {m} = api.class_get_method_from_name(klass, \"{getter.Name}\", 0);");
+                ? $"        {m} = MethodInHierarchy(api, klass, {CText.Quote(getter.Name)}, 0);"
+                : $"        {m} = api.class_get_method_from_name(klass, {CText.Quote(getter.Name)}, 0);");
             checks.Add(m);
             var (cpp, isPointer, isStruct) = CppType(AsSeenFrom(type, getter, getter.ReturnType));
             var instance = getter.IsStatic ? "nullptr" : "obj";
@@ -339,7 +339,7 @@ public sealed partial class CppBindingGenerator
             var name = UniqueWrapper(wrapperSignatures, p.Name, parameters);
             var param = string.Join(", ", parameters);
             if (isPointer || isStruct)
-                accessors.AppendLine($"    MonoObject* {name}({param}) const {{ return Invoke(api, {m}, {instance}, nullptr); }}{(isStruct ? $"  // boxed {Format.Type(getter.ReturnType)}" : "")}");
+                accessors.AppendLine($"    MonoObject* {name}({param}) const {{ return Invoke(api, {m}, {instance}, nullptr); }}{(isStruct ? $"  // boxed {CText.Line(Format.Type(getter.ReturnType))}" : "")}");
             else if (IsTypeParameter(cpp))
                 accessors.AppendLine($"    {cpp} {name}({param}) const {{ return Result<{cpp}>(api, Invoke(api, {m}, {instance}, nullptr)); }}");
             else
@@ -352,14 +352,14 @@ public sealed partial class CppBindingGenerator
             var m = Unique($"m_{Camel(method.Name)}");
             int argc = ParamCount(method);
             bool byToken = s.Overloaded.Contains((method.Name.String, argc));
-            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
+            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {CText.Line(Format.Method(method))}");
             if (byToken && method.DeclaringType != type)
                 throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
             resolve.AppendLine(byToken
-                ? $"        {m} = MethodByToken(api, klass, 0x{method.MDToken.Raw:X8});  // overloaded {method.Name}({MonoParams(method)})"
+                ? $"        {m} = MethodByToken(api, klass, 0x{method.MDToken.Raw:X8});  // overloaded {CText.Line(method.Name)}({CText.Line(MonoParams(method))})"
                 : method.DeclaringType != type
-                    ? $"        {m} = MethodInHierarchy(api, klass, \"{method.Name}\", {argc});  // declared on {method.DeclaringType.FullName}"
-                    : $"        {m} = api.class_get_method_from_name(klass, \"{method.Name}\", {argc});");
+                    ? $"        {m} = MethodInHierarchy(api, klass, {CText.Quote(method.Name)}, {argc});  // declared on {CText.Line(method.DeclaringType.FullName)}"
+                    : $"        {m} = api.class_get_method_from_name(klass, {CText.Quote(method.Name)}, {argc});");
             checks.Add(m);
 
             var (parameters, args) = WrapperParameters(method, "const MonoApi& api");
@@ -371,7 +371,7 @@ public sealed partial class CppBindingGenerator
         }
 
         var sb = new StringBuilder();
-        sb.AppendLine($"// Generated from {asm.Id} ({asm.AssemblyName}.dll): {type.FullName}  [{Format.Token(type)}]");
+        sb.AppendLine($"// Generated from {CText.Line(asm.Id)} ({CText.Line(asm.AssemblyName)}.dll): {CText.Line(type.FullName)}  [{Format.Token(type)}]");
         sb.AppendLine("// Standard Mono embedding API, no other headers needed. Fill a monobind::MonoApi once with Load(), then call");
         sb.AppendLine("// Resolve(api) on a thread attached to Mono (mono_thread_attach) and check Resolved(). Method calls and property");
         sb.AppendLine("// getters also need an attached thread; field reads and writes only need a live object pointer.");
@@ -407,9 +407,9 @@ public sealed partial class CppBindingGenerator
     {
         var chain = new List<TypeDef>();
         for (var c = type; c != null; c = c.DeclaringType) chain.Insert(0, c);
-        var expr = $"FindClass(api, \"{asm.AssemblyName}\", \"{chain[0].Namespace}\", \"{chain[0].Name}\")";
+        var expr = $"FindClass(api, {CText.Quote(asm.AssemblyName)}, {CText.Quote(chain[0].Namespace)}, {CText.Quote(chain[0].Name)})";
         foreach (var nested in chain.Skip(1))
-            expr = $"FindNested(api, {expr}, \"{nested.Name}\")";
+            expr = $"FindNested(api, {expr}, {CText.Quote(nested.Name)})";
         return expr;
     }
 
@@ -453,8 +453,8 @@ public sealed partial class CppBindingGenerator
         {
             var off = Unique($"m_{Camel(f.Name)}{(f.IsStatic ? "StaticOff" : "Off")}");
             var (cpp, isPointer, isStruct) = CppType(f.FieldType);
-            decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{Format.Type(f.FieldType)} {f.Name}");
-            resolve.AppendLine($"        {off} = h->{(f.IsStatic ? "StaticFieldOffset" : unboxedOffsets ? "EmbeddedStructOffset" : "FieldOffset")}(klass, \"{f.Name}\");");
+            decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{CText.Line(Format.Type(f.FieldType))} {CText.Line(f.Name)}");
+            resolve.AppendLine($"        {off} = h->{(f.IsStatic ? "StaticFieldOffset" : unboxedOffsets ? "EmbeddedStructOffset" : "FieldOffset")}(klass, {CText.Quote(f.Name)});");
             checks.Add($"{off} >= 0");
             var accessor = ReserveAccessor(wrapperSignatures, f.Name);
             if (f.IsStatic)
@@ -475,7 +475,7 @@ public sealed partial class CppBindingGenerator
                 }
             }
             else if (isStruct)
-                accessors.AppendLine($"    void* {accessor}Addr(void* obj) const {{ return obj && {off} >= 0 ? static_cast<char*>(obj) + {off} : nullptr; }}  // embedded {Format.Type(f.FieldType)}");
+                accessors.AppendLine($"    void* {accessor}Addr(void* obj) const {{ return obj && {off} >= 0 ? static_cast<char*>(obj) + {off} : nullptr; }}  // embedded {CText.Line(Format.Type(f.FieldType))}");
             else if (isPointer)
             {
                 used.Add("ReadPtr");
@@ -495,18 +495,18 @@ public sealed partial class CppBindingGenerator
         {
             var getter = p.GetMethod!;
             var m = Unique($"m_get{Pascal(p.Name)}");
-            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {PropertyComment(type, p)}");
+            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {CText.Line(PropertyComment(type, p))}");
             if (viaHierarchy || getter.DeclaringType != type) used.Add("GetMethodInHierarchy");
             resolve.AppendLine(viaHierarchy || getter.DeclaringType != type
-                ? $"        {m} = GetMethodInHierarchy(h, klass, \"{getter.Name}\", 0);"
-                : $"        {m} = h->GetMethod(klass, \"{getter.Name}\", 0);");
+                ? $"        {m} = GetMethodInHierarchy(h, klass, {CText.Quote(getter.Name)}, 0);"
+                : $"        {m} = h->GetMethod(klass, {CText.Quote(getter.Name)}, 0);");
             checks.Add(m);
             var (cpp, isPointer, isStruct) = CppType(AsSeenFrom(type, getter, getter.ReturnType));
             var instance = getter.IsStatic ? "nullptr" : "obj";
             List<string> parameters = getter.IsStatic ? [h] : [h, "void* obj"];
             var param = string.Join(", ", parameters);
             if (isPointer || IsTypeParameter(cpp))
-                accessors.AppendLine($"    void* {UniqueWrapper(wrapperSignatures, p.Name, parameters)}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // managed call{(isPointer ? "" : $"; a {cpp}: the object, or the boxed value")}");
+                accessors.AppendLine($"    void* {UniqueWrapper(wrapperSignatures, p.Name, parameters)}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // managed call{(isPointer ? "" : $"; a {CText.Line(cpp)}: the object, or the boxed value")}");
             else if (!isStruct)
             {
                 used.Add("CallValue");
@@ -519,17 +519,17 @@ public sealed partial class CppBindingGenerator
         {
             var m = Unique($"m_{Camel(method.Name)}");
             int argc = ParamCount(method);
-            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
+            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {CText.Line(Format.Method(method))}");
             bool exact = s.Overloaded.Contains((method.Name.String, argc));
             if (exact && method.DeclaringType != type)
                 throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
             if (exact) used.Add("GetMethodExact");
             if (!exact && method.DeclaringType != type) used.Add("GetMethodInHierarchy");
             resolve.AppendLine(exact
-                ? $"        {m} = GetMethodExact(h, klass, \"{method.Name}\", \"{MonoParams(method)}\");"
+                ? $"        {m} = GetMethodExact(h, klass, {CText.Quote(method.Name)}, {CText.Quote(MonoParams(method))});"
                 : method.DeclaringType != type
-                    ? $"        {m} = GetMethodInHierarchy(h, klass, \"{method.Name}\", {argc});  // declared on {method.DeclaringType.FullName}"
-                    : $"        {m} = h->GetMethod(klass, \"{method.Name}\", {argc});");
+                    ? $"        {m} = GetMethodInHierarchy(h, klass, {CText.Quote(method.Name)}, {argc});  // declared on {CText.Line(method.DeclaringType.FullName)}"
+                    : $"        {m} = h->GetMethod(klass, {CText.Quote(method.Name)}, {argc});");
             checks.Add(m);
 
             var (parameters, args) = WrapperParameters(method, h);
@@ -561,17 +561,17 @@ public sealed partial class CppBindingGenerator
         var managedNs = top.Namespace.String;
         var className = type.DeclaringType == null ? type.Name.String : NestedName(type);
         var sb = new StringBuilder();
-        sb.AppendLine($"// Generated from {asm.Id} ({asm.AssemblyName}.dll): {type.FullName}  [{Format.Token(type)}]");
-        sb.AppendLine($"// For a host that passes a {table} function table. Call Resolve(h) once where the host allows managed lookups;");
+        sb.AppendLine($"// Generated from {CText.Line(asm.Id)} ({CText.Line(asm.AssemblyName)}.dll): {CText.Line(type.FullName)}  [{Format.Token(type)}]");
+        sb.AppendLine($"// For a host that passes a {CText.Line(table)} function table. Call Resolve(h) once where the host allows managed lookups;");
         sb.AppendLine("// check Resolved() before use. Field accessors read and write through the project's ReadField / WriteField / ReadPtr;");
         sb.AppendLine("// getters and method wrappers call h->Invoke, so they need whatever managed-call context the host requires.");
         sb.AppendLine("// Value-type arguments are passed by pointer; objects as their pointer.");
         if (project == null && used.Count > 0)
-            sb.AppendLine($"// Include the header that defines {table} and the helpers this code calls ({string.Join(", ", HostApiDetector.HelperNames.Where(used.Contains))}) before this one.");
+            sb.AppendLine($"// Include the header that defines {CText.Line(table)} and the helpers this code calls ({CText.Line(string.Join(", ", HostApiDetector.HelperNames.Where(used.Contains)))}) before this one.");
         if (missing.Count > 0)
-            sb.AppendLine($"// NOTE: not found in {project!.Root}: {string.Join(", ", missing)}. Define them (first parameter: const {table}*) or edit the calls below.");
+            sb.AppendLine($"// NOTE: not found in {CText.Line(project!.Root)}: {CText.Line(string.Join(", ", missing))}. Define them (first parameter: const {CText.Line(table)}*) or edit the calls below.");
         if (type.DeclaringType != null)
-            sb.AppendLine($"// NOTE: nested type. mono_class_from_name may not find \"{className}\" directly; if FindClass fails, resolve it from the outer class.");
+            sb.AppendLine($"// NOTE: nested type. mono_class_from_name may not find \"{CText.Line(className)}\" directly; if FindClass fails, resolve it from the outer class.");
         if (unboxedOffsets)
             sb.AppendLine("// Value type: instance offsets are into the unboxed data (EmbeddedStructOffset): pass a pointer to the struct itself, or a boxed object + 2 pointers.");
         else if (type.IsValueType)
@@ -585,7 +585,7 @@ public sealed partial class CppBindingGenerator
             sb.AppendLine($"namespace {ns} {{");
             sb.AppendLine();
         }
-        StructHead(sb, type, hclass, h, $"h->FindClass(\"{asm.AssemblyName}\", \"{managedNs}\", \"{className}\")", null, decls);
+        StructHead(sb, type, hclass, h, $"h->FindClass({CText.Quote(asm.AssemblyName)}, {CText.Quote(managedNs)}, {CText.Quote(className)})", null, decls);
         sb.Append(resolve);
         sb.AppendLine("        return Resolved();");
         sb.AppendLine("    }");
@@ -600,7 +600,7 @@ public sealed partial class CppBindingGenerator
         if (ns != null)
         {
             sb.AppendLine();
-            sb.AppendLine($"}} // namespace {ns}");
+            sb.AppendLine($"}} // namespace {CText.Line(ns)}");
         }
         return sb.ToString();
     }
@@ -685,7 +685,7 @@ public sealed partial class CppBindingGenerator
     {
         if (method.ReturnType.ElementType == ElementType.Void) return "";
         var (retCpp, retPointer, retStruct) = CppType(method.ReturnType);
-        return retPointer ? "  // returns the object" : $"  // boxed {Format.Type(method.ReturnType)}: {unbox.Replace("<T>", $"<{(retStruct ? "T" : retCpp)}>")}";
+        return retPointer ? "  // returns the object" : $"  // boxed {CText.Line(Format.Type(method.ReturnType))}: {unbox.Replace("<T>", $"<{(retStruct ? "T" : retCpp)}>")}";
     }
 
     /// <summary>Accessor and wrapper names must not collide with the struct's own Resolve / Resolved.</summary>

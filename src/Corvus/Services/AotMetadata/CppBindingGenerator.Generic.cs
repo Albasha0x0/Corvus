@@ -104,16 +104,16 @@ public sealed partial class CppBindingGenerator
                     break;
                 }
                 body.AppendLine(m.Bytes is { } bytes
-                    ? $"    alignas({bytes.Align}) {align}nd_bytes {member}[{bytes.Size}];  // {Format.Type(sig)}"
-                    : $"    {align}{m.Cpp} {member};  // {Format.Type(sig)}");
+                    ? $"    alignas({bytes.Align}) {align}nd_bytes {member}[{bytes.Size}];  // {CText.Line(Format.Type(sig))}"
+                    : $"    {align}{m.Cpp} {member};  // {CText.Line(Format.Type(sig))}");
                 members++;
             }
             if (stopped != null) break;
         }
         if (members == 0) return null;
         var sb = new StringBuilder();
-        sb.AppendLine($"// Instance layout of {type.FullName} as the AOT runtime lays out an instantiation (object header first for a class).");
-        if (stopped != null) sb.AppendLine($"// {stopped}.");
+        sb.AppendLine($"// Instance layout of {CText.Line(type.FullName)} as the AOT runtime lays out an instantiation (object header first for a class).");
+        if (stopped != null) sb.AppendLine($"// {CText.Line(stopped)}.");
         sb.AppendLine($"template <{string.Join(", ", type.GenericParameters.Select((_, i) => "class " + TypeParameter(i)))}>");
         sb.AppendLine($"struct {BaseName(type)}Layout {{");
         sb.AppendLine("    using nd_bytes = unsigned char;");

@@ -74,16 +74,16 @@ internal sealed class AotLayout(ulong pointerSize = 8)
             if (td.IsEnum && td.GetEnumUnderlyingType() is { } underlying) return TypeOf(underlying);
             if (td.Namespace == "System" && Primitive(td.Name) is { } primitive) return primitive;
             if (!td.HasGenericParameters && Of(td, null, statics: false) is { } s) return new($"struct {s.CName}", s.Size, s.Align);
-            return new($"nd_u8 /* {td.Name} */", 1, 1);
+            return new($"nd_u8 /* {CText.Block(td.Name)} */", 1, 1);
         }
-        if (sig is ValueTypeSig unresolved) return new($"nd_u8 /* {unresolved.TypeName} */", 1, 1);
+        if (sig is ValueTypeSig unresolved) return new($"nd_u8 /* {CText.Block(unresolved.TypeName)} */", 1, 1);
         if (sig is GenericInstSig gi && Try(() => gi.GenericType.TypeDefOrRef.ResolveTypeDef()) is { IsValueType: true } def)
         {
             if (gi.GenericArguments.All(IsClosed) && Of(def, gi.GenericArguments, statics: false) is { } s)
                 return new($"struct {s.CName}", s.Size, s.Align);
-            return new($"nd_u8 /* {Format.Type(gi)} */", 1, 1);
+            return new($"nd_u8 /* {CText.Block(Format.Type(gi))} */", 1, 1);
         }
-        if (sig is GenericInstSig { GenericType: ValueTypeSig }) return new($"nd_u8 /* {Format.Type(sig)} */", 1, 1);
+        if (sig is GenericInstSig { GenericType: ValueTypeSig }) return new($"nd_u8 /* {CText.Block(Format.Type(sig))} */", 1, 1);
         // References and pointers; a type parameter is a reference in the shared code the address belongs to.
         return new("nd_ptr", PointerSize, PointerSize);
     }

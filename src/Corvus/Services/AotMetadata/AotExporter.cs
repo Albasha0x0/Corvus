@@ -205,7 +205,7 @@ public sealed class AotExporter(AotMetadataService aot)
         foreach (var s in layout.Structs)
         {
             var members = new HashSet<string>(StringComparer.Ordinal);
-            sb.AppendLine($"/* {s.Title} */");
+            sb.AppendLine($"/* {CText.Block(s.Title)} */");
             sb.AppendLine($"struct {s.CName} {{");
             ulong position = 0;
             if (!s.IsValueType && !s.Statics)
@@ -227,7 +227,7 @@ public sealed class AotExporter(AotMetadataService aot)
                     name = $"{name}_{AotLayout.Identifier(Format.StripArity(m.Owner))}";
                     for (int i = 2; !members.Add(name); i++) name = $"{AotLayout.Identifier(m.Name)}_{i}";
                 }
-                sb.AppendLine($"    {m.CType} {name}{(m.Count > 0 ? $"[0x{m.Count:X}]" : "")};  /* 0x{m.Offset:X} {m.Managed}{(m.Computed ? " (computed)" : "")} */");
+                sb.AppendLine($"    {m.CType} {name}{(m.Count > 0 ? $"[0x{m.Count:X}]" : "")};  /* 0x{m.Offset:X} {CText.Block(m.Managed)}{(m.Computed ? " (computed)" : "")} */");
                 position = m.Offset + m.Size;
             }
             if (s.Members.Count == 0) sb.AppendLine("    nd_u8 _empty;");

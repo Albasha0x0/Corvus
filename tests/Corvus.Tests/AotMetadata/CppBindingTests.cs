@@ -145,6 +145,32 @@ public class CppBindingTests : IDisposable
     }
 
     [Fact]
+    public void A_name_with_a_comment_end_and_a_line_break_stays_inside_one_comment()
+    {
+        const string name = "a*/b\nc\"d\\";
+        Assert.Equal(@"a*\/b\nc""d\x5C", CText.Block(name));
+        using var dir = new TempDir();
+        var image = Roslyn.Compile("Odd", "public class Holder { public int Field; }",
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary));
+        using (var module = ModuleDefMD.Load(image))
+        {
+            module.Find("Holder", isReflectionName: false).Fields.Single().Name = name;
+            module.Write(dir.File("Odd.dll"));
+        }
+        using var env = new Env(dir.File("Odd.dll"));
+        var code = new CppBindingGenerator().Generate(env.Fixture, env.Def<TypeDef>("Holder", SymbolKind.Type), null, false, "mono");
+
+        Assert.Contains("// int " + CText.Line(name), code);
+        Assert.Contains("FieldOffset(api, klass, \"a*/b\\012c\\\"d\\\\\")", code);
+        Assert.DoesNotContain(code.Split('\n'), l => l.StartsWith("c\"d", StringComparison.Ordinal));
+        if (!File.Exists(ClangPlusPlus)) return;
+        File.WriteAllText(dir.File("Holder.h"), code);
+        File.WriteAllText(dir.File("all.cpp"), "#include \"Holder.h\"\nint main() { monobind::HolderBinding b; return b.Resolved() ? 0 : 1; }\n");
+        var (exit, text) = Tools.Run(ClangPlusPlus, $"-std=c++17 -fsyntax-only -Wall -Wextra -Werror -I \"{dir.Path}\" \"{dir.File("all.cpp")}\"");
+        Assert.True(exit == 0, text);
+    }
+
+    [Fact]
     public void Mono_header_names_every_runtime_file_name()
     {
         var code = Generate("Account");

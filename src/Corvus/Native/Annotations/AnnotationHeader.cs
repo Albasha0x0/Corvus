@@ -1,4 +1,5 @@
 using System.Text;
+using Corvus.Core;
 
 namespace Corvus.Native.Annotations;
 
@@ -20,7 +21,7 @@ public static class AnnotationHeader
         var types = ann.UserTypes;
         var sb = new StringBuilder();
         sb.AppendLine("// Exported C declarations and prototypes; addresses are RVAs.");
-        sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
+        sb.AppendLine($"// Source: {CText.Line(ann.FilePath)}  sha256 {ann.Sha256}");
         sb.AppendLine("#pragma once");
         if (types.Declarations.Count > 0)
         {
@@ -37,18 +38,18 @@ public static class AnnotationHeader
             else globals.Add($"extern {Declarator(type, name)}; // rva 0x{rva:X}");
         }
         foreach (var (rva, name) in ann.Names().Where(n => isFunction(n.Rva) && !types.Types.ContainsKey(n.Rva)).OrderBy(n => n.Rva))
-            functions.Add($"// {name}: rva 0x{rva:X}, no prototype set");
+            functions.Add($"// {CText.Line(name)}: rva 0x{rva:X}, no prototype set");
         if (functions.Count > 0) sb.AppendLine().AppendLine("/* functions */").AppendJoin(Environment.NewLine, functions).AppendLine();
         if (globals.Count > 0) sb.AppendLine().AppendLine("/* globals */").AppendJoin(Environment.NewLine, globals).AppendLine();
         if (imported is { Count: > 0 })
         {
             // Imported names carry no C types: listed by address with the first line of their comment (the managed form).
-            string Line(ImportedName e) => $"// {e.Name}: rva 0x{e.Rva:X}" + (e.Comment is { } c ? $", {c.Split('\n')[0]}" : "");
+            string Line(ImportedName e) => "// " + CText.Line($"{e.Name}: rva 0x{e.Rva:X}" + (e.Comment is { } c ? $", {c.Split('\n')[0]}" : ""));
             var named = imported.Entries.Where(e => e.Name != null && !types.Types.ContainsKey(e.Rva)).ToList();
             if (named.Any(e => isFunction(e.Rva)))
-                sb.AppendLine().AppendLine($"/* functions named by the {imported.Sources} layer(s) */").AppendJoin(Environment.NewLine, named.Where(e => isFunction(e.Rva)).Select(Line)).AppendLine();
+                sb.AppendLine().AppendLine($"/* functions named by the {CText.Block(imported.Sources)} layer(s) */").AppendJoin(Environment.NewLine, named.Where(e => isFunction(e.Rva)).Select(Line)).AppendLine();
             if (named.Any(e => !isFunction(e.Rva)))
-                sb.AppendLine().AppendLine($"/* data named by the {imported.Sources} layer(s) */").AppendJoin(Environment.NewLine, named.Where(e => !isFunction(e.Rva)).Select(Line)).AppendLine();
+                sb.AppendLine().AppendLine($"/* data named by the {CText.Block(imported.Sources)} layer(s) */").AppendJoin(Environment.NewLine, named.Where(e => !isFunction(e.Rva)).Select(Line)).AppendLine();
         }
         return sb.ToString();
     }
