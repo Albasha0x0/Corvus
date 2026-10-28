@@ -122,10 +122,22 @@ internal static partial class ToolCli
             ["file"] = file,
             ["complete"] = sections.All(s => (string?)s!["status"] is SectionStatus.Complete or SectionStatus.NotApplicable),
             ["limits"] = new JsonObject([.. limits.Select(l => KeyValuePair.Create(l.Key, (JsonNode?)JsonValue.Create(l.Value)))]),
+            ["summary"] = Verdict(summary),
             ["sections"] = sections,
         };
         io.Out.WriteLine(document.ToJsonString(Compact));
         return timedOut ? Exit.Timeout : Exit.Ok;
+    }
+
+    /// <summary>The file's level and the findings at that level as reasons; level unknown when the summary step gave no result.</summary>
+    internal static JsonObject Verdict(JsonNode? summary)
+    {
+        var level = (string?)summary?["level"] ?? "unknown";
+        var reasons = new JsonArray([.. (summary?["findings"] as JsonArray ?? []).Where(f => (string?)f?["level"] == level).Select(f => f!.DeepClone())]);
+        var verdict = new JsonObject { ["level"] = level, ["reasons"] = reasons };
+        // The overview keeps the strongest 50 findings, so the reasons may be cut too.
+        if (summary?["findingTotal"] is { } total) verdict["findingTotal"] = total.DeepClone();
+        return verdict;
     }
 
     /// <summary>A step's arguments, or the section that says why it does not run on this file.</summary>

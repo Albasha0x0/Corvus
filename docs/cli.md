@@ -87,6 +87,8 @@ without an agent. Nothing in the file runs; no network calls are made.
   `result` is the tool's structured output; `error` is the tool's error record.
 - A `partial` section keeps every row it read. `limit` names the limit reached; `reason` names what stopped it.
 - `complete` is true only when every section is `complete` or `not_applicable`. Each step pages through all of its results.
+- `summary.level`: `noteworthy`, `review`, `info`, `none`, or `unknown` when the summary step gave no result.
+  `summary.reasons` lists the findings at that level, each with `level`, `rule`, `category`, `evidence`, `location` and `source`.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
 - `--limit assetBytes=N`: asset bytes the `strings` step reads (default 1 GiB; a direct `extract_strings` call reads up to 4 GiB).
