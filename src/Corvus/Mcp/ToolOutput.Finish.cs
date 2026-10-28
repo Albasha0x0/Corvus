@@ -58,6 +58,9 @@ public static partial class ToolOutput
 
         Annotate(call, record, ref text);
         Bound(call, tool, record, ref text, store, readOnly, origin);
+        // Both parts are escaped here, after fitting, so they carry the same escapes of the file text.
+        text = Format.EscapeInvisible(text);
+        Format.EscapeInvisible(record);
         if (call.JsonMode && record != null) text = record.ToJsonString(Json);
         if (text.Length == 0 && record == null && others.Count == 0) text = "Done.";
         return new Finished(new CallToolResult

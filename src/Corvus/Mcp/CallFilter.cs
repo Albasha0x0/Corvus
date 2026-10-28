@@ -75,7 +75,7 @@ internal static partial class CallFilter
                 result.Content.Add(new TextContentBlock { Text = string.Join("\n", notices.Select(n => ToolOutput.NoticePrefix + Format.EscapeInvisible(n))) });
                 if (result.StructuredContent is { } s && JsonNode.Parse(s.GetRawText()) is JsonObject record)
                 {
-                    record["notices"] = new JsonArray(notices.Select(n => (JsonNode)JsonValue.Create(n)!).ToArray());
+                    record["notices"] = new JsonArray(notices.Select(n => (JsonNode)JsonValue.Create(Format.EscapeInvisible(n))!).ToArray());
                     result.StructuredContent = JsonSerializer.SerializeToElement(record, ToolOutput.Json);
                 }
             }
@@ -212,11 +212,7 @@ internal static partial class CallFilter
                     joins = null;
                     continue;
                 }
-                result = finished.Result;
-                // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
-                foreach (var block in result.Content.OfType<TextContentBlock>())
-                    block.Text = Format.EscapeInvisible(block.Text);
-                return (result, output);
+                return (finished.Result, output);
             }
         }
         catch (ToolError ex)

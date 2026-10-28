@@ -148,5 +148,19 @@ public static partial class ToolOutput
     /// <summary>The transport's encoding (it escapes non-ASCII and HTML-sensitive characters): sizes are measured in it.</summary>
     internal static readonly JsonSerializerOptions Wire = ModelContextProtocol.McpJsonUtilities.DefaultOptions;
 
-    internal static JsonNode? Serialize(object value) => value is JsonNode n ? n.DeepClone() : JsonSerializer.SerializeToNode(value, value.GetType(), Json);
+    internal static JsonNode? Serialize(object value) => value is JsonNode n ? n.DeepClone() : JsonSerializer.SerializeToNode(value, value.GetType(), RecordJson);
+
+    // Strings are escaped as they are written: the writer turns an unpaired surrogate into U+FFFD.
+    private static readonly JsonSerializerOptions RecordJson = new(Json) { Converters = { new EscapedStrings() } };
+
+    private sealed class EscapedStrings : JsonConverter<string>
+    {
+        public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.GetString();
+
+        public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) => writer.WriteStringValue(Format.EscapeInvisible(value));
+
+        public override string ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.GetString()!;
+
+        public override void WriteAsPropertyName(Utf8JsonWriter writer, string value, JsonSerializerOptions options) => writer.WritePropertyName(Format.EscapeInvisible(value));
+    }
 }

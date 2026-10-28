@@ -312,6 +312,20 @@ public class ToolOutputTests(ITestOutputHelper output)
         Assert.StartsWith("[workspace]", ((TextContentBlock)error.Content[^1]).Text);
     }
 
+    [Fact]
+    public async Task Tag_characters_in_a_record_and_a_notice_are_escaped_in_both_parts()
+    {
+        var options = new ServerOptions();
+        var workspace = new AssemblyWorkspace(options);
+        using var services = new ServiceCollection().AddSingleton(options).AddSingleton(new ResultStore(ResultCacheOptions.MemoryOnly)).AddSingleton(workspace).BuildServiceProvider();
+        workspace.Notify("loaded Lab\U000E0041.dll");
+        var r = await Call(services, "get_pe_info", _ => new CallToolResult { Content = [new TextContentBlock { Text = ToolOutput.With("name Lab\U000E0041\n", new { name = "Lab\U000E0041" }) }] });
+        Assert.Contains("name Lab\\U000e0041", Text(r));
+        Assert.EndsWith("[workspace] loaded Lab\\U000e0041.dll", Text(r));
+        Assert.Equal("Lab\\U000e0041", Record(r).GetProperty("name").GetString());
+        Assert.Equal("loaded Lab\\U000e0041.dll", Record(r).GetProperty("notices")[0].GetString());
+    }
+
     /// <summary>S4.1 (c): an "Incomplete:" line of the tool's text reaches the record as a warning.</summary>
     [Fact]
     public async Task Incomplete_text_becomes_a_warning()

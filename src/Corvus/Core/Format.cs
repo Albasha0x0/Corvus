@@ -288,31 +288,82 @@ public static class Format
         || ch is 'ᅟ' or 'ᅠ' or 'ㅤ' or 'ﾠ'
         || char.IsControl(ch) && ch is not ('\t' or '\n' or '\r');
 
-    /// <summary>Invisible characters (see <see cref="IsInvisible"/>) as \uXXXX, the way the decompiler escapes identifiers.</summary>
+    /// <summary>Whether a code point prints as nothing, reorders text or carries hidden text: <see cref="IsInvisible(char)"/>, a format character, a variation selector, a tag character, an unpaired surrogate or planes 15-16 private use.</summary>
+    public static bool IsInvisible(int cp) =>
+        cp is >= 0xFE00 and <= 0xFE0F or >= 0xD800 and <= 0xDFFF or >= 0xE0000 and <= 0xE007F or >= 0xE0100 and <= 0xE01EF or >= 0xF0000
+        || (cp <= 0xFFFF ? cp >= 0 && IsInvisible((char)cp) : CharUnicodeInfo.GetUnicodeCategory(cp) == UnicodeCategory.Format);
+
+    /// <summary>Invisible code points (see <see cref="IsInvisible(int)"/>) as \uXXXX, or \UXXXXXXXX above the BMP; a presentation selector after an emoji base is kept.</summary>
     public static string EscapeInvisible(string s)
     {
-        int i = 0;
-        while (i < s.Length && !IsInvisible(s[i])) i++;
+        int i = 0, width = 1;
+        while (i < s.Length && !Hidden(s, i, out width)) i += width;
         if (i == s.Length) return s;
         var sb = new StringBuilder(s.Length + 32).Append(s, 0, i);
-        for (; i < s.Length; i++)
+        for (; i < s.Length; i += width)
         {
-            if (IsInvisible(s[i])) sb.Append("\\u").Append(((int)s[i]).ToString("x4"));
-            else sb.Append(s[i]);
+            if (!Hidden(s, i, out width)) sb.Append(s, i, width);
+            else if (width == 1) sb.Append("\\u").Append(((int)s[i]).ToString("x4", CultureInfo.InvariantCulture));
+            else sb.Append("\\U").Append(char.ConvertToUtf32(s[i], s[i + 1]).ToString("x8", CultureInfo.InvariantCulture));
         }
         return sb.ToString();
     }
 
-    /// <summary>The inverse of <see cref="EscapeInvisible"/>: \uXXXX of an invisible character becomes the character.</summary>
+    /// <summary>The inverse of <see cref="EscapeInvisible(string)"/>: \uXXXX or \UXXXXXXXX of an invisible code point becomes the code point.</summary>
     public static string UnescapeInvisible(string s)
     {
         if (!s.Contains("\\u", StringComparison.OrdinalIgnoreCase)) return s;
-        return System.Text.RegularExpressions.Regex.Replace(s, @"\\[uU]([0-9a-fA-F]{4})", m =>
+        return System.Text.RegularExpressions.Regex.Replace(s, @"\\U([0-9a-fA-F]{8})|\\[uU]([0-9a-fA-F]{4})", m =>
         {
-            var ch = (char)Convert.ToInt32(m.Groups[1].Value, 16);
-            return IsInvisible(ch) ? ch.ToString() : m.Value;
+            long cp = Convert.ToInt64(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value, 16);
+            if (cp > 0x10FFFF || !IsInvisible((int)cp)) return m.Value;
+            return cp <= 0xFFFF ? ((char)cp).ToString() : char.ConvertFromUtf32((int)cp);
         });
     }
+
+    /// <summary>Applies <see cref="EscapeInvisible(string)"/> to every string value and member name under <paramref name="node"/>, in place; a parentless string root is left as is.</summary>
+    public static void EscapeInvisible(System.Text.Json.Nodes.JsonNode? node)
+    {
+        switch (node)
+        {
+            case System.Text.Json.Nodes.JsonObject o:
+                if (o.Any(p => !ReferenceEquals(EscapeInvisible(p.Key), p.Key)))
+                {
+                    var members = o.ToList();
+                    o.Clear();
+                    foreach (var (key, value) in members) o[EscapeInvisible(key)] = value;
+                }
+                foreach (var (_, value) in o.ToList()) EscapeInvisible(value);
+                break;
+            case System.Text.Json.Nodes.JsonArray a:
+                foreach (var value in a.ToList()) EscapeInvisible(value);
+                break;
+            case System.Text.Json.Nodes.JsonValue v when v.Parent != null && v.TryGetValue(out string? text):
+                var escaped = EscapeInvisible(text);
+                if (!ReferenceEquals(escaped, text)) v.ReplaceWith(escaped);
+                break;
+        }
+    }
+
+    // Whether the code point at i is escaped; an unpaired surrogate is a code point of its own, width is the UTF-16 length.
+    private static bool Hidden(string s, int i, out int width)
+    {
+        int cp = s[i];
+        width = 1;
+        if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+        {
+            cp = char.ConvertToUtf32(s[i], s[i + 1]);
+            width = 2;
+        }
+        if (!IsInvisible(cp)) return false;
+        if (cp is not (0xFE0E or 0xFE0F) || i == 0) return true;
+        return !IsEmojiBase(i >= 2 && char.IsSurrogatePair(s[i - 2], s[i - 1]) ? char.ConvertToUtf32(s[i - 2], s[i - 1]) : s[i - 1]);
+    }
+
+    // Symbols, keycap bases and the punctuation, arrows and shapes that have an emoji presentation.
+    private static bool IsEmojiBase(int cp) =>
+        cp is '#' or '*' or >= '0' and <= '9' or 0x203C or 0x2049 or 0x3030 or 0x303D or >= 0x2190 and <= 0x21FF or >= 0x25A0 and <= 0x25FF
+        || cp is < 0xD800 or > 0xDFFF && CharUnicodeInfo.GetUnicodeCategory(cp) == UnicodeCategory.OtherSymbol;
 
     /// <summary>The line starts this server writes as markers; echoed content must not forge them.</summary>
     public static readonly string[] Markers = ["Error (", "error (json):", "Next:", "[More:", "[End:", "[workspace]"];
@@ -320,7 +371,7 @@ public static class Format
     /// <summary>Put before a forged marker: the escaped form of U+2063 (invisible separator), visible as text.</summary>
     public const string MarkerEscape = "\\u2063";
 
-    /// <summary><see cref="EscapeInvisible"/>, then <see cref="MarkerEscape"/> before each line starting with a <see cref="Markers"/> entry, so file text cannot pass for an error or footer.</summary>
+    /// <summary><see cref="EscapeInvisible(string)"/>, then <see cref="MarkerEscape"/> before each line starting with a <see cref="Markers"/> entry, so file text cannot pass for an error or footer.</summary>
     public static string EscapeMarkers(string s)
     {
         s = EscapeInvisible(s);

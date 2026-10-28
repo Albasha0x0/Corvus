@@ -184,6 +184,7 @@ public sealed class ToolError : McpException
             ["partial"] = partialNode,
             ["details"] = detailsNode,
         };
+        Format.EscapeInvisible(json);
         return json.ToJsonString(JsonOptions);
     }
 
