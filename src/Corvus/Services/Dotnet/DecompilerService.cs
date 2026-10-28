@@ -1053,7 +1053,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
         try
         {
-            return action(cts.Token);
+            return DeepStack.Run(() => action(cts.Token), "decompiler");
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {

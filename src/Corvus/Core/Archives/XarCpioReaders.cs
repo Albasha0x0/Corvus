@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using System.Xml;
+using System.Runtime.CompilerServices;
 
 namespace Corvus.Core.Archives;
 
@@ -56,8 +57,15 @@ internal sealed class XarReader : IContainerReader
         var entries = new List<ContainerEntry>();
         var notes = new List<string>();
         long total = 0;
+        bool deep = false;
         void Walk(XmlNode parent, string prefix)
         {
+            if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
+            {
+                if (!deep) notes.Add($"{prefix}: folders nested deeper than the stack allows; the files below are not read");
+                deep = true;
+                return;
+            }
             foreach (XmlNode file in parent.SelectNodes("file")!)
             {
                 ct.ThrowIfCancellationRequested();

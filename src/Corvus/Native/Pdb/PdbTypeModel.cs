@@ -586,7 +586,7 @@ public sealed class PdbTypeModel
 
     private string? Spell(uint index, string declarator, int depth)
     {
-        if (depth > MaxDepth) return null;
+        if (depth > MaxDepth || !RuntimeHelpers.TryEnsureSufficientExecutionStack()) return null;
         if (index < 0x1000)
         {
             uint mode = (index >> 8) & 0xF;

@@ -22,28 +22,27 @@ public static class JsModules
             notes.Add($"not parsed: {text.Length:N0} characters, over the {MaxParseBytes:N0} parse budget");
             return null;
         }
-        // A deep tree must not overflow the server's stack, so the parse runs on a thread with a large stack.
-        Acornima.Ast.Program? parsed = null;
-        Exception? error = null;
-        var thread = new Thread(() =>
+        try
         {
-            var parser = new Parser(new ParserOptions { Tolerant = true });
-            // A script first; import / export make it a module (Rollup and Vite chunks).
-            try { parsed = parser.ParseScript(text); }
-            catch (ParseErrorException)
+            return DeepStack.Run<Acornima.Ast.Program?>(() =>
             {
-                try { parsed = parser.ParseModule(text); }
-                catch (Exception ex) { error = ex; }
-            }
-            catch (Exception ex) { error = ex; }
-        }, 256 * 1024 * 1024);
-        thread.Start();
-        thread.Join();
-        if (error is ParseErrorException parse) { notes.Add($"parse error: {parse.Message}"); return null; }
+                var parser = new Parser(new ParserOptions { Tolerant = true });
+                // A script first; import / export make it a module (Rollup and Vite chunks).
+                try { return parser.ParseScript(text); }
+                catch (ParseErrorException) { return parser.ParseModule(text); }
+            }, "js modules");
+        }
+        catch (ParseErrorException parse)
+        {
+            notes.Add($"parse error: {parse.Message}");
+            return null;
+        }
         // Acornima 1.8.0 stops near a nesting depth of 1,000,000 on this stack.
-        if (error is InsufficientExecutionStackException) { notes.Add("not parsed: nested too deep"); return null; }
-        if (error != null) throw error;
-        return parsed;
+        catch (InsufficientExecutionStackException)
+        {
+            notes.Add("not parsed: nested too deep");
+            return null;
+        }
     }
 
     /// <summary>

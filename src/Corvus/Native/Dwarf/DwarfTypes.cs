@@ -353,16 +353,24 @@ internal sealed class DwarfTypes
     /// <summary>"ns::Outer::name": <paramref name="name"/> qualified by the enclosing namespaces and types; a type declared by signature is named by its definition.</summary>
     public static string Qualify(DwarfUnit u, DwarfDie d, string name, DwarfReader? reader = null)
     {
-        StringBuilder? prefix = null;
+        var parts = new List<string> { name };
         for (var p = u.ParentOf(d); p != null && !Dw.IsUnit(p.Tag); p = u.ParentOf(p))
         {
             if (!Dw.IsScope(p.Tag)) continue;
-            var part = p.Name ?? (p.SignatureTarget >= 0 ? reader?.Entry(p.SignatureTarget, u)?.Die.Name : null)
-                ?? (p.Tag == Dw.TagNamespace ? "(anonymous namespace)" : "<unnamed>");
-            prefix = prefix == null ? new StringBuilder(part) : prefix.Insert(0, part + "::");
+            // Real code nests a few scopes; past this the outer ones are named "...".
+            if (parts.Count > MaxScopes)
+            {
+                parts.Add("...");
+                break;
+            }
+            parts.Add(p.Name ?? (p.SignatureTarget >= 0 ? reader?.Entry(p.SignatureTarget, u)?.Die.Name : null)
+                ?? (p.Tag == Dw.TagNamespace ? "(anonymous namespace)" : "<unnamed>"));
         }
-        return prefix == null ? name : prefix.Append("::").Append(name).ToString();
+        parts.Reverse();
+        return string.Join("::", parts);
     }
+
+    private const int MaxScopes = 256;
 
     private uint Aggregate(DwarfUnit u, DwarfDie d, Dictionary<long, uint> memo)
     {

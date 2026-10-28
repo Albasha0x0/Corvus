@@ -1,5 +1,6 @@
 using System.Text;
 using static Corvus.Native.Pdb.PdbTypeModel;
+using System.Runtime.CompilerServices;
 
 namespace Corvus.Native.Pdb;
 
@@ -87,7 +88,7 @@ public sealed class PdbTypes
     /// <summary><paramref name="declarator"/> declared with type <paramref name="index"/> ("int *x"); null when the type cannot be written.</summary>
     private string? Declare(uint index, string declarator, int depth = 0, string? thisName = null, IReadOnlyList<string?>? parameterNames = null)
     {
-        if (depth > MaxDepth) return null;
+        if (depth > MaxDepth || !RuntimeHelpers.TryEnsureSufficientExecutionStack()) return null;
         if (index < 0x1000)
         {
             uint mode = (index >> 8) & 0xF;
@@ -389,7 +390,7 @@ public sealed class PdbTypes
         {
             if (emitted.Contains(index) || !bodies.TryGetValue(index, out var b) || !visiting.Add(index)) return;
             // Nesting by value deeper than this is not real code: the rest of the chain follows in table order.
-            if (depth < 256)
+            if (depth < 256 && RuntimeHelpers.TryEnsureSufficientExecutionStack())
                 foreach (var n in b.Needs) Emit(n, depth + 1);
             visiting.Remove(index);
             emitted.Add(index);

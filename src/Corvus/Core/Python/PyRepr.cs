@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Corvus.Core.Python;
@@ -7,14 +8,48 @@ namespace Corvus.Core.Python;
 /// <summary>Python's repr() of marshalled constants, as Python 2 or 3 prints them; a code object's address is left out.</summary>
 internal static partial class PyRepr
 {
+    /// <summary>The most characters one repr writes; a longer one ends in "...".</summary>
+    internal const int MaxChars = 1 << 20;
+
+    /// <summary>The repr of <paramref name="o"/>; past <see cref="MaxChars"/> or the stack's depth, its start and "...".</summary>
     public static string Of(object? o, (int Major, int Minor) version)
     {
         var sb = new StringBuilder();
-        Append(sb, o, version);
+        // Marshal references make the constants a graph: a shared tuple, list,
+        // set or dict is printed once, then copied from the text.
+        var memo = new Dictionary<object, (int Start, int Length)>(ReferenceEqualityComparer.Instance);
+        try { Append(sb, o, version, memo); }
+        catch (Exception ex) when (ex is Cut or InsufficientExecutionStackException)
+        {
+            sb.Length = Math.Min(sb.Length, MaxChars);
+            sb.Append("...");
+        }
         return sb.ToString();
     }
 
-    private static void Append(StringBuilder sb, object? o, (int Major, int Minor) v)
+    private sealed class Cut : Exception;
+
+    private static void Append(StringBuilder sb, object? o, (int Major, int Minor) v, Dictionary<object, (int Start, int Length)> memo)
+    {
+        RuntimeHelpers.EnsureSufficientExecutionStack();
+        if (sb.Length > MaxChars) throw new Cut();
+        if (o is PySequence or PyDict or PySlice)
+        {
+            if (memo.TryGetValue(o, out var seen))
+            {
+                if (sb.Length + seen.Length > MaxChars) throw new Cut();
+                sb.Append(sb.ToString(seen.Start, seen.Length));
+                return;
+            }
+            int start = sb.Length;
+            Print(sb, o, v, memo);
+            memo[o] = (start, sb.Length - start);
+            return;
+        }
+        Print(sb, o, v, memo);
+    }
+
+    private static void Print(StringBuilder sb, object? o, (int Major, int Minor) v, Dictionary<object, (int Start, int Length)> memo)
     {
         bool py2 = v.Major == 2;
         switch (o)
@@ -31,35 +66,35 @@ internal static partial class PyRepr
             case PyBytes b: Bytes(sb, b.Value, prefix: !py2); break;
             case PySequence { Kind: '(' } t:
                 sb.Append('(');
-                Items(sb, t.Items, v);
+                Items(sb, t.Items, v, memo);
                 sb.Append(t.Items.Length == 1 ? ",)" : ")");
                 break;
             case PySequence { Kind: '[' } l:
                 sb.Append('[');
-                Items(sb, l.Items, v);
+                Items(sb, l.Items, v, memo);
                 sb.Append(']');
                 break;
             case PySequence set:
                 var kind = set.Kind == '>' ? "frozenset" : "set";
-                if (py2) { sb.Append(kind).Append("(["); Items(sb, set.Items, v); sb.Append("])"); }
+                if (py2) { sb.Append(kind).Append("(["); Items(sb, set.Items, v, memo); sb.Append("])"); }
                 else if (set.Items.Length == 0) sb.Append(kind).Append("()");
-                else if (set.Kind == '>') { sb.Append("frozenset({"); Items(sb, set.Items, v); sb.Append("})"); }
-                else { sb.Append('{'); Items(sb, set.Items, v); sb.Append('}'); }
+                else if (set.Kind == '>') { sb.Append("frozenset({"); Items(sb, set.Items, v, memo); sb.Append("})"); }
+                else { sb.Append('{'); Items(sb, set.Items, v, memo); sb.Append('}'); }
                 break;
             case PyDict dict:
                 sb.Append('{');
                 for (int i = 0; i < dict.Items.Count; i++)
                 {
                     if (i > 0) sb.Append(", ");
-                    Append(sb, dict.Items[i].Key, v);
+                    Append(sb, dict.Items[i].Key, v, memo);
                     sb.Append(": ");
-                    Append(sb, dict.Items[i].Value, v);
+                    Append(sb, dict.Items[i].Value, v, memo);
                 }
                 sb.Append('}');
                 break;
             case PySlice slice:
                 sb.Append("slice(");
-                Items(sb, [slice.Start, slice.Stop, slice.Step], v);
+                Items(sb, [slice.Start, slice.Stop, slice.Step], v, memo);
                 sb.Append(')');
                 break;
             case PyCode code:
@@ -70,12 +105,12 @@ internal static partial class PyRepr
         }
     }
 
-    private static void Items(StringBuilder sb, object[] items, (int Major, int Minor) v)
+    private static void Items(StringBuilder sb, object[] items, (int Major, int Minor) v, Dictionary<object, (int Start, int Length)> memo)
     {
         for (int i = 0; i < items.Length; i++)
         {
             if (i > 0) sb.Append(", ");
-            Append(sb, items[i], v);
+            Append(sb, items[i], v, memo);
         }
     }
 

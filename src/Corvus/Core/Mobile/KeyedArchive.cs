@@ -1,5 +1,6 @@
 using System.Globalization;
 using Corvus.Native;
+using System.Runtime.CompilerServices;
 
 namespace Corvus.Core.Mobile;
 
@@ -34,6 +35,7 @@ public static class KeyedArchive
         public PlistNode Resolve(PlistNode node, int depth)
         {
             if (depth > Plist.MaxDepth) return Stop($"nested deeper than {Plist.MaxDepth}");
+            if (!RuntimeHelpers.TryEnsureSufficientExecutionStack()) return Stop("nested deeper than the stack allows");
             return node switch
             {
                 PlistUid uid => Object(uid.Value, depth),

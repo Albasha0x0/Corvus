@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Corvus.Core;
 
 namespace Corvus.Services.Web.Scripts;
 
@@ -34,14 +35,8 @@ public static class ScriptReader
         var ctx = new ScriptContext(new ScriptBudget(steps, milliseconds, ct: ct));
         string? plain = null;
         Exception? failure = null;
-        // A 64 MiB stack lets nested input end at the evaluators' depth limits, not the stack's.
-        var thread = new Thread(() =>
-        {
-            try { plain = ReadLayer(language, text, ctx, 0); }
-            catch (Exception ex) { failure = ex; }
-        }, 64 << 20) { IsBackground = true, Name = "script reader" };
-        thread.Start();
-        thread.Join();
+        try { plain = DeepStack.Run(() => ReadLayer(language, text, ctx, 0), "script reader"); }
+        catch (Exception ex) { failure = ex; }
         if (failure is OperationCanceledException) throw failure;
         if (failure != null)
         {

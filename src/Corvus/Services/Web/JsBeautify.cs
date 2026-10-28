@@ -1,6 +1,7 @@
 using System.Text;
 using Acornima;
 using Acornima.Ast;
+using Corvus.Core;
 
 namespace Corvus.Services.Web;
 
@@ -33,19 +34,8 @@ internal static class JsBeautify
     public static Result Format(string text, string? renames, bool auto, CancellationToken ct)
     {
         if (text.Length > MaxBytes) throw new InvalidDataException($"{text.Length:N0} characters, over the {MaxBytes:N0} limit");
-        Result? result = null;
-        Exception? error = null;
-        // A deep tree must not overflow the server's stack: a thread of its own with a large stack.
-        var thread = new Thread(() =>
-        {
-            try { result = Run(text, renames, auto, ct); }
-            catch (Exception ex) { error = ex; }
-        }, 256 * 1024 * 1024);
-        thread.Start();
-        thread.Join();
-        if (error is ParseErrorException parse) throw new InvalidDataException($"parse error: {parse.Message}", parse);
-        if (error != null) throw error;
-        return result!;
+        try { return DeepStack.Run(() => Run(text, renames, auto, ct), "js beautify"); }
+        catch (ParseErrorException parse) { throw new InvalidDataException($"parse error: {parse.Message}", parse); }
     }
 
     private static Parsed Parse(string text, bool module)
