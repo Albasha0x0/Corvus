@@ -107,7 +107,7 @@ public partial class ReleaseProvenanceTests
         var release = Workflow[Workflow.IndexOf("\n  release:", StringComparison.Ordinal)..Workflow.IndexOf("\n  publish:", StringComparison.Ordinal)];
         foreach (var permission in new[] { "id-token: write", "attestations: write", "artifact-metadata: write", "contents: write" })
             Assert.Contains(permission, release, StringComparison.Ordinal);
-        Assert.Equal(2, Regex.Count(release, @"uses: actions/attest@"));
+        Assert.Equal(3, Regex.Count(release, @"uses: actions/attest@"));
         Assert.Contains("dotnet-CycloneDX\" src/Corvus/Corvus.csproj", release, StringComparison.Ordinal);
         Assert.Contains("sbom-path: corvus-sbom.cdx.json", release, StringComparison.Ordinal);
         // Order: the SBOM is listed in SHA256SUMS, provenance covers SHA256SUMS, and the release attaches all of them.
@@ -120,8 +120,25 @@ public partial class ReleaseProvenanceTests
         Assert.DoesNotContain("corvus-*.zip", release[release.LastIndexOf("uses: actions/attest@", StringComparison.Ordinal)..At("sbom-path:")], StringComparison.Ordinal);
         Assert.True(At("sha256sum corvus-*") < At("uses: actions/attest@"));
         Assert.True(At("uses: actions/attest@") < At("uses: softprops/action-gh-release@"));
-        var provenance = release[At("uses: actions/attest@")..At("sbom-path:")];
-        foreach (var subject in new[] { "corvus-*", "CorvusRE.*.nupkg", "SHA256SUMS" })
-            Assert.Contains(subject, provenance, StringComparison.Ordinal);
+        Assert.Contains("sha256sum corvus-* CorvusRE.*.nupkg > \"$RUNNER_TEMP/assets.sha256\"", release, StringComparison.Ordinal);
+        Assert.Contains("subject-checksums: ${{ runner.temp }}/assets.sha256", release, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Each_asset_ships_its_attestation_bundle_listed_in_SHA256SUMS()
+    {
+        var release = Workflow[Workflow.IndexOf("\n  release:", StringComparison.Ordinal)..Workflow.IndexOf("\n  image:", StringComparison.Ordinal)];
+        int At(string text) => release.IndexOf(text, StringComparison.Ordinal) is >= 0 and var at ? at : throw new Xunit.Sdk.XunitException($"release job lacks: {text}");
+        // The bundle step reads the same list the provenance step attests, so
+        // every asset gets one.
+        Assert.True(At("subject-checksums: ${{ runner.temp }}/assets.sha256") < At("BUNDLE: ${{ steps.provenance.outputs.bundle-path }}"));
+        Assert.True(At("cp \"$BUNDLE\" \"$asset.sigstore.json\"; done < \"$RUNNER_TEMP/assets.sha256\"") < At("sha256sum *.sigstore.json; } > SHA256SUMS"));
+        Assert.True(At("} > SHA256SUMS") < At("subject-path: SHA256SUMS"));
+        Assert.True(At("SHA256SUMS.sigstore.json") < At("uses: softprops/action-gh-release@"));
+        var files = release[At("uses: softprops/action-gh-release@")..];
+        foreach (var asset in new[] { "corvus-*", "CorvusRE.*", "SHA256SUMS*" })
+            Assert.Contains($"            {asset}\n", files, StringComparison.Ordinal);
+        var docs = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), "docs", "installation.md"));
+        Assert.Contains("gh attestation verify corvus-win-x64.zip --bundle corvus-win-x64.zip.sigstore.json --repo Albasha0x0/Corvus", docs, StringComparison.Ordinal);
     }
 }

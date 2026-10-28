@@ -64,6 +64,15 @@ A local archive (`CORVUS_ARCHIVE`) follows the same rules. A self-built archive 
 ```sh
 gh attestation verify corvus-win-x64.zip --repo Albasha0x0/Corvus --signer-workflow Albasha0x0/Corvus/.github/workflows/release.yml
 ```
+Offline check, with the asset's attestation bundle from the release:
+
+```sh
+gh attestation verify corvus-win-x64.zip --bundle corvus-win-x64.zip.sigstore.json --repo Albasha0x0/Corvus
+```
+
+- Each asset has its bundle `<asset>.sigstore.json`, listed in `SHA256SUMS`.
+- `SHA256SUMS.sigstore.json` is the bundle of `SHA256SUMS` itself.
+- Without network access, `gh` also needs `--custom-trusted-root`: save `gh attestation trusted-root > trusted_root.jsonl` once while online.
 
 Also released, each listed in `SHA256SUMS`: `corvus-sbom.cdx.json` (CycloneDX SBOM of the NuGet packages),
 `corvus-tests.json` (test record: commit, date, families, skipped tools, OS, SDK) and `corvus-docs.zip` (this documentation
