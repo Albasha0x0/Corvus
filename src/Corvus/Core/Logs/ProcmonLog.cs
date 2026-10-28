@@ -326,6 +326,9 @@ public sealed class ProcmonLog
             if (offset < 0 || count < 0) throw new InvalidDataException($"read of {count} bytes at {offset}");
             if (offset < _start || offset + count > _start + _length)
             {
+                // Checked before the buffer grows or the stream seeks: a
+                // MemoryStream refuses a position past 2 GiB.
+                if (offset > stream.Length - count) throw new EndOfStreamException($"{count} bytes at 0x{offset:x} run past the end of the file");
                 if (count > _buffer.Length) _buffer = new byte[Math.Max(count, _buffer.Length * 2)];
                 stream.Position = offset;
                 _start = offset;

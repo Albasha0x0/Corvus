@@ -177,6 +177,17 @@ public sealed class ProcmonTests(ITestOutputHelper output) : IDisposable
         Assert.StartsWith("event 2 at 0x", Assert.Single(log.Notes));
     }
 
+    // Regression: a table offset past 2 GiB made MemoryStream throw
+    // ArgumentOutOfRangeException from its Position setter.
+    [Fact]
+    public void A_table_offset_past_the_end_of_a_memory_stream_is_an_end_of_stream()
+    {
+        var data = ProcmonSamples.Log(SampleEvents());
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(0x258), 0x1_0000_0000);
+        using var s = new MemoryStream(data);
+        Assert.Throws<EndOfStreamException>(() => ProcmonLog.Read(s, _ => { }, default));
+    }
+
     [Fact]
     [FuzzEntry(typeof(ProcmonLog), typeof(ProcmonFileView))]
     public void Fuzzed_process_monitor_logs_never_throw()
