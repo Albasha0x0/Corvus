@@ -188,6 +188,9 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             slot.Connection = null;
             slot.OutOfMemory = false;
             var start = (_options.Start ?? OwnCommand()) with { MemoryLimitBytes = MemoryLimitBytes, MemoryLimitOnPosix = true };
+            // A pool worker reads the call's paths, so it resolves a relative one
+            // against the server's folder, not a private one.
+            start = start with { WorkingDirectory = start.WorkingDirectory ?? Environment.CurrentDirectory };
             if (OperatingSystem.IsMacOS() && start.MemoryLimitBytes is { } bytes)
                 // The watchdog ends the worker; the GC's own limit fails a managed allocation first, which the worker reports.
                 start = start with { Environment = new Dictionary<string, string?>(start.Environment) { ["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X", CultureInfo.InvariantCulture) } };

@@ -114,6 +114,23 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
     }
 
     [Fact]
+    public async Task A_relative_path_reads_in_the_worker_as_in_the_server()
+    {
+        // A file under the test's current folder, named by a path relative to it.
+        var folder = Path.Combine(Environment.CurrentDirectory, "relative-read-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            File.WriteAllText(Path.Combine(folder, "notes.txt"), "https://example.com/api/items\n");
+            using var pool = Pool();
+            using var shared = WorkerPool.UseShared(pool);
+            await using var session = await Session(false);
+            await ReadsAsync(session, Path.Combine(Path.GetFileName(folder), "notes.txt"));
+        }
+        finally { Directory.Delete(folder, recursive: true); }
+    }
+
+    [Fact]
     public async Task A_reader_past_the_memory_limit_is_named_and_the_next_read_succeeds()
     {
         var (zip, _, _, _) = Inputs();
