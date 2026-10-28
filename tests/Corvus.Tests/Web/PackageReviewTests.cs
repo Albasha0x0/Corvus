@@ -198,6 +198,18 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_payload_in_a_module_under_node_modules_keeps_its_level()
+    {
+        var r = Review(Tgz("nested.tgz", ("package/package.json", Preinstall), ("package/index.js", "require('helper');"),
+            ("package/node_modules/helper/package.json", """{"name":"helper","main":"lib/main.js"}"""), ("package/node_modules/helper/lib/main.js", HiddenUrl),
+            ("package/node_modules/other/index.js", "require('https').get('https://x1.oastify.com/');")));
+        var f = HiddenUrlFinding(r);
+        Assert.Equal("noteworthy", f.Level);
+        Assert.Contains("package/index.js > package/node_modules/helper/lib/main.js", f.Detail, StringComparison.Ordinal);
+        Assert.Contains(r.Findings, x => x is { Rule: "package/collection-url", Level: "noteworthy", Path: "package/node_modules/other/index.js" });
+    }
+
+    [Fact]
     public void A_require_chain_past_the_hop_budget_is_reported_as_partial()
     {
         var files = new List<(string, string)> { ("package/package.json", Preinstall), ("package/index.js", "require('./m1');") };

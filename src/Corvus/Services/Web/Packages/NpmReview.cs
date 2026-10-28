@@ -259,15 +259,15 @@ public static partial class PackageReview
     private static readonly Regex RequireLiteral = R(@"\brequire\(\s*\\?['""`](\.{1,2}/[^'""`\\]+)\\?['""`]\s*\)");
 
     /// <summary>
-    /// Install-time code joined with the package files it loads by literal
-    /// path, within the reach budget.
+    /// Install-time code joined with the package files it loads by path or by a
+    /// module under node_modules, within the reach budget.
     /// </summary>
     private static (string Code, string? Chain) InstallCode(PackageFiles files, string root, string target, string code) =>
         Reach(files, target, code, (path, text) => LoadedModules(files, root, path, text));
 
     /// <summary>
-    /// The package files a script loads by literal path, beside it or at the
-    /// root.
+    /// The package files a script loads: literal paths beside it or at the
+    /// root, and bare module names under a node_modules folder.
     /// </summary>
     private static IEnumerable<string> LoadedModules(PackageFiles files, string root, string path, string code)
     {
@@ -277,9 +277,30 @@ public static partial class PackageReview
             if (new[] { Resolve(Folder(path), rel), Resolve(root, rel) }.SelectMany(c => new[] { c, c + ".js", c + "/index.js" }).FirstOrDefault(files.Has) is { } found)
                 yield return found;
         }
+        foreach (Match m in BareModule.Matches(code))
+            if (NodeModule(files, root, path, m.Groups["m"].Value) is { } found) yield return found;
+    }
+
+    /// <summary>
+    /// The file Node resolves a bare module name to from the node_modules
+    /// folders between the script and the package root; null when the package
+    /// does not hold it.
+    /// </summary>
+    private static string? NodeModule(PackageFiles files, string root, string path, string name)
+    {
+        for (var folder = Folder(path); folder.StartsWith(root, StringComparison.Ordinal); folder = Folder(folder.TrimEnd('/')))
+        {
+            var module = folder + "node_modules/" + name;
+            var main = Json(files, module + "/package.json") is { } pkg ? Str(pkg, "main") : null;
+            var candidates = new[] { module, module + ".js", main == null ? null : Resolve(module + "/", main), main == null ? null : Resolve(module + "/", main) + ".js", module + "/index.js" };
+            if (candidates.FirstOrDefault(c => c != null && files.Has(c)) is { } found) return found;
+            if (folder.Length == 0 || folder == root) break;
+        }
+        return null;
     }
 
     private static readonly Regex LocalScript = R(@"['""`](\.{1,2}/[^'""`\s]+|[\w@.-]+(?:/[\w@.-]+)*\.(?:c|m)?js)['""`]");
+    private static readonly Regex BareModule = R(@"\brequire\(\s*['""](?<m>[@\w][\w@.-]*(?:/[\w@.-]+)*)['""]\s*\)|\bfrom\s+['""](?<m>[@\w][\w@.-]*(?:/[\w@.-]+)*)['""]|\bimport\s*\(\s*['""](?<m>[@\w][\w@.-]*(?:/[\w@.-]+)*)['""]\s*\)");
 
     private static string? Target(JsonElement e) => e.ValueKind switch
     {

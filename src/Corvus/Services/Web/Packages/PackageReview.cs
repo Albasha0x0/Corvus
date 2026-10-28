@@ -1266,9 +1266,10 @@ public static partial class PackageReview
                     if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard" or "persistence") yield return f;
                 if (extension && Sideload(entry, code) is { } s) yield return s;
             }
-        var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
-                                             && !p.Contains("node_modules/", StringComparison.Ordinal) && !entryFiles.Contains(p))
-            .OrderBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();
+        // Code under node_modules ships with the package: it is read after the
+        // package's own.
+        var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p) && !entryFiles.Contains(p))
+            .OrderBy(p => p.Contains("node_modules/", StringComparison.Ordinal)).ThenBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();
         files.NotRead.AddRange(sources.Where(p => files.Size(p) > MaxScannedSourceBytes && files.Bytes(p) != null)
             .Select(p => $"{p} (source over {MaxScannedSourceBytes >> 20} MiB)"));
         foreach (var other in Capped(files, [.. sources.Where(p => files.Size(p) <= MaxScannedSourceBytes)]))
