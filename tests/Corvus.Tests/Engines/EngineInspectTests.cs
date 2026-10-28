@@ -12,13 +12,71 @@ using static Iced.Intel.AssemblerRegisters;
 
 namespace Corvus.Tests;
 
-/// <summary>inspect_instruction through an engine: the worker reply parsed and rendered (no engine), and IDA's and Ghidra's items against the built-in decoder.</summary>
-public sealed class EngineInspectTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
+/// <summary>
+/// A test folder and inspect_instruction through an engine against the built-in
+/// decoder.
+/// </summary>
+public abstract class EngineInspectTestBase(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
-    private const ulong Base = 0x140000000UL;
-    private readonly TempDir _dir = new();
+    private protected readonly TempDir _dir = new();
 
     public void Dispose() => _dir.Dispose();
+
+    private protected async Task Agree(string engine)
+    {
+        var options = new ServerOptions { TimeoutSeconds = 300, BackgroundIndexing = false };
+        using var workspace = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
+        using var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options,
+            new Native.Providers.Ghidra.GhidraProviderOptions { CacheRoot = _dir.File("cache") });
+        var tools = new NativeCodeTools(workspace, code, new OutputPager(options), null, engines, new NativeNamePush(code));
+        var native = workspace.LoadAny(NativeIdaProviderTests.System64).Native!;
+        var index = await code.Index(native, null, default);
+        var f = index.Functions.First(x => x.KnownName == "CheckSumMappedFile");
+        var at = NativeAddress.Va(index.Image, f.Start);
+
+        async Task<InstructionReport> Run(string which, string address, int count)
+        {
+            var collector = ToolOutput.Collect();
+            await tools.InspectInstruction(native.Id, address, limit: count, engine: which);
+            return Assert.IsType<InstructionReport>(collector.Value);
+        }
+        var ours = await Run("ours", at, 40);
+        var ida = await Run(engine, at, 40);
+        Assert.Equal(engine, ida.Engine);
+        var byRva = ours.Items.Where(i => i.Instruction != null).ToDictionary(i => i.Rva);
+        int compared = 0, memory = 0;
+        foreach (var item in ida.Items.Where(i => i.Instruction != null && byRva.ContainsKey(i.Rva)))
+        {
+            var (a, b) = (byRva[item.Rva].Instruction!, item.Instruction!);
+            Assert.True(a.Length == b.Length, $"{item.Address}: length {a.Length} vs {engine} {b.Length}");
+            Assert.True(a.Flow.Kind == b.Flow.Kind || a.Flow.Kind == "next" && b.Flow.Kind == "trap", $"{item.Address} {a.Text}: flow {a.Flow.Kind} vs {engine} {b.Flow.Kind}");
+            foreach (var o in b.Operands.Where(o => o.Kind == "memory" && o.Index < a.Operands.Count && a.Operands[o.Index].Kind == "memory"))
+            {
+                var mine = a.Operands[o.Index];
+                if (mine.RipRelative) continue;
+                Assert.True(mine.Base == o.Base && mine.IndexRegister == o.IndexRegister && mine.Scale == o.Scale && (mine.Displacement ?? "0x0") == (o.Displacement ?? "0x0"),
+                    $"{item.Address} {a.Text}: [{mine.Base} {mine.IndexRegister}*{mine.Scale} {mine.Displacement}] vs {engine} [{o.Base} {o.IndexRegister}*{o.Scale} {o.Displacement}]");
+                memory++;
+            }
+            compared++;
+        }
+        Assert.True(compared >= 20, $"only {compared} instructions compared");
+        Assert.True(memory > 0, "no memory operand compared");
+        output.WriteLine($"{engine}: {compared} instructions and {memory} memory operands agree with the built-in decoder");
+
+        var mid = await Run(engine, NativeAddress.Va(index.Image, f.Start + 1), 1);
+        Assert.Equal(("mid_instruction", at), (mid.Items[0].Status, mid.Items[0].ContainingInstruction));
+    }
+}
+
+/// <summary>
+/// inspect_instruction through an engine: the worker reply parsed and rendered
+/// (no engine), and IDA's items against the built-in decoder.
+/// </summary>
+public sealed class EngineInspectTests(Xunit.Abstractions.ITestOutputHelper output) : EngineInspectTestBase(output)
+{
+    private const ulong Base = 0x140000000UL;
 
     private const string Reply = """
         {"items": [
@@ -67,55 +125,14 @@ public sealed class EngineInspectTests(Xunit.Abstractions.ITestOutputHelper outp
     [IdaFact]
     [Trait("Speed", "Slow")]
     public Task Ida_items_agree_with_the_built_in_decoder() => Agree("ida");
+}
 
+/// <summary>
+/// inspect_instruction through Ghidra: its items against the built-in decoder.
+/// </summary>
+public sealed class EngineInspectGhidraTests(Xunit.Abstractions.ITestOutputHelper output) : EngineInspectTestBase(output)
+{
     [GhidraFact]
     [Trait("Speed", "Slow")]
     public Task Ghidra_items_agree_with_the_built_in_decoder() => Agree("ghidra");
-
-    private async Task Agree(string engine)
-    {
-        var options = new ServerOptions { TimeoutSeconds = 300, BackgroundIndexing = false };
-        using var workspace = new AssemblyWorkspace(options);
-        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
-        using var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options,
-            new Native.Providers.Ghidra.GhidraProviderOptions { CacheRoot = _dir.File("cache") });
-        var tools = new NativeCodeTools(workspace, code, new OutputPager(options), null, engines, new NativeNamePush(code));
-        var native = workspace.LoadAny(NativeIdaProviderTests.System64).Native!;
-        var index = await code.Index(native, null, default);
-        var f = index.Functions.First(x => x.KnownName == "CheckSumMappedFile");
-        var at = NativeAddress.Va(index.Image, f.Start);
-
-        async Task<InstructionReport> Run(string which, string address, int count)
-        {
-            var collector = ToolOutput.Collect();
-            await tools.InspectInstruction(native.Id, address, limit: count, engine: which);
-            return Assert.IsType<InstructionReport>(collector.Value);
-        }
-        var ours = await Run("ours", at, 40);
-        var ida = await Run(engine, at, 40);
-        Assert.Equal(engine, ida.Engine);
-        var byRva = ours.Items.Where(i => i.Instruction != null).ToDictionary(i => i.Rva);
-        int compared = 0, memory = 0;
-        foreach (var item in ida.Items.Where(i => i.Instruction != null && byRva.ContainsKey(i.Rva)))
-        {
-            var (a, b) = (byRva[item.Rva].Instruction!, item.Instruction!);
-            Assert.True(a.Length == b.Length, $"{item.Address}: length {a.Length} vs {engine} {b.Length}");
-            Assert.True(a.Flow.Kind == b.Flow.Kind || a.Flow.Kind == "next" && b.Flow.Kind == "trap", $"{item.Address} {a.Text}: flow {a.Flow.Kind} vs {engine} {b.Flow.Kind}");
-            foreach (var o in b.Operands.Where(o => o.Kind == "memory" && o.Index < a.Operands.Count && a.Operands[o.Index].Kind == "memory"))
-            {
-                var mine = a.Operands[o.Index];
-                if (mine.RipRelative) continue;
-                Assert.True(mine.Base == o.Base && mine.IndexRegister == o.IndexRegister && mine.Scale == o.Scale && (mine.Displacement ?? "0x0") == (o.Displacement ?? "0x0"),
-                    $"{item.Address} {a.Text}: [{mine.Base} {mine.IndexRegister}*{mine.Scale} {mine.Displacement}] vs {engine} [{o.Base} {o.IndexRegister}*{o.Scale} {o.Displacement}]");
-                memory++;
-            }
-            compared++;
-        }
-        Assert.True(compared >= 20, $"only {compared} instructions compared");
-        Assert.True(memory > 0, "no memory operand compared");
-        output.WriteLine($"{engine}: {compared} instructions and {memory} memory operands agree with the built-in decoder");
-
-        var mid = await Run(engine, NativeAddress.Va(index.Image, f.Start + 1), 1);
-        Assert.Equal(("mid_instruction", at), (mid.Items[0].Status, mid.Items[0].ContainingInstruction));
-    }
 }

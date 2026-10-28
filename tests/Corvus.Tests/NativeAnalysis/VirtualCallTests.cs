@@ -10,6 +10,7 @@ using Corvus.Services;
 using Corvus.Tools;
 using Xunit.Abstractions;
 using static Iced.Intel.AssemblerRegisters;
+using static Corvus.Tests.VirtualCallTests;
 
 namespace Corvus.Tests;
 
@@ -315,7 +316,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         """;
 
     /// <summary>Compiles the sample; null when the build tools are missing.</summary>
-    private static (PeFile Image, Dictionary<uint, string> Names)? Compile(TempDir dir, string arch, string flags)
+    internal static (PeFile Image, Dictionary<uint, string> Names)? Compile(TempDir dir, string arch, string flags)
     {
         var vcvars = VisualStudio.VcVarsAll();
         if (vcvars == null) return null;
@@ -375,7 +376,7 @@ public class VirtualCallTests(ITestOutputHelper output)
 
     // ---- cross-check against IDA ----
 
-    private static (AssemblyWorkspace Workspace, NativeVirtualCallTools Tools, NativeEngineService Engines) Rig(TempDir dir, EngineMode engine = EngineMode.Auto)
+    internal static (AssemblyWorkspace Workspace, NativeVirtualCallTools Tools, NativeEngineService Engines) Rig(TempDir dir, EngineMode engine = EngineMode.Auto)
     {
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false, Engine = engine };
         var workspace = new AssemblyWorkspace(options);
@@ -400,23 +401,6 @@ public class VirtualCallTests(ITestOutputHelper output)
         Assert.Equal(0, c.Disagree);
     }
 
-    [Trait("Speed", "Slow")]
-    [GhidraFact]
-    public async Task Cross_check_with_Ghidra_agrees_on_the_compiled_sample()
-    {
-        using var dir = new TempDir();
-        if (Compile(dir, "x64", "") is not var (image, _)) return;
-        var (_, tools, engines) = Rig(dir, EngineMode.Ghidra);
-        using var _e = engines;
-        var report = await tools.Report(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
-        var c = report.CrossCheck!;
-        output.WriteLine(System.Text.Json.JsonSerializer.Serialize(c));
-        Assert.Equal("ghidra", c.Engine);
-        Assert.True(c.FunctionsDecompiled > 0);
-        Assert.True(c.Agree + c.Compatible > 0);
-        Assert.Equal(0, c.Disagree);
-    }
-
     /// <summary>Call graph edges and site counts on CORVUS_VCALL_IMAGE before and after, with IDA agreement on a sample.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact(RealData.VirtualCallImage)]
@@ -435,5 +419,29 @@ public class VirtualCallTests(ITestOutputHelper output)
         output.WriteLine(System.Text.Json.JsonSerializer.Serialize(report.CrossCheck, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         output.WriteLine($"{clock.Elapsed.TotalSeconds:0} s");
         Assert.True(report.Edges > 0);
+    }
+}
+
+/// <summary>
+/// The Ghidra cross-check of virtual call resolution on the MSVC-compiled
+/// sample.
+/// </summary>
+public sealed class VirtualCallGhidraTests(ITestOutputHelper output)
+{
+    [Trait("Speed", "Slow")]
+    [GhidraFact]
+    public async Task Cross_check_with_Ghidra_agrees_on_the_compiled_sample()
+    {
+        using var dir = new TempDir();
+        if (Compile(dir, "x64", "") is not var (image, _)) return;
+        var (_, tools, engines) = Rig(dir, EngineMode.Ghidra);
+        using var _e = engines;
+        var report = await tools.Report(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
+        var c = report.CrossCheck!;
+        output.WriteLine(System.Text.Json.JsonSerializer.Serialize(c));
+        Assert.Equal("ghidra", c.Engine);
+        Assert.True(c.FunctionsDecompiled > 0);
+        Assert.True(c.Agree + c.Compatible > 0);
+        Assert.Equal(0, c.Disagree);
     }
 }

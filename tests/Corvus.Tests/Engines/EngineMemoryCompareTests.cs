@@ -10,11 +10,14 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>compare_native_images engine=: a file against IDA's and Ghidra's memory, before and after a byte patch, on PE and ELF.</summary>
-public sealed partial class EngineMemoryCompareTests(ITestOutputHelper output) : IDisposable
+/// <summary>
+/// Image comparisons against an engine's memory: a built DLL, an ELF library
+/// and a system DLL, through one rig per test.
+/// </summary>
+public abstract partial class EngineMemoryCompareTestBase(ITestOutputHelper output) : IDisposable
 {
-    private readonly TempDir _dir = new();
-    private readonly List<IDisposable> _owned = [];
+    private protected readonly TempDir _dir = new();
+    private protected readonly List<IDisposable> _owned = [];
 
     public void Dispose()
     {
@@ -23,7 +26,7 @@ public sealed partial class EngineMemoryCompareTests(ITestOutputHelper output) :
     }
 
     // Initialized pointers (base relocations) and a zero-initialized array (zero fill past the file data).
-    private const string Source = """
+    private protected const string Source = """
         #include <windows.h>
         static int counters[4096];
         static const char *names[] = { "alpha", "beta", "gamma" };
@@ -31,7 +34,7 @@ public sealed partial class EngineMemoryCompareTests(ITestOutputHelper output) :
         __declspec(dllexport) int Count(int i) { return counters[i & 4095]; }
         """;
 
-    private (NativeDiffTools Diff, NativeEditTools Edits, AssemblyWorkspace Workspace, NativeEngineService Engines) Rig(string? seedInput = null)
+    private protected (NativeDiffTools Diff, NativeEditTools Edits, AssemblyWorkspace Workspace, NativeEngineService Engines) Rig(string? seedInput = null)
     {
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
         var ws = new AssemblyWorkspace(options);
@@ -48,9 +51,9 @@ public sealed partial class EngineMemoryCompareTests(ITestOutputHelper output) :
     [GeneratedRegex(@"^\s+0x[0-9A-F]+ \S+ \+0x[0-9A-F]+ (?<kind>[a-z_]+)", RegexOptions.Multiline)]
     private static partial Regex RowKind();
 
-    private static List<string> Kinds(string text) => [.. RowKind().Matches(text).Select(m => m.Groups["kind"].Value)];
+    private protected static List<string> Kinds(string text) => [.. RowKind().Matches(text).Select(m => m.Groups["kind"].Value)];
 
-    private async Task Patched_bytes_are_the_only_difference_from_a_built_dll(string engine)
+    private protected async Task Patched_bytes_are_the_only_difference_from_a_built_dll(string engine)
     {
         var vcvars = VisualStudio.VcVarsAll();
         if (vcvars == null) return;
@@ -79,7 +82,7 @@ public sealed partial class EngineMemoryCompareTests(ITestOutputHelper output) :
         Assert.Matches(new Regex($@"^\s+{export} \.text \+0x2 patched file 0x[0-9A-F]+: session edit", RegexOptions.Multiline), after);
     }
 
-    private async Task Loader_fixups_of_an_elf_library_are_named(string engine)
+    private protected async Task Loader_fixups_of_an_elf_library_are_named(string engine)
     {
         var (diff, _, _, _) = Rig();
         var text = await diff.CompareNativeImages(oldImage: NativeFormats.NativeFixtures.LinuxX64DbgShim, engine: engine, limit: 2000);
@@ -91,7 +94,7 @@ public sealed partial class EngineMemoryCompareTests(ITestOutputHelper output) :
     }
 
     /// <summary>The system DLL from a seeded analysis: the comparison's own time, bounded, with the session already open.</summary>
-    private async Task A_system_dll_compares_within_the_bound(string engine)
+    private protected async Task A_system_dll_compares_within_the_bound(string engine)
     {
         var (_, _, ws, engines) = Rig(NativeIdaProviderTests.System64);
         var native = ws.LoadAny(NativeIdaProviderTests.System64).Native!;
@@ -105,26 +108,40 @@ public sealed partial class EngineMemoryCompareTests(ITestOutputHelper output) :
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(30), $"{clock.Elapsed.TotalSeconds:0.0} s");
         Assert.DoesNotContain(report.Ranges, r => r.Kind is "differs" or "unclassified");
     }
+}
 
+/// <summary>
+/// compare_native_images engine=ida: a file against IDA's memory, before and
+/// after a byte patch, on PE and ELF.
+/// </summary>
+public sealed class EngineMemoryCompareTests(ITestOutputHelper output) : EngineMemoryCompareTestBase(output)
+{
     [IdaFact]
     [Trait("Speed", "Slow")]
     public Task Ida_patched_bytes_are_the_only_difference_from_a_built_dll() => Patched_bytes_are_the_only_difference_from_a_built_dll("ida");
-
-    [GhidraFact]
-    [Trait("Speed", "Slow")]
-    public Task Ghidra_patched_bytes_are_the_only_difference_from_a_built_dll() => Patched_bytes_are_the_only_difference_from_a_built_dll("ghidra");
 
     [IdaFact]
     [Trait("Speed", "Slow")]
     public Task Ida_loader_fixups_of_an_elf_library_are_named() => Loader_fixups_of_an_elf_library_are_named("ida");
 
-    [GhidraFact]
-    [Trait("Speed", "Slow")]
-    public Task Ghidra_loader_fixups_of_an_elf_library_are_named() => Loader_fixups_of_an_elf_library_are_named("ghidra");
-
     [IdaFact]
     [Trait("Speed", "Slow")]
     public Task Ida_compares_a_system_dll_within_the_bound() => A_system_dll_compares_within_the_bound("ida");
+}
+
+/// <summary>
+/// compare_native_images engine=ghidra: a file against Ghidra's memory, before
+/// and after a byte patch, on PE and ELF.
+/// </summary>
+public sealed class EngineMemoryCompareGhidraTests(ITestOutputHelper output) : EngineMemoryCompareTestBase(output)
+{
+    [GhidraFact]
+    [Trait("Speed", "Slow")]
+    public Task Ghidra_patched_bytes_are_the_only_difference_from_a_built_dll() => Patched_bytes_are_the_only_difference_from_a_built_dll("ghidra");
+
+    [GhidraFact]
+    [Trait("Speed", "Slow")]
+    public Task Ghidra_loader_fixups_of_an_elf_library_are_named() => Loader_fixups_of_an_elf_library_are_named("ghidra");
 
     [GhidraFact]
     [Trait("Speed", "Slow")]

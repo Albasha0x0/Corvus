@@ -85,6 +85,21 @@ public sealed class NativeIntrospectionRealTests(ITestOutputHelper output) : IDi
         Assert.True(frames.Count(f => f != null) >= frames.Count * 99 / 100);
         Assert.Contains(frames, f => f is { Saved.Count: > 0, Allocation: > 0 });
     }
+}
+
+/// <summary>
+/// Call paths and feature traces from an open IDA session on a real system DLL.
+/// </summary>
+public sealed class NativeIntrospectionIdaTests(ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly List<IDisposable> _owned = [];
+
+    public void Dispose()
+    {
+        foreach (var d in _owned) d.Dispose();
+        _dir.Dispose();
+    }
 
     [Trait("Speed", "Slow")]
     [IdaFact]

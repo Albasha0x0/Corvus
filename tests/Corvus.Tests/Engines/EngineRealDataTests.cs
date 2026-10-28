@@ -4,30 +4,42 @@ using static Corvus.Tests.ToolRealDataTests;
 
 namespace Corvus.Tests;
 
-/// <summary>IDA and Ghidra on jitinterface_x64.dll of the ILCompiler package, each through its own server; skipped when absent.</summary>
-[Trait("Data", "Real"), Trait("Speed", "Slow")]
-public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
+/// <summary>
+/// A test folder, a copy of jitinterface_x64.dll of the ILCompiler package and
+/// logged tool calls.
+/// </summary>
+public abstract class EngineRealDataTestBase(ITestOutputHelper output) : IDisposable
 {
-    private readonly TempDir _dir = new();
-    private readonly TestPhases _phases = new(output);
+    private protected readonly TempDir _dir = new();
+    private protected readonly TestPhases _phases = new(output);
+
+    private protected ITestOutputHelper Output => output;
 
     public void Dispose() => _dir.Dispose();
 
     /// <summary>A copy in this test's folder, so the engine never reads the package folder.</summary>
-    private string Image()
+    private protected string Image()
     {
         var copy = _dir.File("jitinterface_x64.dll");
         if (!File.Exists(copy)) File.Copy(RealPackages.File("runtime.win-x64.Microsoft.DotNet.ILCompiler", "10.0.11", "tools", "jitinterface_x64.dll"), copy);
         return copy;
     }
 
-    private async Task<string> Log(McpClient c, string tool, Dictionary<string, object?> args)
+    private protected async Task<string> Log(McpClient c, string tool, Dictionary<string, object?> args)
     {
         var (text, _) = await _phases.Run(tool, () => Call(c, tool, args));
         output.WriteLine($"== {tool}\n{text}");
         return text;
     }
+}
 
+/// <summary>
+/// IDA on jitinterface_x64.dll of the ILCompiler package through its own
+/// server; skipped when absent.
+/// </summary>
+[Trait("Data", "Real"), Trait("Speed", "Slow")]
+public sealed class EngineRealDataTests(ITestOutputHelper output) : EngineRealDataTestBase(output)
+{
     [IdaFact]
     public async Task Ida_tools_work_on_a_real_dll()
     {
@@ -54,7 +66,15 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         await Log(c, "export_engine_database", On(("outputPath", _dir.File("jit.i64"))));
         await Log(c, "set_native_stack_var", On(("function", function), ("variable", "arg_0"), ("newName", "saved_rbx")));
     }
+}
 
+/// <summary>
+/// Ghidra on jitinterface_x64.dll of the ILCompiler package through its own
+/// server; skipped when absent.
+/// </summary>
+[Trait("Data", "Real"), Trait("Speed", "Slow")]
+public sealed class EngineRealDataGhidraTests(ITestOutputHelper output) : EngineRealDataTestBase(output)
+{
     [GhidraFact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task Ghidra_tools_work_on_a_real_dll()
@@ -78,7 +98,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
         await Log(c, "ghidra_script", script);
         Assert.True(File.Exists(source), source);
         Assert.Equal(compiled, File.GetLastWriteTimeUtc(source));
-        PerfBudget.AtMost("engines/ghidra-script-repeat-share", clock.Elapsed / first, 0.5, "of-first", output, $"repeat {clock.Elapsed.TotalMilliseconds:0} ms, first {first.TotalMilliseconds:0} ms");
+        PerfBudget.AtMost("engines/ghidra-script-repeat-share", clock.Elapsed / first, 0.5, "of-first", Output, $"repeat {clock.Elapsed.TotalMilliseconds:0} ms, first {first.TotalMilliseconds:0} ms");
         // Installed scripts: one of Ghidra's, and one from the user folder with arguments.
         await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "CountSymbolsScript.java", ["engine"] = "ghidra" });
         var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;
@@ -106,7 +126,7 @@ public sealed class EngineRealDataTests(ITestOutputHelper output) : IDisposable
             ["image"] = image, ["language"] = "python", ["engine"] = "ghidra",
             ["code"] = "fm = currentProgram.getFunctionManager()\nprint('python', currentProgram.getName(), fm.getFunctionCount() > 0)",
         });
-        output.WriteLine($"first python script {clock.ElapsedMilliseconds} ms (worker start and analysis included)");
+        Output.WriteLine($"first python script {clock.ElapsedMilliseconds} ms (worker start and analysis included)");
         Assert.Contains("python jitinterface_x64.dll True", text);
         var userScripts = Directory.CreateDirectory(Path.Combine(Corvus.Native.Providers.DataFolder.Root, "ghidra_scripts")).FullName;
         File.WriteAllText(Path.Combine(userScripts, "echo_args.py"), "print('args ' + '|'.join(getScriptArgs()))\n");

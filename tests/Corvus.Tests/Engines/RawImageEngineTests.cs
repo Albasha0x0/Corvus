@@ -3,18 +3,19 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>load_assembly format=raw in IDA and Ghidra: the engine maps the bytes at the base with the given processor.</summary>
-[Trait("Speed", "Slow")]
-public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
+/// <summary>Raw images built per test (format=raw) and logged tool calls.</summary>
+public abstract class RawImageEngineTestBase(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
     // entry: push rbp; mov rbp, rsp; call f; pop rbp; ret
     // f (+0xB): mov eax, 42; ret
-    private static readonly byte[] RawCode = [0x55, 0x48, 0x89, 0xE5, 0xE8, 0x02, 0x00, 0x00, 0x00, 0x5D, 0xC3, 0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3];
+    private protected static readonly byte[] RawCode = [0x55, 0x48, 0x89, 0xE5, 0xE8, 0x02, 0x00, 0x00, 0x00, 0x5D, 0xC3, 0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3];
 
-    private readonly TempDir _dir = new();
+    private protected readonly TempDir _dir = new();
     public void Dispose() => _dir.Dispose();
 
-    private async Task<(string Text, bool IsError)> Call(InProcessServer server, string tool, Dictionary<string, object?> args)
+    private protected Xunit.Abstractions.ITestOutputHelper Output => output;
+
+    private protected async Task<(string Text, bool IsError)> Call(InProcessServer server, string tool, Dictionary<string, object?> args)
     {
         var r = await server.Client.CallToolAsync(tool, args);
         var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
@@ -22,34 +23,8 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         return (text, r.IsError == true);
     }
 
-    [IdaFact]
-    public Task RawCode_in_IDA() => Engine("ida");
-
-    [GhidraFact]
-    public Task RawCode_in_Ghidra() => Engine("ghidra");
-
-    /// <summary>get_engine_status lists Ghidra's analysis errors: code at the entry that does not decode is a Bad Instruction bookmark.</summary>
-    [GhidraFact]
-    public async Task Ghidra_analysis_errors_are_listed()
-    {
-        var path = _dir.File("bad.bin");
-        File.WriteAllBytes(path, [0xFF, 0xFF, 0xFF, 0xFF, .. Guid.NewGuid().ToByteArray()]);
-        await using var server = await InProcessServer.StartAsync();
-        Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64" })).IsError);
-        await Call(server, "list_functions", new() { ["image"] = "bad.bin[x64@0x0]", ["engine"] = "ghidra" });
-        var status = await Call(server, "get_engine_status", new() { ["image"] = "bad.bin[x64@0x0]", ["engine"] = "ghidra", ["bookmarks"] = true });
-        Assert.Matches(@"analysis problems \(bookmarks\): [1-9]\d* error", status.Text);
-        Assert.Contains("error 0x0 Bad Instruction", status.Text);
-    }
-
-    [IdaFact]
-    public Task Memory_search_in_IDA() => MemorySearch("ida");
-
-    [GhidraFact]
-    public Task Memory_search_in_Ghidra() => MemorySearch("ghidra");
-
     /// <summary>search_bytes memory=ida|ghidra reads the engine's loaded bytes and finds what the file mapping holds.</summary>
-    private async Task MemorySearch(string engine)
+    private protected async Task MemorySearch(string engine)
     {
         var path = _dir.File($"mem-{engine}.bin");
         File.WriteAllBytes(path, [.. RawCode, .. Guid.NewGuid().ToByteArray()]);
@@ -65,14 +40,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         Assert.DoesNotContain("fixed up", memory.Text);
     }
 
-    /// <summary>A __noreturn prototype stops the caller's flow at the call: the code after it leaves the caller.</summary>
-    [GhidraFact]
-    public Task No_return_stops_the_callers_flow_in_Ghidra() => NoReturn("ghidra");
-
-    [IdaFact]
-    public Task No_return_stops_the_callers_flow_in_IDA() => NoReturn("ida");
-
-    private async Task NoReturn(string engine)
+    private protected async Task NoReturn(string engine)
     {
         var path = _dir.File($"noret-{engine}.bin");
         // 0x00 call 0x10; 0x05 mov eax, 1; 0x0A ret; pad; 0x10 xor eax, eax; ret
@@ -91,6 +59,74 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         // The call ends the caller's first block, with no edge on to the code after it.
         Assert.Matches(@"0x0-0x5\s+1 insn", after.Text);
     }
+
+    private protected async Task Engine(string engine)
+    {
+        // Bytes of their own: the engines' databases are cached by content.
+        var path = _dir.File("rawcode.bin");
+        File.WriteAllBytes(path, [.. RawCode, .. Guid.NewGuid().ToByteArray()]);
+        await using var server = await InProcessServer.StartAsync();
+        var load = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x400000" });
+        Assert.False(load.IsError, load.Text);
+        const string id = "rawcode.bin[x64@0x400000]";
+
+        var functions = await Call(server, "list_functions", new() { ["image"] = id, ["engine"] = engine });
+        Assert.False(functions.IsError, functions.Text);
+        Assert.True(functions.Text.Contains("0x400000") && functions.Text.Contains("0x40000B"), functions.Text);
+
+        var code = await Call(server, "decompile_native", new() { ["image"] = id, ["address"] = "0x40000B", ["engine"] = engine });
+        Assert.False(code.IsError, code.Text);
+        Assert.True(code.Text.Contains("42") || code.Text.Contains("0x2a", StringComparison.OrdinalIgnoreCase), code.Text);
+    }
+}
+
+/// <summary>
+/// load_assembly format=raw in IDA: the engine maps the bytes at the base with
+/// the given processor.
+/// </summary>
+[Trait("Speed", "Slow")]
+public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper output) : RawImageEngineTestBase(output)
+{
+    [IdaFact]
+    public Task RawCode_in_IDA() => Engine("ida");
+
+    [IdaFact]
+    public Task Memory_search_in_IDA() => MemorySearch("ida");
+
+    [IdaFact]
+    public Task No_return_stops_the_callers_flow_in_IDA() => NoReturn("ida");
+}
+
+/// <summary>
+/// load_assembly format=raw in Ghidra: the engine maps the bytes at the base
+/// with the given language.
+/// </summary>
+[Trait("Speed", "Slow")]
+public sealed class RawImageEngineGhidraTests(Xunit.Abstractions.ITestOutputHelper output) : RawImageEngineTestBase(output)
+{
+    [GhidraFact]
+    public Task RawCode_in_Ghidra() => Engine("ghidra");
+
+    /// <summary>get_engine_status lists Ghidra's analysis errors: code at the entry that does not decode is a Bad Instruction bookmark.</summary>
+    [GhidraFact]
+    public async Task Ghidra_analysis_errors_are_listed()
+    {
+        var path = _dir.File("bad.bin");
+        File.WriteAllBytes(path, [0xFF, 0xFF, 0xFF, 0xFF, .. Guid.NewGuid().ToByteArray()]);
+        await using var server = await InProcessServer.StartAsync();
+        Assert.False((await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64" })).IsError);
+        await Call(server, "list_functions", new() { ["image"] = "bad.bin[x64@0x0]", ["engine"] = "ghidra" });
+        var status = await Call(server, "get_engine_status", new() { ["image"] = "bad.bin[x64@0x0]", ["engine"] = "ghidra", ["bookmarks"] = true });
+        Assert.Matches(@"analysis problems \(bookmarks\): [1-9]\d* error", status.Text);
+        Assert.Contains("error 0x0 Bad Instruction", status.Text);
+    }
+
+    [GhidraFact]
+    public Task Memory_search_in_Ghidra() => MemorySearch("ghidra");
+
+    /// <summary>A __noreturn prototype stops the caller's flow at the call: the code after it leaves the caller.</summary>
+    [GhidraFact]
+    public Task No_return_stops_the_callers_flow_in_Ghidra() => NoReturn("ghidra");
 
     /// <summary>An instruction set our index does not decode: Ghidra reads it with the language from the arch table.</summary>
     [GhidraFact]
@@ -128,7 +164,7 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         // The entry is at module offset 0, the lowest function.
         ulong entry = starts.Min();
         var missing = handlers.Where(h => !starts.Contains(entry + h)).ToList();
-        output.WriteLine($"{starts.Count} functions; {missing.Count} of {handlers.Length} handlers missing");
+        Output.WriteLine($"{starts.Count} functions; {missing.Count} of {handlers.Length} handlers missing");
         Assert.Empty(missing);
     }
 
@@ -165,24 +201,5 @@ public sealed class RawImageEngineTests(Xunit.Abstractions.ITestOutputHelper out
         // IDA's refusal names Ghidra only where IDA is installed; elsewhere it says IDA is unavailable.
         if (IdaInstallation.Locate(null, out _, out _) != null)
             Assert.Contains("engine=ghidra", (await Call(server, "list_functions", new() { ["image"] = "prog.exe[dos-mz@0x0]", ["engine"] = "ida" })).Text);
-    }
-
-    private async Task Engine(string engine)
-    {
-        // Bytes of their own: the engines' databases are cached by content.
-        var path = _dir.File("rawcode.bin");
-        File.WriteAllBytes(path, [.. RawCode, .. Guid.NewGuid().ToByteArray()]);
-        await using var server = await InProcessServer.StartAsync();
-        var load = await Call(server, "load_assembly", new() { ["path"] = path, ["format"] = "raw", ["arch"] = "x64", ["base"] = "0x400000" });
-        Assert.False(load.IsError, load.Text);
-        const string id = "rawcode.bin[x64@0x400000]";
-
-        var functions = await Call(server, "list_functions", new() { ["image"] = id, ["engine"] = engine });
-        Assert.False(functions.IsError, functions.Text);
-        Assert.True(functions.Text.Contains("0x400000") && functions.Text.Contains("0x40000B"), functions.Text);
-
-        var code = await Call(server, "decompile_native", new() { ["image"] = id, ["address"] = "0x40000B", ["engine"] = engine });
-        Assert.False(code.IsError, code.Text);
-        Assert.True(code.Text.Contains("42") || code.Text.Contains("0x2a", StringComparison.OrdinalIgnoreCase), code.Text);
     }
 }

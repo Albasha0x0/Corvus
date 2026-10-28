@@ -7,13 +7,15 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>DWARF of a stripped ELF library (its separate debug file) reaching IDA's and Ghidra's pseudocode: names, types and prototypes.</summary>
-[Trait("Speed", "Slow")]
-public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposable
+/// <summary>
+/// A stripped ELF library with its separate debug file, decompiled through an
+/// engine with the DWARF types pushed.
+/// </summary>
+public abstract class DwarfEngineTypesTestBase(ITestOutputHelper output) : IDisposable
 {
-    private const string Library = "libSystem.Native.so";
-    private readonly TempDir _dir = new();
-    private readonly List<IDisposable> _owned = [];
+    private protected const string Library = "libSystem.Native.so";
+    private protected readonly TempDir _dir = new();
+    private protected readonly List<IDisposable> _owned = [];
 
     public void Dispose()
     {
@@ -21,7 +23,7 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         _dir.Dispose();
     }
 
-    private async Task<string> Decompile(EngineMode mode)
+    private protected async Task<string> Decompile(EngineMode mode)
     {
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false, Engine = mode };
         var workspace = new AssemblyWorkspace(options);
@@ -45,7 +47,15 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         foreach (var m in NativePdbTypes.Current(session)!.OwnApplied?.DeclarationMessages ?? []) output.WriteLine("refused: " + m);
         return text;
     }
+}
 
+/// <summary>
+/// DWARF of a stripped ELF library (its separate debug file) reaching IDA's
+/// pseudocode: names, types and prototypes.
+/// </summary>
+[Trait("Speed", "Slow")]
+public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : DwarfEngineTypesTestBase(output)
+{
     [IdaFact]
     public async Task Dwarf_types_and_prototypes_reach_idas_pseudocode()
     {
@@ -56,7 +66,15 @@ public sealed class DwarfEngineTypesTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("output->Size = ", text);
         Assert.DoesNotContain("declaration errors", text); // generated padding never takes a member's name (glibc FILE's __pad1)
     }
+}
 
+/// <summary>
+/// DWARF of a stripped ELF library (its separate debug file) reaching Ghidra's
+/// pseudocode: names, types and prototypes.
+/// </summary>
+[Trait("Speed", "Slow")]
+public sealed class DwarfEngineTypesGhidraTests(ITestOutputHelper output) : DwarfEngineTypesTestBase(output)
+{
     [GhidraFact]
     public async Task Dwarf_types_and_prototypes_reach_ghidras_pseudocode()
     {

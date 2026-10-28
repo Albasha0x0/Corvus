@@ -352,60 +352,6 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal(0, ghidra.Opens);
     }
 
-    /// <summary>Real IDA on a small System32 DLL: function and reference counts by engine, and auto switching once the analysis is done.</summary>
-    [Trait("Speed", "Slow")]
-    [IdaFact]
-    public async Task Real_IDA_counts_by_engine()
-    {
-        var path = new[] { "cabinet.dll", "version.dll" }
-            .Select(n => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), n)).FirstOrDefault(File.Exists);
-        if (path == null) { output.WriteLine("no System32 sample found"); return; }
-        var options = new ServerOptions { BackgroundIndexing = false };
-        var workspace = new AssemblyWorkspace(options);
-        _owned.Add(workspace);
-        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
-        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options);
-        _owned.Add(engines);
-        var tools = new NativeCodeTools(workspace, code, new OutputPager(options), null, engines, new NativeNamePush(code));
-
-        var clock = Stopwatch.StartNew();
-        var ours = await tools.ListFunctions(path, sort: "callers", limit: 1);
-        var oursTime = clock.Elapsed;
-        clock.Restart();
-        var auto = await tools.ListFunctions(path, sort: "callers", limit: 1);
-        var autoTime = clock.Elapsed;
-        Assert.Contains("Engine: ours (server default auto: no engine has analyzed these bytes)", auto);
-        clock.Restart();
-        var ida = await tools.ListFunctions(path, sort: "callers", limit: 1, engine: "ida");
-        var idaTime = clock.Elapsed;
-        Assert.Contains("Engine: ida", ida);
-        clock.Restart();
-        var autoAfter = await tools.ListFunctions(path, sort: "callers", limit: 1);
-        var autoAfterTime = clock.Elapsed;
-        Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", autoAfter);
-
-        int Count(string text) => int.Parse(Regex.Match(text, @": ([\d,]+) functions?").Groups[1].Value.Replace(",", ""));
-        int oursCount = Count(ours), idaCount = Count(ida);
-        output.WriteLine($"{Path.GetFileName(path)}: ours {oursCount} functions ({oursTime.TotalMilliseconds:0} ms incl. index), " +
-                         $"auto before analysis {autoTime.TotalMilliseconds:0} ms, ida {idaCount} functions ({idaTime.TotalSeconds:0.0} s incl. analysis), " +
-                         $"auto after {autoAfterTime.TotalMilliseconds:0} ms");
-        Assert.True(oursCount > 10 && idaCount > 10);
-        Assert.InRange(idaCount, oursCount / 2, oursCount * 2);
-
-        // The most called function (ours): references by engine.
-        var top = Regex.Match(ours, @"^\s*(0x[0-9A-F]+)\s", RegexOptions.Multiline).Groups[1].Value;
-        output.WriteLine(string.Join('\n', ours.Split('\n').Take(4)));
-        int Rows(string text) => Regex.Count(text, @"^\s*0x[0-9A-F]+\s+\S+", RegexOptions.Multiline);
-        var xOurs = await tools.FindXrefs(path, top, engine: "ours");
-        var xIda = await tools.FindXrefs(path, top, engine: "ida");
-        output.WriteLine($"references to {top}: ours {Rows(xOurs)}, ida {Rows(xIda)}");
-        Assert.True(Rows(xIda) > 0);
-        var cfgIda = await tools.GetCfg(path, top, engine: "ida");
-        var cfgOurs = await tools.GetCfg(path, top, engine: "ours");
-        output.WriteLine($"{cfgOurs.Split('\n')[1]}\n{cfgIda.Split('\n')[1]}");
-        Assert.Contains("(via IDA)", cfgIda);
-    }
-
     /// <summary>A provider whose sessions answer from fixed data and count every request.</summary>
     private sealed class FakeProvider(bool available, string id = IdaProvider.ProviderId) : INativeDecompilerProvider
     {
@@ -542,5 +488,75 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
                 Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, saved.Item2);
             }
         }
+    }
+}
+
+/// <summary>
+/// auto against a real IDA: function and reference counts by engine, and the
+/// switch to IDA once its analysis is done.
+/// </summary>
+public sealed class EnginePreferenceIdaTests(ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly List<IDisposable> _owned = [];
+
+    public void Dispose()
+    {
+        foreach (var d in _owned) d.Dispose();
+        _dir.Dispose();
+    }
+
+    /// <summary>Real IDA on a small System32 DLL: function and reference counts by engine, and auto switching once the analysis is done.</summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Real_IDA_counts_by_engine()
+    {
+        var path = new[] { "cabinet.dll", "version.dll" }
+            .Select(n => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), n)).FirstOrDefault(File.Exists);
+        if (path == null) { output.WriteLine("no System32 sample found"); return; }
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        _owned.Add(workspace);
+        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
+        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options);
+        _owned.Add(engines);
+        var tools = new NativeCodeTools(workspace, code, new OutputPager(options), null, engines, new NativeNamePush(code));
+
+        var clock = Stopwatch.StartNew();
+        var ours = await tools.ListFunctions(path, sort: "callers", limit: 1);
+        var oursTime = clock.Elapsed;
+        clock.Restart();
+        var auto = await tools.ListFunctions(path, sort: "callers", limit: 1);
+        var autoTime = clock.Elapsed;
+        Assert.Contains("Engine: ours (server default auto: no engine has analyzed these bytes)", auto);
+        clock.Restart();
+        var ida = await tools.ListFunctions(path, sort: "callers", limit: 1, engine: "ida");
+        var idaTime = clock.Elapsed;
+        Assert.Contains("Engine: ida", ida);
+        clock.Restart();
+        var autoAfter = await tools.ListFunctions(path, sort: "callers", limit: 1);
+        var autoAfterTime = clock.Elapsed;
+        Assert.Contains("Engine: ida (server default auto: IDA has analyzed these bytes)", autoAfter);
+
+        int Count(string text) => int.Parse(Regex.Match(text, @": ([\d,]+) functions?").Groups[1].Value.Replace(",", ""));
+        int oursCount = Count(ours), idaCount = Count(ida);
+        output.WriteLine($"{Path.GetFileName(path)}: ours {oursCount} functions ({oursTime.TotalMilliseconds:0} ms incl. index), " +
+                         $"auto before analysis {autoTime.TotalMilliseconds:0} ms, ida {idaCount} functions ({idaTime.TotalSeconds:0.0} s incl. analysis), " +
+                         $"auto after {autoAfterTime.TotalMilliseconds:0} ms");
+        Assert.True(oursCount > 10 && idaCount > 10);
+        Assert.InRange(idaCount, oursCount / 2, oursCount * 2);
+
+        // The most called function (ours): references by engine.
+        var top = Regex.Match(ours, @"^\s*(0x[0-9A-F]+)\s", RegexOptions.Multiline).Groups[1].Value;
+        output.WriteLine(string.Join('\n', ours.Split('\n').Take(4)));
+        int Rows(string text) => Regex.Count(text, @"^\s*0x[0-9A-F]+\s+\S+", RegexOptions.Multiline);
+        var xOurs = await tools.FindXrefs(path, top, engine: "ours");
+        var xIda = await tools.FindXrefs(path, top, engine: "ida");
+        output.WriteLine($"references to {top}: ours {Rows(xOurs)}, ida {Rows(xIda)}");
+        Assert.True(Rows(xIda) > 0);
+        var cfgIda = await tools.GetCfg(path, top, engine: "ida");
+        var cfgOurs = await tools.GetCfg(path, top, engine: "ours");
+        output.WriteLine($"{cfgOurs.Split('\n')[1]}\n{cfgIda.Split('\n')[1]}");
+        Assert.Contains("(via IDA)", cfgIda);
     }
 }

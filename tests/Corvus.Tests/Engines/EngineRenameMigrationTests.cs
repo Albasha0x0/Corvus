@@ -5,7 +5,10 @@ using Corvus.Native.Providers.Ida;
 
 namespace Corvus.Tests;
 
-/// <summary>Engine databases saved before the rename (old stamp names, Ghidra project name) reopen without a new analysis.</summary>
+/// <summary>
+/// An IDA database saved before the rename (old stamp names) reopens without a
+/// new analysis.
+/// </summary>
 [Trait("Speed", "Slow")]
 public sealed class EngineRenameMigrationTests
 {
@@ -43,6 +46,16 @@ public sealed class EngineRenameMigrationTests
             Assert.Equal("(True, True, False, False)", nodes.Result);
         }
     }
+}
+
+/// <summary>
+/// A Ghidra project saved before the rename (old project and option names)
+/// reopens without a new analysis.
+/// </summary>
+[Trait("Speed", "Slow")]
+public sealed class EngineRenameMigrationGhidraTests
+{
+    private static readonly NativeOpenOptions Offline = new() { Symbols = SymbolMode.Off };
 
     [GhidraFact]
     public async Task A_Ghidra_project_with_the_old_names_reopens_analyzed_with_its_stamps_and_types()

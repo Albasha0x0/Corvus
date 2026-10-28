@@ -13,11 +13,14 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>trace_native_values over engine slices: the reply parsed, nodes completed from the built-in analysis, fallbacks; IDA and Ghidra against ours.</summary>
-public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
+/// <summary>
+/// A test folder and engine rigs seeded with the system DLL, and slice
+/// comparisons against the built-in analysis.
+/// </summary>
+public abstract class EngineSliceTestBase(ITestOutputHelper output) : IDisposable
 {
-    private readonly TempDir _dir = new();
-    private readonly List<IDisposable> _owned = [];
+    private protected readonly TempDir _dir = new();
+    private protected readonly List<IDisposable> _owned = [];
 
     public void Dispose()
     {
@@ -25,6 +28,154 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         _dir.Dispose();
     }
 
+    private protected (AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines) Rig()
+    {
+        var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
+        var ws = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(ws, options, null, new Native.Annotations.AnnotationStore(_dir.File("ann")));
+        var cache = _dir.File("cache");
+        EngineSeed.Copy(cache, NativeIdaProviderTests.System64);
+        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = cache }, code, ws, options, new GhidraProviderOptions { CacheRoot = cache });
+        _owned.Add(engines);
+        _owned.Add(ws);
+        return (ws, code, engines);
+    }
+
+    /// <summary>For constant API arguments the built-in slice resolves, the engine's depth-0 slice gives the same constants.</summary>
+    private protected async Task ConstantsAgree(string engine)
+    {
+        var (ws, code, engines) = Rig();
+        var path = Path.Combine(Directory.CreateDirectory(_dir.File("input")).FullName, Path.GetFileName(NativeIdaProviderTests.System64));
+        File.Copy(NativeIdaProviderTests.System64, path);
+        var native = ws.LoadAny(path).Native!;
+        var index = await code.Index(native, null, default);
+        var a = CallAnalysis.For(index);
+        var session = await engines.Session(native, engine, null, default);
+        await new NativeNamePush(code).EnsureAsync(native, session, default);
+        var provider = new EngineSliceProvider(a, session);
+        int compared = 0, agree = 0, partial = 0, engineOnly = 0;
+        var clock = Stopwatch.StartNew();
+        var sites = index.Functions.Where(f => f.ThunkImport == null).SelectMany(f => a.CallsIn(f))
+            .Where(c => c.Kind == CalleeKind.Import && c.Signature != null && c.Arguments.Any(x => x.Kind == ArgKind.Immediate)).Take(30).ToList();
+        var misses = new List<string>();
+        foreach (var c in sites)
+            foreach (var arg in c.Arguments.Where(x => x.Kind == ArgKind.Immediate && x.Index < 4))
+            {
+                var seed = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, c.Rva), null, (arg.Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), default);
+                var options = new ValueTraceOptions(MaxDepth: 0);
+                var ours = ValueTrace.Build(a, seed, options).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
+                var theirs = ValueTrace.Build(a, seed, options, provider).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
+                compared++;
+                if (ours.SetEquals(theirs)) agree++;
+                else if (ours.Overlaps(theirs)) partial++;
+                else misses.Add($"{c.Display} arg {arg.Index + 1}: ours {string.Join(",", ours)} vs {engine} {string.Join(",", theirs)}");
+                if (!ours.IsSupersetOf(theirs)) engineOnly++;
+            }
+        output.WriteLine($"{engine}: {compared} constant arguments at {sites.Count} API call sites: {agree} agree, {partial} overlap, {misses.Count} differ " +
+                         $"({engineOnly} with constants only the engine has); {provider.EngineSlices} engine slices, {provider.Fallbacks} fallbacks, {clock.Elapsed.TotalSeconds:0.0} s");
+        foreach (var m in misses.Take(10)) output.WriteLine("  " + m);
+        Assert.True(compared >= 15, $"only {compared} arguments compared");
+        Assert.True(agree + partial >= compared * 0.8, $"{agree + partial} of {compared} agree");
+        Assert.True(provider.EngineSlices >= compared * 0.8, $"{provider.EngineSlices} engine slices for {compared} arguments");
+
+        // Forward: a function's first parameter reaches the same API arguments.
+        var withParam = index.Functions.Where(f => f.ThunkImport == null && a.CallsIn(f).Count(x => x.Kind == CalleeKind.Import) >= 2).Take(10).ToList();
+        int forwardCompared = 0, forwardAgree = 0;
+        foreach (var f in withParam)
+        {
+            var seed = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, f.Start), null, "1", default);
+            var options = new ValueTraceOptions(TraceDirection.Forward, MaxDepth: 0);
+            var ours = ValueTrace.Build(a, seed, options).Nodes.Where(n => n.Kind is TraceNodeKind.Sink or TraceNodeKind.Argument).Select(n => n.Address).ToHashSet();
+            if (ours.Count == 0) continue;
+            var theirs = ValueTrace.Build(a, seed, options, provider).Nodes.Where(n => n.Kind is TraceNodeKind.Sink or TraceNodeKind.Argument).Select(n => n.Address).ToHashSet();
+            forwardCompared++;
+            if (ours.Overlaps(theirs)) forwardAgree++;
+        }
+        output.WriteLine($"{engine}: forward from parameter 1 in {forwardCompared} functions: {forwardAgree} reach a call site ours reaches");
+        Assert.True(forwardAgree >= forwardCompared / 2, $"forward: {forwardAgree} of {forwardCompared}");
+
+        // Across functions: parameters bound to callers' arguments, call results to the callee's returned values.
+        int before = provider.Fallbacks, crossCompared = 0, crossAgree = 0;
+        var called = index.Functions.Where(f => f.ThunkImport == null && index.Callers(f, CallEdgeFilter.Direct).Count(c => c.Kind == XrefKind.Call) is >= 1 and <= 4).Take(12).ToList();
+        foreach (var f in called)
+        {
+            var options = new ValueTraceOptions(MaxDepth: 1, MaxFunctions: 8);
+            foreach (var seed in new[]
+                     {
+                         NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, f.Start), null, "1", default),
+                         NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, index.Callers(f).First(c => c.Kind == XrefKind.Call).From), "result", null, default),
+                     })
+            {
+                var ours = ValueTrace.Build(a, seed, options).Values.Select(v => v.Text).ToHashSet();
+                var graph = ValueTrace.Build(a, seed, options, provider);
+                foreach (var note in graph.Notes.Where(n => n.Contains("built-in slice", StringComparison.Ordinal)).Take(2)) output.WriteLine("  fallback: " + note);
+                var theirs = graph.Values.Select(v => v.Text).ToHashSet();
+                if (ours.Count == 0) continue;
+                crossCompared++;
+                if (ours.Overlaps(theirs)) crossAgree++;
+            }
+        }
+        output.WriteLine($"{engine}: across one function boundary: {crossCompared} traces with values, {crossAgree} share a value with ours; " +
+                         $"{provider.Fallbacks - before} slices fell back");
+        Assert.True(crossAgree >= crossCompared / 2, $"cross-function: {crossAgree} of {crossCompared}");
+
+        // A register at an ordinary instruction: the result register read after a call.
+        int located = 0, placed = 0;
+        before = provider.Fallbacks;
+        foreach (var c in index.Functions.Where(f => f.ThunkImport == null).SelectMany(f => a.CallsIn(f)).Where(x => x.Kind == CalleeKind.Import && !x.TailCall))
+        {
+            var fc = a.Code(c.Caller, default);
+            var (b, i) = fc.Position(c.Rva);
+            if (b < 0) continue;
+            var (nb, ni) = fc.Position(c.Rva + (uint)fc.Blocks[b][i].I.Length); // a call may end its block
+            if (nb < 0) continue;
+            var next = fc.Blocks[nb][ni];
+            if (located >= 20 || next.I.OpCount < 2 || next.I.Op1Kind != Iced.Intel.OpKind.Register || Iced.Intel.RegisterExtensions.GetFullRegister(next.I.Op1Register) != Iced.Intel.Register.RAX) continue;
+            var seed = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, next.Rva), "rax", null, default);
+            int engineBefore = provider.EngineSlices;
+            var graph = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0), provider);
+            located++;
+            if (provider.EngineSlices > engineBefore && graph.Nodes.Any(n => n.Kind is TraceNodeKind.ApiResult or TraceNodeKind.CallResult)) placed++;
+            else output.WriteLine($"  not placed at {NativeAddress.Va(index.Image, next.Rva)} {next.I}: {string.Join("; ", graph.Notes)} | {string.Join(", ", graph.Nodes.Select(n => n.Kind + ":" + n.Text))}");
+        }
+        output.WriteLine($"{engine}: rax read after {located} API calls: the engine placed {placed} as the call's result; {provider.Fallbacks - before} fell back");
+        Assert.True(placed >= located / 2, $"location: {placed} of {located}");
+    }
+
+    /// <summary>ARM64 (an ELF from the runtime packages): constant call arguments through the engine against the built-in AAPCS64 slices.</summary>
+    private protected async Task Arm64ConstantsAgree(string engine)
+    {
+        var (ws, code, engines) = Rig();
+        var native = ws.LoadAny(NativeFormats.NativeFixtures.LinuxArm64DbgShim).Native!;
+        var index = await code.Index(native, null, default);
+        var a = Arm64Trace.For(index);
+        var session = await engines.Session(native, engine, null, default);
+        var provider = new EngineSliceProvider(a, session);
+        var sites = index.Functions.SelectMany(f => a.Calls.CallsIn(f)).Where(c => c.Arguments.Any(x => x.Kind == ArgKind.Immediate && x.Index < 8)).Take(25).ToList();
+        int compared = 0, agree = 0;
+        foreach (var c in sites)
+            foreach (var arg in c.Arguments.Where(x => x.Kind == ArgKind.Immediate && x.Index < 8))
+            {
+                var seed = NativeTraceTools.Arm64Seed(a, NativeAddress.Va(index.Image, c.Rva), null, (arg.Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), default);
+                var ours = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0)).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
+                var theirs = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0), provider).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
+                compared++;
+                if (ours.Overlaps(theirs)) agree++;
+                else output.WriteLine($"  {c.Display} arg {arg.Index + 1} [{(c.Signature != null ? "signature" : "guessed")}]: ours {string.Join(",", ours)} vs {string.Join(",", theirs)}");
+            }
+        output.WriteLine($"{engine} ARM64: {compared} constant arguments at {sites.Count} call sites: {agree} agree; {provider.EngineSlices} engine slices, {provider.Fallbacks} fallbacks");
+        Assert.True(compared >= 10, $"only {compared} arguments compared");
+        Assert.True(agree >= compared * 0.7, $"{agree} of {compared} agree");
+        Assert.True(provider.EngineSlices >= compared / 2, $"{provider.EngineSlices} engine slices");
+    }
+}
+
+/// <summary>
+/// trace_native_values over engine slices: the reply parsed, nodes completed
+/// from the built-in analysis, fallbacks; IDA against ours.
+/// </summary>
+public sealed class EngineSliceTests(ITestOutputHelper output) : EngineSliceTestBase(output)
+{
     [Fact]
     public void Worker_reply_parses()
     {
@@ -127,120 +278,21 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(1, p3.Fallbacks);
     }
 
-    private (AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines) Rig()
-    {
-        var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
-        var ws = new AssemblyWorkspace(options);
-        var code = new NativeCodeService(ws, options, null, new Native.Annotations.AnnotationStore(_dir.File("ann")));
-        var cache = _dir.File("cache");
-        EngineSeed.Copy(cache, NativeIdaProviderTests.System64);
-        var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = cache }, code, ws, options, new GhidraProviderOptions { CacheRoot = cache });
-        _owned.Add(engines);
-        _owned.Add(ws);
-        return (ws, code, engines);
-    }
+    [IdaFact]
+    [Trait("Speed", "Slow")]
+    public Task Ida_microcode_slices_agree_on_arm64() => Arm64ConstantsAgree("ida");
 
-    /// <summary>For constant API arguments the built-in slice resolves, the engine's depth-0 slice gives the same constants.</summary>
-    private async Task ConstantsAgree(string engine)
-    {
-        var (ws, code, engines) = Rig();
-        var path = Path.Combine(Directory.CreateDirectory(_dir.File("input")).FullName, Path.GetFileName(NativeIdaProviderTests.System64));
-        File.Copy(NativeIdaProviderTests.System64, path);
-        var native = ws.LoadAny(path).Native!;
-        var index = await code.Index(native, null, default);
-        var a = CallAnalysis.For(index);
-        var session = await engines.Session(native, engine, null, default);
-        await new NativeNamePush(code).EnsureAsync(native, session, default);
-        var provider = new EngineSliceProvider(a, session);
-        int compared = 0, agree = 0, partial = 0, engineOnly = 0;
-        var clock = Stopwatch.StartNew();
-        var sites = index.Functions.Where(f => f.ThunkImport == null).SelectMany(f => a.CallsIn(f))
-            .Where(c => c.Kind == CalleeKind.Import && c.Signature != null && c.Arguments.Any(x => x.Kind == ArgKind.Immediate)).Take(30).ToList();
-        var misses = new List<string>();
-        foreach (var c in sites)
-            foreach (var arg in c.Arguments.Where(x => x.Kind == ArgKind.Immediate && x.Index < 4))
-            {
-                var seed = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, c.Rva), null, (arg.Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), default);
-                var options = new ValueTraceOptions(MaxDepth: 0);
-                var ours = ValueTrace.Build(a, seed, options).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
-                var theirs = ValueTrace.Build(a, seed, options, provider).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
-                compared++;
-                if (ours.SetEquals(theirs)) agree++;
-                else if (ours.Overlaps(theirs)) partial++;
-                else misses.Add($"{c.Display} arg {arg.Index + 1}: ours {string.Join(",", ours)} vs {engine} {string.Join(",", theirs)}");
-                if (!ours.IsSupersetOf(theirs)) engineOnly++;
-            }
-        output.WriteLine($"{engine}: {compared} constant arguments at {sites.Count} API call sites: {agree} agree, {partial} overlap, {misses.Count} differ " +
-                         $"({engineOnly} with constants only the engine has); {provider.EngineSlices} engine slices, {provider.Fallbacks} fallbacks, {clock.Elapsed.TotalSeconds:0.0} s");
-        foreach (var m in misses.Take(10)) output.WriteLine("  " + m);
-        Assert.True(compared >= 15, $"only {compared} arguments compared");
-        Assert.True(agree + partial >= compared * 0.8, $"{agree + partial} of {compared} agree");
-        Assert.True(provider.EngineSlices >= compared * 0.8, $"{provider.EngineSlices} engine slices for {compared} arguments");
+    [IdaFact]
+    [Trait("Speed", "Slow")]
+    public Task Ida_microcode_slices_agree_with_ours() => ConstantsAgree("ida");
+}
 
-        // Forward: a function's first parameter reaches the same API arguments.
-        var withParam = index.Functions.Where(f => f.ThunkImport == null && a.CallsIn(f).Count(x => x.Kind == CalleeKind.Import) >= 2).Take(10).ToList();
-        int forwardCompared = 0, forwardAgree = 0;
-        foreach (var f in withParam)
-        {
-            var seed = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, f.Start), null, "1", default);
-            var options = new ValueTraceOptions(TraceDirection.Forward, MaxDepth: 0);
-            var ours = ValueTrace.Build(a, seed, options).Nodes.Where(n => n.Kind is TraceNodeKind.Sink or TraceNodeKind.Argument).Select(n => n.Address).ToHashSet();
-            if (ours.Count == 0) continue;
-            var theirs = ValueTrace.Build(a, seed, options, provider).Nodes.Where(n => n.Kind is TraceNodeKind.Sink or TraceNodeKind.Argument).Select(n => n.Address).ToHashSet();
-            forwardCompared++;
-            if (ours.Overlaps(theirs)) forwardAgree++;
-        }
-        output.WriteLine($"{engine}: forward from parameter 1 in {forwardCompared} functions: {forwardAgree} reach a call site ours reaches");
-        Assert.True(forwardAgree >= forwardCompared / 2, $"forward: {forwardAgree} of {forwardCompared}");
-
-        // Across functions: parameters bound to callers' arguments, call results to the callee's returned values.
-        int before = provider.Fallbacks, crossCompared = 0, crossAgree = 0;
-        var called = index.Functions.Where(f => f.ThunkImport == null && index.Callers(f, CallEdgeFilter.Direct).Count(c => c.Kind == XrefKind.Call) is >= 1 and <= 4).Take(12).ToList();
-        foreach (var f in called)
-        {
-            var options = new ValueTraceOptions(MaxDepth: 1, MaxFunctions: 8);
-            foreach (var seed in new[]
-                     {
-                         NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, f.Start), null, "1", default),
-                         NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, index.Callers(f).First(c => c.Kind == XrefKind.Call).From), "result", null, default),
-                     })
-            {
-                var ours = ValueTrace.Build(a, seed, options).Values.Select(v => v.Text).ToHashSet();
-                var graph = ValueTrace.Build(a, seed, options, provider);
-                foreach (var note in graph.Notes.Where(n => n.Contains("built-in slice", StringComparison.Ordinal)).Take(2)) output.WriteLine("  fallback: " + note);
-                var theirs = graph.Values.Select(v => v.Text).ToHashSet();
-                if (ours.Count == 0) continue;
-                crossCompared++;
-                if (ours.Overlaps(theirs)) crossAgree++;
-            }
-        }
-        output.WriteLine($"{engine}: across one function boundary: {crossCompared} traces with values, {crossAgree} share a value with ours; " +
-                         $"{provider.Fallbacks - before} slices fell back");
-        Assert.True(crossAgree >= crossCompared / 2, $"cross-function: {crossAgree} of {crossCompared}");
-
-        // A register at an ordinary instruction: the result register read after a call.
-        int located = 0, placed = 0;
-        before = provider.Fallbacks;
-        foreach (var c in index.Functions.Where(f => f.ThunkImport == null).SelectMany(f => a.CallsIn(f)).Where(x => x.Kind == CalleeKind.Import && !x.TailCall))
-        {
-            var fc = a.Code(c.Caller, default);
-            var (b, i) = fc.Position(c.Rva);
-            if (b < 0) continue;
-            var (nb, ni) = fc.Position(c.Rva + (uint)fc.Blocks[b][i].I.Length); // a call may end its block
-            if (nb < 0) continue;
-            var next = fc.Blocks[nb][ni];
-            if (located >= 20 || next.I.OpCount < 2 || next.I.Op1Kind != Iced.Intel.OpKind.Register || Iced.Intel.RegisterExtensions.GetFullRegister(next.I.Op1Register) != Iced.Intel.Register.RAX) continue;
-            var seed = NativeTraceTools.Seed(a, NativeAddress.Va(index.Image, next.Rva), "rax", null, default);
-            int engineBefore = provider.EngineSlices;
-            var graph = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0), provider);
-            located++;
-            if (provider.EngineSlices > engineBefore && graph.Nodes.Any(n => n.Kind is TraceNodeKind.ApiResult or TraceNodeKind.CallResult)) placed++;
-            else output.WriteLine($"  not placed at {NativeAddress.Va(index.Image, next.Rva)} {next.I}: {string.Join("; ", graph.Notes)} | {string.Join(", ", graph.Nodes.Select(n => n.Kind + ":" + n.Text))}");
-        }
-        output.WriteLine($"{engine}: rax read after {located} API calls: the engine placed {placed} as the call's result; {provider.Fallbacks - before} fell back");
-        Assert.True(placed >= located / 2, $"location: {placed} of {located}");
-    }
-
+/// <summary>
+/// trace_native_values over Ghidra's slices against ours, and the arguments
+/// Ghidra infers for an indirect call.
+/// </summary>
+public sealed class EngineSliceGhidraTests(ITestOutputHelper output) : EngineSliceTestBase(output)
+{
     // The linker's delay-load tail-merge stub: it saves and restores every argument register, then jumps to RAX.
     private const string DelayLoadSource = """
         #include <windows.h>
@@ -300,44 +352,9 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         throw new InvalidOperationException("the tail-merge stub has no JMP RAX");
     }
 
-    /// <summary>ARM64 (an ELF from the runtime packages): constant call arguments through the engine against the built-in AAPCS64 slices.</summary>
-    private async Task Arm64ConstantsAgree(string engine)
-    {
-        var (ws, code, engines) = Rig();
-        var native = ws.LoadAny(NativeFormats.NativeFixtures.LinuxArm64DbgShim).Native!;
-        var index = await code.Index(native, null, default);
-        var a = Arm64Trace.For(index);
-        var session = await engines.Session(native, engine, null, default);
-        var provider = new EngineSliceProvider(a, session);
-        var sites = index.Functions.SelectMany(f => a.Calls.CallsIn(f)).Where(c => c.Arguments.Any(x => x.Kind == ArgKind.Immediate && x.Index < 8)).Take(25).ToList();
-        int compared = 0, agree = 0;
-        foreach (var c in sites)
-            foreach (var arg in c.Arguments.Where(x => x.Kind == ArgKind.Immediate && x.Index < 8))
-            {
-                var seed = NativeTraceTools.Arm64Seed(a, NativeAddress.Va(index.Image, c.Rva), null, (arg.Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), default);
-                var ours = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0)).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
-                var theirs = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0), provider).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
-                compared++;
-                if (ours.Overlaps(theirs)) agree++;
-                else output.WriteLine($"  {c.Display} arg {arg.Index + 1} [{(c.Signature != null ? "signature" : "guessed")}]: ours {string.Join(",", ours)} vs {string.Join(",", theirs)}");
-            }
-        output.WriteLine($"{engine} ARM64: {compared} constant arguments at {sites.Count} call sites: {agree} agree; {provider.EngineSlices} engine slices, {provider.Fallbacks} fallbacks");
-        Assert.True(compared >= 10, $"only {compared} arguments compared");
-        Assert.True(agree >= compared * 0.7, $"{agree} of {compared} agree");
-        Assert.True(provider.EngineSlices >= compared / 2, $"{provider.EngineSlices} engine slices");
-    }
-
-    [IdaFact]
-    [Trait("Speed", "Slow")]
-    public Task Ida_microcode_slices_agree_on_arm64() => Arm64ConstantsAgree("ida");
-
     [GhidraFact]
     [Trait("Speed", "Slow")]
     public Task Ghidra_pcode_slices_agree_on_arm64() => Arm64ConstantsAgree("ghidra");
-
-    [IdaFact]
-    [Trait("Speed", "Slow")]
-    public Task Ida_microcode_slices_agree_with_ours() => ConstantsAgree("ida");
 
     [GhidraFact]
     [Trait("Speed", "Slow")]

@@ -14,10 +14,10 @@ public sealed class EngineWorkflowRigs : IDisposable
 {
     private readonly TempDir _dir = new();
     private readonly List<IDisposable> _owned = [];
-    private readonly Dictionary<string, NativeEngineWorkflowTests.Rig> _rigs = [];
+    private readonly Dictionary<string, NativeEngineWorkflowTestBase.Rig> _rigs = [];
 
     /// <summary>The rig of <paramref name="engine"/>, made on first use.</summary>
-    public NativeEngineWorkflowTests.Rig For(string engine)
+    public NativeEngineWorkflowTestBase.Rig For(string engine)
     {
         if (!_rigs.TryGetValue(engine, out var rig)) _rigs[engine] = rig = Setup(_dir.File(engine));
         return rig;
@@ -29,7 +29,7 @@ public sealed class EngineWorkflowRigs : IDisposable
         _dir.Dispose();
     }
 
-    private NativeEngineWorkflowTests.Rig Setup(string root)
+    private NativeEngineWorkflowTestBase.Rig Setup(string root)
     {
         var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
@@ -48,13 +48,14 @@ public sealed class EngineWorkflowRigs : IDisposable
     }
 }
 
-/// <summary>The introspection workflows through a real IDA and a real Ghidra: batch decompilation, the dossier's pseudocode.</summary>
-[Trait("Speed", "Slow")]
-public sealed class NativeEngineWorkflowTests(ITestOutputHelper output, EngineWorkflowRigs rigs) : IClassFixture<EngineWorkflowRigs>
+/// <summary>
+/// The introspection workflows through a real engine on the class's shared rig.
+/// </summary>
+public abstract class NativeEngineWorkflowTestBase(ITestOutputHelper output, EngineWorkflowRigs rigs)
 {
     public sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeCodeTools Tools, NativeAnalysisTools Analysis, NativeEngineService Engines, string Sample);
 
-    private async Task BatchDecompiles(string engine)
+    private protected async Task BatchDecompiles(string engine)
     {
         var rig = rigs.For(engine);
         var path = rig.Sample;
@@ -77,7 +78,7 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output, EngineWo
         PerfBudget.Time($"engines/cached-single-decompile/{engine}", single, TimeSpan.FromSeconds(2), output);
     }
 
-    private async Task DossierPseudocode(string engine)
+    private protected async Task DossierPseudocode(string engine)
     {
         var rig = rigs.For(engine);
         var path = rig.Sample;
@@ -90,7 +91,7 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output, EngineWo
         Assert.Contains("== callees (", text);
     }
 
-    private async Task TraceThrough(string engine)
+    private protected async Task TraceThrough(string engine)
     {
         var rig = rigs.For(engine);
         var path = rig.Sample;
@@ -102,12 +103,18 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output, EngineWo
         Assert.Matches($@"Note: {engine} answered [1-9]\d* slices?; ", text);
         Assert.Contains("argument", text);
     }
+}
 
+/// <summary>
+/// The introspection workflows through a real IDA: batch decompilation, the
+/// dossier's pseudocode.
+/// </summary>
+[Trait("Speed", "Slow")]
+public sealed class NativeEngineWorkflowTests(ITestOutputHelper output, EngineWorkflowRigs rigs)
+    : NativeEngineWorkflowTestBase(output, rigs), IClassFixture<EngineWorkflowRigs>
+{
     [IdaFact]
     public Task Trace_through_IDA_microcode() => TraceThrough("ida");
-
-    [GhidraFact]
-    public Task Trace_through_Ghidra_pcode() => TraceThrough("ghidra");
 
     [IdaFact]
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
@@ -115,6 +122,18 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output, EngineWo
 
     [IdaFact]
     public Task Dossier_pseudocode_through_IDA() => DossierPseudocode("ida");
+}
+
+/// <summary>
+/// The introspection workflows through a real Ghidra: batch decompilation, the
+/// dossier's pseudocode.
+/// </summary>
+[Trait("Speed", "Slow")]
+public sealed class NativeEngineWorkflowGhidraTests(ITestOutputHelper output, EngineWorkflowRigs rigs)
+    : NativeEngineWorkflowTestBase(output, rigs), IClassFixture<EngineWorkflowRigs>
+{
+    [GhidraFact]
+    public Task Trace_through_Ghidra_pcode() => TraceThrough("ghidra");
 
     [GhidraFact]
     public Task Dossier_pseudocode_through_Ghidra() => DossierPseudocode("ghidra");

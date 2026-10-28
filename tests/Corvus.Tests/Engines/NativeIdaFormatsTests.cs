@@ -108,26 +108,6 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
         Assert.True(found >= methods.Count * 0.85); // IDA alone misses starts reached only through method-pointer tables (92.5% on an engine 2022 build)
     }
 
-    /// <summary>Ghidra on the same ELF and Mach-O libraries: loaded at our image base, with functions at the declared starts.</summary>
-    [GhidraFact]
-    [Trait("Speed", "Slow")]
-    public async Task Ghidra_loads_ELF_and_MachO_at_the_image_model_base()
-    {
-        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = _dir.File("ghidra") });
-        _owned.Add(provider);
-        foreach (var path in new[] { NativeFixtures.LinuxArm64DbgShim, NativeFixtures.OsxArm64DbgShim })
-        {
-            var image = NativeImageLoader.Open(path);
-            await using var s = await provider.OpenAsync(path, null, new NativeOpenOptions { Symbols = SymbolMode.Off });
-            Assert.Equal((NativeArch.Arm64, image.ImageBase), (s.Arch, s.ImageBase));
-            var starts = (await s.ListFunctionsAsync()).Select(f => f.StartRva).ToHashSet();
-            var declared = image.DeclaredFunctions.Where(d => d.Source is DeclaredSource.Unwind or DeclaredSource.FunctionStarts).Select(d => d.Rva).Distinct().ToList();
-            int found = declared.Count(starts.Contains);
-            output.WriteLine($"Ghidra {Path.GetFileName(path)}: base 0x{s.ImageBase:X}, {starts.Count} functions; {found} of {declared.Count} declared starts");
-            Assert.True(found >= declared.Count * 0.9, $"{found} of {declared.Count}");
-        }
-    }
-
     [IdaFact]
     [Trait("Speed", "Slow")]
     public async Task Universal_slice_opens_as_a_thin_file()
@@ -145,5 +125,41 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
         var session = await engines.Session(native, "ida", null, default);
         Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(arm64)), session.Sha256);
         Assert.Equal((NativeArch.Arm64, 0UL), (session.Arch, session.ImageBase));
+    }
+}
+
+/// <summary>Ghidra on ARM ELF and Mach-O libraries.</summary>
+public sealed class NativeGhidraFormatsTests(ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly List<IDisposable> _owned = [];
+
+    public void Dispose()
+    {
+        foreach (var d in _owned) d.Dispose();
+        _dir.Dispose();
+    }
+
+    /// <summary>
+    /// Ghidra on the IDA tests' ELF and Mach-O libraries: loaded at our image
+    /// base, with functions at the declared starts.
+    /// </summary>
+    [GhidraFact]
+    [Trait("Speed", "Slow")]
+    public async Task Ghidra_loads_ELF_and_MachO_at_the_image_model_base()
+    {
+        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = _dir.File("ghidra") });
+        _owned.Add(provider);
+        foreach (var path in new[] { NativeFixtures.LinuxArm64DbgShim, NativeFixtures.OsxArm64DbgShim })
+        {
+            var image = NativeImageLoader.Open(path);
+            await using var s = await provider.OpenAsync(path, null, new NativeOpenOptions { Symbols = SymbolMode.Off });
+            Assert.Equal((NativeArch.Arm64, image.ImageBase), (s.Arch, s.ImageBase));
+            var starts = (await s.ListFunctionsAsync()).Select(f => f.StartRva).ToHashSet();
+            var declared = image.DeclaredFunctions.Where(d => d.Source is DeclaredSource.Unwind or DeclaredSource.FunctionStarts).Select(d => d.Rva).Distinct().ToList();
+            int found = declared.Count(starts.Contains);
+            output.WriteLine($"Ghidra {Path.GetFileName(path)}: base 0x{s.ImageBase:X}, {starts.Count} functions; {found} of {declared.Count} declared starts");
+            Assert.True(found >= declared.Count * 0.9, $"{found} of {declared.Count}");
+        }
     }
 }
