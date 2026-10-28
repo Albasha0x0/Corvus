@@ -95,6 +95,19 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void An_extracted_file_is_marked_as_from_the_internet_zone_on_ntfs()
+    {
+        var root = Directory.CreateDirectory(_dir.File("root")).FullName;
+        if (!OperatingSystem.IsWindows() || new DriveInfo(root).DriveFormat != "NTFS") return;
+        var path = Blob.WriteUnique(root, "a.dll", Bytes("x"));
+        Assert.Contains("ZoneId=3", File.ReadAllText(path + ":" + Blob.ZoneStream));
+        // A repeat write of the same content returns the file, still marked.
+        File.Delete(path + ":" + Blob.ZoneStream);
+        Assert.Equal(path, Blob.WriteUnique(root, "a.dll", Bytes("x")));
+        Assert.Contains("ZoneId=3", File.ReadAllText(path + ":" + Blob.ZoneStream));
+    }
+
+    [Fact]
     public void Traversal_IsRefused()
     {
         foreach (var relative in new[] { "../escape.bin", "a/../../escape.bin", Path.Combine(Path.GetTempPath(), "abs.bin") })

@@ -307,7 +307,10 @@ public static class Blob
         catch (FileNotFoundException) { return false; }
     }
 
-    /// <summary>Writes an extracted file to a unique path under root, not flushed to disk; never overwrites a different file.</summary>
+    /// <summary>
+    /// Writes an extracted file to a unique path under root, not flushed to disk, marked as from the Internet zone on
+    /// Windows; never overwrites a different file.
+    /// </summary>
     public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes)
     {
         var path = UnderRoot(root, relative);
@@ -316,12 +319,26 @@ public static class Blob
         var ext = Path.GetExtension(path);
         for (int i = 2; ; i++)
         {
-            try { return SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false, flush: false); }
+            try { return MarkInternetZone(SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false, flush: false)); }
             catch (ToolError ex) when (ex.Code == ErrorCode.Conflict)
             {
-                if (SameContent(path, bytes)) return path;
+                if (SameContent(path, bytes)) return MarkInternetZone(path);
             }
             path = Path.Combine(dir, $"{stem}_{i}{ext}");
         }
+    }
+
+    /// <summary>The name of the alternate data stream Windows reads a file's security zone from.</summary>
+    public const string ZoneStream = "Zone.Identifier";
+
+    /// <summary>Writes ZoneId=3 to the file's <see cref="ZoneStream"/> on Windows and returns <paramref name="path"/>.</summary>
+    private static string MarkInternetZone(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return path;
+        try { File.WriteAllText(path + ":" + ZoneStream, "[ZoneTransfer]\r\nZoneId=3\r\n"); }
+        // A volume without alternate data streams (FAT, some shares) keeps the
+        // file unmarked.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException) { }
+        return path;
     }
 }

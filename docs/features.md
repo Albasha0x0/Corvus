@@ -338,6 +338,7 @@ Untrusted input:
 - Output stays inside the output directory. `..`, rooted and drive parts are dropped; device names get a `_` prefix.
 - Runnable extensions (`.exe`, `.bat`, `.ps1`, `.lnk`, ...) get a `.bin` suffix. `.dll` is kept.
 - Shell-parsed files (`.url`, `.library-ms`, `desktop.ini`, `.inf`, ...) get a `.bin` suffix.
+- On Windows, extracted files carry a `Zone.Identifier` stream with `ZoneId=3`.
 - A corrupt entry is skipped with a note. A corrupt container fails with an error.
 - Limits: 512 MB per item; 4 GB and 20,000 files per extraction.
 - Expansion limit: past 256 MiB extracted, one call's output stops at 2,000 times its input (`CORVUS_MAX_EXPANSION`).
