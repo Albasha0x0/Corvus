@@ -44,7 +44,12 @@ public static partial class PackageReview
             {
                 var target = Resolve(root, run);
                 if (!files.Has(target) && files.Has(target + ".js")) target += ".js";
-                if (files.Text(target) is { } code) findings.AddRange(Scan(target, InstallCode(files, root, target, code), install: true, ct, notRead: files.NotRead));
+                if (files.Text(target) is { } code)
+                {
+                    var (joined, chain) = InstallCode(files, root, target, code);
+                    findings.AddRange(Scan(target, joined, install: true, ct, notRead: files.NotRead)
+                        .Select(f => chain == null ? f : f with { Detail = $"{f.Detail} (install code {chain})" }));
+                }
                 else if (files.Has(target) && files.Bytes(target) == null) notes.Add($"{script.Name} runs {run}, which was not read (see partial)");
                 else notes.Add($"{script.Name} runs {run}, which the package does not hold");
             }
@@ -253,27 +258,25 @@ public static partial class PackageReview
     private static readonly Regex NodeEval = R(@"\bnode(?:\.exe)?\s+(?:-e|--eval|-p|--print)\b");
     private static readonly Regex RequireLiteral = R(@"\brequire\(\s*\\?['""`](\.{1,2}/[^'""`\\]+)\\?['""`]\s*\)");
 
-    /// <summary>Install-time code joined with the package files it loads by literal path, two levels deep.</summary>
-    private static string InstallCode(PackageFiles files, string root, string target, string code)
+    /// <summary>
+    /// Install-time code joined with the package files it loads by literal
+    /// path, within the reach budget.
+    /// </summary>
+    private static (string Code, string? Chain) InstallCode(PackageFiles files, string root, string target, string code) =>
+        Reach(files, target, code, (path, text) => LoadedModules(files, root, path, text));
+
+    /// <summary>
+    /// The package files a script loads by literal path, beside it or at the
+    /// root.
+    /// </summary>
+    private static IEnumerable<string> LoadedModules(PackageFiles files, string root, string path, string code)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal) { target };
-        var text = new System.Text.StringBuilder(code);
-        var queue = new Queue<(string Path, string Code, int Depth)>([(target, code, 0)]);
-        while (queue.TryDequeue(out var item))
+        foreach (Match m in LocalScript.Matches(code))
         {
-            if (item.Depth >= 2) continue;
-            foreach (Match m in LocalScript.Matches(item.Code))
-            {
-                var rel = m.Groups[1].Value;
-                // Runners start small scripts; a bundled CLI's chunks over 64 KiB are scanned as loaded code.
-                var found = new[] { Resolve(Folder(item.Path), rel), Resolve(root, rel) }.SelectMany(c => new[] { c, c + ".js", c + "/index.js" })
-                    .FirstOrDefault(c => files.Has(c) && files.Size(c) <= 64 << 10);
-                if (found == null || seen.Count >= 8 || !seen.Add(found) || files.Text(found) is not { } more) continue;
-                text.Append('\n').Append(more);
-                queue.Enqueue((found, more, item.Depth + 1));
-            }
+            var rel = m.Groups[1].Value;
+            if (new[] { Resolve(Folder(path), rel), Resolve(root, rel) }.SelectMany(c => new[] { c, c + ".js", c + "/index.js" }).FirstOrDefault(files.Has) is { } found)
+                yield return found;
         }
-        return text.ToString();
     }
 
     private static readonly Regex LocalScript = R(@"['""`](\.{1,2}/[^'""`\s]+|[\w@.-]+(?:/[\w@.-]+)*\.(?:c|m)?js)['""`]");

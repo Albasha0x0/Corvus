@@ -1209,6 +1209,51 @@ public static partial class PackageReview
     private static ReadOnlySpan<char> FromCurrentFolder(ReadOnlySpan<char> path) =>
         path is ['.', '\\' or '/', ..] ? path[1..].TrimStart("\\/") : path;
 
+    private const int MaxReachDepth = 8, MaxReachFiles = 32;
+    private const long MaxReachBytes = 16L << 20;
+
+    /// <summary>
+    /// Code joined with each package file it loads, read whole, within the
+    /// reach budget; Chain names the load paths, null when nothing is loaded.
+    /// </summary>
+    internal static (string Code, string? Chain) Reach(PackageFiles files, string start, string code, Func<string, string, IEnumerable<string>> loads)
+    {
+        var parent = new Dictionary<string, string?>(StringComparer.Ordinal) { [start] = null };
+        var reached = new List<string> { start };
+        var text = new System.Text.StringBuilder(code);
+        long bytes = code.Length;
+        var queue = new Queue<(string Path, string Code, int Depth)>([(start, code, 0)]);
+        while (queue.TryDequeue(out var item))
+            foreach (var found in loads(item.Path, item.Code))
+            {
+                if (!parent.TryAdd(found, item.Path)) continue;
+                var stop = item.Depth + 1 > MaxReachDepth ? $"past {MaxReachDepth} hops"
+                    : reached.Count >= MaxReachFiles ? $"past {MaxReachFiles} files"
+                    : bytes + files.Size(found) > MaxReachBytes ? $"past {MaxReachBytes >> 20} MiB" : null;
+                if (stop != null)
+                {
+                    files.NotRead.Add($"{found} (loaded by {item.Path}; the load chain from {start} stopped {stop})");
+                    continue;
+                }
+                // An unreadable file is already in the not-read list.
+                if (files.Text(found) is not { } more) continue;
+                reached.Add(found);
+                bytes += more.Length;
+                text.Append('\n').Append(more);
+                queue.Enqueue((found, more, item.Depth + 1));
+            }
+        if (reached.Count == 1) return (text.ToString(), null);
+        // Each file the chain ends at, named with the files that load it.
+        var loaders = parent.Where(p => reached.Contains(p.Key)).Select(p => p.Value).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var chains = reached.Where(r => !loaders.Contains(r)).Select(leaf =>
+        {
+            var path = new List<string>();
+            for (string? at = leaf; at != null; at = parent[at]) path.Insert(0, at);
+            return string.Join(" > ", path);
+        });
+        return (text.ToString(), $"loads {string.Join("; ", chains)}");
+    }
+
     /// <summary>Findings in the entry files, then noteworthy findings only in other scripts within a bound;
     /// <paramref name="extension"/> adds the editor extension checks to every file read.</summary>
     internal static IEnumerable<PackageFinding> ScanLoaded(PackageFiles files, string root, IEnumerable<string> entries, CancellationToken ct, bool extension = false)

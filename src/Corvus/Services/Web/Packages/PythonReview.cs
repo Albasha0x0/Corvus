@@ -85,7 +85,9 @@ public static partial class PackageReview
                 scripts.Add(new PackageScript("setup.py", "python setup.py (run by pip to build the package)", true));
                 if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)", RegexOptions.NonBacktracking))
                     findings.Add(new PackageFinding("package/setup-cmdclass", "review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
-                findings.AddRange(Scan(root + "setup.py", SetupCode(files, root, setup), install: true, ct));
+                var (joined, chain) = SetupCode(files, root, setup);
+                findings.AddRange(Scan(root + "setup.py", joined, install: true, ct, notRead: files.NotRead)
+                    .Select(f => chain == null ? f : f with { Detail = $"{f.Detail} (install code {chain})" }));
                 if (AbsentImportCall(files, root, setup) is { } absent) findings.Add(absent);
                 foreach (Match m in LocalImport.Matches(setup))
                 {
@@ -337,21 +339,26 @@ public static partial class PackageReview
         yield return module;
     }
 
-    /// <summary>setup.py with the package's own modules it imports (pip runs them too), up to eight small files.</summary>
-    private static string SetupCode(PackageFiles files, string root, string setup)
+    /// <summary>
+    /// setup.py joined with the package's own modules it imports, directly or
+    /// through other modules (pip runs them too), within the reach budget.
+    /// </summary>
+    private static (string Code, string? Chain) SetupCode(PackageFiles files, string root, string setup) =>
+        Reach(files, root + "setup.py", setup, (_, code) => LocalImports(files, root, code));
+
+    /// <summary>
+    /// The package's own module files an import line names: the module, its
+    /// package __init__ and each imported submodule.
+    /// </summary>
+    private static IEnumerable<string> LocalImports(PackageFiles files, string root, string code)
     {
-        var text = new System.Text.StringBuilder(setup);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (Match m in LocalImport.Matches(setup))
+        foreach (Match m in LocalImport.Matches(code))
         {
             var module = (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[3].Value).Replace('.', '/');
             var names = m.Groups[2].Success ? m.Groups[2].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) : [];
-            var candidates = names.Select(n => $"{root}{module}/{n}.py").Concat([$"{root}{module}.py", $"{root}{module}/__init__.py"]);
-            foreach (var path in candidates)
-                if (seen.Count < 8 && files.Has(path) && files.Size(path) <= 64 << 10 && seen.Add(path) && files.Text(path) is { } code)
-                    text.Append('\n').Append(code);
+            foreach (var path in names.Select(n => $"{root}{module}/{n}.py").Concat([$"{root}{module}.py", $"{root}{module}/__init__.py"]))
+                if (files.Has(path)) yield return path;
         }
-        return text.ToString();
     }
 
     private static readonly Regex TopLevelCall = R(@"(?m)^([A-Za-z_]\w*)(?:\.\w+)*[ \t]*\(");

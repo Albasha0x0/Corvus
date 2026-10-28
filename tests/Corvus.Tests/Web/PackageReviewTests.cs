@@ -188,6 +188,26 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_payload_three_requires_from_a_lifecycle_script_keeps_its_level_and_names_the_chain()
+    {
+        var r = Review(Tgz("hops.tgz", ("package/package.json", Preinstall),
+            ("package/index.js", "require('./a');"), ("package/a.js", "require('./b');"), ("package/b.js", "require('./lib/c');"), ("package/lib/c.js", HiddenUrl)));
+        var f = HiddenUrlFinding(r);
+        Assert.Equal(("noteworthy", "package/index.js"), (f.Level, f.Path));
+        Assert.Contains("package/index.js > package/a.js > package/b.js > package/lib/c.js", f.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_require_chain_past_the_hop_budget_is_reported_as_partial()
+    {
+        var files = new List<(string, string)> { ("package/package.json", Preinstall), ("package/index.js", "require('./m1');") };
+        for (int i = 1; i < 10; i++) files.Add(($"package/m{i}.js", $"require('./m{i + 1}');"));
+        files.Add(("package/m10.js", HiddenUrl));
+        var r = Review(Tgz("deep.tgz", [.. files]));
+        Assert.Contains("package/m9.js (loaded by package/m8.js; the load chain from package/index.js stopped past 8 hops)", r.Partial, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Each_package_finding_names_a_rule_of_the_table_and_reads_as_the_shared_record()
     {
         var r = Review(Tgz("internal-auth-1.0.0.tgz",
