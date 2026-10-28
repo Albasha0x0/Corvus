@@ -245,13 +245,19 @@ public static partial class PackageReview
     ];
 
     /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
-    internal static IEnumerable<PackageFinding> Scan(string path, string text, bool install, CancellationToken ct, bool entry = false, bool peel = true)
+    /// <param name="notRead">Names a budget that stopped peeling; null: unnamed.</param>
+    internal static IEnumerable<PackageFinding> Scan(string path, string text, bool install, CancellationToken ct, bool entry = false, bool peel = true,
+        List<string>? notRead = null)
     {
         var plain = text;
         var language = ScriptReader.Detect(path, text);
-        if (peel && language != null && text.Length <= 4 << 20 && Peelable(text.Length > 200_000 ? text[..200_000] : text))
+        bool transformedSigns = peel && language != null && Peelable(text);
+        if (transformedSigns && text.Length > MaxReadText)
+            notRead?.Add($"{path} (over {MaxReadText >> 20} MiB: layers not peeled)");
+        else if (transformedSigns)
         {
-            var reading = ScriptReader.Read(text, language, ct, milliseconds: ScriptBudget.OverviewMilliseconds);
+            var reading = ScriptReader.Read(text, language!, ct, milliseconds: ScriptBudget.OverviewMilliseconds);
+            if (!reading.Complete) notRead?.Add($"{path} (peeling stopped at the time budget)");
             // Decoded layers and obfuscator machinery count; ordinary eval does not.
             bool transformed = reading.Recovered.Any(r => r is "obfuscator.io string array" or "control-flow flattening")
                                || reading.Layers.Any(l => l.Via.Contains(" of ", StringComparison.Ordinal) || l.Via.Contains("EncodedCommand", StringComparison.Ordinal));
@@ -272,7 +278,7 @@ public static partial class PackageReview
             var level = rule.Level switch
             {
                 Paired => context ? "noteworthy" : "review",
-                Small => plain.Length <= 64 << 10 ? "noteworthy" : "review",
+                Small => CodeSize(text) <= 64 << 10 ? "noteworthy" : "review",
                 _ => rule.Level,
             };
             // A pipe-to-shell of a vendor's documented installer is review; any other source stays noteworthy.
@@ -576,6 +582,22 @@ public static partial class PackageReview
         + $@"|\bopen\s*\(\s*['""](?<p>{CiPath})['""]\s*,\s*(?:mode\s*=\s*)?['""][wax]b?\+?['""]"
         + $@"|\bPath\s*\(\s*['""](?<p>{CiPath})['""]\s*\)\s*\.(?:write_text|write_bytes|open\(\s*['""][wax])"
         + $@"|\bshutil\.copy(?:file|2)?\s*\([^,\n]{{1,200}},\s*['""](?<p>{CiPath})['""]");
+
+    /// <summary>Text longer than this is matched as written, without peeling.</summary>
+    private const int MaxReadText = 4 << 20;
+
+    /// <summary>Code characters; whitespace and whole-line comments do not count.</summary>
+    private static int CodeSize(string text)
+    {
+        int size = 0;
+        foreach (var line in text.AsSpan().EnumerateLines())
+        {
+            var code = line.Trim();
+            if (code.StartsWith("//") || code.StartsWith("#") || code.StartsWith("*") || code.StartsWith("/*")) continue;
+            foreach (var c in code) if (!char.IsWhiteSpace(c)) size++;
+        }
+        return size;
+    }
 
     // A binary installer runs its own executable; these start a shell or outlive the installer.
     private static readonly Regex Launch = R(@"\bdetached\s*:\s*true|\.unref\(\)|\b(?:spawn|exec|execSync|execFile)\s*\(\s*['""`](?:cmd(?:\.exe)?|powershell(?:\.exe)?|/bin/(?:ba)?sh|sh|bash|start)\b|\bshell\s*=\s*True|\bos\.(?:system|startfile|popen)\s*\(|\bsubprocess\.Popen\s*\(");
@@ -1195,7 +1217,7 @@ public static partial class PackageReview
         foreach (var entry in entryFiles)
             if (files.Text(entry) is { } code)
             {
-                foreach (var f in Scan(entry, code, install: false, ct, entry: true))
+                foreach (var f in Scan(entry, code, install: false, ct, entry: true, notRead: files.NotRead))
                     if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard" or "persistence") yield return f;
                 if (extension && Sideload(entry, code) is { } s) yield return s;
             }
@@ -1207,7 +1229,7 @@ public static partial class PackageReview
         foreach (var other in Capped(files, [.. sources.Where(p => files.Size(p) <= MaxScannedSourceBytes)]))
             if (files.Text(other) is { } code)
             {
-                foreach (var f in Scan(other, code, install: false, ct, entry: Folder(other) == root, peel: false))
+                foreach (var f in Scan(other, code, install: false, ct, entry: Folder(other) == root, peel: false, notRead: files.NotRead))
                     if (f.Level == "noteworthy") yield return f;
                 if (extension && Sideload(other, code) is { } s) yield return s;
             }

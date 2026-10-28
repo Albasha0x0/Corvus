@@ -50,6 +50,23 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("host details", StringComparison.Ordinal));
     }
 
+    private const string Preinstall = """{"name":"layout-check","version":"1.0.0","scripts":{"preinstall":"node index.js"}}""";
+
+    // A base64 URL is noteworthy only in code that runs at install.
+    private const string HiddenUrl = "require('https').get(Buffer.from('aHR0cHM6Ly9leGFtcGxlLmNvbS94','base64').toString());";
+
+    // Findings are ordered noteworthy first, so this is the strongest level.
+    private static PackageFinding HiddenUrlFinding(PackageReport r) => r.Findings.First(f => f.Rule == "package/hidden-url");
+
+    [Fact]
+    public void Padding_an_install_script_past_64_KiB_keeps_its_level()
+    {
+        var padding = string.Concat(Enumerable.Repeat("// layout padding line\n\n", 16_000));
+        var r = Review(Tgz("padded.tgz", ("package/package.json", Preinstall), ("package/index.js", padding + HiddenUrl)));
+        Assert.Equal("noteworthy", HiddenUrlFinding(r).Level);
+        Assert.Null(r.Partial);
+    }
+
     [Fact]
     public void A_preinstall_sending_a_destructured_os_hostname_is_noteworthy()
     {

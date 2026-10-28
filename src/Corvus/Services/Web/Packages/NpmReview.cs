@@ -44,7 +44,7 @@ public static partial class PackageReview
             {
                 var target = Resolve(root, run);
                 if (!files.Has(target) && files.Has(target + ".js")) target += ".js";
-                if (files.Text(target) is { } code) findings.AddRange(Scan(target, InstallCode(files, root, target, code), install: true, ct));
+                if (files.Text(target) is { } code) findings.AddRange(Scan(target, InstallCode(files, root, target, code), install: true, ct, notRead: files.NotRead));
                 else if (files.Has(target) && files.Bytes(target) == null) notes.Add($"{script.Name} runs {run}, which was not read (see partial)");
                 else notes.Add($"{script.Name} runs {run}, which the package does not hold");
             }
