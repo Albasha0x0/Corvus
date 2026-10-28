@@ -1,5 +1,45 @@
 # Release notes
 
+## 2.7.1
+
+### Highlights
+
+- Paths in call arguments and inside analyzed files open only files on this machine.
+- Outputs are refused in the server's folders, start files, repositories, SSH and agent configuration.
+- A worker crash fails only the call that caused it; the others run again.
+- Package reviews name every file they did not read, and results report partial coverage.
+
+### Breaking changes
+
+- **Remote paths:** Before: a UNC path, `//host` path or network drive in a call argument was opened. After: refused with `invalid_argument`; `--allow-remote-paths` opens them again. [45a64473](https://github.com/Albasha0x0/Corvus/commit/45a64473)
+- **Outputs:** Before: `outputPath=~/.ssh/x.dll` or an output in a `.git` folder was written. After: refused with `invalid_argument` naming the place. [d0495a18](https://github.com/Albasha0x0/Corvus/commit/d0495a18)
+- **corvus.json:** Before: program, library and URL locators applied from any readable file. After: only from a file no other account can write; `CORVUS_REPO` is refused. [6fd22914](https://github.com/Albasha0x0/Corvus/commit/6fd22914)
+
+### Changes
+
+- **Native:** capa runs on a private copy of its input and requires capa 10. [f181d9b1](https://github.com/Albasha0x0/Corvus/commit/f181d9b1)
+- **Native:** `load_pdb server=` accepts only configured symbol servers. [089d10b5](https://github.com/Albasha0x0/Corvus/commit/089d10b5)
+- **Web:** `summarize_file view=package` lists files not read in `partial`; scan tools report coverage `unknown` unless complete. [c7f0e455](https://github.com/Albasha0x0/Corvus/commit/c7f0e455)
+- **Recipes:** the Velociraptor recipe defaults to `C:\Program Files\Corvus\corvus.exe`, a folder only administrators can write. [7ff62c9a](https://github.com/Albasha0x0/Corvus/commit/7ff62c9a)
+
+### Fixes
+
+- **Session:** an evidence bundle re-runs read-only tools only. [34e90c5c](https://github.com/Albasha0x0/Corvus/commit/34e90c5c)
+- **Session:** tag characters, variation selectors and unpaired surrogates are escaped in text and structured results. [65958ea6](https://github.com/Albasha0x0/Corvus/commit/65958ea6)
+- **Mobile:** values passed to the device shell through adb are quoted. [2aff380a](https://github.com/Albasha0x0/Corvus/commit/2aff380a)
+- **Engines:** programs are never started from the current folder. [5c1eccbf](https://github.com/Albasha0x0/Corvus/commit/5c1eccbf)
+- **Engines:** a worker crash no longer fails the calls running beside it. [6b9ce07c](https://github.com/Albasha0x0/Corvus/commit/6b9ce07c)
+- **Engines:** an external tool stopped at its limit leaves nothing in the temporary folder. [6f670613](https://github.com/Albasha0x0/Corvus/commit/6f670613)
+- **Native:** paths named inside an analyzed file are reported "not opened" when remote or a device. [089d10b5](https://github.com/Albasha0x0/Corvus/commit/089d10b5)
+- **Web:** package and config readers match file text in linear time. [22d8d6c5](https://github.com/Albasha0x0/Corvus/commit/22d8d6c5)
+- **Containers:** `export_project` keeps input names out of project markup and paths. [8cf016a2](https://github.com/Albasha0x0/Corvus/commit/8cf016a2)
+- **Native:** generated C headers escape input names in comments and strings. [2fd9c804](https://github.com/Albasha0x0/Corvus/commit/2fd9c804)
+
+### In progress
+
+- Name a job memory limit when Windows sends no limit notice.
+- Set stop points and coverage on methods compiled before the JIT hook is in place.
+
 ## 2.7.0
 
 ### Highlights
