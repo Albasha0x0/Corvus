@@ -215,6 +215,22 @@ public sealed class JvmClassTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_jar_entry_that_climbs_out_is_written_under_its_root()
+    {
+        using var dir = new TempDir();
+        var jar = AndroidSamples.Save(dir, "lib.jar", ContainerFixtures.Zip(("p/Shape.class", Shape()), ("p/Shape$/../../../../escape.class", Shape())));
+        var root = Path.Combine(dir.Path, "work", "in");
+        Directory.CreateDirectory(root);
+        var entries = Corvus.Services.Mobile.JvmClasses.WithNested(jar, "p/Shape", default);
+        Assert.Equal(2, entries.Count);
+        Corvus.Services.Mobile.JavaDecompilerService.WriteClassFiles(root, entries);
+        var written = Directory.GetFiles(dir.Path, "*.class", SearchOption.AllDirectories);
+        Assert.Equal(2, written.Length);
+        Assert.All(written, f => Assert.StartsWith(root + Path.DirectorySeparatorChar, f));
+        Assert.True(File.Exists(Path.Combine(root, "p", "Shape.class")));
+    }
+
+    [Fact]
     public void Numbers_print_as_Java_does()
     {
         Assert.Equal("1.0", JavaNumbers.Double(1));

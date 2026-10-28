@@ -32,7 +32,7 @@
       "type": "boolean"
     },
     "notes": {
-      "description": "Packages: what the sources are and other notes.",
+      "description": "Renamed references; package source notes.",
       "type": "array",
       "items": {
         "type": "string"

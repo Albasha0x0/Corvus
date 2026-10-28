@@ -303,5 +303,5 @@ public sealed record ExportOutcome(
     [property: Description("Types the decompiler failed on; their files hold the error.")] IReadOnlyList<string> FailedTypes)
 {
     [Description("A previous export in the directory was replaced (overwrite=true).")] public bool Replaced { get; init; }
-    [Description("Packages: what the sources are and other notes.")] public IReadOnlyList<string>? Notes { get; init; }
+    [Description("Renamed references; package source notes.")] public IReadOnlyList<string>? Notes { get; init; }
 }

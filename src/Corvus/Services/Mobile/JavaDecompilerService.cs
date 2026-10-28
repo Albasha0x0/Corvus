@@ -64,12 +64,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             string input = Path.Combine(work, "in"), output = Path.Combine(work, "out");
             Native.Providers.PrivateFolder.Create(work);
             Directory.CreateDirectory(output);
-            foreach (var (name, bytes) in JvmClasses.WithNested(full, top, ct))
-            {
-                var file = Path.Combine(input, name.Replace('/', Path.DirectorySeparatorChar));
-                Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-                File.WriteAllBytes(file, bytes);
-            }
+            WriteClassFiles(input, JvmClasses.WithNested(full, top, ct));
             bool single = JvmClasses.IsClassFile(full);
             var args = (single ? [] : ExternalTools.Arguments(ExternalTools.JavaDecompiler2, "library", ("jar", full)))
                 .Concat(ExternalTools.Arguments(ExternalTools.JavaDecompiler2, "decompile", ("input", input), ("output", output))).ToList();
@@ -92,6 +87,13 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
             try { Directory.Delete(work, recursive: true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
+    }
+
+    /// <summary>Writes jar entries under <paramref name="root"/>; an entry path that climbs out of it is kept inside.</summary>
+    internal static void WriteClassFiles(string root, IEnumerable<(string Name, byte[] Bytes)> entries)
+    {
+        foreach (var (name, bytes) in entries)
+            SafeFile.WriteUnderRoot(root, Blob.SafeRelativePath(name, "class.class", maxParts: 64), bytes, overwrite: true, flush: false);
     }
 
     private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping)

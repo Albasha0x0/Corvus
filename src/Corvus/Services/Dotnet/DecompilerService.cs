@@ -316,6 +316,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     {
         /// <summary>A previous export in the directory was replaced.</summary>
         public bool Replaced { get; init; }
+
+        /// <summary>References written under a stub name, one line each; empty when every name was safe.</summary>
+        public IReadOnlyList<string> Renamed { get; init; } = [];
     }
 
     /// <summary>
@@ -355,7 +358,11 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         using var snapshot = workspace.Read(() => ExportSnapshot.Take(workspace, asm), ct);
         var (project, failed) = Export(snapshot, output.Staging, onProgress, ct);
         var files = output.Commit();
-        return new ExportResult(output.Final, files.Count, project == null ? null : output.ToFinal(project), failed) { Replaced = output.Replace };
+        return new ExportResult(output.Final, files.Count, project == null ? null : output.ToFinal(project), failed)
+        {
+            Replaced = output.Replace,
+            Renamed = snapshot.Names.Notes(),
+        };
     }
 
     /// <summary>Exports <paramref name="snapshot"/> into <paramref name="dir"/>: the project file (or null) and the types that failed.</summary>
@@ -391,6 +398,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 Partial = new { filesWritten = written },
             };
         }
+        RenameUnsafeReferences(dir, snapshot.Names);
         if (snapshot.Inferred != null) UseInferredFramework(dir, snapshot.Inferred);
         FixFrameworkFileReferences(dir, framework, netFramework, snapshot.References.GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => (Version?)g.Max(r => r.Version), StringComparer.OrdinalIgnoreCase));
@@ -431,6 +439,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             EntryType = module.EntryPoint?.DeclaringType?.ReflectionFullName;
             PublicKey = module.Assembly?.PublicKey is { IsNullOrEmpty: false } key ? key.Data : null;
             SearchDirectories = [.. workspace.SearchDirectories];
+            Names = new ReferenceNames(References.Select(r => r.Name).Append(AssemblyName));
         }
 
         public static ExportSnapshot Take(AssemblyWorkspace workspace, LoadedAssembly asm)
@@ -455,6 +464,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         public string? EntryType { get; }
         public byte[]? PublicKey { get; }
         public string[] SearchDirectories { get; }
+        public ReferenceNames Names { get; }
 
         /// <summary><see cref="AssemblyWorkspace.LocateReference"/> under the shared lock, reduced to what it yields without the lock.</summary>
         public T Locate<T>(string name, Version? version, byte[]? token, string? requester, bool netFramework, string? framework,
@@ -518,7 +528,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             var (name, image) = snapshot.Locate(reference.Name, reference.Version, reference.PublicKeyToken, snapshot.FilePath,
                 snapshot.ResolvesAsNetFramework, snapshot.RequesterFramework, t => t?.Loaded is { } loaded
                     ? (loaded.FilePath, loaded.GetPEFile().Reader.GetEntireImage().GetContent().ToArray())
-                    : (t?.File ?? $"{t?.EmbeddedIn ?? "stub"}!{reference.Name}.dll", t?.Bytes), ct);
+                    : (t?.File ?? $"{t?.EmbeddedIn ?? "stub"}!{snapshot.Names.Safe(reference.Name)}.dll", t?.Bytes), ct);
             ICSharpCode.Decompiler.Metadata.MetadataFile? file = null;
             try
             {
@@ -555,6 +565,80 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
+    /// Reference names as the project file and <c>lib\</c> use them: a name unsafe in an XML comment, an MSBuild item
+    /// or a file name gets a stub name, recorded for the result.
+    /// </summary>
+    private sealed class ReferenceNames(IEnumerable<string> taken)
+    {
+        private readonly Dictionary<string, string> _renamed = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _original = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _taken = new(taken.Where(IsSafe), StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>False for a name holding "--", "..", quotes, markup, path, MSBuild or control characters, or a device name.</summary>
+        public static bool IsSafe(string name) =>
+            name.Length is > 0 and <= 200 && !name.Contains("--", StringComparison.Ordinal) && !name.Contains("..", StringComparison.Ordinal)
+            && !name.Any(c => char.IsControl(c) || "\"'<>&/\\:;%$@*?|".Contains(c)) && name.Trim(' ', '.') == name && !SafeFile.IsReservedName(name);
+
+        /// <summary>The name itself when safe, else its stub name: letters, digits, '_', single '.' and '-'.</summary>
+        public string Safe(string name)
+        {
+            if (IsSafe(name)) return name;
+            lock (_renamed)
+            {
+                if (_renamed.TryGetValue(name, out var known)) return known;
+                var chars = new string(name.Select(c => char.IsLetterOrDigit(c) || c is '_' or '.' or '-' ? c : '_').ToArray());
+                var stem = System.Text.RegularExpressions.Regex.Replace(chars, @"\.{2,}|-{2,}", "_").Trim('.', '-');
+                stem = stem.Length == 0 ? "Reference" : stem.Length > 100 ? stem[..100] : stem;
+                if (SafeFile.IsReservedName(stem)) stem = "_" + stem;
+                var safe = stem;
+                for (int i = 2; !_taken.Add(safe); i++) safe = $"{stem}_{i}";
+                _renamed[name] = safe;
+                _original[safe] = name;
+                return safe;
+            }
+        }
+
+        /// <summary>The original of a stub name; any other name unchanged.</summary>
+        public string Original(string name)
+        {
+            lock (_renamed) return _original.GetValueOrDefault(name, name);
+        }
+
+        /// <summary>One line per renamed reference, ordered by stub name.</summary>
+        public IReadOnlyList<string> Notes()
+        {
+            var quote = new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+            lock (_renamed)
+                return [.. _renamed.OrderBy(r => r.Value, StringComparer.OrdinalIgnoreCase)
+                    .Select(r => $"Reference {System.Text.Json.JsonSerializer.Serialize(r.Key, quote)} written as {r.Value}: the name is unsafe in a project file.")];
+        }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex ReferenceInclude = new("<Reference Include=\"([^\"]*)\"");
+
+    /// <summary>The assembly name of a decoded Include value: a full name loses its version, culture and key.</summary>
+    private static string IncludeName(string value) => value.Contains(", Version=", StringComparison.Ordinal) ? value.Split(',')[0] : value;
+
+    /// <summary>The original names of the project's references.</summary>
+    private static HashSet<string> ReferencedNames(string text, ReferenceNames names) =>
+        ReferenceInclude.Matches(text).Select(m => names.Original(IncludeName(System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Writes the stub name of each reference the engine wrote with an unsafe name.</summary>
+    private static void RenameUnsafeReferences(string dir, ReferenceNames names)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null) return;
+        var text = File.ReadAllText(project);
+        var renamed = ReferenceInclude.Replace(text, m =>
+        {
+            var name = IncludeName(System.Net.WebUtility.HtmlDecode(m.Groups[1].Value));
+            return ReferenceNames.IsSafe(name) ? m.Value : $"<Reference Include=\"{names.Safe(name)}\"";
+        });
+        if (renamed != text) File.WriteAllText(project, renamed);
+    }
+
+    /// <summary>
     /// Writes embedded (e.g. Costura-wrapped) assemblies and stubs for unresolved references to <c>lib\</c>, points
     /// the engine's <c>Host!Name.dll</c> hint paths there, and references the remaining wrapped assemblies, which
     /// the compiler needs as transitive dependencies.
@@ -581,21 +665,18 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         if (embedded.Count == 0 && stubs.Count == 0) return;
 
         var text = File.ReadAllText(project);
-        var lib = Path.Combine(dir, "lib");
-        Directory.CreateDirectory(lib);
         foreach (var (name, bytes) in embedded.Concat(stubs))
-            File.WriteAllBytes(Path.Combine(lib, name + ".dll"), bytes);
+            SafeFile.WriteUnderRoot(dir, Path.Combine("lib", asm.Names.Safe(name) + ".dll"), bytes, overwrite: true);
         if (stubs.Count > 0)
-            text = text.Replace("</Project>", "  <!-- " + string.Join(", ", stubs.Keys.Order(StringComparer.OrdinalIgnoreCase)) +
+            text = text.Replace("</Project>", "  <!-- " + string.Join(", ", stubs.Keys.Select(asm.Names.Safe).Order(StringComparer.OrdinalIgnoreCase)) +
                                               (stubs.Count == 1 ? " was" : " were") + " not found at export: lib\\ holds stand-ins whose methods throw; " +
                                               "replace them with the real files to run it. -->\n</Project>");
         // Rewrite the engine's placeholder paths for embedded references.
         text = System.Text.RegularExpressions.Regex.Replace(text, @"<HintPath>[^<]*!([^<!]+\.dll)</HintPath>",
             m => $"<HintPath>lib\\{m.Groups[1].Value}</HintPath>");
-        var referenced = System.Text.RegularExpressions.Regex.Matches(text, "<Reference Include=\"([^\"]+)\"")
-            .Select(m => m.Groups[1].Value.Split(',')[0]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var referenced = ReferencedNames(text, asm.Names);
         var extra = embedded.Keys.Where(n => !referenced.Contains(n) && !n.EndsWith(".resources", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Select(asm.Names.Safe).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .Select(n => $"    <Reference Include=\"{n}\">\n      <HintPath>lib\\{n}.dll</HintPath>\n    </Reference>").ToList();
         if (extra.Count > 0)
             text = text.Replace("</Project>", "  <ItemGroup>\n    <!-- wrapped inside the original assembly (dependencies of its dependencies) -->\n" + string.Join("\n", extra) + "\n  </ItemGroup>\n</Project>");
@@ -689,8 +770,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
         if (project == null) return;
         var text = File.ReadAllText(project);
-        var referenced = System.Text.RegularExpressions.Regex.Matches(text, "<Reference Include=\"([^\"]+)\"")
-            .Select(m => m.Groups[1].Value.Split(',')[0]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var referenced = ReferencedNames(text, asm.Names);
         var appDir = Path.GetDirectoryName(asm.FilePath);
         var queue = new Queue<(string Name, Version? Version, byte[]? Token, string From)>(
             asm.References.Select(r => (r.Name, (Version?)r.Version, r.Token, asm.FilePath)));
@@ -717,13 +797,13 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                         found = package;
                     else
                     {
-                        added.Add($"    <Reference Include=\"{refName}\" />");
+                        added.Add($"    <Reference Include=\"{asm.Names.Safe(refName)}\" />");
                         continue;
                     }
                 }
                 else found = asm.Locate(refName, refVersion, refToken, file, netFramework, framework, t => t is { Stub: null } ? t.Loaded?.FilePath ?? t.File : null, ct);
                 if (found == null || IsFrameworkFile(found)) continue;
-                added.Add($"    <Reference Include=\"{refName}\">\n      <HintPath>{System.Security.SecurityElement.Escape(Path.GetRelativePath(dir, found))}</HintPath>\n    </Reference>");
+                added.Add($"    <Reference Include=\"{asm.Names.Safe(refName)}\">\n      <HintPath>{System.Security.SecurityElement.Escape(Path.GetRelativePath(dir, found))}</HintPath>\n    </Reference>");
             }
         }
         if (added.Count == 0) return;

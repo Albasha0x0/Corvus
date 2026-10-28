@@ -66,6 +66,42 @@ public sealed class ExportProjectTests
         Assert.Empty(Directory.GetFileSystemEntries(dir.Path));
     }
 
+    [Fact]
+    public void Unsafe_reference_names_get_stub_names_and_stay_under_the_root()
+    {
+        using var dir = new TempDir();
+        var options = new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary);
+        var libs = new[] { "LibA", "LibB", "LibC" }.Select(n => Roslyn.Compile(n, $"namespace {n} {{ public class Item {{ public int Value; }} }}", options)).ToArray();
+        var app = Roslyn.Compile("App", "public class Uses { public int Sum(LibA.Item a, LibB.Item b, LibC.Item c) => a.Value + b.Value + c.Value; }",
+            options, libs.Select(l => Microsoft.CodeAnalysis.MetadataReference.CreateFromImage(l)));
+        // The references are renamed after compiling and the libraries are not written, so the export builds stubs.
+        var unsafeNames = new[] { "Quote\"Name", "Close-->Comment", @"..\..\Up" };
+        using (var module = dnlib.DotNet.ModuleDefMD.Load(app))
+        {
+            var refs = module.GetAssemblyRefs().Where(r => r.Name.String.StartsWith("Lib", StringComparison.Ordinal)).OrderBy(r => r.Name.String).ToList();
+            for (int i = 0; i < refs.Count; i++) refs[i].Name = unsafeNames[i];
+            Directory.CreateDirectory(dir.File("in"));
+            module.Write(Path.Combine(dir.Path, "in", "App.dll"));
+        }
+        using var env = new Env(Path.Combine(dir.Path, "in", "App.dll"));
+        var output = Path.Combine(dir.Path, "out", "export");
+        var result = env.Decompiler.ExportProject(env.Fixture, output, null, default);
+
+        var project = System.Xml.Linq.XDocument.Load(result.ProjectFile!);
+        var includes = project.Descendants("Reference").Select(r => (string)r.Attribute("Include")!).ToList();
+        Assert.Contains("Quote_Name", includes);
+        Assert.Contains("Close__Comment", includes);
+        Assert.Contains("____Up", includes);
+        Assert.All(includes, i => Assert.DoesNotContain("..", i));
+        Assert.All(project.Nodes().Concat(project.Descendants().SelectMany(e => e.Nodes())).OfType<System.Xml.Linq.XComment>(),
+            c => Assert.DoesNotContain("--", c.Value));
+        Assert.All(Directory.GetFiles(dir.Path, "*", SearchOption.AllDirectories).Where(f => !f.StartsWith(dir.File("in"), StringComparison.Ordinal)),
+            f => Assert.StartsWith(output + Path.DirectorySeparatorChar, f));
+        Assert.True(File.Exists(Path.Combine(output, "lib", "Quote_Name.dll")));
+        Assert.Equal(3, result.Renamed.Count);
+        Assert.Contains(result.Renamed, n => n.Contains("\"..\\\\..\\\\Up\" written as ____Up", StringComparison.Ordinal));
+    }
+
     /// <summary>A client that waits 10 s (deadline 5 s): the call answers with a partial and the export finishes in the background.</summary>
     [Fact]
     [Trait("Speed", "Slow")]

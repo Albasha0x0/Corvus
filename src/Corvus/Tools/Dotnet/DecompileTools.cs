@@ -192,7 +192,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     {
         var asm = workspace.Read(() => workspace.Get(assembly), ct);
         var r = decompiler.ExportProject(asm, outputDirectory, progress, ct, overwrite);
-        return new ExportOutcome(true, asm.Id, r.Directory, r.FileCount, r.ProjectFile, r.FailedTypes) { Replaced = r.Replaced };
+        return new ExportOutcome(true, asm.Id, r.Directory, r.FileCount, r.ProjectFile, r.FailedTypes) { Replaced = r.Replaced, Notes = r.Renamed.Count > 0 ? r.Renamed : null };
     }
 
     private async Task<ExportOutcome> ExportPackage(string path, string outputDirectory, bool overwrite, Action<int, int, string> progress, CancellationToken ct)

@@ -186,7 +186,7 @@ public static partial class AotPackages
                     throw new ToolError(ErrorCode.LimitExceeded, $"{item.Path} is {item.Entry.Length} bytes; entries up to {MaxEntryBytes} bytes are extracted");
                 var target = Path.GetFullPath(Path.Combine(destination, item.Path.Replace('/', Path.DirectorySeparatorChar)));
                 // Skip a path that escapes the folder.
-                if (!target.StartsWith(destination + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!target.StartsWith(destination + Path.DirectorySeparatorChar, InputFiles.PathComparison)) continue;
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 using var source = item.Entry.Open();
                 using var output = File.Create(target);
