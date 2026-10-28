@@ -1272,10 +1272,12 @@ public static partial class PackageReview
                     if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard" or "persistence") yield return f;
                 if (extension && Sideload(entry, code) is { } s) yield return s;
             }
-        // Code under node_modules ships with the package: it is read after the
-        // package's own.
-        var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p) && !entryFiles.Contains(p))
-            .OrderBy(p => p.Contains("node_modules/", StringComparison.Ordinal)).ThenBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();
+        var own = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
+                                         && !p.Contains("node_modules/", StringComparison.Ordinal) && !entryFiles.Contains(p))
+            .OrderBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();
+        // A node_modules file the package's own code never loads does not run,
+        // so it is neither scanned nor named as partial.
+        var sources = own.Concat(ReachedModules(files, root, [.. entryFiles, .. own]).Where(p => !entryFiles.Contains(p))).ToList();
         files.NotRead.AddRange(sources.Where(p => files.Size(p) > MaxScannedSourceBytes && files.Bytes(p) != null)
             .Select(p => $"{p} (source over {MaxScannedSourceBytes >> 20} MiB)"));
         foreach (var other in Capped(files, [.. sources.Where(p => files.Size(p) <= MaxScannedSourceBytes)]))
@@ -1287,7 +1289,27 @@ public static partial class PackageReview
             }
     }
 
-    private static readonly Regex LoadedSource = R(@"\.(?:c|m)?js$|\.(?:bat|cmd|ps1|sh)$");
+    /// <summary>
+    /// The node_modules files the given files load, directly or through other
+    /// node_modules files, in the order reached; empty when none is loaded.
+    /// </summary>
+    private static List<string> ReachedModules(PackageFiles files, string root, List<string> start)
+    {
+        var seen = new HashSet<string>(start, StringComparer.Ordinal);
+        var reached = new List<string>();
+        var queue = new Queue<string>(start);
+        while (queue.TryDequeue(out var path))
+            if (files.Text(path) is { } code)
+                foreach (var found in LoadedModules(files, root, path, code))
+                    if (found.Contains("node_modules/", StringComparison.Ordinal) && seen.Add(found))
+                    {
+                        reached.Add(found);
+                        queue.Enqueue(found);
+                    }
+        return reached;
+    }
+
+    private static readonly Regex LoadedSource =R(@"\.(?:c|m)?js$|\.(?:bat|cmd|ps1|sh)$");
 
     /// <summary>Signs of a transformation layer worth reading through: string arrays, eval / exec of decoded text, packers, encoded commands.</summary>
     private static readonly Regex Transformed = R(@"\b_0x[0-9a-f]{4,6}\b.{0,200}\b_0x[0-9a-f]{4,6}\b|\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|decodeURIComponent|function\s*\(p,a,c,k)|\bFunction\s*\(\s*(?:atob|unescape|String\.fromCharCode)|(?i:\b(?:iex|invoke-expression)\b|-enc(?:odedcommand)?\s+[A-Za-z0-9+/]{40})|\bExecute(?:Global)?\s*\(?\s*(?:Chr|StrReverse)");
