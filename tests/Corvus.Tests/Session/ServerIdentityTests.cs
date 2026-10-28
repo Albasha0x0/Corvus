@@ -23,6 +23,9 @@ public class ServerIdentityTests
         Assert.Equal("dnx", ServerIdentity.ClassifyInstall(Path.Combine(home, ".nuget", "packages", "corvusre", "1.2.0", "tools", "x.exe")));
         Assert.Equal("winget", ServerIdentity.ClassifyInstall(Path.Combine(home, "AppData", "Local", "Microsoft", "WinGet", "Packages", "P", "x.exe")));
         Assert.Equal("scoop", ServerIdentity.ClassifyInstall(Path.Combine(home, "scoop", "apps", "corvus", "current", "x.exe")));
+        Directory.CreateDirectory(Path.Combine(dir.Path, "tools", "shims"));
+        Assert.Equal("scoop", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "tools", "apps", "corvus", "2.7.1", "x.exe")));
+        Assert.Equal("source", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "other", "apps", "corvus", "2.7.1", "x.exe")));
         Assert.Equal("homebrew", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "opt", "homebrew", "Caskroom", "corvus", "1.2.0", "x")));
         Assert.Equal("source", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "bin", "Debug", "net10.0", "corvus.dll")));
     }

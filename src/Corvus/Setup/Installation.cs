@@ -141,12 +141,18 @@ internal static class Installation
     /// <summary>The NuGet package of the .NET tool (dotnet tool install -g, dotnet tool exec / dnx).</summary>
     public const string PackageId = "CorvusRE";
 
+    /// <summary>The winget package of the release archive.</summary>
+    public const string WingetId = "Albasha0x0.Corvus";
+
     /// <summary>The command that updates a copy of this install kind (<see cref="Mcp.ServerIdentity.ClassifyInstall"/>), or null for a build from source.</summary>
     public static string? UpdateCommand(string installKind, string? version = null) => installKind switch
     {
         "script" => "corvus update" + (version is { Length: > 0 } ? $" --version {version.TrimStart('v')}" : ""),
         "dotnet-tool" => $"dotnet tool update -g {PackageId}" + (version is { Length: > 0 } ? $" --version {version.TrimStart('v')}" : ""),
         "dnx" => $"dnx {PackageId}" + (version is { Length: > 0 } ? $"@{version.TrimStart('v')}" : "") + " --yes",
+        "winget" => $"winget upgrade {WingetId}" + (version is { Length: > 0 } ? $" --version {version.TrimStart('v')}" : ""),
+        "scoop" => "scoop update corvus",
+        "homebrew" => "brew upgrade corvus",
         _ => null,
     };
 
@@ -155,6 +161,7 @@ internal static class Installation
     {
         "dotnet-tool" => $"This copy is the .NET tool {PackageId}, which the dotnet CLI updates: {UpdateCommand(installKind, version)}",
         "dnx" => $"This copy runs from the NuGet package cache, which starts the newest or pinned release each time: {UpdateCommand(installKind, version)}",
+        "winget" or "scoop" or "homebrew" => $"This copy is managed by {installKind}, which updates it: {UpdateCommand(installKind, version)}",
         _ => "This copy was not installed by the install script, so it cannot update itself." + Environment.NewLine
             + "Install with the one-line command in the README, or rebuild from source.",
     };

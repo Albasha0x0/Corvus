@@ -101,7 +101,7 @@ corvus install
 - Each release attaches `CorvusRE.<version>.nupkg`. From a clone: `dotnet pack src/Corvus -c Release -o feed`, then
   `--add-source feed`.
 - Framework-dependent; the release archives are self-contained.
-- `corvus status` names the install kind (`script`, `dotnet-tool`, `dnx`, `source`).
+- `corvus status` names the install kind (`script`, `dotnet-tool`, `dnx`, `winget`, `scoop`, `homebrew`, `source`) and its update command.
 
 ## Scoop and Homebrew
 
@@ -255,7 +255,7 @@ Symptoms and fixes: [troubleshooting.md](troubleshooting.md).
   never adds clients.
 - `--version X` installs release X, older ones too, with a warning. `--dry-run` shows what it would use.
 - A copy the install scripts did not install is not replaced; `update` names its update command: `dotnet tool update -g CorvusRE`
-  for a [.NET tool](#net-tool). If `update` cannot reach the release, run the install script; it takes over the existing install.
+  for a [.NET tool](#net-tool), `scoop update corvus` or `brew upgrade corvus` for a [package manager](#scoop-and-homebrew) copy. If `update` cannot reach the release, run the install script; it takes over the existing install.
 - `corvus uninstall` removes the registration from every client (or the named ones), its skill folders and the program
   files. `--keep-files` keeps the program files.
 - Data is kept: annotations, caches, symbols and reference packs under `%LOCALAPPDATA%\Corvus` or the local application

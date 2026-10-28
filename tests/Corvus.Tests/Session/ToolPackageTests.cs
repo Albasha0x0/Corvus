@@ -40,10 +40,13 @@ public partial class ToolPackageTests
         Assert.Equal("dotnet tool update -g CorvusRE --version 1.3.0", Installation.UpdateCommand("dotnet-tool", "v1.3.0"));
         Assert.Equal("dnx CorvusRE --yes", Installation.UpdateCommand("dnx"));
         Assert.Equal("dnx CorvusRE@1.3.0 --yes", Installation.UpdateCommand("dnx", "1.3.0"));
+        Assert.Equal("winget upgrade Albasha0x0.Corvus --version 1.3.0", Installation.UpdateCommand("winget", "1.3.0"));
+        Assert.Equal("scoop update corvus", Installation.UpdateCommand("scoop"));
+        Assert.Equal("brew upgrade corvus", Installation.UpdateCommand("homebrew"));
         Assert.Null(Installation.UpdateCommand("source"));
 
         // The test host is no script install, so update explains instead of downloading.
-        foreach (var (kind, expected) in new[] { ("dotnet-tool", "dotnet tool update -g CorvusRE"), ("dnx", "dnx CorvusRE --yes"), ("source", "not installed by the install script") })
+        foreach (var (kind, expected) in new[] { ("dotnet-tool", "dotnet tool update -g CorvusRE"), ("dnx", "dnx CorvusRE --yes"), ("scoop", "managed by scoop, which updates it: scoop update corvus"), ("source", "not installed by the install script") })
         {
             using var output = new StringWriter();
             Assert.Equal(1, Installation.Update(output, installKind: kind));
