@@ -13,7 +13,7 @@ internal sealed class CompoundFileReader : IContainerReader
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         var cf = CompoundFile.Read(data, name);
-        if (OutlookMessage.Is(cf)) return MailReader.Contents(OutlookMessage.Read(cf, limits, ct), limits);
+        if (OutlookMessage.Is(cf)) return MailReader.Contents(OutlookMessage.Read(cf, limits, ct), limits, cf, allFiles, ct);
         var doc = OfficeDocument.FromCompound(cf, ct);
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
@@ -27,19 +27,26 @@ internal sealed class CompoundFileReader : IContainerReader
             ArchiveItems.Take(items, entries, "decrypted package", "EncryptedPackage.zip", package, true, limits, ref total);
         foreach (var o in doc.Objects)
             ArchiveItems.Take(items, entries, "OLE Package", StreamPath(o.Path[..(o.Path.LastIndexOf('/') + 1)]) + o.Name, o.Bytes, true, limits, ref total);
-        foreach (var e in cf.Entries.Where(e => !e.IsStorage))
-        {
-            ct.ThrowIfCancellationRequested();
-            byte[] bytes;
-            try { bytes = cf.Read(e, limits.MaxItemBytes); }
-            catch (ToolError ex) when (ex.Code == ErrorCode.LimitExceeded) { entries.Add(new ContainerEntry(StreamPath(e.Path), e.Size)); doc.Notes.Add(ex.Message); continue; }
-            ArchiveItems.Take(items, entries, "OLE stream", StreamPath(e.Path), bytes, allFiles, limits, ref total);
-        }
+        TakeStreams(cf, "", items, entries, doc.Notes, allFiles, limits, ref total, ct);
         var notes = new List<string>(doc.Notes);
         if (doc.Projects.Count > 0)
             notes.Add($"VBA: {doc.Projects.Sum(p => p.Modules.Count)} modules in {doc.Projects.Count} project(s); summarize_file view=office lists autorun entry points and noteworthy calls.");
         notes.AddRange(cf.Notes.Where(n => !notes.Contains(n)));
         return new ContainerContents(doc.Format, items, notes) { Entries = entries };
+    }
+
+    /// <summary>Lists every stream under <paramref name="prefix"/>; without <paramref name="allFiles"/> only binaries and containers are extracted.</summary>
+    internal static void TakeStreams(CompoundFile cf, string prefix, List<ExtractedItem> items, List<ContainerEntry> entries, List<string> notes, bool allFiles,
+        AnalysisLimits limits, ref long total, CancellationToken ct)
+    {
+        foreach (var e in cf.Entries.Where(e => !e.IsStorage))
+        {
+            ct.ThrowIfCancellationRequested();
+            byte[] bytes;
+            try { bytes = cf.Read(e, limits.MaxItemBytes); }
+            catch (ToolError ex) when (ex.Code == ErrorCode.LimitExceeded) { entries.Add(new ContainerEntry(prefix + StreamPath(e.Path), e.Size)); notes.Add(ex.Message); continue; }
+            ArchiveItems.Take(items, entries, "OLE stream", prefix + StreamPath(e.Path), bytes, allFiles, limits, ref total);
+        }
     }
 
     /// <summary>A stream path with control characters written as [n], as 7-Zip names them ("[1]Ole10Native").</summary>

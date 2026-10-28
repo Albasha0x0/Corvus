@@ -195,6 +195,16 @@ public sealed class MailMessageTests : IDisposable
     }
 
     [Fact]
+    public void A_msg_still_lists_its_compound_file_streams()
+    {
+        var c = Containers.Open(Msg(headers: true), "report.msg", AnalysisLimits.Default, default);
+        Assert.Contains(c.Entries!, e => e.Path == "streams/__substg1.0_0037001F" && e.Size == U16("Quarterly report").Length);
+        Assert.Contains(c.Entries!, e => e.Path == "streams/__attach_version1.0_#00000000/__substg1.0_37010102");
+        var all = Containers.Open(Msg(headers: true), "report.msg", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Equal(U16("IPM.Note"), Assert.Single(all.Items, i => i.Name == "streams/__substg1.0_001A001F").Bytes);
+    }
+
+    [Fact]
     public void A_msg_without_transport_headers_reports_the_chain_as_unknown()
     {
         var f = View(Msg(headers: false), "draft.msg");

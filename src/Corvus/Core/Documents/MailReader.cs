@@ -11,10 +11,10 @@ internal sealed class MailReader : IContainerReader
     public bool Accepts(ReadOnlySpan<byte> data, string name) => MailMessage.LooksLikeMime(data);
 
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct) =>
-        Contents(MailMessage.ReadMime(data, name, limits, ct), limits);
+        Contents(MailMessage.ReadMime(data, name, limits, ct), limits, ct: ct);
 
-    /// <summary>Bodies as body.txt / body.html and each decoded attachment under attachments/; undecoded ones are listed, size unknown.</summary>
-    public static ContainerContents Contents(MailMessage m, AnalysisLimits limits)
+    /// <summary>Bodies as body.txt / body.html, each decoded attachment under attachments/ (undecoded ones listed, size unknown) and a .msg file's streams under streams/.</summary>
+    public static ContainerContents Contents(MailMessage m, AnalysisLimits limits, CompoundFile? streams = null, bool allFiles = false, CancellationToken ct = default)
     {
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
@@ -38,6 +38,7 @@ internal sealed class MailReader : IContainerReader
             else entries.Add(new ContainerEntry(path, 0, "not extracted; size unknown"));
             if (a.Problem != null) notes.Add($"{path}: {a.Problem}");
         }
+        if (streams != null) CompoundFileReader.TakeStreams(streams, "streams/", items, entries, notes, allFiles, limits, ref total, ct);
         notes.Insert(0, $"{m.Format}: {m.Attachments.Count} attachment(s), {m.Links.Count} link(s); summarize_file view=mail lists the headers, received chain and recorded authentication results.");
         notes.AddRange(m.Notes);
         return new ContainerContents(m.Format, items, notes) { Entries = entries };
