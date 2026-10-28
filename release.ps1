@@ -372,6 +372,7 @@ Write-Host "      and 'corvus status' (Installed as: dotnet-tool); 'dnx CorvusRE
 Write-Host "  [ ] Announce: the release notes link, https://github.com/$Repo/releases/tag/$tag"
 Write-Host "  [ ] nuget.org: CorvusRE lists $Version (release.yml's publish job)."
 Write-Host "  [ ] MCP Registry: io.github.Albasha0x0/corvus lists $Version (the same job, after nuget.org)."
+Write-Host "      Either missing: gh workflow run release.yml --repo $Repo --ref $tag -f tag=$tag (publishes again from the tag)."
 Write-Host "  [ ] winget, Scoop, Homebrew: manifests in their own repositories, with the archive hashes below."
 Write-Host "  [ ] Claude Code and Codex plugin marketplace: install corvus from $Repo in each; the server reports $Version."
 Write-Host "  Archive hashes for package manifests:"

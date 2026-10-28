@@ -46,6 +46,61 @@ public partial class ReleaseProvenanceTests
             Assert.True(Regex.IsMatch(text, @"^permissions:\r?\n  contents: read\r?\n", RegexOptions.Multiline), $"{name}: no top-level 'permissions: contents: read'");
     }
 
+    [GeneratedRegex(@"^  ([\w-]+):\s*$", RegexOptions.Multiline)]
+    private static partial Regex Job();
+
+    [GeneratedRegex(@"^\s+(?:id-token|contents|packages): write\s*$", RegexOptions.Multiline)]
+    private static partial Regex WritePermission();
+
+    // The jobs of a workflow by name, each up to the next job.
+    private static IEnumerable<(string Name, string Text)> Jobs(string workflow)
+    {
+        var body = workflow.Replace("\r\n", "\n");
+        body = body[(body.IndexOf("\njobs:\n", StringComparison.Ordinal) + 1)..];
+        var starts = Job().Matches(body).ToList();
+        for (int i = 0; i < starts.Count; i++)
+            yield return (starts[i].Groups[1].Value, body[starts[i].Index..(i + 1 < starts.Count ? starts[i + 1].Index : body.Length)]);
+    }
+
+    [Fact]
+    public void Every_job_that_writes_or_signs_runs_in_the_release_environment()
+    {
+        // Scorecard's token signs only its own result, on main pushes and a
+        // schedule; a tag-only environment refuses those.
+        var exempt = new HashSet<string> { ".github/workflows/scorecard.yml:analysis" };
+        var gated = new List<string>();
+        var open = new List<string>();
+        foreach (var (name, text) in GitHubFiles().Where(f => f.Name.StartsWith(".github/workflows/", StringComparison.Ordinal)))
+            foreach (var (job, body) in Jobs(text).Where(j => WritePermission().IsMatch(j.Text)))
+            {
+                var label = $"{name}:{job}";
+                if (Regex.IsMatch(body, @"^    environment: release\s*$", RegexOptions.Multiline)) gated.Add(label);
+                else if (!exempt.Contains(label)) open.Add(label);
+            }
+        Assert.True(open.Count == 0, "name 'environment: release' in:\n" + string.Join("\n", open));
+        Assert.Equal(["release", "image", "publish"], gated.Where(g => g.StartsWith(".github/workflows/release.yml:", StringComparison.Ordinal)).Select(g => g.Split(':')[1]));
+        // nuget.org's trusted publisher policy names the environment, so the
+        // login stays in a gated job.
+        var nuget = Jobs(Workflow).Single(j => j.Text.Contains("uses: NuGet/login@", StringComparison.Ordinal));
+        Assert.Contains($".github/workflows/release.yml:{nuget.Name}", gated);
+    }
+
+    [Fact]
+    public void A_republish_is_dispatched_from_its_tag()
+    {
+        var root = DocsTests.RepoRoot();
+        var commands = new[] { ".github/workflows/release.yml", "release.ps1" }
+            .SelectMany(f => Regex.Matches(File.ReadAllText(Path.Combine(root, f)), @"gh workflow run release\.yml[^\r\n""]*").Select(m => (f, m.Value)))
+            .ToList();
+        Assert.Equal(3, commands.Count);
+        Assert.All(commands, c => Assert.Matches(@"--ref (vX\.Y\.Z|\$tag|\$TAG) -f tag=(vX\.Y\.Z|\$tag|\$TAG)", c.Value));
+        // The tag-only environment refuses a run on a branch; the job says how
+        // to dispatch it before anything runs.
+        var publish = Jobs(Workflow).Single(j => j.Name == "publish").Text;
+        Assert.True(publish.IndexOf("[ \"$TAG\" = \"$GITHUB_REF_NAME\" ]", StringComparison.Ordinal) is > 0 and var guard
+            && guard < publish.IndexOf("uses: actions/checkout@", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Release_assets_carry_provenance_and_an_SBOM()
     {

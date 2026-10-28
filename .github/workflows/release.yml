@@ -3,14 +3,16 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  # Publishes an existing release's package again (nuget.org, MCP Registry) without rebuilding it.
+  # Publishes an existing release's package again (nuget.org, MCP Registry) without rebuilding it, from the tag:
+  # gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z
   workflow_dispatch:
     inputs:
       tag:
         description: Release tag to publish (vX.Y.Z)
         required: true
 
-# Read-only by default; only the release job writes, and it says so.
+# Read-only by default. Jobs that write or sign say so and run in the release environment, which a reviewer approves for
+# each v* tag.
 permissions:
   contents: read
 
@@ -167,6 +169,7 @@ jobs:
   release:
     needs: [package, pack]
     runs-on: ubuntu-latest
+    environment: release
     # id-token signs attestations (Sigstore); attestations and artifact-metadata store them.
     permissions:
       contents: write
@@ -232,6 +235,7 @@ jobs:
   image:
     needs: release
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
       packages: write
@@ -255,12 +259,14 @@ jobs:
           done
           docker buildx imagetools create -t "$image:$version" -t "$image:latest" "$image:$version-amd64" "$image:$version-arm64"
 
-  # nuget.org by Trusted Publishing (policy corvus-release), then the MCP Registry by GitHub OIDC.
+  # nuget.org by Trusted Publishing (policy corvus-release, bound to the release environment), then the MCP Registry by
+  # GitHub OIDC.
   # The package is the release asset, checked against SHA256SUMS.
   publish:
     needs: release
     if: ${{ !cancelled() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
       id-token: write
@@ -268,7 +274,11 @@ jobs:
       TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      # The workflow's own commit: a republish takes the current server.json with the tag's version.
+      # The release environment admits v* tags only, so a republish runs on the tag and takes its server.json.
+      - name: Run from the tag
+        run: |
+          [ "$TAG" = "$GITHUB_REF_NAME" ] && exit 0
+          echo "dispatch from the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG" >&2; exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
