@@ -103,7 +103,8 @@ public static class RelayBuilds
             : new ChildProcessStart(Native.Providers.Worker.WorkerPool.DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs])) with { OwnProgram = true };
         // The server refuses outputs in the folder it is published from.
         if (target != null) start = start with { Environment = new Dictionary<string, string?> { [TargetVariable] = target } };
-        return ChildProcess.Start(start);
+        // The relayed server resolves relative paths against the relay's folder.
+        return ChildProcess.Start(start with { WorkingDirectory = Environment.CurrentDirectory });
     }
 
     /// <summary>Names the publish folder for the server the relay starts.</summary>

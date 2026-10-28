@@ -39,6 +39,18 @@ public sealed class ChildEnvironmentTests
     }
 
     [Fact]
+    public void A_child_runs_in_a_private_folder_of_its_own_removed_after_it_exits()
+    {
+        var start = new ChildProcessStart(FakeTool.Executable, ["environment"]);
+        var (first, _) = Report(start);
+        var (second, _) = Report(start);
+        Assert.StartsWith(Path.Combine(Path.GetTempPath(), "corvus-run") + Path.DirectorySeparatorChar, first + Path.DirectorySeparatorChar);
+        Assert.NotEqual(Path.GetFullPath(Environment.CurrentDirectory), Path.GetFullPath(first));
+        Assert.NotEqual(first, second);
+        Assert.True(SpinWait.SpinUntil(() => !Directory.Exists(first), TimeSpan.FromSeconds(10)), $"{first} was left behind");
+    }
+
+    [Fact]
     public void A_child_running_this_program_also_gets_its_settings()
     {
         var (_, variables) = Report(new ChildProcessStart(FakeTool.Executable, ["environment"]) { OwnProgram = true });

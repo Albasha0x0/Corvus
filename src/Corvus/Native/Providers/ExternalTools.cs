@@ -435,9 +435,7 @@ public static partial class ExternalTools
         IReadOnlyDictionary<string, string?>? environment = null, string? workingDirectory = null, Stream? sink = null)
     {
         // A self-extracting program unpacks into TEMP and removes it only on a normal exit: a stopped one leaves it behind.
-        var root = Path.Combine(Path.GetTempPath(), RunFolder);
-        if (Interlocked.Exchange(ref _swept, 1) == 0) SweepRunFolders(root);
-        var temp = Path.Combine(root, $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        var temp = RunFolderPath();
         try
         {
             var env = MinimalEnvironment(environment);
@@ -445,11 +443,21 @@ public static partial class ExternalTools
                 if (environment?.ContainsKey(name) != true) env[name] = temp;
             return RunIn(exe, args, timeout, maxOutputBytes, ct, env, workingDirectory, sink, temp);
         }
-        finally
-        {
-            // A scanner may still hold a file the tool just unpacked: a few retries, then the next process's sweep.
-            for (int i = 0; i < 10 && !TryDelete(temp); i++) Thread.Sleep(200);
-        }
+        finally { RemoveRunFolder(temp); }
+    }
+
+    /// <summary>A new folder path under TEMP's corvus-run folder, named for this process; folders of ended processes are swept first.</summary>
+    internal static string RunFolderPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), RunFolder);
+        if (Interlocked.Exchange(ref _swept, 1) == 0) SweepRunFolders(root);
+        return Path.Combine(root, $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+    }
+
+    /// <summary>Deletes a run folder; a scanner may still hold a file the tool just unpacked: a few retries, then the next process's sweep.</summary>
+    internal static void RemoveRunFolder(string dir)
+    {
+        for (int i = 0; i < 10 && !TryDelete(dir); i++) Thread.Sleep(200);
     }
 
     private const string RunFolder = "corvus-run";
@@ -500,7 +508,7 @@ public static partial class ExternalTools
         try
         {
             PrivateFolder.Create(temp);
-            child = ChildProcess.Start(new ChildProcessStart(exe, args) { Environment = env, WorkingDirectory = workingDirectory });
+            child = ChildProcess.Start(new ChildProcessStart(exe, args) { Environment = env, WorkingDirectory = workingDirectory ?? temp });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException)
         {

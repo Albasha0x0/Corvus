@@ -10,6 +10,7 @@ namespace Corvus.Native.Providers;
 /// <summary>What to run: executable, arguments (quoted as needed) and the variables added to the minimal environment (null value removes).</summary>
 public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Arguments)
 {
+    /// <summary>The child's working folder; null: a private folder of its own, removed once it exits.</summary>
     public string? WorkingDirectory { get; init; }
     public IReadOnlyDictionary<string, string?> Environment { get; init; } = new Dictionary<string, string?>();
     /// <summary>Most committed memory of the whole tree in bytes (Windows: the job's limit; allocations past it fail); null: none.</summary>
@@ -74,7 +75,18 @@ public abstract class ChildProcess : IDisposable
     {
         var path = start.Environment.TryGetValue("PATH", out var p) && p != null ? p : Environment.GetEnvironmentVariable("PATH");
         start = start with { FileName = ProgramPath(start.FileName, path), Environment = ChildEnvironment(start) };
-        ChildProcess child = OperatingSystem.IsWindows() ? WindowsJobProcess.Launch(start) : PosixGroupProcess.Launch(start);
+        // A child never runs in the server's current folder: without one named,
+        // it gets a private folder, removed once it exits.
+        string? folder = null;
+        if (start.WorkingDirectory == null) start = start with { WorkingDirectory = folder = PrivateFolder.Create(ExternalTools.RunFolderPath()) };
+        ChildProcess child;
+        try { child = OperatingSystem.IsWindows() ? WindowsJobProcess.Launch(start) : PosixGroupProcess.Launch(start); }
+        catch
+        {
+            if (folder != null) ExternalTools.RemoveRunFolder(folder);
+            throw;
+        }
+        if (folder != null) child.Exited.ContinueWith(_ => ExternalTools.RemoveRunFolder(folder), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         Running[child] = (Path.GetFileName(start.FileName), DateTimeOffset.UtcNow);
         child.Exited.ContinueWith(_ => Running.TryRemove(child, out var _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         return child;
