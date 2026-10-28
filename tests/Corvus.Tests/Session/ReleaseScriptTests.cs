@@ -33,6 +33,15 @@ public class ReleaseScriptTests
     }
 
     [Fact]
+    public void The_service_pin_follows_the_verified_sums_and_is_never_pushed()
+    {
+        int verified = Script.IndexOf("against SHA256SUMS.\"", StringComparison.Ordinal);
+        int pin = Script.IndexOf("'--sums', (Join-Path $assetDir 'SHA256SUMS')", StringComparison.Ordinal);
+        Assert.True(verified > 0 && pin > verified, "the pin reads SHA256SUMS after its assets are verified");
+        Assert.DoesNotMatch(@"'-C', \$Service, 'push'", Script);
+    }
+
+    [Fact]
     public void The_tagged_commit_and_the_release_carry_the_test_summary()
     {
         Assert.Contains("$testSummary = 'release/tests.json'", Script);
