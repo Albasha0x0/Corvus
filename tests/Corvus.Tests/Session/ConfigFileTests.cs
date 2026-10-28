@@ -87,6 +87,19 @@ public sealed class ConfigFileTests
         Assert.Contains(OperatingSystem.IsWindows() ? "is writable by " : "is writable by its group or others", value, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void The_audit_path_applies_only_from_a_file_no_other_account_can_write()
+    {
+        var (report, env) = Apply("""{ "CORVUS_AUDIT": "audit.jsonl" }""");
+        Assert.Equal(["CORVUS_AUDIT"], report.Applied);
+        Assert.Equal("audit.jsonl", env["CORVUS_AUDIT"]);
+
+        (report, env) = Apply("""{ "CORVUS_AUDIT": "audit.jsonl", "CORVUS_LOG_LEVEL": "debug" }""", share: Share);
+        Assert.Equal(["CORVUS_AUDIT"], report.Refused);
+        Assert.False(env.ContainsKey("CORVUS_AUDIT"));
+        Assert.NotNull(report.Writers);
+    }
+
     // Grants Users write on the Windows test file; adds group write on POSIX.
     private static void Share(string path)
     {
@@ -105,8 +118,7 @@ public sealed class ConfigFileTests
     private static readonly string[] PlainSettings =
     [
         "CORVUS_ALLOW_DEVICE_CHANGES", "CORVUS_ANALYSIS_CACHE", "CORVUS_ANALYSIS_CACHE_DAYS", "CORVUS_ANALYSIS_CACHE_MB", "CORVUS_ANNOTATIONS_DIR",
-        "CORVUS_AOT_CACHE", "CORVUS_AUDIT",
-        "CORVUS_AUTO_APPLE_NAMES", "CORVUS_AUTO_DART_NAMES", "CORVUS_AUTO_NATIVEAOT", "CORVUS_AUTO_PDB", "CORVUS_CHILD_DATA_KB",
+        "CORVUS_AOT_CACHE", "CORVUS_AUTO_APPLE_NAMES", "CORVUS_AUTO_DART_NAMES", "CORVUS_AUTO_NATIVEAOT", "CORVUS_AUTO_PDB", "CORVUS_CHILD_DATA_KB",
         "CORVUS_CLEANUP_LOG", "CORVUS_CLIENT", "CORVUS_CLIENT_TIMEOUT", "CORVUS_CODE_INDEX_CACHE", "CORVUS_CODE_INDEX_CACHE_DAYS",
         "CORVUS_CODE_INDEX_CACHE_MB", "CORVUS_DEBUG_DIRS", "CORVUS_DUMP_BUCKET_CACHE", "CORVUS_ENGINE", "CORVUS_ENGINE_ANALYSIS",
         "CORVUS_ENGINE_MEMORY_MB", "CORVUS_ENGINE_OPEN_TIMEOUT", "CORVUS_ENGINE_OUTPUT_MB", "CORVUS_ENGINE_REQUEST_TIMEOUT", "CORVUS_GHIDRA_ANALYSIS",

@@ -139,7 +139,7 @@ Limit the programs a session may start or attach to:
 - An environment variable wins over the file. An option wins over both. A file that is not valid JSON applies nothing.
 - Refused, with a warning: the [security switches](#security-switches) (set them in the client entry),
   `CORVUS_DATA_DIR`, `CORVUS_CONFIG` and `CORVUS_REPO`.
-- Program, library, engine folder and URL variables apply only from a file no other account can write.
+- Program, library, engine folder and URL variables, and `CORVUS_AUDIT`, apply only from a file no other account can write.
   - Windows: no write access for any account but the user, SYSTEM and Administrators.
   - POSIX: owned by the user, with no group or other write.
 - `server_status` (`run.config`) names the file, the variables it set, and those lost to the environment or refused.

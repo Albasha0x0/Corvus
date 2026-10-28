@@ -26,7 +26,10 @@ public static class ConfigFile
         Native.Providers.DataFolder.RootVariable, Variable, Setup.Installation.RepositoryVariable, Relay.RelayBuilds.TargetVariable,
     };
 
-    /// <summary>Variables that name a program, library, engine folder or URL the server starts, loads or reads from.</summary>
+    /// <summary>
+    /// Variables that name a program, library, engine folder or URL the server
+    /// starts, loads or reads from, and the audit log it writes.
+    /// </summary>
     public static readonly IReadOnlySet<string> Locators = new HashSet<string>(
         Native.Providers.ExternalTools.Table.Select(t => t.Variable).Concat(
         [
@@ -36,7 +39,7 @@ public static class ConfigFile
             Native.Providers.Ghidra.GhidraOptions.PythonVariable, Native.Providers.Ghidra.GhidraOptions.ExtensionsVariable,
             Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, Native.Providers.Ida.IdaInstallation.DirectoryVariable,
             Native.Providers.Ida.IdaProvider.PythonVariable, Native.Providers.Live.FridaBackend.PythonVariable,
-            Services.Analysis.BuildSummary.DieVariable, Setup.Installation.HomeVariable,
+            Services.Analysis.BuildSummary.DieVariable, Setup.Installation.HomeVariable, ServerOptions.AuditVariable,
         ]), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The startup report; before <see cref="Apply(TextWriter?)"/> runs, no file was read.</summary>
