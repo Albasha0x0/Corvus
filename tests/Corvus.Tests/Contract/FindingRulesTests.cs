@@ -75,6 +75,19 @@ public sealed class FindingRulesTests
         }
     }
 
+    [Fact]
+    public void Each_relevelled_rule_names_its_levels_and_the_combination_its_row_keeps()
+    {
+        Assert.Equal(["package/hidden-url", "package/invisible-name", "package/raw-address-socket", "package/space-run", "package/string-array"],
+            FindingRules.Relevelled.Keys.Order(StringComparer.Ordinal));
+        foreach (var (id, change) in FindingRules.Relevelled)
+        {
+            Assert.Contains(id, NoteworthyIn27);
+            Assert.Equal((id, "noteworthy", "review"), (change.Id, change.Old, change.New));
+            Assert.Equal(FindingRules.Find(id)!.Noteworthy, change.Noteworthy);
+        }
+    }
+
     [Theory]
     [InlineData("critical", "noteworthy")]
     [InlineData("high", "review")]

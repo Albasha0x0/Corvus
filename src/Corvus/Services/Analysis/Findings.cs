@@ -28,3 +28,9 @@ public sealed record Finding(string Level, string Rule, string Category, string 
 /// <param name="Noteworthy">The exact list or the combination that makes it noteworthy; null when it never is.</param>
 /// <param name="Reason">What a match shows.</param>
 public sealed record FindingRule(string Id, string Level, string? Noteworthy, string Reason);
+
+/// <summary>A rule's level change, for release notes and baselines.</summary>
+/// <param name="Old">The level a match alone had before <paramref name="Release"/>.</param>
+/// <param name="New">The level a match alone has from <paramref name="Release"/>.</param>
+/// <param name="Noteworthy">The combination that still makes it noteworthy.</param>
+public sealed record FindingRelevel(string Id, string Release, string Old, string New, string Noteworthy);

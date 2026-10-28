@@ -145,8 +145,11 @@ public static partial class PackageReview
     /// <summary>A rule level: noteworthy at install or beside credentials, host details, processes or decoded code; else review.</summary>
     private const string Paired = "paired";
 
-    /// <summary>A rule level: noteworthy in a hand-sized file, review in a bundle (bundles encode their own endpoints).</summary>
+    /// <summary>A rule level: noteworthy in a hand-sized file that runs at install, else review (bundles encode their own endpoints).</summary>
     private const string Small = "small";
+
+    /// <summary>A rule level: noteworthy in a file that runs at install, else review; one heuristic alone is review.</summary>
+    private const string Install = "install";
 
     // NonBacktracking matches in linear time, so whole-file rules take no match timeout.
     private static Regex R(string pattern) => new(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
@@ -176,19 +179,19 @@ public static partial class PackageReview
         // chat bots and raw addresses have ordinary uses (notification integrations, documentation): noteworthy beside other behaviour
         new("package/chat-webhook", "exfiltration", Paired, R(@"https?://(?:[\w-]+\.)?discord(?:app)?\.com/api/webhooks|https?://api\.telegram\.org/bot"), "sends to a chat webhook (Discord, Telegram)"),
         new("package/raw-address-url", "exfiltration", Paired, RawAddressUrl(), "sends to a raw address"),
-        new("package/raw-address-socket", "exfiltration", "noteworthy", RawAddressSocket(), "opens a socket to a raw address"),
+        new("package/raw-address-socket", "exfiltration", Install, RawAddressSocket(), "opens a socket to a raw address"),
         new("package/reverse-shell", "process", "noteworthy", R(@"bash\s+-i\s*>&\s*/dev/tcp/|/dev/tcp/[\w.-]+/\d+|\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+/bin/|\bos\.dup2\(\s*\w+\.fileno\(\)|\bpty\.spawn\(\s*['""]/bin/(?:ba)?sh"), "hands a shell to a network connection (reverse shell)"),
         new("package/download-to-shell", "process", "noteworthy", R(@"(?:curl|wget)\b[^\n|;]{0,300}\|\s*(?:sudo\s+)?(?:ba|z)?sh\b|\bsh\s+-c\s+['""]?\$\((?:curl|wget)\b|(?i:\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod|DownloadString)\b[^\n]{0,300}(?:\|\s*iex\b|Invoke-Expression))"), "runs a downloaded script (download piped to a shell)"),
         new("package/hidden-powershell", "process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
         new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
-        new("package/string-array", "transformed code", "noteworthy", StringArrayNames, "obfuscator.io-style transformed code"),
+        new("package/string-array", "transformed code", Install, StringArrayNames, "obfuscator.io-style transformed code"),
         new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
         new("package/long-base64", "transformed code", "review", R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]"), "a base64 literal over 2,000 characters"),
         new("package/hidden-url", "transformed code", Small, R(@"['""`](?:aHR0cHM6Ly|aHR0cDovL|68747470733a2f2f|687474703a2f2f)[A-Za-z0-9+/=]{8,}['""`]"), "a URL hidden in base64 or hex"),
         new("package/exec-char-codes", "transformed code", "noteworthy", R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d"), "executes code built from character codes"),
         new("package/pyobfuscate", "transformed code", "noteworthy", R(@"\(https://pyobfuscate\.com\)|\bimport\s+(?:marshal|zlib|base64)\s+as\s+_{3,}"), "pyobfuscate-style transformed code"),
-        new("package/space-run", "transformed code", "noteworthy", R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
+        new("package/space-run", "transformed code", Install, R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
     ];
 
     /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
@@ -219,7 +222,8 @@ public static partial class PackageReview
             var level = rule.Level switch
             {
                 Paired => context ? "noteworthy" : "review",
-                Small => plain.Length <= 64 << 10 ? "noteworthy" : "review",
+                Small => install && plain.Length <= 64 << 10 ? "noteworthy" : "review",
+                Install => install ? "noteworthy" : "review",
                 _ => rule.Level,
             };
             if (install && rule.Category == "network") level = "review";
