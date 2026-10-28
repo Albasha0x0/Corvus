@@ -178,6 +178,8 @@ public partial class ProtocolSampleTests
     public async Task Recorded_samples_match_the_server()
     {
         bool update = Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1";
+        // Samples are recorded as on a machine without capa.
+        using var env = new EnvironmentScope().Set("CORVUS_CAPA", null);
         var calls = Directory.Exists(Folder)
             ? Directory.GetFiles(Folder, "*.json").ToDictionary(f => Path.GetFileNameWithoutExtension(f),
                 f => JsonNode.Parse(File.ReadAllText(f))!["arguments"]!.AsObject().ToDictionary(p => p.Key, p => (object?)JsonSerializer.Deserialize<JsonElement>(p.Value!.ToJsonString())))

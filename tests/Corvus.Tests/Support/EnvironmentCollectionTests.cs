@@ -13,10 +13,10 @@ namespace Corvus.Tests;
 public sealed partial class EnvironmentCollectionTests
 {
     /// <summary>
-    /// Collections that keep a class's settings from the tests that read them: ProcessEnvironment runs alone, and the
-    /// external tool collection holds every class that sets or reads the external tools' variables.
+    /// Collections that keep a class's settings from the tests that read them: ProcessEnvironment and SerialTimingTests run
+    /// alone, and the external tool collection holds every class that sets or reads the external tools' variables.
     /// </summary>
-    private static readonly string[] Isolating = [ProcessEnvironmentCollection.Name, ExternalToolEnvironmentCollection.Name];
+    private static readonly string[] Isolating = [ProcessEnvironmentCollection.Name, nameof(SerialTimingTests), ExternalToolEnvironmentCollection.Name];
 
     [Trait("Smoke", "push")]
     [Fact]

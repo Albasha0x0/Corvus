@@ -84,6 +84,8 @@ public partial class SampleDocsTests
     internal static async Task CheckAsync(IEnumerable<string> pages)
     {
         bool update = Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1";
+        // Pages are recorded as on a machine without capa.
+        using var env = new EnvironmentScope().Set("CORVUS_CAPA", null);
         var stale = new List<string>();
         foreach (var page in pages)
         {

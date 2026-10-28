@@ -11,6 +11,7 @@ using static Iced.Intel.AssemblerRegisters;
 namespace Corvus.Tests;
 
 /// <summary>analyze_native_function: sections with totals, the sections filter, failure isolation, exclusive ends.</summary>
+[Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class FunctionDossierTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -212,6 +213,8 @@ public sealed class FunctionDossierTests : IDisposable
     [Fact]
     public async Task Every_section_reports_its_facts_with_totals()
     {
+        // The annotations section is read as on a machine without capa.
+        using var env = new EnvironmentScope().Set("CORVUS_CAPA", null);
         var (ws, tools) = Rig();
         using var _ = ws;
         var path = Sample(_dir);
