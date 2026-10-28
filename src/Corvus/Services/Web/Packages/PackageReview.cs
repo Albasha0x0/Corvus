@@ -245,19 +245,22 @@ public static partial class PackageReview
     ];
 
     /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
-    /// <param name="notRead">Names a budget that stopped peeling; null: unnamed.</param>
+    /// <param name="notRead">Names a stopped peel or fold; null: unnamed.</param>
     internal static IEnumerable<PackageFinding> Scan(string path, string text, bool install, CancellationToken ct, bool entry = false, bool peel = true,
         List<string>? notRead = null)
     {
         var plain = text;
         var language = ScriptReader.Detect(path, text);
         bool transformedSigns = peel && language != null && Peelable(text);
-        if (transformedSigns && text.Length > MaxReadText)
-            notRead?.Add($"{path} (over {MaxReadText >> 20} MiB: layers not peeled)");
-        else if (transformedSigns)
+        // Split strings ('ht' + 'tp://', templates) are folded before matching.
+        bool split = language == "javascript" && SplitString.IsMatch(text);
+        if ((transformedSigns || split) && text.Length > MaxReadText)
+            notRead?.Add($"{path} (over {MaxReadText >> 20} MiB: layers not peeled, strings not folded)");
+        else if (transformedSigns || split)
         {
             var reading = ScriptReader.Read(text, language!, ct, milliseconds: ScriptBudget.OverviewMilliseconds);
-            if (!reading.Complete) notRead?.Add($"{path} (peeling stopped at the time budget)");
+            if (!reading.Complete) notRead?.Add($"{path} (peeling and folding stopped at the time budget)");
+            if (reading.Folded > 0) plain = text + "\n" + reading.Plain;
             // Decoded layers and obfuscator machinery count; ordinary eval does not.
             bool transformed = reading.Recovered.Any(r => r is "obfuscator.io string array" or "control-flow flattening")
                                || reading.Layers.Any(l => l.Via.Contains(" of ", StringComparison.Ordinal) || l.Via.Contains("EncodedCommand", StringComparison.Ordinal));
@@ -583,8 +586,11 @@ public static partial class PackageReview
         + $@"|\bPath\s*\(\s*['""](?<p>{CiPath})['""]\s*\)\s*\.(?:write_text|write_bytes|open\(\s*['""][wax])"
         + $@"|\bshutil\.copy(?:file|2)?\s*\([^,\n]{{1,200}},\s*['""](?<p>{CiPath})['""]");
 
-    /// <summary>Text longer than this is matched as written, without peeling.</summary>
+    /// <summary>Longer text is matched as written: not peeled or folded.</summary>
     private const int MaxReadText = 4 << 20;
+
+    // A literal joined to a literal, or a template with an interpolated literal.
+    private static readonly Regex SplitString = R(@"['""`]\s*\+\s*['""`]|\$\{\s*['""`]");
 
     /// <summary>Code characters; whitespace and whole-line comments do not count.</summary>
     private static int CodeSize(string text)
