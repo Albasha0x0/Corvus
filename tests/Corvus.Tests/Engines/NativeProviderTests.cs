@@ -491,6 +491,9 @@ public class NativeProviderTests(ITestOutputHelper output)
         Assert.NotNull(run.ExitCode);
     }
 
+    // Windows does not guarantee delivery of JOB_OBJECT_MSG_JOB_MEMORY_LIMIT (JOBOBJECT_ASSOCIATE_COMPLETION_PORT
+    // remarks): a run where the allocation failed but no notice came (3 of about 70 runs, all under load) shows only the
+    // enforcement, and a notice that does come names the limit.
     [WindowsFact]
     public void Job_memory_limit_fails_allocations_past_it_and_is_reported()
     {
@@ -498,9 +501,19 @@ public class NativeProviderTests(ITestOutputHelper output)
         if (python == null) return;
         var limit = 256L << 20;
         using var capped = ChildProcess.Start(new ChildProcessStart(python.Executable, ["-I", "-c", "b = bytearray(1 << 30)"]) { MemoryLimitBytes = limit });
+        var stderr = new StreamReader(capped.StandardError).ReadToEndAsync();
         Assert.True(capped.Exited.Wait(30_000));
         Assert.NotEqual(0, capped.ExitCode);
-        Assert.Equal(limit, capped.MemoryLimitReached());
+        var reached = capped.MemoryLimitReached();
+        var text = stderr.Wait(5_000) ? stderr.Result : "";
+        Assert.True(reached == limit || reached == null && text.Contains("MemoryError"),
+            $"{python.Executable} exited {capped.ExitCode}, limit {reached?.ToString() ?? "not reported"}: {text}");
+        if (reached == null) output.WriteLine("allocation refused at the limit; the job sent no notice");
+
+        // The same allocation without the limit succeeds, so the refusal above is the job's.
+        using var free = ChildProcess.Start(new ChildProcessStart(python.Executable, ["-I", "-c", "b = bytearray(1 << 30)"]));
+        Assert.True(free.Exited.Wait(30_000));
+        Assert.Equal(0, free.ExitCode);
 
         using var within = ChildProcess.Start(new ChildProcessStart(python.Executable, ["-I", "-c", "b = bytearray(16 << 20)"]) { MemoryLimitBytes = limit });
         Assert.True(within.Exited.Wait(30_000));
