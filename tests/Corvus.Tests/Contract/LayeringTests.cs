@@ -96,6 +96,42 @@ public class LayeringTests
         Assert.True(problems.Count == 0, "HTTP clients outside NetworkPolicy:\n" + string.Join("\n", problems));
     }
 
+    // Types that create processes themselves, with the reason; Setup installs
+    // and checks the program and is not listed.
+    private static readonly Dictionary<string, string> OwnProcessStarters = new(StringComparer.Ordinal)
+    {
+        ["Corvus.Native.Providers.PosixGroupProcess"] = "ChildProcess off Windows: the watching shell",
+        ["Corvus.Native.Providers.WindowsJobProcess"] = "ChildProcess on Windows: a suspended start in a job",
+        ["Corvus.Native.Diagnostics.PseudoConsoleProcess"] = "a program under a pseudo console, an attribute a ChildProcess start cannot carry",
+    };
+
+    [Fact]
+    public void Processes_start_only_through_ChildProcess()
+    {
+        using var module = ModuleDefMD.Load(typeof(Corvus.Core.ToolError).Assembly.Location);
+        var found = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var type in module.GetTypes())
+        {
+            var owner = TopLevel(type);
+            if (!Ours(owner) || Layer(owner.FullName) == "Setup") continue;
+            foreach (var m in type.Methods.Where(m => m.HasBody))
+                foreach (var i in m.Body.Instructions)
+                    if (i.Operand is IMethod called && StartsProcess(called)) found.Add(owner.FullName);
+        }
+        // The scan sees process starts at all.
+        Assert.Contains("Corvus.Native.Providers.WindowsJobProcess", found);
+        var problems = found.Where(t => !OwnProcessStarters.ContainsKey(t)).Select(t => $"{t}: starts a process outside ChildProcess")
+            .Concat(OwnProcessStarters.Keys.Where(k => !found.Contains(k)).Select(k => $"{k}: listed but starts none"))
+            .ToList();
+        Assert.True(problems.Count == 0, "Process starts:\n" + string.Join("\n", problems));
+    }
+
+    /// <summary>Process.Start, a new Process, or a platform process-creation call.</summary>
+    private static bool StartsProcess(IMethod m) =>
+        (m.DeclaringType?.FullName == "System.Diagnostics.Process" && m.Name.String is "Start" or ".ctor")
+        || (m is MethodDef { IsPinvokeImpl: true } p
+            && (p.ImplMap?.Name ?? p.Name).String is "CreateProcessW" or "CreateProcessAsUserW" or "posix_spawn" or "posix_spawnp" or "fork" or "vfork" or "execve" or "execvp");
+
     private const string Root = "Corvus";
 
     /// <summary>The top-level layer of a type's namespace: "Core" for Corvus.Core.X, "" for the root.</summary>

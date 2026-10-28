@@ -203,12 +203,12 @@ public static class ProcessSnapshot
         // A process GDB is killed on stays in group stop; one stopped before the write is left stopped.
         bool stoppedBefore = State(pid, pid) == 'T';
         var prefix = path + ".core";
-        using var p = Process.Start(new ProcessStartInfo(gcore) { ArgumentList = { "-o", prefix, pid.ToString(System.Globalization.CultureInfo.InvariantCulture) }, RedirectStandardOutput = true, RedirectStandardError = true })!;
-        var stderr = p.StandardError.ReadToEndAsync(CancellationToken.None);
-        var stdout = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        using var p = Providers.ChildProcess.Start(new Providers.ChildProcessStart(gcore, ["-o", prefix, pid.ToString(System.Globalization.CultureInfo.InvariantCulture)]));
+        p.StandardInput.Dispose();
+        var (stdout, stderr) = ReadOutput(p);
         var elapsed = Stopwatch.StartNew();
         TimeSpan? vfork = null;
-        while (!p.WaitForExit(250))
+        while (!p.Exited.Wait(250))
         {
             int? waiting = InVfork(pid);
             vfork = waiting == null ? null : vfork ?? elapsed.Elapsed;
@@ -216,22 +216,37 @@ public static class ProcessSnapshot
                 : waiting is { } tid && elapsed.Elapsed - vfork >= VforkWait ? VforkRefusal(pid, tid)
                 : elapsed.Elapsed >= CoreTimeout ? new ToolError(ErrorCode.Timeout, $"gcore did not finish within {CoreTimeout.TotalMinutes:0} minutes.") : null;
             if (failure == null) continue;
-            p.Kill(true);
-            p.WaitForExit();
+            p.Kill();
+            p.Exited.Wait();
             if (!stoppedBefore) _ = Kill(pid, SigCont);
             throw failure;
         }
-        stdout.Wait(CancellationToken.None);
+        stdout.Join();
+        stderr.Join();
         var written = $"{prefix}.{pid}";
         if (p.ExitCode != 0 || !File.Exists(written))
         {
-            var failure = $"gcore failed (exit {p.ExitCode}): {stderr.Result.Trim()}";
+            var failure = $"gcore failed (exit {p.ExitCode}): {stderr.Text.Trim()}";
             // gcore is never the program's parent, so a ptrace refusal is permanent.
             throw Live.PtraceScope.Refusing(started: false) is { } scope ? Live.PtraceScope.Refusal(scope, failure) : new ToolError(ErrorCode.IoError, failure, "check the disk space at the output path");
         }
         File.Move(written, path, true);
         if (stop != null) MarkStop(path, stop);
     }
+
+    /// <summary>A stream read to its end on a thread of its own; <see cref="Text"/> is complete once joined.</summary>
+    private sealed class OutputText
+    {
+        private readonly Thread _thread;
+
+        public OutputText(Stream stream) => _thread = Providers.ChildProcess.StartReader(() => Text = new StreamReader(stream).ReadToEnd());
+
+        public string Text { get; private set; } = "";
+
+        public void Join() => _thread.Join();
+    }
+
+    private static (OutputText Stdout, OutputText Stderr) ReadOutput(Providers.ChildProcess p) => (new(p.StandardOutput), new(p.StandardError));
 
     private static ToolError VforkRefusal(int pid, int tid) => new(ErrorCode.Timeout,
         $"Thread {tid} of process {pid} waits in vfork, which GDB cannot stop; no snapshot was written.",
@@ -340,17 +355,15 @@ public static class ProcessSnapshot
     private static void WriteMachCore(int pid, string path, CancellationToken ct)
     {
         var lldb = OnPath("lldb") ?? throw new ToolError(ErrorCode.ProviderUnavailable, "lldb is not on PATH.", "install the Xcode command line tools (xcode-select --install)");
-        var info = new ProcessStartInfo(lldb) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "--batch", "--no-lldbinit", "-p", pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                     "-o", $"process save-core --style modified-memory \"{path.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"", "-o", "process detach" })
-            info.ArgumentList.Add(a);
-        using var p = Process.Start(info)!;
-        p.StandardInput.Close();
-        var stderr = p.StandardError.ReadToEndAsync(ct);
-        var stdout = p.StandardOutput.ReadToEnd();
-        if (!p.WaitForExit(TimeSpan.FromMinutes(5))) { p.Kill(true); throw new ToolError(ErrorCode.Timeout, "lldb did not finish within 5 minutes."); }
+        using var p = Providers.ChildProcess.Start(new Providers.ChildProcessStart(lldb, ["--batch", "--no-lldbinit", "-p", pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-o", $"process save-core --style modified-memory \"{path.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"", "-o", "process detach"]));
+        p.StandardInput.Dispose();
+        var (stdout, stderr) = ReadOutput(p);
+        if (!p.Exited.Wait(TimeSpan.FromMinutes(5), CancellationToken.None)) { p.Kill(); throw new ToolError(ErrorCode.Timeout, "lldb did not finish within 5 minutes."); }
+        stdout.Join();
+        stderr.Join();
         if (File.Exists(path) && new FileInfo(path).Length > 0) return;
-        var output = $"{stdout}\n{stderr.Result}".Trim();
+        var output = $"{stdout.Text}\n{stderr.Text}".Trim();
         var failure = $"lldb process save-core failed (exit {p.ExitCode}): {output[Math.Max(0, output.Length - 1000)..]}";
         throw output.Contains("attach failed", StringComparison.Ordinal)
             ? new ToolError(ErrorCode.AccessDenied, failure, "lldb attaches to programs signed with the get-task-allow entitlement (debug builds), or run the server as root")
