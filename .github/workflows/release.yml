@@ -166,6 +166,41 @@ jobs:
           name: package-tool
           path: CorvusRE.*.nupkg
 
+  # The capability and API changes of the new .NET tool since the previous release, read by the new build itself, in
+  # the run summary. Not a gate: no job needs it, and a failure leaves the release as it is.
+  changes:
+    needs: pack
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: package-tool
+          path: new
+      - name: Compare with the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          previous=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 20 --json tagName \
+            --jq ".[].tagName | select(. != \"$GITHUB_REF_NAME\")" | head -n 1)
+          gh release download "$previous" --repo "$GITHUB_REPOSITORY" --pattern "CorvusRE.*.nupkg" --pattern SHA256SUMS --dir old
+          (cd old && sha256sum --check --ignore-missing --strict SHA256SUMS)
+          unzip -q old/CorvusRE.*.nupkg -d old/files && unzip -q new/CorvusRE.*.nupkg -d new/files
+          dll=tools/net10.0/any/corvus.dll
+          # Capabilities: survey_features of each build, compared as kept results; then the API change counts.
+          printf '%s\n' \
+            "{\"tool\":\"survey_features\",\"args\":{\"path\":\"$PWD/old/files/$dll\"}}" \
+            "{\"tool\":\"survey_features\",\"args\":{\"path\":\"$PWD/new/files/$dll\"}}" \
+            '{"tool":"compare_assemblies","args":{"oldResult":"last:2","newResult":"last:1"}}' \
+            "{\"tool\":\"compare_assemblies\",\"args\":{\"oldAssembly\":\"$PWD/old/files/$dll\",\"newAssembly\":\"$PWD/new/files/$dll\",\"typeCountsOnly\":true}}" \
+            > steps.jsonl
+          dotnet "new/files/$dll" batch steps.jsonl --json > changes.jsonl
+          { echo "## Changes since $previous"; echo; echo '```'; jq -r 'select(.tool == "compare_assemblies") | .text' changes.jsonl; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
   release:
     needs: [package, pack]
     runs-on: ubuntu-latest

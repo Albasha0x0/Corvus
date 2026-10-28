@@ -212,4 +212,20 @@ public partial class ReleaseProvenanceTests
             Assert.True(Regex.IsMatch(body, @"(?m)^    if: .*(github\.event_name != 'schedule'|github\.event_name == 'workflow_dispatch'|github\.event_name == 'push')"),
                 $"{name} runs on the nightly schedule");
     }
+
+    [Fact]
+    public void The_release_reports_the_new_builds_changes_without_gating_it()
+    {
+        var jobs = Regex.Matches(Workflow[Workflow.IndexOf("\njobs:\n", StringComparison.Ordinal)..], @"(?m)^  ([\w-]+):\n((?:    .*\n|\s*\n)*)")
+            .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
+        var changes = jobs["changes"];
+        Assert.Contains("continue-on-error: true", changes, StringComparison.Ordinal);
+        Assert.DoesNotContain("permissions:", changes, StringComparison.Ordinal);
+        Assert.Contains("dotnet \"new/files/$dll\" batch steps.jsonl --json", changes, StringComparison.Ordinal);
+        Assert.Contains("\"oldResult\":\"last:2\",\"newResult\":\"last:1\"", changes, StringComparison.Ordinal);
+        Assert.Contains(">> \"$GITHUB_STEP_SUMMARY\"", changes, StringComparison.Ordinal);
+        Assert.Contains("sha256sum --check --ignore-missing --strict SHA256SUMS", changes, StringComparison.Ordinal);
+        foreach (var (name, body) in jobs.Where(j => j.Key != "changes"))
+            Assert.False(Regex.IsMatch(body, @"(?m)^    needs: .*\bchanges\b"), $"{name} waits for the change report");
+    }
 }
