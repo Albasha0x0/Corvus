@@ -9,8 +9,14 @@ namespace Corvus.Services;
 /// </summary>
 public sealed class ExportDirectory : IDisposable
 {
-    /// <summary>File an export leaves in its directory, listing the files it wrote (relative paths, one per line).</summary>
+    /// <summary>
+    /// File an export leaves in its directory: an "id:" line with
+    /// <see cref="MarkerId.Current"/>, then the files it wrote (relative paths,
+    /// one per line).
+    /// </summary>
     public const string Marker = ".corvus-export";
+
+    private static string IdLine => "id: " + MarkerId.Current;
 
     private bool _committed;
 
@@ -53,12 +59,18 @@ public sealed class ExportDirectory : IDisposable
         return new ExportDirectory(final, staging, replace);
     }
 
-    /// <summary>The first file in <paramref name="dir"/> no export marker lists, or null when every file is listed.</summary>
+    /// <summary>
+    /// The first file in <paramref name="dir"/> no export marker lists, or null
+    /// when every file is listed; a marker without this data folder's id lists
+    /// nothing, as another account may have planted it.
+    /// </summary>
     private static string? Foreign(string dir)
     {
         var marker = Path.Combine(dir, Marker);
         if (!File.Exists(marker)) return "no " + Marker + " file";
-        var listed = File.ReadAllLines(marker).Where(l => l.Length > 0).Select(l => l.Replace('\\', '/')).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var lines = File.ReadAllLines(marker);
+        if (lines.FirstOrDefault() != IdLine) return "a " + Marker + " file this data folder did not write";
+        var listed = lines.Skip(1).Where(l => l.Length > 0).Select(l => l.Replace('\\', '/')).ToHashSet(StringComparer.OrdinalIgnoreCase);
         listed.Add(Marker);
         return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(dir, f).Replace('\\', '/'))
             .FirstOrDefault(f => !listed.Contains(f));
@@ -106,7 +118,7 @@ public sealed class ExportDirectory : IDisposable
         var files = Directory.EnumerateFiles(Staging, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(Staging, f).Replace('\\', '/'))
             .Order(StringComparer.Ordinal).ToList();
         SafeFile.CheckOutputFiles(Final, files);
-        File.WriteAllText(Path.Combine(Staging, Marker), string.Concat(files.Select(f => f + "\n")));
+        File.WriteAllText(Path.Combine(Staging, Marker), IdLine + "\n" + string.Concat(files.Select(f => f + "\n")));
         if (Directory.Exists(Final))
         {
             // The check at Begin may be stale: something written since then is not deleted.

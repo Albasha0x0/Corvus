@@ -75,6 +75,18 @@ public sealed class ExportProjectTests
     }
 
     [Fact]
+    public void Overwrite_refuses_a_folder_whose_export_marker_lacks_this_data_folders_id()
+    {
+        using var dir = new TempDir();
+        var output = Directory.CreateDirectory(dir.File("out")).FullName;
+        File.WriteAllText(Path.Combine(output, "planted.dll"), "");
+        File.WriteAllText(Path.Combine(output, ExportDirectory.Marker), "id: " + new string('0', 32) + "\nplanted.dll\n");
+        var refused = Assert.Throws<ToolError>(() => ExportDirectory.Begin(output, overwrite: true));
+        Assert.Contains("this data folder did not write", refused.Message, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(output, "planted.dll")));
+    }
+
+    [Fact]
     public void A_cancelled_export_leaves_nothing()
     {
         using var env = new Env();

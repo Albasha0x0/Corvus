@@ -706,18 +706,23 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     internal static string DefaultOutput(string source, string sha, string folder = "corvus-unpacked") =>
         Native.Providers.PrivateFolder.Temp(folder, $"{Blob.SafeRelativePath(Path.GetFileNameWithoutExtension(source), "file")}-{sha[..12]}");
 
-    /// <summary>Creates the output directory, or reuses it if empty or marked as an earlier unpack of the same file.</summary>
+    /// <summary>
+    /// Creates the output directory, or reuses it if empty or marked as an
+    /// earlier unpack of the same file by this data folder.
+    /// </summary>
     internal static string PrepareOutput(string directory, string source, string sha)
     {
         var root = SafeFile.Output(directory);
         var marker = Path.Combine(root, Marker);
-        bool Ours() => File.Exists(marker) && File.ReadAllText(marker).StartsWith(sha, StringComparison.Ordinal);
+        // A marker without this data folder's id may have been planted: the
+        // folder is not reused.
+        bool Ours() => File.Exists(marker) && File.ReadAllText(marker).Split('\n') is [var s, _, var id, ..] && s == sha && id == MarkerId.Current;
         if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
             return Ours() ? root : throw new ToolError(ErrorCode.Conflict,
-                $"Output directory {root} is not empty and is not an earlier unpack of this file. Choose an empty or new directory.");
+                $"Output directory {root} is not empty and is not an earlier unpack of this file by this data folder. Choose an empty or new directory.");
         Directory.CreateDirectory(root);
         // A conflict from a concurrent unpack of the same file is accepted.
-        try { SafeFile.WriteUnderRoot(root, Marker, System.Text.Encoding.UTF8.GetBytes($"{sha}\n{source}\n"), overwrite: false); }
+        try { SafeFile.WriteUnderRoot(root, Marker, System.Text.Encoding.UTF8.GetBytes($"{sha}\n{source}\n{MarkerId.Current}\n"), overwrite: false); }
         catch (ToolError ex) when (ex.Code == ErrorCode.Conflict && Ours()) { }
         return root;
     }

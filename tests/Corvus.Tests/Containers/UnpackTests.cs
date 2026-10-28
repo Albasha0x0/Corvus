@@ -767,4 +767,19 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
             Assert.Contains(r.Notes, n => n.StartsWith("Could not write"));
         });
     }
+
+    [Fact]
+    public void An_unpack_folder_whose_marker_lacks_this_data_folders_id_is_not_reused()
+    {
+        using var dir = new TempDir();
+        var output = Directory.CreateDirectory(dir.File("out")).FullName;
+        var sha = new string('a', 64);
+        File.WriteAllText(Path.Combine(output, ".corvus-unpack"), $"{sha}\napp.zip\n{new string('0', 32)}\n");
+        var refused = Assert.Throws<ToolError>(() => UnpackService.PrepareOutput(output, "app.zip", sha));
+        Assert.Contains("by this data folder", refused.Message, StringComparison.Ordinal);
+        // The folder this data folder marks is reused.
+        var own = UnpackService.PrepareOutput(dir.File("own"), "app.zip", sha);
+        File.WriteAllText(Path.Combine(own, "a.bin"), "");
+        Assert.Equal(own, UnpackService.PrepareOutput(own, "app.zip", sha));
+    }
 }
