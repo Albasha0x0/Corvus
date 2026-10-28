@@ -1454,9 +1454,17 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
         catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }
         finally
         {
-            if (holder is { } tid)
-                try { await session.Worker.RequestAsync("release_load", new JsonObject { ["thread"] = tid }, RequestTimeout, CancellationToken.None).ConfigureAwait(false); }
-                catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }
+            if (holder is { } tid) await ReleaseLoadAsync(session, tid, module.Name).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Lets the thread held at <paramref name="what"/> go; a failure is logged as an error event naming both.</summary>
+    private static async Task ReleaseLoadAsync(LiveSession session, long tid, string what)
+    {
+        try { await session.Worker.RequestAsync("release_load", new JsonObject { ["thread"] = tid }, RequestTimeout, CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException or InvalidOperationException or ObjectDisposedException)
+        {
+            session.Add("error", tid, null, $"thread {tid} held at {what} could not be released: {e.Message}");
         }
     }
 

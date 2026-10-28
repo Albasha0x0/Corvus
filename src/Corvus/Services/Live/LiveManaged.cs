@@ -336,9 +336,7 @@ public sealed partial class LiveSessionService
         }
         finally
         {
-            if (thread is { } tid)
-                try { await session.Worker.RequestAsync("release_load", new JsonObject { ["thread"] = tid }, RequestTimeout, CancellationToken.None).ConfigureAwait(false); }
-                catch (Exception e) when (e is ToolError or TimeoutException or OperationCanceledException) { }
+            if (thread is { } tid) await ReleaseLoadAsync(session, tid, $"the compile of IL body 0x{il:X}").ConfigureAwait(false);
         }
     }
 

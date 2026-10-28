@@ -25,6 +25,8 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
     /// <summary>The hit limit each counted point was set with.</summary>
     public readonly Dictionary<string, int> Limits = [];
     public string? Missing { get; init; }
+    /// <summary>The worker's message for a failed release_load; null releases.</summary>
+    public string? ReleaseLoadError { get; set; }
     /// <summary>The arguments of the last open request (what the backend was asked to start or attach to).</summary>
     public JsonObject? LastOpen { get; private set; }
     /// <summary>The process id the session reports (a real child for snapshot tests).</summary>
@@ -185,6 +187,7 @@ internal sealed class ScriptedLiveBackend(string mainPath, ulong mainBase, uint 
                 return true;
             case "unwatch": return WatchedKinds.Remove((string)args["id"]!);
             case "defer_module" or "undefer_module": return true;
+            case "release_load" when ReleaseLoadError != null: throw new InvalidOperationException(ReleaseLoadError);
             case "release_load": return new JsonObject { ["released"] = true };
             case "load_script":
             {
@@ -468,6 +471,19 @@ public sealed class LiveSessionTests : LiveSessionTestBase
         var closed = await _tools.LiveSession("close", session: "live-1");
         Assert.Contains("closed", closed);
         Assert.Contains("close", _backend.Ops);
+    }
+
+    [Fact]
+    public async Task A_failed_release_of_a_loading_thread_is_an_error_event_naming_the_module()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        await _tools.LiveBreak("live-1", "set", at: "plugin!sqlite3_open");
+        _backend.ReleaseLoadError = "the script was destroyed";
+        _backend.Load("plugin.dll", Sqlite, 0x7ff7_0000_0000, 0x200000, heldBy: 77);
+        var errors = "";
+        for (int i = 0; i < 100 && !errors.Contains("could not be released"); i++, await Task.Delay(50)) errors = await _tools.LiveEvents("live-1", kind: "error");
+        Assert.Contains("thread 77 held at plugin.dll could not be released", errors);
+        Assert.Contains("the script was destroyed", errors);
     }
 
     [Fact]
