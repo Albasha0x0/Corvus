@@ -649,7 +649,7 @@ Structured output: `source`, `container`, `searched`, `items`, `offset`, `total`
 
 **Extract container** (edit, idempotent, long-running)
 
-Extract a container and load the .NET assemblies inside: single-file bundles, Costura, .nupkg, .apk / .aab, zips, .asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable extensions get .bin.
+Extract a container and load the .NET assemblies inside: single-file bundles, Costura, .nupkg, .apk / .aab, zips, .asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable and shell-parsed names get .bin.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -255,7 +255,19 @@ public static class Blob
         ".hta", ".lnk", ".msi", ".msp", ".cpl", ".jar", ".reg", ".sh", ".py", ".appref-ms", ".application", ".gadget",
     };
 
-    /// <summary>A relative path that cannot escape the output directory; runnable extensions get ".bin", ".dll" is kept.</summary>
+    // Explorer reads these when it lists or previews a folder, or hands them to
+    // a host on open, so a file is parsed without being run.
+    private static readonly HashSet<string> ShellParsedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".url", ".scf", ".library-ms", ".search-ms", ".searchConnector-ms", ".settingcontent-ms", ".chm", ".msc", ".xll",
+        ".wsc", ".inf", ".appinstaller",
+    };
+
+    /// <summary>True for a file name the Windows shell parses from a folder or on open: shortcuts, search and library descriptions, desktop.ini, help files, snap-ins, add-ins, setup information.</summary>
+    public static bool IsShellParsed(string fileName) =>
+        ShellParsedExtensions.Contains(Path.GetExtension(fileName)) || fileName.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A relative path that cannot escape the output directory; runnable and shell-parsed names get ".bin", ".dll" is kept.</summary>
     public static string SafeRelativePath(string name, string fallback, int maxParts = 8)
     {
         var invalid = Path.GetInvalidFileNameChars().Concat(['<', '>', ':', '"', '|', '?', '*']).ToHashSet();
@@ -267,7 +279,7 @@ public static class Blob
             .ToList();
         if (parts.Count == 0) parts.Add(fallback);
         var file = parts[^1];
-        if (RunnableExtensions.Contains(Path.GetExtension(file))) parts[^1] = file + ".bin";
+        if (RunnableExtensions.Contains(Path.GetExtension(file)) || IsShellParsed(file)) parts[^1] = file + ".bin";
         for (int i = 0; i < parts.Count; i++)
             if (SafeFile.IsReservedName(parts[i])) parts[i] = "_" + parts[i];
         if (parts.Count > maxParts) parts = [.. parts.Take(maxParts - 1), parts[^1]];

@@ -13,7 +13,7 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
     [Description("Extract a container and load the .NET assemblies inside: single-file bundles, Costura, .nupkg, .apk / .aab, zips, " +
-                 ".asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable extensions get .bin.")]
+                 ".asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable and shell-parsed names get .bin.")]
     public Task<string> UnpackContainer(
         [Description("Container file, Blazor or ClickOnce folder.")] string path,
         [Description("New or empty directory, or an earlier extract of this file; default under temp.")] string? outputDirectory = null,

@@ -86,6 +86,15 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void Shell_parsed_names_are_written_with_a_bin_suffix()
+    {
+        foreach (var name in new[] { "a.url", "a.scf", "a.library-ms", "a.search-ms", "a.searchConnector-ms", "Desktop.ini", "a.settingcontent-ms",
+                     "a.chm", "a.msc", "a.xll", "a.wsc", "a.inf", "a.appinstaller" })
+            Assert.Equal(Path.Combine("dir", name + ".bin"), Blob.SafeRelativePath("dir/" + name, "x"));
+        Assert.Equal("notes.txt", Blob.SafeRelativePath("notes.txt", "x"));
+    }
+
+    [Fact]
     public void Traversal_IsRefused()
     {
         foreach (var relative in new[] { "../escape.bin", "a/../../escape.bin", Path.Combine(Path.GetTempPath(), "abs.bin") })
