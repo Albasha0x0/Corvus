@@ -115,7 +115,7 @@ public static partial class PackageReview
     }
 
     // An sdist holds one top folder; some archives carry setup.py at their root.
-    private static bool IsSdistFile(string p) => Regex.IsMatch(p, @"^[^/]+/(setup\.py|pyproject\.toml|PKG-INFO|setup\.cfg)$|^(setup\.py|PKG-INFO)$");
+    private static bool IsSdistFile(string p) => Regex.IsMatch(p, @"^[^/]+/(setup\.py|pyproject\.toml|PKG-INFO|setup\.cfg)$|^(setup\.py|PKG-INFO)$", RegexOptions.NonBacktracking);
 
     /// <summary>The shallowest path ending in <paramref name="name"/> (a package's root folder may be named anything).</summary>
     internal static string? Root(PackageFiles files, string name) =>
@@ -379,7 +379,7 @@ public static partial class PackageReview
 
     /// <summary>Native and executable files a package carries.</summary>
     internal static List<string> Binaries(PackageFiles files) =>
-        files.Paths.Where(p => Regex.IsMatch(p, @"\.(node|so|dylib|dll|exe|pyd|wasm|jar|bin|msi|scr|com)$", RegexOptions.IgnoreCase)
+        files.Paths.Where(p => Regex.IsMatch(p, @"\.(node|so|dylib|dll|exe|pyd|wasm|jar|bin|msi|scr|com)$", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)
                                || files.Bytes(p) is { Length: >= 4 } b && (b[0] == 'M' && b[1] == 'Z' || b[0] == 0x7F && b[1] == 'E' && b[2] == 'L' && b[3] == 'F'))
             .Order(StringComparer.Ordinal).Take(200).ToList();
 
@@ -406,7 +406,7 @@ public static partial class PackageReview
     private static string Normalize(string name)
     {
         // The scope stays: @swc/core and @babel/core are different names.
-        return Regex.Replace(name.ToLowerInvariant(), @"[-_.@/]", "");
+        return Regex.Replace(name.ToLowerInvariant(), @"[-_.@/]", "", RegexOptions.NonBacktracking);
     }
 
     /// <summary>Optimal string alignment distance (adjacent transpositions count once).</summary>

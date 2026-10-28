@@ -11,7 +11,7 @@ public static partial class PackageReview
     /// <summary>Scripts npm also runs on npm install inside a source folder or git checkout.</summary>
     private static readonly HashSet<string> NpmLocalInstallScripts = new(StringComparer.Ordinal) { "preprepare", "prepare", "postprepare" };
 
-    private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`'""])(?:[\w.-]*/)*(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`'""])(?:[\w.-]*/)*(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
     private static PackageReport? Npm(PackageFiles files, CancellationToken ct)
     {
@@ -82,12 +82,18 @@ public static partial class PackageReview
 
     private static IEnumerable<string> NodeTargets(string command)
     {
-        var runs = Regex.Matches(command, @"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*(['""]?)([^\s'""&|;]+\.(?:c|m)?js)\1").Select(m => m.Groups[2].Value)
-            .Concat(Regex.Matches(command, @"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*?(?:-r|--require)[\s=]+(['""]?)(\.{1,2}/[^\s'""&|;]+)\1").Select(m => m.Groups[2].Value));
-        if (Regex.IsMatch(command, @"\bnode(?:\.exe)?\s+(?:-e|--eval|-p|--print)\b"))
-            runs = runs.Concat(Regex.Matches(command, @"\brequire\(\s*\\?['""`](\.{1,2}/[^'""`\\]+)\\?['""`]\s*\)").Select(m => m.Groups[1].Value));
+        var runs = NodeScript.Matches(command).Select(m => m.Groups["t"].Value)
+            .Concat(NodeRequire.Matches(command).Select(m => m.Groups["t"].Value));
+        if (NodeEval.IsMatch(command))
+            runs = runs.Concat(RequireLiteral.Matches(command).Select(m => m.Groups[1].Value));
         return runs.Distinct();
     }
+
+    // NonBacktracking takes no backreference, so each quote form is its own branch.
+    private static readonly Regex NodeScript = R(@"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*(?:'(?<t>[^\s'""&|;]+\.(?:c|m)?js)'|""(?<t>[^\s'""&|;]+\.(?:c|m)?js)""|(?<t>[^\s'""&|;]+\.(?:c|m)?js))");
+    private static readonly Regex NodeRequire = R(@"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*?(?:-r|--require)[\s=]+(?:'(?<t>\.{1,2}/[^\s'""&|;]+)'|""(?<t>\.{1,2}/[^\s'""&|;]+)""|(?<t>\.{1,2}/[^\s'""&|;]+))");
+    private static readonly Regex NodeEval = R(@"\bnode(?:\.exe)?\s+(?:-e|--eval|-p|--print)\b");
+    private static readonly Regex RequireLiteral = R(@"\brequire\(\s*\\?['""`](\.{1,2}/[^'""`\\]+)\\?['""`]\s*\)");
 
     /// <summary>Install-time code joined with the package files it loads by literal path, two levels deep.</summary>
     private static string InstallCode(PackageFiles files, string root, string target, string code)

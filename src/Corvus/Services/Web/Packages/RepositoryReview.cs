@@ -20,13 +20,13 @@ public static partial class PackageReview
     // git-config(1) keys whose value git runs as a command, and when.
     private static readonly (Regex Key, string When, bool Noteworthy)[] ConfigCommands =
     [
-        (new(@"^core\.fsmonitor$"), "on every status, which editors run when the folder opens", true),
-        (new(@"^filter\.[^.]+\.(smudge|process)$"), "on checkout of the files .gitattributes assigns to the filter", true),
-        (new(@"^filter\.[^.]+\.clean$"), "when files the filter covers are staged", false),
-        (new(@"^core\.hookspath$"), "sets the folder git runs hooks from", false),
-        (new(@"^core\.(sshcommand|pager|editor|askpass)$|^sequence\.editor$|^gpg\.program$|^credential\.helper$"), "when git needs it", false),
-        (new(@"^diff\.([^.]+\.)?(external|textconv|command)$|^merge\.[^.]+\.driver$"), "on diff or merge", false),
-        (new(@"^alias\."), "when the alias is used", false),
+        (R(@"^core\.fsmonitor$"), "on every status, which editors run when the folder opens", true),
+        (R(@"^filter\.[^.]+\.(smudge|process)$"), "on checkout of the files .gitattributes assigns to the filter", true),
+        (R(@"^filter\.[^.]+\.clean$"), "when files the filter covers are staged", false),
+        (R(@"^core\.hookspath$"), "sets the folder git runs hooks from", false),
+        (R(@"^core\.(sshcommand|pager|editor|askpass)$|^sequence\.editor$|^gpg\.program$|^credential\.helper$"), "when git needs it", false),
+        (R(@"^diff\.([^.]+\.)?(external|textconv|command)$|^merge\.[^.]+\.driver$"), "on diff or merge", false),
+        (R(@"^alias\."), "when the alias is used", false),
     ];
 
     // Targets a Visual Studio design-time build runs, so hooks on them run when the project opens.
@@ -36,8 +36,8 @@ public static partial class PackageReview
         "CollectPackageReferences", "PrepareForBuild", "_CheckForInvalidConfigurationAndPlatform",
     };
 
-    private static readonly Regex GradleExec = new(@"\bexec\s*\{|\bcommandLine\b|\bProcessBuilder\b|Runtime\.getRuntime\(\)\.exec|""\s*\.execute\(\)", RegexOptions.Compiled);
-    private static readonly Regex CMakeExec = new(@"\bexecute_process\s*\(", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex GradleExec = new(@"\bexec\s*\{|\bcommandLine\b|\bProcessBuilder\b|Runtime\.getRuntime\(\)\.exec|""\s*\.execute\(\)", RegexOptions.NonBacktracking);
+    private static readonly Regex CMakeExec = new(@"\bexecute_process\s*\(", RegexOptions.NonBacktracking | RegexOptions.IgnoreCase);
 
     /// <summary>What a repository runs on open, checkout or build (git, dev container, direnv, build files); null when none.</summary>
     internal static AgentReview? RepositoryHooks(PackageFiles files, CancellationToken ct)
@@ -45,11 +45,11 @@ public static partial class PackageReview
         var review = new AgentReview([], [], []);
         var paths = files.Paths.Where(p => !p.Contains("node_modules/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList();
         foreach (var path in paths.Where(p => p == ".git/config" || p.EndsWith("/.git/config", StringComparison.Ordinal)).Take(1)) GitConfig(files, path, review, ct);
-        foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)\.git/hooks/[^/]+$") && !p.EndsWith(".sample", StringComparison.Ordinal)))
+        foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)\.git/hooks/[^/]+$", RegexOptions.NonBacktracking) && !p.EndsWith(".sample", StringComparison.Ordinal)))
             GitHook(files, path, "a clone never carries hooks, so this copy had them added", true, review, ct);
-        foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)\.husky/[^/_][^/]*$") && HookEvents.ContainsKey(p[(p.LastIndexOf('/') + 1)..])))
+        foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)\.husky/[^/_][^/]*$", RegexOptions.NonBacktracking) && HookEvents.ContainsKey(p[(p.LastIndexOf('/') + 1)..])))
             GitHook(files, path, "husky installs it on npm install", false, review, ct);
-        foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)(\.devcontainer/([^/]+/)?devcontainer\.json|\.devcontainer\.json)$")))
+        foreach (var path in paths.Where(p => Regex.IsMatch(p, @"(^|/)(\.devcontainer/([^/]+/)?devcontainer\.json|\.devcontainer\.json)$", RegexOptions.NonBacktracking)))
             DevContainer(files, path, review, ct);
         foreach (var path in paths.Where(p => p == ".envrc" || p.EndsWith("/.envrc", StringComparison.Ordinal)).Take(10))
         {
@@ -109,7 +109,7 @@ public static partial class PackageReview
             if (l[0] == '[')
             {
                 // [section "subsection"]: the section is case-insensitive, the subsection is not.
-                var m = Regex.Match(l, @"^\[\s*([\w.-]+)(?:\s+""((?:[^""\\]|\\.)*)"")?\s*\]");
+                var m = Regex.Match(l, @"^\[\s*([\w.-]+)(?:\s+""((?:[^""\\]|\\.)*)"")?\s*\]", RegexOptions.NonBacktracking);
                 section = m.Success ? m.Groups[1].Value.ToLowerInvariant() + (m.Groups[2].Success ? "." + m.Groups[2].Value : "") : "";
                 continue;
             }
@@ -235,10 +235,10 @@ public static partial class PackageReview
         var lines = text.Split('\n');
         for (int i = 0; i < lines.Length; i++)
         {
-            var m = Regex.Match(lines[i], @"^\s*distributionUrl\s*=\s*(\S+)");
+            var m = Regex.Match(lines[i], @"^\s*distributionUrl\s*=\s*(\S+)", RegexOptions.NonBacktracking);
             if (!m.Success) continue;
             var url = m.Groups[1].Value.Replace(@"\:", ":", StringComparison.Ordinal);
-            if (Regex.IsMatch(url, @"^https://services\.gradle\.org/distributions/")) return;
+            if (Regex.IsMatch(url, @"^https://services\.gradle\.org/distributions/", RegexOptions.NonBacktracking)) return;
             review.Entries.Add(new AgentEntry("build step", "gradle wrapper", url, path, i + 1));
             review.Findings.Add(new PackageFinding("noteworthy", "build step", $"the Gradle wrapper downloads and runs its build tool from {Clip(url, 200)}, not services.gradle.org", path, i + 1));
         }

@@ -67,9 +67,9 @@ public static partial class PackageReview
             findings.Add(new PackageFinding("review", "permission", $"every site, with {string.Join(", ", sensitive.Take(8))}", path));
         else if (broad) findings.Add(new PackageFinding("review", "permission", "runs on or reads every site", path));
         var csp = m.TryGetProperty("content_security_policy", out var c2) ? c2.ValueKind == JsonValueKind.String ? c2.GetString() : c2.ToString() : null;
-        if (csp != null && Regex.IsMatch(csp, @"'unsafe-eval'|script-src[^;]*\bhttps?:"))
+        if (csp != null && Regex.IsMatch(csp, @"'unsafe-eval'|script-src[^;]*\bhttps?:", RegexOptions.NonBacktracking))
             findings.Add(new PackageFinding("noteworthy", "remote code", $"the content security policy allows eval or remote scripts: {Clip(csp, 160)}", path));
-        if (Str(m, "update_url") is { } update && !Regex.IsMatch(update, @"^https://(clients2\.google\.com|edge\.microsoft\.com|addons\.mozilla\.org)/"))
+        if (Str(m, "update_url") is { } update && !Regex.IsMatch(update, @"^https://(clients2\.google\.com|edge\.microsoft\.com|addons\.mozilla\.org)/", RegexOptions.NonBacktracking))
             findings.Add(new PackageFinding("review", "update", $"updates from outside the browser's store: {update}", path));
         if (m.TryGetProperty("externally_connectable", out var ec) && Strings(ec, "matches").Any(IsBroadHost))
             findings.Add(new PackageFinding("review", "permission", "any site can message the extension (externally_connectable)", path));

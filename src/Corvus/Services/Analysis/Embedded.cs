@@ -480,9 +480,10 @@ public static class Embedded
     /// <summary>Natural language or structured text (JSON, XML, config lines) in UTF-8 or UTF-16LE.</summary>
     private static bool ReadableText(byte[] bytes, bool utf16) => NaturalText(bytes, utf16) || StructuredText(bytes, utf16);
 
+    // NonBacktracking takes no lookahead, so the host:port branch requires a letter in one of its labels.
     private static readonly System.Text.RegularExpressions.Regex ConfigLine = new(
-        @"^(?:[a-z][a-z0-9+.\-]*://[\w.\-]*[a-z][\w.\-]*\S*|[a-z_][\w.\-\[\] ]{0,63}\s*[=:]\s*\S.*|(?=[\w.\-]*[a-z])[\w\-]+(?:\.[\w\-]+)+:\d{1,5}|[a-z]:\\[\w .\\\-]*[a-z][\w .\\\-]*|/(?:[\w.\-]*[a-z][\w.\-]*/?)+|#\s*[a-z].*|;\s*[a-z].*|\[[a-z][^\]]*\])$",
-        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        @"^(?:[a-z][a-z0-9+.\-]*://[\w.\-]*[a-z][\w.\-]*\S*|[a-z_][\w.\-\[\] ]{0,63}\s*[=:]\s*\S.*|(?:(?:[\w\-]+\.)+[\w\-]*[a-z][\w\-]*(?:\.[\w\-]+)*|[\w\-]*[a-z][\w\-]*(?:\.[\w\-]+)+):\d{1,5}|[a-z]:\\[\w .\\\-]*[a-z][\w .\\\-]*|/(?:[\w.\-]*[a-z][\w.\-]*/?)+|#\s*[a-z].*|;\s*[a-z].*|\[[a-z][^\]]*\])$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.NonBacktracking);
 
     /// <summary>Whether the text is JSON or XML that parses (truncation allowed), or mostly config lines (URLs, key=value, paths).</summary>
     private static bool StructuredText(byte[] bytes, bool utf16)
@@ -515,7 +516,7 @@ public static class Embedded
         }
         if (text[0] == '<')
         {
-            if (System.Text.RegularExpressions.Regex.Count(text, @"<[A-Za-z_][\w.:\-]*(\s[^<>]*)?/?>") < 3) return false;
+            if (System.Text.RegularExpressions.Regex.Count(text, @"<[A-Za-z_][\w.:\-]*(\s[^<>]*)?/?>", System.Text.RegularExpressions.RegexOptions.NonBacktracking) < 3) return false;
             try
             {
                 using var xml = System.Xml.XmlReader.Create(new StringReader(text), new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null });
@@ -565,9 +566,9 @@ public static class Embedded
         if (dominant == 0)
         {
             // Latin text has vowels and words longer than two letters on average.
-            var wordLengths = System.Text.RegularExpressions.Regex.Matches(text, @"\p{L}+").Select(m => m.Length).ToList();
+            var wordLengths = System.Text.RegularExpressions.Regex.Matches(text, @"\p{L}+", System.Text.RegularExpressions.RegexOptions.NonBacktracking).Select(m => m.Length).ToList();
             if (wordLengths.Count >= 10 && wordLengths.Average() < 3.0) return false;
-            var runs = System.Text.RegularExpressions.Regex.Matches(text, @"\p{L}{3,}").Select(m => m.Value).ToList();
+            var runs = System.Text.RegularExpressions.Regex.Matches(text, @"\p{L}{3,}", System.Text.RegularExpressions.RegexOptions.NonBacktracking).Select(m => m.Value).ToList();
             if (runs.Count >= 5 && runs.Count(w => w.Any(c => "aeiouyAEIOUYàáâäèéêëìíîïòóôöùúûü".Contains(c))) < runs.Count * 0.8) return false;
             if (text.Count(c => c < 128) >= text.Length * 0.9 && BigramScore(Encoding.ASCII.GetBytes(text)) < -4.2) return false;
         }

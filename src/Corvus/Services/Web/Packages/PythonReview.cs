@@ -16,9 +16,9 @@ public static partial class PackageReview
         return sources.Take(MaxScannedSources).ToList();
     }
 
-    private static readonly Regex NotImported = new(@"(?:^|/)(?:tests?|testing|examples?|docs?|benchmarks?)/|(?:^|/)(?:test_[^/]*|[^/]*_test|conftest)\.py$", RegexOptions.Compiled);
+    private static readonly Regex NotImported = new(@"(?:^|/)(?:tests?|testing|examples?|docs?|benchmarks?)/|(?:^|/)(?:test_[^/]*|[^/]*_test|conftest)\.py$", RegexOptions.NonBacktracking);
 
-    private static readonly Regex StealerKit = new(@"(?i)\b(?:browser[_-]cookie3|discord[_-]?webhook|robloxpy|discord_webhook)\b", RegexOptions.Compiled);
+    private static readonly Regex StealerKit = new(@"(?i)\b(?:browser[_-]cookie3|discord[_-]?webhook|robloxpy|discord_webhook)\b", RegexOptions.NonBacktracking);
 
     private static PackageReport? Python(PackageFiles files, CancellationToken ct)
     {
@@ -37,13 +37,13 @@ public static partial class PackageReview
             (name, version, summary, author, deps) = Metadata(files.Text(distInfo));
             if (files.Text(info + "entry_points.txt") is { } ep) entries.AddRange(EntryPoints(ep));
             record = Record(files, info + "RECORD", findings);
-            foreach (var script in files.Paths.Where(p => Regex.IsMatch(p, @"^[^/]+\.data/scripts/[^/]+$")))
+            foreach (var script in files.Paths.Where(p => Regex.IsMatch(p, @"^[^/]+\.data/scripts/[^/]+$", RegexOptions.NonBacktracking)))
                 entries.Add(new PackageEntryPoint("script", script[(script.LastIndexOf('/') + 1)..], script));
             // Import lines in top-level .pth files run at every interpreter start.
             foreach (var pth in files.Paths.Where(p => !p.Contains('/') && p.EndsWith(".pth", StringComparison.Ordinal)))
             {
                 var text = files.Text(pth) ?? "";
-                var imports = text.Split('\n').Where(l => Regex.IsMatch(l, @"^\s*import\s")).ToList();
+                var imports = text.Split('\n').Where(l => Regex.IsMatch(l, @"^\s*import\s", RegexOptions.NonBacktracking)).ToList();
                 if (imports.Count == 0) continue;
                 findings.Add(new PackageFinding("review", "install script", $"{pth} runs at every interpreter start: {Clip(string.Join("; ", imports.Select(l => l.Trim())), 200)}", pth));
                 findings.AddRange(Scan(pth + ".py", string.Join("\n", imports), install: true, ct).Where(f => f.Level == "noteworthy" || f.Category != "install script"));
@@ -59,29 +59,29 @@ public static partial class PackageReview
             {
                 // pip runs setup.py to build an sdist, so its module-level code runs at install.
                 scripts.Add(new PackageScript("setup.py", "python setup.py (run by pip to build the package)", true));
-                if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)"))
+                if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)", RegexOptions.NonBacktracking))
                     findings.Add(new PackageFinding("review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
                 findings.AddRange(Scan(root + "setup.py", SetupCode(files, root, setup), install: true, ct));
-                name ??= Regex.Match(setup, @"\bname\s*=\s*['""]([^'""]+)['""]").Groups[1].Value is { Length: > 0 } n ? n : null;
-                version ??= Regex.Match(setup, @"\bversion\s*=\s*['""]([^'""]+)['""]").Groups[1].Value is { Length: > 0 } v ? v : null;
-                foreach (Match m in Regex.Matches(setup, @"['""]([\w.-]+)\s*=\s*([\w.]+:[\w.]+)['""]"))
+                name ??= Regex.Match(setup, @"\bname\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } n ? n : null;
+                version ??= Regex.Match(setup, @"\bversion\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } v ? v : null;
+                foreach (Match m in Regex.Matches(setup, @"['""]([\w.-]+)\s*=\s*([\w.]+:[\w.]+)['""]", RegexOptions.NonBacktracking))
                     entries.Add(new PackageEntryPoint("console_scripts", m.Groups[1].Value, m.Groups[2].Value));
             }
             if (files.Text(root + "pyproject.toml") is { } pyproject)
             {
-                var backend = Regex.Match(pyproject, @"build-backend\s*=\s*['""]([^'""]+)['""]").Groups[1].Value;
-                if (Regex.IsMatch(pyproject, @"\bbackend-path\s*="))
+                var backend = Regex.Match(pyproject, @"build-backend\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value;
+                if (Regex.IsMatch(pyproject, @"\bbackend-path\s*=", RegexOptions.NonBacktracking))
                 {
                     findings.Add(new PackageFinding("review", "install script", $"an in-tree build backend ({backend}) runs from the package while installing", root + "pyproject.toml"));
                     scripts.Add(new PackageScript("build-backend", backend, true));
                 }
-                name ??= Regex.Match(pyproject, @"(?m)^\s*name\s*=\s*['""]([^'""]+)['""]").Groups[1].Value is { Length: > 0 } pn ? pn : null;
-                version ??= Regex.Match(pyproject, @"(?m)^\s*version\s*=\s*['""]([^'""]+)['""]").Groups[1].Value is { Length: > 0 } pv ? pv : null;
-                foreach (Match m in Regex.Matches(pyproject, @"(?ms)^\[project\.(scripts|gui-scripts)\]\s*$(.*?)(?=^\[|\z)"))
-                    foreach (Match e in Regex.Matches(m.Groups[2].Value, @"(?m)^\s*['""]?([\w.-]+)['""]?\s*=\s*['""]([^'""]+)['""]"))
+                name ??= Regex.Match(pyproject, @"(?m)^\s*name\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } pn ? pn : null;
+                version ??= Regex.Match(pyproject, @"(?m)^\s*version\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } pv ? pv : null;
+                foreach (Match m in ProjectScripts().Matches(pyproject))
+                    foreach (Match e in Regex.Matches(m.Groups[2].Value, @"(?m)^\s*['""]?([\w.-]+)['""]?\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking))
                         entries.Add(new PackageEntryPoint(m.Groups[1].Value == "scripts" ? "console_scripts" : "gui_scripts", e.Groups[1].Value, e.Groups[2].Value));
             }
-            if (files.Text(root + "setup.cfg") is { } cfg && Regex.Match(cfg, @"(?ms)^\[options\.entry_points\]\s*$(.*?)(?=^\[|\z)") is { Success: true } cfgEntries)
+            if (files.Text(root + "setup.cfg") is { } cfg && EntryPointSection().Match(cfg) is { Success: true } cfgEntries)
                 entries.AddRange(EntryPoints("[x]\n" + cfgEntries.Groups[1].Value.Replace("\n    ", "\n")).Select(e => e with { Kind = "entry point" }));
         }
         // Import-time code, __init__ modules first; tests, examples and docs are not imported.
@@ -107,7 +107,14 @@ public static partial class PackageReview
         };
     }
 
-    private static readonly Regex LocalImport = new(@"(?m)^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+([\w, \t]+)|import[ \t]+([\w.]+))", RegexOptions.Compiled);
+    // A section starts at its header and ends at the next one, so the lookahead keeps work linear.
+    [GeneratedRegex(@"(?ms)^\[project\.(scripts|gui-scripts)\]\s*$(.*?)(?=^\[|\z)")]
+    private static partial Regex ProjectScripts();
+
+    [GeneratedRegex(@"(?ms)^\[options\.entry_points\]\s*$(.*?)(?=^\[|\z)")]
+    private static partial Regex EntryPointSection();
+
+    private static readonly Regex LocalImport =new(@"(?m)^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+([\w, \t]+)|import[ \t]+([\w.]+))", RegexOptions.NonBacktracking);
 
     /// <summary>setup.py with the package's own modules it imports (pip runs them too), up to eight small files.</summary>
     private static string SetupCode(PackageFiles files, string root, string setup)
@@ -130,8 +137,8 @@ public static partial class PackageReview
     private static (string?, string?, string?, string?, int) Metadata(string? text)
     {
         if (text == null) return (null, null, null, null, 0);
-        string? Header(string key) => Regex.Match(text, $@"(?m)^{key}:\s*(.+?)\s*$") is { Success: true } m ? m.Groups[1].Value : null;
-        int deps = Regex.Count(text, @"(?m)^Requires-Dist:");
+        string? Header(string key) => Regex.Match(text, $@"(?m)^{key}:\s*(.+?)\s*$", RegexOptions.NonBacktracking) is { Success: true } m ? m.Groups[1].Value : null;
+        int deps = Regex.Count(text, @"(?m)^Requires-Dist:", RegexOptions.NonBacktracking);
         return (Header("Name"), Header("Version"), Header("Summary"), Header("Author") ?? Header("Author-email"), deps);
     }
 
