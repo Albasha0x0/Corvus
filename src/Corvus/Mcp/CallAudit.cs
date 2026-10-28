@@ -48,7 +48,7 @@ public sealed class CallAudit
             w.WriteString("time", DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
             w.WriteString("user", User);
             w.WriteString("client", client);
-            w.WriteString("version", Setup.Installation.Version);
+            w.WriteString("version", ServerIdentity.InformationalVersion);
             w.WriteString("tool", tool);
             w.WritePropertyName("arguments");
             w.WriteStartObject();
