@@ -6,7 +6,7 @@
   },
   "isError": false,
   "content": [
-    "1 note (showing 1-1):\n  <note> r1  question/open  edit.dll  checks the preview gate\n[End: 1 note]\n"
+    "1 note (showing 1-1):\n  <note> r1  question/open  edit.dll  origin=agent  checks the preview gate\n[End: 1 note]\n"
   ],
   "structuredContent": {
     "items": [
@@ -25,7 +25,8 @@
         "revision": 1,
         "created": "<time>",
         "updated": "<time>",
-        "author": "testhost"
+        "author": "testhost",
+        "origin": "agent"
       }
     ],
     "offset": 0,

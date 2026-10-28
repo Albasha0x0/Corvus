@@ -9,7 +9,7 @@
   },
   "isError": false,
   "content": [
-    "id: <note>\nkind: finding\nstatus: open\ntext: the first export returns at once\ntags: flow\nanchor:\n  kind: native\n  sha256: <id>\n  rva: 4096\n  label: edit.dll@0x140001000\nrevision: 1\ncreated: <time>\nupdated: <time>\nauthor: testhost\n"
+    "id: <note>\nkind: finding\nstatus: open\ntext: the first export returns at once\ntags: flow\nanchor:\n  kind: native\n  sha256: <id>\n  rva: 4096\n  label: edit.dll@0x140001000\nrevision: 1\ncreated: <time>\nupdated: <time>\nauthor: testhost\norigin: agent\n"
   ],
   "structuredContent": {
     "id": "<note>",
@@ -29,6 +29,7 @@
     "revision": 1,
     "created": "<time>",
     "updated": "<time>",
-    "author": "testhost"
+    "author": "testhost",
+    "origin": "agent"
   }
 }
