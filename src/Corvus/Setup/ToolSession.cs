@@ -12,7 +12,7 @@ namespace Corvus.Setup;
 /// <summary>An in-process server with a connected MCP client: calls get the same checks, budgets and errors as an agent's.</summary>
 internal sealed class ToolSession : IAsyncDisposable
 {
-    public const string ClientName = "corvus-cli";
+    public const string ClientName = Core.ClientProfiles.CliClientName;
 
     private readonly IHost _host;
     private readonly Pipe _toServer;

@@ -29,6 +29,16 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
+    public void A_note_keeps_its_origin_and_the_command_line_writes_as_user()
+    {
+        Assert.Equal(NotesService.UserOrigin, NotesService.OriginOf(ClientProfiles.CliClientName));
+        Assert.Equal(NotesService.AgentOrigin, NotesService.OriginOf("some-client"));
+        var store = Store();
+        var id = store.Record("from the command line", null, null, NoteAnchor.Global, null, null, null, NotesService.UserOrigin).Id;
+        Assert.Equal(NotesService.UserOrigin, Assert.Single(Store().All(), n => n.Id == id).Origin);
+    }
+
+    [Fact]
     public void Notes_record_update_and_read_back()
     {
         var store = Store();

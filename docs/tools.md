@@ -2052,7 +2052,7 @@ Record a finding, question, hypothesis or todo on a native address, .NET member,
 | `tags` | string[] |  |  | At most 10. |
 | `evidence` | object[] |  |  | At most 10: {result: r-... or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
 
-Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
+Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`, `origin`.
 
 ### update_note
 
@@ -2073,7 +2073,7 @@ Change a note's status, kind, text, tags or evidence. verify=true re-checks link
 | `addEvidence` | object[] |  |  | At most 10: {result: r-... or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
 | `verify` | boolean |  |  | Re-check linked records after the other changes. |
 
-Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`.
+Structured output: `id`, `kind`, `status`, `text`, `tags`, `evidence`, `anchor`, `revision`, `created`, `updated`, `author`, `origin`.
 
 ### list_notes
 

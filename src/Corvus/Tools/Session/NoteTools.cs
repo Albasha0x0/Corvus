@@ -37,7 +37,8 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var resolved = Anchor(anchor);
-        return notes.Record(text, kind, status, resolved, tags, Evidence(Link(evidence, context)), context?.Server?.ClientInfo?.Name);
+        var client = context?.Server?.ClientInfo?.Name;
+        return notes.Record(text, kind, status, resolved, tags, Evidence(Link(evidence, context)), client, NotesService.OriginOf(client));
     }, cancellationToken);
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]
@@ -106,7 +107,7 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     }, cancellationToken);
 
     private static string Row(Note n) =>
-        $"{n.Id} r{n.Revision}  {n.Kind}/{n.Status}  {n.Anchor.Label ?? n.Anchor.Kind}  {Format.Clip(n.Text.ReplaceLineEndings(" "), 300)}" +
+        $"{n.Id} r{n.Revision}  {n.Kind}/{n.Status}  {n.Anchor.Label ?? n.Anchor.Kind}{(n.Origin != null ? $"  origin={n.Origin}" : "")}  {Format.Clip(n.Text.ReplaceLineEndings(" "), 300)}" +
         (n.Tags.Count > 0 ? $"  [{string.Join(", ", n.Tags)}]" : "") +
         string.Concat(n.Evidence.Select(e => $"\nevidence: {Format.Clip(e.ToString(), 200)}"));
 

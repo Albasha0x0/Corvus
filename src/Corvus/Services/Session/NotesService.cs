@@ -76,7 +76,8 @@ public sealed record Note(
     [property: JsonPropertyName("revision")] int Revision,
     [property: JsonPropertyName("created")] DateTime Created,
     [property: JsonPropertyName("updated")] DateTime Updated,
-    [property: JsonPropertyName("author")] string? Author);
+    [property: JsonPropertyName("author")] string? Author,
+    [property: JsonPropertyName("origin")] string? Origin = null);
 
 /// <summary>A partial update: null leaves a field as it is.</summary>
 public sealed record NoteChange(string? Status = null, string? Text = null, string? AppendText = null, IReadOnlyList<string>? AddTags = null,
@@ -97,6 +98,18 @@ public sealed class NotesService(AnnotationStore store)
     public const int MaxPerFile = 10_000, MaxTotal = 50_000;
     public static readonly string[] Kinds = ["finding", "question", "hypothesis", "todo"];
     public static readonly string[] Statuses = ["open", "confirmed", "refuted", "answered", "dropped"];
+
+    /// <summary>
+    /// Who wrote a note: an MCP client (agent) or the command line (user);
+    /// notes from older versions have none.
+    /// </summary>
+    public const string AgentOrigin = "agent", UserOrigin = "user";
+
+    /// <summary>
+    /// The origin of a note written through the client named
+    /// <paramref name="clientName"/>.
+    /// </summary>
+    public static string OriginOf(string? clientName) => clientName == ClientProfiles.CliClientName ? UserOrigin : AgentOrigin;
 
     public sealed class NoteFile
     {
@@ -209,11 +222,12 @@ public sealed class NotesService(AnnotationStore store)
     }
 
     /// <summary>Records a new note (revision 1).</summary>
-    public Note Record(string text, string? kind, string? status, NoteAnchor anchor, IReadOnlyList<string>? tags, IReadOnlyList<NoteEvidence>? evidence, string? author)
+    public Note Record(string text, string? kind, string? status, NoteAnchor anchor, IReadOnlyList<string>? tags, IReadOnlyList<NoteEvidence>? evidence, string? author,
+        string? origin = null)
     {
         var now = DateTime.UtcNow;
         var note = new Note(NewId(), CheckKind(kind), CheckStatus(status), CheckText(text), Merge([], tags, null, MaxTags, MaxTagChars, "tag"),
-            MergeEvidence([], evidence), anchor, 1, now, now, author);
+            MergeEvidence([], evidence), anchor, 1, now, now, author, origin);
         if (CountAll() >= MaxTotal)
             throw new ToolError(ErrorCode.LimitExceeded, $"The note store holds {MaxTotal:N0} notes, its limit.", "update_note status=dropped, or remove note files under " + Root);
         Write(anchor.StoreKey, file =>
