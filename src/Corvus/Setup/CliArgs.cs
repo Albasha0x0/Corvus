@@ -25,6 +25,8 @@ internal sealed partial class CliArgs
     public string? Rules { get; private set; }
     public List<string> Limits { get; } = [];
     public bool Recurse { get; private set; }
+    public string? FailOn { get; private set; }
+    public bool AllowIncomplete { get; private set; }
 
     public static CliArgs Parse(IReadOnlyList<string> tokens)
     {
@@ -47,6 +49,8 @@ internal sealed partial class CliArgs
                 case "--rules": a.Rules = Next(); continue;
                 case "--limit": a.Limits.Add(Next()); continue;
                 case "--recurse": a.Recurse = true; continue;
+                case "--fail-on": a.FailOn = Next(); continue;
+                case "--allow-incomplete": a.AllowIncomplete = true; continue;
             }
             if (t.StartsWith("--", StringComparison.Ordinal))
             {

@@ -99,6 +99,10 @@ without an agent. Nothing in the file runs; no network calls are made.
   - Records are ordered by noteworthy count, then review count, then first path.
   - `summary` holds the strongest record level, `records`, `files` and `byLevel` (records per level).
   - `unread` names folders and files not read: links are not followed. Any entry makes `complete` false.
+- `--fail-on noteworthy|review` adds `gate` (`failOn`, `allowIncomplete`, `failed`, `reasons`) and sets the exit code.
+  - Each finding at or above the level is a reason, so two findings of one rule are two reasons.
+  - A section that is not `complete` or `not_applicable`, an `unread` entry, or unlisted findings that may reach the level are reasons too.
+  - `--allow-incomplete` keeps only the finding reasons.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
 - `--limit members=N`: files `--recurse` reads (default 10000).
@@ -108,6 +112,7 @@ without an agent. Nothing in the file runs; no network calls are made.
 - The schema becomes `corvus.batch/2` only when a field is renamed or removed; new fields keep `/1`.
 - Exit codes: 0 when the document is written, whatever the section statuses; 124 when the time limit ended the run
   (finished sections kept, the rest `timeout`); 2 for a missing file or bad option, nothing on stdout.
+- With `--fail-on`: 1 when the gate fails, else 0, including after the time limit.
 
 ## Exit codes
 

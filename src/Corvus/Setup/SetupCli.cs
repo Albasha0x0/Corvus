@@ -117,6 +117,8 @@ internal static class SetupCli
                                 yara) into one corvus.batch/1 document. --rules <file|folder>, --time-limit S,
                                 --limit containerFiles=N, --limit strings=N, --limit yaraMatches=N.
                                 --recurse: every file under a folder, one record per SHA-256.
+                                --fail-on noteworthy|review: exit 1 on a finding at that level or an
+                                incomplete record; --allow-incomplete fails on findings only.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.

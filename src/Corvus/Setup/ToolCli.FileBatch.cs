@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Corvus.Core;
+using Corvus.Services.Analysis;
 using ModelContextProtocol.Protocol;
 
 namespace Corvus.Setup;
@@ -66,6 +67,8 @@ internal static partial class ToolCli
                 ? s : throw new UsageException("--time-limit needs a number of seconds above 0, at most 86400.");
         var rules = a.Rules == null ? null : Path.GetFullPath(a.Rules);
         if (rules != null && !File.Exists(rules) && !Directory.Exists(rules)) throw new UsageException($"No such rule file or folder: {a.Rules}.");
+        if (a.FailOn is not (null or FindingLevel.Noteworthy or FindingLevel.Review)) throw new UsageException("--fail-on takes noteworthy or review.");
+        if (a.AllowIncomplete && a.FailOn == null) throw new UsageException("--allow-incomplete goes with --fail-on.");
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
@@ -81,8 +84,51 @@ internal static partial class ToolCli
         {
             if (run.Session != null) await run.Session.DisposeAsync();
         }
+        if (a.FailOn == null)
+        {
+            io.Out.WriteLine(document.ToJsonString(Compact));
+            return run.TimedOut ? Exit.Timeout : Exit.Ok;
+        }
+        var failures = GateFailures(document, a.FailOn, a.AllowIncomplete);
+        document["gate"] = new JsonObject
+        {
+            ["failOn"] = a.FailOn,
+            ["allowIncomplete"] = a.AllowIncomplete,
+            ["failed"] = failures.Count > 0,
+            ["reasons"] = new JsonArray([.. failures.Select(f => (JsonNode?)f)]),
+        };
         io.Out.WriteLine(document.ToJsonString(Compact));
-        return run.TimedOut ? Exit.Timeout : Exit.Ok;
+        return failures.Count > 0 ? Exit.ToolError : Exit.Ok;
+    }
+
+    /// <summary>Why the gate fails: findings at or above the level, then unless allowed what was not read whole; empty to pass.</summary>
+    internal static List<string> GateFailures(JsonObject document, string failOn, bool allowIncomplete)
+    {
+        var failures = new List<string>();
+        var records = document["records"] is JsonArray all
+            ? all.Select(r => ((string?)r!["file"]!["paths"]?[0] ?? "", r!))
+            : [((string?)document["file"]?["path"] ?? "", (JsonNode)document)];
+        int threshold = FindingLevel.Rank(failOn);
+        foreach (var (label, record) in records)
+        {
+            var findings = record["findings"] as JsonArray ?? [];
+            foreach (var finding in findings)
+                if (FindingLevel.Rank((string?)finding!["level"]) >= threshold)
+                    failures.Add($"{label}: {(string?)finding["level"]} finding {(string?)finding["rule"]}, key {(string?)finding["key"]}");
+            if (allowIncomplete) continue;
+            // The overview lists the strongest findings first, so an unlisted one
+            // is at most as strong as the last listed.
+            if ((int?)record["summary"]?["findingTotal"] is { } total && total > findings.Count
+                && FindingLevel.Rank((string?)findings.LastOrDefault()?["level"]) >= threshold)
+                failures.Add($"{label}: {total - findings.Count} findings past the first {findings.Count} are not listed");
+            foreach (var section in record["sections"] as JsonArray ?? [])
+                if ((string?)section!["status"] is { } status and not (SectionStatus.Complete or SectionStatus.NotApplicable))
+                    failures.Add($"{label}: {(string?)section["name"]} {status}");
+        }
+        if (!allowIncomplete)
+            foreach (var entry in document["unread"] as JsonArray ?? [])
+                failures.Add($"unread: {(string?)entry}");
+        return failures;
     }
 
     /// <summary>The run's shared state: limits, rules, session and deadline; TimedOut is set once the deadline ends a step.</summary>

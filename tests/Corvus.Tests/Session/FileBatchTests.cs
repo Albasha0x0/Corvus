@@ -377,6 +377,68 @@ public class FileBatchTests
     }
 
     [Fact]
+    public async Task A_noteworthy_package_fails_the_gate_with_exit_1_and_a_plain_file_passes()
+    {
+        using var dir = new TempDir();
+        var package = Package(Path.Combine(dir.Path, "pkg.tgz"));
+        var (code, document, _) = await Batch("--file", package, "--fail-on", "noteworthy");
+        Assert.Equal(1, code);
+        var gate = document!["gate"]!;
+        Assert.True((bool)gate["failed"]!);
+        Assert.Contains(gate["reasons"]!.AsArray(), r => ((string)r!).Contains("noteworthy finding package/collection-url, key ", StringComparison.Ordinal));
+        var plain = dir.File("notes.txt");
+        File.WriteAllText(plain, "plain text");
+        (code, document, _) = await Batch("--file", plain, "--fail-on", "review");
+        Assert.Equal(0, code);
+        Assert.False((bool)document!["gate"]!["failed"]!);
+    }
+
+    [Fact]
+    public async Task A_run_the_time_limit_ends_fails_the_gate_unless_incomplete_records_are_allowed()
+    {
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("plain.bin"), new byte[64]);
+        var (code, document, _) = await Batch("--file", dir.Path, "--recurse", "--time-limit", "0.001", "--fail-on", "noteworthy");
+        Assert.Equal(1, code);
+        Assert.Contains("plain.bin: summary timeout", document!["gate"]!["reasons"]!.AsArray().Select(r => (string?)r));
+        (code, document, _) = await Batch("--file", dir.Path, "--recurse", "--time-limit", "0.001", "--fail-on", "noteworthy", "--allow-incomplete");
+        Assert.Equal(0, code);
+        Assert.Empty(document!["gate"]!["reasons"]!.AsArray());
+    }
+
+    [Fact]
+    public void Two_findings_of_one_rule_in_one_file_each_fail_the_gate()
+    {
+        var finding = (string evidence) => new JsonObject
+        {
+            ["level"] = "review", ["rule"] = "script/download", ["evidence"] = evidence, ["location"] = null,
+            ["key"] = ToolCli.FindingKey("ab", "script/download", "review", evidence, null),
+        };
+        var document = new JsonObject
+        {
+            ["file"] = new JsonObject { ["path"] = "run.ps1" },
+            ["findings"] = new JsonArray(finding("https://example.com/a"), finding("https://example.com/b")),
+            ["sections"] = new JsonArray(),
+        };
+        var failures = ToolCli.GateFailures(document, "review", allowIncomplete: false);
+        Assert.Equal(2, failures.Count);
+        Assert.NotEqual(failures[0], failures[1]);
+        Assert.Empty(ToolCli.GateFailures(document, "noteworthy", allowIncomplete: false));
+    }
+
+    [Fact]
+    public async Task A_bad_fail_on_level_is_a_usage_error()
+    {
+        using var dir = new TempDir();
+        var (code, _, output) = await Batch("--file", dir.Path, "--fail-on", "info");
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+        (code, _, output) = await Batch("--file", dir.Path, "--allow-incomplete");
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+    }
+
+    [Fact]
     public void A_summary_step_without_a_result_leaves_the_level_unknown()
     {
         Assert.Equal("unknown", (string?)ToolCli.Verdict(null)["level"]);
