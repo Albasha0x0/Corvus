@@ -40,7 +40,11 @@ public static class SafeFile
         return full;
     }
 
-    /// <summary>Full path of an output file or directory: local, its final path outside every place <see cref="OutputGuard"/> refuses, and no link at the target.</summary>
+    /// <summary>
+    /// Full path of an output file or directory: local, its final path outside
+    /// every place <see cref="OutputGuard"/> refuses and, in a client's tool call,
+    /// under an <see cref="OutputRoots"/> root; no link at the target.
+    /// </summary>
     public static string Output(string path) => Output(path, OutputGuard.Current());
 
     internal static string Output(string path, IReadOnlyList<OutputGuard.Place> places)
@@ -49,6 +53,7 @@ public static class SafeFile
         var final = InputFiles.FinalPathOfNew(full);
         RefuseLink(full);
         OutputGuard.Check(final, full, places);
+        OutputRoots.Check(final, full);
         return full;
     }
 

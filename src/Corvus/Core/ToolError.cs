@@ -100,7 +100,7 @@ public sealed class ToolError : McpException
     public static string Meaning(ErrorCode code) => code switch
     {
         ErrorCode.Failed => "Not classified.",
-        ErrorCode.InvalidArgument => "An argument is missing, malformed, out of range or outside its value set, or a parameter is not declared.",
+        ErrorCode.InvalidArgument => "An argument is missing, malformed, out of range or outside its value set, a parameter is not declared, or an output path lies outside the output roots or in a refused place.",
         ErrorCode.NotFound => "The named symbol, address, file, entry or kept result does not exist.",
         ErrorCode.Ambiguous => "A name matches several things and the call needs one; the candidates are listed.",
         ErrorCode.NotLoaded => "The call needs a loaded target that is not loaded (or was unloaded meanwhile).",

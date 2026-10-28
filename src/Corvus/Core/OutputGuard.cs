@@ -188,6 +188,7 @@ public static class OutputGuard
     /// <summary>Whether <paramref name="error"/> is a refusal of <see cref="Check"/>.</summary>
     public static bool IsRefusal(ToolError error) => error.Details is Refused;
 
-    private static bool Under(string path, string root) =>
+    /// <summary>Whether a final path is <paramref name="root"/> or under it.</summary>
+    internal static bool Under(string path, string root) =>
         InputFiles.SamePath(path, root) || path.StartsWith(Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar, InputFiles.PathComparison);
 }

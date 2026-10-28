@@ -52,6 +52,10 @@ Edits stay in memory until a save. Each save is atomic: a temporary file, then a
 | `versioned=true` | writes the first free `<name>.1.dll`, `<name>.2.dll`, ... |
 
 - `replaceOriginal=true` writes the `.bak` once and refuses a file changed on disk since load.
+- `CORVUS_OUTPUT_DIRS`: folders a client's tool calls write outputs under (a path list); default: the temporary folder and the client's roots. `<data>/exports` is always one.
+- The loaded file's folder is not a root unless it lies inside one: a default output beside it goes to `<data>/exports/<file name>/` and the result says so.
+- An explicit path outside the roots is refused; add its folder, or set `CORVUS_OUTPUT_DIRS=*` for the 2.7 behaviour.
+- Refused places (`.ssh/`, `.claude/`, PATH folders) stay refused inside every root. The command line and file batches are not held to roots.
 - To approve each save in Claude Code, add `"ask": ["mcp__corvus__save_assembly", "mcp__corvus__save_native"]` under `permissions` in `~/.claude/settings.json`.
 - Modes that skip approval skip this list. The server switch holds in every mode.
 

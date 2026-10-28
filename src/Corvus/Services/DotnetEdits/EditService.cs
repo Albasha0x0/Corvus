@@ -716,8 +716,9 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
 
     public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict, out SavedFile saved, bool replaceOriginal = false, bool versioned = false)
     {
+        bool moved = false;
         var (target, isOriginal) = SaveTarget.Resolve(string.IsNullOrWhiteSpace(outputPath)
-            ? Path.Combine(Path.GetDirectoryName(asm.FilePath)!, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath))
+            ? OutputRoots.Default(asm.FilePath, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath), out moved)
             : outputPath, asm.FilePath, asm.OriginalSha256, overwrite, asm.SavedOverOriginalSha256, replaceOriginal, versioned);
 
         byte[] image;
@@ -746,6 +747,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
 
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +
+               (moved ? $" The loaded file's folder is outside the output roots, so the default copy went to the exports folder; pass outputPath under a root, or set {OutputRoots.Variable}." : "") +
                $"{(backup != null ? $" Original backed up to {backup}." : "")}" +
                (webcil ? " Written as Webcil; update or remove this file's integrity hash in blazor.boot.json or dotnet.boot.js." : "") +
                (saved.EditList.Count > 0 ? $"\nEdits written: {string.Join(", ", saved.EditList.Select(e => $"{e.Id} ({e.Digest})"))}." : "") +

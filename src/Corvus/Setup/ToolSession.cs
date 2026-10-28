@@ -29,6 +29,8 @@ internal sealed class ToolSession : IAsyncDisposable
     /// <summary>Starts the server and connects the client; <paramref name="time"/> times call deadlines (null: the system clock).</summary>
     public static async Task<ToolSession> StartAsync(ServerOptions options, CancellationToken cancellationToken, TimeProvider? time = null)
     {
+        // The user at the command line names every output: no output roots.
+        options.ConfineOutputs = false;
         Pipe toServer = new(), toClient = new();
         var host = ServerHost.Build(options, Guide.Core, server =>
         {

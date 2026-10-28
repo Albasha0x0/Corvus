@@ -24,7 +24,7 @@ Text quoted from the analyzed file is escaped: a line of it that starts like a s
 | Code | Meaning | Retryable | Default next step |
 |---|---|---|---|
 | `failed` | Not classified. | no | read the message for the cause, change the arguments or the target, and call again |
-| `invalid_argument` | An argument is missing, malformed, out of range or outside its value set, or a parameter is not declared. | no | fix the argument the message names; `corvus describe &lt;tool>` or the tool's input schema lists its parameters, types and ranges |
+| `invalid_argument` | An argument is missing, malformed, out of range or outside its value set, a parameter is not declared, or an output path lies outside the output roots or in a refused place. | no | fix the argument the message names; `corvus describe &lt;tool>` or the tool's input schema lists its parameters, types and ranges |
 | `not_found` | The named symbol, address, file, entry or kept result does not exist. | no | check the name, address or path: list_assemblies shows what is loaded, search_symbols and list_functions find names, and a relative path resolves against the server's working directory |
 | `ambiguous` | A name matches several things and the call needs one; the candidates are listed. | no | call again with one of the candidates (a full name, a token, or the assembly or image parameter) |
 | `not_loaded` | The call needs a loaded target that is not loaded (or was unloaded meanwhile). | no | load_assembly path=&lt;file> loads it (a target parameter also takes the file's path); list_assemblies shows what is loaded |

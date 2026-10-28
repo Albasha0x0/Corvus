@@ -142,6 +142,30 @@ internal static partial class CallFilter
         return limitSchema.TryGetProperty("default", out var d) && d.TryGetInt32(out var def) ? def : null;
     }
 
+    private static bool Writes(bool readOnly, CallToolRequestParams? request) =>
+        !readOnly || request?.Arguments?.Keys.Any(ArgumentCheck.OutputPathParameters.Contains) == true;
+
+    /// <summary>
+    /// The client's roots as local folders; none when it offers no roots or
+    /// does not answer in 5 s.
+    /// </summary>
+    // Roots are deprecated as of protocol 2026-07-28 (SEP-2577); clients of
+    // earlier versions still offer them, and a client that does not adds none.
+#pragma warning disable MCP9005
+    private static async Task<IReadOnlyList<string>> ClientRoots(IServiceProvider? services, CancellationToken ct)
+    {
+        if (services?.GetService<McpServer>() is not { ClientCapabilities.Roots: not null } server) return [];
+        using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        bound.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            var answer = await server.RequestRootsAsync(new ListRootsRequestParams(), bound.Token);
+            return [.. answer.Roots.Select(r => Uri.TryCreate(r.Uri, UriKind.Absolute, out var u) && u.IsFile ? u.LocalPath : null).OfType<string>()];
+        }
+        catch (Exception ex) when (ex is McpException or JsonException || ex is OperationCanceledException && !ct.IsCancellationRequested) { return []; }
+    }
+#pragma warning restore MCP9005
+
     private static async ValueTask<(CallToolResult, OutputCall)> Execute(CallToolRequestParams? request, JsonElement? inputSchema, IServiceProvider? services,
         Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken, ClientLimits? client, TimeProvider time, long received)
     {
@@ -169,6 +193,9 @@ internal static partial class CallFilter
             { Details = new { retryAfterMs = (long)LeftoverWork.RetryAfter.TotalMilliseconds, leftoverCalls = leftovers.Running, max = leftovers.Max } }, tool), output);
         }
         using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token, tool);
+        using var confined = OutputRoots.Enter(serverOptions is { ConfineOutputs: true }
+            ? OutputRoots.Resolve(serverOptions.OutputDirs, serverOptions.OutputDirs == null && Writes(effects.ReadOnly, request) ? await ClientRoots(services, call.Token) : [])
+            : null);
         var joinStopped = CancellationToken.None;
         string? phase = null;
         try

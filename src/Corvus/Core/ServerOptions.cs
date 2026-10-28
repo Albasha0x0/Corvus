@@ -92,6 +92,19 @@ public sealed class ServerOptions
     public const string AllowReplaceOriginalOption = "--allow-replace-original";
     public const string AllowReplaceOriginalVariable = "CORVUS_ALLOW_REPLACE_ORIGINAL";
 
+    /// <summary>
+    /// The output folders of a client's tool calls
+    /// (<see cref="OutputRoots.Variable"/>); null for the defaults, "*" for any
+    /// place the guard allows.
+    /// </summary>
+    public string? OutputDirs { get; set; }
+
+    /// <summary>
+    /// Whether tool calls are held to the output roots; off for the command
+    /// line's in-process client.
+    /// </summary>
+    public bool ConfineOutputs { get; set; } = true;
+
     /// <summary>Allow UNC paths and network drives in call arguments; paths found inside a file stay local; default off, and off under CORVUS_OFFLINE.</summary>
     public bool AllowRemotePaths { get; set; }
 
@@ -281,6 +294,7 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         if (Environment.GetEnvironmentVariable(AllowReplaceOriginalVariable)?.Trim() is "1" or "true" or "on") o.AllowReplaceOriginal = true;
         if (Environment.GetEnvironmentVariable(AllowRemotePathsVariable)?.Trim() is "1" or "true" or "on") o.AllowRemotePaths = true;
+        if (Environment.GetEnvironmentVariable(OutputRoots.Variable)?.Trim() is { Length: > 0 } outputDirs) o.OutputDirs = outputDirs;
         InputFiles.AllowRemote = o.AllowRemotePaths && !ReferencePacks.Offline;
         if (Environment.GetEnvironmentVariable(AllowLiveVariable)?.Trim() is "1" or "true" or "on") o.AllowLive = true;
         if (Environment.GetEnvironmentVariable(AllowLiveSpawnVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveSpawn = true;

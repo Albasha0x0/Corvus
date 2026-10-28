@@ -201,7 +201,9 @@ public partial class ProtocolSampleTests
 
     private static async Task RecordAsync(Dictionary<string, Dictionary<string, object?>> calls, bool update)
     {
-        await using var server = await InProcessServer.StartAsync();
+        // Samples write beside the test binaries, outside the default roots.
+        var options = new Corvus.Core.ServerOptions { BackgroundIndexing = false, WatchFiles = false, OutputDirs = AppContext.BaseDirectory };
+        await using var server = await InProcessServer.StartAsync(options: options);
         var values = await SetupAsync(server.Client);
         var stale = new List<string>();
         foreach (var (tool, args) in calls.OrderBy(c => c.Key, StringComparer.Ordinal))

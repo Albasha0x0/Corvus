@@ -35,6 +35,7 @@ public static class ConfigFile
         [
             Native.Providers.Worker.Yara.YaraX.LibraryVariable, Native.Providers.Live.Ttd.TtdWorker.FolderVariable,
             Native.Dump.Managed.ClrHelperClient.PathVariable, Native.Dwarf.DwarfLocator.ServersVariable, NetworkPolicy.HttpServersVariable,
+            OutputRoots.Variable,
             Native.Providers.Ghidra.GhidraOptions.DirectoryVariable, Native.Providers.Ghidra.GhidraOptions.JavaVariable,
             Native.Providers.Ghidra.GhidraOptions.PythonVariable, Native.Providers.Ghidra.GhidraOptions.ExtensionsVariable,
             Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, Native.Providers.Ida.IdaInstallation.DirectoryVariable,
