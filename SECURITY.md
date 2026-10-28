@@ -47,22 +47,24 @@
 ## Worker and helper processes
 
 <!-- readers:begin (generated from the worker op table; CORVUS_UPDATE_DOCS=1 updates it) -->
-- Read in a Corvus worker process: `summarize_file`, `list_assemblies`, `search_container`, `unpack_container`, `open_minidump`, `read_dump_memory`, `dump_heap`, `dump_object`.
-- Run over file content in the server process, where a crafted file can end it (engine-backed calls run in the engine workers):
-  - session: `load_assembly`, `unload_assembly`, `reload_assembly`, `add_search_directory`, `read_result`, `save_session`, `load_session`.
+- Read in the file worker: `summarize_file`, `list_assemblies`, `search_container`, `unpack_container`, `open_minidump`, `read_dump_memory`, `dump_heap`, `dump_object`.
+- Read in the server process, where a crafted file can end it:
+  - session: `load_assembly`, `reload_assembly`, `load_session`.
   - dotnet: `list_namespaces`, `list_types`, `get_type_info`, `get_assembly_info`, `get_attributes`, `get_type_hierarchy`, `resolve_symbol`, `decompile_member`, `get_il`, `search_symbols`, `search_strings`, `search_constants`, `search_il`, `find_references`, `find_callees`, `get_call_tree`, `find_call_paths`, `list_resources`, `get_resource`, `export_project`, `get_r2r_code`, `find_r2r_method`.
-  - containers: `survey_features`, `extract_strings`, `extract_embedded`, `summarize_build`.
-  - edit: `rename_symbol`, `rename_namespace`, `stub_method`, `patch_method_csharp`, `patch_method_il`, `add_members_csharp`, `add_types_csharp`, `simplify_methods`, `list_edits`, `diff_edits`, `undo_edit`, `revert_edits`, `export_edits`, `apply_edits`, `save_assembly`.
+  - containers: `survey_features`, `extract_strings`, `extract_embedded`, `unpack_container`, `summarize_build`.
+  - edit: `rename_symbol`, `rename_namespace`, `stub_method`, `patch_method_csharp`, `patch_method_il`, `add_members_csharp`, `add_types_csharp`, `simplify_methods`, `diff_edits`, `undo_edit`, `revert_edits`, `apply_edits`, `save_assembly`.
   - aot: `get_method_addresses`, `find_method_by_address`, `export_method_symbols`, `generate_cpp_binding`, `apply_metadata_names`.
-  - native: `get_pe_info`, `list_imports`, `list_exports`, `resolve_address`, `search_bytes`, `read_bytes`, `list_functions`, `list_globals`, `disassemble`, `inspect_instruction`, `search_instructions`, `get_cfg`, `find_xrefs`, `native_call_tree`, `find_virtual_calls`, `search_native_strings`, `get_call_arguments`, `trace_native_values`, `resolve_call_targets`, `analyze_native_function`, `trace_native_feature`, `find_similar_functions`, `get_exception_info`, `list_cpp_classes`, `get_native_type`, `decompile_native`, `search_decompiled`, `emulate_native`, `verify_native_imports`, `load_pdb`, `search_pdb_symbols`, `get_nativeaot_info`.
-  - native-edit: `rename_native`, `comment_native`, `export_native_annotations`, `patch_bytes`, `patch_asm`, `list_native_edits`, `undo_native_edit`, `save_native`, `export_native_patches`.
+  - native: `get_pe_info`, `list_imports`, `list_exports`, `resolve_address`, `search_bytes`, `read_bytes`, `list_functions`, `list_globals`, `disassemble`, `inspect_instruction`, `search_instructions`, `get_cfg`, `find_xrefs`, `native_call_tree`, `find_virtual_calls`, `search_native_strings`, `get_call_arguments`, `trace_native_values`, `resolve_call_targets`, `analyze_native_function`, `trace_native_feature`, `find_similar_functions`, `get_exception_info`, `list_cpp_classes`, `get_native_type`, `emulate_native`, `verify_native_imports`, `load_pdb`, `search_pdb_symbols`, `get_nativeaot_info`.
+  - native-edit: `rename_native`, `comment_native`, `patch_bytes`, `patch_asm`, `save_native`.
   - builds: `compare_assemblies`, `find_counterpart`, `compare_folders`, `compare_native_images`, `diff_function`, `map_address_between_builds`, `make_code_pattern`, `search_code_pattern`, `migrate_native_names`, `migrate_native_patches`, `update_to_new_build`.
-  - android: `get_android_manifest`, `list_android_resources`, `get_android_resource`, `list_dex_classes`, `get_dex_class`, `disassemble_dex`, `decompile_java`, `search_dex`, `find_dex_references`, `map_java_dotnet`, `list_jni_bindings`, `list_android_devices`, `get_android_device_info`, `list_android_packages`, `get_android_package_info`, `pull_android_package`, `pull_android_file`, `read_android_log`, `install_android_package`, `uninstall_android_package`.
-  - dumps: `dump_stack`, `symbolize_stack_text`, `bucket_minidumps`.
+  - android: `get_android_manifest`, `list_android_resources`, `get_android_resource`, `list_dex_classes`, `get_dex_class`, `disassemble_dex`, `decompile_java`, `search_dex`, `find_dex_references`, `map_java_dotnet`, `list_jni_bindings`.
+  - dumps: `open_minidump`, `dump_stack`, `dump_heap`, `dump_object`, `read_dump_memory`, `symbolize_stack_text`, `bucket_minidumps`.
   - web: `analyze_js`.
+- Read in an IDA, Ghidra or JADX worker: `list_functions`, `list_globals`, `disassemble`, `inspect_instruction`, `search_instructions`, `get_cfg`, `find_xrefs`, `native_call_tree`, `find_virtual_calls`, `search_native_strings`, `trace_native_values`, `resolve_call_targets`, `analyze_native_function`, `trace_native_feature`, `list_cpp_classes`, `get_native_type`, `decompile_native`, `search_decompiled`, `emulate_native`, `rename_native`, `comment_native`, `compare_native_images`, `diff_function`, `make_code_pattern`, `set_native_type`, `set_native_local`, `set_native_stack_var`, `get_native_frame`, `declare_native_types`, `list_native_types`, `define_native`, `reanalyze_native`, `set_native_operand`, `ida_python`, `ghidra_script`, `export_engine_database`, `decompile_java`.
+- Read through Frida in a session worker: `live_session`, `live_break`, `live_watch`, `live_read`, `live_events`, `live_script`, `live_coverage`.
+- Read by a helper program (Detect It Easy, TShark, pycdc, capa, speakeasy): `summarize_file`, `survey_features`, `search_container`, `summarize_build`, `emulate_native`.
 <!-- readers:end -->
-- A file that crashes a worker reader, overflows the stack or exhausts memory (`CORVUS_WORKER_MEMORY_MB`) ends the worker; the call and the requests beside it fail with a named error, and the server keeps answering.
-- The loading half of `unpack_container`, and dump reads while images are loaded, also read in the server.
+- A file that crashes a file-worker reader, overflows the stack or exhausts memory (`CORVUS_WORKER_MEMORY_MB`) ends the worker; the call and the requests beside it fail with a named error, and the server keeps answering.
 - `--in-process-parsing` and `CORVUS_WORKER_HOST=0` move every file read back into the server.
 - IDA (idalib), Ghidra, the JADX server and the 32-bit dump decoder also run as workers.
   - Windows: each runs in a Job Object that ends it with the server and caps its memory (`CORVUS_ENGINE_MEMORY_MB`).

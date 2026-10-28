@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Setup;
+using FileReads = Corvus.Mcp.FileReads;
 
 namespace Corvus.Tests;
 
@@ -54,17 +55,18 @@ public class DocsTests
     internal const string ReadersBegin = "<!-- readers:begin (generated from the worker op table; CORVUS_UPDATE_DOCS=1 updates it) -->";
     internal const string ReadersEnd = "<!-- readers:end -->";
 
-    // Engine and live tools read in their own workers; notes read no input file.
-    private static readonly string[] OwnProcess = ["engine", "live", "notes"];
-
     private static string ReaderLists()
     {
-        var worker = Corvus.Tools.FileOps.WorkerTools;
         string Names(IEnumerable<string> tools) => string.Join(", ", tools.Select(t => $"`{t}`"));
-        var sb = new StringBuilder($"- Read in a Corvus worker process: {Names(worker)}.\n- Run over file content in the server process, where a crafted file can end it (engine-backed calls run in the engine workers):\n");
-        foreach (var f in Toolsets.Families.Where(f => !OwnProcess.Contains(f.Name)))
-            if (f.Tools.Where(t => !worker.Contains(t) && Mcp.ToolContract.Of(t).UntrustedContent).ToList() is { Count: > 0 } inServer)
+        IEnumerable<string> With(FileReads where) => Toolsets.Families.SelectMany(f => f.Tools).Where(t => Mcp.ToolContract.Of(t).Reads.HasFlag(where));
+        var sb = new StringBuilder($"- Read in the file worker: {Names(Corvus.Tools.FileOps.WorkerTools)}.\n");
+        sb.Append("- Read in the server process, where a crafted file can end it:\n");
+        foreach (var f in Toolsets.Families)
+            if (f.Tools.Where(t => Mcp.ToolContract.Of(t).Reads.HasFlag(FileReads.Server)).ToList() is { Count: > 0 } inServer)
                 sb.Append($"  - {f.Name}: {Names(inServer)}.\n");
+        sb.Append($"- Read in an IDA, Ghidra or JADX worker: {Names(With(FileReads.EngineWorker))}.\n");
+        sb.Append($"- Read through Frida in a session worker: {Names(With(FileReads.SessionWorker))}.\n");
+        sb.Append($"- Read by a helper program (Detect It Easy, TShark, pycdc, capa, speakeasy): {Names(With(FileReads.Helper))}.\n");
         return sb.ToString();
     }
 

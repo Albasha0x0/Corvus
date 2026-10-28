@@ -31,6 +31,25 @@ public class ToolContractTests
     }
 
     [Fact]
+    public void Every_tool_declares_where_it_reads_the_analyzed_file()
+    {
+        Assert.Equal(AllTools.Order(StringComparer.Ordinal), ToolContract.FileReadTable.Keys.Order(StringComparer.Ordinal));
+        var problems = new List<string>();
+        var worker = Corvus.Tools.FileOps.WorkerTools;
+        foreach (var tool in AllTools)
+        {
+            var reads = ToolContract.Of(tool).Reads;
+            if (worker.Contains(tool) != reads.HasFlag(FileReads.FileWorker)) problems.Add($"{tool}: FileWorker {reads.HasFlag(FileReads.FileWorker)} but in the op table {worker.Contains(tool)}");
+            var parameters = Corvus.Setup.ToolCli.FindTool(tool)?["inputSchema"]?["properties"] as JsonObject;
+            // get_engine_status asks an open engine and never starts one.
+            if ((parameters?.ContainsKey("engine") == true || parameters?.ContainsKey("crossCheck") == true) && tool != "get_engine_status" && !reads.HasFlag(FileReads.EngineWorker))
+                problems.Add($"{tool}: takes an engine but does not declare EngineWorker");
+            if (parameters?.ContainsKey("detectItEasy") == true && !reads.HasFlag(FileReads.Helper)) problems.Add($"{tool}: starts Detect It Easy but does not declare Helper");
+        }
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
+    [Fact]
     public void Rows_agree_with_the_effects()
     {
         var problems = new List<string>();
