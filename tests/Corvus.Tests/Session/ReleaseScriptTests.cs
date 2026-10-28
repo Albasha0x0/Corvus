@@ -88,6 +88,71 @@ public class ReleaseScriptTests
         Assert.Equal("unknown", families["Containers"]);
     }
 
+    // Regression for the 2.7.1 release: a second run with -Push stopped on the tag the first run made.
+    // Fixture: a repository holding the script and workflow, its main tagged, and a bare repository as origin.
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_run_with_push_pushes_a_tag_an_earlier_run_made_and_refuses_one_on_another_commit()
+    {
+        if (BundleTests.FindOnPath(OperatingSystem.IsWindows() ? "pwsh.exe" : "pwsh") is not { } pwsh) return;
+        using var dir = new TempDir();
+        var origin = Path.Combine(dir.Path, "origin.git");
+        var work = Directory.CreateDirectory(Path.Combine(dir.Path, "work")).FullName;
+        Git(dir.Path, "init", "-q", "--bare", origin);
+        Git(work, "init", "-q", "-b", "main");
+        File.Copy(Path.Combine(DocsTests.RepoRoot(), "release.ps1"), Path.Combine(work, "release.ps1"));
+        Directory.CreateDirectory(Path.Combine(work, ".github", "workflows"));
+        File.Copy(Path.Combine(DocsTests.RepoRoot(), ".github", "workflows", "release.yml"), Path.Combine(work, ".github", "workflows", "release.yml"));
+        Git(work, "add", "-A");
+        Git(work, "commit", "-q", "-m", "chore(release): version 9.8.7");
+        Git(work, "remote", "add", "origin", origin);
+
+        Git(work, "tag", "-a", "v9.8.6", "-m", "Corvus 9.8.6");
+        File.WriteAllText(Path.Combine(work, "notes.txt"), "later");
+        Git(work, "add", "-A");
+        Git(work, "commit", "-q", "-m", "docs(release): a later commit");
+        var (code, log) = RunRelease(pwsh, work, "9.8.6", TimeSpan.FromSeconds(60));
+        Assert.True(code == 1 && log.Contains("tag v9.8.6 exists"), log);
+
+        Git(work, "tag", "-a", "v9.8.7", "-m", "Corvus 9.8.7");
+        // The script waits for the release workflow after pushing; the pushed refs are the result.
+        RunRelease(pwsh, work, "9.8.7", TimeSpan.FromSeconds(60), until: () => Git(origin, "tag", "--list", "v9.8.7").Length > 0);
+        Assert.Equal(Git(work, "rev-parse", "main"), Git(origin, "rev-parse", "main"));
+        Assert.Equal(Git(work, "rev-parse", "v9.8.7"), Git(origin, "rev-parse", "v9.8.7"));
+        Assert.Empty(Git(origin, "tag", "--list", "v9.8.6"));
+    }
+
+    private static string Git(string dir, params string[] args)
+    {
+        var psi = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in new[] { "-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid" }.Concat(args))
+            psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        var output = p.StandardOutput.ReadToEnd();
+        var error = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        Assert.True(p.ExitCode == 0, $"git {string.Join(' ', args)}: {error}");
+        return output.Trim();
+    }
+
+    private static (int Code, string Log) RunRelease(string pwsh, string work, string version, TimeSpan limit, Func<bool>? until = null)
+    {
+        var psi = new ProcessStartInfo(pwsh) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, WorkingDirectory = work };
+        foreach (var a in new[] { "-NoProfile", "-File", Path.Combine(work, "release.ps1"), "-Version", version, "-Push", "-Repo", "corvus-test/none" })
+            psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        var output = p.StandardOutput.ReadToEndAsync();
+        var error = p.StandardError.ReadToEndAsync();
+        var end = DateTime.UtcNow + limit;
+        while (!p.HasExited && DateTime.UtcNow < end && !(until?.Invoke() ?? false)) Thread.Sleep(250);
+        var stopped = !p.HasExited;
+        if (stopped) p.Kill(entireProcessTree: true);
+        p.WaitForExit();
+        var log = output.Result + error.Result;
+        Assert.True(until != null ? until() : !stopped, log);
+        return (p.ExitCode, log);
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public void The_release_script_parses_as_PowerShell()

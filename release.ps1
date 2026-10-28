@@ -221,65 +221,70 @@ if (-not $VerifyOnly) {
     try {
         if ((git branch --show-current) -ne 'main') { Fail 'release from main' }
         if (git status --porcelain) { Fail 'the working tree is not clean' }
-        if (git tag --list $tag) { Fail "tag $tag exists" }
-        $null = Get-Notes
+        # A bump committed and tagged without -Push is pushed by running again with -Push.
+        $resume = $Push -and (git tag --list $tag) -and (git rev-parse "$tag^{commit}") -eq (git rev-parse HEAD)
+        if ((git tag --list $tag) -and -not $resume) { Fail "tag $tag exists" }
+        if ($resume) { Write-Host "Pushing the existing $tag." }
+        else {
+            $null = Get-Notes
 
-        # A release needs a full pass at most -MaxBehind commits back and no failure after it on this history.
-        # Families not yet verified on these inputs are named.
-        $gitDir = [IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())
-        $result = Join-Path $gitDir 'corvus-background.result'
-        $last = if (Test-Path $result) { (Get-Content $result -Raw).Trim() } else { '' }
-        if (-not $SkipTests) {
-            Import-Module (Join-Path $root 'test-reuse.psm1') -Force
-            $passedAt = Get-FullPass $root (Join-Path $gitDir 'corvus-full-passes.txt') (Join-Path $gitDir 'corvus-background.passed')
-            if (-not $passedAt) { Fail 'no full run has passed on this history: push, or run ./test.ps1 -Full, and release once it passes' }
-            $behind = [int](git rev-list --count "$passedAt..HEAD")
-            if ($behind -gt $MaxBehind) { Fail "the last full pass on this history ($($passedAt.Substring(0, 8))) is $behind commits back, more than ${MaxBehind}: run ./test.ps1 -Full" }
-            # A failed background run on a commit after the pass, on this history, is a known failure.
-            if ($last -match '^(\w+) FAILED' -and ($failed = git rev-parse --verify --quiet "$($Matches[1])^{commit}")) {
-                git merge-base --is-ancestor $passedAt $failed 2>$null; $afterPass = $LASTEXITCODE -eq 0 -and $failed -ne $passedAt
-                git merge-base --is-ancestor $failed HEAD 2>$null; $onHistory = $LASTEXITCODE -eq 0
-                if ($afterPass -and $onHistory) { Fail "the last background run failed after the last pass ($last); fix it first (./test.ps1 -Status), or pass -SkipTests" }
+            # A release needs a full pass at most -MaxBehind commits back and no failure after it on this history.
+            # Families not yet verified on these inputs are named.
+            $gitDir = [IO.Path]::GetFullPath((git rev-parse --git-common-dir).Trim())
+            $result = Join-Path $gitDir 'corvus-background.result'
+            $last = if (Test-Path $result) { (Get-Content $result -Raw).Trim() } else { '' }
+            if (-not $SkipTests) {
+                Import-Module (Join-Path $root 'test-reuse.psm1') -Force
+                $passedAt = Get-FullPass $root (Join-Path $gitDir 'corvus-full-passes.txt') (Join-Path $gitDir 'corvus-background.passed')
+                if (-not $passedAt) { Fail 'no full run has passed on this history: push, or run ./test.ps1 -Full, and release once it passes' }
+                $behind = [int](git rev-list --count "$passedAt..HEAD")
+                if ($behind -gt $MaxBehind) { Fail "the last full pass on this history ($($passedAt.Substring(0, 8))) is $behind commits back, more than ${MaxBehind}: run ./test.ps1 -Full" }
+                # A failed background run on a commit after the pass, on this history, is a known failure.
+                if ($last -match '^(\w+) FAILED' -and ($failed = git rev-parse --verify --quiet "$($Matches[1])^{commit}")) {
+                    git merge-base --is-ancestor $passedAt $failed 2>$null; $afterPass = $LASTEXITCODE -eq 0 -and $failed -ne $passedAt
+                    git merge-base --is-ancestor $failed HEAD 2>$null; $onHistory = $LASTEXITCODE -eq 0
+                    if ($afterPass -and $onHistory) { Fail "the last background run failed after the last pass ($last); fix it first (./test.ps1 -Status), or pass -SkipTests" }
+                }
+                $summaryData = Get-TestSummary $gitDir $passedAt $null
+                Write-Host "The full suite passed on $($passedAt.Substring(0, 8))$(if ($behind) { ", $behind commits back" } else { ', this commit' })$(if ($last -match 'running') { "; a run is going: $last" })."
+                $stampsFile = Join-Path $gitDir 'corvus-family-stamps.json'
+                if (Test-Path $stampsFile) {
+                    $tests = Join-Path $root 'tests/Corvus.Tests'
+                    $classMap = Get-ClassMap $tests
+                    $keys = Get-FamilyKeys @(git ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment -tools (Get-LocatedTools $tests)) (Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json'))
+                    $stale = @(Get-StaleFamilies $keys (Get-Content $stampsFile -Raw | ConvertFrom-Json) $false | Where-Object { $_ -ne 'Contract' })
+                    if ($stale) { Write-Host "Not yet verified on these inputs: $($stale -join ', ')." -ForegroundColor Yellow }
+                }
             }
-            $summaryData = Get-TestSummary $gitDir $passedAt $null
-            Write-Host "The full suite passed on $($passedAt.Substring(0, 8))$(if ($behind) { ", $behind commits back" } else { ', this commit' })$(if ($last -match 'running') { "; a run is going: $last" })."
-            $stampsFile = Join-Path $gitDir 'corvus-family-stamps.json'
-            if (Test-Path $stampsFile) {
-                $tests = Join-Path $root 'tests/Corvus.Tests'
-                $classMap = Get-ClassMap $tests
-                $keys = Get-FamilyKeys @(git ls-tree -r HEAD) @($classMap.Keys) @(Get-RootReaders $tests) (Get-RunEnvironment -tools (Get-LocatedTools $tests)) (Read-CoverageMap (Join-Path $gitDir 'corvus-coverage-map.json'))
-                $stale = @(Get-StaleFamilies $keys (Get-Content $stampsFile -Raw | ConvertFrom-Json) $false | Where-Object { $_ -ne 'Contract' })
-                if ($stale) { Write-Host "Not yet verified on these inputs: $($stale -join ', ')." -ForegroundColor Yellow }
+
+            $csproj = Get-Content $project -Raw
+            $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
+            if ($bumped -eq $csproj -and $csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") { Fail "no <Version> in $project" }
+            [IO.File]::WriteAllText($project, $bumped)
+            # The registry entry, bundle manifest and plugins name the same version; tests check.
+            foreach ($file in 'src/Corvus/.mcp/server.json', 'mcpb/manifest.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.codex-plugin/plugin.json') {
+                $path = Join-Path $root $file
+                $text = [regex]::Replace((Get-Content $path -Raw), '"version": "[^"]+"', "`"version`": `"$Version`"")
+                [IO.File]::WriteAllText($path, [regex]::Replace($text, '"CorvusRE@[^"]+"', "`"CorvusRE@$Version`""))
             }
-        }
 
-        $csproj = Get-Content $project -Raw
-        $bumped = [regex]::Replace($csproj, '<Version>[^<]+</Version>', "<Version>$Version</Version>")
-        if ($bumped -eq $csproj -and $csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") { Fail "no <Version> in $project" }
-        [IO.File]::WriteAllText($project, $bumped)
-        # The registry entry, bundle manifest and plugins name the same version; tests check.
-        foreach ($file in 'src/Corvus/.mcp/server.json', 'mcpb/manifest.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.codex-plugin/plugin.json') {
-            $path = Join-Path $root $file
-            $text = [regex]::Replace((Get-Content $path -Raw), '"version": "[^"]+"', "`"version`": `"$Version`"")
-            [IO.File]::WriteAllText($path, [regex]::Replace($text, '"CorvusRE@[^"]+"', "`"CorvusRE@$Version`""))
-        }
+            # Generated docs and the skill can name the version; regenerate them with a quick run.
+            $env:CORVUS_UPDATE_DOCS = '1'
+            try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo') }
+            finally { Remove-Item Env:CORVUS_UPDATE_DOCS }
 
-        # Generated docs and the skill can name the version; regenerate them with a quick run.
-        $env:CORVUS_UPDATE_DOCS = '1'
-        try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo') }
-        finally { Remove-Item Env:CORVUS_UPDATE_DOCS }
+            if (-not $summaryData) { $summaryData = Get-TestSummary $gitDir $null 'released with -SkipTests' }
+            Write-TestSummary (Join-Path $root $testSummary) $summaryData
 
-        if (-not $summaryData) { $summaryData = Get-TestSummary $gitDir $null 'released with -SkipTests' }
-        Write-TestSummary (Join-Path $root $testSummary) $summaryData
-
-        Run 'git' @('add', '-A')
-        # The subject keeps the form the commit-msg hook checks.
-        Run 'git' @('commit', '-m', "chore(release): version $Version")
-        Run 'git' @('tag', '-a', $tag, '-m', "Corvus $Version")
-        Write-Host "Committed and tagged $tag."
-        if (-not $Push) {
-            Write-Host "Next: ./release.ps1 -Version $Version -VerifyOnly after 'git push origin main $tag', or run again with -Push."
-            exit 0
+            Run 'git' @('add', '-A')
+            # The subject keeps the form the commit-msg hook checks.
+            Run 'git' @('commit', '-m', "chore(release): version $Version")
+            Run 'git' @('tag', '-a', $tag, '-m', "Corvus $Version")
+            Write-Host "Committed and tagged $tag."
+            if (-not $Push) {
+                Write-Host "Next: ./release.ps1 -Version $Version -VerifyOnly after 'git push origin main $tag', or run again with -Push."
+                exit 0
+            }
         }
         Run 'git' @('push', 'origin', 'main')
         Run 'git' @('push', 'origin', $tag)
