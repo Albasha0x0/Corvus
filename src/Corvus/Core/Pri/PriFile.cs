@@ -134,6 +134,10 @@ internal sealed class PriFile
         return new(setList, decisionList);
     }
 
+    /// <summary><paramref name="count"/> rows of <paramref name="size"/> bytes at <paramref name="at"/>; throws when they run past <paramref name="b"/>.</summary>
+    private static int Rows(ReadOnlySpan<byte> b, int at, int count, int size) =>
+        count >= 0 && at <= b.Length && count <= (b.Length - at) / size ? count : throw new InvalidDataException($"{count:N0} rows of {size} bytes run past the section");
+
     private static List<(int First, int Count)> Ranges(ReadOnlySpan<byte> b, ref int at, int count)
     {
         var list = new List<(int, int)>(count);
@@ -158,7 +162,7 @@ internal sealed class PriFile
         at += 6;
         int entries = (int)U32(b, at), scopes = (int)U32(b, at + 4), items = (int)U32(b, at + 8), unicodeChars = (int)U32(b, at + 12);
         at += 20 + (extended ? 4 : 0);
-        var rows = new List<(int Parent, int NameLength, int Flags, int NameOffset, int Index)>(entries);
+        var rows = new List<(int Parent, int NameLength, int Flags, int NameOffset, int Index)>(Rows(b, at, entries, 12));
         for (int i = 0; i < entries; i++, at += 12)
         {
             int flags = b[at + 7];
@@ -166,7 +170,7 @@ internal sealed class PriFile
         }
         // Each scope's child range; not needed to name items.
         at += scopes * 8;
-        var itemEntries = new int[items];
+        var itemEntries = new int[Rows(b, at, items, 2)];
         for (int i = 0; i < items; i++, at += 2) itemEntries[i] = U16(b, at);
         var unicode = b.Slice(at, unicodeChars * 2).ToArray();
         var ascii = b[(at + unicodeChars * 2)..].ToArray();

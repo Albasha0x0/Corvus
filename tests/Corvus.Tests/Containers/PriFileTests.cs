@@ -81,6 +81,23 @@ public sealed class PriFileTests : IDisposable
         Assert.Equal("package resource index", Blob.Identify(bytes));
     }
 
+    // Regression: a schema's entry count of 0x7FFFFFFF reserved a 700 MB list
+    // before its first row was read.
+    [Fact]
+    public void A_schema_entry_count_past_its_section_is_noted_before_it_is_allocated()
+    {
+        var bytes = File.ReadAllBytes(Path.Combine(Fixtures, "notes.pri"));
+        var schema = PriFile.Read(bytes).Sections.First(s => s.Identifier.StartsWith("[mrm_hschema", StringComparison.Ordinal));
+        int body = (int)schema.Offset + 32;
+        int U16(int at) => System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(at));
+        int entries = body + 8 + (schema.Identifier == "[mrm_hschemaex]" ? 16 : 0) + 20 + 2 * U16(body + 2) + 2 * U16(body + 4) + 6;
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(entries), int.MaxValue);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var pri = PriFile.Read(bytes);
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 64 << 20);
+        Assert.Contains(pri.Notes, n => n.Contains("run past the section", StringComparison.Ordinal));
+    }
+
     [Fact]
     [FuzzEntry(typeof(PriFile), typeof(PriFileView))]
     public void Fuzzed_indexes_never_throw()
