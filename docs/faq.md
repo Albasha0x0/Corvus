@@ -2,10 +2,10 @@
 
 ## Does it upload my files or use the network?
 
-- No file is uploaded. IDA and Ghidra follow their own settings.
+- No file is uploaded. IDA and Ghidra follow their own settings; offline, the IDA worker gets no symbol server.
 - Requests: .NET reference packs from nuget.org for an uninstalled .NET version; `load_pdb download=true` (symbol server,
   debuginfod); `open_minidump downloadDac=true`; the pinned Frida with `--live-install-frida`; release downloads.
-- `CORVUS_OFFLINE=1` refuses Corvus's own requests except updates and installs, which run only when you start them.
+- `CORVUS_OFFLINE=1` refuses Corvus's own requests, `corvus update` included; the install scripts run only when you start them.
 - Offline install: set `CORVUS_ARCHIVE` and `CORVUS_SHA256SUMS` ([installation.md](installation.md)).
 - Full list: [SECURITY.md](../SECURITY.md#network).
 

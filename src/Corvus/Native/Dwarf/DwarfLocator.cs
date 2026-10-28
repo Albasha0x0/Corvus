@@ -208,9 +208,14 @@ public static class DwarfLocator
     {
         if (image.Format != ImageFormat.Elf || image.BuildId is not { Length: >= 2 } id || !id.All(char.IsAsciiHexDigit))
             throw new ToolError(ErrorCode.Unsupported, "debuginfod finds debug files by GNU build-id; this image has none.");
-        if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("https" or "http"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an http(s) debuginfod URL.");
+        if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri)
+            || !(baseUri.Scheme == Uri.UriSchemeHttps || (baseUri.Scheme == Uri.UriSchemeHttp && NetworkPolicy.PlainHttpAllowed(baseUri))))
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an https debuginfod URL.",
+                $"an http server must be listed in {NetworkPolicy.HttpServersVariable}");
         var url = new Uri(baseUri, $"buildid/{id}/debuginfo");
-        return PdbLocator.FetchUrl(url, System.IO.Path.Combine(cache ?? Cache, id, "debuginfo"), "debug file", path => Check(path, image), timeout, maxBytes, handler, ct);
+        // Every debuginfod server is one the user set, so it may be private.
+        bool configured = Servers().Any(s => Uri.TryCreate(s, UriKind.Absolute, out var u) && string.Equals(u.Authority, baseUri.Authority, StringComparison.OrdinalIgnoreCase));
+        return PdbLocator.FetchUrl(url, System.IO.Path.Combine(cache ?? Cache, id, "debuginfo"), "debug file", path => Check(path, image), timeout, maxBytes,
+            new NetworkServers([baseUri.ToString()], configured), handler, ct);
     }
 }

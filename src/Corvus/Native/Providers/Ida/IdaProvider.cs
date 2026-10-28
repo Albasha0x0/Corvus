@@ -222,13 +222,41 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             $"Set CORVUS_DATA_DIR (or {AnalysisCache.RootVariable}) to a folder whose analysis cache path is at most {Math.Max(3, fits)} characters (now {cacheRoot.Length}: {cacheRoot}).");
     }
 
-    /// <summary>Worker symbol path: the located PDB's directory (IDA sees only a copy), then the configured path; null keeps IDA's.</summary>
-    internal static string? SymbolPathWith(string? pdbPath, string? idaDirectory = null)
+    /// <summary>
+    /// Worker symbol path: the located PDB's directory (IDA sees only a copy),
+    /// then the configured path; null keeps IDA's. When <paramref name="offline"/>
+    /// is set, the path keeps its local stores only and is never null, so IDA's
+    /// own default server is not used either.
+    /// </summary>
+    internal static string? SymbolPathWith(string? pdbPath, string? idaDirectory = null, bool offline = false)
     {
-        if (string.IsNullOrEmpty(pdbPath) || Path.GetDirectoryName(pdbPath) is not { Length: > 0 } dir) return null;
+        var dir = string.IsNullOrEmpty(pdbPath) ? null : Path.GetDirectoryName(pdbPath) is { Length: > 0 } d ? d : null;
+        if (dir == null && !offline) return null;
         var configured = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH") is { Length: > 0 } env ? env
             : ConfiguredSymbolPath(idaDirectory) ?? $"SRV*{Path.Combine(Path.GetTempPath(), "ida")}*https://msdl.microsoft.com/download/symbols";
-        return dir + ";" + configured;
+        if (offline)
+        {
+            var stores = new List<string>();
+            Pdb.PdbLocator.ParseSymbolPath(configured, stores, []);
+            configured = string.Join(";", stores);
+        }
+        return string.Join(";", new[] { dir, configured }.Where(p => !string.IsNullOrEmpty(p)));
+    }
+
+    /// <summary>
+    /// The worker's environment: IDA's folder, headless mode and the symbol
+    /// path, which names no server when <paramref name="offline"/> is set.
+    /// </summary>
+    internal static Dictionary<string, string?> WorkerEnvironment(string idaDirectory, string? pdbPath, bool offline)
+    {
+        var env = new Dictionary<string, string?>
+        {
+            ["IDADIR"] = idaDirectory,
+            ["IDA_IS_INTERACTIVE"] = null,
+            ["TVHEADLESS"] = "1",
+        };
+        if (SymbolPathWith(pdbPath, idaDirectory, offline) is { } symbolPath) env["_NT_SYMBOL_PATH"] = symbolPath;
+        return env;
     }
 
     /// <summary>The _NT_SYMBOL_PATH setting of IDA's cfg/pdb.cfg, when one is not commented out.</summary>
@@ -256,13 +284,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     {
         var workerDir = Path.Combine(Cache.Root, "workers");
         var script = EmbeddedScript.Extract(WorkerResource, workerDir, "ida_worker", ".py");
-        var env = new Dictionary<string, string?>
-        {
-            ["IDADIR"] = ida.Directory,
-            ["IDA_IS_INTERACTIVE"] = null,
-            ["TVHEADLESS"] = "1",
-        };
-        if (SymbolPathWith(pdbPath, ida.Directory) is { } symbolPath) env["_NT_SYMBOL_PATH"] = symbolPath;
+        var env = WorkerEnvironment(ida.Directory, pdbPath, Core.ReferencePacks.Offline);
         if (!_options.UseUserPlugins) env["IDAUSR"] = PrivateUserDirectory();
         var start = new ChildProcessStart(python.Executable, ["-I", "-u", script])
         {

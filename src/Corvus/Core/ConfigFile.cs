@@ -34,7 +34,7 @@ public static class ConfigFile
         Native.Providers.ExternalTools.Table.Select(t => t.Variable).Concat(
         [
             Native.Providers.Worker.Yara.YaraX.LibraryVariable, Native.Providers.Live.Ttd.TtdWorker.FolderVariable,
-            Native.Dump.Managed.ClrHelperClient.PathVariable, Native.Dwarf.DwarfLocator.ServersVariable,
+            Native.Dump.Managed.ClrHelperClient.PathVariable, Native.Dwarf.DwarfLocator.ServersVariable, NetworkPolicy.HttpServersVariable,
             Native.Providers.Ghidra.GhidraOptions.DirectoryVariable, Native.Providers.Ghidra.GhidraOptions.JavaVariable,
             Native.Providers.Ghidra.GhidraOptions.PythonVariable, Native.Providers.Ghidra.GhidraOptions.ExtensionsVariable,
             Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, Native.Providers.Ida.IdaInstallation.DirectoryVariable,

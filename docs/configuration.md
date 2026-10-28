@@ -232,9 +232,14 @@ The server goes online only when a call or command asks for it ([SECURITY.md](..
 | Loading a DAC | revocation servers of the DAC's signer; cached data only when offline | `CORVUS_OFFLINE` |
 | `--live-install-frida` | pip; hash-checked wheels | `CORVUS_OFFLINE` |
 | `corvus rules fetch <pack>` | GitHub; SHA-256 must match the pinned value | `CORVUS_OFFLINE`, or not running it |
-| `corvus update`, install scripts | GitHub | not running them |
+| `corvus update` | GitHub | `CORVUS_OFFLINE`, or not running it |
+| Install scripts | GitHub | not running them |
 
-- `CORVUS_OFFLINE`: `1` stops downloads of reference packs, symbols, DACs, revocation lists, rule packs and Frida.
+- `CORVUS_OFFLINE`: `1` stops downloads of reference packs, symbols, DACs, revocation lists, rule packs, Frida and updates, and the IDA worker's symbol server.
+- Downloads use HTTPS to the listed servers only; a redirect may go only to the server's known redirect hosts, and never to HTTP.
+- `CORVUS_HTTP_SERVERS`: comma-separated server URLs or hosts that may be used over plain HTTP (internal symbol and debuginfod servers).
+- Through a proxy, only IP literals are address-checked.
+- A private, loopback or link-local address is refused unless it is a symbol or debuginfod server you configured.
 - `CORVUS_DEBUGINFOD_URLS`: debuginfod servers for `load_pdb download=true` on ELF (else `DEBUGINFOD_URLS`; none by default).
 - `load_pdb server=` takes only a configured server: `_NT_SYMBOL_PATH`, Microsoft's or a debuginfod variable.
 - `GITHUB_TOKEN`: optional token for `corvus update` and the install scripts (higher API rate limit). Sent to GitHub hosts over HTTPS only.

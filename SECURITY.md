@@ -113,7 +113,9 @@ The server reaches the network only:
 - for `corvus rules fetch <pack>` (a rule pack's release archive from GitHub): an archive whose SHA-256 differs from the one pinned in Corvus is refused and nothing is installed;
 - through IDA or Ghidra when their own configuration says so (for example IDA's symbol server).
 
-`CORVUS_OFFLINE=1` refuses the reference pack, symbol and DAC downloads, the Frida install and `corvus rules fetch`, and limits revocation checks to cached data. Updates and installs run only when you start them. The engines follow their own configuration.
+Every download uses HTTPS to the servers listed for it; a redirect may go only to that server's known redirect hosts, and never to HTTP. Plain HTTP is used only for a server named in `CORVUS_HTTP_SERVERS`. A private, loopback or link-local address is refused unless it is a symbol or debuginfod server you configured; names are resolved and checked before connecting.
+
+`CORVUS_OFFLINE=1` refuses the reference pack, symbol and DAC downloads, the Frida install, `corvus rules fetch` and `corvus update`, gives the IDA worker a symbol path without servers, and limits revocation checks to cached data. The install scripts run only when you start them. Ghidra follows its own configuration.
 
 ## Files written
 

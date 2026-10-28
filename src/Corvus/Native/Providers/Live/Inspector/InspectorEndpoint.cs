@@ -42,7 +42,7 @@ public static class InspectorEndpoint
 
     private static async Task<List<Target>> ListAsync(Uri list, CancellationToken ct)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        using var http = Core.NetworkPolicy.Loopback(TimeSpan.FromSeconds(10));
         string json;
         try { json = await http.GetStringAsync(list, ct).ConfigureAwait(false); }
         catch (HttpRequestException ex)

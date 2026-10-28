@@ -76,6 +76,26 @@ public class LayeringTests
         Assert.True(problems.Count == 0, "Writes outside SafeFile:\n" + string.Join("\n", problems));
     }
 
+    private static readonly System.Text.RegularExpressions.Regex HttpConstruction = new(
+        @"new\s+(?:HttpClient|HttpClientHandler|SocketsHttpHandler|WebClient|HttpMessageInvoker)\s*\(|\b(?:Http)?WebRequest\.Create(?:Http)?\s*\(");
+
+    private static readonly System.Text.RegularExpressions.Regex StringLiteral = new(@"""(?:[^""\\\n]|\\.)*""");
+
+    [Fact]
+    public void Only_the_network_policy_builds_an_http_client()
+    {
+        var src = Path.Combine(DocsTests.RepoRoot(), "src", Root);
+        var problems = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(src, file).Replace('\\', '/');
+            if (relative == "Core/NetworkPolicy.cs" || relative.Contains("/obj/", StringComparison.Ordinal) || relative.StartsWith("obj/", StringComparison.Ordinal)) continue;
+            var code = StringLiteral.Replace(string.Join('\n', File.ReadLines(file).Where(l => !l.TrimStart().StartsWith("//", StringComparison.Ordinal))), "\"\"");
+            if (HttpConstruction.Count(code) is var n and > 0) problems.Add($"{relative}: {n}");
+        }
+        Assert.True(problems.Count == 0, "HTTP clients outside NetworkPolicy:\n" + string.Join("\n", problems));
+    }
+
     private const string Root = "Corvus";
 
     /// <summary>The top-level layer of a type's namespace: "Core" for Corvus.Core.X, "" for the root.</summary>

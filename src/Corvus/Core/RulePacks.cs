@@ -77,8 +77,8 @@ public static class RulePacks
     }
 
     /// <summary>
-    /// The installed pack in <paramref name="folder"/>; its as-of date is null
-    /// when the manifest holds none.
+    /// The installed pack in <paramref name="folder"/>; its as-of date and digest
+    /// are null when the manifest holds none.
     /// </summary>
     public static InstalledRulePack At(string folder)
     {
@@ -87,12 +87,13 @@ public static class RulePacks
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, ManifestName)));
-            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("asOf", out var t)
-                && t.ValueKind == JsonValueKind.String
-                && DateOnly.TryParseExact(t.GetString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
-                asOf = date;
-            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("sha256", out var sha) && sha.ValueKind == JsonValueKind.String)
-                digest = sha.GetString();
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                if (doc.RootElement.TryGetProperty("asOf", out var t) && t.ValueKind == JsonValueKind.String
+                    && DateOnly.TryParseExact(t.GetString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
+                    asOf = date;
+                if (doc.RootElement.TryGetProperty("sha256", out var sha) && sha.ValueKind == JsonValueKind.String) digest = sha.GetString();
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
         var version = Path.TrimEndingDirectorySeparator(folder);
@@ -121,8 +122,12 @@ public static class RulePacks
             Find(name) is { } known ? $"run: corvus rules fetch {known.Name}" : $"corvus rules list names the known packs: {string.Join(", ", Known.Select(p => p.Name))}");
     }
 
-    /// <summary>Installs <paramref name="pack"/> unless present; refuses offline, past <see cref="MaxArchiveBytes"/>, or on a hash mismatch.</summary>
-    public static async Task<(InstalledRulePack Pack, bool Downloaded)> FetchAsync(RulePack pack, string root, HttpMessageHandler handler, bool offline, CancellationToken ct)
+    /// <summary>
+    /// Installs <paramref name="pack"/> unless present; refuses offline, past
+    /// <see cref="MaxArchiveBytes"/>, or on a hash mismatch. A null
+    /// <paramref name="handler"/> connects through the network policy's sockets.
+    /// </summary>
+    public static async Task<(InstalledRulePack Pack, bool Downloaded)> FetchAsync(RulePack pack, string root, HttpMessageHandler? handler, bool offline, CancellationToken ct)
     {
         var target = Path.Combine(root, pack.Name, pack.Version);
         if (File.Exists(Path.Combine(target, ManifestName))) return (At(target), false);
@@ -130,9 +135,9 @@ public static class RulePacks
             throw new ToolError(ErrorCode.Unsupported, $"CORVUS_OFFLINE is set: rule pack {pack.Name} {pack.Version} is not downloaded.", "unset CORVUS_OFFLINE to fetch it");
 
         byte[] archive;
-        using (var http = new HttpClient(handler, disposeHandler: false) { Timeout = TimeSpan.FromMinutes(10) })
+        using (var http = NetworkPolicy.Client(new NetworkServers([pack.Url], RedirectHosts: NetworkServers.GitHub.RedirectHosts), TimeSpan.FromMinutes(10), handler,
+                   "Corvus/" + (typeof(RulePacks).Assembly.GetName().Version?.ToString(3) ?? "0"), offline))
         {
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + (typeof(RulePacks).Assembly.GetName().Version?.ToString(3) ?? "0"));
             using var response = await http.GetAsync(pack.Url, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode)
                 throw new ToolError(ErrorCode.Failed, $"{pack.Url} answered {(int)response.StatusCode} {response.ReasonPhrase}; nothing was installed.");

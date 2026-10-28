@@ -193,8 +193,7 @@ public static class PdbLocator
     {
         if (cv.Format != "RSDS" || PdbFileName(cv) is not { } name)
             throw new ToolError(ErrorCode.Unsupported, "The image has no PDB 7.0 (RSDS) CodeView record with a file name; there is nothing to download.");
-        if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("https" or "http"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an http(s) symbol server URL.", $"for example {DefaultServer}");
+        var baseUri = ServerUri(server);
         return await Fetch(baseUri, name, StoreKey(cv), "PDB", path => Check(path, cv), timeout, maxBytes, handler, cache, ct).ConfigureAwait(false);
     }
 
@@ -207,9 +206,28 @@ public static class PdbLocator
     {
         if (fileName.Length == 0 || fileName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"'{fileName}' is not a file name.");
-        if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("https" or "http"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an http(s) symbol server URL.", $"for example {DefaultServer}");
-        return Fetch(baseUri, fileName, key, "image", check ?? IsPe, timeout, maxBytes, handler, cache, ct);
+        return Fetch(ServerUri(server), fileName, key, "image", check ?? IsPe, timeout, maxBytes, handler, cache, ct);
+    }
+
+    private static Uri ServerUri(string server) =>
+        Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri)
+        && (baseUri.Scheme == Uri.UriSchemeHttps || (baseUri.Scheme == Uri.UriSchemeHttp && NetworkPolicy.PlainHttpAllowed(baseUri))) ? baseUri
+            : throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an https symbol server URL.",
+                $"for example {DefaultServer}; an http server must be listed in {NetworkPolicy.HttpServersVariable}");
+
+    /// <summary>
+    /// The servers a symbol download from <paramref name="baseUri"/> may request;
+    /// a server of the symbol path is configured, so it may be private.
+    /// </summary>
+    private static NetworkServers ServersOf(Uri baseUri)
+    {
+        var servers = new List<string>();
+        foreach (var path in new[] { Providers.ExternalTools.ReadVariable("_NT_SYMBOL_PATH"), Providers.ExternalTools.ReadVariable("_NT_ALT_SYMBOL_PATH") })
+            if (path != null) ParseSymbolPath(path, [], servers);
+        bool configured = servers.Any(s => Uri.TryCreate(s, UriKind.Absolute, out var u) && string.Equals(u.Authority, baseUri.Authority, StringComparison.OrdinalIgnoreCase));
+        // Microsoft's server answers with a redirect to its blob storage.
+        var redirects = string.Equals(baseUri.Authority, new Uri(DefaultServer).Authority, StringComparison.OrdinalIgnoreCase) ? ["*.blob.core.windows.net"] : Array.Empty<string>();
+        return new NetworkServers([baseUri.ToString()], configured, redirects);
     }
 
     private static string? IsPe(string path)
@@ -237,12 +255,12 @@ public static class PdbLocator
     {
         var target = System.IO.Path.Combine(cache ?? DownloadCache, name, key, name);
         var url = new Uri(baseUri, $"{Uri.EscapeDataString(name)}/{key}/{Uri.EscapeDataString(name)}");
-        return await FetchUrl(url, target, what, check, timeout, maxBytes, handler, ct).ConfigureAwait(false);
+        return await FetchUrl(url, target, what, check, timeout, maxBytes, ServersOf(baseUri), handler, ct).ConfigureAwait(false);
     }
 
     /// <summary>Downloads <paramref name="url"/> to <paramref name="target"/> (kept when already there and accepted); a temporary file first, a failing <paramref name="check"/> deletes it.</summary>
     internal static async Task<string> FetchUrl(Uri url, string target, string what, Func<string, string?> check, TimeSpan timeout, long maxBytes,
-        HttpMessageHandler? handler, CancellationToken ct)
+        NetworkServers servers, HttpMessageHandler? handler, CancellationToken ct)
     {
         if (File.Exists(target) && check(target) == null) return target;
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
@@ -251,9 +269,7 @@ public static class PdbLocator
         timeoutCts.CancelAfter(timeout);
         try
         {
-            using var http = handler != null ? new HttpClient(handler, disposeHandler: false) : new HttpClient();
-            http.Timeout = Timeout.InfiniteTimeSpan;
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("Microsoft-Symbol-Server/10.0.0.0");
+            using var http = NetworkPolicy.Client(servers, Timeout.InfiniteTimeSpan, handler, "Microsoft-Symbol-Server/10.0.0.0");
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 throw new ToolError(ErrorCode.NotFound, $"{url} does not have this {what} (404).", "the build may not be on that server; try another server or a local path");
@@ -283,6 +299,11 @@ public static class PdbLocator
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw new ToolError(ErrorCode.Timeout, $"Downloading {url} took longer than {timeout.TotalSeconds:0} s.");
+        }
+        catch (HttpRequestException ex) when (NetworkPolicy.Refusal(ex) is { } refused)
+        {
+            throw new ToolError(ErrorCode.AccessDenied, $"Downloading {url} refused: {refused.Message}",
+                "set the server in the symbol path or the debuginfod URLs, over https; unset CORVUS_OFFLINE to download");
         }
         catch (HttpRequestException ex)
         {

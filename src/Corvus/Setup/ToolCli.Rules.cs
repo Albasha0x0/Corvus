@@ -28,8 +28,7 @@ internal static partial class ToolCli
                            ?? throw new UsageException($"Unknown rule pack '{a.Positionals[1]}'. Known: {string.Join(", ", RulePacks.Known.Select(p => p.Name))}.");
                 try
                 {
-                    using var handler = new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(30) };
-                    var (installedPack, downloaded) = await RulePacks.FetchAsync(pack, RulePacks.Root, handler, ReferencePacks.Offline, cancellationToken);
+                    var (installedPack, downloaded) = await RulePacks.FetchAsync(pack, RulePacks.Root, null, ReferencePacks.Offline, cancellationToken);
                     io.Out.WriteLine($"{(downloaded ? "Installed" : "Already installed:")} {pack.Name} {pack.Version}, {installedPack.RuleFiles:N0} rule file{(installedPack.RuleFiles == 1 ? "" : "s")} " +
                                      $"(license: {pack.License}) in {installedPack.Folder}.");
                     io.Out.WriteLine($"Scan with: corvus search_container path=<file> kind=yara query=pack:{pack.Name}");

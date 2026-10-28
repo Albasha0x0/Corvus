@@ -12,6 +12,9 @@ internal static class ReferencePacks
     private const string FeedBase = "https://api.nuget.org/v3-flatcontainer/";
     private const string RegistrationBase = "https://api.nuget.org/v3/registration5-semver1/";
     private const string CatalogBase = "https://api.nuget.org/v3/catalog0/";
+
+    /// <summary>The servers a reference pack download may request.</summary>
+    internal static readonly NetworkServers Servers = new(["https://api.nuget.org"]);
     /// <summary>One download per pack; a waiting call stops when it is cancelled, the download goes on for the next.</summary>
     private static readonly ConcurrentDictionary<string, Lazy<Task<string?>>> Fetched = new(StringComparer.OrdinalIgnoreCase);
 
@@ -71,8 +74,8 @@ internal static class ReferencePacks
     private static string? Download(string packId, int major)
     {
         // Calls wait on this download: a network that never answers costs seconds, not minutes.
-        using var http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10) }) { Timeout = TimeSpan.FromSeconds(30) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + (typeof(ReferencePacks).Assembly.GetName().Version?.ToString(3) ?? "0"));
+        using var http = NetworkPolicy.Client(Servers, TimeSpan.FromSeconds(30), userAgent: "Corvus/" + (typeof(ReferencePacks).Assembly.GetName().Version?.ToString(3) ?? "0"),
+            connectTimeout: TimeSpan.FromSeconds(10));
         var (dir, problem) = Download(http, packId, major, CacheRoot);
         if (problem != null) LastProblem = problem;
         return dir;
