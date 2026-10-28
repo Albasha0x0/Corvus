@@ -37,6 +37,39 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
+    public void A_program_stopped_at_its_timeout_leaves_nothing_in_its_temporary_folder()
+    {
+        // The program writes into TEMP, names the folder, then outlives its 2 s limit.
+        var (exe, args) = OperatingSystem.IsWindows()
+            ? (Path.Combine(Environment.SystemDirectory, "cmd.exe"), new[] { "/d", "/c", "echo x>\"%TEMP%\\left.txt\"& echo %TEMP%& ping -n 60 127.0.0.1 >nul" })
+            : ("/bin/sh", new[] { "-c", "echo x > \"$TMPDIR/left.txt\"; echo \"$TMPDIR\"; sleep 60" });
+        var run = ExternalTools.Run(exe, args, TimeSpan.FromSeconds(2), 1 << 20, CancellationToken.None);
+        Assert.True(run.TimedOut);
+        var temp = run.Text.Trim();
+        Assert.StartsWith(Path.Combine(Path.GetTempPath(), "corvus-run"), temp);
+        Assert.False(Directory.Exists(temp), $"{temp} was left behind");
+    }
+
+    [Fact]
+    public void Run_folders_of_ended_processes_are_swept_and_others_kept()
+    {
+        using var root = new TempDir();
+        int ended = Enumerable.Range(100_000, 50_000).First(id =>
+        {
+            try { using var p = System.Diagnostics.Process.GetProcessById(id); return false; }
+            catch (ArgumentException) { return true; }
+        });
+        var gone = Directory.CreateDirectory(root.File($"{ended}-a")).FullName;
+        File.WriteAllText(Path.Combine(gone, "left.dll"), "x");
+        var kept = Directory.CreateDirectory(root.File($"{Environment.ProcessId}-b")).FullName;
+        var other = Directory.CreateDirectory(root.File("notes")).FullName;
+        ExternalTools.SweepRunFolders(root.Path);
+        Assert.False(Directory.Exists(gone));
+        Assert.True(Directory.Exists(kept));
+        Assert.True(Directory.Exists(other));
+    }
+
+    [Fact]
     public void Locate_takes_the_variable_as_file_or_folder_and_never_falls_back_from_a_bad_one()
     {
         using var fake = new FakeTool();

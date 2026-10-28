@@ -429,14 +429,78 @@ public static partial class ExternalTools
         public string Text => Encoding.UTF8.GetString(Output);
     }
 
-    /// <summary>Runs a program in its own job with a minimal environment; stops the tree past <paramref name="maxOutputBytes"/> (setting Truncated), the timeout or cancellation. With <paramref name="sink"/>, stdout streams there and Output is empty.</summary>
+    /// <summary>Runs a program in its own job with a minimal environment and a temporary folder of its own, removed afterwards; stops the tree past
+    /// <paramref name="maxOutputBytes"/> (setting Truncated), the timeout or cancellation. With <paramref name="sink"/>, stdout streams there and Output is empty.</summary>
     public static RunResult Run(string exe, IReadOnlyList<string> args, TimeSpan timeout, long maxOutputBytes, CancellationToken ct,
         IReadOnlyDictionary<string, string?>? environment = null, string? workingDirectory = null, Stream? sink = null)
+    {
+        // A self-extracting program unpacks into TEMP and removes it only on a normal exit: a stopped one leaves it behind.
+        var root = Path.Combine(Path.GetTempPath(), RunFolder);
+        if (Interlocked.Exchange(ref _swept, 1) == 0) SweepRunFolders(root);
+        var temp = Path.Combine(root, $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        try
+        {
+            var env = MinimalEnvironment(environment);
+            foreach (var name in TempVariables)
+                if (environment?.ContainsKey(name) != true) env[name] = temp;
+            return RunIn(exe, args, timeout, maxOutputBytes, ct, env, workingDirectory, sink, temp);
+        }
+        finally
+        {
+            // A scanner may still hold a file the tool just unpacked: a few retries, then the next process's sweep.
+            for (int i = 0; i < 10 && !TryDelete(temp); i++) Thread.Sleep(200);
+        }
+    }
+
+    private const string RunFolder = "corvus-run";
+    private static readonly string[] TempVariables = ["TEMP", "TMP", "TMPDIR"];
+    private static int _swept;
+
+    private static bool TryDelete(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    // Deletes run folders whose process (the number before the dash) is no longer running.
+    internal static void SweepRunFolders(string root)
+    {
+        try
+        {
+            if (!Directory.Exists(root)) return;
+            foreach (var dir in Directory.EnumerateDirectories(root))
+            {
+                var name = Path.GetFileName(dir);
+                if (int.TryParse(name.AsSpan(0, Math.Max(0, name.IndexOf('-'))), out var pid) && pid != Environment.ProcessId && !IsRunning(pid)) TryDelete(dir);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static bool IsRunning(int pid)
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.GetProcessById(pid);
+            return !p.HasExited;
+        }
+        catch (ArgumentException) { return false; }
+        // A process that cannot be read counts as running: its folder stays.
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { return true; }
+    }
+
+    private static RunResult RunIn(string exe, IReadOnlyList<string> args, TimeSpan timeout, long maxOutputBytes, CancellationToken ct,
+        Dictionary<string, string?> env, string? workingDirectory, Stream? sink, string temp)
     {
         ChildProcess child;
         try
         {
-            child = ChildProcess.Start(new ChildProcessStart(exe, args) { Environment = MinimalEnvironment(environment), WorkingDirectory = workingDirectory });
+            PrivateFolder.Create(temp);
+            child = ChildProcess.Start(new ChildProcessStart(exe, args) { Environment = env, WorkingDirectory = workingDirectory });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException)
         {
