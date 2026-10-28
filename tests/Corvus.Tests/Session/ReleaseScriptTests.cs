@@ -96,6 +96,13 @@ public class ReleaseScriptTests
     // Regression for v2.7.2 (18598077): an expired asset link failed the
     // download, and the notes, set after it, never reached the release.
     [Fact]
+    public void The_release_body_says_the_test_record_is_a_local_full_run()
+    {
+        Assert.Contains("$testRecordLine = \"The attested test record (corvus-tests.json) is the maintainer's full local run, not a CI run.\"", Script);
+        Assert.Contains("return $match.Groups[1].Value.Trim() + \"`n`n\" + $testRecordLine", Script);
+    }
+
+    [Fact]
     public void The_notes_reach_the_release_before_a_retried_asset_download()
     {
         int notes = Script.IndexOf("'release', 'edit', $tag", StringComparison.Ordinal);

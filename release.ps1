@@ -210,6 +210,9 @@ if ($Summary) {
     exit 0
 }
 
+# The release body's last line, under the notes of docs/release-notes.md.
+$testRecordLine = "The attested test record (corvus-tests.json) is the maintainer's full local run, not a CI run."
+
 # The notes section of this version: from its heading to the next version heading.
 function Get-Notes {
     $text = (Get-Content $notes -Raw) -replace "`r`n", "`n"
@@ -217,7 +220,7 @@ function Get-Notes {
     if (-not $match.Success) { Fail "docs/release-notes.md has no '## $Version' section; write the notes first" }
     $first = [regex]::Match($text, '(?m)^## (\d+\.\d+\.\d+)')
     if ($first.Groups[1].Value -ne $Version) { Fail "the first version in docs/release-notes.md is $($first.Groups[1].Value), not $Version" }
-    return $match.Groups[1].Value.Trim()
+    return $match.Groups[1].Value.Trim() + "`n`n" + $testRecordLine
 }
 
 if (-not $VerifyOnly) {
