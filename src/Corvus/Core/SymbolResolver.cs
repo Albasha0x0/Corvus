@@ -45,6 +45,8 @@ public static partial class SymbolResolver
         var scope = ws.Scope(assembly);
         // Names with invisible characters are shown escaped (see Format.EscapeInvisible); accept them back as shown.
         var query = Format.UnescapeInvisible(symbol.Trim());
+        // Tag escapes print U+2063 after a "<" of a name; the metadata name has none.
+        query = query.Replace("<\u2063", "<", StringComparison.Ordinal).Replace("</\u2063", "</", StringComparison.Ordinal);
 
         if (TryParseToken(query, out uint token))
             return ResolveToken(scope, token, kind, query);
@@ -159,6 +161,15 @@ public static partial class SymbolResolver
         var all = scope.SelectMany(a => a.Module.GetTypes().Select(t => (a, t))).ToList();
 
         bool HasNs(string s) => s.Contains('.') || s.Contains('/');
+        // A metadata name as written ("Ev<tag>il", "<>c"), before C# generic
+        // syntax reads its brackets as type arguments.
+        var literal = typeQuery.Trim().Replace('+', '/');
+        Func<TypeDef, bool>[] asWritten = literal == q ? [] :
+        [
+            t => t.FullName == literal || Dotted(t.FullName) == Dotted(literal),
+            t => !HasNs(literal) && t.Name == literal,
+            t => HasNs(literal) && Dotted(t.FullName).EndsWith("." + Dotted(literal), StringComparison.Ordinal),
+        ];
         var levels = new Func<TypeDef, bool>[]
         {
             t => t.FullName == q,
@@ -171,7 +182,7 @@ public static partial class SymbolResolver
             t => HasNs(q) && Dotted(StripAllArity(t.FullName)).EndsWith("." + Dotted(q), StringComparison.Ordinal),
         };
 
-        foreach (var level in levels)
+        foreach (var level in asWritten.Concat(levels))
         {
             var hits = all.Where(x => level(x.t)).Select(x => new ResolvedSymbol(x.a, x.t)).ToList();
             if (hits.Count > 0)

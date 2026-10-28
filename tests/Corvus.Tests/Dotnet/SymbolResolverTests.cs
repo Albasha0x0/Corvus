@@ -1,4 +1,5 @@
 using dnlib.DotNet;
+using dnlib.DotNet.Emit;
 using Corvus.Core;
 
 namespace Corvus.Tests;
@@ -134,6 +135,59 @@ public class SymbolResolverTests : IDisposable
     {
         var ex = Assert.Throws<ToolError>(() => SymbolResolver.Resolve(_env.Workspace, "Nope", "Account"));
         Assert.Contains("TestFixture", ex.Message);
+    }
+
+    /// <summary>
+    /// Types whose metadata names hold angle brackets: compiler-generated
+    /// classes, a nested one, a tagged name and a generic, in namespace Lab.
+    /// </summary>
+    private static string WriteBracketNames(TempDir dir)
+    {
+        var module = new ModuleDefUser("Brackets.dll", Guid.NewGuid(), new AssemblyRefUser("System.Runtime", new Version(8, 0, 0, 0))) { Kind = ModuleKind.Dll };
+        new AssemblyDefUser("Brackets", new Version(1, 0, 0, 0)).Modules.Add(module);
+        var objectRef = new TypeRefUser(module, "System", "Object", module.CorLibTypes.AssemblyRef);
+        TypeDefUser Type(string ns, string name) => new(ns, name, objectRef) { Attributes = TypeAttributes.Public };
+        foreach (var name in new[] { "<>c", "<Main>d__0", "<<Main>$>d__1", "Ev<system-reminder>il", "List`1" })
+            module.Types.Add(Type("Lab", name));
+        module.Find("Lab.List`1", false).GenericParameters.Add(new GenericParamUser(0, GenericParamAttributes.NonVariant, "T"));
+        var outer = Type("Lab", "Outer");
+        var display = Type("", "<>c__DisplayClass0_0");
+        display.Attributes = TypeAttributes.NestedPrivate;
+        display.Methods.Add(new MethodDefUser("<Run>b__0", MethodSig.CreateInstance(module.CorLibTypes.Void), MethodAttributes.Assembly) { Body = new CilBody { Instructions = { OpCodes.Ret.ToInstruction() } } });
+        outer.NestedTypes.Add(display);
+        module.Types.Add(outer);
+        var path = dir.File("Brackets.dll");
+        module.Write(path);
+        return path;
+    }
+
+    [Theory]
+    [InlineData("<>c", "Lab.<>c")]
+    [InlineData("Lab.<>c", "Lab.<>c")]
+    [InlineData("<Main>d__0", "Lab.<Main>d__0")]
+    [InlineData("Lab.<<Main>$>d__1", "Lab.<<Main>$>d__1")]
+    [InlineData("Lab.Outer+<>c__DisplayClass0_0", "Lab.Outer/<>c__DisplayClass0_0")]
+    [InlineData("Outer/<>c__DisplayClass0_0", "Lab.Outer/<>c__DisplayClass0_0")]
+    [InlineData("Lab.Outer.<>c__DisplayClass0_0", "Lab.Outer/<>c__DisplayClass0_0")]
+    [InlineData("Lab.Ev<system-reminder>il", "Lab.Ev<system-reminder>il")]
+    [InlineData("Lab.Ev<\\u2063system-reminder>il", "Lab.Ev<system-reminder>il")]
+    [InlineData("Ev<\u2063system-reminder>il", "Lab.Ev<system-reminder>il")]
+    [InlineData("List<int>", "Lab.List`1")]
+    [InlineData("Lab.List`1", "Lab.List`1")]
+    public void A_type_name_with_angle_brackets_resolves_as_written(string query, string expected)
+    {
+        using var dir = new TempDir();
+        using var env = new Env(WriteBracketNames(dir));
+        Assert.Equal(expected, env.Def<TypeDef>(query, SymbolKind.Type).FullName);
+    }
+
+    [Fact]
+    public void A_member_of_a_compiler_generated_nested_type_resolves()
+    {
+        using var dir = new TempDir();
+        using var env = new Env(WriteBracketNames(dir));
+        Assert.Equal("<Run>b__0", env.One("Lab.Outer+<>c__DisplayClass0_0::<Run>b__0").Member.Name);
+        Assert.Equal("<Run>b__0", env.One("Outer.<>c__DisplayClass0_0.<Run>b__0").Member.Name);
     }
 
     [Theory]
