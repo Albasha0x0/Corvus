@@ -223,8 +223,8 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     {
         var dll = typeof(WorkerPool).Assembly.Location;
         var apphost = Path.Combine(Path.GetDirectoryName(dll)!, Path.GetFileNameWithoutExtension(dll) + (OperatingSystem.IsWindows() ? ".exe" : ""));
-        if (File.Exists(apphost)) return new ChildProcessStart(apphost, [command]);
-        return new ChildProcessStart(DotnetHost(), [dll, command]);
+        if (File.Exists(apphost)) return new ChildProcessStart(apphost, [command]) { OwnProgram = true };
+        return new ChildProcessStart(DotnetHost(), [dll, command]) { OwnProgram = true };
     }
 
     /// <summary>The dotnet host running this program, else DOTNET_HOST_PATH, else the host beside the running runtime; "dotnet" (found on PATH) when none exists.</summary>

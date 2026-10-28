@@ -285,7 +285,10 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         var workerDir = Path.Combine(Cache.Root, "workers");
         var script = EmbeddedScript.Extract(WorkerResource, workerDir, "ida_worker", ".py");
         var env = WorkerEnvironment(ida.Directory, pdbPath, Core.ReferencePacks.Offline);
-        if (!_options.UseUserPlugins) env["IDAUSR"] = PrivateUserDirectory();
+        // A child gets the minimal environment, so the user's symbol path and
+        // plugin folder pass only where IDA reads them.
+        env.TryAdd("_NT_SYMBOL_PATH", Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
+        env["IDAUSR"] = _options.UseUserPlugins ? Environment.GetEnvironmentVariable("IDAUSR") : PrivateUserDirectory();
         var start = new ChildProcessStart(python.Executable, ["-I", "-u", script])
         {
             WorkingDirectory = workerDir,

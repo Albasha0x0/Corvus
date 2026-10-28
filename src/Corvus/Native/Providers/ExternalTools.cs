@@ -47,7 +47,7 @@ public static partial class ExternalTools
     internal static Dictionary<string, string?> KeptChildVariables() =>
         ChildVariables().Where(v => Kept(v.Key)).ToDictionary(v => v.Key, v => v.Value);
 
-    private static bool Kept(string name) =>
+    internal static bool Kept(string name) =>
         KeptVariables.Contains(name, StringComparer.OrdinalIgnoreCase) || name.StartsWith("ADB_", StringComparison.OrdinalIgnoreCase);
 
     public static readonly ExternalTool Java = new("java", "Java (JDK 17+)", "CORVUS_JAVA", ExternalToolKind.Executable, ["java" + Exe], ["-version"], 17,
@@ -403,7 +403,7 @@ public static partial class ExternalTools
     private static partial Regex VersionPattern();
 
     /// <summary>Variables a child keeps; everything else is removed (credentials and tokens in the server's environment stay out).</summary>
-    private static readonly string[] KeptVariables =
+    internal static readonly string[] KeptVariables =
     [
         "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "LOCALAPPDATA",
         "APPDATA", "LANG", "LC_ALL", "JAVA_HOME", "ANDROID_HOME", "ANDROID_SDK_ROOT", "ANDROID_SERIAL", "ANDROID_ADB_SERVER_PORT",

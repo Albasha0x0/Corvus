@@ -99,8 +99,8 @@ public static class RelayBuilds
     public static ChildProcess Launch(string directory, IReadOnlyList<string> serverArgs, string? target = null)
     {
         var exe = Path.Combine(directory, ProgramName);
-        var start = File.Exists(exe) ? new ChildProcessStart(exe, serverArgs)
-            : new ChildProcessStart(Native.Providers.Worker.WorkerPool.DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs]);
+        var start = (File.Exists(exe) ? new ChildProcessStart(exe, serverArgs)
+            : new ChildProcessStart(Native.Providers.Worker.WorkerPool.DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs])) with { OwnProgram = true };
         // The server refuses outputs in the folder it is published from.
         if (target != null) start = start with { Environment = new Dictionary<string, string?> { [TargetVariable] = target } };
         return ChildProcess.Start(start);

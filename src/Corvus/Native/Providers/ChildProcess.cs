@@ -7,7 +7,7 @@ using static Corvus.Native.Providers.WindowsJob;
 
 namespace Corvus.Native.Providers;
 
-/// <summary>What to run: executable, arguments (quoted as needed) and environment overrides (null value removes).</summary>
+/// <summary>What to run: executable, arguments (quoted as needed) and the variables added to the minimal environment (null value removes).</summary>
 public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Arguments)
 {
     public string? WorkingDirectory { get; init; }
@@ -16,6 +16,8 @@ public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Ar
     public long? MemoryLimitBytes { get; init; }
     /// <summary>Applies <see cref="MemoryLimitBytes"/> off Windows too: RLIMIT_DATA on Linux, a footprint watchdog on macOS; when off, no limit applies there, as for engine workers.</summary>
     public bool MemoryLimitOnPosix { get; init; }
+    /// <summary>Runs this program itself: the CORVUS_* and DOTNET_* variables and the others this program reads pass to the child.</summary>
+    public bool OwnProgram { get; init; }
 }
 
 /// <summary>A child process with redirected stdio whose tree ends on <see cref="Kill"/>, <see cref="Dispose"/> or this process's exit (Windows job object; elsewhere a watching shell).</summary>
@@ -71,7 +73,7 @@ public abstract class ChildProcess : IDisposable
     public static ChildProcess Start(ChildProcessStart start)
     {
         var path = start.Environment.TryGetValue("PATH", out var p) && p != null ? p : Environment.GetEnvironmentVariable("PATH");
-        start = start with { FileName = ProgramPath(start.FileName, path) };
+        start = start with { FileName = ProgramPath(start.FileName, path), Environment = ChildEnvironment(start) };
         ChildProcess child = OperatingSystem.IsWindows() ? WindowsJobProcess.Launch(start) : PosixGroupProcess.Launch(start);
         Running[child] = (Path.GetFileName(start.FileName), DateTimeOffset.UtcNow);
         child.Exited.ContinueWith(_ => Running.TryRemove(child, out var _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -79,6 +81,25 @@ public abstract class ChildProcess : IDisposable
     }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ChildProcess, (string Program, DateTimeOffset Started)> Running = new();
+
+    /// <summary>Variables other than CORVUS_* and DOTNET_* this program reads, passed on to a child that runs it.</summary>
+    private static readonly string[] OwnProgramVariables =
+        ["_NT_SYMBOL_PATH", "_NT_ALT_SYMBOL_PATH", "DEBUGINFOD_URLS", "IDAUSR", "GHIDRA_INSTALL_DIR", "NUGET_PACKAGES", "XDG_CONFIG_HOME", "GITHUB_TOKEN"];
+
+    private static bool OwnProgramVariable(string name) =>
+        name.StartsWith("CORVUS_", StringComparison.OrdinalIgnoreCase) || name.StartsWith("DOTNET_", StringComparison.OrdinalIgnoreCase)
+        || OwnProgramVariables.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The overrides that reduce a child's environment to <see cref="ExternalTools.MinimalEnvironment"/> plus the start's own variables.</summary>
+    internal static Dictionary<string, string?> ChildEnvironment(ChildProcessStart start)
+    {
+        var extras = new Dictionary<string, string?>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        if (start.OwnProgram)
+            foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
+                if ((string)e.Key is var name && OwnProgramVariable(name)) extras[name] = (string?)e.Value;
+        foreach (var (k, v) in start.Environment) extras[k] = v;
+        return ExternalTools.MinimalEnvironment(extras);
+    }
 
     /// <summary>The full path of <paramref name="name"/>: kept when fully qualified; a bare name is looked up in this program's folder,
     /// then in the fully qualified entries of <paramref name="path"/> (with PATHEXT on Windows); throws Win32Exception for a relative path or no match.</summary>

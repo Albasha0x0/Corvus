@@ -74,7 +74,8 @@
 - Folders workers run code from or write into are closed to other user accounts, even under a shared `CORVUS_DATA_DIR` or `TEMP`.
   - Windows: a protected DACL grants only the user, SYSTEM and Administrators.
   - Elsewhere: mode 0700.
-- Engine workers inherit the server's environment (Ghidra without the Java option variables); other external tools get a minimal one.
+- Every child process gets a minimal environment plus the variables its backend declares (IDA: `IDADIR`, `IDAUSR`, `_NT_SYMBOL_PATH`).
+- Corvus's own worker processes also get the `CORVUS_*` and `DOTNET_*` variables.
 - The engines parse the input themselves. Report any way through Corvus to reach their own vulnerabilities with more than an input file.
 
 What starts a program outside Corvus:

@@ -9,6 +9,7 @@ using TestFixture.FakeTools;
 //   ... -jar vineflower*.jar ... <in> <out> writes sources like Vineflower
 //   ... -jar <jar> ...                     serves MCP over stdio like the JADX server
 //   job-parent <program> <arguments>       enters a kill-on-close job, starts the program, prints its pid, waits
+//   environment                            prints "cwd=<working folder>", then each variable as NAME=VALUE
 //   anything else                          the first rule in the ADB_FAKE_SCRIPT JSON whose "match" regex finds the
 //                                          joined arguments: prints "stdout" and "bytes" (base64) "repeat" times,
 //                                          "printEnv" and "stderr", writes "file" (base64) to the last argument,
@@ -18,6 +19,13 @@ if (args is ["job-parent", var program, .. var arguments])
     KillOnCloseJob.EnterCurrentProcess();
     Console.WriteLine(System.Diagnostics.Process.Start(program, arguments).Id);
     Thread.Sleep(Timeout.Infinite);
+}
+
+if (args is ["environment"])
+{
+    Console.WriteLine("cwd=" + Environment.CurrentDirectory);
+    foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables()) Console.WriteLine($"{e.Key}={e.Value}");
+    return 0;
 }
 
 var scriptPath = Environment.GetEnvironmentVariable("ADB_FAKE_SCRIPT");
