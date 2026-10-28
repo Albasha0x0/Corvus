@@ -37,17 +37,44 @@ public class ExternalToolsTests : IDisposable
     }
 
     [Fact]
-    public void A_program_stopped_at_its_timeout_leaves_nothing_in_its_temporary_folder()
+    public void A_program_stopped_after_it_names_its_folder_leaves_nothing_in_it()
     {
-        // The program writes into TEMP, names the folder, then outlives its 2 s limit.
+        // Regression: run 20261028-202838-48f2b0b4 timed out before the echo.
+        // The program writes into TEMP, names the folder, then sleeps; the run
+        // is stopped once the name arrives.
         var (exe, args) = OperatingSystem.IsWindows()
-            ? (Path.Combine(Environment.SystemDirectory, "cmd.exe"), new[] { "/d", "/c", "echo x>\"%TEMP%\\left.txt\"& echo %TEMP%& ping -n 60 127.0.0.1 >nul" })
-            : ("/bin/sh", new[] { "-c", "echo x > \"$TMPDIR/left.txt\"; echo \"$TMPDIR\"; sleep 60" });
-        var run = ExternalTools.Run(exe, args, TimeSpan.FromSeconds(2), 1 << 20, CancellationToken.None);
-        Assert.True(run.TimedOut);
-        var temp = run.Text.Trim();
+            ? (Path.Combine(Environment.SystemDirectory, "cmd.exe"), new[] { "/d", "/c", "echo x>\"%TEMP%\\left.txt\"& echo %TEMP%& ping -n 120 127.0.0.1 >nul" })
+            : ("/bin/sh", new[] { "-c", "echo x > \"$TMPDIR/left.txt\"; echo \"$TMPDIR\"; sleep 120" });
+        using var stop = new CancellationTokenSource();
+        var named = new LineSink(stop);
+        Assert.Throws<OperationCanceledException>(() => ExternalTools.Run(exe, args, TimeSpan.FromMinutes(2), 1 << 20, stop.Token, sink: named));
+        var temp = named.Text.Trim();
         Assert.StartsWith(Path.Combine(Path.GetTempPath(), "corvus-run"), temp);
         Assert.False(Directory.Exists(temp), $"{temp} was left behind");
+    }
+
+    /// <summary>Collects a program's output and cancels <paramref name="stop"/> at the first line break.</summary>
+    private sealed class LineSink(CancellationTokenSource stop) : Stream
+    {
+        private readonly MemoryStream _bytes = new();
+
+        public string Text { get { lock (_bytes) return System.Text.Encoding.UTF8.GetString(_bytes.ToArray()); } }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            lock (_bytes) _bytes.Write(buffer, offset, count);
+            if (Array.IndexOf(buffer, (byte)'\n', offset, count) >= 0) stop.Cancel();
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     [Fact]
