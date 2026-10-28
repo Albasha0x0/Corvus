@@ -309,6 +309,24 @@ public static class Format
         return sb.ToString();
     }
 
+    /// <summary>Text as one line of inert Markdown: invisible code points and line breaks escaped, ASCII punctuation backslash-escaped.</summary>
+    // CommonMark lets any ASCII punctuation be backslash-escaped, so no mark
+    // can open a heading, list, link, emphasis, code span, table cell or tag.
+    public static string EscapeMarkdown(string s)
+    {
+        var visible = EscapeInvisible(s);
+        var sb = new StringBuilder(visible.Length + 16);
+        foreach (var ch in visible)
+        {
+            if (ch == '\n') sb.Append("\\\\n");
+            else if (ch == '\r') sb.Append("\\\\r");
+            else if (char.IsControl(ch)) sb.Append("\\\\u").Append(((int)ch).ToString("x4", CultureInfo.InvariantCulture));
+            else if (ch < 0x80 && char.IsPunctuation(ch) || ch is '$' or '+' or '<' or '=' or '>' or '^' or '`' or '|' or '~') sb.Append('\\').Append(ch);
+            else sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
     /// <summary>The inverse of <see cref="EscapeInvisible(string)"/>: \uXXXX or \UXXXXXXXX of an invisible code point becomes the code point.</summary>
     public static string UnescapeInvisible(string s)
     {

@@ -49,7 +49,7 @@ internal static partial class ToolCli
         new("build", "summarize_build", null),
     ];
 
-    /// <summary>Writes the document and returns 0, or 124 when the time limit ended the run; bad input is a usage error with empty stdout.</summary>
+    /// <summary>Writes the document and returns 0, 124 after the time limit, or the gate's code; bad input is a usage error with empty stdout.</summary>
     private static async Task<int> FileBatchAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.Positionals.Count > 0) throw new UsageException("batch takes a steps file or --file, not both.");
@@ -70,9 +70,11 @@ internal static partial class ToolCli
         if (rules != null && !File.Exists(rules) && !Directory.Exists(rules)) throw new UsageException($"No such rule file or folder: {a.Rules}.");
         if (a.FailOn is not (null or FindingLevel.Noteworthy or FindingLevel.Review)) throw new UsageException("--fail-on takes noteworthy or review.");
         if (a.AllowIncomplete && a.FailOn == null) throw new UsageException("--allow-incomplete goes with --fail-on.");
-        var extract = a.Extract == null ? null : Path.GetFullPath(a.Extract);
+        var extract = OutputPath("--extract", a.Extract);
         if (extract != null && (File.Exists(extract) || Directory.Exists(extract) && Directory.EnumerateFileSystemEntries(extract).Any()))
             throw new UsageException($"--extract needs a new or empty folder: {a.Extract}.");
+        var report = OutputPath("--report", a.Report);
+        if (report != null && Directory.Exists(report)) throw new UsageException($"--report names a file, not a folder: {a.Report}.");
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
@@ -92,21 +94,30 @@ internal static partial class ToolCli
         }
         WriteExtractIndex(run);
         if (baseline != null) document["baseline"] = baseline.Record(Path.GetFullPath(a.Baseline!));
-        if (a.FailOn == null)
+        int exit = run.TimedOut ? Exit.Timeout : Exit.Ok;
+        if (a.FailOn != null)
         {
-            io.Out.WriteLine(document.ToJsonString(Compact));
-            return run.TimedOut ? Exit.Timeout : Exit.Ok;
+            var failures = GateFailures(document, a.FailOn, a.AllowIncomplete);
+            document["gate"] = new JsonObject
+            {
+                ["failOn"] = a.FailOn,
+                ["allowIncomplete"] = a.AllowIncomplete,
+                ["failed"] = failures.Count > 0,
+                ["reasons"] = new JsonArray([.. failures.Select(f => (JsonNode?)f)]),
+            };
+            exit = failures.Count > 0 ? Exit.ToolError : Exit.Ok;
         }
-        var failures = GateFailures(document, a.FailOn, a.AllowIncomplete);
-        document["gate"] = new JsonObject
-        {
-            ["failOn"] = a.FailOn,
-            ["allowIncomplete"] = a.AllowIncomplete,
-            ["failed"] = failures.Count > 0,
-            ["reasons"] = new JsonArray([.. failures.Select(f => (JsonNode?)f)]),
-        };
+        if (report != null) await File.WriteAllTextAsync(report, Report(document), CancellationToken.None);
         io.Out.WriteLine(document.ToJsonString(Compact));
-        return failures.Count > 0 ? Exit.ToolError : Exit.Ok;
+        return exit;
+    }
+
+    /// <summary>The full path of an output option, checked by the output refusal rules; null when the option is absent.</summary>
+    private static string? OutputPath(string option, string? value)
+    {
+        if (value == null) return null;
+        try { return SafeFile.Output(value); }
+        catch (ToolError ex) { throw new UsageException($"{option}: {ex.Message}"); }
     }
 
     /// <summary>Why the gate fails: findings at or above the level, then unless allowed what was not read whole; empty to pass.</summary>

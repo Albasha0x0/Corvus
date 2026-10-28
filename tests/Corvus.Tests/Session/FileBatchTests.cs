@@ -408,6 +408,55 @@ public class FileBatchTests
     }
 
     [Fact]
+    public async Task The_report_of_a_zip_lists_its_three_records_in_level_order_with_names_escaped()
+    {
+        using var dir = new TempDir();
+        var zip = Path.Combine(dir.Path, "in.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+            foreach (var (name, bytes) in new (string, byte[])[]
+                     {
+                         ("# notes [x](y).txt", System.Text.Encoding.UTF8.GetBytes("plain text")),
+                         ("run.lnk", ShellLinkTests.Shortcut("/c start invoice.pdf")),
+                     })
+                using (var stream = archive.CreateEntry(name).Open()) stream.Write(bytes);
+        var report = Path.Combine(dir.Path, "report.md");
+        var (code, document, _) = await Batch("--file", zip, "--recurse", "--report", report);
+        Assert.Equal(0, code);
+        var records = document!["records"]!.AsArray();
+        Assert.Equal(3, records.Count);
+        var text = File.ReadAllText(report);
+        var headings = text.Split('\n').Where(l => l.StartsWith("## ", StringComparison.Ordinal)).ToList();
+        Assert.Equal(3, headings.Count);
+        Assert.Contains("run\\.lnk", headings[0]);
+        Assert.StartsWith("## 1. review: ", headings[0]);
+        Assert.Contains("\\# notes \\[x\\]\\(y\\)\\.txt", headings[2]);
+        var ranks = records.Select(r => Corvus.Services.Analysis.FindingLevel.Rank((string?)r!["summary"]!["level"])).ToList();
+        Assert.Equal(ranks.OrderByDescending(r => r), ranks);
+    }
+
+    [Fact]
+    public async Task A_report_path_in_a_refused_place_is_a_usage_error()
+    {
+        using var dir = new TempDir();
+        var plain = dir.File("notes.txt");
+        File.WriteAllText(plain, "text");
+        var (code, _, output) = await Batch("--file", plain, "--report", dir.File("AGENTS.md"));
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+    }
+
+    [Fact]
+    public void Markdown_escaping_keeps_read_text_on_one_inert_line()
+    {
+        var escaped = Corvus.Core.Format.EscapeMarkdown("# title\n- [link](http://x) `code` <b>\u202e");
+        Assert.DoesNotContain('\n', escaped);
+        Assert.StartsWith("\\# title", escaped);
+        Assert.Contains("\\[link\\]\\(http\\:\\/\\/x\\)", escaped);
+        Assert.Contains("\\`code\\` \\<b\\>", escaped);
+        Assert.EndsWith("\\\\u202e", escaped);
+    }
+
+    [Fact]
     public async Task Files_past_the_members_limit_are_named_and_leave_the_run_incomplete()
     {
         using var dir = new TempDir();

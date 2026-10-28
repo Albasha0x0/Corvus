@@ -122,6 +122,7 @@ internal static class SetupCli
                                 --extract <folder>: write decoded payloads with their chain.
                                 --baseline <file>: drop known findings by key until each entry expires;
                                 an earlier result's findings are entries that do not expire.
+                                --report <file>: also write a Markdown report, one section per record.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.

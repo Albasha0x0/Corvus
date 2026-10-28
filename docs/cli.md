@@ -116,6 +116,7 @@ without an agent. Nothing in the file runs; no network calls are made.
   - An entry applies through its `expires` day; after it, the finding stays with `baseline.expired`.
   - A level rise changes the key: the finding stays with `baseline.rose` naming the earlier level.
   - `baseline` counts `entries`, `suppressed`, `expired`, `rose` and `unused`.
+- `--report <file>` also writes Markdown: one section per record in record order, with level, paths, findings and indicators; read text is escaped.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
 - `--limit members=N`: files `--recurse` reads under the folder (default 10000).
