@@ -9,8 +9,10 @@ namespace Corvus.Tests;
 public class PoolStarvationCollection;
 
 [Collection(nameof(PoolStarvationTests))]
-public class PoolStarvationTests
+public class PoolStarvationTests(Xunit.Abstractions.ITestOutputHelper output)
 {
+    private readonly Xunit.Abstractions.ITestOutputHelper _output = output;
+
     /// <summary>Blocks the pool with more queued blockers than it injects threads; the event is never disposed, as late blockers still wait on it.</summary>
     internal static ManualResetEventSlim Starve()
     {
@@ -46,11 +48,17 @@ public class PoolStarvationTests
         Assert.Equal("out", run.Text.Trim());
     }
 
-    // Timer callbacks take the pool's high-priority queue, so the stop and the
-    // answer pass a backlog of blocked work items.
-    [Fact]
-    public async Task A_short_client_s_stop_is_answered_while_the_work_keeps_the_pool_busy()
+    // Regression: efbb7d92's form of this test failed 3/3 with the test process
+    // held to 4 cores on a loaded machine.
+    // A child process of 1 or 4 processors, so the pool starts as small as a
+    // small machine's.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task A_short_client_s_stop_is_answered_while_the_work_keeps_the_pool_busy(int cores)
     {
+        if (ChildTest.Rerun(this, _output, [cores], environment: new Dictionary<string, string> { ["DOTNET_PROCESSOR_COUNT"] = $"{cores}" })) return;
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) System.Diagnostics.Process.GetCurrentProcess().ProcessorAffinity = (1 << cores) - 1;
         using var services = new ServiceCollection()
             .AddSingleton(new Corvus.Core.ServerOptions { ClientTimeoutSeconds = 10 }).AddSingleton<Corvus.Core.ResultStore>()
             .AddSingleton(TimeProvider.System).BuildServiceProvider();
@@ -74,6 +82,58 @@ public class PoolStarvationTests
             work.TrySetResult(finish);
             release.Set();
         }
+    }
+
+    // A child process of 1 or 4 processors; the inner stream overrides only
+    // Write, as the console stream does.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task The_transport_sends_an_answer_while_the_work_keeps_the_pool_busy(int cores)
+    {
+        if (ChildTest.Rerun(this, _output, [cores], environment: new Dictionary<string, string> { ["DOTNET_PROCESSOR_COUNT"] = $"{cores}" })) return;
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) System.Diagnostics.Process.GetCurrentProcess().ProcessorAffinity = (1 << cores) - 1;
+        var written = new WriteOnlyStream();
+        // An input that never ends: at its end the transport disconnects
+        // and sends nothing.
+        var input = new System.IO.Pipelines.Pipe();
+        var transport = new ModelContextProtocol.Server.StreamServerTransport(input.Reader.AsStream(), Corvus.Mcp.StdioStreams.Output(written), "test");
+        var release = Starve();
+        try
+        {
+            var send = transport.SendMessageAsync(new JsonRpcNotification { Method = "notifications/message" });
+            // Waited on without the pool.
+            ((IAsyncResult)send).AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(10));
+            Assert.True(send.IsCompletedSuccessfully, "the answer was not sent within 10 s on a blocked pool");
+            Assert.Contains("notifications/message", written.Text);
+        }
+        finally
+        {
+            release.Set();
+            await transport.DisposeAsync();
+        }
+    }
+
+    private sealed class WriteOnlyStream : Stream
+    {
+        private readonly MemoryStream _bytes = new();
+
+        public string Text { get { lock (_bytes) return System.Text.Encoding.UTF8.GetString(_bytes.ToArray()); } }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            lock (_bytes) _bytes.Write(buffer, offset, count);
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     /// <summary>Blocking search visitors run on at most one thread per core, so injected pool threads stay free.</summary>

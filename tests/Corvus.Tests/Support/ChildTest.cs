@@ -18,8 +18,10 @@ public static class ChildTest
     /// In the test process: runs <paramref name="method"/> of <paramref name="test"/>'s class with
     /// <paramref name="args"/> in a child process, fails the test when the child fails or outlives
     /// <paramref name="limit"/> (default 60 minutes), and returns true, so the caller returns. In the child: returns false.
+    /// <paramref name="environment"/> adds variables the child starts with.
     /// </summary>
-    public static bool Rerun(object test, ITestOutputHelper output, object?[]? args = null, TimeSpan? limit = null, [CallerMemberName] string method = "")
+    public static bool Rerun(object test, ITestOutputHelper output, object?[]? args = null, TimeSpan? limit = null,
+        IReadOnlyDictionary<string, string>? environment = null, [CallerMemberName] string method = "")
     {
         if (Environment.GetEnvironmentVariable(Variable) == "1") return false;
         var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
@@ -32,6 +34,7 @@ public static class ChildTest
                      .. (args ?? []).Select(a => Convert.ToString(a, CultureInfo.InvariantCulture) ?? "")])
             info.ArgumentList.Add(a);
         info.Environment[Variable] = "1";
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>()) info.Environment[name] = value;
         // The child is a run of its own: its temporary folder sits beside this run's, not inside it.
         foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" }) info.Environment[name] = LeakGuard.SharedTemp;
         using var child = Process.Start(info)!;

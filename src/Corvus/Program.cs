@@ -32,6 +32,7 @@ catch (Exception ex)
 ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
 ThreadPool.SetMinThreads(Math.Max(minWorkers, Environment.ProcessorCount * 2 + 8), minIo);
 
-using var host = ServerHost.Build(options, ServerInstructions.Text, server => server.WithStdioServerTransport());
+using var host = ServerHost.Build(options, ServerInstructions.Text,
+    server => server.WithStreamServerTransport(StdioStreams.Input(), StdioStreams.Output(Console.OpenStandardOutput())));
 await host.RunAsync();
 return 0;

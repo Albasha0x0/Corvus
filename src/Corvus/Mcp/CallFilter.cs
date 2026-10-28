@@ -145,7 +145,8 @@ internal static partial class CallFilter
         var joinKey = serverOptions != null ? CallJoin.Key(tool, effects.ReadOnly, request?.Arguments) : null;
         var joins = joinKey != null ? CallJoin.For(serverOptions!) : null;
         // Stopped one grace period early, so even work that ignores its token is answered for by the deadline.
-        using var expiry = deadline is { } limit ? new CancellationTokenSource(Remaining(Early(limit), time.GetElapsedTime(received)), time) : null;
+        using var expiry = deadline != null ? new CancellationTokenSource() : null;
+        using var stopTimer = deadline is { } limit ? StopTimers.After(Remaining(Early(limit), time.GetElapsedTime(received)), time, expiry!.Cancel) : null;
         using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry?.Token ?? CancellationToken.None);
         // At the cap a call waits for room until its deadline; session tools and joins never wait.
         if (leftovers != null && deadline != null && tool != null && Toolsets.FamilyOf(tool) != Toolsets.Session && joins?.IsRunning(joinKey!) != true
@@ -295,7 +296,7 @@ internal static partial class CallFilter
         using (call.Register(() => stopped.TrySetResult()))
             if (await Task.WhenAny(work, stopped.Task) == work) return await work;
         var grace = !client.IsCancellationRequested && deadline is { } d ? Grace(d) : DeadlineGrace;
-        if (await Task.WhenAny(work, Task.Delay(grace, time, CancellationToken.None)) == work) return await work;
+        if (await Task.WhenAny(work, StopTimers.Delay(grace, time)) == work) return await work;
         leftovers?.Track(shared);
         _ = work.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
         client.ThrowIfCancellationRequested();
