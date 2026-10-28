@@ -331,8 +331,12 @@ public class NativeToolHarnessTests
         await holder;
         var call = Assert.Single(harness.Calls);
         Assert.IsType<TimeoutException>(call.Unexpected);
-        Assert.Contains("at the cancel, thread pool:", call.Unexpected.Message);
-        if (OperatingSystem.IsWindows()) Assert.Contains("Corvus.Core.AssemblyWorkspace.Enter", call.Unexpected.Message);
+        var message = call.Unexpected.Message;
+        Assert.Contains("at the cancel, thread pool:", message);
+        // A snapshot past its read limit on a loaded machine names the limit
+        // instead of the stacks (push run 20261028-191533-c903d276).
+        if (OperatingSystem.IsWindows() && !message.Contains("stacks unknown (the read ran past", StringComparison.Ordinal))
+            Assert.True(message.Contains("Corvus.Core.AssemblyWorkspace.Enter", StringComparison.Ordinal), message);
     }
 
     [Fact]
