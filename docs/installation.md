@@ -85,7 +85,7 @@ From source: `./publish.ps1` (`-SelfContained` for a build that needs no .NET), 
 codex plugin marketplace add Albasha0x0/Corvus              # Codex, then install corvus from /plugins
 ```
 
-- The plugin runs `dotnet tool exec CorvusRE@<version> --yes -- --client <client>`; it needs the .NET 10 SDK.
+- The plugin runs `dotnet tool exec CorvusRE@<version> --source https://api.nuget.org/v3/index.json --yes -- --client <client>`; it needs the .NET 10 SDK.
 - Update it in the client's plugin manager. If the install script also registered Corvus, remove one entry.
 
 ## .NET tool

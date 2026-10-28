@@ -25,7 +25,9 @@ public class PluginManifestTests
         var server = servers["corvus"]!;
         Assert.Equal("dotnet", (string?)server["command"]);
         var args = server["args"]!.AsArray().Select(a => (string)a!).ToList();
-        Assert.Equal(["tool", "exec", $"{Corvus.Setup.Installation.PackageId}@{Version}", "--yes", "--", "--client", client], args);
+        // --source replaces the client's own NuGet sources, so the package
+        // comes from nuget.org only.
+        Assert.Equal(["tool", "exec", $"{Corvus.Setup.Installation.PackageId}@{Version}", "--source", "https://api.nuget.org/v3/index.json", "--yes", "--", "--client", client], args);
         Assert.NotNull(ClientProfiles.Find(client));
         ServerOptions.Parse([.. args.SkipWhile(a => a != "--").Skip(1)]);
     }

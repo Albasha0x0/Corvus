@@ -7,7 +7,7 @@
   "mcpServers": {
     "corvus": {
       "command": "dotnet",
-      "args": ["tool", "exec", "CorvusRE@2.7.3", "--yes", "--", "--client", "codex"]
+      "args": ["tool", "exec", "CorvusRE@2.7.3", "--source", "https://api.nuget.org/v3/index.json", "--yes", "--", "--client", "codex"]
     }
   },
   "interface": {

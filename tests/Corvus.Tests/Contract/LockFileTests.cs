@@ -20,6 +20,24 @@ public partial class LockFileTests
             .Select(m => m.Groups[1].Value).Distinct().Order(StringComparer.Ordinal)];
 
     [Fact]
+    public void Restores_take_signed_packages_from_nuget_org_only()
+    {
+        var config = System.Xml.Linq.XDocument.Load(Path.Combine(Root, "nuget.config")).Root!;
+        const string feed = "https://api.nuget.org/v3/index.json";
+        var sources = config.Element("packageSources")!;
+        Assert.Equal("clear", sources.Elements().First().Name.LocalName);
+        var source = Assert.Single(sources.Elements("add"));
+        Assert.Equal(("nuget.org", feed), ((string?)source.Attribute("key"), (string?)source.Attribute("value")));
+        var mapped = Assert.Single(config.Element("packageSourceMapping")!.Elements("packageSource"));
+        Assert.Equal("nuget.org", (string?)mapped.Attribute("key"));
+        Assert.Equal("*", (string?)Assert.Single(mapped.Elements("package")).Attribute("pattern"));
+        Assert.Equal("require", (string?)config.Element("config")!.Elements("add").Single(a => (string?)a.Attribute("key") == "signatureValidationMode").Attribute("value"));
+        var signer = Assert.Single(config.Element("trustedSigners")!.Elements());
+        Assert.Equal(("repository", "nuget.org", feed), (signer.Name.LocalName, (string?)signer.Attribute("name"), (string?)signer.Attribute("serviceIndex")));
+        Assert.NotEmpty(signer.Elements("certificate"));
+    }
+
+    [Fact]
     public void Each_package_reference_is_locked_at_its_version()
     {
         foreach (var project in Shipped)
