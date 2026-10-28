@@ -280,12 +280,22 @@ public static class UnrealPak
         var blocks = e.Blocks ?? [(dataStart - (footer.Layout.Version >= 5 ? e.Offset : 0), dataStart - (footer.Layout.Version >= 5 ? e.Offset : 0) + e.Compressed)];
         // From version 5 block offsets are relative to the entry; before, absolute in the file.
         long bias = footer.Layout.Version >= 5 ? e.Offset : 0;
+        long packed = 0;
+        foreach (var (s, t) in blocks)
+        {
+            long from = bias + s, to = bias + t;
+            if (from < dataStart || to < from || to > data.Length) throw new InvalidDataException($"block 0x{from:X}-0x{to:X} lies outside the data");
+            packed += to - from;
+        }
+        // The most a method expands one byte: Deflate 1032, an LZ4 block 255,
+        // a Zstandard RLE block 32768 (128 KiB from 4 bytes).
+        long most = (packed + 16) * (method switch { "LZ4" => 255, "Zstd" => 32768, _ => 1032 });
+        if (e.Uncompressed > most) throw new InvalidDataException($"{e.Uncompressed:N0} bytes declared from {packed:N0} compressed bytes, more than {method} can produce");
         var output = new byte[e.Uncompressed];
         int written = 0;
         foreach (var (s, t) in blocks)
         {
             long from = bias + s, to = bias + t;
-            if (from < dataStart || to < from || to > data.Length) throw new InvalidDataException($"block 0x{from:X}-0x{to:X} lies outside the data");
             var block = data.AsSpan((int)from, (int)(to - from));
             int want = (int)Math.Min(e.BlockSize > 0 && blocks.Length > 1 ? e.BlockSize : e.Uncompressed, e.Uncompressed - written);
             written += Decode(method, block, output.AsSpan(written, want));

@@ -78,6 +78,23 @@ public sealed class UnrealContainerTests(ITestOutputHelper output)
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
 
+    // Regression: a zlib entry declaring 300 MB from a few hundred compressed
+    // bytes allocated its full output before decoding.
+    [Fact]
+    public void A_size_past_what_the_compressed_bytes_can_produce_is_refused_before_it_is_allocated()
+    {
+        var data = File.ReadAllBytes(Fixture("v3-zlib.pak"));
+        var entry = Open(data).Entries!.First(e => e.Detail?.StartsWith("Zlib", StringComparison.Ordinal) == true);
+        var size = BitConverter.GetBytes(entry.Size);
+        // The index copy of the entry comes after the data and its inline copy.
+        int at = data.AsSpan().LastIndexOf(size);
+        BitConverter.GetBytes(300_000_000L).CopyTo(data, at);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var c = Open(data);
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 64 << 20);
+        Assert.Contains(c.Notes, n => n.Contains("more than Zlib can produce", StringComparison.Ordinal));
+    }
+
     [Theory]
     // Chunk type 7 is LoaderInitialLoadMeta before TOC version 5 and ExternalFile from it, as retoc reads it too.
     [InlineData("toc-v2.utoc", "TOC version 2 (DirectoryIndex)", "LoaderInitialLoadMeta")]
