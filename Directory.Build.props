@@ -11,6 +11,11 @@
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
   </PropertyGroup>
 
+  <!-- GitHub Actions builds map source paths to /_/, so a rebuild elsewhere writes the same PDB paths and image. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
   <!-- Shipped projects and DocsSite restore from committed packages.lock.json files. With CI=true restore is locked:
        a package the lock file does not name fails it. A local restore rewrites the lock file. -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Corvus' or '$(MSBuildProjectName)' == 'Corvus.Clr32' or '$(MSBuildProjectName)' == 'DocsSite'">
