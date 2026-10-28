@@ -145,8 +145,9 @@ internal static partial class ToolCli
             if ((bool?)item?["extracted"] == false || (string?)item?["path"] is not { } inner) continue;
             var local = Path.GetFullPath(inner, output);
             // The views choose a reader by extension, so a member gets its archive
-            // name back; the folder is the run's own and is removed after it. A
-            // failed rename keeps the .bin name.
+            // name back. The folder is the run's private temp folder: nothing in
+            // it runs, and it is removed after the run. A failed rename keeps the
+            // .bin name.
             if (Core.Blob.WithoutRunnableSuffix(inner) is { } original && !File.Exists(Path.GetFullPath(original, output)))
             {
                 try
