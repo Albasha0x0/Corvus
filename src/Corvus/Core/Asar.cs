@@ -499,7 +499,15 @@ public static class AsarContainer
             if (source == null || !extract(e)) continue;
             if (e.UnsafeName) { refused++; continue; }
             if (items.Count >= limits.MaxItems || source.Size > limits.MaxItemBytes || (total += Math.Max(0, source.Size)) > limits.MaxTotalBytes) { skipped++; continue; }
-            var bytes = Bytes(stream, archive, location, source, limits, out var why);
+            byte[]? bytes;
+            string? why;
+            try { bytes = Bytes(stream, archive, location, source, limits, out why); }
+            catch (Exception ex) when (EntryDamage.Is(ex))
+            {
+                entries[^1] = entries[^1] with { Detail = (entries[^1].Detail is { Length: > 0 } shown ? shown + ", " : "") + EntryDamage.Detail(ex.GetType().Name) };
+                notes.Add(EntryDamage.Note(e.Path, ex));
+                continue;
+            }
             if (bytes == null) { if (notes.Count < 20) notes.Add($"Skipped {e.Path}: {why}."); continue; }
             var origin = e.Kind == AsarEntryKind.Link ? $"ASAR link to {source.Path}" : source.Unpacked ? "ASAR unpacked entry" : "ASAR entry";
             items.Add(new ExtractedItem(e.Path, bytes, origin));

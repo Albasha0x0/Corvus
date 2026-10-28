@@ -22,6 +22,25 @@ public sealed record ContainerEntry(string Path, long Size, string? Detail = nul
     public string? Mode { get; init; }
 }
 
+/// <summary>
+/// The faults one damaged entry raises while a reader combines its sizes and
+/// offsets; the reader lists the entry as damaged and goes on with the next.
+/// </summary>
+public static class EntryDamage
+{
+    /// <summary>
+    /// True for an overflow, an index or argument out of range, or a division by
+    /// zero.
+    /// </summary>
+    public static bool Is(Exception ex) => ex is OverflowException or ArgumentOutOfRangeException or IndexOutOfRangeException or DivideByZeroException;
+
+    /// <summary>"damaged (why at 0x...)"; no offset when it is null.</summary>
+    public static string Detail(string why, long? offset = null) => $"damaged ({why}{(offset is { } at ? $" at 0x{at:X}" : "")})";
+
+    /// <summary>"entry: damaged (exception type at 0x...)".</summary>
+    public static string Note(string entry, Exception ex, long? offset = null) => $"{entry}: {Detail(ex.GetType().Name, offset)}";
+}
+
 /// <summary>Container kind, its items (one level deep), and notes on skipped or unusual entries.</summary>
 public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, List<string> Notes)
 {
@@ -484,6 +503,11 @@ public static class Containers
                 notes.Add($"Skipped {e.FullName}: {ex.Message}");
                 continue;
             }
+            catch (Exception ex) when (EntryDamage.Is(ex))
+            {
+                notes.Add(EntryDamage.Note(e.FullName, ex));
+                continue;
+            }
             if (bytes == null || (total += bytes.Length) > limits.MaxTotalBytes)
             {
                 notes.Add($"Skipped {e.FullName}: larger than the extraction limit.");
@@ -560,7 +584,8 @@ public static class Containers
             }
             else
             {
-                if (compressed > data.Length - body) break;
+                // A zip64 size past 2^63 reads negative.
+                if (compressed < 0 || compressed > data.Length - body) break;
                 next = body + (int)compressed;
             }
 

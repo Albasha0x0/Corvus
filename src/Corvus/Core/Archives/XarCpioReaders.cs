@@ -68,7 +68,15 @@ internal sealed class XarReader : IContainerReader
                 if (file["data"] is not { } d) continue;
                 if (!long.TryParse(d["offset"]?.InnerText, out long offset) || !long.TryParse(d["length"]?.InnerText, out long length)) { notes.Add($"{path}: no data offset"); continue; }
                 var encoding = d["encoding"]?.GetAttribute("style") ?? "";
-                if (offset < 0 || length < 0 || length > limits.MaxItemBytes || heap + offset + length > data.Length) { notes.Add($"{path}: data outside the archive or over the item limit"); continue; }
+                bool outside;
+                try { outside = offset < 0 || length < 0 || length > limits.MaxItemBytes || checked(heap + offset + length) > data.Length; }
+                catch (OverflowException ex)
+                {
+                    entries.Add(new ContainerEntry(path, length, EntryDamage.Detail(ex.GetType().Name)));
+                    notes.Add(EntryDamage.Note(path, ex));
+                    continue;
+                }
+                if (outside) { notes.Add($"{path}: data outside the archive or over the item limit"); continue; }
                 byte[] bytes = data.AsSpan((int)(heap + offset), (int)length).ToArray();
                 if (encoding.Contains("gzip", StringComparison.Ordinal))
                 {

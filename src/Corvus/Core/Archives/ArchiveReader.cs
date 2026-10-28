@@ -1,3 +1,5 @@
+using System.Text;
+using Corvus.Core.Disks;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Readers;
@@ -44,8 +46,18 @@ internal sealed class ArchiveReader : IContainerReader
             ct.ThrowIfCancellationRequested();
             entries.Add(new ContainerEntry(path, size));
             if (items.Count >= limits.MaxItems) return;
-            using var s = open();
-            var bytes = ReadBounded(s, path, limits.MaxItemBytes);
+            byte[] bytes;
+            try
+            {
+                using var s = open();
+                bytes = ReadBounded(s, path, limits.MaxItemBytes);
+            }
+            catch (Exception ex) when (EntryDamage.Is(ex))
+            {
+                entries[^1] = entries[^1] with { Detail = EntryDamage.Detail(ex.GetType().Name) };
+                notes.Add(EntryDamage.Note(path, ex));
+                return;
+            }
             total += bytes.Length;
             if (total > limits.MaxTotalBytes)
                 throw new ToolError(ErrorCode.LimitExceeded, $"{name}: extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
@@ -59,6 +71,23 @@ internal sealed class ArchiveReader : IContainerReader
                 using var archive = ArchiveFactory.OpenArchive(stream);
                 foreach (var e in archive.Entries)
                     if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream);
+            }
+            else if (format == "tar" && stream.CanSeek && TarParts(stream, ct) is { } parts)
+            {
+                // Each run of readable headers is read on its own, so the
+                // entries past a damaged header are kept.
+                foreach (var part in parts)
+                {
+                    if (part.Damaged is { } damaged)
+                    {
+                        entries.Add(new ContainerEntry(damaged, 0, part.Detail + "; size unknown"));
+                        notes.Add($"{damaged}: {part.Detail}");
+                        continue;
+                    }
+                    using var reader = ReaderFactory.OpenReader(new SubStream(stream, part.Start, part.Length));
+                    while (reader.MoveToNextEntry())
+                        if (!reader.Entry.IsDirectory && reader.Entry.Key is { } key) Take(key.Replace('\\', '/'), reader.Entry.Size, reader.OpenEntryStream);
+                }
             }
             else
             {
@@ -79,6 +108,129 @@ internal sealed class ArchiveReader : IContainerReader
         }
         if (entries.Count > items.Count && !allFiles) notes.Add($"{entries.Count - items.Count} of {entries.Count} files not extracted (not binaries or packages; allFiles extracts every file).");
         return new ContainerContents(kind, items, notes) { Entries = entries };
+    }
+
+    private const int MaxTarParts = 10_000;
+
+    /// <summary>
+    /// A run of a plain tar read as one archive, or one damaged header with its
+    /// name and why.
+    /// </summary>
+    private sealed record TarPart(long Start, long Length, string? Damaged = null, string? Detail = null);
+
+    /// <summary>
+    /// A plain tar split at each damaged header (a bad checksum, or a size that
+    /// overflows or runs past the end) into runs of readable headers; null when
+    /// no header is damaged.
+    /// </summary>
+    private static List<TarPart>? TarParts(Stream s, CancellationToken ct)
+    {
+        var parts = new List<TarPart>();
+        var block = new byte[512];
+        long length = s.Length, start = 0, p = 0;
+        bool damaged = false;
+        while (p + 512 <= length && parts.Count < MaxTarParts)
+        {
+            ct.ThrowIfCancellationRequested();
+            Block(s, p, block);
+            if (Array.TrueForAll(block, b => b == 0)) break;
+            string why;
+            try
+            {
+                if (!ChecksumHolds(block)) why = "the header checksum does not hold";
+                else if (Size(block) is not { } size) why = "the size field is not a number";
+                else if (checked(p + 512 + (size + 511) / 512 * 512) is var next && next <= length)
+                {
+                    p = next;
+                    continue;
+                }
+                else why = $"the size {size:N0} runs past the end";
+            }
+            catch (Exception ex) when (EntryDamage.Is(ex)) { why = ex.GetType().Name; }
+            damaged = true;
+            if (p > start) parts.Add(new TarPart(start, p - start));
+            parts.Add(new TarPart(p, 512, Name(block, p), EntryDamage.Detail(why, p)));
+            // A damaged header cannot place the next one: the next block with
+            // the magic and a checksum that holds is taken as it.
+            for (p += 512; p + 512 <= length; p += 512)
+            {
+                Block(s, p, block);
+                if (block.AsSpan(257, 5).SequenceEqual("ustar"u8) && ChecksumHolds(block)) break;
+            }
+            start = p;
+        }
+        // The reader that follows starts where the walk began.
+        s.Position = 0;
+        if (!damaged) return null;
+        if (length > start) parts.Add(new TarPart(start, length - start));
+        return parts;
+    }
+
+    private static void Block(Stream s, long at, byte[] block)
+    {
+        s.Position = at;
+        s.ReadExactly(block);
+    }
+
+    /// <summary>
+    /// Whether the header checksum (POSIX ustar) holds: the byte sum with the
+    /// checksum field read as spaces, signed or unsigned.
+    /// </summary>
+    private static bool ChecksumHolds(byte[] h)
+    {
+        long stored = 0;
+        bool digits = false;
+        foreach (byte c in h.AsSpan(148, 8))
+        {
+            if (c is >= (byte)'0' and <= (byte)'7') { stored = stored * 8 + (c - '0'); digits = true; }
+            else if (digits || c is not ((byte)' ' or 0)) break;
+        }
+        long unsignedSum = 0, signedSum = 0;
+        for (int i = 0; i < 512; i++)
+        {
+            byte c = i is >= 148 and < 156 ? (byte)' ' : h[i];
+            unsignedSum += c;
+            signedSum += (sbyte)c;
+        }
+        return digits && (stored == unsignedSum || stored == signedSum);
+    }
+
+    /// <summary>
+    /// The size field: octal, or base-256 when its high bit is set (GNU); null
+    /// when it is neither; throws <see cref="OverflowException"/> past 2^63.
+    /// </summary>
+    private static long? Size(byte[] h)
+    {
+        var field = h.AsSpan(124, 12);
+        if ((field[0] & 0x80) != 0)
+        {
+            // 0xFF marks a negative base-256 value.
+            if (field[0] == 0xFF) return null;
+            long v = field[0] & 0x7F;
+            foreach (byte b in field[1..]) v = checked(v * 256 + b);
+            return v;
+        }
+        long o = 0;
+        bool digits = false;
+        foreach (byte c in field)
+        {
+            if (c is >= (byte)'0' and <= (byte)'7') { o = checked(o * 8 + (c - '0')); digits = true; }
+            else if (c is 0 or (byte)' ') { if (digits) break; }
+            else return null;
+        }
+        return digits ? o : null;
+    }
+
+    /// <summary>
+    /// The header's path (ustar prefix and name), or "entry at 0x..." when it is
+    /// empty.
+    /// </summary>
+    private static string Name(byte[] h, long at)
+    {
+        static string Field(ReadOnlySpan<byte> f) => Encoding.UTF8.GetString(f[..(f.IndexOf((byte)0) is var n and >= 0 ? n : f.Length)]);
+        var name = Field(h.AsSpan(0, 100));
+        if (h.AsSpan(257, 6).SequenceEqual("ustar\0"u8) && Field(h.AsSpan(345, 155)) is { Length: > 0 } prefix) name = prefix + "/" + name;
+        return name.Length > 0 ? name : $"entry at 0x{at:X}";
     }
 
     /// <summary>Binaries and nested packages: what the container tools follow without allFiles.</summary>

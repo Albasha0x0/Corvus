@@ -50,6 +50,12 @@ internal sealed class CompoundFileReader : IContainerReader
             byte[] bytes;
             try { bytes = cf.Read(e, limits.MaxItemBytes); }
             catch (ToolError ex) when (ex.Code == ErrorCode.LimitExceeded) { entries.Add(new ContainerEntry(prefix + StreamPath(e.Path), e.Size)); notes.Add(ex.Message); continue; }
+            catch (Exception ex) when (EntryDamage.Is(ex))
+            {
+                entries.Add(new ContainerEntry(prefix + StreamPath(e.Path), e.Size, EntryDamage.Detail(ex.GetType().Name)));
+                notes.Add(EntryDamage.Note(prefix + StreamPath(e.Path), ex));
+                continue;
+            }
             ArchiveItems.Take(items, entries, "OLE stream", prefix + StreamPath(e.Path), bytes, allFiles, limits, ref total);
         }
     }
