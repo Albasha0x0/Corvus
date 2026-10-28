@@ -32,13 +32,19 @@
       }
     },
     "editIds": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "failed": {
       "type": "integer"
     },
     "items": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     },
     "resultId": {
       "type": "string"

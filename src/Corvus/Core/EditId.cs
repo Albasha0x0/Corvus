@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Corvus.Core;
@@ -19,8 +20,10 @@ public readonly record struct EditId(string Target, int Number)
     }
 }
 
-internal sealed class EditIdConverter : JsonConverter<EditId>
+internal sealed class EditIdConverter : JsonConverter<EditId>, IJsonSchemaSource
 {
+    public JsonNode Schema(JsonSerializerOptions options) => new JsonObject { ["type"] = "string" };
+
     public override EditId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
         EditId.TryParse(reader.GetString(), out var id) ? id : throw new JsonException("an edit id is <target>#<n>");
 

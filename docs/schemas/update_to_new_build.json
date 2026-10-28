@@ -16,7 +16,10 @@
     },
     "editIds": {
       "description": "The journaled edits (undo_native_edit): names and comments, user types, patches.",
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "included": {
       "description": "Categories included in this run.",

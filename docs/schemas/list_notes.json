@@ -26,7 +26,33 @@
             }
           },
           "evidence": {
-            "type": "array"
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "object"
+                },
+                "resultSha256": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "result": {
+                  "type": "string"
+                },
+                "expect": {
+                  "type": "string"
+                },
+                "verdict": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "anchor": {
             "type": "object",

@@ -17,7 +17,7 @@ public class CatalogAuditTests
     private const int MaxModelFacingBytes = 153_100;
 
     /// <summary>Ceiling of the full profile's whole tools/list result: the measured size rounded up to 50.</summary>
-    private const int MaxToolsListBytes = 309_900;
+    private const int MaxToolsListBytes = 298_750;
 
     [Fact]
     public void Tools_list_stays_within_its_ceiling()
@@ -85,6 +85,29 @@ public class CatalogAuditTests
         Assert.Contains("t/b: array without items", problems);
         Assert.Contains("t/c: type is a union", problems);
         Assert.Contains("t#output/rows/items: keyword $ref", problems);
+    }
+
+    [Fact]
+    public void Every_output_array_declares_its_item_type()
+    {
+        var untyped = new List<string>();
+        foreach (var tool in Catalog.OfThisBuild(Toolsets.All).Tools)
+            Untyped(tool["outputSchema"], $"{tool["name"]}", untyped);
+        foreach (var (name, schema) in Catalog.DescribedOutputSchemas())
+            Untyped(JsonNode.Parse(schema.GetRawText()), $"{name} (described)", untyped);
+        Assert.True(untyped.Count == 0, string.Join("\n", untyped.Take(30)));
+
+        static void Untyped(JsonNode? node, string path, List<string> found)
+        {
+            if (node is JsonObject o)
+            {
+                if (o["type"] is JsonValue t && (string?)t == "array" || o["type"] is JsonArray types && types.Any(x => (string?)x == "array"))
+                    if (o["items"] is not JsonObject { Count: > 0 }) found.Add($"{path}: array without an item type");
+                foreach (var (key, child) in o) Untyped(child, $"{path}/{key}", found);
+            }
+            else if (node is JsonArray a)
+                for (int i = 0; i < a.Count; i++) Untyped(a[i], $"{path}/{i}", found);
+        }
     }
 
     [Fact]

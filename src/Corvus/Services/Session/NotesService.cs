@@ -48,11 +48,16 @@ public sealed record NoteEvidence(
         : Tool == null ? Text ?? "" : $"{Tool} {ResultHashes.Canonical(Args ?? new JsonObject())}" + (ResultSha256 != null ? $" sha256 {ResultSha256[..12]}" : "") + (Text != null ? $" ({Text})" : "");
 }
 
-internal sealed class NoteEvidenceConverter : JsonConverter<NoteEvidence>
+internal sealed class NoteEvidenceConverter : JsonConverter<NoteEvidence>, IJsonSchemaSource
 {
     private sealed record Shape(string? Tool, JsonObject? Args, string? ResultSha256, string? Text, string? Result = null, string? Expect = null, string? Verdict = null);
 
-    private static readonly JsonSerializerOptions Plain = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+    // The resolver is set so the schema exporter takes these options too.
+    private static readonly JsonSerializerOptions Plain = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
+    };
 
     public override NoteEvidence Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
@@ -63,6 +68,10 @@ internal sealed class NoteEvidenceConverter : JsonConverter<NoteEvidence>
 
     public override void Write(Utf8JsonWriter writer, NoteEvidence value, JsonSerializerOptions options) =>
         JsonSerializer.Serialize(writer, new Shape(value.Tool, value.Args, value.ResultSha256, value.Text, value.Result, value.Expect, value.Verdict), Plain);
+
+    // Entries are written as objects; a plain string is only read.
+    public JsonNode Schema(JsonSerializerOptions options) => System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(Plain, typeof(Shape),
+        new() { TreatNullObliviousAsNonNullable = true });
 }
 
 public sealed record Note(

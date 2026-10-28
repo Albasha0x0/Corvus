@@ -41,6 +41,7 @@ public static partial class Catalog
             foreach (var tool in tools.Where(t => !Profiles.Registers(enabled, serverOptions?.ToolAllowList, t.ProtocolTool.Name)).ToList()) tools.Remove(tool);
             ToolEffects.Apply(tools);
             ParameterDomains.Apply(tools);
+            TypeOutputItems(tools);
             DropNullDefaults(tools);
             DropNullableInputs(tools);
             DropImpliedDefaults(tools);
@@ -84,6 +85,8 @@ public static partial class Catalog
                 Parallel.For(0, methods.Length, i =>
                 {
                     var (type, method) = methods[i];
+                    var attribute = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<McpServerToolAttribute>(method)!;
+                    if (attribute.Name is { } name && (attribute.OutputSchemaType ?? Unwrapped(method.ReturnType)) is { } output) OutputTypes[name] = output;
                     var options = new McpServerToolCreateOptions { Services = services, SerializerOptions = serializerOptions };
                     tools[i] = method.IsStatic ? McpServerTool.Create(method, (object?)null, options)
                         : McpServerTool.Create(method, r => r.Services is { } s ? ActivatorUtilities.CreateInstance(s, type) : Activator.CreateInstance(type)!, options);
@@ -97,6 +100,17 @@ public static partial class Catalog
         }
         return builder;
     }
+
+    /// <summary>
+    /// The type each tool's output schema is made from: its OutputSchemaType,
+    /// else its result type.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Type> OutputTypes = new(StringComparer.Ordinal);
+
+    private static Type? Unwrapped(Type type) =>
+        type.IsGenericType && (type.GetGenericTypeDefinition() == typeof(Task<>) || type.GetGenericTypeDefinition() == typeof(ValueTask<>))
+            ? type.GetGenericArguments()[0]
+            : type == typeof(void) || type == typeof(Task) || type == typeof(ValueTask) ? null : type;
 
     // The generated schemas, for docs/schemas; the described form is made only when asked for.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, JsonElement> GeneratedSchemas = new(StringComparer.Ordinal);
@@ -171,6 +185,24 @@ public static partial class Catalog
             else if (node is JsonArray a)
                 foreach (var child in a) changed |= Drop(child);
             return changed;
+        }
+    }
+
+    /// <summary>
+    /// Gives output arrays without an item schema the one of their element type
+    /// (<see cref="OutputSchemas.TypeItems"/>).
+    /// </summary>
+    // Only output schemas: a converter that also reads strings would refuse
+    // them in an input schema.
+    private static void TypeOutputItems(IEnumerable<McpServerTool> tools)
+    {
+        foreach (var tool in tools)
+        {
+            var t = tool.ProtocolTool;
+            if (t.OutputSchema is not { } output || !OutputTypes.TryGetValue(t.Name, out var type)) continue;
+            var schema = JsonNode.Parse(output.GetRawText());
+            OutputSchemas.TypeItems(schema, type, ToolSerializerOptions);
+            t.OutputSchema = JsonSerializer.SerializeToElement(schema);
         }
     }
 

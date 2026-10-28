@@ -509,7 +509,10 @@
     },
     "items": {
       "description": "List views: module, thread, memory or unloaded module rows.",
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     },
     "offset": {
       "type": "integer"

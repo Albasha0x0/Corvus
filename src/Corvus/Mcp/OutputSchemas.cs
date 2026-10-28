@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
+using Corvus.Core;
 
 namespace Corvus.Mcp;
 
@@ -175,6 +177,43 @@ public static class OutputSchemas
                 break;
         }
     }
+
+    /// <summary>
+    /// Gives each array of <paramref name="schema"/> without an item schema the
+    /// one of its element type in <paramref name="type"/>: an open object for
+    /// object rows, a converter's own schema for a converted type; other arrays
+    /// are left as they are.
+    /// </summary>
+    public static void TypeItems(JsonNode? schema, Type type, JsonSerializerOptions options) => TypeItems(schema, type, options, 0);
+
+    private static void TypeItems(JsonNode? schema, Type type, JsonSerializerOptions options, int depth)
+    {
+        // A $ref points at a place this walk reaches by its own path.
+        if (schema is not JsonObject o || o.ContainsKey("$ref") || depth > 16) return;
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        if (o["anyOf"] is JsonArray choices)
+            foreach (var choice in choices) TypeItems(choice, type, options, depth + 1);
+        var info = options.GetTypeInfo(type);
+        switch (info.Kind)
+        {
+            case JsonTypeInfoKind.Object when o["properties"] is JsonObject properties:
+                foreach (var property in info.Properties)
+                    TypeItems(properties[property.Name], property.PropertyType, options, depth + 1);
+                break;
+            case JsonTypeInfoKind.Enumerable when info.ElementType is { } element:
+                if (o["items"] is JsonObject { Count: > 0 } items) TypeItems(items, element, options, depth + 1);
+                else if (ItemSchema(element, options) is { } derived) o["items"] = derived;
+                break;
+            case JsonTypeInfoKind.Dictionary when info.ElementType is { } value:
+                TypeItems(o["additionalProperties"], value, options, depth + 1);
+                break;
+        }
+    }
+
+    private static JsonNode? ItemSchema(Type element, JsonSerializerOptions options) =>
+        element == typeof(object) ? new JsonObject { ["type"] = "object" }
+        : options.GetTypeInfo(element).Converter is IJsonSchemaSource source ? source.Schema(options)
+        : null;
 
     /// <summary>A local JSON pointer ("#", "#/properties/a/items").</summary>
     internal static JsonNode? Resolve(JsonNode root, string? reference)

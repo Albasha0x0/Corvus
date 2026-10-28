@@ -26,7 +26,10 @@
     },
     "items": {
       "description": "view=similar: matches (image, address, name, score, kind, code, containment, cfg...); else groups (id, kind, members, redundantBytes, functions).",
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     },
     "notes": {
       "type": "array",

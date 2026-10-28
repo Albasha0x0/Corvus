@@ -245,7 +245,10 @@
     },
     "items": {
       "description": "List views: module, region, thread, frame or element rows.",
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     },
     "offset": {
       "type": "integer"

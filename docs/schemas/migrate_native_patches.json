@@ -19,7 +19,10 @@
     },
     "editIds": {
       "description": "The applied patches' edits (undo_native_edit).",
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "patches": {
       "type": "integer"
