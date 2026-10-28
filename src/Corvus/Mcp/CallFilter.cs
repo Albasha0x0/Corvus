@@ -324,9 +324,6 @@ internal static partial class CallFilter
     /// </summary>
     private static readonly HashSet<string> OwnLimits = new(StringComparer.Ordinal) { "engine", "live" };
 
-    /// <summary>Families whose calls read no input file in process.</summary>
-    private static readonly HashSet<string> NoFileReads = new(StringComparer.Ordinal) { Toolsets.Session, "notes", "engine", "live" };
-
     /// <summary>
     /// The ceiling of <paramref name="tool"/>'s work
     /// (<see cref="ServerOptions.CallCeiling"/>); null for engine and live tools
@@ -336,10 +333,10 @@ internal static partial class CallFilter
         tool == null || OwnLimits.Contains(Toolsets.FamilyOf(tool) ?? "") ? null : options.CallCeiling;
 
     /// <summary>
-    /// Whether <paramref name="tool"/> reads input files in process; an unknown
-    /// tool counts as one that does.
+    /// Whether <paramref name="tool"/> reads input files in process, as its
+    /// contract declares; an unknown tool counts as one that does.
     /// </summary>
-    public static bool ReadsFiles(string tool) => !NoFileReads.Contains(Toolsets.FamilyOf(tool) ?? "");
+    public static bool ReadsFiles(string tool) => ToolContract.Of(tool).Reads.HasFlag(FileReads.Server);
 
     /// <summary>The call deadline without a client limit, or null for long-running tools (they keep their own limits).</summary>
     public static TimeSpan? Deadline(string? tool, ServerOptions options) =>
