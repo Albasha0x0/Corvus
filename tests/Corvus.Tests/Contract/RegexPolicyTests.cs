@@ -84,13 +84,15 @@ public sealed partial class RegexPolicyTests
         Assert.Throws<ArgumentException>(() => new BoundedRegex(@"(?:a+)+"));
     }
 
+    // Regression: push run 56df1fa3 failed the wall-time form of this test
+    // under load (197 ms for a linear rule).
     [Fact]
-    public void Macro_keyword_rules_finish_hostile_lines_under_100_ms()
+    public void Macro_keyword_rules_scan_hostile_lines_in_linear_time()
     {
         var rules = Corvus.Core.Documents.MacroScan.KeywordRules().ToList();
         Assert.All(rules, r => Assert.IsType<BoundedRegex>(r));
-        string[] lines = [string.Concat(Enumerable.Repeat("a_", 10_000)), string.Concat(Enumerable.Repeat(". ", 10_000)) + ".", new string('a', 20_000)];
-        foreach (var rule in rules) Within100Ms(rule, lines);
+        Func<int, string>[] lines = [n => string.Concat(Enumerable.Repeat("a_", n)), n => string.Concat(Enumerable.Repeat(". ", n)) + ".", n => new string('a', 2 * n)];
+        foreach (var rule in rules) ScansInLinearTime(rule, lines);
     }
 
     [Fact]
@@ -127,21 +129,27 @@ public sealed partial class RegexPolicyTests
         Assert.True(found.Count == 0, string.Join("\n", found));
     }
 
+    // The runtime finds the literal after a single-set loop first, so a pair
+    // loop is what stays quadratic.
     [Fact]
-    public void Hostile_lines_finish_under_100_ms()
+    public void The_growth_check_fails_a_quadratic_pattern() =>
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => ScansInLinearTime(new Regex(@"(?:\w\w)+x"), [n => string.Concat(Enumerable.Repeat("a_", n))], 1_000));
+
+    [Fact]
+    public void Hostile_lines_scan_in_linear_time()
     {
         var configLine = FieldRegex(typeof(Embedded), "ConfigLine");
-        string[] lines =
+        Func<int, string>[] lines =
         [
-            "/" + new string('a', 20_000) + "!",
-            "c:\\" + new string('a', 20_000) + "!",
-            "x://" + new string('a', 20_000) + " !",
-            string.Concat(Enumerable.Repeat("a.", 10_000)) + "1:",
+            n => "/" + new string('a', 2 * n) + "!",
+            n => "c:\\" + new string('a', 2 * n) + "!",
+            n => "x://" + new string('a', 2 * n) + " !",
+            n => string.Concat(Enumerable.Repeat("a.", n)) + "1:",
         ];
-        Within100Ms(configLine, lines);
-        var command = "node" + string.Concat(Enumerable.Repeat(" --a", 10_000));
+        ScansInLinearTime(configLine, lines);
         foreach (var name in new[] { "NodeScript", "NodeRequire", "NetworkCommand" })
-            Within100Ms(FieldRegex(typeof(PackageReview), name), [command, "'" + string.Concat(Enumerable.Repeat("a/", 10_000))]);
+            ScansInLinearTime(FieldRegex(typeof(PackageReview), name),
+                [n => "node" + string.Concat(Enumerable.Repeat(" --a", n)), n => "'" + string.Concat(Enumerable.Repeat("a/", n))]);
     }
 
     [Fact]
@@ -172,17 +180,35 @@ public sealed partial class RegexPolicyTests
         }
     }
 
-    private static void Within100Ms(Regex regex, string[] inputs)
+    /// <summary>
+    /// Fails when a scan of a line 4 times longer takes over 10 times as long (linear: about 4, quadratic: 16) and over
+    /// 50 ms; a quadratic scan of the longer line takes seconds. Each size keeps its best of 5 runs, taken in turn, so a
+    /// burst of load slows both sizes alike.
+    /// </summary>
+    private static void ScansInLinearTime(Regex regex, Func<int, string>[] lines, int n = 5_000)
     {
-        foreach (var input in inputs)
+        foreach (var line in lines)
         {
             // NonBacktracking builds its states on first use: a short line of the
             // same shape builds them, so only the scan is timed.
-            _ = regex.Count(input[..200] + input[^2..]);
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            _ = regex.Count(input);
-            Assert.True(clock.ElapsedMilliseconds < 100, $"{regex}: {clock.ElapsedMilliseconds} ms on {input[..20]}...");
+            _ = regex.Count(line(100));
+            string input = line(n), longer = line(4 * n);
+            double once = double.MaxValue, fourTimes = double.MaxValue;
+            for (int run = 0; run < 5; run++)
+            {
+                once = Math.Min(once, Scan(regex, input));
+                fourTimes = Math.Min(fourTimes, Scan(regex, longer));
+            }
+            Assert.True(fourTimes < 50 || fourTimes < 10 * once,
+                $"{regex}: {once:0.0} ms on {input.Length} characters, {fourTimes:0.0} ms on {longer.Length} ({input[..20]}...)");
         }
+    }
+
+    private static double Scan(Regex regex, string input)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        _ = regex.Count(input);
+        return clock.Elapsed.TotalMilliseconds;
     }
 
     private static Regex FieldRegex(Type type, string name) =>
