@@ -105,10 +105,33 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
             return await RequestOnce(kind, op, args, timeout, slot, connection, file, cancellationToken).ConfigureAwait(false);
         }
+        catch (ToolError e) when (e.Code == ErrorCode.ProviderUnavailable && connection.EndedOnItsOwn && !cancellationToken.IsCancellationRequested
+                                  && Volatile.Read(ref _disposed) == 0)
+        {
+            // A crash or the memory limit ends every request on the worker: each
+            // runs once more on a worker of its own, so only its cause fails.
+            await RetireAsync(slot, connection).ConfigureAwait(false);
+            return await RunAloneAsync(kind, op, args, timeout, file, cancellationToken).ConfigureAwait(false);
+        }
         catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
         {
             throw await Failed(kind, op, slot, connection, e, file).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>Runs one request on a worker started for it alone and ended after; its crash or memory limit is named as this request's own.</summary>
+    private async Task<JsonElement> RunAloneAsync(string kind, string op, JsonObject? args, TimeSpan timeout, string? file, CancellationToken cancellationToken)
+    {
+        var slot = new Slot();
+        var connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
+        try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
+        catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
+        {
+            var failed = await Failed(kind, op, slot, connection, e, file).ConfigureAwait(false);
+            throw new ToolError(failed.Code, $"Run alone after the {kind} worker ended, the request ended its worker again: {failed.Message}", failed.Remediation)
+                { Retryable = false };
+        }
+        finally { connection.Dispose(); }
     }
 
     private async Task<JsonElement> RequestOnce(string kind, string op, JsonObject? args, TimeSpan timeout, Slot slot, WorkerConnection connection, string? file,

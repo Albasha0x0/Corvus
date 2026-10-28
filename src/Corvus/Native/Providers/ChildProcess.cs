@@ -318,6 +318,8 @@ internal sealed class WindowsJobProcess : ChildProcess
     private readonly long? _memoryLimit;
     private readonly SafeFileHandle? _port;
     private volatile bool _limitHit;
+    // Read before the process handle closes, so a caller asking after Dispose still gets it.
+    private long _exitCode = long.MinValue;
 
     private WindowsJobProcess(SafeFileHandle job, SafeProcessHandle process, int id, SafeFileHandle stdin, SafeFileHandle stdout, SafeFileHandle stderr,
         long? memoryLimit, SafeFileHandle? port)
@@ -336,6 +338,7 @@ internal sealed class WindowsJobProcess : ChildProcess
         new Thread(() =>
         {
             _waitHandle.WaitOne();
+            if (GetExitCodeProcess(_processHandle, out var code)) Interlocked.Exchange(ref _exitCode, unchecked((int)code));
             _exited.TrySetResult();
             ReleaseHandles();
         }) { IsBackground = true, Name = "child exit " + id }.Start();
@@ -362,9 +365,16 @@ internal sealed class WindowsJobProcess : ChildProcess
     public override Stream StandardOutput => _stdout;
     public override Stream StandardError => _stderr;
     public override Task Exited => _exited.Task;
-    public override bool HasExited => _exited.Task.IsCompleted || (GetExitCodeProcess(_processHandle, out var c) && c != StillActive);
+    public override bool HasExited => _exited.Task.IsCompleted || LiveExitCode() != null;
 
-    public override int? ExitCode => GetExitCodeProcess(_processHandle, out var code) && code != StillActive ? unchecked((int)code) : null;
+    public override int? ExitCode => Interlocked.Read(ref _exitCode) is var c && c != long.MinValue ? (int)c : LiveExitCode();
+
+    /// <summary>The exit code read from the handle; null while running or once the handle is closed.</summary>
+    private int? LiveExitCode()
+    {
+        try { return GetExitCodeProcess(_processHandle, out var code) && code != StillActive ? unchecked((int)code) : null; }
+        catch (ObjectDisposedException) { return null; }
+    }
 
     // The job's accounting keeps the time of processes that already exited, so it never falls.
     public override TimeSpan? TreeCpuTime()

@@ -60,6 +60,7 @@ public sealed class WorkerConnection : IDisposable
     // Timestamp of the last stdout line: a live worker reports progress every 2 s.
     private long _lastLineTicks;
     private string? _killReason;
+    private bool _endedOnItsOwn;
     private int _disposed;
 
     /// <summary>Progress and other events; raised on the reader thread.</summary>
@@ -110,6 +111,12 @@ public sealed class WorkerConnection : IDisposable
     public string? KillReason
     {
         get { lock (_sync) return _killReason; }
+    }
+
+    /// <summary>True once a request saw the worker end with no kill or dispose before it (a crash, the memory limit); kept after a later dispose.</summary>
+    public bool EndedOnItsOwn
+    {
+        get { lock (_sync) return _endedOnItsOwn; }
     }
 
     /// <summary>False once the process exited, its output closed or <see cref="Kill"/> was called.</summary>
@@ -422,7 +429,11 @@ public sealed class WorkerConnection : IDisposable
     private async Task<ToolError> DiedAsync(string op)
     {
         string? reason;
-        lock (_sync) reason = _killReason;
+        lock (_sync)
+        {
+            reason = _killReason;
+            _endedOnItsOwn |= reason == null;
+        }
         // A broken pipe or a closed stdout can be seen before the exit is reaped (macOS, Linux).
         if (reason == null)
             await Task.WhenAny(Task.WhenAll(_process.Exited, _stderrDone.Task), Task.Delay(ExitGrace)).ConfigureAwait(false);

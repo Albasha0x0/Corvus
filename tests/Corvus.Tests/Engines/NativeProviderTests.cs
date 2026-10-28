@@ -280,6 +280,16 @@ public class NativeProviderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_childs_exit_code_is_kept_after_dispose()
+    {
+        using var fake = new FakeTool(log: false).On("finish", exit: 7);
+        var child = ChildProcess.Start(new ChildProcessStart(FakeTool.Executable, ["finish"]) { Environment = fake.Environment });
+        await child.Exited.WaitAsync(TimeSpan.FromSeconds(30));
+        child.Dispose();
+        Assert.Equal((7, true), (child.ExitCode, child.HasExited));
+    }
+
+    [Fact]
     public void A_childs_CPU_time_grows_while_it_computes()
     {
         // Half a second of CPU, then a stdin wait keeps the tree running; ADB_FAKE_SCRIPT, which another class may set, is unset.

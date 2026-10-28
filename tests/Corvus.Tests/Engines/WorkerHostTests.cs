@@ -55,6 +55,24 @@ public sealed class WorkerHostTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_crash_fails_only_the_request_that_caused_it_and_the_others_run_again_alone()
+    {
+        using var dir = new TempDir();
+        var release = dir.File("release");
+        using var pool = Pool();
+        var first = await Ping(pool);
+        var waiting = pool.RunAsync("test", "fixture_wait", new JsonObject { ["release"] = release }, Limit, CancellationToken.None);
+        while (pool.RunningRequests == 0) await Task.Delay(20);
+        var e = await Assert.ThrowsAsync<ToolError>(() => pool.RunAsync("test", "fixture_exit", null, Limit, CancellationToken.None, file: "input.bin"));
+        Assert.Equal((ErrorCode.ProviderUnavailable, false), (e.Code, e.Retryable));
+        Assert.StartsWith("Run alone after the test worker ended, the request ended its worker again: test worker exited with code", e.Message);
+        File.WriteAllText(release, "");
+        var survived = (await waiting).GetProperty("pid").GetInt32();
+        Assert.NotEqual(first, survived);
+        Assert.NotEqual(first, await Ping(pool));
+    }
+
+    [Fact]
     public async Task A_worker_start_is_stopped_on_idle_time_not_on_wall_time()
     {
         // The command spins for 600 ms of CPU time and then waits without ever sending the ready event.

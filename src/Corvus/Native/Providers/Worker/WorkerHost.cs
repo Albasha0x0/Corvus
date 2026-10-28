@@ -65,6 +65,13 @@ public static class WorkerHost
                 Environment.FailFast("fixture_exit: the worker ends without unwinding");
                 return Task.FromResult<JsonNode?>(null);
             };
+            // Answers once the file the request names exists.
+            ops["fixture_wait"] = async (args, ct) =>
+            {
+                var release = args["release"]!.GetValue<string>();
+                while (!File.Exists(release)) await Task.Delay(20, ct).ConfigureAwait(false);
+                return new JsonObject { ["pid"] = Environment.ProcessId };
+            };
         }
         return ops;
     }
