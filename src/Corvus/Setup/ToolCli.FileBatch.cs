@@ -75,6 +75,9 @@ internal static partial class ToolCli
             throw new UsageException($"--extract needs a new or empty folder: {a.Extract}.");
         var report = OutputPath("--report", a.Report);
         if (report != null && Directory.Exists(report)) throw new UsageException($"--report names a file, not a folder: {a.Report}.");
+        if (a.Out != null && !a.JsonLines) throw new UsageException("--out goes with --jsonl.");
+        var lines = OutputPath("--out", a.Out);
+        if (lines != null && Directory.Exists(lines)) throw new UsageException($"--out names a file, not a folder: {a.Out}.");
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
@@ -108,7 +111,14 @@ internal static partial class ToolCli
             exit = failures.Count > 0 ? Exit.ToolError : Exit.Ok;
         }
         if (report != null) await File.WriteAllTextAsync(report, Report(document), CancellationToken.None);
-        io.Out.WriteLine(document.ToJsonString(Compact));
+        if (!a.JsonLines) io.Out.WriteLine(document.ToJsonString(Compact));
+        else
+        {
+            var records = document["records"] is JsonArray all ? all.Select(r => r!.AsObject()) : [RecordOf(document)];
+            using var writer = lines == null ? null : new StreamWriter(lines, append: false, new System.Text.UTF8Encoding(false));
+            var target = writer ?? io.Out;
+            foreach (var record in records) target.Write(record.ToJsonString(Compact) + "\n");
+        }
         return exit;
     }
 

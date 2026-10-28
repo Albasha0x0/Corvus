@@ -457,6 +457,45 @@ public class FileBatchTests
     }
 
     [Fact]
+    public async Task Jsonl_writes_one_record_per_line_for_every_file_and_member()
+    {
+        using var dir = new TempDir();
+        var input = Directory.CreateDirectory(Path.Combine(dir.Path, "in")).FullName;
+        File.WriteAllText(Path.Combine(input, "a.txt"), "first file");
+        File.WriteAllText(Path.Combine(input, "b.txt"), "second file");
+        using (var archive = ZipFile.Open(Path.Combine(input, "c.zip"), ZipArchiveMode.Create))
+            foreach (var (name, text) in new[] { ("d.txt", "first member"), ("e.txt", "second member") })
+                using (var writer = new StreamWriter(archive.CreateEntry(name).Open())) writer.Write(text);
+        var (code, output, _) = await ToolCliTests.Run("batch", "--file", input, "--recurse", "--jsonl", "--no-index");
+        Assert.Equal(0, code);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        // Three files, one of them a zip with two members.
+        Assert.Equal(5, lines.Length);
+        Assert.All(lines, l => Assert.NotNull(JsonNode.Parse(l)!["file"]!["sha256"]));
+        Assert.All(lines, l => Assert.Null(JsonNode.Parse(l)!["schema"]));
+
+        var target = Path.Combine(dir.Path, "records.jsonl");
+        (code, output, _) = await ToolCliTests.Run("batch", "--file", input, "--recurse", "--jsonl", "--out", target, "--no-index");
+        Assert.Equal(0, code);
+        Assert.Empty(output);
+        Assert.Equal(5, File.ReadAllLines(target).Length);
+    }
+
+    [Fact]
+    public async Task Out_without_jsonl_and_json_with_jsonl_are_usage_errors()
+    {
+        using var dir = new TempDir();
+        var plain = dir.File("notes.txt");
+        File.WriteAllText(plain, "text");
+        var (code, output, _) = await ToolCliTests.Run("batch", "--file", plain, "--json", "--out", dir.File("r.jsonl"));
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+        (code, output, _) = await ToolCliTests.Run("batch", "--file", plain, "--json", "--jsonl");
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+    }
+
+    [Fact]
     public async Task Files_past_the_members_limit_are_named_and_leave_the_run_incomplete()
     {
         using var dir = new TempDir();

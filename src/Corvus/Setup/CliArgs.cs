@@ -30,6 +30,8 @@ internal sealed partial class CliArgs
     public string? Extract { get; private set; }
     public string? Baseline { get; private set; }
     public string? Report { get; private set; }
+    public bool JsonLines { get; private set; }
+    public string? Out { get; private set; }
 
     public static CliArgs Parse(IReadOnlyList<string> tokens)
     {
@@ -57,6 +59,8 @@ internal sealed partial class CliArgs
                 case "--extract": a.Extract = Next(); continue;
                 case "--baseline": a.Baseline = Next(); continue;
                 case "--report": a.Report = Next(); continue;
+                case "--jsonl": a.JsonLines = true; continue;
+                case "--out": a.Out = Next(); continue;
             }
             if (t.StartsWith("--", StringComparison.Ordinal))
             {
