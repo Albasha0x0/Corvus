@@ -57,7 +57,10 @@ internal static class StopTimers
     public static Task Delay(TimeSpan delay, TimeProvider time)
     {
         var done = new TaskCompletionSource();
-        After(delay, time, () => done.TrySetResult());
+        var timer = After(delay, time, () => done.TrySetResult());
+        // The task holds the timer until it fires: an unreferenced test-clock
+        // timer is dropped by a collection and never fires.
+        _ = done.Task.ContinueWith(_ => timer.Dispose(), TaskContinuationOptions.ExecuteSynchronously);
         return done.Task;
     }
 

@@ -20,6 +20,20 @@ public sealed class DeadlineTests
         Dictionary<string, JsonElement>? arguments = null, CancellationToken client = default, string? clientName = null) =>
         CallFilter.Run(new CallToolRequestParams { Name = tool, Arguments = arguments }, null, services, ct => new ValueTask<CallToolResult>(work(ct)), client, clientName);
 
+    // Regression: push run 9388ad88 failed Calls_past_the_deadline_end_with_a_timeout
+    // when a collection dropped the grace delay's test-clock timer.
+    [Fact]
+    public void A_stop_delay_on_a_test_clock_fires_after_a_collection()
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var delay = StopTimers.Delay(TimeSpan.FromSeconds(1), clock);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True(delay.IsCompleted);
+    }
+
     [Fact]
     public void Effective_is_the_smaller_of_server_and_client_less_margin()
     {
