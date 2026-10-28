@@ -559,7 +559,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, executable, package, archive) or folder. |
 | `assembly` | string |  |  | A loaded assembly; pass this or path. |
-| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, assets, berkeleydb, certificate, electron, ese, esp32, evtx, firmware, flight, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, model, native, nib, office, package, page, pcap, pdf, plist, pri, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, sqlite, sqlite-recover, wasm, xbf, all. |
+| `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, android, apple, assets, berkeleydb, certificate, electron, ese, esp32, evtx, firmware, flight, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, mail, model, native, nib, office, package, page, pcap, pdf, plist, pri, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, sqlite, sqlite-recover, wasm, xbf, all. |
 | `table` | string |  |  | Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace. |
 | `columns` | string[] |  |  | With table=: these columns and rowid. |
 | `script` | string |  |  | assets: assets of this script class. |

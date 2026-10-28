@@ -96,6 +96,7 @@
     <PackageReference Include="SharpCompress" Version="0.50.4" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
+    <PackageReference Include="MimeKitLite" Version="4.18.1" />
   </ItemGroup>
 
   <!-- The 32-bit .NET decoder (a 32-bit DAC cannot load in this process): built and copied to clr32/ beside the server. -->

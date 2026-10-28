@@ -13,6 +13,7 @@ internal sealed class CompoundFileReader : IContainerReader
     public ContainerContents Open(byte[] data, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         var cf = CompoundFile.Read(data, name);
+        if (OutlookMessage.Is(cf)) return MailReader.Contents(OutlookMessage.Read(cf, limits, ct), limits);
         var doc = OfficeDocument.FromCompound(cf, ct);
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();

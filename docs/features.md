@@ -10,6 +10,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 - .NET crash dumps: [ClrMD](https://github.com/microsoft/clrmd), with the dumped runtime's DAC, signature-checked first.
 - Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz).
 - JavaScript: [Acornima](https://github.com/adams85/acornima); source maps decoded by built-in code.
+- Mail: [MimeKit](https://github.com/jstedfast/MimeKit) (`.eml`); `.msg` read by built-in code.
 - Transport: stdio, through the [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 - Native code: built-in engine (x86, x64, ARM32, ARM64); IDA or Ghidra optional.
 
@@ -318,6 +319,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Office OLE documents | streams, VBA source, Excel 4.0 macros, OLE packages |
 | PDF | embedded files, JavaScript, XFA forms; streams with `allFiles` |
 | `.lnk` | appended data |
+| Mail (`.eml`, `.msg`) | bodies and attachments |
 | OneNote `.one` | embedded files |
 | ISO / UDF, VHD / VHDX (NTFS, FAT, ext) | every file of each partition |
 | Apple `.dmg`, HFS+, APFS | every file; encrypted APFS volumes named |
@@ -427,6 +429,7 @@ Pass the name as `view=`.
 | `model` | safetensors, GGUF, ONNX, PyTorch, pickle; nothing unpickled |
 | `installer` | MSI custom actions, services, autostart entries |
 | `lnk` | a shortcut's target, arguments and noteworthy traits |
+| `mail` | headers, received chain, recorded authentication results, links, attachments |
 | `office` | VBA, Excel 4.0 macros, OLE packages, findings by line |
 | `pdf` | keywords, actions, scripts, embedded files |
 | `firmware` | formats found at offsets in an opaque image |
