@@ -252,14 +252,112 @@ public sealed class SourceMap
     {
         var url = MappingUrl(text);
         if (url != null && url.StartsWith("data:", StringComparison.Ordinal))
+            return Inline(url) is { } json ? (Parse(json), "inline") : null;
+        if (MapFile(file, url) is not { } candidate) return null;
+        var info = new FileInfo(candidate);
+        if (info.Length > MaxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{candidate} is {info.Length:N0} bytes; maps up to {MaxBytes:N0} bytes are decoded.");
+        candidate = Path.GetFullPath(candidate);
+        return (Parse(File.ReadAllBytes(candidate)), url != null ? candidate : candidate + " (no sourceMappingURL comment)");
+    }
+
+    /// <summary>
+    /// The first <paramref name="max"/> bytes of the map a JavaScript file names
+    /// and the map's full length; null when it names none.
+    /// </summary>
+    internal static (byte[] Head, long Length)? Head(string file, byte[] text, int max)
+    {
+        var url = MappingUrl(text);
+        if (url != null && url.StartsWith("data:", StringComparison.Ordinal)) return InlineHead(url, max);
+        if (MapFile(file, url) is not { } path) return null;
+        using var stream = File.OpenRead(path);
+        var head = new byte[(int)Math.Min(stream.Length, max)];
+        stream.ReadExactly(head);
+        return (head, stream.Length);
+    }
+
+    /// <summary>
+    /// The entries of every sources array in a map, sections included; null when
+    /// a partial map (<paramref name="whole"/> false) ends before the count is
+    /// known. Throws JsonException on malformed JSON.
+    /// </summary>
+    internal static int? CountSources(ReadOnlySpan<byte> json, bool whole)
+    {
+        if (json.StartsWith(")]}'"u8))
         {
-            int comma = url.IndexOf(',');
-            if (comma < 0) return null;
-            var meta = url[5..comma];
-            var payload = url[(comma + 1)..];
-            byte[] json = meta.EndsWith(";base64", StringComparison.Ordinal) ? Convert.FromBase64String(payload) : Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
-            return (Parse(json), "inline");
+            int line = json.IndexOf((byte)'\n');
+            if (line < 0) return whole ? 0 : null;
+            json = json[(line + 1)..];
         }
+        if (json.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF])) json = json[3..];
+        var reader = new Utf8JsonReader(json, whole, new JsonReaderState(new JsonReaderOptions { MaxDepth = 64 }));
+        int count = 0, array = -1;
+        bool closed = false, sections = false;
+        while (reader.Read())
+        {
+            if (array >= 0)
+            {
+                if (reader.CurrentDepth == array) { array = -1; closed = true; }
+                else if (reader.CurrentDepth == array + 1 && reader.TokenType is not (JsonTokenType.EndArray or JsonTokenType.EndObject)) count++;
+                continue;
+            }
+            if (reader.TokenType != JsonTokenType.PropertyName) continue;
+            if (reader.ValueTextEquals("sections"u8)) sections = true;
+            else if (reader.ValueTextEquals("sources"u8))
+            {
+                if (!reader.Read()) break;
+                if (reader.TokenType == JsonTokenType.StartArray) array = reader.CurrentDepth;
+            }
+        }
+        // A cut map may hold more sources arrays past the cut only in sections.
+        return whole ? count : closed && !sections && array < 0 ? count : null;
+    }
+
+    /// <summary>
+    /// The first <paramref name="max"/> bytes of a data: URL's map and the map's
+    /// full length, decoding only the payload those bytes need; null when it has
+    /// no payload.
+    /// </summary>
+    private static (byte[] Head, long Length)? InlineHead(string url, int max)
+    {
+        int comma = url.IndexOf(',');
+        if (comma < 0) return null;
+        var payload = url.AsSpan(comma + 1);
+        byte[] bytes;
+        long length;
+        if (url.AsSpan(5, comma - 5).EndsWith(";base64", StringComparison.Ordinal))
+        {
+            // Four base64 characters hold three bytes.
+            int take = (int)Math.Min(payload.Length, ((long)max + 2) / 3 * 4);
+            bytes = Convert.FromBase64String(payload[..take].ToString());
+            length = take == payload.Length ? bytes.Length : (long)payload.Length / 4 * 3;
+        }
+        else
+        {
+            // An escape decodes to fewer bytes than its characters.
+            int take = Math.Min(payload.Length, max);
+            bytes = Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload[..take].ToString()));
+            length = take == payload.Length ? bytes.Length : payload.Length;
+        }
+        return (bytes.Length > max ? bytes[..max] : bytes, length);
+    }
+
+    /// <summary>The map bytes of a data: URL; null when it has no payload.</summary>
+    private static byte[]? Inline(string url)
+    {
+        int comma = url.IndexOf(',');
+        if (comma < 0) return null;
+        var meta = url[5..comma];
+        var payload = url[(comma + 1)..];
+        return meta.EndsWith(";base64", StringComparison.Ordinal) ? Convert.FromBase64String(payload) : Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
+    }
+
+    /// <summary>
+    /// The map file a JavaScript file names, or its sibling .map; null when it
+    /// does not exist. Refuses a named map outside the file's folder that
+    /// fails the input checks.
+    /// </summary>
+    private static string? MapFile(string file, string? url)
+    {
         var dir = Path.GetDirectoryName(file) ?? "";
         // Without a comment: a sibling x.js.map, or x.map (jquery.min.js -> jquery.min.map).
         var named = url != null && !url.Contains("://") ? Uri.UnescapeDataString(url.Split('?', '#')[0]) : null;
@@ -270,11 +368,7 @@ public sealed class SourceMap
             var shown = Path.GetFullPath(candidate);
             throw new ToolError(ErrorCode.AccessDenied, $"the map {shown} is {why}.", "copy the map beside the file") { Details = new { path = shown, problem = why } };
         }
-        if (!File.Exists(candidate)) return null;
-        var info = new FileInfo(candidate);
-        if (info.Length > MaxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{candidate} is {info.Length:N0} bytes; maps up to {MaxBytes:N0} bytes are decoded.");
-        candidate = Path.GetFullPath(candidate);
-        return (Parse(File.ReadAllBytes(candidate)), url != null ? candidate : candidate + " (no sourceMappingURL comment)");
+        return File.Exists(candidate) ? candidate : null;
     }
 
     /// <summary>The last //# sourceMappingURL= (or //@, /*# */) in the file, searched from the end without a regex.</summary>

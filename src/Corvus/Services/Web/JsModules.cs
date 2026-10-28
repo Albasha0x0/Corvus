@@ -40,8 +40,138 @@ public static class JsModules
         thread.Start();
         thread.Join();
         if (error is ParseErrorException parse) { notes.Add($"parse error: {parse.Message}"); return null; }
+        // Acornima 1.8.0 stops near a nesting depth of 1,000,000 on this stack.
+        if (error is InsufficientExecutionStackException) { notes.Add("not parsed: nested too deep"); return null; }
         if (error != null) throw error;
         return parsed;
+    }
+
+    /// <summary>
+    /// The syntax tree of a script cut short, cut again at the last separator that
+    /// parses once its open brackets are closed; the tree and the text it was parsed
+    /// from, or null when no cut parses.
+    /// </summary>
+    public static (Acornima.Ast.Program Tree, string Text)? ParseCut(string text, CancellationToken ct)
+    {
+        // Deepest first: a cut inside the last module keeps every module before it.
+        foreach (var (at, closers) in PrefixCuts(text, ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            var repaired = string.Concat(text.AsSpan(0, at), closers);
+            if (Parse(repaired, []) is { } tree) return (tree, repaired);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Cuts tried per script, the deepest bracket depths that hold one.
+    /// </summary>
+    private const int MaxCuts = 4;
+
+    /// <summary>
+    /// The last cut at each of the <see cref="MaxCuts"/> deepest bracket depths
+    /// that hold one, deepest first, with the closers that depth needs.
+    /// </summary>
+    private static List<(int At, string Closers)> PrefixCuts(ReadOnlySpan<char> text, CancellationToken ct)
+    {
+        var open = new List<char>();
+        // At depth d: the last cut, cleared when the bracket holding it closes.
+        var last = new List<int> { 0 };
+        char previous = '\0';
+        int check = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (i >= check)
+            {
+                ct.ThrowIfCancellationRequested();
+                check = i + 64 * 1024;
+            }
+            char c = text[i];
+            if (open.Count > 0 && open[^1] == '`')
+            {
+                if (c == '\\') i++;
+                else if (c == '`') Pop(open, last);
+                else if (c == '$' && i + 1 < text.Length && text[i + 1] == '{') { Push(open, last, '$'); i++; }
+                continue;
+            }
+            if (char.IsWhiteSpace(c)) continue;
+            if (char.IsLetter(c) || c is '_' or '$')
+            {
+                int start = i;
+                while (i + 1 < text.Length && (char.IsLetterOrDigit(text[i + 1]) || text[i + 1] is '_' or '$')) i++;
+                // After a keyword that takes an expression, a slash starts a
+                // regular expression, as at the start of the text.
+                previous = RegexKeywords.Contains(text[start..(i + 1)]) ? '\0' : c;
+                continue;
+            }
+            switch (c)
+            {
+                // After ++ or --, a slash divides.
+                case '+' or '-' when i + 1 < text.Length && text[i + 1] == c:
+                    i++;
+                    previous = ')';
+                    continue;
+                case '"' or '\'':
+                    for (i++; i < text.Length && text[i] != c && text[i] != '\n'; i++)
+                        if (text[i] == '\\') i++;
+                    break;
+                case '`': Push(open, last, '`'); break;
+                case '/' when i + 1 < text.Length && text[i + 1] == '/':
+                    while (i < text.Length && text[i] != '\n') i++;
+                    continue;
+                case '/' when i + 1 < text.Length && text[i + 1] == '*':
+                    int end = text[(i + 2)..].IndexOf("*/");
+                    i = end < 0 ? text.Length : i + 3 + end;
+                    continue;
+                // A slash after an operator or a bracket starts a regular expression.
+                case '/' when previous is '\0' or '(' or ',' or '=' or ':' or '[' or '!' or '&' or '|' or '?' or '{' or '}' or ';'
+                    or '+' or '-' or '*' or '%' or '<' or '>' or '~' or '^':
+                    bool inClass = false;
+                    for (i++; i < text.Length && text[i] != '\n' && (inClass || text[i] != '/'); i++)
+                        if (text[i] == '\\') i++;
+                        else if (text[i] == '[') inClass = true;
+                        else if (text[i] == ']') inClass = false;
+                    break;
+                case '(' or '[' or '{': Push(open, last, c); break;
+                case ')' or ']' or '}':
+                    Pop(open, last);
+                    if (c == '}') last[open.Count] = i + 1;
+                    break;
+                case ',': last[open.Count] = i; break;
+                case ';': last[open.Count] = i + 1; break;
+            }
+            previous = c;
+        }
+        var cuts = new List<(int, string)>();
+        for (int d = open.Count; d >= 0 && cuts.Count < MaxCuts; d--)
+            if (last[d] > 0)
+                cuts.Add((last[d], Closers(open, d)));
+        return cuts;
+    }
+
+    private static readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> RegexKeywords = new HashSet<string>(
+        ["return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "else", "yield", "await", "instanceof", "do"],
+        StringComparer.Ordinal).GetAlternateLookup<ReadOnlySpan<char>>();
+
+    private static string Closers(List<char> open, int depth) => string.Create(depth, open, (span, brackets) =>
+    {
+        for (int k = 0; k < span.Length; k++)
+            span[k] = brackets[depth - 1 - k] switch { '(' => ')', '[' => ']', '`' => '`', _ => '}' };
+    });
+
+    private static void Push(List<char> open, List<int> last, char bracket)
+    {
+        open.Add(bracket);
+        if (last.Count <= open.Count) last.Add(0);
+        else last[open.Count] = 0;
+    }
+
+    // An unbalanced closer is ignored; the parse of the cut decides.
+    private static void Pop(List<char> open, List<int> last)
+    {
+        if (open.Count == 0) return;
+        last[open.Count] = 0;
+        open.RemoveAt(open.Count - 1);
     }
 
     // Module tables of the last files read, by path, size and write time, so a large bundle is parsed once.

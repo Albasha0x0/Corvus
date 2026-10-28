@@ -10,6 +10,9 @@ internal static class JsBundleFiles
     private static readonly string[] Extensions = [".js", ".mjs", ".cjs", ".bundle"];
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
+    /// <summary>Most bytes of a script the summary parses to count its modules.</summary>
+    internal const int DescribeBytes = 8 * 1024 * 1024;
+
     /// <summary>Largest file read beside the map for a source without sourcesContent.</summary>
     private const long MaxBesideBytes = 64L * 1024 * 1024;
 
@@ -46,6 +49,47 @@ internal static class JsBundleFiles
             kind ??= "source-mapped script";
         }
         return kind == null ? null : new ContainerContents(kind, items, notes) { Entries = [.. items.Select(i => new ContainerEntry(i.Name, i.Bytes.Length, i.Origin))] };
+    }
+
+    /// <summary>
+    /// The container Open names, with its module and source counts, without
+    /// writing the files; null when Open names none.
+    /// </summary>
+    public static string? Describe(byte[] data, string path, CancellationToken ct)
+    {
+        var bound = $"{DescribeBytes / (1024 * 1024)} MB";
+        // Null: the sources were not counted, for the reason in uncounted.
+        int? sources = 0;
+        string? uncounted = null;
+        try
+        {
+            if (IsMap(path)) sources = SourceMap.CountSources(data.AsSpan(0, Math.Min(data.Length, DescribeBytes)), data.Length <= DescribeBytes);
+            else if (SourceMap.Head(path, data, DescribeBytes) is { } map && map.Length <= SourceMap.MaxBytes)
+                sources = SourceMap.CountSources(map.Head, map.Head.Length == map.Length);
+            if (sources == null) uncounted = $"sources not counted past the first {bound} of its map";
+        }
+        // A .map that is not a source map (a linker map) stays a plain file.
+        catch (Exception ex) when (!IsMap(path) && ex is ToolError or FormatException or IOException or UnauthorizedAccessException or ArgumentException or JsonException)
+        {
+            sources = null;
+            uncounted = "sources not counted: its map was not read";
+        }
+        catch (Exception ex) when (ex is ToolError or FormatException or IOException or UnauthorizedAccessException or ArgumentException or JsonException) { }
+        var mapped = uncounted ?? (sources > 0 ? $"{sources} mapped source(s)" : null);
+        if (!IsMap(path))
+        {
+            // The summary is a first look, so past the bound the module count is a floor.
+            bool cut = data.Length > DescribeBytes;
+            var text = Encoding.UTF8.GetString(data, 0, Math.Min(data.Length, DescribeBytes));
+            (Acornima.Ast.Program Tree, string Text)? parsed = cut ? JsModules.ParseCut(text, ct)
+                : JsModules.Parse(text, []) is { } tree ? (tree, text) : null;
+            if (parsed is { } read && JsModules.Find(read.Text, read.Tree, ct) is { Count: >= 2 } modules)
+            {
+                var count = cut ? $"at least {modules.Count} modules; read the first {bound}" : $"{modules.Count} modules";
+                return $"{modules[0].Family} bundle ({count}{(mapped != null ? ", " + mapped : "")})";
+            }
+        }
+        return sources == null ? $"source-mapped script ({mapped})" : sources > 0 ? $"source-mapped script ({sources} source(s))" : null;
     }
 
     /// <summary>One file per module and modules.json; the bundler family, or null when the script has fewer than two modules.</summary>

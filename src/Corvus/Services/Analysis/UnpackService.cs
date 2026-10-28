@@ -399,7 +399,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         List<ManagedAssembly> Manifests) Managed(
         FileInput input, string sha, AnalysisLimits limits, CancellationToken ct)
     {
-        if (!input.Streamed) return Managed(input.Path, input.Bytes, sha, Walk(input.Bytes, sha, input.Path, limits, ct), limits);
+        if (!input.Streamed) return Script(input, Managed(input.Path, input.Bytes, sha, Walk(input.Bytes, sha, input.Path, limits, ct), limits), ct);
         var name = Path.GetFileName(input.Path);
         if (Containers.OpenStream(input.OpenRead, input.Head, name, limits, ct) is { } top)
             return Managed(input.Path, null, sha, Walk(top, sha, limits, ct), limits);
@@ -407,6 +407,22 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         bool native = Native.NativeImageLoader.Detect(input.Head) is not (Native.NativeFileKind.Unknown or Native.NativeFileKind.Wasm);
         var large = Containers.OpenLarge(input.OpenRead, input.Head, native ? input.Image : null, input.Length, name, limits, ct);
         return Managed(input.Path, native ? input.Image : null, sha, Walk(large, sha, limits, ct), limits);
+    }
+
+    /// <summary>
+    /// The summary of a script that unpack_container opens: the container it
+    /// names, with counts, in place of none.
+    /// </summary>
+    private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
+        List<ManagedAssembly> Manifests) Script(FileInput input,
+        (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries, List<ManagedAssembly> Manifests) managed,
+        CancellationToken ct)
+    {
+        if (managed.Container != "none" || !Web.JsBundleFiles.Looks(input.Bytes, input.Path)
+            || Web.JsBundleFiles.Describe(input.Bytes, input.Path, ct) is not { } container) return managed;
+        managed.Notes.RemoveAll(n => n.StartsWith("Not a known container", StringComparison.Ordinal));
+        managed.Notes.Insert(0, $"{container}: unpack_container writes its files.");
+        return managed with { Container = container };
     }
 
     private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
