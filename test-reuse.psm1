@@ -421,7 +421,12 @@ function Save-QueuedRun([string]$file, [string]$strength, [string]$commit) {
     $order = 'routine', 'exhaustive', 'whole'
     $asked = (Read-QueuedRun $file).Strength
     if ($order.IndexOf($strength) -gt $order.IndexOf($asked)) { $asked = $strength }
-    Set-Content -Path $file -Value "$asked $commit" -NoNewline
+    # A scanner or the starting run may hold the file a moment: retry up to
+    # 10 s, then fail rather than keep the older commit.
+    for ($try = 1; ; $try++) {
+        try { Set-Content -Path $file -Value "$asked $commit" -NoNewline -ErrorAction Stop; break }
+        catch [System.IO.IOException] { if ($try -ge 100) { throw } Start-Sleep -Milliseconds 100 }
+    }
     $asked
 }
 

@@ -552,6 +552,38 @@ public class TestReuseTests
     }
 
     [Fact]
+    public async Task A_queued_run_held_open_by_a_reader_is_still_replaced_by_the_newer_commit()
+    {
+        // Regression: quick run 20261028-183021-03e5d1d9 kept "exhaustive c2"
+        // when a reader held the queue file during the c3 write.
+        var queue = Path.Combine(Path.GetTempPath(), $"corvus-queue-{Guid.NewGuid():N}");
+        File.WriteAllText(queue, "exhaustive c2");
+        try
+        {
+            var reader = new FileStream(queue, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var writing = queue + ".writing";
+            // The reader lets go only once the script is about to write.
+            var released = Task.Run(() =>
+            {
+                SpinWait.SpinUntil(() => File.Exists(writing), TimeSpan.FromMinutes(1));
+                Thread.Sleep(500);
+                reader.Dispose();
+            });
+            var lines = Run($$"""
+                Import-Module '{{Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1").Replace("'", "''")}}'
+                Set-Content '{{writing}}' ''
+                'later=' + (Save-QueuedRun '{{queue}}' 'routine' 'c3')
+                """);
+            await released;
+            File.Delete(writing);
+            if (lines is ["skip"]) return;
+            Assert.Contains("later=exhaustive", lines);
+            Assert.Equal("exhaustive c3", File.ReadAllText(queue));
+        }
+        finally { File.Delete(queue); }
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void The_pre_push_hook_starts_a_run_only_for_main_and_names_the_pushed_commit()
     {
