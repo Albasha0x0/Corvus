@@ -311,11 +311,18 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
         }
     }
 
-    private sealed class Runner(ITestAssembly testAssembly, IEnumerable<IXunitTestCase> testCases, IMessageSink diagnosticMessageSink,
-        IMessageSink executionMessageSink, ITestFrameworkExecutionOptions executionOptions)
+    /// <summary>
+    /// The assembly runner: permits per collection, then the leak check unless
+    /// <paramref name="checkLeaks"/> is false.
+    /// </summary>
+    internal sealed class Runner(ITestAssembly testAssembly, IEnumerable<IXunitTestCase> testCases, IMessageSink diagnosticMessageSink,
+        IMessageSink executionMessageSink, ITestFrameworkExecutionOptions executionOptions, bool checkLeaks = true)
         : XunitTestAssemblyRunner(testAssembly, testCases, diagnosticMessageSink, executionMessageSink, executionOptions)
     {
-        // Permits are taken before the parallel slot, so a collection waiting for an engine holds no slot.
+        // A collection that needs permits takes them instead of a parallel slot,
+        // so a waiter holds no slot. Queued for a slot after its permits, a holder
+        // kept its engine idle until the queue reached it: no Ghidra test ran for
+        // 13 to 18 min of each full run.
         protected override async Task<RunSummary> RunTestCollectionAsync(IMessageBus messageBus, ITestCollection testCollection,
             IEnumerable<IXunitTestCase> testCases, CancellationTokenSource cancellationTokenSource)
         {
@@ -334,7 +341,8 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
             using (held)
             {
                 MachinePermits.Record(needed, waited, testCollection.DisplayName);
-                return await base.RunTestCollectionAsync(new ProgressBus(messageBus, held), testCollection, testCases, cancellationTokenSource);
+                return await new XunitTestCollectionRunner(testCollection, testCases, DiagnosticMessageSink, new ProgressBus(messageBus, held), TestCaseOrderer,
+                    new ExceptionAggregator(Aggregator), cancellationTokenSource).RunAsync();
             }
         }
 
@@ -353,7 +361,7 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
 
         protected override async Task BeforeTestAssemblyFinishedAsync()
         {
-            if (LeakGuard.Check() is { } leaks)
+            if (checkLeaks && LeakGuard.Check() is { } leaks)
             {
                 // The runner prints only the exception's type for a cleanup failure.
                 DiagnosticMessageSink.OnMessage(new DiagnosticMessage("Tests leaked resources: " + leaks));
