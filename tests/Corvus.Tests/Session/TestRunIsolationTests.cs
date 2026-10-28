@@ -1,4 +1,5 @@
 using Corvus.Native.Annotations;
+using Corvus.Native.Providers;
 
 namespace Corvus.Tests;
 
@@ -43,12 +44,12 @@ public class TestRunIsolationTests
     {
         using var run = new TempDir();
         // No process has this id, so the process that named the folder has ended.
-        var ended = Directory.CreateDirectory(run.File(Path.Combine("corvus-run", $"{int.MaxValue - 3}-a"))).FullName;
+        var ended = Directory.CreateDirectory(run.File(Path.Combine(PrivateFolder.TempRootName, "run", $"{int.MaxValue - 3}-a"))).FullName;
         File.WriteAllText(Path.Combine(ended, "left.dll"), "x");
         Assert.Empty(LeakGuard.Leftovers(run.Path));
-        var running = Directory.CreateDirectory(run.File(Path.Combine("corvus-run", $"{Environment.ProcessId}-b"))).FullName;
+        var running = Directory.CreateDirectory(run.File(Path.Combine(PrivateFolder.TempRootName, "run", $"{Environment.ProcessId}-b"))).FullName;
         File.WriteAllText(Path.Combine(running, "left.dll"), "x");
-        Assert.Equal(["corvus-run"], LeakGuard.Leftovers(run.Path));
+        Assert.Equal([PrivateFolder.TempRootName + "/run"], LeakGuard.Leftovers(run.Path));
         Assert.True(Directory.Exists(running));
     }
 }

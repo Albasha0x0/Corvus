@@ -459,10 +459,10 @@ public static partial class ExternalTools
         finally { RemoveRunFolder(temp); }
     }
 
-    /// <summary>A new folder path under TEMP's corvus-run folder, named for this process; folders of ended processes are swept first.</summary>
+    /// <summary>A new folder path under the account's temporary run folder, named for this process; folders of ended processes are swept first.</summary>
     internal static string RunFolderPath()
     {
-        var root = Path.Combine(Path.GetTempPath(), RunFolder);
+        var root = PrivateFolder.Temp(RunFolder);
         if (Interlocked.Exchange(ref _swept, 1) == 0) SweepRunFolders(root);
         return Path.Combine(root, $"{Environment.ProcessId}-{Guid.NewGuid():N}");
     }
@@ -473,7 +473,7 @@ public static partial class ExternalTools
         for (int i = 0; i < 10 && !TryDelete(dir); i++) Thread.Sleep(200);
     }
 
-    private const string RunFolder = "corvus-run";
+    private const string RunFolder = "run";
     private static readonly string[] TempVariables = ["TEMP", "TMP", "TMPDIR"];
     private static int _swept;
 

@@ -49,12 +49,17 @@ public static class PrivateFile
         return stream;
     }
 
+    /// <summary>
+    /// Rights that let an account change a file or folder, or its access list.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    internal static FileSystemRights WriteRights => FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.WriteExtendedAttributes
+        | FileSystemRights.WriteAttributes | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership
+        | (FileSystemRights)0x10000000 /* GENERIC_ALL */ | (FileSystemRights)0x40000000 /* GENERIC_WRITE */;
+
     [SupportedOSPlatform("windows")]
     private static string? WindowsWriters(FileStream file)
     {
-        const FileSystemRights write = FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.WriteExtendedAttributes
-            | FileSystemRights.WriteAttributes | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership
-            | (FileSystemRights)0x10000000 /* GENERIC_ALL */ | (FileSystemRights)0x40000000 /* GENERIC_WRITE */;
         var acl = file.GetAccessControl();
         var trusted = new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null) };
@@ -62,14 +67,18 @@ public static class PrivateFile
         // The owner can rewrite the access list whatever it grants.
         if (acl.GetOwner(typeof(SecurityIdentifier)) is SecurityIdentifier owner && !trusted.Contains(owner)) others.Add(Name(owner));
         foreach (FileSystemAccessRule rule in acl.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier)))
-            if (rule.AccessControlType == AccessControlType.Allow && (rule.FileSystemRights & write) != 0
+            if (rule.AccessControlType == AccessControlType.Allow && (rule.FileSystemRights & WriteRights) != 0
                 && rule.IdentityReference is SecurityIdentifier sid && !trusted.Contains(sid))
                 others.Add(Name(sid));
         return others.Count == 0 ? null : $"is writable by {string.Join(", ", others.Distinct(StringComparer.OrdinalIgnoreCase))}";
     }
 
+    /// <summary>
+    /// The account name of <paramref name="sid"/>, or the SID itself when it
+    /// does not resolve.
+    /// </summary>
     [SupportedOSPlatform("windows")]
-    private static string Name(SecurityIdentifier sid)
+    internal static string Name(SecurityIdentifier sid)
     {
         try { return sid.Translate(typeof(NTAccount)).Value; }
         catch (SystemException) { return sid.Value; }
@@ -109,9 +118,24 @@ public static class PrivateFile
         public uint Gid;
     }
 
-    // fstat(2) through the .NET runtime's shim, whose FileStatus layout is the same on every Unix.
+    /// <summary>
+    /// The uid owning <paramref name="path"/> itself (a link is not followed);
+    /// null when it cannot be read.
+    /// </summary>
+    [UnsupportedOSPlatform("windows")]
+    internal static uint? OwnerOf(string path) => SystemNativeLStat(path, out var status) == 0 ? status.Uid : null;
+
+    /// <summary>The effective uid of this process.</summary>
+    [UnsupportedOSPlatform("windows")]
+    internal static uint EffectiveUser() => geteuid();
+
+    // fstat(2) and lstat(2) through the .NET runtime's shim, whose FileStatus
+    // layout is the same on every Unix.
     [DllImport("libSystem.Native", EntryPoint = "SystemNative_FStat")]
     private static extern int SystemNativeFStat(IntPtr fd, out FileStatus status);
+
+    [DllImport("libSystem.Native", EntryPoint = "SystemNative_LStat")]
+    private static extern int SystemNativeLStat([MarshalAs(UnmanagedType.LPUTF8Str)] string path, out FileStatus status);
 
     [DllImport("libc")]
     private static extern uint geteuid();

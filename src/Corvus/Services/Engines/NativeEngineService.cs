@@ -618,7 +618,7 @@ public sealed class NativeEngineService : IDisposable
             var bytes = content ?? native.Patches.PatchedBytes();
             var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
             // One folder per open, deleted whole, so two opens of one hash never share a file.
-            var dir = Path.Combine(Path.GetTempPath(), $"corvus-{(content == null ? "patched" : "slice")}-{sha[..16]}-{Guid.NewGuid().ToString("N")[..8]}");
+            var dir = Native.Providers.PrivateFolder.Temp($"{(content == null ? "patched" : "slice")}-{sha[..16]}-{Guid.NewGuid().ToString("N")[..8]}");
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, name);
             await File.WriteAllBytesAsync(path, bytes, native.Released).ConfigureAwait(false);

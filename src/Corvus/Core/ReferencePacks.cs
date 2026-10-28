@@ -18,7 +18,7 @@ internal static class ReferencePacks
     /// <summary>One download per pack; a waiting call stops when it is cancelled, the download goes on for the next.</summary>
     private static readonly ConcurrentDictionary<string, Lazy<Task<string?>>> Fetched = new(StringComparer.OrdinalIgnoreCase);
 
-    public static string CacheRoot { get; } = Corvus.Native.Providers.DataFolder.Combine("packs");
+    public static string CacheRoot => Corvus.Native.Providers.DataFolder.Combine("packs");
 
     /// <summary>1 or true: nothing is downloaded.</summary>
     public const string OfflineVariable = "CORVUS_OFFLINE";

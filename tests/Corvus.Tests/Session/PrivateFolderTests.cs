@@ -55,6 +55,96 @@ public sealed class PrivateFolderTests
         Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(PrivateFolder.Create(dir.File("worker"))));
     }
 
+    [SupportedOSPlatform("windows")]
+    private static void Grant(string path, InheritanceFlags inheritance)
+    {
+        var info = new DirectoryInfo(path);
+        var acl = info.GetAccessControl();
+        acl.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null), FileSystemRights.Modify,
+            inheritance, PropagationFlags.None, AccessControlType.Allow));
+        info.SetAccessControl(acl);
+    }
+
+    [WindowsFact, SupportedOSPlatform("windows")]
+    public void A_data_folder_that_grants_another_account_write_access_is_refused()
+    {
+        using var dir = new TempDir();
+        var path = Directory.CreateDirectory(dir.File("shared")).FullName;
+        Grant(path, InheritanceFlags.None);
+        var refused = Assert.Throws<UnauthorizedAccessException>(() => PrivateFolder.Ensure(path));
+        Assert.Contains("grants write access to", refused.Message, StringComparison.Ordinal);
+        Assert.NotNull(PrivateFolder.OtherWriters(path));
+    }
+
+    [WindowsFact, SupportedOSPlatform("windows")]
+    public void Write_access_a_data_folder_only_inherits_is_removed()
+    {
+        using var dir = new TempDir();
+        var parent = Directory.CreateDirectory(dir.File("parent")).FullName;
+        Grant(parent, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit);
+        var path = Directory.CreateDirectory(Path.Combine(parent, "data")).FullName;
+        Assert.NotNull(PrivateFolder.OtherWriters(path));
+        PrivateFolder.Ensure(path);
+        Assert.True(PrivateFolder.IsPrivate(new DirectoryInfo(path).GetAccessControl()));
+        Assert.Null(PrivateFolder.OtherWriters(path));
+    }
+
+    [WindowsFact, SupportedOSPlatform("windows")]
+    public void The_relay_refuses_a_build_folder_another_account_can_write()
+    {
+        using var dir = new TempDir();
+        var target = Directory.CreateDirectory(dir.File("publish")).FullName;
+        Grant(target, InheritanceFlags.None);
+        var refused = Assert.Throws<ArgumentException>(() => Corvus.Relay.RelayCli.Parse(["--target", target, "--state", dir.File("state")]));
+        Assert.Contains("no other account can write", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_missing_data_folder_is_created_private_and_the_temporary_folder_is_per_account()
+    {
+        using var dir = new TempDir();
+        var path = PrivateFolder.Ensure(dir.File("new/data"));
+        Assert.Null(PrivateFolder.OtherWriters(path));
+        var temp = PrivateFolder.Temp("work");
+        Assert.Equal(Path.Combine(Path.GetTempPath(), PrivateFolder.TempRootName, "work"), temp);
+        Assert.Null(PrivateFolder.OtherWriters(Path.GetDirectoryName(temp)!));
+    }
+
+    [PosixFact, UnsupportedOSPlatform("windows")]
+    public void A_data_folder_its_group_can_write_is_refused()
+    {
+        using var dir = new TempDir();
+        var path = Directory.CreateDirectory(dir.File("shared")).FullName;
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+        Assert.Contains("writable by its group or others", Assert.Throws<UnauthorizedAccessException>(() => PrivateFolder.Ensure(path)).Message, StringComparison.Ordinal);
+    }
+
+    [PosixFact, UnsupportedOSPlatform("windows")]
+    public void A_data_folder_readable_by_others_is_set_to_mode_0700()
+    {
+        using var dir = new TempDir();
+        var path = Directory.CreateDirectory(dir.File("data")).FullName;
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        PrivateFolder.Ensure(path);
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(path));
+    }
+
+    [PosixFact, UnsupportedOSPlatform("windows")]
+    public void A_data_folder_that_is_a_symbolic_link_is_refused()
+    {
+        using var dir = new TempDir();
+        var target = Directory.CreateDirectory(dir.File("target")).FullName;
+        var link = Directory.CreateSymbolicLink(dir.File("link"), target).FullName;
+        Assert.Contains("is a link", Assert.Throws<UnauthorizedAccessException>(() => PrivateFolder.Ensure(link)).Message, StringComparison.Ordinal);
+    }
+
+    [PosixNonRootFact, UnsupportedOSPlatform("windows")]
+    public void A_data_folder_another_account_owns_is_refused()
+    {
+        // The file system root is owned by uid 0.
+        Assert.Contains("is owned by uid 0", Assert.Throws<UnauthorizedAccessException>(() => PrivateFolder.Ensure("/")).Message, StringComparison.Ordinal);
+    }
+
     [WindowsFact, SupportedOSPlatform("windows")]
     public void A_session_worker_folder_also_lets_sandboxed_programs_read()
     {
@@ -65,5 +155,17 @@ public sealed class PrivateFolderTests
         Assert.Equal(5, grants.Count);
         Assert.Contains("S-1-15-2-1 Allow ReadAndExecute, Synchronize", grants);
         Assert.Contains(new SecurityIdentifier(WellKnownSidType.RestrictedCodeSid, null).Value + " Allow ReadAndExecute, Synchronize", grants);
+    }
+}
+
+/// <summary>
+/// A fact that runs only on Linux and macOS under an account other than root.
+/// </summary>
+public sealed class PosixNonRootFactAttribute : FactAttribute
+{
+    public PosixNonRootFactAttribute()
+    {
+        if (OperatingSystem.IsWindows()) Skip = "Needs POSIX owners.";
+        else if (PrivateFile.EffectiveUser() == 0) Skip = "Runs as root, which owns the folder it reads.";
     }
 }

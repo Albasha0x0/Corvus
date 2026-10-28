@@ -57,7 +57,7 @@ public sealed class JadxServer : IDisposable
     /// <summary>Starts the server and begins loading <paramref name="package"/>; <see cref="Loaded"/> completes when it is indexed.</summary>
     public static JadxServer Start(string java, string jar, string package, TimeSpan loadTimeout, IReadOnlyDictionary<string, string?>? environment = null)
     {
-        var temp = PrivateFolder.Create(Path.Combine(Path.GetTempPath(), "corvus-jadx", $"{Environment.ProcessId}-{Guid.NewGuid():N}"));
+        var temp = PrivateFolder.Create(PrivateFolder.Temp("jadx", $"{Environment.ProcessId}-{Guid.NewGuid():N}"));
         var env = new Dictionary<string, string?>(environment ?? new Dictionary<string, string?>()) { ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp, ["JADX_TMP_DIR"] = temp };
         var threads = Math.Min(4, Environment.ProcessorCount).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var args = ExternalTools.Arguments(ExternalTools.Java, "jar", ("jar", jar))

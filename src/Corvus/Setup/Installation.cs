@@ -299,7 +299,7 @@ internal static class Installation
             return false;
         }
         // The attestation ties the archive to this repository's workflow.
-        var check = Path.Combine(Path.GetTempPath(), "corvus-" + Guid.NewGuid().ToString("N")[..8], assetName);
+        var check = Native.Providers.PrivateFolder.Temp("update-" + Guid.NewGuid().ToString("N")[..8], assetName);
         Provenance provenance;
         try
         {

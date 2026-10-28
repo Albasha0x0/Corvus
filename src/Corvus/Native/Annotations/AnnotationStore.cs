@@ -132,7 +132,7 @@ public sealed class AnnotationStore
         var chosen = root
             ?? (Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom ? custom
                 : System.IO.Path.Combine(System.IO.Path.GetDirectoryName(AnalysisCache.DefaultRoot)!, "annotations"));
-        Root = System.IO.Path.GetFullPath(chosen);
+        Root = Providers.PrivateFolder.Ensure(chosen);
     }
 
     private string FileFor(string sha256) => System.IO.Path.Combine(Root, sha256.ToLowerInvariant() + ".json");

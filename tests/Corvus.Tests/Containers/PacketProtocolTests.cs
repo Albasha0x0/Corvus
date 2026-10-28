@@ -266,7 +266,7 @@ public sealed class PacketTSharkTests(ITestOutputHelper output) : IDisposable
         new UnpackService(_ws).Search(path, "sip.Method == INVITE", "packet", 1, AnalysisLimits.Default, default);
         var seen = Assert.Single(fake.Calls.OfType<JsonObject>());
         var folder = (string)seen["folder"]!;
-        Assert.StartsWith(Path.Combine(Path.GetTempPath(), "corvus-run"), folder, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith(PrivateFolder.Temp("run"), folder, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, (int)seen["entries"]!);
         Assert.False(Directory.Exists(folder));
     }

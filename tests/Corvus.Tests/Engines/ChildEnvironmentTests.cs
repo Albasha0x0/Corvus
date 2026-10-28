@@ -57,7 +57,7 @@ public sealed class ChildEnvironmentTests
         var (first, _) = Report(start);
         var (second, _) = Report(start);
         // macOS reports the temp folder under /private/var, through the /var link.
-        Assert.StartsWith(Unlinked(Path.Combine(Path.GetTempPath(), "corvus-run")) + Path.DirectorySeparatorChar, Unlinked(first) + Path.DirectorySeparatorChar);
+        Assert.StartsWith(Unlinked(PrivateFolder.Temp("run")) + Path.DirectorySeparatorChar, Unlinked(first) + Path.DirectorySeparatorChar);
         Assert.NotEqual(Path.GetFullPath(Environment.CurrentDirectory), Path.GetFullPath(first));
         Assert.NotEqual(first, second);
         Assert.True(SpinWait.SpinUntil(() => !Directory.Exists(first), TimeSpan.FromSeconds(10)), $"{first} was left behind");

@@ -34,7 +34,8 @@ internal static class LeakGuard
         try { TestFixture.FakeTools.KillOnCloseJob.EnterCurrentProcess(); }
         catch (System.ComponentModel.Win32Exception ex) { Console.Error.WriteLine($"test processes are not tied to the run: {ex.Message}"); }
         RemoveEndedRuns();
-        Directory.CreateDirectory(RunTemp);
+        // Private, so test folders inside it pass the checks on private folders.
+        Corvus.Native.Providers.PrivateFolder.Create(RunTemp);
         foreach (var name in new[] { "TMP", "TEMP", "TMPDIR" })
             Environment.SetEnvironmentVariable(name, RunTemp + (OperatingSystem.IsWindows() ? "" : "/"));
         // Ghidra workers of every test share one folder and a spare, so a test opens on a started JVM and the worker is
@@ -114,19 +115,28 @@ internal static class LeakGuard
         return problems.Count == 0 ? null : string.Join("; ", problems);
     }
 
-    /// <summary>Names of the entries left in <paramref name="folder"/>, sorted; empty when it is absent.</summary>
+    /// <summary>Names of the entries left in <paramref name="folder"/>, sorted, the account's temporary folder
+    /// listed by its entries; empty when it is absent.</summary>
     internal static List<string> Leftovers(string folder)
     {
         if (!Directory.Exists(folder)) return [];
+        var own = Corvus.Native.Providers.PrivateFolder.TempRootName;
         // A server killed during an external tool run leaves its tool folder,
         // which the product sweeps once that process has ended: sweep it here.
-        var runs = Path.Combine(folder, "corvus-run");
+        var runs = Path.Combine(folder, own, "run");
         Corvus.Native.Providers.ExternalTools.SweepRunFolders(runs);
         try { if (Directory.Exists(runs) && !Directory.EnumerateFileSystemEntries(runs).Any()) Directory.Delete(runs); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         return Directory.EnumerateFileSystemEntries(folder).Select(Path.GetFileName)
             .Where(n => n != IdaSymbolStore && !RuntimeFiles.Any(n!.StartsWith) && !OnlyCompilerServerCache(Path.Combine(folder, n)))
-            .Select(n => n!).Order().ToList();
+            .SelectMany(n => n == own ? OwnEntries(folder, own) : [n!]).Order().ToList();
+    }
+
+    // The account's own temporary folder stays; what is left inside it counts.
+    private static IEnumerable<string> OwnEntries(string folder, string own)
+    {
+        try { return Directory.EnumerateFileSystemEntries(Path.Combine(folder, own)).Select(e => own + "/" + Path.GetFileName(e)).ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return [own]; }
     }
 
     /// <summary>A folder holding only VBCSCompiler shadow copies, kept by the compiler server after a test build.</summary>

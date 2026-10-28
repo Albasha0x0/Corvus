@@ -43,7 +43,7 @@ public sealed partial class DeviceService
     /// <summary>The file to write: <paramref name="outputPath"/> (never replaced) or a new file in the temporary folder.</summary>
     private static string NewFile(string? outputPath, string name)
     {
-        var full = outputPath is { Length: > 0 } p ? SafeFile.Output(p) : Path.Combine(Path.GetTempPath(), "corvus-device", name);
+        var full = outputPath is { Length: > 0 } p ? SafeFile.Output(p) : Native.Providers.PrivateFolder.Temp("device", name);
         if (Directory.Exists(full)) full = Path.Combine(full, name);
         if (File.Exists(full)) throw new ToolError(ErrorCode.Conflict, $"{full} exists.", "pass another outputPath");
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
@@ -153,7 +153,7 @@ public sealed partial class DeviceService
     /// <summary>Writes a bugreport to a new or empty directory: streamed zip (Android 9+), pulled zip, or text (before Android 7), each bounded by <see cref="MaxBugreportBytes"/>.</summary>
     private List<AndroidProperty> Bugreport(string serial, string? outputPath, CancellationToken ct)
     {
-        var dir = EmptyDirectory(outputPath is { Length: > 0 } p ? p : Path.Combine(Path.GetTempPath(), "corvus-device", $"{SafeSerial(serial)}-bugreport-{Stamp()}"));
+        var dir = EmptyDirectory(outputPath is { Length: > 0 } p ? p : Native.Providers.PrivateFolder.Temp("device", $"{SafeSerial(serial)}-bugreport-{Stamp()}"));
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var name = $"bugreport-{SafeSerial(serial)}-{Stamp()}";
         var zip = Path.Combine(dir, name + ".zip");

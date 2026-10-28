@@ -37,7 +37,7 @@ public sealed record ResultCacheOptions(string? Root, long MaxBytes, TimeSpan Ma
         long mb = long.TryParse(variable(MaxMegabytesVariable), out var m) && m > 0 ? m : DefaultMaxMegabytes;
         int days = int.TryParse(variable(MaxDaysVariable), out var d) && d > 0 ? d : DefaultMaxDays;
         string? folder = root?.ToLowerInvariant() is "off" or "none" or "0" ? null
-            : string.IsNullOrEmpty(root) ? Native.Providers.DataFolder.Combine("results") : Path.GetFullPath(root);
+            : string.IsNullOrEmpty(root) ? Native.Providers.DataFolder.Combine("results") : Native.Providers.PrivateFolder.Ensure(root);
         return new(folder, mb << 20, TimeSpan.FromDays(days));
     }
 }

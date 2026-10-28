@@ -49,7 +49,7 @@ public class ExternalToolsTests : IDisposable
         var named = new LineSink(stop);
         Assert.Throws<OperationCanceledException>(() => ExternalTools.Run(exe, args, TimeSpan.FromMinutes(2), 1 << 20, stop.Token, sink: named));
         var temp = named.Text.Trim();
-        Assert.StartsWith(Path.Combine(Path.GetTempPath(), "corvus-run"), temp);
+        Assert.StartsWith(PrivateFolder.Temp("run"), temp);
         Assert.False(Directory.Exists(temp), $"{temp} was left behind");
     }
 

@@ -21,7 +21,9 @@ public sealed partial class NativeEmulationTools
     internal const int KeptRuns = 8;
 
     /// <summary>The folder that holds the saved emulator runs; tests point it elsewhere.</summary>
-    internal static string RunsRoot { get; set; } = DataFolder.Combine("emulation");
+    internal static string RunsRoot { get => _runsRoot ?? DataFolder.Combine("emulation"); set => _runsRoot = value; }
+
+    private static string? _runsRoot;
 
     private static void RefuseGhidraOnly(params (string Name, string? Value)[] given)
     {

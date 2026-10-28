@@ -11,7 +11,12 @@ public static class DataFolder
             ? Path.GetFullPath(custom)
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), Name);
 
-    public static string Combine(params string[] parts) => Path.Combine([Root, .. parts]);
+    /// <summary>
+    /// A path under <see cref="Root"/>, which
+    /// <see cref="PrivateFolder.Ensure"/> keeps private; throws
+    /// UnauthorizedAccessException when it cannot.
+    /// </summary>
+    public static string Combine(params string[] parts) => Path.Combine([PrivateFolder.Ensure(Root), .. parts]);
 
     // Migration only: the folder's name before the rename.
     public const string LegacyName = "NetDecompilerMcp";

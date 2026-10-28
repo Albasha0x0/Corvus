@@ -31,7 +31,7 @@ internal static class OsvAdvisories
             return NotChecked(null, without + candidates.Count, $"advisories not checked: osv-scanner {probe.Problem}; {probe.Remediation}");
         var checker = $"osv-scanner {probe.Version ?? "(version unknown)"}, offline";
         if (candidates.Count == 0) return NotChecked(checker, without, "advisories not checked: no component has a package URL");
-        var dir = Path.Combine(Path.GetTempPath(), "corvus-osv", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        var dir = Native.Providers.PrivateFolder.Temp("osv", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         try
         {
             Native.Providers.PrivateFolder.Create(dir);

@@ -83,7 +83,7 @@ public sealed class AnalysisCache(string root, long? maxBytes = null, TimeSpan? 
 
     public static string DefaultRoot =>
         Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom
-            ? custom
+            ? PrivateFolder.Ensure(custom)
             : DataFolder.Combine("analysis");
 
     /// <summary>Locks the entry and verifies its copy against <paramref name="expectedSha256"/> (source hash when null); throws NotFound, IoError, InvalidArgument or Conflict.</summary>

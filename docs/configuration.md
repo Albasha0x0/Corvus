@@ -157,7 +157,7 @@ Name the programs a session may start or attach to:
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CORVUS_DATA_DIR` | `<LocalAppData>/Corvus` | per-user data folder; the folders below default to entries in it |
+| `CORVUS_DATA_DIR` | `<LocalAppData>/Corvus` | per-user data folder; the folders below default to entries in it; refused when another account owns it or can write it |
 | `CORVUS_ANNOTATIONS_DIR` | | saved native names, comments and imported name layers |
 | `CORVUS_ANALYSIS_CACHE` | | saved IDA and Ghidra databases, keyed by file hash |
 | `CORVUS_ANALYSIS_CACHE_MB`, `CORVUS_ANALYSIS_CACHE_DAYS` | 32768, 60 | bounds of that folder; entries open in a server are kept |

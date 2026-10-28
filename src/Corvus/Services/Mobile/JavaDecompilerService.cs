@@ -58,7 +58,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
         var tool = ExternalTools.Probe(ExternalTools.JavaDecompiler2);
         if (!tool.Usable) throw NotConfigured($"Vineflower is not available: {tool.Problem}", tool.Remediation);
         if (!java.Usable) throw NotConfigured($"Java is not available: {java.Problem}", java.Remediation);
-        var work = Path.Combine(Path.GetTempPath(), "corvus-vineflower-" + Guid.NewGuid().ToString("N"));
+        var work = Native.Providers.PrivateFolder.Temp("vineflower-" + Guid.NewGuid().ToString("N"));
         try
         {
             string input = Path.Combine(work, "in"), output = Path.Combine(work, "out");

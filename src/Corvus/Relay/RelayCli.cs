@@ -57,10 +57,14 @@ public static class RelayCli
         if (target == null) throw new ArgumentException("--target <publishDir> is required.");
         target = Path.GetFullPath(target);
         if (!Directory.Exists(target)) throw new ArgumentException($"{target} does not exist.");
+        // The relay starts the program it finds there, so another account must
+        // not be able to replace it.
+        if (Native.Providers.PrivateFolder.OtherWriters(target) is { } writers)
+            throw new ArgumentException($"{target} {writers}; the relay runs builds only from a folder no other account can write.");
         return new RelayOptions
         {
             Target = target,
-            StateDirectory = Path.GetFullPath(state ?? DefaultState()),
+            StateDirectory = Native.Providers.PrivateFolder.Ensure(state ?? DefaultState()),
             ServerArgs = server,
             Poll = TimeSpan.FromMilliseconds(pollMs),
         };

@@ -102,7 +102,7 @@ public sealed partial class LiveSessionService
     private static readonly TimeSpan JavaStackWait = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan DeviceReadyWait = TimeSpan.FromSeconds(15);
     private readonly ConcurrentDictionary<(string Serial, string Path), string?> _deviceFiles = new();
-    private readonly Lazy<string> _deviceRoot = new(() => Path.Combine(Path.GetTempPath(), "corvus-device-" + Guid.NewGuid().ToString("N")[..8]));
+    private readonly Lazy<string> _deviceRoot = new(() => Native.Providers.PrivateFolder.Temp("device-" + Guid.NewGuid().ToString("N")[..8]));
     private DeviceService? _adb;
 
     private DeviceService Adb => _adb ??= new DeviceService(options ?? new ServerOptions());

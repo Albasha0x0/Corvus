@@ -95,7 +95,7 @@ internal sealed partial class NativeCapa : IWorkerOps
     private static CapaReport Run(string capa, string path, string? version, CancellationToken ct)
     {
         // vivisect, capa's backend, loads and saves a workspace file beside its input: a copy in a fresh private folder gives it the file alone.
-        var dir = Path.Combine(Path.GetTempPath(), "corvus-capa", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        var dir = Native.Providers.PrivateFolder.Temp("capa", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         try
         {
             PrivateFolder.Create(dir);

@@ -253,7 +253,7 @@ public static class AotCapa
         var version = probe.Version?.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
         bool tested = version == TestedVersion;
         var checker = $"capa {version ?? "(version unknown)"}";
-        var dir = Path.Combine(Path.GetTempPath(), "corvus-capa", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        var dir = Native.Providers.PrivateFolder.Temp("capa", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         try
         {
             Native.Providers.PrivateFolder.Create(dir);

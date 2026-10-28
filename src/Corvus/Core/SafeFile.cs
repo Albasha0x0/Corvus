@@ -141,12 +141,16 @@ public static class SafeFile
         return Write(full, FullPath(root), bytes, overwrite, flush: flush);
     }
 
-    /// <summary>Writes a file the server names itself in its data or temporary folder atomically; <see cref="OutputGuard"/> does not apply.</summary>
-    public static string WritePrivate(string path, ReadOnlySpan<byte> bytes, bool overwrite) => Write(FullPath(path), null, bytes, overwrite);
+    /// <summary>
+    /// Writes a file the server names itself in its data or temporary folder
+    /// atomically, mode 0600 on POSIX; <see cref="OutputGuard"/> does not
+    /// apply.
+    /// </summary>
+    public static string WritePrivate(string path, ReadOnlySpan<byte> bytes, bool overwrite) => Write(FullPath(path), null, bytes, overwrite, ownerOnly: true);
 
     /// <summary>Writes under a root the server names itself, as <see cref="WriteUnderRoot"/> does, without <see cref="OutputGuard"/>.</summary>
     public static string WritePrivateUnderRoot(string root, string relative, ReadOnlySpan<byte> bytes, bool overwrite, bool flush = true) =>
-        Write(UnderRoot(root, relative), FullPath(root), bytes, overwrite, flush: flush);
+        Write(UnderRoot(root, relative), FullPath(root), bytes, overwrite, flush: flush, ownerOnly: true);
 
     /// <summary>A new file at an output path, opened for writing; an existing file is a Conflict.</summary>
     public static FileStream CreateNew(string path)
@@ -180,7 +184,8 @@ public static class SafeFile
         return full;
     }
 
-    private static string Write(string full, string? root, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null, bool flush = true)
+    private static string Write(string full, string? root, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null, bool flush = true,
+        bool ownerOnly = false)
     {
         var dir = Path.GetDirectoryName(full)!;
         Directory.CreateDirectory(dir);
@@ -191,7 +196,9 @@ public static class SafeFile
         var temp = Path.Combine(dir, ".save-" + Guid.NewGuid().ToString("N") + ".tmp");
         try
         {
-            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16))
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None, BufferSize = 1 << 16 };
+            if (ownerOnly && !OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using (var stream = new FileStream(temp, options))
             {
                 stream.Write(bytes);
                 stream.Flush(flushToDisk: flush);

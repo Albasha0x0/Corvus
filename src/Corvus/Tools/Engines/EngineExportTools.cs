@@ -52,7 +52,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         if (types != null) await types.EnsureAsync(native, session, cancellationToken);
         if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
         // The engine writes a short private path, then the file moves to the target whole; IDA opens at most 259 characters on Windows.
-        var temp = Path.Combine(Path.GetTempPath(), $"corvus-export-{Guid.NewGuid().ToString("N")[..12]}{extension}");
+        var temp = Native.Providers.PrivateFolder.Temp($"export-{Guid.NewGuid().ToString("N")[..12]}{extension}");
         try
         {
             DatabaseExport export;
@@ -60,7 +60,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
             else if (session is IdaSession ida)
             {
                 if (FileIdentity.Same(full, ida.DatabasePath)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is the worker's own database.", "pick another path");
-                IdaProvider.CheckPathLength(temp, "temporary export", Path.GetTempPath(), OperatingSystem.IsWindows());
+                IdaProvider.CheckPathLength(temp, "temporary export", Path.GetDirectoryName(temp)!, OperatingSystem.IsWindows());
                 var r = await ida.CallAsync("save_as", new JsonObject { ["path"] = temp }, cancellationToken);
                 export = new DatabaseExport(native.Id, id, full, r.GetProperty("size").GetInt64(),
                     "open it in IDA; the server's own database is unchanged and stays in its analysis cache");

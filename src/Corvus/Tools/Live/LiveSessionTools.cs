@@ -234,7 +234,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 $"Process {s.ProcessId} is an {(s.Arch == "x64" ? "x64" : "x86")} program emulated on an ARM64 machine: its dump would hold the emulator's ARM64 threads, not the program's registers.",
                 "save a snapshot of an ARM64 build of the program, or of this one on an x64 machine");
         var path = string.IsNullOrWhiteSpace(outputPath)
-            ? Path.Combine(Path.GetTempPath(), "corvus-snapshots", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}{(OperatingSystem.IsWindows() ? ".dmp" : ".core")}")
+            ? Native.Providers.PrivateFolder.Temp("snapshots", $"{s.Id}-{s.ProcessId}-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}{(OperatingSystem.IsWindows() ? ".dmp" : ".core")}")
             : outputPath;
         // A held thread waits inside the backend; its stop's registers let the stack walk start at the stop.
         Native.Diagnostics.ProcessSnapshot.Stop? stop = null;
