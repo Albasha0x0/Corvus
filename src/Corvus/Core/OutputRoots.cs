@@ -27,6 +27,17 @@ public static class OutputRoots
     }
 
     /// <summary>
+    /// Also admits <paramref name="original"/> and its .bak backup until the
+    /// scope is disposed; null when the current call is held to no roots.
+    /// </summary>
+    public static IDisposable? Original(string original)
+    {
+        if (InForce.Value is not { } roots) return null;
+        var file = InputFiles.FinalPathOfNew(Path.GetFullPath(original));
+        return Enter([.. roots, file, file + ".bak"]);
+    }
+
+    /// <summary>
     /// The roots for <paramref name="setting"/>: null for "*"; else the data
     /// folder's exports folder, then the listed folders when it is set, or the
     /// temporary folder and <paramref name="clientRoots"/>. A relative folder,

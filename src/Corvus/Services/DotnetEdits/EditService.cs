@@ -716,6 +716,9 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
 
     public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict, out SavedFile saved, bool replaceOriginal = false, bool versioned = false)
     {
+        // replaceOriginal is the server switch's opt-in, so the loaded file
+        // itself is written outside the roots; the guard still applies.
+        using var original = replaceOriginal ? OutputRoots.Original(asm.FilePath) : null;
         bool moved = false;
         var (target, isOriginal) = SaveTarget.Resolve(string.IsNullOrWhiteSpace(outputPath)
             ? OutputRoots.Default(asm.FilePath, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath), out moved)

@@ -87,6 +87,26 @@ public sealed class OutputRootsTests : IDisposable
         finally { File.Delete(expected); }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ReplaceOriginal_writes_a_file_outside_the_roots_only_with_the_server_switch(bool allowed)
+    {
+        var copy = _elsewhere.File("TestFixture.dll");
+        File.Copy(Env.FixturePath, copy);
+        var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false, OutputDirs = _root.Path, AllowReplaceOriginal = allowed };
+        options.Preload.Add(copy);
+        await using var server = await InProcessServer.StartAsync(options: options);
+        var result = await server.Client.CallToolAsync("save_assembly",
+            new Dictionary<string, object?> { ["assembly"] = "TestFixture", ["outputPath"] = copy, ["replaceOriginal"] = true });
+        Assert.True(allowed != (result.IsError == true), Text(result));
+        Assert.Equal(allowed, File.Exists(copy + ".bak"));
+        var other = _elsewhere.File("other.dll");
+        Assert.True((await server.Client.CallToolAsync("save_assembly",
+            new Dictionary<string, object?> { ["assembly"] = "TestFixture", ["outputPath"] = other, ["replaceOriginal"] = true })).IsError);
+        Assert.False(File.Exists(other));
+    }
+
     [Fact]
     public async Task A_command_line_save_is_not_held_to_the_output_roots()
     {

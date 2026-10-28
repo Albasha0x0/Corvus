@@ -17,6 +17,7 @@ public static class ArgumentCheck
             if (!declared.Contains(name, StringComparer.Ordinal))
                 throw UnknownParameter(name, declared);
         var required = Required(inputSchema);
+        bool replacing = arguments.TryGetValue("replaceOriginal", out var replace) && replace.ValueKind == JsonValueKind.True;
         foreach (var (name, value) in arguments.ToList())
         {
             if (!properties.TryGetProperty(name, out var property) || !property.TryGetProperty("type", out var type)) continue;
@@ -33,7 +34,7 @@ public static class ArgumentCheck
             }
             if (types.Any(t => Matches(value, t)))
             {
-                if (value.ValueKind == JsonValueKind.String && PathParameters.Contains(name) && !CheckPath(name, value.GetString()!, required.Contains(name), tool, property))
+                if (value.ValueKind == JsonValueKind.String && PathParameters.Contains(name) && !CheckPath(name, value.GetString()!, required.Contains(name), tool, property, replacing))
                 {
                     arguments.Remove(name);
                     continue;
@@ -100,9 +101,14 @@ public static class ArgumentCheck
     }
 
     /// <summary>Throws invalid_argument naming <paramref name="name"/> when <paramref name="value"/> is a place outputs are not written to.</summary>
-    private static void CheckOutput(string name, string value)
+    private static void CheckOutput(string name, string value, bool replacing)
     {
-        try { SafeFile.Output(value); }
+        // A save that replaces the loaded file is held to the roots when it
+        // writes, where that file is admitted; here only the guard applies.
+        try
+        {
+            using (replacing ? OutputRoots.Enter(null) : null) SafeFile.Output(value);
+        }
         catch (ToolError e) when (e.Code == ErrorCode.InvalidArgument)
         {
             throw new ToolError(e.Code, e.Message, e.Remediation) { Details = new { parameter = name, path = value, reason = (e.Details as OutputGuard.Refused)?.Reason } };
@@ -111,7 +117,7 @@ public static class ArgumentCheck
 
     /// <summary>Checks a path argument; false for an empty optional path, invalid_argument for an empty required or malformed one.</summary>
     // Checked before any tool opens it: a JIT that inlines System.IO hides where a path exception came from.
-    private static bool CheckPath(string name, string value, bool required, string? tool, JsonElement property)
+    private static bool CheckPath(string name, string value, bool required, string? tool, JsonElement property, bool replacing)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -127,7 +133,7 @@ public static class ArgumentCheck
                     Details = new { parameter = name },
                 };
             CheckLocal(name, path);
-            if (OutputPathParameters.Contains(name)) CheckOutput(name, path);
+            if (OutputPathParameters.Contains(name)) CheckOutput(name, path, replacing);
         }
         return true;
     }

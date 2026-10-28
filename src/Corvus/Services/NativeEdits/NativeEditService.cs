@@ -427,6 +427,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     {
         if (string.IsNullOrWhiteSpace(outputPath))
             throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
+        // As in save_assembly: the switch's opt-in admits the loaded file.
+        using var original = replaceOriginal ? OutputRoots.Original(native.FilePath) : null;
         var container = Container(native);
         var (target, isOriginal) = SaveTarget.Resolve(outputPath, native.FilePath,
             container is { } c ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(c.File)) : native.OriginalSha256, overwrite, native.SavedOverOriginalSha256,
