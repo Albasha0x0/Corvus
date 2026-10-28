@@ -64,6 +64,10 @@
           "severity": {
             "type": "string"
           },
+          "level": {
+            "description": "App rules: the finding level of the severity (high and medium review, low info).",
+            "type": "string"
+          },
           "library": {
             "type": "integer"
           },

@@ -59,8 +59,9 @@ internal static partial class MalcontentChanges
         return (rows, text.ToString());
     }
 
+    /// <summary>The finding level, then the pack's risk, description and first rules.</summary>
     private static string Evidence(Behaviour b) =>
-        (b.Risk > 0 ? Risks[b.Risk - 1] : "no risk tag") + (b.Description != null ? $": {b.Description}" : "") + $" ({string.Join(", ", b.Rules.Take(3))}" +
+        $"{FindingRules.FromMalcontent(b.Risk > 0 ? Risks[b.Risk - 1] : null)} ({(b.Risk > 0 ? Risks[b.Risk - 1] : "no risk tag")})" + (b.Description != null ? $": {b.Description}" : "") + $" ({string.Join(", ", b.Rules.Take(3))}" +
         (b.Rules.Count > 3 ? $" +{b.Rules.Count - 3}" : "") + ")";
 
     private static Dictionary<string, Behaviour> Behaviours(string file, string folder, WorkerPool pool, CancellationToken ct)

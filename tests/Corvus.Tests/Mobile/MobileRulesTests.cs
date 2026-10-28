@@ -97,6 +97,17 @@ public sealed class MobileRulesTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void An_app_rule_row_names_the_finding_level_of_its_severity()
+    {
+        var path = _dir.File("app.dex");
+        File.WriteAllBytes(path, AppDex());
+        var rows = Corvus.Tools.ContainerText.Survey(Survey(path), "all").Features;
+        Assert.Equal("review", rows.Single(f => f.Rule == "android-webview-ssl-proceed").Level);
+        Assert.Equal("info", rows.Single(f => f.Rule == "android-webview-javascript").Level);
+        Assert.All(rows.Where(f => f.Masvs == null), f => Assert.Null(f.Level));
+    }
+
+    [Fact]
     public void Trust_all_manager_and_a_lambda_accepting_any_host_are_found()
     {
         var path = _dir.File("app.dex");

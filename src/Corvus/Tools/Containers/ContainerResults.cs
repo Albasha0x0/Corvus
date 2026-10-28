@@ -25,6 +25,10 @@ public sealed record SurveyFeature(string Name, string Category, int Matches)
     public string? Rule { get; init; }
     public string? Masvs { get; init; }
     public string? Severity { get; init; }
+
+    [System.ComponentModel.Description("App rules: the finding level of the severity (high and medium review, low info).")]
+    public string? Level { get; init; }
+
     public int? Library { get; init; }
     public string? Review { get; init; }
 }
@@ -319,6 +323,7 @@ internal static class ContainerText
             Rule = f.Rule?.Id,
             Masvs = f.Rule?.Masvs,
             Severity = f.Rule?.Severity,
+            Level = f.Rule?.Masvs != null ? FindingRules.FromMasvs(f.Rule.Severity) : null,
             Library = f.Evidence.Sum(e => e.Library ?? 0) is > 0 and var library ? library : null,
             Review = category != null ? f.Rule?.Review : null,
         }).ToList();

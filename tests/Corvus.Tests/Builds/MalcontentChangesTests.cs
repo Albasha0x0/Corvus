@@ -56,9 +56,9 @@ public sealed class MalcontentChangesTests : IDisposable
         var (rows, text) = MalcontentChanges.Between(old, @new, default, Root(), pool);
         Assert.Equal(
             [
-                ("added", "malcontent/anti-static/marker", "high: holds a marked payload (marked_payload)"),
-                ("added", "malcontent/net/http/request", "medium: makes HTTP requests (http_get)"),
-                ("removed", "malcontent/fs/file/delete", "low: deletes files (delete_file)"),
+                ("added", "malcontent/anti-static/marker", "review (high): holds a marked payload (marked_payload)"),
+                ("added", "malcontent/net/http/request", "review (medium): makes HTTP requests (http_get)"),
+                ("removed", "malcontent/fs/file/delete", "info (low): deletes files (delete_file)"),
             ],
             rows.Select(r => (r.Kind, r.Key, r.New ?? r.Old)));
         Assert.StartsWith("malcontent 1.27.1 behaviours: 2 added, 1 removed.\n", text, StringComparison.Ordinal);
