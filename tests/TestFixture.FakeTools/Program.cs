@@ -13,6 +13,7 @@ using TestFixture.FakeTools;
 //   anything else                          the first rule in the ADB_FAKE_SCRIPT JSON whose "match" regex finds the
 //                                          joined arguments: prints "stdout" and "bytes" (base64) "repeat" times,
 //                                          "printEnv" and "stderr", writes "file" (base64) to the last argument,
+//                                          logs the folder variable "logFolder" names and its entry count,
 //                                          exits with "exit".
 if (args is ["job-parent", var program, .. var arguments])
 {
@@ -97,6 +98,8 @@ foreach (var rule in script["rules"]?.AsArray() ?? [])
     if (rule["sleepMs"]?.GetValue<int>() is { } sleep) Thread.Sleep(sleep);
     if (rule["file"]?.GetValue<string>() is { } file) File.WriteAllBytes(args[^1], Convert.FromBase64String(file));
     if (rule["printEnv"]?.GetValue<string>() is { } variable) Console.Out.Write(Environment.GetEnvironmentVariable(variable) ?? "<unset>");
+    if (rule["logFolder"]?.GetValue<string>() is { } folderVariable && Environment.GetEnvironmentVariable(folderVariable) is { } folder)
+        Log(log, new JsonObject { ["folder"] = folder, ["entries"] = Directory.Exists(folder) ? Directory.GetFileSystemEntries(folder).Length : -1 }.ToJsonString());
     if (rule["stdout"]?.GetValue<string>() is { } text)
     {
         using var stdout = Console.OpenStandardOutput();

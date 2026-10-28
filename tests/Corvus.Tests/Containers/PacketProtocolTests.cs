@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Text.Json.Nodes;
 using Corvus.Core;
 using Corvus.Core.Pcap;
 using Corvus.Native.Providers;
@@ -252,6 +253,22 @@ public sealed class PacketTSharkTests(ITestOutputHelper output) : IDisposable
         // call is picked by its arguments, not by its place in the log.
         var call = Assert.Single(fake.ArgumentLists, a => a.Contains("-Y"));
         Assert.Equal(["-e", "sip.Method"], call[^2..]);
+    }
+
+    [Fact]
+    public void Tshark_reads_an_empty_private_profile_removed_afterwards()
+    {
+        var path = _dir.File("c.pcap");
+        File.WriteAllBytes(path, Pcap(EthernetFrames()));
+        using var fake = new FakeTool();
+        fake.On("--version", stdout: "TShark (Wireshark) 4.6.9 (v4.6.9-0)\n").On("-Y sip", logFolder: PacketSearchKind.ProfileVariable);
+        using var env = new EnvironmentScope().Set("CORVUS_TSHARK", fake.CopyAs("tshark")).Set(FakeTool.ScriptVariable, fake.ScriptPath);
+        new UnpackService(_ws).Search(path, "sip.Method == INVITE", "packet", 1, AnalysisLimits.Default, default);
+        var seen = Assert.Single(fake.Calls.OfType<JsonObject>());
+        var folder = (string)seen["folder"]!;
+        Assert.StartsWith(Path.Combine(Path.GetTempPath(), "corvus-run"), folder, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, (int)seen["entries"]!);
+        Assert.False(Directory.Exists(folder));
     }
 
     /// <summary>TShark (CORVUS_TSHARK) selects the same frames as the in-process fields on every fixture capture.</summary>

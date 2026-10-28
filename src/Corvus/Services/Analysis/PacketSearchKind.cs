@@ -51,6 +51,9 @@ internal sealed class PacketSearchKind : IContainerSearchKind
             (int)Math.Min(result.Matched, int.MaxValue), notes);
     }
 
+    /// <summary>Wireshark's personal configuration folder.</summary>
+    internal const string ProfileVariable = "WIRESHARK_CONFIG_DIR";
+
     /// <summary>The filter run by TShark for any Wireshark field: every match counted, the page kept; frames read is -1.</summary>
     private static PacketQueryResult TShark(string exe, string source, PacketFilter filter, int offset, int limit, CancellationToken ct)
     {
@@ -79,7 +82,11 @@ internal sealed class PacketSearchKind : IContainerSearchKind
         var size = new FileInfo(source).Length;
         // Allows 2 MB/s at the slowest.
         var timeout = TimeSpan.FromSeconds(Math.Clamp(size / (2 << 20), 60, 3600));
-        var run = ExternalTools.Run(exe, args, timeout, long.MaxValue, ct, sink: sink);
+        // An empty profile: no personal preferences, plugins or Lua scripts load.
+        var profile = PrivateFolder.Create(ExternalTools.RunFolderPath());
+        ExternalTools.RunResult run;
+        try { run = ExternalTools.Run(exe, args, timeout, long.MaxValue, ct, new Dictionary<string, string?> { [ProfileVariable] = profile }, sink: sink); }
+        finally { ExternalTools.RemoveRunFolder(profile); }
         sink.Flush();
         if (run.StartError != null) throw new ToolError(ErrorCode.Unsupported, $"TShark could not be started: {run.StartError}.", ExternalTools.Remediation(tool));
         if (run.TimedOut) throw new ToolError(ErrorCode.Timeout, $"TShark did not finish within {timeout.TotalSeconds:N0} s.", "narrow the filter with in-process fields, or split the capture");
