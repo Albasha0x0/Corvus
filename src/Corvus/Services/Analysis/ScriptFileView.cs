@@ -106,7 +106,32 @@ internal sealed class ScriptFileView : IFileSummaryView
             body = Regex.Replace(body, @"^\s*<!\[CDATA\[|\]\]>\s*$|^\s*<!--|-->\s*$", "");
             list.Add(new Block(language, body));
         }
+        if (Handlers(ScriptBlock.Replace(text, "")) is { Length: > 0 } handlers) list.Add(new Block("javascript", handlers));
         return list;
+    }
+
+    private static readonly Regex Tag = new(@"<[a-z][\w-]*(?:\s+[^\s=>/]+(?:\s*=\s*(?:""[^""]*""|'[^']*'|[^\s>]+))?)*\s*/?>",
+        RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+
+    private static readonly Regex Handler = new(@"\son[a-z]+\s*=\s*(?:""([^""]*)""|'([^']*)')", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+
+    /// <summary>
+    /// The inline event handler attributes (onclick=, oncopy=, ...) of every
+    /// element as one script, each handler a function; empty when none.
+    /// </summary>
+    private static string Handlers(string text)
+    {
+        var sb = new StringBuilder();
+        int n = 0;
+        foreach (Match tag in Tag.Matches(text))
+            foreach (Match h in Handler.Matches(tag.Value))
+            {
+                var code = System.Net.WebUtility.HtmlDecode(h.Groups[1].Success ? h.Groups[1].Value : h.Groups[2].Value).Trim();
+                code = Regex.Replace(code, @"^javascript:", "", RegexOptions.IgnoreCase);
+                if (code.Length == 0 || code.StartsWith("vbscript:", StringComparison.OrdinalIgnoreCase) || n >= 1000) continue;
+                sb.Append($"function handler{n++}() {{ {code}\n}}\n");
+            }
+        return sb.ToString();
     }
 
     private static ScriptReading ReadBlocks(List<Block> blocks, CancellationToken ct, bool asked)

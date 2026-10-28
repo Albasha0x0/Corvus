@@ -175,6 +175,17 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_command_copied_by_an_inline_handler_is_reported()
+    {
+        var bytes = Encoding.UTF8.GetBytes("<!doctype html><html><body>" +
+            "<div onmousedown=\"navigator.clipboard.writeText(&quot;cmd /c echo hello&quot;)\" title='a > b'>Verify</div>" +
+            "<button onclick='toggle()'>Menu</button></body></html>");
+        var view = new Corvus.Services.Analysis.ScriptFileView().Inspect(new Corvus.Services.Analysis.FileInput("page.html", bytes, Corvus.Core.Blob.Identify(bytes)), default)!;
+        var copied = Assert.Single(((Corvus.Services.Analysis.ScriptFileView.Facts)view.Detail).Copied!);
+        Assert.Equal(("navigator.clipboard.writeText", "cmd /c echo hello"), (copied.Via, copied.Text));
+    }
+
+    [Fact]
     public void A_copy_button_for_ordinary_text_reports_nothing()
     {
         Assert.Null(Page("document.getElementById('b').onclick = () => navigator.clipboard.writeText('Order 1234 shipped');"));
