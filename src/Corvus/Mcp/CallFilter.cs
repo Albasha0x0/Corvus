@@ -175,6 +175,9 @@ internal static partial class CallFilter
         var output = new OutputCall(tool, 0, null);
         var effects = ToolEffects.Of(tool ?? "");
         var deadline = serverOptions != null ? Deadlines.Effective(effects.LongRunning, serverOptions, client!) : null;
+        var ceiling = serverOptions != null ? Ceiling(tool, serverOptions) : null;
+        bool byCeiling = ceiling is { } bound && (deadline == null || bound < deadline);
+        if (byCeiling) deadline = ceiling;
         var leftovers = serverOptions != null ? LeftoverWork.For(serverOptions) : null;
         var joinKey = serverOptions != null ? CallJoin.Key(tool, effects.ReadOnly, request?.Arguments) : null;
         var joins = joinKey != null ? CallJoin.For(serverOptions!) : null;
@@ -182,13 +185,17 @@ internal static partial class CallFilter
         using var expiry = deadline != null ? new CancellationTokenSource() : null;
         using var stopTimer = deadline is { } limit ? StopTimers.After(Remaining(Early(limit), time.GetElapsedTime(received)), time, expiry!.Cancel) : null;
         using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry?.Token ?? CancellationToken.None);
-        // At the cap a call waits for room until its deadline; session tools and joins never wait.
-        if (leftovers != null && deadline != null && tool != null && Toolsets.FamilyOf(tool) != Toolsets.Session && joins?.IsRunning(joinKey!) != true
-            && !await leftovers.WaitForRoom(call.Token))
+        // At the cap a call that reads files in process waits for room until its
+        // deadline, at most the server deadline; other calls and joins never wait.
+        var wait = byCeiling ? Deadlines.Server(serverOptions!) : deadline;
+        using var waitLimit = byCeiling ? new CancellationTokenSource(wait!.Value, time) : null;
+        using var waitToken = CancellationTokenSource.CreateLinkedTokenSource(call.Token, waitLimit?.Token ?? CancellationToken.None);
+        if (leftovers != null && deadline != null && tool != null && ReadsFiles(tool) && joins?.IsRunning(joinKey!) != true
+            && !await leftovers.WaitForRoom(waitToken.Token))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return (ErrorResult.From(new ToolError(ErrorCode.ProviderUnavailable,
-                $"the server is busy: {leftovers.Running} cancelled or timed-out calls are still finishing (at most {leftovers.Max}); this call waited {deadline.Value.TotalSeconds:0} s and did not start.",
+                $"the server is busy: {leftovers.Running} cancelled or timed-out calls are still finishing (at most {leftovers.Max}); this call reads files and waited {wait!.Value.TotalSeconds:0} s without starting.",
                 "retry after details.retryAfterMs; server_status shows when they are done")
             { Details = new { retryAfterMs = (long)LeftoverWork.RetryAfter.TotalMilliseconds, leftoverCalls = leftovers.Running, max = leftovers.Max } }, tool), output);
         }
@@ -217,7 +224,7 @@ internal static partial class CallFilter
                     if (workspace != null) Targets.PreResolve(workspace, tool, request?.Arguments?.AsReadOnly());
                     return true;
                 }, call.Token);
-                await WithinDeadline(prepare, prepare, call.Token, deadline, cancellationToken, leftovers, time);
+                await WithinDeadline(prepare, prepare, call.Token, deadline, cancellationToken, leftovers, time, tool);
             }
             phase = null;
             int tokens = Budget(tool, request?.Arguments, client);
@@ -237,15 +244,15 @@ internal static partial class CallFilter
                 if (joins != null)
                 {
                     // The shared run keeps the server's deadline only, so a caller that left at the client's deadline can pick it up again.
-                    var joined = joins.Run(joinKey!, Work, cancellationToken, Deadline(tool, serverOptions!) is { } server ? Early(server) : null,
+                    var joined = joins.Run(joinKey!, Work, cancellationToken, (Deadline(tool, serverOptions!) ?? ceiling) is { } server ? Early(server) : null,
                         o => (Copy(o.Result), o.Output), time);
                     joinStopped = joined.Stopped;
-                    outcome = await WithinDeadline(joined.Result, joined.Work, call.Token, deadline, cancellationToken, leftovers, time);
+                    outcome = await WithinDeadline(joined.Result, joined.Work, call.Token, deadline, cancellationToken, leftovers, time, tool);
                 }
                 else
                 {
                     var work = Work(call.Token);
-                    outcome = await WithinDeadline(work, work, call.Token, deadline, cancellationToken, leftovers, time);
+                    outcome = await WithinDeadline(work, work, call.Token, deadline, cancellationToken, leftovers, time, tool);
                 }
                 var result = outcome.Result;
                 output = outcome.Output;
@@ -275,11 +282,11 @@ internal static partial class CallFilter
         // A joined run stops at its own copy of the server deadline, possibly a moment before this call's timer.
         catch (OperationCanceledException) when ((call.IsCancellationRequested || joinStopped.IsCancellationRequested) && !cancellationToken.IsCancellationRequested && deadline != null)
         {
-            return (DeadlineError(tool, deadline.Value, stillRunning: false, waits.BlockedBy, client, joined: false, phase), output);
+            return (DeadlineError(tool, deadline.Value, stillRunning: false, waits.BlockedBy, client, joined: false, byCeiling, phase), output);
         }
         catch (DeadlinePassedException ex)
         {
-            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null && phase == null, phase), output);
+            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null && phase == null, byCeiling, phase), output);
         }
         catch (OperationCanceledException) when (!call.IsCancellationRequested)
         {
@@ -310,6 +317,29 @@ internal static partial class CallFilter
 
     /// <summary>How long a tool that ignores the deadline's cancellation is waited for before the call returns without it.</summary>
     public static readonly TimeSpan DeadlineGrace = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Families whose calls run in a worker or session with limits of their
+    /// own: no ceiling.
+    /// </summary>
+    private static readonly HashSet<string> OwnLimits = new(StringComparer.Ordinal) { "engine", "live" };
+
+    /// <summary>Families whose calls read no input file in process.</summary>
+    private static readonly HashSet<string> NoFileReads = new(StringComparer.Ordinal) { Toolsets.Session, "notes", "engine", "live" };
+
+    /// <summary>
+    /// The ceiling of <paramref name="tool"/>'s work
+    /// (<see cref="ServerOptions.CallCeiling"/>); null for engine and live tools
+    /// or when off.
+    /// </summary>
+    public static TimeSpan? Ceiling(string? tool, ServerOptions options) =>
+        tool == null || OwnLimits.Contains(Toolsets.FamilyOf(tool) ?? "") ? null : options.CallCeiling;
+
+    /// <summary>
+    /// Whether <paramref name="tool"/> reads input files in process; an unknown
+    /// tool counts as one that does.
+    /// </summary>
+    public static bool ReadsFiles(string tool) => !NoFileReads.Contains(Toolsets.FamilyOf(tool) ?? "");
 
     /// <summary>The call deadline without a client limit, or null for long-running tools (they keep their own limits).</summary>
     public static TimeSpan? Deadline(string? tool, ServerOptions options) =>
@@ -342,14 +372,14 @@ internal static partial class CallFilter
 
     /// <summary>The tool's result; on cancel or deadline the work gets <see cref="DeadlineGrace"/> to stop, then finishes in the background, counted in <paramref name="leftovers"/>.</summary>
     private static async Task<T> WithinDeadline<T>(Task<T> work, Task shared, CancellationToken call, TimeSpan? deadline, CancellationToken client,
-        LeftoverWork? leftovers, TimeProvider time)
+        LeftoverWork? leftovers, TimeProvider time, string? tool)
     {
         var stopped = new TaskCompletionSource();
         using (call.Register(() => stopped.TrySetResult()))
             if (await Task.WhenAny(work, stopped.Task) == work) return await work;
         var grace = !client.IsCancellationRequested && deadline is { } d ? Grace(d) : DeadlineGrace;
         if (await Task.WhenAny(work, StopTimers.Delay(grace, time)) == work) return await work;
-        leftovers?.Track(shared);
+        leftovers?.Track(shared, tool);
         _ = work.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
         client.ThrowIfCancellationRequested();
         throw new DeadlinePassedException(deadline!.Value);
@@ -357,13 +387,15 @@ internal static partial class CallFilter
 
     /// <param name="blockedBy">The workspace lock holders the call was still waiting for, else null.</param>
     /// <param name="joined">The work runs on under a join key: the same call made again picks it up.</param>
+    /// <param name="byCeiling">The limit is <see cref="ServerOptions.CallCeiling"/>.</param>
     /// <param name="phase">The step the call was in before its work started ("checking its arguments"), else null.</param>
-    private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning, string? blockedBy, ClientLimits? client, bool joined,
+    private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning, string? blockedBy, ClientLimits? client, bool joined, bool byCeiling,
         string? phase = null)
     {
-        bool byClient = client?.DeadlineSeconds is { } seconds && limit < TimeSpan.FromSeconds(seconds);
+        bool byClient = !byCeiling && client?.DeadlineSeconds is { } seconds && limit < TimeSpan.FromSeconds(seconds);
+        var source = byCeiling ? $"the {ServerOptions.MaxCallMinutesVariable} ceiling" : byClient ? $"the client waits {client!.DeadlineSeconds} s" : $"{DeadlineFactor}x --timeout";
         return ErrorResult.From(new ToolError(ErrorCode.Timeout,
-            $"the call did not finish within {limit.TotalSeconds:0} s ({(byClient ? $"the client waits {client!.DeadlineSeconds} s" : $"{DeadlineFactor}x --timeout")})" +
+            $"the call did not finish within {limit.TotalSeconds:0} s ({source})" +
             (phase != null ? $" while {phase}" : "") +
             (blockedBy != null ? $": it was waiting for the workspace lock, held by {blockedBy}" : "") +
             $"{(stillRunning ? "; its work is still finishing in the background" : "")}.",
@@ -372,7 +404,7 @@ internal static partial class CallFilter
                 : stillRunning && joined ? "call again with the same arguments to pick up the running work"
                 : "narrow the call (one member instead of a type, a smaller limit or scope)" + (stillRunning ? "; or retry after details.retryAfterMs, once the background work is done" : ""))
         {
-            Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = false, blockedBy, deadlineSource = byClient ? client!.DeadlineSource : "server" },
+            Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning, partial = false, blockedBy, deadlineSource = byCeiling ? "ceiling" : byClient ? client!.DeadlineSource : "server" },
             RetryAfter = stillRunning ? LeftoverWork.RetryAfter : null,
         }, tool);
     }
@@ -402,13 +434,22 @@ public sealed class LeftoverWork
 
     public static LeftoverWork For(ServerOptions options) => Servers.GetValue(options, _ => new LeftoverWork());
 
-    private readonly HashSet<Task> _tracked = [];
+    private readonly Dictionary<Task, (string Tool, DateTime Since)> _tracked = [];
+
+    /// <summary>
+    /// The calls still running, oldest first: tool name (or "a tool") and when
+    /// they were left.
+    /// </summary>
+    public IReadOnlyList<(string Tool, DateTime Since)> Calls
+    {
+        get { lock (_tracked) return [.. _tracked.Values.OrderBy(c => c.Since)]; }
+    }
 
     /// <summary>Counts <paramref name="work"/> until it ends; a joined run left by several callers counts once.</summary>
-    public void Track(Task work)
+    public void Track(Task work, string? tool = null)
     {
         lock (_tracked)
-            if (!_tracked.Add(work)) return;
+            if (!_tracked.TryAdd(work, (tool ?? "a tool", DateTime.UtcNow))) return;
         Interlocked.Increment(ref _running);
         Interlocked.Increment(ref _total);
         work.ContinueWith(_ =>

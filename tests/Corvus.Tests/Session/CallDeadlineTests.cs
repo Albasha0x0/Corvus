@@ -182,6 +182,48 @@ public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_reader_that_ignores_its_token_ends_at_the_call_ceiling_and_later_calls_still_answer()
+    {
+        var clock = new ArmedClock();
+        // A short ceiling stands in for CORVUS_MAX_CALL_MINUTES.
+        var ceiling = TimeSpan.FromSeconds(3);
+        using var services = new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = 1, CallCeiling = ceiling })
+            .AddSingleton<ResultStore>().AddSingleton<TimeProvider>(clock).BuildServiceProvider();
+        var options = services.GetRequiredService<ServerOptions>();
+        Assert.Equal(ceiling, CallFilter.Ceiling("export_project", options));
+        Assert.Null(CallFilter.Ceiling("ida_python", options));
+        Assert.Null(CallFilter.Ceiling("live_read", options));
+        var leftovers = LeftoverWork.For(options);
+        leftovers.Max = 1;
+        var release = new TaskCompletionSource();
+        // export_project is long-running: without the ceiling it has no deadline.
+        var stuck = Run(services, "export_project", async _ => { await release.Task; return Done; }).AsTask();
+        Assert.True(await clock.RunUntilAsync(stuck) <= ceiling);
+        var error = McpProtocolTests.ErrorJson(await stuck);
+        Assert.Equal("timeout", error.GetProperty("code").GetString());
+        Assert.Equal("ceiling", error.GetProperty("details").GetProperty("deadlineSource").GetString());
+        Assert.Contains(ServerOptions.MaxCallMinutesVariable, error.GetProperty("message").GetString());
+        Assert.Equal("export_project", Assert.Single(leftovers.Calls).Tool);
+
+        // At the cap only calls that read files are refused.
+        Assert.NotEqual(true, (await Run(services, "list_notes", _ => Task.FromResult(Done)).AsTask().WaitAsync(TimeSpan.FromMinutes(1))).IsError);
+        var refusing = Run(services, "get_type_info", _ => Task.FromResult(Done)).AsTask();
+        await clock.RunUntilAsync(refusing);
+        Assert.Equal("provider_unavailable", McpProtocolTests.ErrorJson(await refusing).GetProperty("code").GetString());
+        release.SetResult();
+        for (var watch = System.Diagnostics.Stopwatch.StartNew(); leftovers.Running > 0 && watch.Elapsed < TimeSpan.FromMinutes(1);) await Task.Delay(10);
+        Assert.Empty(leftovers.Calls);
+    }
+
+    [Fact]
+    public void The_call_ceiling_reads_minutes_and_zero_turns_it_off()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(ServerOptions.DefaultMaxCallMinutes), new ServerOptions().CallCeiling);
+        Assert.Contains(ServerOptions.MaxCallMinutesVariable, ConfigFile.Locators);
+        Assert.Null(CallFilter.Ceiling("export_project", new ServerOptions { CallCeiling = null }));
+    }
+
+    [Fact]
     public async Task Work_left_running_after_a_client_cancel_is_counted()
     {
         var clock = new ArmedClock();

@@ -181,6 +181,15 @@ public sealed class ServerOptions
 
     public const string EngineOpenTimeoutVariable = "CORVUS_ENGINE_OPEN_TIMEOUT";
 
+    /// <summary>
+    /// The longest an in-process call may run, long-running tools included;
+    /// null: no ceiling. Engine and live calls keep their own limits.
+    /// </summary>
+    public TimeSpan? CallCeiling { get; set; } = TimeSpan.FromMinutes(DefaultMaxCallMinutes);
+
+    public const string MaxCallMinutesVariable = "CORVUS_MAX_CALL_MINUTES";
+    public const int DefaultMaxCallMinutes = 60;
+
     /// <summary>IDA's first open of an image: full auto-analysis (default) or none (load only; functions made on demand, kept under a separate database).</summary>
     public Native.Providers.EngineAnalysis EngineAnalysis { get; set; } = Native.Providers.EngineAnalysis.Full;
 
@@ -306,6 +315,9 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
+        if (Environment.GetEnvironmentVariable(MaxCallMinutesVariable)?.Trim() is { Length: > 0 } minutes)
+            o.CallCeiling = int.TryParse(minutes, out var m) && m >= 0 ? m == 0 ? null : TimeSpan.FromMinutes(m)
+                : throw new ArgumentException($"{MaxCallMinutesVariable} must be a number of minutes (0: no ceiling), not '{minutes}'");
         o.EngineAnalysis = Environment.GetEnvironmentVariable(EngineAnalysisVariable)?.Trim().ToLowerInvariant() switch
         {
             null or "" or "full" => Native.Providers.EngineAnalysis.Full,

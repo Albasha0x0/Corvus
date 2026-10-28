@@ -28,7 +28,8 @@ public static class ConfigFile
 
     /// <summary>
     /// Variables that name a program, library, engine folder or URL the server
-    /// starts, loads or reads from, and the audit log it writes.
+    /// starts, loads or reads from, the audit log it writes, and the call ceiling,
+    /// which a file another account can write must not lift.
     /// </summary>
     public static readonly IReadOnlySet<string> Locators = new HashSet<string>(
         Native.Providers.ExternalTools.Table.Select(t => t.Variable).Concat(
@@ -41,6 +42,7 @@ public static class ConfigFile
             Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, Native.Providers.Ida.IdaInstallation.DirectoryVariable,
             Native.Providers.Ida.IdaProvider.PythonVariable, Native.Providers.Live.FridaBackend.PythonVariable,
             Services.Analysis.BuildSummary.DieVariable, Setup.Installation.HomeVariable, ServerOptions.AuditVariable,
+            ServerOptions.MaxCallMinutesVariable,
         ]), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The startup report; before <see cref="Apply(TextWriter?)"/> runs, no file was read.</summary>

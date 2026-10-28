@@ -122,8 +122,11 @@ internal sealed class CallsStatus : IStatusSection
         if (services.GetService<ServerOptions>() is { } options)
         {
             var leftovers = LeftoverWork.For(options);
+            var calls = leftovers.Calls;
+            var now = DateTime.UtcNow;
             yield return new("leftover", $"{leftovers.Running} of at most {leftovers.Max} cancelled or timed-out calls still finishing; {leftovers.Total} since start" +
-                (leftovers.Running < leftovers.Max ? "" : "; new calls wait, then are refused as busy"), LeftoverWork.MaxVariable);
+                (calls.Count > 0 ? $"; {(leftovers.Running < leftovers.Max ? "running" : "stuck")}: {string.Join(", ", calls.Select(c => $"{c.Tool} ({(now - c.Since).TotalMinutes:0} min)"))}" : "") +
+                (leftovers.Running < leftovers.Max ? "" : "; new calls that read files wait, then are refused as busy; others answer"), LeftoverWork.MaxVariable);
             yield return new("joined", $"{CallJoin.For(options).Running} read-only runs shared by identical calls");
         }
         if (services.GetService<CallActivity>() is { } activity)
