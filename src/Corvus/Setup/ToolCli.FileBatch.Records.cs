@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -13,48 +14,71 @@ internal static partial class ToolCli
     {
         var unread = new List<string>();
         var members = Members(root, (int)run.Limits["members"], unread);
-        var groups = new List<(string? Sha256, List<string> Paths)>();
-        var bySha = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var member in members)
+        var groups = new List<RecordGroup>();
+        var bySha = new Dictionary<string, RecordGroup>(StringComparer.Ordinal);
+        void Add(string? sha, string local, string shown, bool member)
         {
-            var sha = run.TimedOut ? null : Sha256(member, run);
-            if (sha != null && bySha.TryGetValue(sha, out var index)) groups[index].Paths.Add(member);
+            if (sha != null && bySha.TryGetValue(sha, out var known)) known.Paths.Add(shown);
             else
             {
-                if (sha != null) bySha[sha] = groups.Count;
-                groups.Add((sha, [member]));
+                var group = new RecordGroup(sha, local, [shown], member);
+                if (sha != null) bySha[sha] = group;
+                groups.Add(group);
             }
         }
+        foreach (var path in members) Add(run.TimedOut ? null : Sha256(path, run), path, Relative(root, path), member: false);
 
         var records = new List<JsonObject>();
         string? ruleTable = null;
-        foreach (var (hashed, paths) in groups)
+        var unpacked = Path.Combine(Path.GetTempPath(), $"corvus-batch-{Guid.NewGuid():N}");
+        try
         {
-            var (sections, summary) = await Steps(run, paths[0]);
-            ruleTable ??= (string?)summary?["ruleTable"];
-            var sha = hashed ?? (string?)summary?["sha256"];
-            var (findings, suppressed) = ApplyBaseline(KeyedFindings(sha, summary), sha, run.Baseline);
-            var relative = paths.Select(p => Relative(root, p)).ToList();
-            var extracted = await Extract(run, paths[0], sha, summary, sections, relative);
-            var file = new JsonObject
+            // Members found in a container join the list and are read in turn.
+            for (int i = 0; i < groups.Count; i++)
             {
-                ["sha256"] = sha ?? "unknown",
-                ["size"] = summary?["size"]?.DeepClone(),
-                ["type"] = summary?["type"]?.DeepClone(),
-                ["paths"] = new JsonArray([.. relative.Select(p => (JsonNode?)p)]),
-            };
-            var record = new JsonObject
-            {
-                ["file"] = file,
-                ["complete"] = Complete(sections),
-                ["summary"] = Verdict(summary, findings, suppressed),
-                ["counts"] = Counts(findings),
-                ["findings"] = findings,
-                ["sections"] = sections,
-            };
-            if (run.Baseline != null) record["suppressed"] = suppressed;
-            if (extracted != null) record["extracted"] = extracted;
-            records.Add(record);
+                var group = groups[i];
+                var (sections, summary) = await Steps(run, group.Local);
+                ruleTable ??= (string?)summary?["ruleTable"];
+                var sha = group.Sha256 ?? (string?)summary?["sha256"];
+                var notRead = new List<string>();
+                // The unpack walk already opens nested containers, so a member is
+                // not unpacked again.
+                if (!group.Member && summary != null && (string?)summary["container"] is { } container && !container.StartsWith("none", StringComparison.Ordinal))
+                    foreach (var (memberSha, local, inner) in await Unpack(run, group.Local, Path.Combine(unpacked, i.ToString(CultureInfo.InvariantCulture)), sections, notRead))
+                        Add(memberSha, local, $"{group.Paths[0]}!/{inner}", member: true);
+                var (findings, suppressed) = ApplyBaseline(KeyedFindings(sha, summary), sha, run.Baseline);
+                var extracted = await Extract(run, group.Local, sha, summary, sections, group.Paths);
+                var record = new JsonObject
+                {
+                    ["file"] = new JsonObject
+                    {
+                        ["sha256"] = sha ?? "unknown",
+                        ["size"] = summary?["size"]?.DeepClone(),
+                        ["type"] = summary?["type"]?.DeepClone(),
+                        ["paths"] = new JsonArray(),
+                    },
+                    ["complete"] = Complete(sections) && notRead.Count == 0,
+                    ["summary"] = Verdict(summary, findings, suppressed),
+                    ["counts"] = Counts(findings),
+                    ["findings"] = findings,
+                    ["sections"] = sections,
+                };
+                if (notRead.Count > 0) record["unread"] = new JsonArray([.. notRead.Select(n => (JsonNode?)n)]);
+                if (run.Baseline != null) record["suppressed"] = suppressed;
+                if (extracted != null) record["extracted"] = extracted;
+                records.Add(record);
+            }
+        }
+        finally
+        {
+            try { if (Directory.Exists(unpacked)) Directory.Delete(unpacked, recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { run.Io.Error.WriteLine($"Could not remove {unpacked}: {ex.Message}"); }
+        }
+        // A path seen after its record was written still belongs to it.
+        for (int i = 0; i < groups.Count; i++)
+        {
+            records[i]["file"]!["paths"] = new JsonArray([.. groups[i].Paths.Select(p => (JsonNode?)p)]);
+            if (run.Extract != null) run.Index[i]!["paths"] = records[i]["file"]!["paths"]!.DeepClone();
         }
         // Noteworthy count first, then review count; the first path breaks ties
         // so the order is stable.
@@ -75,11 +99,76 @@ internal static partial class ToolCli
             ["level"] = levels.Contains("unknown") && strongest != FindingLevel.Noteworthy ? "unknown" : strongest,
             ["records"] = ordered.Count,
             ["files"] = members.Count,
+            ["members"] = groups.Sum(g => g.Paths.Count) - members.Count,
             ["byLevel"] = new JsonObject([.. levels.GroupBy(l => l).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => KeyValuePair.Create(g.Key, (JsonNode?)g.Count()))]),
         };
         if (unread.Count > 0) document["unread"] = new JsonArray([.. unread.Select(u => (JsonNode?)u)]);
         document["records"] = new JsonArray([.. ordered]);
         return document;
+    }
+
+    /// <summary>One record's input: SHA-256, the copy the steps read, every path seen, and whether a container held it.</summary>
+    private sealed record RecordGroup(string? Sha256, string Local, List<string> Paths, bool Member);
+
+    private static readonly FileBatchStep MembersStep = new("members", "unpack_container", "containerFiles");
+
+    /// <summary>Extracts a container's members, adds their section and names what was not read; empty when none was extracted.</summary>
+    private static async Task<List<(string? Sha256, string Local, string Inner)>> Unpack(FileBatchRun run, string path, string output, JsonArray sections,
+        List<string> notRead)
+    {
+        if (run.TimedOut)
+        {
+            sections.Add(Section(MembersStep, SectionStatus.Timeout, "The time limit ended the run before this step."));
+            notRead.Add("The members were not read: the time limit ended the run.");
+            return [];
+        }
+        var arguments = new Dictionary<string, object?>
+        {
+            ["path"] = path, ["outputDirectory"] = output, ["extractOnly"] = true, ["limit"] = (int)run.Limits["containerFiles"],
+        };
+        JsonObject section;
+        try
+        {
+            (section, var timedOut) = await Step(run.Session!, MembersStep, arguments, run.Io, run.Deadline, run.Cancellation);
+            run.TimedOut |= timedOut;
+        }
+        catch (OperationCanceledException) when (!run.Cancellation.IsCancellationRequested)
+        {
+            run.TimedOut = true;
+            section = Section(MembersStep, SectionStatus.Timeout, "The time limit ended this step.");
+        }
+        var result = section["result"];
+        var members = new List<(string?, string, string)>();
+        foreach (var item in result?["items"] as JsonArray ?? [])
+        {
+            // The host itself is listed where it already is.
+            if ((bool?)item?["extracted"] == false || (string?)item?["path"] is not { } inner) continue;
+            var local = Path.GetFullPath(inner, output);
+            // The views choose a reader by extension, so a member gets its archive
+            // name back; the folder is the run's own and is removed after it. A
+            // failed rename keeps the .bin name.
+            if (Core.Blob.WithoutRunnableSuffix(inner) is { } original && !File.Exists(Path.GetFullPath(original, output)))
+            {
+                try
+                {
+                    File.Move(local, Path.GetFullPath(original, output));
+                    (local, inner) = (Path.GetFullPath(original, output), original);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+            members.Add(((string?)item["sha256"], local, inner.Replace('\\', '/')));
+        }
+        // Limit notes name the members the walk did not reach.
+        foreach (var note in result?["notes"] as JsonArray ?? [])
+            if ((string?)note is { } text && (text.Contains("limit", StringComparison.Ordinal) || text.StartsWith("Could not write", StringComparison.Ordinal)))
+                notRead.Add(text);
+        if ((string?)section["status"] is not (SectionStatus.Complete or SectionStatus.NotApplicable))
+            notRead.Add($"Members not read: {(string?)section["reason"] ?? (string?)section["error"]?["message"] ?? (string?)section["status"]}.");
+        // The member list repeats the records; the section keeps the counts.
+        if (result is JsonObject kept)
+            section["result"] = new JsonObject { ["container"] = kept["container"]?.DeepClone(), ["total"] = kept["total"]?.DeepClone(), ["extracted"] = members.Count };
+        sections.Add(section);
+        return members;
     }
 
     /// <summary>The files under a folder in ordinal order, or a file root alone; what was not read goes to unread.</summary>

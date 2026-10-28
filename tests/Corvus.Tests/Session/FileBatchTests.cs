@@ -351,7 +351,8 @@ public class FileBatchTests
         Assert.Equal("noteworthy", (string?)document!["summary"]!["level"]);
         Assert.Equal(3, (int)document["summary"]!["files"]!);
         var records = document["records"]!.AsArray();
-        Assert.Equal(2, records.Count);
+        // The package's own members are records too.
+        Assert.Contains(records, r => (string?)r!["file"]!["paths"]![0] == "sub/deep/pkg-copy.tgz!/package/package.json");
         var first = records[0]!;
         Assert.Equal(["sub/deep/pkg-copy.tgz", "sub/pkg.tgz"], first["file"]!["paths"]!.AsArray().Select(p => (string?)p));
         Assert.Equal("noteworthy", (string?)first["summary"]!["level"]);
@@ -359,9 +360,51 @@ public class FileBatchTests
         var sha = (string)first["file"]!["sha256"]!;
         Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(package))), sha);
         Assert.All(first["findings"]!.AsArray(), f => Assert.StartsWith(sha + "|" + (string?)f!["rule"] + "|", (string?)f["key"]));
-        Assert.Equal("a.txt", (string?)records[1]!["file"]!["paths"]![0]);
-        Assert.Equal("none", (string?)records[1]!["summary"]!["level"]);
+        var plain = Assert.Single(records, r => (string?)r!["file"]!["paths"]![0] == "a.txt")!;
+        Assert.Equal("none", (string?)plain["summary"]!["level"]);
         Assert.Null(document["sections"]);
+    }
+
+    [Fact]
+    public async Task A_file_and_its_copy_inside_a_zip_share_one_record_with_both_paths()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(Path.Combine(dir.Path, "a.txt"), "shared text");
+        using (var archive = ZipFile.Open(Path.Combine(dir.Path, "b.zip"), ZipArchiveMode.Create))
+            foreach (var (name, text) in new[] { ("docs/a.txt", "shared text"), ("docs/c.bat", "@echo off\r\necho second member\r\n") })
+                using (var writer = new StreamWriter(archive.CreateEntry(name).Open())) writer.Write(text);
+        var (code, document, _) = await Batch("--file", dir.Path, "--recurse");
+        Assert.Equal(0, code);
+        var records = document!["records"]!.AsArray();
+        var paths = records.Select(r => string.Join(" ", r!["file"]!["paths"]!.AsArray().Select(p => (string?)p))).ToList();
+        // The member keeps its archive name, not its extracted .bin name.
+        Assert.Equal(["a.txt b.zip!/docs/a.txt", "b.zip", "b.zip!/docs/c.bat"], paths);
+        Assert.Equal(2, (int)document["summary"]!["members"]!);
+        var zip = records[1]!;
+        Assert.Equal("complete", (string?)zip["sections"]!.AsArray().Single(s => (string?)s!["name"] == "members")!["status"]);
+        Assert.True((bool)document["complete"]!);
+    }
+
+    [Fact]
+    public async Task A_member_past_the_nesting_limit_is_named_as_not_read()
+    {
+        using var dir = new TempDir();
+        // Six zips, each holding the next; the unpack walk opens four levels.
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes("innermost text");
+        string name = "x.txt";
+        for (int level = 0; level < 6; level++)
+        {
+            var stream = new MemoryStream();
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+            using (var entry = archive.CreateEntry(name).Open()) entry.Write(bytes);
+            (bytes, name) = (stream.ToArray(), $"level{level}.zip");
+        }
+        File.WriteAllBytes(Path.Combine(dir.Path, "deep.zip"), bytes);
+        var (_, document, _) = await Batch("--file", dir.Path, "--recurse", "--fail-on", "noteworthy");
+        var deep = document!["records"]!.AsArray().Single(r => (string?)r!["file"]!["paths"]![0] == "deep.zip")!;
+        Assert.False((bool)deep["complete"]!);
+        Assert.Contains(deep["unread"]!.AsArray(), u => ((string)u!).Contains("nesting limit", StringComparison.Ordinal));
+        Assert.Contains(document["gate"]!["reasons"]!.AsArray(), r => ((string)r!).StartsWith("deep.zip: ", StringComparison.Ordinal) && ((string)r!).Contains("nesting limit", StringComparison.Ordinal));
     }
 
     [Fact]

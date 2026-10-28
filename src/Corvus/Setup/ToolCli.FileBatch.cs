@@ -133,6 +133,8 @@ internal static partial class ToolCli
             foreach (var section in record["sections"] as JsonArray ?? [])
                 if ((string?)section!["status"] is { } status and not (SectionStatus.Complete or SectionStatus.NotApplicable))
                     failures.Add($"{label}: {(string?)section["name"]} {status}");
+            foreach (var entry in record["unread"] as JsonArray ?? [])
+                if (record != document) failures.Add($"{label}: {(string?)entry}");
         }
         if (!allowIncomplete)
             foreach (var entry in document["unread"] as JsonArray ?? [])

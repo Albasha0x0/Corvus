@@ -269,6 +269,10 @@ public static class Blob
         return Path.Combine([.. parts]);
     }
 
+    /// <summary>The path without the ".bin" added to a runnable extension; null when it has none.</summary>
+    public static string? WithoutRunnableSuffix(string path) =>
+        path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) && RunnableExtensions.Contains(Path.GetExtension(path[..^4])) ? path[..^4] : null;
+
     /// <summary>Full path of <paramref name="relative"/> under <paramref name="root"/>; throws if it would escape it, lexically or through a link.</summary>
     public static string UnderRoot(string root, string relative) => SafeFile.UnderRoot(root, relative);
 

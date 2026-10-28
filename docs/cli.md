@@ -94,10 +94,12 @@ without an agent. Nothing in the file runs; no network calls are made.
   `summary.reasons` lists the findings at that level, each with `level`, `rule`, `category`, `evidence`, `location` and `source`.
 - `findings` lists every finding of the overview, each with a `key`: file SHA-256, rule, level and a hash of evidence and location.
 - `--recurse` reads every file under a folder through the same steps; `records` replaces `sections` and `findings`.
-  - One record per SHA-256: `file.paths` lists every path it was seen at, relative to the folder.
+  - A container's members are extracted (`unpack_container`, nested containers within its limits) and read the same way.
+  - One record per SHA-256 across files and members: `file.paths` lists every path, a member as `container!/inner/path`.
+  - A container record's `unread` names members past an unpack limit; any entry makes the record incomplete.
   - Each record has `complete`, `summary`, `counts` (findings per level), `findings` and `sections`.
   - Records are ordered by noteworthy count, then review count, then first path.
-  - `summary` holds the strongest record level, `records`, `files` and `byLevel` (records per level).
+  - `summary` holds the strongest record level, `records`, `files`, `members` and `byLevel` (records per level).
   - `unread` names folders and files not read: links are not followed. Any entry makes `complete` false.
 - `--fail-on noteworthy|review` adds `gate` (`failOn`, `allowIncomplete`, `failed`, `reasons`) and sets the exit code.
   - Each finding at or above the level is a reason, so two findings of one rule are two reasons.
@@ -115,7 +117,8 @@ without an agent. Nothing in the file runs; no network calls are made.
   - `baseline` counts `entries`, `suppressed`, `expired`, `rose` and `unused`.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
-- `--limit members=N`: files `--recurse` reads (default 10000).
+- `--limit members=N`: files `--recurse` reads under the folder (default 10000).
+  `containerFiles` also bounds the members it reads from one container.
 - `--limit embeddedItems=N`: items the `embedded` section lists (default 500).
 - `--limit assetBytes=N`: asset bytes the `strings` step reads (default 1 GiB; a direct `extract_strings` call reads up to 4 GiB).
   The `strings` step reads assets for at most half the time left.
