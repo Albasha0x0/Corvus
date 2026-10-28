@@ -38,6 +38,8 @@ public static class ArgumentCheck
                     arguments.Remove(name);
                     continue;
                 }
+                if (value.ValueKind == JsonValueKind.String && IsTarget(tool, name) && Targets.LooksLikePath(value.GetString()!))
+                    CheckLocal(name, ResultReferences.Contains(name) || name == "id" ? value.GetString()!.Split('#')[0] : value.GetString()!);
                 if (value.ValueKind == JsonValueKind.String && property.TryGetProperty("enum", out var allowed) && allowed.ValueKind == JsonValueKind.Array)
                     CheckValue(tool, name, value.GetString()!, allowed);
                 if (value.ValueKind == JsonValueKind.Array && property.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Object
@@ -68,6 +70,27 @@ public static class ArgumentCheck
         "projectDir", "scriptPath", "sbomPath", "stixPath", "dacPath", "imageDirectories",
     };
 
+    /// <summary>Parameters that take a path or something else (an id, text, a pid); a value that looks like a path is checked as one; "tool.name" limits an entry to one tool.</summary>
+    public static readonly IReadOnlySet<string> TargetParameters = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "assembly", "image", "oldAssembly", "newAssembly", "oldImage", "newImage", "dump", "program", "patchSet", "rules", "search_container.capture", "analyze_js.source",
+        "expectedExecutable", "oldResult", "newResult", "against", "read_result.id", "get_android_device_info.query",
+    };
+
+    /// <summary>Kept-result parameters; a bundle entry names its file before '#'.</summary>
+    private static readonly IReadOnlySet<string> ResultReferences = new HashSet<string>(StringComparer.Ordinal) { "oldResult", "newResult", "against" };
+
+    /// <summary>Whether <paramref name="name"/> of <paramref name="tool"/> is in <see cref="TargetParameters"/>.</summary>
+    public static bool IsTarget(string? tool, string name) => TargetParameters.Contains(name) || tool != null && TargetParameters.Contains($"{tool}.{name}");
+
+    /// <summary>Throws invalid_argument naming <paramref name="name"/> when <paramref name="value"/> is a network or device path.</summary>
+    private static void CheckLocal(string name, string value)
+    {
+        if (Targets.FullPath(value) is not { } full) return;
+        try { InputFiles.RequireLocal(full, $"parameter '{name}'"); }
+        catch (ToolError e) { throw new ToolError(e.Code, e.Message, e.Remediation) { Details = new { parameter = name, path = full } }; }
+    }
+
     /// <summary>Checks a path argument; false for an empty optional path, invalid_argument for an empty required or malformed one.</summary>
     // Checked before any tool opens it: a JIT that inlines System.IO hides where a path exception came from.
     private static bool CheckPath(string name, string value, bool required, string? tool, JsonElement property)
@@ -79,11 +102,14 @@ public static class ArgumentCheck
         }
         // imageDirectories lists folders separated by ';'.
         foreach (var path in name == "imageDirectories" ? value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [value])
+        {
             if (InputFiles.PathProblem(path) is { } problem)
                 throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' is not a valid path: {problem}.", InputFiles.PathHint(path))
                 {
                     Details = new { parameter = name },
                 };
+            CheckLocal(name, path);
+        }
         return true;
     }
 

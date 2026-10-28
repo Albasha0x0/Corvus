@@ -40,6 +40,63 @@ public static class InputFiles
         return null;
     }
 
+    /// <summary>Network paths in call arguments (<see cref="ServerOptions.AllowRemotePathsOption"/>); off by default and under CORVUS_OFFLINE.</summary>
+    public static bool AllowRemote { get; set; }
+
+    /// <summary>Why <paramref name="full"/>, a full path, is not on this machine ("a network path", "a device path"); null for a local path.</summary>
+    /// <remarks>Reads drive types and link targets only; nothing on the path is opened. A local link to a remote target is remote.</remarks>
+    public static string? RemoteProblem(string full, bool allowRemote) => OperatingSystem.IsWindows() ? WindowsRemoteProblem(full, allowRemote, 0) : null;
+
+    private static string? WindowsRemoteProblem(string full, bool allowRemote, int depth)
+    {
+        const string Network = "a network path", Device = "a device path";
+        var p = full.Replace('/', '\\');
+        if (p.StartsWith(@"\\?\", StringComparison.Ordinal) && p.Length >= 7 && char.IsAsciiLetter(p[4]) && p[5] == ':' && p[6] == '\\') p = p[4..];
+        else if (p.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) return allowRemote ? null : Network;
+        // A mounted volume is local; GLOBALROOT, pipes and other device names are not files.
+        else if (p.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase)) return null;
+        else if (p.StartsWith(@"\\?\", StringComparison.Ordinal) || p.StartsWith(@"\\.\", StringComparison.Ordinal)) return Device;
+        else if (p.StartsWith(@"\\", StringComparison.Ordinal)) return allowRemote ? null : Network;
+        if (p.Length < 3 || !char.IsAsciiLetter(p[0]) || p[1] != ':' || p[2] != '\\') return Device;
+        var type = new DriveInfo(p[..1]).DriveType;
+        if (type == DriveType.Network) return allowRemote ? null : Network;
+        if (type == DriveType.Unknown) return Device;
+        // A link anywhere on the path is read, not followed, and its target checked in turn.
+        if (depth >= 32) return "a path with too many links";
+        var segments = p[3..].Split('\\', StringSplitOptions.RemoveEmptyEntries);
+        var current = p[..3];
+        for (int i = 0; i < segments.Length; i++)
+        {
+            current = Path.Combine(current, segments[i]);
+            FileAttributes attributes;
+            try { attributes = File.GetAttributes(current); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+            if ((attributes & FileAttributes.ReparsePoint) == 0) continue;
+            string? target;
+            try
+            {
+                target = (attributes & FileAttributes.Directory) != 0 ? new DirectoryInfo(current).LinkTarget : new FileInfo(current).LinkTarget;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+            // Other reparse points (cloud files, deduplication) keep their data on this volume.
+            if (target == null) continue;
+            if (target.StartsWith(@"\??\", StringComparison.Ordinal)) target = @"\\?\" + target[4..];
+            var resolved = Path.GetFullPath(target, Path.GetDirectoryName(current)!);
+            return WindowsRemoteProblem(Path.Combine([resolved, .. segments[(i + 1)..]]), allowRemote, depth + 1);
+        }
+        return null;
+    }
+
+    /// <summary>Throws invalid_argument naming <paramref name="shown"/> when <paramref name="full"/> is not on this machine; network paths pass with <see cref="AllowRemote"/> unless <paramref name="named"/> (a path found inside a file).</summary>
+    public static void RequireLocal(string full, string shown, bool named = false)
+    {
+        if (RemoteProblem(full, AllowRemote && !named) is not { } problem) return;
+        var next = problem == "a network path" && !named
+            ? $"copy it to a local drive, or start the server with {ServerOptions.AllowRemotePathsOption}"
+            : "pass the path of a local file";
+        throw new ToolError(ErrorCode.InvalidArgument, $"{shown} is {problem}; only files on this machine are opened.", next) { Details = new { path = full, problem } };
+    }
+
     /// <summary>The full path of a regular file, symlinks followed; directories, FIFOs, sockets and devices are refused, since reading a FIFO blocks until a writer appears.</summary>
     public static string RequireRegularFile(string path, string what = "file")
     {
@@ -52,6 +109,7 @@ public static class InputFiles
         {
             throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': {ex.Message}");
         }
+        RequireLocal(full, full);
         if (Directory.Exists(full)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is a directory; pass a {what}.");
         if (OperatingSystem.IsWindows() && full.StartsWith(@"\\.\", StringComparison.Ordinal))
             throw NotRegular(full, "a device", what);

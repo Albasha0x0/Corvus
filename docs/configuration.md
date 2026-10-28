@@ -29,6 +29,7 @@ Server options, environment variables and security switches. Setup: [installatio
 | `--ida-scripting` | `CORVUS_IDA_SCRIPTING` | `ida_python`: any Python in the IDA worker, with the server's rights |
 | `--ghidra-scripting` | `CORVUS_GHIDRA_SCRIPTING` | `ghidra_script`: any Java or Python in the Ghidra worker, with the server's rights |
 | `--allow-replace-original` | `CORVUS_ALLOW_REPLACE_ORIGINAL` | `save_assembly` and `save_native` with `replaceOriginal=true`; without it they write new files only |
+| `--allow-remote-paths` | `CORVUS_ALLOW_REMOTE_PATHS` | UNC paths and network drives in call arguments; paths named inside a file stay local; off under `CORVUS_OFFLINE` |
 | `--allow-device-changes` | `CORVUS_ALLOW_DEVICE_CHANGES` | `install_android_package`, `uninstall_android_package`; other device tools only read |
 | `--trace-args` | `CORVUS_TRACE_ARGS` | argument values in the `--trace` file; secrets masked, best effort |
 | `--in-process-parsing` | `CORVUS_IN_PROCESS_PARSING` | file and dump reads in the server process, not a worker |

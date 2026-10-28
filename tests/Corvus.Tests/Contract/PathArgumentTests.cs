@@ -77,6 +77,112 @@ public class PathArgumentTests
         }
     }
 
+    // The host name is reserved (RFC 2606), so a path to it never resolves even if opened.
+    private const string Share = @"\\corvus-remote.invalid\share\";
+
+    [Fact]
+    public void Network_and_device_paths_are_named_and_local_ones_pass()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        string? Problem(string path, bool allow = false) => InputFiles.RemoteProblem(Path.GetFullPath(path), allow);
+        Assert.Equal("a network path", Problem(Share + "a.dll"));
+        Assert.Equal("a network path", Problem("//corvus-remote.invalid/share/a.dll"));
+        Assert.Equal("a network path", Problem(@"\\?\UNC\corvus-remote.invalid\share\a.dll"));
+        Assert.Equal("a device path", Problem(@"\\?\GLOBALROOT\Device\HarddiskVolume1\a.dll"));
+        Assert.Equal("a device path", Problem(@"\\.\pipe\corvus"));
+        Assert.Equal("a device path", Problem(@"\\.\PhysicalDrive0", allow: true));
+        Assert.Null(Problem(Share + "a.dll", allow: true));
+        Assert.Null(Problem(Path.Combine(Path.GetTempPath(), "a.dll")));
+        Assert.Null(Problem(@"\\?\" + Path.Combine(Path.GetTempPath(), "a.dll")));
+    }
+
+    [Fact]
+    public void A_local_link_to_a_share_is_a_network_path()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dir = new TempDir();
+        var file = Path.Combine(dir.Path, "a.dll");
+        var folder = Path.Combine(dir.Path, "linked");
+        try
+        {
+            File.CreateSymbolicLink(file, Share + "a.dll");
+            Directory.CreateSymbolicLink(folder, Share.TrimEnd('\\'));
+        }
+        // Creating a symbolic link needs Developer Mode or the privilege; without it there is nothing to check.
+        catch (IOException) { return; }
+        catch (UnauthorizedAccessException) { return; }
+        Assert.Equal("a network path", InputFiles.RemoteProblem(file, false));
+        Assert.Equal("a network path", InputFiles.RemoteProblem(Path.Combine(folder, "b.dll"), false));
+        Assert.Equal("parameter 'path' is a network path; only files on this machine are opened.",
+            Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("load_assembly"), Args(("path", file)), "load_assembly")).Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(PathParametersOfEveryTool))]
+    public void Every_path_parameter_refuses_a_network_path_before_the_tool_runs(string tool, string parameter)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var error = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema(tool), Args((parameter, Share + "a.dll")), tool));
+        Assert.Equal((ErrorCode.InvalidArgument, $"parameter '{parameter}' is a network path; only files on this machine are opened."), (error.Code, error.Message));
+        Assert.Contains(ServerOptions.AllowRemotePathsOption, error.Remediation);
+    }
+
+    public static TheoryData<string, string> TargetParametersOfEveryTool()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var (tool, schema) in Schemas)
+            foreach (var (name, property) in schema["properties"]!.AsObject())
+                if (ArgumentCheck.IsTarget(tool, name) && property!.ToJsonString().Contains("\"string\""))
+                    data.Add(tool, name);
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(TargetParametersOfEveryTool))]
+    public void Every_id_or_path_parameter_refuses_a_network_path_and_keeps_ids(string tool, string parameter)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var error = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema(tool), Args((parameter, Share + "a.dll")), tool));
+        Assert.Equal($"parameter '{parameter}' is a network path; only files on this machine are opened.", error.Message);
+        ArgumentCheck.Apply(Schema(tool), Args((parameter, "app.dll#2")), tool);
+    }
+
+    // Parameters whose description names a path or file but that hold no path on this machine.
+    private static readonly HashSet<string> NotLocalPaths = new(StringComparer.Ordinal)
+    {
+        // Paths on a device or inside an archive or project.
+        "pull_android_file.remotePath", "get_android_resource.name", "load_assembly.program", "live_break.at",
+        // Search text, filters and patterns.
+        "search_container.query", "list_assemblies.filter", "compare_folders.exclude", "bucket_minidumps.pattern", "symbolize_stack_text.text",
+        // Note anchors name a loaded file by id or by the path it was loaded from.
+        "record_note.anchor", "list_notes.anchor",
+        // Choices of a mode.
+        "live_timeline.category", "search_bytes.memory", "load_assembly.entry", "find_method_by_address.kind", "compare_native_images.engine",
+    };
+
+    [Fact]
+    public void Every_parameter_described_as_a_path_is_checked_as_one()
+    {
+        var unchecked_ = new List<string>();
+        foreach (var (tool, schema) in Schemas)
+            foreach (var (name, property) in schema["properties"]!.AsObject())
+                if (property!.ToJsonString() is var json && json.Contains("\"string\"")
+                    && System.Text.RegularExpressions.Regex.IsMatch((string?)property["description"] ?? "", @"\b(path|file|folder|directory)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                    && !ArgumentCheck.PathParameters.Contains(name) && !ArgumentCheck.IsTarget(tool, name) && !NotLocalPaths.Contains($"{tool}.{name}"))
+                    unchecked_.Add($"{tool}.{name}: {(string?)property["description"]}");
+        Assert.True(unchecked_.Count == 0, string.Join("\n", unchecked_));
+    }
+
+    [Fact]
+    public void Provenance_does_not_hash_a_device_or_a_network_path()
+    {
+        var device = OperatingSystem.IsWindows() ? @"\\.\NUL" : "/dev/zero";
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Null(ToolOutput.Input(device, null));
+        Assert.Null(ToolOutput.Input(Share + "a.dll", null));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"{clock.Elapsed}");
+    }
+
     [Fact]
     public void A_writer_given_a_malformed_path_names_the_problem_and_a_hint_without_echoing_it()
     {

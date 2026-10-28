@@ -119,7 +119,10 @@ public static partial class ToolOutput
                 if (t.Mvid is { } mvid) o["mvid"] = mvid.ToString();
                 return o;
             }
-        if (!Path.IsPathFullyQualified(value) || new FileInfo(value) is not { Exists: true } info) return null;
+        // Only regular local files are hashed: a device such as /dev/zero
+        // never ends, and a network path is not opened.
+        if (!Path.IsPathFullyQualified(value) || InputFiles.RemoteProblem(Path.GetFullPath(value), InputFiles.AllowRemote) != null
+            || new FileInfo(value) is not { Exists: true } info || !InputFiles.IsRegularOrUnknown(info.FullName)) return null;
         var hash = FileHashes.GetOrAdd((info.FullName, info.Length, info.LastWriteTimeUtc.Ticks), key =>
         {
             using var stream = File.OpenRead(key.Path);

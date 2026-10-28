@@ -92,6 +92,12 @@ public sealed class ServerOptions
     public const string AllowReplaceOriginalOption = "--allow-replace-original";
     public const string AllowReplaceOriginalVariable = "CORVUS_ALLOW_REPLACE_ORIGINAL";
 
+    /// <summary>Allow UNC paths and network drives in call arguments; paths found inside a file stay local; default off, and off under CORVUS_OFFLINE.</summary>
+    public bool AllowRemotePaths { get; set; }
+
+    public const string AllowRemotePathsOption = "--allow-remote-paths";
+    public const string AllowRemotePathsVariable = "CORVUS_ALLOW_REMOTE_PATHS";
+
     /// <summary>Allow the session tools; default off. On with any of attach, spawn or scripting, which each open more.</summary>
     public bool AllowLive { get => _allowLive || AllowLiveAttach || AllowLiveSpawn || LiveScripting; set => _allowLive = value; }
 
@@ -143,6 +149,7 @@ public sealed class ServerOptions
         [InProcessParsingOption] = InProcessParsingVariable,
         [AllowDeviceChangesOption] = AllowDeviceChangesVariable,
         [AllowReplaceOriginalOption] = AllowReplaceOriginalVariable,
+        [AllowRemotePathsOption] = AllowRemotePathsVariable,
         [TraceArgsOption] = TraceArgsVariable,
     };
 
@@ -222,6 +229,7 @@ public sealed class ServerOptions
                 case InProcessParsingOption: o.InProcessParsing = true; break;
                 case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
                 case AllowReplaceOriginalOption: o.AllowReplaceOriginal = true; break;
+                case AllowRemotePathsOption: o.AllowRemotePaths = true; break;
                 case AllowLiveOption: o.AllowLive = true; break;
                 case AllowLiveSpawnOption: o.AllowLiveSpawn = true; break;
                 case AllowLiveAttachOption: o.AllowLiveAttach = true; break;
@@ -269,6 +277,8 @@ public sealed class ServerOptions
             o.InProcessParsing = parsing is not ("0" or "false" or "off");
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         if (Environment.GetEnvironmentVariable(AllowReplaceOriginalVariable)?.Trim() is "1" or "true" or "on") o.AllowReplaceOriginal = true;
+        if (Environment.GetEnvironmentVariable(AllowRemotePathsVariable)?.Trim() is "1" or "true" or "on") o.AllowRemotePaths = true;
+        InputFiles.AllowRemote = o.AllowRemotePaths && !ReferencePacks.Offline;
         if (Environment.GetEnvironmentVariable(AllowLiveVariable)?.Trim() is "1" or "true" or "on") o.AllowLive = true;
         if (Environment.GetEnvironmentVariable(AllowLiveSpawnVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveSpawn = true;
         if (Environment.GetEnvironmentVariable(AllowLiveAttachVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveAttach = true;

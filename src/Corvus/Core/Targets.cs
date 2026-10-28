@@ -110,7 +110,9 @@ public static class Targets
     private static string? Load(AssemblyWorkspace workspace, string text)
     {
         var full = FullPath(text);
-        if (full == null || Directory.Exists(full)) return null;
+        if (full == null) return null;
+        if (LooksLikePath(text)) InputFiles.RequireLocal(full, text);
+        if (Directory.Exists(full)) return null;
         if (!File.Exists(full))
         {
             if (LooksLikePath(text)) throw FileNotFound(text);

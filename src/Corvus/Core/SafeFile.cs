@@ -35,6 +35,7 @@ public static class SafeFile
             CheckSegments(path, path);
         }
         var full = Path.GetFullPath(path);
+        InputFiles.RequireLocal(full, full);
         if (OperatingSystem.IsWindows()) CheckSegments(full[Path.GetPathRoot(full)!.Length..], path);
         return full;
     }

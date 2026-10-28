@@ -19,7 +19,7 @@ public static class ConfigFile
     {
         ServerOptions.AllowLiveVariable, ServerOptions.AllowLiveSpawnVariable, ServerOptions.AllowLiveAttachVariable, ServerOptions.LiveAllowVariable,
         ServerOptions.LiveScriptingVariable, ServerOptions.LiveInstallFridaVariable, ServerOptions.IdaScriptingVariable, ServerOptions.GhidraScriptingVariable,
-        ServerOptions.AllowReplaceOriginalVariable, ServerOptions.AllowDeviceChangesVariable, ServerOptions.TraceArgsVariable,
+        ServerOptions.AllowReplaceOriginalVariable, ServerOptions.AllowRemotePathsVariable, ServerOptions.AllowDeviceChangesVariable, ServerOptions.TraceArgsVariable,
         ServerOptions.InProcessParsingVariable, Services.LiveSessionService.MaxMinutesVariable,
         Native.Providers.DataFolder.RootVariable, Variable,
     };
