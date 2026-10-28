@@ -173,6 +173,20 @@ public sealed class SetupTests : IDisposable
         Assert.Contains("server output: bad setting", r.Detail);
     }
 
+    // Regression (18797c94 quick set): on a loaded machine the error came
+    // after the 2 s wait for the exit; here it comes 3 s after stdout ends.
+    [Fact]
+    public void A_server_writing_its_error_seconds_after_stdout_ends_is_reported_with_that_error()
+    {
+        var sh = OperatingSystem.IsWindows()
+            ? BundleTests.FindOnPath("git.exe") is { } git ? new[] { "..", "../.." }.Select(up => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(git)!, up, "usr", "bin", "sh.exe"))).FirstOrDefault(File.Exists) : null
+            : "/bin/sh";
+        if (sh == null || !File.Exists(sh)) return;
+        var r = SelfTest.Run(new ServerLaunch(sh, ["-c", "PATH=/usr/bin:/bin:$PATH; exec 1>&-; sleep 3; echo bad setting >&2"]), TimeSpan.FromSeconds(30));
+        Assert.False(r.Ok);
+        Assert.Contains("server output: bad setting", r.Detail);
+    }
+
     [Trait("Speed", "Slow")]
     [Fact]
     public void Status_starts_each_registration_with_its_own_args_and_env_and_the_real_server()
