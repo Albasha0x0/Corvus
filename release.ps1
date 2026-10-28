@@ -312,22 +312,33 @@ if ($missing) { Fail "release $tag lacks $($missing -join ', ')" }
 $work = Join-Path ([IO.Path]::GetTempPath()) "corvus-release-$Version"
 if (Test-Path $work) { Remove-Item $work -Recurse -Force }
 New-Item -ItemType Directory $work | Out-Null
-Run 'gh' @('release', 'download', $tag, '--repo', $Repo, '--dir', $work)
+
+# The notes go on the release before the assets are checked, so a failed
+# check leaves the release with its body.
+$body = Join-Path $work 'notes.md'
+[IO.File]::WriteAllText($body, (Get-Notes) + "`n")
+Run 'gh' @('release', 'edit', $tag, '--repo', $Repo, '--notes-file', $body)
+
+# A signed asset link can expire mid-download (2.7.2), so the download is
+# tried 3 times from an empty folder.
+$assetDir = Join-Path $work 'assets'
+for ($attempt = 1; ; $attempt++) {
+    if (Test-Path $assetDir) { Remove-Item $assetDir -Recurse -Force }
+    gh release download $tag --repo $Repo --dir $assetDir
+    if ($LASTEXITCODE -eq 0) { break }
+    if ($attempt -eq 3) { Fail "gh release download $tag failed 3 times" }
+    Start-Sleep -Seconds 10
+}
 $sums = @{}
-foreach ($line in Get-Content (Join-Path $work 'SHA256SUMS')) {
+foreach ($line in Get-Content (Join-Path $assetDir 'SHA256SUMS')) {
     if ($line -match '^([0-9a-f]{64}) [ *](.+)$') { $sums[$Matches[2]] = $Matches[1] }
 }
 foreach ($asset in $assets | Where-Object { $_ -ne 'SHA256SUMS' }) {
     if (-not $sums.ContainsKey($asset)) { Fail "SHA256SUMS lists no $asset" }
-    $hash = (Get-FileHash (Join-Path $work $asset) -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = (Get-FileHash (Join-Path $assetDir $asset) -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($hash -ne $sums[$asset]) { Fail "$asset does not match SHA256SUMS" }
 }
 Write-Host "Verified $($assets.Count - 1) assets against SHA256SUMS."
-
-# The release body is this version's notes.
-$body = Join-Path $work 'notes.md'
-[IO.File]::WriteAllText($body, (Get-Notes) + "`n")
-Run 'gh' @('release', 'edit', $tag, '--repo', $Repo, '--notes-file', $body)
 
 # Update check: install the previous release in WSL with a throwaway HOME, then 'corvus update' to this one.
 $previous = git -C $root describe --tags --abbrev=0 "$tag^" 2>$null

@@ -92,6 +92,18 @@ public class ReleaseScriptTests
     // first run made (v2.7.1).
     // Fixture: a repository holding the script and workflow, its main tagged,
     // and a bare repository as origin.
+    // Regression for v2.7.2 (18598077): an expired asset link failed the
+    // download, and the notes, set after it, never reached the release.
+    [Fact]
+    public void The_notes_reach_the_release_before_a_retried_asset_download()
+    {
+        int notes = Script.IndexOf("'release', 'edit', $tag", StringComparison.Ordinal);
+        int download = Script.IndexOf("gh release download $tag", StringComparison.Ordinal);
+        Assert.True(notes > 0 && download > notes, "the notes edit comes before the asset download");
+        Assert.Contains("failed 3 times", Script);
+        Assert.DoesNotContain("Run 'gh' @('release', 'download'", Script);
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public void A_run_with_push_pushes_a_tag_an_earlier_run_made_and_refuses_one_on_another_commit()
