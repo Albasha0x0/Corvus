@@ -33,7 +33,8 @@ public static class DacLocator
         foreach (var c in Explicit(request.Path, names)) if (seen.Add(c.Path)) yield return c;
 
         // The runtime's recorded folder, when its file there is the dumped build.
-        string? dir = runtimeFolder ?? (System.IO.Path.GetDirectoryName(runtime.Path) is { Length: > 0 } d && DumpImages.Check(runtime.Path, runtime).Matches ? d : null);
+        string? dir = runtimeFolder ?? (System.IO.Path.GetDirectoryName(runtime.Path) is { Length: > 0 } d && InputFiles.NamedProblem(runtime.Path) == null
+            && DumpImages.Check(runtime.Path, runtime).Matches ? d : null);
         if (dir != null)
             foreach (var n in names)
                 if (Existing(System.IO.Path.Combine(dir, n)) is { } p && seen.Add(p)) yield return new(p, "the runtime's folder");

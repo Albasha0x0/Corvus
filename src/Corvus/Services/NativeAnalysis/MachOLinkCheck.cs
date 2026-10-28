@@ -37,7 +37,7 @@ internal static class MachOLinkCheck
             {
                 rows.Add(dylib.Kind == MachODylibKind.Weak
                     ? Row(NativeImportVerifier.NotChecked, "weak_library_absent", null, $"a weak load; searched {string.Join(", ", searched)}")
-                    : Row(NativeImportVerifier.Unresolved, "dll_not_found", null, searched.Count > 0 ? $"searched {string.Join(", ", searched)}" : "no LC_RPATH resolves @rpath"));
+                    : Row(NativeImportVerifier.Unresolved, Corvus.Native.Linking.NativeLinker.NotFoundStatus(searched), null, searched.Count > 0 ? $"searched {string.Join(", ", searched)}" : "no LC_RPATH resolves @rpath"));
                 continue;
             }
             if (Open(file, image) is not { } dependency)
@@ -84,6 +84,11 @@ internal static class MachOLinkCheck
         foreach (var candidate in candidates.OfType<string>())
         {
             var full = Path.GetFullPath(candidate.Replace('/', Path.DirectorySeparatorChar));
+            if (InputFiles.NamedProblem(full) is { } why)
+            {
+                searched.Add($"{full} ({why})");
+                continue;
+            }
             searched.Add(full);
             if (File.Exists(full)) return (full, searched);
         }

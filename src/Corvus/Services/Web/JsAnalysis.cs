@@ -64,14 +64,15 @@ public static class JsAnalysis
             .Where(b => b.Count > 0).ToList();
         int banners = Count(text, "/*!"u8.ToArray()) + Count(text, "@license"u8.ToArray());
         JsMapInfo? map = null;
+        bool unread = false;
         try
         {
             if (SourceMap.Locate(path, text) is { } found)
                 map = new JsMapInfo(found.Location, found.Map.Sources.Count, found.Map.SourcesContent.Count(c => c != null), found.Map.SegmentCount, found.Map.Issues);
         }
-        catch (ToolError ex) { notes.Add("source map: " + ex.Message); }
-        catch (FormatException ex) { notes.Add("source map: inline data is not base64: " + ex.Message); }
-        if (map == null) notes.Add("No source map (no sourceMappingURL and no sibling .map): positions stay generated.");
+        catch (ToolError ex) { notes.Add("source map: " + ex.Message); unread = true; }
+        catch (FormatException ex) { notes.Add("source map: inline data is not base64: " + ex.Message); unread = true; }
+        if (map == null && !unread) notes.Add("No source map (no sourceMappingURL and no sibling .map): positions stay generated.");
         if (longest > 100_000) notes.Add($"Minified: the longest line has {longest:N0} bytes.");
         return new JsSummary(text.Length, lines, longest, bundlers, map, notes) { Banners = banners };
     }

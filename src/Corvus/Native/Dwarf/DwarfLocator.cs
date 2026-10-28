@@ -46,11 +46,17 @@ public static class DwarfLocator
         string dir = System.IO.Path.GetDirectoryName(imagePath) ?? "";
         string name = System.IO.Path.GetFileName(imagePath);
         var candidates = new List<string>();
+        // A debuglink name that can leave the folder it is joined to is checked as a path.
+        void Linked(string path, string name)
+        {
+            if (InputFiles.StaysUnder(name) || InputFiles.NamedProblem(path) is not { } refused) candidates.Add(path);
+            else if (!probes.Exists(p => p.Location == path)) probes.Add(new PdbProbe(path, refused));
+        }
         void Folder(string root, bool withImageDir)
         {
             if (id is { Length: > 2 } && image.Format == ImageFormat.Elf)
                 candidates.Add(System.IO.Path.Combine(root, ".build-id", id[..2], id[2..] + ".debug"));
-            if (link is { } l) candidates.Add(System.IO.Path.Combine(root, l.Name));
+            if (link is { } l) Linked(System.IO.Path.Combine(root, l.Name), l.Name);
             candidates.Add(System.IO.Path.Combine(root, name + ".debug"));
             candidates.Add(System.IO.Path.Combine(root, name + ".dbg"));
             candidates.Add(System.IO.Path.Combine(root, name + ".dwarf"));
@@ -60,7 +66,7 @@ public static class DwarfLocator
                 // gdb layout: <debug dir>/<image's absolute folder>/<debuglink name>.
                 var relative = dir.Replace('\\', '/').TrimStart('/');
                 if (relative.Length > 1 && relative[1] == ':') relative = relative[2..].TrimStart('/');
-                candidates.Add(System.IO.Path.Combine(root, relative, l2.Name));
+                Linked(System.IO.Path.Combine(root, relative, l2.Name), l2.Name);
             }
         }
 
@@ -84,7 +90,7 @@ public static class DwarfLocator
         if (dir.Length > 0)
         {
             Folder(dir, withImageDir: false);
-            if (link is { } l) candidates.Add(System.IO.Path.Combine(dir, ".debug", l.Name));
+            if (link is { } l) Linked(System.IO.Path.Combine(dir, ".debug", l.Name), l.Name);
             if (id is { Length: > 2 } && image.Format == ImageFormat.Elf) candidates.Add(System.IO.Path.Combine(dir, ".debug", ".build-id", id[..2], id[2..] + ".debug"));
         }
         foreach (var root in Roots())

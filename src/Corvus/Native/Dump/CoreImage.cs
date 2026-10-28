@@ -1,4 +1,5 @@
 using System.Text;
+using Corvus.Core;
 using Corvus.Native.Elf;
 
 namespace Corvus.Native.Dump;
@@ -368,7 +369,8 @@ public sealed class CoreImage
         string name = recorded.Split('/')[^1];
         var why = new StringBuilder();
         string? existing = null;
-        foreach (var path in Candidates(recorded, directories, OperatingSystem.IsLinux()))
+        var refused = new List<string>();
+        foreach (var path in Candidates(recorded, directories, OperatingSystem.IsLinux(), refused))
         {
             existing ??= path;
             if (probe(path) is not var (fileMachine, buildId)) { why.Append($"{path}: not an ELF image; "); continue; }
@@ -377,25 +379,32 @@ public sealed class CoreImage
             if (string.Equals(buildId, module.BuildId, StringComparison.OrdinalIgnoreCase)) return (path, true, $"build id {module.BuildId} matches");
             why.Append($"{path}: build id {buildId ?? "none"}, the core's is {module.BuildId}; ");
         }
+        foreach (var r in refused) why.Append(r).Append("; ");
         string detail = why.Length > 0 ? why.ToString().TrimEnd(' ', ';') : name.Length > 0 ? $"no file named {name} in {string.Join(", ", directories)}" : "no file name";
         return (existing, false, detail);
     }
 
     /// <summary>Existing files for a module recorded at <paramref name="recorded"/>: the path itself (on its own system), then each folder by file name and as a sysroot.</summary>
-    internal static IEnumerable<string> Candidates(string recorded, IReadOnlyList<string> directories, bool ownSystem)
+    /// <remarks><paramref name="refused"/> receives each path the core names that is not opened, with the reason.</remarks>
+    internal static IEnumerable<string> Candidates(string recorded, IReadOnlyList<string> directories, bool ownSystem, List<string>? refused = null)
     {
         string name = recorded.Split('/')[^1];
+        string relative = recorded.TrimStart('/');
         var candidates = new List<string>();
-        void Add(Func<string> make)
+        void Add(Func<string> make, bool named)
         {
-            try { candidates.Add(System.IO.Path.GetFullPath(make())); }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { }
+            string full;
+            try { full = System.IO.Path.GetFullPath(make()); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return; }
+            if (named && InputFiles.NamedProblem(full) is { } why) refused?.Add($"{full}: {why}");
+            else candidates.Add(full);
         }
-        if (recorded.StartsWith('/') && ownSystem) Add(() => recorded);
+        if (recorded.StartsWith('/') && ownSystem) Add(() => recorded, true);
         foreach (var dir in directories)
         {
-            if (name.Length > 0) Add(() => System.IO.Path.Combine(dir, name));
-            if (recorded.Length > 1) Add(() => System.IO.Path.Combine(dir, recorded.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar)));
+            if (name.Length > 0) Add(() => System.IO.Path.Combine(dir, name), !InputFiles.StaysUnder(name));
+            if (recorded.Length > 1)
+                Add(() => System.IO.Path.Combine(dir, relative.Replace('/', System.IO.Path.DirectorySeparatorChar)), !InputFiles.StaysUnder(relative));
         }
         return candidates.Distinct(StringComparer.OrdinalIgnoreCase).Where(File.Exists);
     }

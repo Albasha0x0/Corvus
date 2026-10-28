@@ -27,7 +27,7 @@ public sealed partial class NativeLinker
     /// <summary>Statuses: resolved, or the reason binding stopped.</summary>
     public const string Resolved = "resolved", DllNotFound = "dll_not_found", ApiSetUnmapped = "api_set_unmapped", MissingExport = "missing_export",
         MissingOrdinal = "missing_ordinal", ForwarderBroken = "forwarder_broken", ForwarderTooDeep = "forwarder_too_deep", NotChecked = "not_checked",
-        NotAnImage = "not_an_image";
+        NotAnImage = "not_an_image", NotOpened = "not_opened";
 
     private const int MaxForwarderDepth = 8;
     private readonly Func<string, INativeImage?> _open;
@@ -93,10 +93,20 @@ public sealed partial class NativeLinker
         if (!HasImageExtension(name)) name += ".dll";
         if (Path.IsPathFullyQualified(name))
         {
+            if (Core.InputFiles.NamedProblem(name) is { } why)
+            {
+                searched.Add($"{name} ({why})");
+                return (null, searched);
+            }
             searched.Add(name);
             return (File.Exists(name) ? name : null, searched);
         }
         if (name.Contains('\\') || name.Contains('/')) name = Path.GetFileName(name);
+        if (OperatingSystem.IsWindows() && Core.SafeFile.IsReservedName(name))
+        {
+            searched.Add($"{name} ({Core.InputFiles.NotOpenedDevice})");
+            return (null, searched);
+        }
 
         string? requesterDir = requester != null ? Path.GetDirectoryName(requester) : null;
         if (!string.IsNullOrEmpty(requesterDir))
@@ -163,10 +173,14 @@ public sealed partial class NativeLinker
     {
         var (file, searched) = Locate(module, requester, x86, runtimeFolder);
         if (file == null)
-            return new LinkResult(searched.Any(s => s.EndsWith("(not in this system's map)", StringComparison.Ordinal)) ? ApiSetUnmapped : DllNotFound,
-                module, null, [], "searched " + string.Join("; ", searched));
+            return new LinkResult(NotFoundStatus(searched), module, null, [], "searched " + string.Join("; ", searched));
         return Export(module, file, x86, name, ordinal, via, 0);
     }
+
+    /// <summary>Why <see cref="Locate"/> found no file: <see cref="NotOpened"/>, <see cref="ApiSetUnmapped"/> or <see cref="DllNotFound"/>.</summary>
+    public static string NotFoundStatus(IEnumerable<string> searched) =>
+        searched.Any(s => s.Contains("(not opened: ", StringComparison.Ordinal)) ? NotOpened
+        : searched.Any(s => s.EndsWith("(not in this system's map)", StringComparison.Ordinal)) ? ApiSetUnmapped : DllNotFound;
 
     /// <summary>Binds <paramref name="name"/> in <paramref name="file"/>, already located as <paramref name="module"/>, following forwarders.</summary>
     public LinkResult BindIn(string module, string file, bool x86, string name, string via) => Export(module, file, x86, name, null, via, 0);
@@ -176,8 +190,7 @@ public sealed partial class NativeLinker
     {
         var (file, searched) = Locate(module, requester, x86, runtimeFolder);
         if (file == null)
-            return (new LinkResult(searched.Any(s => s.EndsWith("(not in this system's map)", StringComparison.Ordinal)) ? ApiSetUnmapped : DllNotFound,
-                module, null, [], "searched " + string.Join("; ", searched)), null);
+            return (new LinkResult(NotFoundStatus(searched), module, null, [], "searched " + string.Join("; ", searched)), null);
         var image = Open(file);
         if (image == null) return (new LinkResult(NotAnImage, module, file, [], $"{file} is not a readable PE image"), null);
         var names = ByName(image);

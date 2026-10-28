@@ -262,8 +262,14 @@ public sealed class SourceMap
         }
         var dir = Path.GetDirectoryName(file) ?? "";
         // Without a comment: a sibling x.js.map, or x.map (jquery.min.js -> jquery.min.map).
-        var candidate = url != null && !url.Contains("://") ? Path.Combine(dir, Uri.UnescapeDataString(url.Split('?', '#')[0]))
+        var named = url != null && !url.Contains("://") ? Uri.UnescapeDataString(url.Split('?', '#')[0]) : null;
+        var candidate = named != null ? Path.Combine(dir, named)
             : File.Exists(file + ".map") ? file + ".map" : Path.ChangeExtension(file, ".map");
+        if (named != null && !InputFiles.StaysUnder(named) && InputFiles.NamedProblem(candidate) is { } why)
+        {
+            var shown = Path.GetFullPath(candidate);
+            throw new ToolError(ErrorCode.AccessDenied, $"the map {shown} is {why}.", "copy the map beside the file") { Details = new { path = shown, problem = why } };
+        }
         if (!File.Exists(candidate)) return null;
         var info = new FileInfo(candidate);
         if (info.Length > MaxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{candidate} is {info.Length:N0} bytes; maps up to {MaxBytes:N0} bytes are decoded.");

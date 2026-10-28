@@ -885,6 +885,9 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Resolves a reference: framework, loaded, disk, embedded, NuGet, app package, same-name loaded, then a stub.</summary>
     public ReferenceTarget? LocateReference(string name, Version? version, byte[]? token, string? requesterPath, bool netFramework, string? requesterFramework = null)
     {
+        // A name that is not a plain file name binds to a loaded assembly only; it is never joined to a folder.
+        if (!InputFiles.IsPlainName(name))
+            return FindReference(name, version, token, requesterPath) is { } loadedOnly ? new(loadedOnly, null, null, null) : null;
         // .NET Framework requesters bind framework assemblies to .NET Framework itself, not to modern .NET facades.
         if (netFramework && Frameworks.NetFrameworkFile(name) is { } netfx && (token is not { Length: > 0 } || TokenMatches(netfx, token))
             && FrameworkUnlessLocal(netfx) is { } fx)
@@ -1113,7 +1116,8 @@ public sealed class AssemblyWorkspace : IDisposable
                 }
                 catch { file = null; }
             }
-            if (file == null)
+            // The fallback joins the reference name to its search folders.
+            if (file == null && InputFiles.IsPlainName(reference.Name))
             {
                 try { file = Fallback.Resolve(reference); }
                 catch { file = null; }
@@ -1125,6 +1129,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
         public DecompilerMetadata.MetadataFile? ResolveModule(DecompilerMetadata.MetadataFile mainModule, string moduleName)
         {
+            if (!InputFiles.IsPlainName(moduleName)) return null;
             try { return Fallback.ResolveModule(mainModule, moduleName); }
             catch { return null; }
         }

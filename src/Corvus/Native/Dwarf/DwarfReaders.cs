@@ -78,23 +78,35 @@ internal sealed class DwarfReaders : IDisposable
         }
         if (name == null) return null;
         string dir = Path.GetDirectoryName(container.Path) ?? "";
-        var candidates = new List<string>();
-        if (Path.IsPathRooted(name)) candidates.Add(name);
-        if (dir.Length > 0) { candidates.Add(Path.Combine(dir, name)); candidates.Add(Path.Combine(dir, Path.GetFileName(name))); }
+        // Each candidate keeps the part the file names; a part that can leave its folder is checked as a path.
+        var candidates = new List<(string Path, string Named)>();
+        if (Path.IsPathRooted(name)) candidates.Add((name, name));
+        if (dir.Length > 0)
+        {
+            candidates.Add((Path.Combine(dir, name), name));
+            candidates.Add((Path.Combine(dir, Path.GetFileName(name)), Path.GetFileName(name)));
+        }
         foreach (var root in DwarfLocator.Roots())
         {
-            if (buildId is { Length: > 2 }) candidates.Add(Path.Combine(root, ".build-id", buildId[..2], buildId[2..] + ".debug"));
+            if (buildId is { Length: > 2 }) candidates.Add((Path.Combine(root, ".build-id", buildId[..2], buildId[2..] + ".debug"), buildId));
             var relative = name.Replace('\\', '/');
             int at = relative.IndexOf("/.dwz/", StringComparison.Ordinal);
-            if (at >= 0) candidates.Add(Path.Combine(root, relative[(at + 1)..]));
-            candidates.Add(Path.Combine(root, Path.GetFileName(name)));
+            if (at >= 0) candidates.Add((Path.Combine(root, relative[(at + 1)..]), relative[(at + 1)..]));
+            candidates.Add((Path.Combine(root, Path.GetFileName(name)), Path.GetFileName(name)));
         }
         var tried = new List<string>();
-        foreach (var c in candidates.Distinct())
+        bool refused = false;
+        foreach (var (c, named) in candidates.Distinct())
         {
             string full;
             try { full = Path.GetFullPath(c); }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { continue; }
+            if (!InputFiles.StaysUnder(named) && InputFiles.NamedProblem(full) is { } why)
+            {
+                if (!tried.Contains($"{full} ({why})")) tried.Add($"{full} ({why})");
+                refused = true;
+                continue;
+            }
             if (!File.Exists(full)) continue;
             DebugContainer? file = null;
             try
@@ -107,8 +119,8 @@ internal sealed class DwarfReaders : IDisposable
             }
             catch (ToolError e) { tried.Add($"{full} ({e.Message})"); file?.Dispose(); }
         }
-        return $"the supplementary file {name}{(buildId != null ? $" (build-id {buildId})" : "")} is not found" +
-               (tried.Count > 0 ? "; not matching: " + string.Join(", ", tried) : $"; set {DwarfLocator.DirsVariable} to its folder") +
+        return $"the supplementary file {name}{(buildId != null ? $" (build-id {buildId})" : "")} is {(refused ? "not read" : "not found")}" +
+               (tried.Count > 0 ? $"; {(refused ? "tried" : "not matching")}: " + string.Join(", ", tried) : $"; set {DwarfLocator.DirsVariable} to its folder") +
                ": names and types moved there are not read";
     }
 }
@@ -150,8 +162,15 @@ internal sealed class SplitUnits(DwarfReaders family, string debugFile)
         if (family.Full) { Note($"more than {DwarfReaders.MaxReaders} split units; the rest are not read"); return null; }
         if (Dwp() is { } dwp && dwp.Index.Find(skeleton.DwoId) is { } row)
             return Reader(skeleton, name => dwp.Index.Section(dwp.File, row, name), dwp.File);
-        foreach (var path in DwoCandidates(skeleton))
+        bool refused = false;
+        foreach (var (path, named) in DwoCandidates(skeleton))
         {
+            if (named && InputFiles.NamedProblem(path) is { } why)
+            {
+                Note($"{path}: {why}");
+                refused = true;
+                continue;
+            }
             if (!File.Exists(path)) continue;
             DebugContainer file;
             try { file = DebugContainer.Open(path); }
@@ -166,7 +185,9 @@ internal sealed class SplitUnits(DwarfReaders family, string debugFile)
             family.Own(file);
             return reader;
         }
-        Note($"split unit {skeleton.DwoName ?? "?"} (DWO id 0x{skeleton.DwoId:X16}) is not found: no {Path.GetFileName(debugFile)}.dwp and no .dwo at its recorded path or beside the debug file");
+        Note(refused
+            ? $"split unit {skeleton.DwoName ?? "?"} (DWO id 0x{skeleton.DwoId:X16}) is not read: no {Path.GetFileName(debugFile)}.dwp, its recorded path is not opened and no .dwo is beside the debug file"
+            : $"split unit {skeleton.DwoName ?? "?"} (DWO id 0x{skeleton.DwoId:X16}) is not found: no {Path.GetFileName(debugFile)}.dwp and no .dwo at its recorded path or beside the debug file");
         return null;
     }
 
@@ -180,16 +201,18 @@ internal sealed class SplitUnits(DwarfReaders family, string debugFile)
         };
     }
 
-    private IEnumerable<string> DwoCandidates(DwarfUnit skeleton)
+    /// <summary>Where the split unit may be; Named marks a path the file chose, which is checked before any probe.</summary>
+    private IEnumerable<(string Path, bool Named)> DwoCandidates(DwarfUnit skeleton)
     {
         if (skeleton.DwoName is not { Length: > 0 } name) yield break;
         string dir = Path.GetDirectoryName(debugFile) ?? "";
-        if (Path.IsPathRooted(name)) yield return name;
-        if (skeleton.CompDir is { Length: > 0 } comp && !Path.IsPathRooted(name)) yield return Path.Combine(comp, name);
+        if (Path.IsPathRooted(name)) yield return (name, true);
+        if (skeleton.CompDir is { Length: > 0 } comp && !Path.IsPathRooted(name)) yield return (Path.Combine(comp, name), true);
         if (dir.Length > 0)
         {
-            if (!Path.IsPathRooted(name)) yield return Path.Combine(dir, name);
-            yield return Path.Combine(dir, Path.GetFileName(name.Replace('\\', '/').Split('/')[^1]));
+            if (!Path.IsPathRooted(name)) yield return (Path.Combine(dir, name), !InputFiles.StaysUnder(name));
+            var last = Path.GetFileName(name.Replace('\\', '/').Split('/')[^1]);
+            yield return (Path.Combine(dir, last), !InputFiles.StaysUnder(last));
         }
     }
 

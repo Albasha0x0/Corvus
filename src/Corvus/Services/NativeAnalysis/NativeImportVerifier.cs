@@ -20,7 +20,7 @@ public sealed class NativeImportVerifier
         string Module, string EntryPoint, string CharSet, bool ExactSpelling, string CallingConvention,
         [property: Description("verified, contradicted, unresolved, dynamic_only or not_checked.")] string Status,
         [property: Description("Why: verified -> exact, suffixed (A/W), decorated (stdcall _Name@N), forwarded, ordinal, versioned, internal; contradicted -> missing_export, " +
-                               "missing_ordinal, bad_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken, arch_mismatch, mangled_only; unresolved -> dll_not_found, " +
+                               "missing_ordinal, bad_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken, arch_mismatch, mangled_only; unresolved -> dll_not_found, not_opened, " +
                                "api_set_unmapped, not_an_image, system_dll_not_on_host, forwarder_dll_not_found, forwarded_unverified, wrong_platform, malformed_metadata; dynamic_only -> " +
                                "library_loaded_at_run_time, dll_import_resolver; not_checked -> runtime_internal, runtime_library; Mach-O: resolved, version_too_old, system_library, weak_library_absent.")] string Reason,
         string? ResolvedFile, string? Export, string Detail,
@@ -188,7 +188,7 @@ public sealed class NativeImportVerifier
                 ? Result(Unresolved, "wrong_platform", null, null, $"shipped only for other platforms ({string.Join("; ", other.Take(6))}), not for {target.Rid ?? target.Os}")
                 : UnixProbing.IsSystemLibrary(module)
                     ? Result(Unresolved, "system_dll_not_on_host", null, null, $"a {target.Os} system library, not shipped with the app; probed {tried}")
-                : Result(Unresolved, "dll_not_found", null, null, $"probed {tried} in {string.Join("; ", searched)}");
+                : Result(Unresolved, NativeLinker.NotFoundStatus(searched), null, null, $"probed {tried} in {string.Join("; ", searched)}");
         if (_open(file) is not { } image || image.Format == ImageFormat.Pe)
             return Result(Unresolved, "not_an_image", file, null, $"{file} is not a readable ELF or Mach-O library");
         if (target.Arch is { } arch && image.Arch != arch)
@@ -291,8 +291,7 @@ public sealed class NativeImportVerifier
                 ? Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library linked into the runtime here (no separate DLL)")
                 : !_systemDlls && IsSystemDll(module)
                     ? Result(Unresolved, "system_dll_not_on_host", null, null, $"a Windows system DLL, absent on this host; searched {string.Join("; ", searched)}")
-                : Result(Unresolved, searched.Any(s => s.EndsWith("(not in this system's map)", StringComparison.Ordinal)) ? "api_set_unmapped" : "dll_not_found",
-                    null, null, "searched " + string.Join("; ", searched));
+                : Result(Unresolved, NativeLinker.NotFoundStatus(searched), null, null, "searched " + string.Join("; ", searched));
         var image = _linker.Open(file);
         if (image == null) return Result(Unresolved, "not_an_image", file, null, $"{file} is not a readable PE image");
 

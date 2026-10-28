@@ -107,6 +107,11 @@ public static class UnixProbing
         var names = ProbeNames(module, platform);
         if (Path.IsPathFullyQualified(module.Trim()))
         {
+            if (Core.InputFiles.NamedProblem(module.Trim()) is { } why)
+            {
+                searched.Add($"{module.Trim()} ({why})");
+                return (null, searched, []);
+            }
             searched.Add(module.Trim());
             return (File.Exists(module.Trim()) ? module.Trim() : null, searched, []);
         }
@@ -118,7 +123,15 @@ public static class UnixProbing
             if (!Directory.Exists(folder)) continue;
             searched.Add(folder);
             foreach (var name in names)
-                if (Path.Combine(folder, name) is var candidate && File.Exists(candidate)) return (candidate, searched, []);
+            {
+                var candidate = Path.Combine(folder, name);
+                if (!Core.InputFiles.StaysUnder(name) && Core.InputFiles.NamedProblem(candidate) is { } why)
+                {
+                    searched.Add($"{candidate} ({why})");
+                    continue;
+                }
+                if (File.Exists(candidate)) return (candidate, searched, []);
+            }
         }
         // Shipped for another platform only: the same base name with any library suffix under runtimes/<other rid>/native.
         var bare = Path.GetFileNameWithoutExtension(names[^1]);

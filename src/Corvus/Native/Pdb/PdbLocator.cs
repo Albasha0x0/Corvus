@@ -59,6 +59,26 @@ public static class PdbLocator
         return stores;
     }
 
+    /// <summary>The symbol servers a download may use: the http(s) servers of _NT_SYMBOL_PATH and _NT_ALT_SYMBOL_PATH, then <see cref="DefaultServer"/>.</summary>
+    public static List<string> ConfiguredServers()
+    {
+        var servers = new List<string>();
+        foreach (var path in new[] { Providers.ExternalTools.ReadVariable("_NT_SYMBOL_PATH"), Providers.ExternalTools.ReadVariable("_NT_ALT_SYMBOL_PATH") })
+            if (path != null) ParseSymbolPath(path, [], servers);
+        AddDistinct(servers, DefaultServer);
+        return servers;
+    }
+
+    /// <summary>Throws invalid_argument unless <paramref name="server"/> is one of <paramref name="configured"/>, before any connection; <paramref name="setting"/> names where servers are configured.</summary>
+    public static void RequireConfigured(string server, IReadOnlyList<string> configured, string setting)
+    {
+        var wanted = server.Trim().TrimEnd('/');
+        if (configured.Any(c => string.Equals(c.TrimEnd('/'), wanted, StringComparison.OrdinalIgnoreCase))) return;
+        throw new ToolError(ErrorCode.InvalidArgument,
+            $"server '{wanted}' is not a configured symbol server; configured: {(configured.Count > 0 ? string.Join(", ", configured) : "none")}.",
+            $"add it to {setting}, or omit server") { Details = new { server = wanted, configured } };
+    }
+
     /// <summary>Splits a symbol path ("srv*C:\cache*https://server;C:\dir;cache*C:\c2") into local directories and servers.</summary>
     public static void ParseSymbolPath(string symbolPath, List<string> stores, List<string> servers)
     {
@@ -120,7 +140,11 @@ public static class PdbLocator
             if (name != null) candidates.Add(System.IO.Path.Combine(imageDir, name));
             candidates.Add(System.IO.Path.Combine(imageDir, fallbackName));
         }
-        if (cv.PdbPath.Length > 0 && IsUsablePath(cv.PdbPath) && System.IO.Path.IsPathFullyQualified(cv.PdbPath)) candidates.Add(cv.PdbPath);
+        if (cv.PdbPath.Length > 0 && IsUsablePath(cv.PdbPath) && System.IO.Path.IsPathFullyQualified(cv.PdbPath))
+        {
+            if (InputFiles.NamedProblem(cv.PdbPath) is { } refused) probes.Add(new PdbProbe(cv.PdbPath, refused));
+            else candidates.Add(cv.PdbPath);
+        }
         if (name != null)
         {
             string key = StoreKey(cv);

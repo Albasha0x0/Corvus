@@ -103,8 +103,12 @@ internal static class MachODebugMap
     {
         if (entry.Path.EndsWith(')') && entry.Path.Contains(".a(", StringComparison.Ordinal))
             return (null, $"{entry.Path}: an archive member (static library); not read");
-        var candidates = new List<string> { entry.Path };
-        if (Path.GetDirectoryName(imagePath) is { Length: > 0 } dir) candidates.Add(Path.Combine(dir, entry.Path.Replace('\\', '/').Split('/')[^1]));
+        string? refused = null;
+        var candidates = new List<string>();
+        if (Corvus.Core.InputFiles.NamedProblem(entry.Path) is { } why) refused = $"{entry.Path}: {why}";
+        else candidates.Add(entry.Path);
+        var last = entry.Path.Replace('\\', '/').Split('/')[^1];
+        if (Path.GetDirectoryName(imagePath) is { Length: > 0 } dir && Corvus.Core.InputFiles.IsPlainName(last)) candidates.Add(Path.Combine(dir, last));
         foreach (var c in candidates)
         {
             if (!File.Exists(c)) continue;
@@ -112,7 +116,7 @@ internal static class MachODebugMap
             if (entry.ModTime != 0 && stamp != entry.ModTime) return (null, $"{c}: modified after the link (time stamp {stamp}, the debug map records {entry.ModTime}); not read");
             return (c, null);
         }
-        return (null, $"{entry.Path}: not found");
+        return (null, refused ?? $"{entry.Path}: not found");
     }
 }
 

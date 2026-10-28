@@ -15,7 +15,8 @@ internal static class MachOCoreImage
         string name = module.Module.Path.Split('/')[^1];
         var why = new StringBuilder();
         string? existing = null;
-        foreach (var path in CoreImage.Candidates(module.Module.Path, directories, OperatingSystem.IsMacOS()))
+        var refused = new List<string>();
+        foreach (var path in CoreImage.Candidates(module.Module.Path, directories, OperatingSystem.IsMacOS(), refused))
         {
             existing ??= path;
             if (open(path) is not { } file) { why.Append($"{path}: not a Mach-O image of the core's CPU; "); continue; }
@@ -23,6 +24,7 @@ internal static class MachOCoreImage
             if (string.Equals(file.BuildId, module.BuildId, StringComparison.OrdinalIgnoreCase)) return (path, true, $"UUID {module.BuildId} matches");
             why.Append($"{path}: UUID {file.BuildId ?? "none"}, the core's is {module.BuildId}; ");
         }
+        foreach (var r in refused) why.Append(r).Append("; ");
         string detail = why.Length > 0 ? why.ToString().TrimEnd(' ', ';') : name.Length > 0 ? $"no file named {name} in {string.Join(", ", directories)}" : "no file name";
         return (existing, false, detail);
     }

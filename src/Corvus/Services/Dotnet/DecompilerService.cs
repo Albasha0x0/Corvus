@@ -536,7 +536,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 else if (File.Exists(name)) file = snapshot.Own(ExportSnapshot.Open(name, File.ReadAllBytes(name)));
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { file = null; }
-            if (file == null)
+            // The fallback joins the reference name to its search folders.
+            if (file == null && InputFiles.IsPlainName(reference.Name))
             {
                 try { file = Fallback.Resolve(reference) is { } found ? snapshot.Own(found) : null; }
                 catch (Exception ex) when (ex is not OperationCanceledException) { file = null; }
@@ -551,6 +552,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
         public ICSharpCode.Decompiler.Metadata.MetadataFile? ResolveModule(ICSharpCode.Decompiler.Metadata.MetadataFile mainModule, string moduleName)
         {
+            if (!InputFiles.IsPlainName(moduleName)) return null;
             try { return Fallback.ResolveModule(mainModule, moduleName) is { } found ? snapshot.Own(found) : null; }
             catch { return null; }
         }

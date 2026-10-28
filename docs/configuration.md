@@ -235,6 +235,7 @@ The server goes online only when a call or command asks for it ([SECURITY.md](..
 
 - `CORVUS_OFFLINE`: `1` stops downloads of reference packs, symbols, DACs, revocation lists, rule packs and Frida.
 - `CORVUS_DEBUGINFOD_URLS`: debuginfod servers for `load_pdb download=true` on ELF (else `DEBUGINFOD_URLS`; none by default).
+- `load_pdb server=` takes only a configured server: `_NT_SYMBOL_PATH`, Microsoft's or a debuginfod variable.
 - `GITHUB_TOKEN`: optional token for `corvus update` and the install scripts (higher API rate limit). Sent to GitHub hosts over HTTPS only.
 
 ### Naming and output

@@ -1591,7 +1591,7 @@ Load PDB (GUID and age checked) or DWARF debug symbols for a native image: names
 | `image` | string | yes |  | Image id, name or path. |
 | `path` | string |  |  | PDB or debug file, dSYM, or a folder or symbol store to look in first. |
 | `download` | boolean |  |  | If nothing local matches: symbol server (PDB), debuginfod (ELF). |
-| `server` | string |  |  | Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF). |
+| `server` | string |  |  | Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF). Others are refused. |
 | `allowMismatch` | boolean |  |  | Use the path file even if GUID/age or build-id differs. |
 | `timeoutSeconds` | integer |  | `120` | Download time limit, seconds. |
 | `maxMegabytes` | integer |  | `2048` | Download size limit in MB. |

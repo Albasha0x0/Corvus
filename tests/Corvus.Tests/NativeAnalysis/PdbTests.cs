@@ -20,7 +20,7 @@ public class PdbTests
     /// with a CodeView RSDS record naming <paramref name="pdbName"/>, .data; <paramref name="x86"/> builds the same code
     /// as an x86 image without .pdata.
     /// </summary>
-    internal static byte[] TinyImage(Guid guid, uint age, string pdbName = "tiny.pdb", bool x86 = false)
+    internal static byte[] TinyImage(Guid guid, uint age, string pdbName = "tiny.pdb", bool x86 = false, string? pdbPath = null)
     {
         var b = x86 ? new PeBuilder { Is64 = false, Machine = 0x14C, ImageBase = 0x10000000 } : new PeBuilder { Is64 = true, Machine = 0x8664, ImageBase = 0x140000000 };
         var code = new byte[0x80];
@@ -35,7 +35,7 @@ public class PdbTests
             var rsds = new List<byte>(Encoding.ASCII.GetBytes("RSDS"));
             rsds.AddRange(guid.ToByteArray());
             rsds.AddRange(BitConverter.GetBytes(age));
-            rsds.AddRange(Encoding.UTF8.GetBytes(@"C:\build\out\" + pdbName));
+            rsds.AddRange(Encoding.UTF8.GetBytes(pdbPath ?? @"C:\build\out\" + pdbName));
             rsds.Add(0);
             void U32(uint v) => d.AddRange(BitConverter.GetBytes(v));
             U32(0); U32(0x12345678); U32(0); U32(2); U32((uint)rsds.Count); U32(rva + 28); U32(0);

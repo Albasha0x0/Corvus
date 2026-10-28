@@ -425,8 +425,8 @@ public sealed class ClrDecoder : IDisposable
         {
             var name = System.IO.Path.GetFileName(fileName);
             var candidates = new List<string>();
-            if (System.IO.Path.IsPathFullyQualified(fileName)) candidates.Add(fileName);
-            if (name.Length > 0 && name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0)
+            if (System.IO.Path.IsPathFullyQualified(fileName) && InputFiles.NamedProblem(fileName) == null) candidates.Add(fileName);
+            if (InputFiles.IsPlainName(name) && name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0)
                 candidates.AddRange(directories.Select(d => System.IO.Path.Combine(d, name)));
             foreach (var c in candidates)
                 if (File.Exists(c) && Pdb.PdbLocator.CheckImage(c, (uint)buildTimeStamp, (uint)imageSize) == null) return c;

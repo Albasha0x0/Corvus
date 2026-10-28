@@ -193,7 +193,13 @@ public sealed class PdbService
     public async Task<LoadResult> Load(LoadedNative native, string? path, bool download, string? server, bool force, TimeSpan downloadTimeout,
         long maxDownloadBytes, CancellationToken ct)
     {
-        if (native.Image.Format is ImageFormat.Elf or ImageFormat.MachO)
+        bool dwarf = native.Image.Format is ImageFormat.Elf or ImageFormat.MachO;
+        if (!string.IsNullOrWhiteSpace(server))
+        {
+            if (dwarf) PdbLocator.RequireConfigured(server, DwarfLocator.Servers(), DwarfLocator.ServersVariable);
+            else PdbLocator.RequireConfigured(server, PdbLocator.ConfiguredServers(), "_NT_SYMBOL_PATH (srv*<cache>*<url>)");
+        }
+        if (dwarf)
             return await LoadDwarf(native, path, download, server, force, downloadTimeout, maxDownloadBytes, ct).ConfigureAwait(false);
         var pe = native.RequirePe("load_pdb");
         // A symbol server (srv*, URL) is not a local path.

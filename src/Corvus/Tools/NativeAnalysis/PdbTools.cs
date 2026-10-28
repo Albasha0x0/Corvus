@@ -46,7 +46,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         [Description(NativeTools.ImageDescription)] string image,
         [Description("PDB or debug file, dSYM, or a folder or symbol store to look in first.")] string? path = null,
         [Description("If nothing local matches: symbol server (PDB), debuginfod (ELF).")] bool download = false,
-        [Description("Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF).")] string? server = null,
+        [Description("Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF). Others are refused.")] string? server = null,
         [Description("Use the path file even if GUID/age or build-id differs.")] bool allowMismatch = false,
         [Description("Download time limit, seconds.")] int timeoutSeconds = 120,
         [Description("Download size limit in MB.")] int maxMegabytes = 2048,

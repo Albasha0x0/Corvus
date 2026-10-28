@@ -97,6 +97,42 @@ public static class InputFiles
         throw new ToolError(ErrorCode.InvalidArgument, $"{shown} is {problem}; only files on this machine are opened.", next) { Details = new { path = full, problem } };
     }
 
+    /// <summary>What <see cref="NamedProblem"/> reports for a network path and for a device.</summary>
+    public const string NotOpenedNetwork = "not opened: network path", NotOpenedDevice = "not opened: device";
+
+    /// <summary>Why <paramref name="path"/>, found inside a file, is not opened (<see cref="NotOpenedNetwork"/>, <see cref="NotOpenedDevice"/>); null for a local path or one that does not parse.</summary>
+    /// <remarks>Network paths are refused even with <see cref="AllowRemote"/>. Nothing on the path is opened.</remarks>
+    public static string? NamedProblem(string path)
+    {
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
+        var problem = RemoteProblem(full, allowRemote: false);
+        if (problem == null && OperatingSystem.IsWindows() && SafeFile.IsReservedName(Path.GetFileName(full))) problem = "a device path";
+        if (problem == null && !OperatingSystem.IsWindows() && UnixFileType(full) != null) problem = "a device path";
+        return problem switch
+        {
+            null => null,
+            "a network path" => NotOpenedNetwork,
+            "a device path" => NotOpenedDevice,
+            _ => "not opened: " + problem,
+        };
+    }
+
+    /// <summary>True when <paramref name="name"/> is one file name: no separator, colon, parent reference, control character or Windows device name.</summary>
+    public static bool IsPlainName(string name) =>
+        name.Length > 0 && name is not ("." or "..") && name.IndexOfAny(['/', '\\', ':']) < 0 && !name.Any(char.IsControl)
+        && !(OperatingSystem.IsWindows() && SafeFile.IsReservedName(name));
+
+    /// <summary>True when <paramref name="relative"/> joined to any folder stays under it: not rooted, no colon, ".." segment or Windows device name.</summary>
+    public static bool StaysUnder(string relative) =>
+        relative.Length > 0 && !Path.IsPathRooted(relative) && relative[0] is not ('/' or '\\') && !relative.Contains(':') && !relative.Any(char.IsControl)
+        && relative.Split('/', '\\').All(s => s != ".." && !(OperatingSystem.IsWindows() && SafeFile.IsReservedName(s)));
+
+    /// <summary>Why <paramref name="name"/>, a file or assembly name found inside a file, is not looked up: <see cref="NamedProblem"/> for a remote or device path, "not opened: not a file name" for another path; null for a plain name.</summary>
+    public static string? NamedNameProblem(string name) =>
+        IsPlainName(name) ? null : NamedProblem(name) ?? "not opened: not a file name";
+
     /// <summary>The full path of a regular file, symlinks followed; directories, FIFOs, sockets and devices are refused, since reading a FIFO blocks until a writer appears.</summary>
     public static string RequireRegularFile(string path, string what = "file")
     {

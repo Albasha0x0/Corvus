@@ -19,15 +19,20 @@ public static class DumpImages
     /// <summary>The module's file matched by TimeDateStamp and SizeOfImage, by name first, then by identity alone; else the first mismatch or a not-found check.</summary>
     public static LocalImageCheck Find(DumpModule module, IReadOnlyList<string> directories, NativeArch arch = NativeArch.Unknown, IEnumerable<string>? loaded = null)
     {
-        LocalImageCheck? firstMismatch = null;
+        LocalImageCheck? firstMismatch = null, refused = null;
         foreach (var candidate in Candidates(module, directories, arch))
         {
+            if (candidate == module.Path && InputFiles.NamedProblem(candidate) is { } why)
+            {
+                refused = new LocalImageCheck(candidate, false, false, null, null, null, why);
+                continue;
+            }
             var check = Check(candidate, module);
             if (check.Matches) return check;
             if (check.Exists) firstMismatch ??= check;
         }
         if (ByIdentity(module.FileName, module.TimeDateStamp, module.Size, directories, loaded) is { } found) return found;
-        return firstMismatch ?? new LocalImageCheck(null, false, false, null, null, null, "not found on this machine");
+        return firstMismatch ?? refused ?? new LocalImageCheck(null, false, false, null, null, null, "not found on this machine");
     }
 
     /// <summary>A file with this TimeDateStamp and SizeOfImage under any name (see <see cref="Find"/>); null when there is none or the stamp is 0.</summary>
@@ -43,7 +48,7 @@ public static class DumpImages
             if (Hit(path, $"a loaded image ({System.IO.Path.GetFileName(path)})") is { } hit) return hit;
         var key = Pdb.PdbLocator.ImageKey(stamp, size);
         var stores = Pdb.PdbLocator.LocalStores([]);
-        bool usableName = fileName.Length > 0 && fileName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0;
+        bool usableName = InputFiles.IsPlainName(fileName) && fileName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0;
         if (usableName)
             foreach (var store in stores)
                 if (Hit(System.IO.Path.Combine(store, fileName, key, fileName), $"symbol store {store}") is { } hit) return hit;
@@ -129,7 +134,7 @@ public static class DumpImages
         if (arch == NativeArch.X86 && Environment.Is64BitOperatingSystem && Wow64Path(recorded) is { } wow && seen.Add(wow)) yield return wow;
         if (IsUsablePath(recorded) && seen.Add(recorded)) yield return recorded;
         string name = module.FileName;
-        if (name.Length == 0 || name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0) yield break;
+        if (!InputFiles.IsPlainName(name) || name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0) yield break;
         foreach (var dir in directories)
         {
             string p;

@@ -128,7 +128,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
         foreach (var r in m.GetAssemblyRefs())
         {
             var target = workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, Frameworks.ResolvesAsNetFramework(m), Frameworks.RequesterFramework(m));
-            var status = target?.Describe() ?? "not found";
+            var status = target?.Describe() ?? InputFiles.NamedNameProblem(r.Name) ?? "not found";
             // Flag a resolved major version that differs from the requested one; .NET Framework 2.0-4.x unification is expected.
             if (target?.File is { } file && r.Version is { } wanted && !Frameworks.IsWildcard(wanted)
                 && !(wanted.Major <= 4 && Frameworks.IsNetFrameworkAssembly(r.Name)))
@@ -142,8 +142,10 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
             referenceRows.Add(new ReferenceStatus(r.FullName, status));
         }
         int unresolved = referenceRows.Count(r => r.Status == "not found");
+        var notOpened = referenceRows.Where(r => r.Status.StartsWith("not opened", StringComparison.Ordinal)).ToList();
         if (references) sb.Append(referenceText);
-        else sb.AppendLine($"References: {referenceRows.Count}{(unresolved > 0 ? $", {unresolved} not found: " + string.Join(", ", referenceRows.Where(r => r.Status == "not found").Take(10).Select(r => r.Name.Split(',')[0])) : ", all resolved")} (view=references lists them)");
+        else sb.AppendLine($"References: {referenceRows.Count}{(unresolved > 0 ? $", {unresolved} not found: " + string.Join(", ", referenceRows.Where(r => r.Status == "not found").Take(10).Select(r => r.Name.Split(',')[0])) : notOpened.Count > 0 ? "" : ", all resolved")}" +
+                           $"{(notOpened.Count > 0 ? $", {notOpened.Count} not opened: " + string.Join(", ", notOpened.Take(10).Select(r => r.Name.Split(',')[0])) : "")} (view=references lists them)");
 
         var attrs = m.Assembly?.CustomAttributes.Where(c => c != tfa).ToList() ?? [];
         if (attrs.Count > 0 && metadata)
