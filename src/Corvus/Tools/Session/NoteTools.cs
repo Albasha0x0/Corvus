@@ -11,7 +11,8 @@ namespace Corvus.Tools;
 
 /// <summary>Analyst notes kept per binary identity across sessions and server processes.</summary>
 [McpServerToolType]
-public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService notes, NativeCodeService code, MinidumpService dumps, ResultStore? results = null)
+public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService notes, NativeCodeService code, MinidumpService dumps, ResultStore? results = null,
+    ServerOptions? options = null)
 {
     public const string AnchorDescription =
         "<image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide).";
@@ -37,8 +38,9 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var resolved = Anchor(anchor);
-        var client = context?.Server?.ClientInfo?.Name;
-        return notes.Record(text, kind, status, resolved, tags, Evidence(Link(evidence, context)), client, NotesService.OriginOf(client));
+        // The client names itself, so the origin comes from how the server was started.
+        return notes.Record(text, kind, status, resolved, tags, Evidence(Link(evidence, context)), context?.Server?.ClientInfo?.Name,
+            NotesService.OriginOf(options?.InProcessCli == true));
     }, cancellationToken);
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]

@@ -106,10 +106,10 @@ public sealed class NotesService(AnnotationStore store)
     public const string AgentOrigin = "agent", UserOrigin = "user";
 
     /// <summary>
-    /// The origin of a note written through the client named
-    /// <paramref name="clientName"/>.
+    /// The origin of a note written in a server the command line runs
+    /// (<see cref="ServerOptions.InProcessCli"/>), or by an MCP client.
     /// </summary>
-    public static string OriginOf(string? clientName) => clientName == ClientProfiles.CliClientName ? UserOrigin : AgentOrigin;
+    public static string OriginOf(bool inProcessCli) => inProcessCli ? UserOrigin : AgentOrigin;
 
     public sealed class NoteFile
     {

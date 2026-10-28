@@ -5,6 +5,7 @@ using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Native.Annotations;
 using Corvus.Services;
+using Corvus.Setup;
 using Corvus.Tools;
 
 namespace Corvus.Tests;
@@ -29,13 +30,22 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
-    public void A_note_keeps_its_origin_and_the_command_line_writes_as_user()
+    public async Task A_client_named_like_the_command_line_writes_as_agent()
     {
-        Assert.Equal(NotesService.UserOrigin, NotesService.OriginOf(ClientProfiles.CliClientName));
-        Assert.Equal(NotesService.AgentOrigin, NotesService.OriginOf("some-client"));
-        var store = Store();
-        var id = store.Record("from the command line", null, null, NoteAnchor.Global, null, null, null, NotesService.UserOrigin).Id;
-        Assert.Equal(NotesService.UserOrigin, Assert.Single(Store().All(), n => n.Id == id).Origin);
+        await using var server = await InProcessServer.StartAsync(clientName: ToolSession.ClientName, options: new ServerOptions { BackgroundIndexing = false, WatchFiles = false });
+        var note = await server.Client.CallToolAsync("record_note", new Dictionary<string, object?> { ["text"] = "named like the command line" });
+        Assert.Equal(NotesService.AgentOrigin, note.StructuredContent!.Value.GetProperty("origin").GetString());
+    }
+
+    [Fact]
+    public async Task A_note_the_command_line_records_lists_as_user()
+    {
+        var text = "from the command line " + Guid.NewGuid().ToString("N");
+        var (code, _, error) = await ToolCliTests.Run("record_note", "text=" + text);
+        Assert.True(code == 0, error);
+        var (listed, rows, _) = await ToolCliTests.Run("list_notes", "text=" + text);
+        Assert.Equal(0, listed);
+        Assert.Contains("origin=user", rows);
     }
 
     [Fact]

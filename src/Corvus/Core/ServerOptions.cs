@@ -68,6 +68,12 @@ public sealed class ServerOptions
 
     public const string IdaScriptingVariable = "CORVUS_IDA_SCRIPTING";
 
+    /// <summary>
+    /// The server runs inside the command line, which alone sets this: no
+    /// argument, variable or client message can.
+    /// </summary>
+    public bool InProcessCli { get; internal set; }
+
     /// <summary>File tools parse in the server process, not a <c>corvus worker</c>, so a reader crash ends the server (default off).</summary>
     public bool InProcessParsing { get; set; }
 

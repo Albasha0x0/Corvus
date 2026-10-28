@@ -18,9 +18,6 @@ public static class ClientProfiles
 
     public const string Full = "full", Lean = "lean";
 
-    /// <summary>The clientInfo.name the command line connects with.</summary>
-    public const string CliClientName = "corvus-cli";
-
     /// <summary>Under Claude Code's 10k warning and Codex's 10k middle cut.</summary>
     public const int DefaultMaxTokens = 9_500;
 
