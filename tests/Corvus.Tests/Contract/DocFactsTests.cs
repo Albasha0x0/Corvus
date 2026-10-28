@@ -176,12 +176,17 @@ public partial class DocFactsTests
         var options = new[] { "Setup/CliArgs.cs", "Core/ServerOptions.cs", "Core/Toolsets.cs", "Core/ClientProfiles.cs" }
             .SelectMany(f => OptionLiteral().Matches(Read("src/Corvus/" + f)).Select(m => m.Groups[1].Value))
             .ToHashSet(StringComparer.Ordinal);
+        var variables = Directory.EnumerateFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories)
+            .SelectMany(f => VariableLiteral().Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value))
+            .ToHashSet(StringComparer.Ordinal);
         var pages = RecipePages().ToList();
         Assert.True(pages.Count >= 3, $"only {pages.Count} recipes");
         var problems = new List<string>();
         foreach (var page in pages)
         {
             var text = Read(page);
+            problems.AddRange(VariableName().Matches(text).Select(v => v.Value).Where(v => !variables.Contains(v)).Distinct()
+                .Select(v => $"{page}: corvus reads no variable {v}"));
             var calls = CliCall().Matches(text).ToList();
             if (calls.Count == 0) problems.Add($"{page}: runs no corvus command");
             foreach (Match call in calls)
@@ -268,6 +273,9 @@ public partial class DocFactsTests
 
     [GeneratedRegex(@"""(CORVUS_[A-Z0-9_]+)""")]
     private static partial Regex VariableLiteral();
+
+    [GeneratedRegex(@"CORVUS_[A-Z0-9_]*[A-Z0-9]")]
+    private static partial Regex VariableName();
 
     [GeneratedRegex(@"""(--[a-z][a-z0-9-]+)""")]
     private static partial Regex OptionLiteral();
