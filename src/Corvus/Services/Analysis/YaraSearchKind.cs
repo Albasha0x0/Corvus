@@ -30,8 +30,10 @@ internal sealed class YaraSearchKind : IContainerSearchKind
         var result = Run(request, source, ct);
         var rows = result.Hits.SelectMany(h => h.Rules.Select(r => Row(h.Path, r))).ToList();
         var files = result.Regions > 0 ? result.Regions : (Directory.Exists(source) ? 0 : 1) + result.Members;
+        var notes = Notes(result, fromQuery);
+        if (RulePacks.ResolveQuery(query, RulePacks.Root) is { } pack) notes.Insert(1, $"Rule pack {RulePacks.At(pack).Label}.");
         return new UnpackService.ContainerSearch(source, result.Regions > 0 ? "dump" : "file", files, rows.Skip(Math.Max(0, offset)).Take(limit).ToList(), Math.Max(0, offset), rows.Count,
-            Notes(result, fromQuery));
+            notes);
     }
 
     /// <summary>Sets the rules <paramref name="query"/> names on <paramref name="request"/>; true when it is compiled as rule text.</summary>

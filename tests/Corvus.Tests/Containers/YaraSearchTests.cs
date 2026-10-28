@@ -228,6 +228,26 @@ public sealed class YaraSearchTests : IDisposable
         finally { Directory.Delete(Path.Combine(RulePacks.Root, name), recursive: true); }
     }
 
+    [YaraFact]
+    public void An_imported_pack_matches_offline_and_names_its_version_and_date()
+    {
+        // Imported into the tests' data folder under a name no other test uses.
+        var name = "fixture-" + Guid.NewGuid().ToString("N");
+        var archive = _dir.File("pack-1.0.tar.gz");
+        File.WriteAllBytes(archive, RulePackTests.TarGz());
+        try
+        {
+            RulePacks.Import(archive, RulePacks.Root, pins: [RulePackTests.Pack(".tar.gz", File.ReadAllBytes(archive)) with { Name = name }]);
+            using var pool = Pool();
+            using var shared = WorkerPool.UseShared(pool);
+
+            var found = new UnpackService(_ws).Search(FixtureFiles()[1], $"pack:{name}", "yara", 10, AnalysisLimits.Default, default);
+            Assert.Equal(["one", "two"], found.Items.Select(i => i.Name).Order());
+            Assert.Equal($"Rule pack {name} 1.0, rules as of 2026-10-01.", found.Notes[1]);
+        }
+        finally { Directory.Delete(Path.Combine(RulePacks.Root, name), recursive: true); }
+    }
+
     [Fact]
     public async Task Without_the_library_the_scan_is_refused_naming_the_platform()
     {

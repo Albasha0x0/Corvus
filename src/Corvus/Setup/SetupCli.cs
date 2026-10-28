@@ -127,7 +127,8 @@ internal static class SetupCli
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.
-          rules [list]          Installed and known YARA rule packs; rules fetch <pack> downloads one (SHA-256 checked)
+          rules [list]          Installed and known YARA rule packs; rules fetch <pack> downloads one, rules import
+                                <archive> [pack] installs one from a local archive (SHA-256 checked both ways)
                                 for search_container kind=yara query=pack:<name>.
           ida-script [folder]   Write corvus_connect.py and its worker for IDA's File > Script file; it serves
                                 the open database to Corvus when CORVUS_IDA_CONNECT=1.

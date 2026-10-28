@@ -7,7 +7,10 @@ using Corvus.Core;
 
 namespace Corvus.Tests;
 
-/// <summary>corvus rules fetch: a pinned archive is installed only when its SHA-256 matches, never offline; no network is used.</summary>
+/// <summary>
+/// corvus rules fetch and import: a pinned archive is installed only when its
+/// SHA-256 matches, never offline; no network is used.
+/// </summary>
 public sealed class RulePackTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -35,13 +38,16 @@ public sealed class RulePackTests : IDisposable
         ("pack-1.0/tests/three.yar", "rule three { condition: true }"),
     ];
 
-    private static byte[] TarGz()
+    /// <summary>Every fixture entry's time: the pack's as-of date.</summary>
+    internal static readonly DateTimeOffset EntryTime = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+
+    internal static byte[] TarGz()
     {
         var ms = new MemoryStream();
         using (var gz = new GZipStream(ms, CompressionLevel.Fastest, leaveOpen: true))
         using (var tar = new TarWriter(gz))
             foreach (var (name, text) in Entries)
-                tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(Encoding.UTF8.GetBytes(text)) });
+                tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(Encoding.UTF8.GetBytes(text)), ModificationTime = EntryTime });
         return ms.ToArray();
     }
 
@@ -50,11 +56,16 @@ public sealed class RulePackTests : IDisposable
         var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
             foreach (var (name, text) in Entries)
-                using (var s = zip.CreateEntry(name).Open()) s.Write(Encoding.UTF8.GetBytes(text));
+            {
+                var entry = zip.CreateEntry(name);
+                entry.LastWriteTime = EntryTime;
+                using var s = entry.Open();
+                s.Write(Encoding.UTF8.GetBytes(text));
+            }
         return ms.ToArray();
     }
 
-    private static RulePack Pack(string extension, byte[] archive) => new("fixture", "1.0", $"https://example.com/pack-1.0{extension}",
+    internal static RulePack Pack(string extension, byte[] archive) => new("fixture", "1.0", $"https://example.com/pack-1.0{extension}",
         Convert.ToHexStringLower(SHA256.HashData(archive)), "pack-1.0/rules/", "pack-1.0/LICENSE", "fixture", "a test pack");
 
     [Fact]
@@ -95,6 +106,45 @@ public sealed class RulePackTests : IDisposable
         Assert.Equal(ErrorCode.Unsupported, e.Code);
         Assert.StartsWith("CORVUS_OFFLINE is set", e.Message, StringComparison.Ordinal);
         Assert.Equal(0, http.Requests);
+    }
+
+    [Fact]
+    public void A_local_archive_with_a_pinned_hash_installs_and_lists_its_version_and_date()
+    {
+        var archive = _dir.File("pack-1.0.tar.gz");
+        File.WriteAllBytes(archive, TarGz());
+        var root = _dir.File("rules");
+        // Import takes no HTTP handler: it has no way to reach the network.
+        var (pack, installed) = RulePacks.Import(archive, root, pins: [Pack(".tar.gz", File.ReadAllBytes(archive))]);
+        Assert.True(installed);
+        Assert.Equal((2, EntryTime), (pack.RuleFiles, pack.AsOf));
+        var listed = Assert.Single(RulePacks.Installed(root));
+        Assert.Equal("fixture 1.0, rules as of 2026-10-01", listed.Label);
+        Assert.False(RulePacks.Import(archive, root, "fixture", [Pack(".tar.gz", File.ReadAllBytes(archive))]).Installed);
+    }
+
+    [Fact]
+    public void A_local_archive_whose_hash_is_not_the_pin_is_refused_naming_both_hashes()
+    {
+        var archive = _dir.File("pack-1.0.zip");
+        File.WriteAllBytes(archive, Zip());
+        var actual = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(archive)));
+        var pinned = Pack(".zip", Zip()) with { Sha256 = new string('0', 64) };
+        var root = _dir.File("rules");
+        var named = Assert.Throws<ToolError>(() => RulePacks.Import(archive, root, "fixture", [pinned]));
+        Assert.Contains($"SHA-256 {actual} differs from the pinned {pinned.Sha256} of fixture 1.0; nothing was installed", named.Message);
+        var unnamed = Assert.Throws<ToolError>(() => RulePacks.Import(archive, root, pins: [pinned]));
+        Assert.Contains($"SHA-256 {actual} is not pinned (fixture 1.0: {pinned.Sha256})", unnamed.Message);
+        Assert.Empty(RulePacks.Installed(root));
+    }
+
+    [Fact]
+    public void A_pack_installed_without_a_date_lists_it_as_unknown()
+    {
+        var folder = Path.Combine(_dir.File("rules"), "old", "2.0");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "pack.json"), "{}");
+        Assert.Equal("old 2.0, rules as of unknown", Assert.Single(RulePacks.Installed(_dir.File("rules"))).Label);
     }
 
     [Fact]
