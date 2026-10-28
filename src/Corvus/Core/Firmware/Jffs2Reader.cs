@@ -114,8 +114,8 @@ internal sealed class Jffs2Reader : IContainerReader
                     switch (mode & 0xF000)
                     {
                         case 0x4000: Walk(e.Inode, full, depth + 1); break;
-                        case 0x8000: tree.File(full, latest?.FileSize ?? 0, n => Build(src, data ?? [], (uint)n, limits), mode: latest?.Mode); break;
-                        case 0xA000: tree.Link(full, Encoding.UTF8.GetString(Build(src, data ?? [], Math.Min(latest?.FileSize ?? 0, 4096), limits)), latest?.Mode); break;
+                        case 0x8000: tree.File(full, latest?.FileSize ?? 0, n => Build(src, data ?? [], (uint)n, limits, ct), mode: latest?.Mode); break;
+                        case 0xA000: tree.Link(full, Encoding.UTF8.GetString(Build(src, data ?? [], Math.Min(latest?.FileSize ?? 0, 4096), limits, ct)), latest?.Mode); break;
                     }
                 }
                 catch (Exception ex) when (FsTree.Damaged(ex)) { tree.Unreadable(full, ex); }
@@ -126,13 +126,18 @@ internal sealed class Jffs2Reader : IContainerReader
     });
 
     /// <summary>A file's bytes: its data nodes applied oldest first, so newer ranges overwrite older ones.</summary>
-    private static byte[] Build(FsSource src, List<Data> nodes, uint size, AnalysisLimits limits)
+    private static byte[] Build(FsSource src, List<Data> nodes, uint size, AnalysisLimits limits, CancellationToken ct)
     {
         if (size > limits.MaxItemBytes) throw new InvalidDataException($"{size:N0} bytes");
         var bytes = new byte[size];
+        // Rewrites overlap, but nodes that decode far more than the file holds are
+        // a loop over the same range: decoding stops at 4x the size plus 64 MiB.
+        long budget = 4L * size + (64L << 20);
         foreach (var d in nodes.OrderBy(n => n.Version))
         {
             if (d.Size == 0 || d.Offset >= size) continue;
+            ct.ThrowIfCancellationRequested();
+            if ((budget -= d.Size) < 0) throw new InvalidDataException("the data nodes decode to more than 4 times the file size");
             if (d.Size > 1 << 20) throw new InvalidDataException("a data node larger than 1 MiB");
             var output = new byte[d.Size];
             // Codec 1 is a hole of zeros.

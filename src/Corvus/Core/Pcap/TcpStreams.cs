@@ -37,12 +37,14 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
         public readonly UInt128 Client = client;
         public readonly ushort ClientPort = clientPort;
         public readonly Direction FromClient = new(), FromServer = new();
-        public long LastSeen;
+        public LinkedListNode<(bool, UInt128, ushort, UInt128, ushort)>? Recent;
     }
 
     private readonly Dictionary<(bool, UInt128, ushort, UInt128, ushort), Connection> _open = [];
+    // Least recently seen first, so evicting the oldest costs O(1), not a scan
+    // of every open connection per new one.
+    private readonly LinkedList<(bool, UInt128, ushort, UInt128, ushort)> _recent = [];
     private int _count;
-    private long _tick;
 
     public int Connections => _count;
     public long Gaps { get; private set; }
@@ -57,14 +59,19 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
         if (!_open.TryGetValue(key, out var c))
         {
             if (rst || (payload.Length == 0 && !syn)) return;
-            if (_open.Count >= MaxConnections) Close(_open.MinBy(o => o.Value.LastSeen).Key);
+            if (_open.Count >= MaxConnections) Close(_recent.First!.Value);
             // The client is the SYN's sender, a SYN-ACK's receiver, else the higher port.
             bool srcClient = syn ? !ack : p.SrcPort != p.DstPort ? p.SrcPort > p.DstPort : true;
             var (client, clientPort, server, serverPort) = srcClient ? (p.Src, p.SrcPort, p.Dst, p.DstPort) : (p.Dst, p.DstPort, p.Src, p.SrcPort);
             var info = new TcpConnectionInfo(_count++, PacketDecoder.Endpoint(p.V6, client, clientPort), PacketDecoder.Endpoint(p.V6, server, serverPort), serverPort, micros);
             c = _open[key] = new Connection(info, open(info), p.V6, client, clientPort);
+            c.Recent = _recent.AddLast(key);
         }
-        c.LastSeen = ++_tick;
+        else
+        {
+            _recent.Remove(c.Recent!);
+            _recent.AddLast(c.Recent!);
+        }
         bool fromClient = p.Src == c.Client && p.SrcPort == c.ClientPort;
         var d = fromClient ? c.FromClient : c.FromServer;
         if (!d.Started)
@@ -95,7 +102,7 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
             d.PendingBytes += payload.Length - (old?.Length ?? 0);
             d.Pending[at] = payload.ToArray();
         }
-        while (d.PendingBytes > MaxPending) Skip(c, fromClient, d);
+        while (d.PendingBytes > MaxPending && d.Pending.Count > 0) Skip(c, fromClient, d);
     }
 
     private static void Deliver(Connection c, bool fromClient, Direction d, ReadOnlySpan<byte> data)
@@ -147,6 +154,7 @@ internal sealed class TcpStreams(Func<TcpConnectionInfo, ITcpConsumer> open)
     {
         var c = _open[key];
         _open.Remove(key);
+        _recent.Remove(c.Recent!);
         while (c.FromClient.Pending.Count > 0) Skip(c, true, c.FromClient);
         while (c.FromServer.Pending.Count > 0) Skip(c, false, c.FromServer);
         c.Consumer.End();

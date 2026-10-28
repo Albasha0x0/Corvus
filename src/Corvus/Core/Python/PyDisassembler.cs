@@ -30,8 +30,11 @@ public static class PyDisassembler
         var found = new List<string>();
         if (PyOpcodes.For(version) is not { } table) return found;
         int import = table.Op("IMPORT_NAME");
+        // Shared code objects repeat per path: 100,000 visits at most.
+        int visits = 0;
         void Walk(PyCode c, int depth)
         {
+            if (++visits > 100_000) return;
             foreach (var i in Unpack(c.Code, table))
                 if (i.Op == import && i.Arg is { } a && a >= 0 && a < c.Names.Length && PyMarshal.Str(c.Names[a]) is { Length: > 0 } name && !found.Contains(name))
                     found.Add(name);

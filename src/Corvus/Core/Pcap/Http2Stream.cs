@@ -7,7 +7,7 @@ internal sealed class Http2Stream(string scheme, string server, Action<CapturedR
 {
     private static readonly byte[] Preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"u8.ToArray();
     private const int MaxFrame = 1 << 24;
-    private const int MaxStreams = 10_000;
+    private const int MaxStreams = 10_000, MaxHeaderBlock = 1 << 20;
 
     private sealed class Side(bool client)
     {
@@ -56,6 +56,9 @@ internal sealed class Http2Stream(string scheme, string server, Action<CapturedR
             if (!Frame(side, b[3], b[4], BinaryPrimitives.ReadUInt32BigEndian(b[5..]) & 0x7FFFFFFF, b.Slice(9, length))) { side.Broken = true; return; }
             at += 9 + length;
         }
+        // A large frame arrives over many segments: the buffer is compacted only
+        // once frames were taken, so waiting for one is not quadratic.
+        if (at == 0) return;
         var rest = all[at..].ToArray();
         side.Buffer.SetLength(0);
         side.Buffer.Write(rest);
@@ -87,6 +90,7 @@ internal sealed class Http2Stream(string scheme, string server, Action<CapturedR
             }
             case 9: // CONTINUATION
                 if (side.Block == null || stream != side.BlockStream) return false;
+                if (side.Block.Count + body.Length > MaxHeaderBlock) return false;
                 side.Block.AddRange(body);
                 return (flags & 4) == 0 || Headers(side);
             // PUSH_PROMISE: its header block still feeds the table.

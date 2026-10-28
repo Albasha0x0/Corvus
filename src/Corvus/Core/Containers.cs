@@ -9,11 +9,6 @@ namespace Corvus.Core;
 /// <summary>A file extracted from a container; Origin describes its location and decoding.</summary>
 public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin)
 {
-    /// <summary>
-    /// A file the archive records by name; written even when its bytes repeat.
-    /// </summary>
-    public bool Member { get; init; }
-
     // Each item counts toward its call's output here, so no reader needs a
     // call of its own.
     public byte[] Bytes { get; init; } = Counted(Bytes, Name);
@@ -23,6 +18,11 @@ public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin)
         Spent.Current?.Produced(bytes.Length, name);
         return bytes;
     }
+
+    /// <summary>
+    /// A file the archive records by name; written even when its bytes repeat.
+    /// </summary>
+    public bool Member { get; init; }
 }
 
 /// <summary>An entry of an archive container (ASAR, WebPlayerData, HAR, flows), listed without extracting it.</summary>
@@ -606,10 +606,12 @@ public static class Containers
             }
             else
             {
-                // A zip64 size past 2^63 reads negative.
+                // A zip64 size past 2^63 reads negative, and would point the next
+                // header back at this one.
                 if (compressed < 0 || compressed > data.Length - body) break;
                 next = body + (int)compressed;
             }
+            if (next <= at) break;
 
             if ((flags & 0x01) != 0)
                 skipped.Add($"Skipped {name}: encrypted.");

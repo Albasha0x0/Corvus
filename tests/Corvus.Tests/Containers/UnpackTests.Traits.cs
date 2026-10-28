@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 using dnlib.DotNet;
 using ModelContextProtocol.Client;
@@ -226,6 +227,26 @@ public partial class UnpackTests
 
         Assert.Contains("corrupt XALZ", Assert.Throws<ToolError>(() => List(Save("bad.dll", [.. "XALZ"u8, 0, 0, 0, 0, 100, 0, 0, 0, 1, 2, 3]))).Message);
         Assert.Contains("File not found", Assert.Throws<ToolError>(() => List(_dir.File("missing.apk"))).Message);
+    }
+
+    [Fact]
+    public void A_zip64_record_whose_size_points_back_at_itself_ends_as_malformed_input()
+    {
+        // One local header, no central directory: a directory entry whose zip64
+        // compressed size is minus the header's own length.
+        var zip = new byte[52];
+        BinaryPrimitives.WriteUInt32LittleEndian(zip, 0x04034B50);
+        BinaryPrimitives.WriteUInt32LittleEndian(zip.AsSpan(18), uint.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(zip.AsSpan(22), uint.MaxValue);
+        BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(26), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(28), 20);
+        "d/"u8.CopyTo(zip.AsSpan(30));
+        BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(32), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(34), 16);
+        BinaryPrimitives.WriteInt64LittleEndian(zip.AsSpan(44), -zip.Length);
+        var path = Save("loop.nupkg", zip);
+        var error = Assert.Throws<ToolError>(() => List(path));
+        Assert.Equal(ErrorCode.MalformedInput, error.Code);
     }
 
     private static JsonElement Prop(JsonElement e, string name) =>

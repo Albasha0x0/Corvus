@@ -91,8 +91,11 @@ internal sealed class UbiReader : IContainerReader
                 throw new ToolError(ErrorCode.LimitExceeded, $"extracting {name} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
             var bytes = new byte[size];
             long o = 0;
-            for (uint l = 0; l < count; l++)
+            // A static volume's unmapped blocks hold nothing, so only mapped ones are
+            // visited: its header may claim billions of blocks.
+            foreach (var l in isStatic ? map.Keys.Where(k => k < count).Order() : Enumerable.Range(0, (int)count).Select(k => (uint)k))
             {
+                if ((l & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
                 long take = isStatic ? (map.TryGetValue(l, out var s) ? s.DataSize : 0) : usable;
                 take = Math.Min(take, size - o);
                 if (map.TryGetValue(l, out var leb)) src.Read(leb.Peb + dataAt, (int)Math.Min(take, src.Length - leb.Peb - dataAt)).CopyTo(bytes, o);

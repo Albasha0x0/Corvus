@@ -208,15 +208,22 @@ public sealed class Realm : IDisposable
     {
         long root = Read(table.Ref) is { } tt && tt.Size > 2 ? Ref(Int(tt, 2)) : 0;
         if (root == 0) return [];
-        return Leaves(table, root, 0, 0, reached, ct);
+        return Leaves(table, root, 0, 0, reached, [], ct);
     }
 
-    private IEnumerable<Obj> Leaves(Table table, long r, long offset, int depth, HashSet<long>? reached, CancellationToken ct)
+    // A tree never shares a node: a child reached twice in one walk is skipped,
+    // or shared children would be read once per path, exponential in depth.
+    private IEnumerable<Obj> Leaves(Table table, long r, long offset, int depth, HashSet<long>? reached, HashSet<long> walked, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (depth > MaxDepth || Read(r) is not { HasRefs: true } n)
         {
             Note($"{table.Name}: cluster node at {r} unreadable");
+            yield break;
+        }
+        if (!walked.Add(r))
+        {
+            Note($"{table.Name}: cluster node at {r} is reached twice; read once");
             yield break;
         }
         reached?.Add(r);
@@ -230,7 +237,7 @@ public sealed class Realm : IDisposable
                 long child = Ref(Int(n, i));
                 // Child key offsets come from the keys array, or from the child's position when the tree is compact.
                 long off = keys != null && i - 3 < keys.Size ? (long)UInt(keys, i - 3) : (long)(i - 3) << (depthBelow * 8);
-                foreach (var o in Leaves(table, child, offset + off, depth + 1, reached, ct)) yield return o;
+                foreach (var o in Leaves(table, child, offset + off, depth + 1, reached, walked, ct)) yield return o;
             }
             yield break;
         }
@@ -294,7 +301,7 @@ public sealed class Realm : IDisposable
                 long cr = Ref(Int(n, i));
                 if (cr == 0) values[i] = c.Dictionary ? new Map([]) : new Collection([], c.Set);
                 else if (c.Dictionary) values[i] = DictionaryValues(cr, reached);
-                else values[i] = Tree(c.Type, c.Nullable, c.Target, cr, reached, 0) is { } items ? new Collection(items, c.Set) : new Unread("collection unreadable");
+                else values[i] = Tree(c.Type, c.Nullable, c.Target, cr, reached, 0, []) is { } items ? new Collection(items, c.Set) : new Unread("collection unreadable");
             }
             return values;
         }
@@ -317,15 +324,17 @@ public sealed class Realm : IDisposable
     };
 
     // The values of a B+tree of one element type: inner nodes hold children between an offsets slot and a size slot.
-    private List<object?>? Tree(int type, bool nullable, string? target, long r, HashSet<long>? reached, int depth)
+    /// <param name="walked">Nodes of this tree read so far; a node reached
+    /// twice makes the tree unreadable.</param>
+    private List<object?>? Tree(int type, bool nullable, string? target, long r, HashSet<long>? reached, int depth, HashSet<long> walked)
     {
-        if (depth > MaxDepth || Read(r) is not { } n) return null;
+        if (depth > MaxDepth || !walked.Add(r) || Read(r) is not { } n) return null;
         reached?.Add(r);
         if (!n.Inner) return LeafValues(type, nullable, target, n, reached, null, false);
         var all = new List<object?>();
         for (int i = 1; i < n.Size - 1; i++)
         {
-            if (Tree(type, nullable, target, Ref(Int(n, i)), reached, depth + 1) is not { } part) return null;
+            if (Tree(type, nullable, target, Ref(Int(n, i)), reached, depth + 1, walked) is not { } part) return null;
             all.AddRange(part);
         }
         return all;
@@ -335,8 +344,8 @@ public sealed class Realm : IDisposable
     {
         if (Read(r) is not { HasRefs: true, Size: >= 2 } top) return new Map([new("", new Unread("dictionary unreadable"))]);
         reached?.Add(r);
-        var keys = Tree(TypeString, false, null, Ref(Int(top, 0)), reached, 0);
-        var values = Tree(TypeMixed, true, null, Ref(Int(top, 1)), reached, 0);
+        var keys = Tree(TypeString, false, null, Ref(Int(top, 0)), reached, 0, []);
+        var values = Tree(TypeMixed, true, null, Ref(Int(top, 1)), reached, 0, []);
         if (keys == null || values == null || keys.Count != values.Count) return new Map([new("", new Unread("dictionary unreadable"))]);
         return new Map([.. keys.Select((k, i) => new KeyValuePair<string, object?>(k as string ?? "", values[i]))]);
     }

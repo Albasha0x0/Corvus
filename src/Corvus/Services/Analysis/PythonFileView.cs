@@ -64,6 +64,8 @@ internal sealed class PythonFileView : IFileSummaryView
         return FrozenPython.Read(s, name, allFiles: false, limits, ct);
     }
 
+    private const int MaxWalked = 100_000;
+
     private static FileView? Pyc(FileInput file, CancellationToken ct)
     {
         var data = file.Bytes;
@@ -75,15 +77,19 @@ internal sealed class PythonFileView : IFileSummaryView
                 [$"Python {label} bytecode whose code object does not read."]);
         var functions = new List<string>();
         int count = 0;
+        // Shared references can list one code object many times at each level:
+        // the walk stops after 100,000 visits.
         void Walk(PyCode c, int depth)
         {
-            count++;
+            if (count >= MaxWalked) return;
+            if ((++count & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
             if (depth > 0 && functions.Count < MaxListed) functions.Add(c.QualName);
             if (depth < 64)
                 foreach (var nested in c.Consts.OfType<PyCode>()) Walk(nested, depth + 1);
         }
         Walk(code, 0);
         var notes = new List<string>();
+        if (count >= MaxWalked) notes.Add($"Code objects past the first {MaxWalked:N0} visits are not counted or listed.");
         bool asked = file.Options.Wants("python");
         string text = "";
         bool complete = true;

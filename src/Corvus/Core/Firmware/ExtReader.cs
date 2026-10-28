@@ -156,7 +156,10 @@ internal sealed class ExtReader : IContainerReader
                 return bytes;
             }
             long blocks = (size + _blockSize - 1) / _blockSize;
-            if ((flags & 0x80000) != 0) Extents(inode.AsSpan(40, 60).ToArray(), bytes, blocks, 0);
+            // A file needs no more extent nodes than it has blocks; index entries that
+            // point back into the tree would otherwise be read without end.
+            long nodes = blocks + 1;
+            if ((flags & 0x80000) != 0) Extents(inode.AsSpan(40, 60).ToArray(), bytes, blocks, 0, ref nodes);
             else BlockMap(inode, bytes, blocks);
             return bytes;
         }
@@ -174,9 +177,11 @@ internal sealed class ExtReader : IContainerReader
             }
         }
 
-        private void Extents(byte[] node, byte[] bytes, long blocks, int depth)
+        private void Extents(byte[] node, byte[] bytes, long blocks, int depth, ref long nodes)
         {
             if (depth > 8 || BinaryPrimitives.ReadUInt16LittleEndian(node) != 0xF30A) throw new InvalidDataException("bad extent header");
+            if (--nodes < 0) throw new InvalidDataException("the extent tree has more nodes than the file has blocks");
+            _tree.Token.ThrowIfCancellationRequested();
             int entries = BinaryPrimitives.ReadUInt16LittleEndian(node.AsSpan(2));
             bool leaf = BinaryPrimitives.ReadUInt16LittleEndian(node.AsSpan(6)) == 0;
             for (int i = 0; i < entries && 12 + i * 12 + 12 <= node.Length; i++)
@@ -195,7 +200,7 @@ internal sealed class ExtReader : IContainerReader
                 {
                     long child = U32(node, e + 4) | (long)BinaryPrimitives.ReadUInt16LittleEndian(node.AsSpan(e + 8)) << 32;
                     if (child >= _blockCount) throw new InvalidDataException("an extent index points past the filesystem");
-                    Extents(_src.Read(child * _blockSize, _blockSize), bytes, blocks, depth + 1);
+                    Extents(_src.Read(child * _blockSize, _blockSize), bytes, blocks, depth + 1, ref nodes);
                 }
             }
         }

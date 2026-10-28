@@ -116,7 +116,10 @@ internal sealed class RegistryHive
         var keys = new List<Key>();
         if (key.SubkeyCount == 0 || key.SubkeyList == -1) return keys;
         var cells = new List<int>();
-        List(key.SubkeyList, cells, 0, key.Recovered);
+        // ri lists that name one another visit the same entries again:
+        // 1,048,576 entries at most.
+        int entries = 1 << 20;
+        List(key.SubkeyList, cells, 0, key.Recovered, ref entries);
         foreach (int cell in cells)
         {
             if (KeyAt(cell, key.Recovered) is { } k) keys.Add(k);
@@ -127,7 +130,7 @@ internal sealed class RegistryHive
         return keys;
     }
 
-    private void List(int offset, List<int> cells, int depth, bool recovered)
+    private void List(int offset, List<int> cells, int depth, bool recovered, ref int entries)
     {
         var c = recovered ? FreeCell(offset) : Cell(offset);
         if (c.Length < 4 || depth > MaxListDepth) { Note($"subkey list cell 0x{offset:X} does not read"); return; }
@@ -138,8 +141,9 @@ internal sealed class RegistryHive
         if (4 + (long)count * width > c.Length) { Note($"subkey list cell 0x{offset:X}: {count:N0} entries run past the cell"); count = (c.Length - 4) / width; }
         for (int i = 0; i < count; i++)
         {
+            if (--entries < 0) { Note($"subkey list cell 0x{offset:X}: the lists hold over 1,048,576 entries; the rest are not read"); return; }
             int cell = BinaryPrimitives.ReadInt32LittleEndian(c[(4 + i * width)..]);
-            if (c[0] == 'r') List(cell, cells, depth + 1, recovered);
+            if (c[0] == 'r') List(cell, cells, depth + 1, recovered, ref entries);
             else cells.Add(cell);
         }
     }

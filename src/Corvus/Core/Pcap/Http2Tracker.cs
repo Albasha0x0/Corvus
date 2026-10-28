@@ -87,7 +87,10 @@ internal sealed class Http2Tracker
             d.Block = [];
         }
         else if (d.Block == null) return false;
-        d.Block!.AddRange(body);
+        // CONTINUATION frames without an end re-read the block each time: it
+        // stays under 1 MiB.
+        if (d.Block!.Count + body.Length > MaxBuffer) return false;
+        d.Block.AddRange(body);
         var headers = d.Hpack.Decode(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(d.Block), out int consumed);
         if (headers == null) return false;
         facts.Headers.AddRange(headers);
