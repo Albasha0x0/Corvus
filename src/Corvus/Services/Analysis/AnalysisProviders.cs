@@ -19,7 +19,11 @@ public interface IFileSummaryView
 }
 
 /// <summary>A file inside a container: its inner path, Blob.Identify kind, where it came from and its bytes.</summary>
-public sealed record ContainerItem(string Path, string Kind, string Origin, byte[] Bytes);
+public sealed record ContainerItem(string Path, string Kind, string Origin, byte[] Bytes)
+{
+    /// <summary>The name the container records, when the written <see cref="Path"/> differs from it; null when they match.</summary>
+    public string? Original { get; init; }
+}
 
 /// <summary>What a search kind searches: every file of the container (nested ones opened) and an archive's entries.</summary>
 public sealed record ContainerScope(string Source, string Container, IReadOnlyList<ContainerItem> Items, IReadOnlyList<ContainerEntry>? Entries)

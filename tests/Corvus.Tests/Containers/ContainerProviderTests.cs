@@ -102,6 +102,19 @@ public sealed class ContainerProviderTests : IDisposable
             scope.Items.Where(i => matches(i.Kind)).Select(i => new ContainerMatch(i.Path, i.Kind, kind));
     }
 
+    // Regression: kind=file listed run.ps1.bin and run.ps1 for one entry.
+    [Fact]
+    public void A_file_written_under_a_safe_name_is_listed_once_with_its_recorded_name()
+    {
+        var zip = _dir.File("scripts.zip");
+        File.WriteAllBytes(zip, ContainerFixtures.Zip(("tools/run.ps1", "Write-Output 1"u8.ToArray()), ("readme.txt", "hello"u8.ToArray())));
+        var unpacker = new UnpackService(_workspace);
+        var all = unpacker.Search(zip, "*", "file", 10, AnalysisLimits.Default, default);
+        Assert.Equal(["readme.txt", "tools/run.ps1.bin"], all.Items.Select(m => m.Path).Order(StringComparer.Ordinal));
+        Assert.EndsWith(", recorded as tools/run.ps1", all.Items.Single(m => m.Path == "tools/run.ps1.bin").Detail);
+        Assert.Equal("tools/run.ps1.bin", Assert.Single(unpacker.Search(zip, "run.ps1", "file", 10, AnalysisLimits.Default, default).Items).Path);
+    }
+
     [Fact]
     public void Search_kinds_from_providers_and_the_built_in_file_kind()
     {

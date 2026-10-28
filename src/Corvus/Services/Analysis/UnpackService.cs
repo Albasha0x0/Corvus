@@ -48,7 +48,11 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         public int? FileTotal { get; init; }
     }
 
-    private sealed record Found(string Relative, byte[] Bytes, string Kind, string Sha256, string Origin);
+    private sealed record Found(string Relative, byte[] Bytes, string Kind, string Sha256, string Origin)
+    {
+        /// <summary>The path the container records; null when it is <see cref="Relative"/>.</summary>
+        public string? Original { get; init; }
+    }
 
     private sealed record Walked(string Container, List<Found> Items, List<string> Notes)
     {
@@ -301,7 +305,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             walked = Walk(data, sha, source, limits, ct, allFiles: true);
             entries = walked.Entries ?? (Blob.Identify(data) == "zip" ? ZipEntries(data) : null);
         }
-        var items = walked.Items.Select(i => new ContainerItem(i.Relative.Replace(System.IO.Path.DirectorySeparatorChar, '/'), i.Kind, i.Origin, i.Bytes)).ToList();
+        var items = walked.Items.Select(i => new ContainerItem(i.Relative.Replace(System.IO.Path.DirectorySeparatorChar, '/'), i.Kind, i.Origin, i.Bytes) { Original = i.Original }).ToList();
         return (new ContainerScope(source, walked.Container, items, entries), walked.Notes);
     }
 
@@ -612,7 +616,11 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             // Carved assemblies get .dll so they resolve by name.
             if (kind == DotNet && !relative.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !relative.EndsWith(".exe.bin", StringComparison.OrdinalIgnoreCase))
                 relative += ".dll";
-            found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin));
+            var recorded = (prefix + "/" + item.Name).Replace('\\', '/').TrimStart('/');
+            found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin)
+            {
+                Original = recorded == relative.Replace(System.IO.Path.DirectorySeparatorChar, '/') ? null : recorded,
+            });
             if (found.Count % 200 == 0) progress?.Invoke($"{found.Count} entries read ({total / (1024 * 1024):N0} MB)");
 
             bool opens = MayContainMore(kind) && !(archived && kind == "data") || Containers.ReaderFor(item.Bytes, item.Name) != null;

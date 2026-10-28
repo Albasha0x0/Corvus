@@ -9,11 +9,18 @@ internal sealed class FileSearchKind : IContainerSearchKind
     {
         bool Matches(string path) => matches(path[(path.LastIndexOf('/') + 1)..]) || matches(path);
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        // A file written under a safe name (run.ps1 as run.ps1.bin) is one
+        // row; its archive entry, under the recorded name, is not listed again.
         foreach (var item in scope.Items)
         {
             ct.ThrowIfCancellationRequested();
             seen.Add(item.Path);
-            if (Matches(item.Path)) yield return new ContainerMatch(item.Path, item.Path, "file") { Detail = $"{item.Kind}, {item.Bytes.Length:N0} bytes" };
+            if (item.Original != null) seen.Add(item.Original);
+            if (Matches(item.Path) || item.Original != null && Matches(item.Original))
+                yield return new ContainerMatch(item.Path, item.Path, "file")
+                {
+                    Detail = $"{item.Kind}, {item.Bytes.Length:N0} bytes" + (item.Original != null ? $", recorded as {item.Original}" : ""),
+                };
         }
         foreach (var entry in scope.Entries ?? [])
         {
