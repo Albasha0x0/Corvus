@@ -76,9 +76,10 @@ public partial class SampleDocsTests
     /// <summary>Pages refer to the NuGet global packages folder by this prefix.</summary>
     internal const string Packages = "~/.nuget/packages/";
 
-    /// <summary>A page that only reads restored packages: no sample build, so it runs in the quick set.</summary>
+    // Reruns every guide's steps: nightly and release runs only; CORVUS_UPDATE_DOCS=1 rewrites the pages.
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait("Tier", "Release")]
     public Task Pages_match_what_the_steps_print() => CheckAsync(Pages());
 
     internal static async Task CheckAsync(IEnumerable<string> pages)
