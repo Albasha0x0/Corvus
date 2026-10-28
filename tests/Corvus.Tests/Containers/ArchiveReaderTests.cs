@@ -69,7 +69,7 @@ public sealed class ArchiveReaderTests
     }
 
     [Fact]
-    public void A_zip_entry_whose_sizes_overflow_its_data_is_named_and_the_others_are_extracted()
+    public void A_zip_entry_whose_sizes_overflow_its_data_is_named_damaged_and_the_others_are_extracted()
     {
         var output = new MemoryStream();
         using (var zip = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
@@ -82,7 +82,7 @@ public sealed class ArchiveReaderTests
         BitConverter.GetBytes(0x7FFFFFF0u).CopyTo(data, record + 24);
         var contents = Containers.Open(data, "app.zip", AnalysisLimits.Default, default, allFiles: true);
         Assert.Equal(["a.txt", "c.txt"], contents.Items.Select(i => i.Name));
-        Assert.Contains(contents.Notes, n => n.StartsWith("Skipped b.txt:", StringComparison.Ordinal));
+        Assert.Contains("b.txt: damaged (A local file header is corrupt)", contents.Notes);
     }
 
     [Fact]

@@ -298,7 +298,7 @@ public class InspectionEdgeTests : IDisposable
         var contents = Containers.Open(cut, "streamed.zip", AnalysisLimits.Default, default);
         Assert.Equal(["lib/A.dll", "lib/D.dll"], contents.Items.Select(i => i.Name).ToArray());
         Assert.Contains("Skipped lib/B.dll: encrypted.", contents.Notes);
-        Assert.Contains(contents.Notes, n => n.StartsWith("Skipped lib/C.dll:"));
+        Assert.Contains(contents.Notes, n => n.StartsWith("lib/C.dll: damaged (", StringComparison.Ordinal));
         Assert.Contains(contents.Notes, n => n.StartsWith("Damaged zip") && n.Contains("2 entr(ies) recovered") && !n.Contains("lost"));
         Assert.All(contents.Items, i => Assert.Equal(".NET assembly", Blob.Identify(i.Bytes)));
     }

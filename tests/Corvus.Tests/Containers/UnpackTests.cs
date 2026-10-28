@@ -517,7 +517,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Equal(Blob.Sha256(good), Entry(r, "good.dll").Sha256);
         Assert.Single(r.Files);
         foreach (var name in new[] { "past-end.dll", "overflow.dll", "negative.dll", "bad-deflate.dll" })
-            Assert.Contains(r.Notes, n => n.StartsWith($"Skipped {name}"));
+            Assert.Contains(r.Notes, n => n.StartsWith($"{name}: damaged (", StringComparison.Ordinal));
     }
 
     [Fact]

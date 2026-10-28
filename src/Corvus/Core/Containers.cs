@@ -38,7 +38,10 @@ public static class EntryDamage
     public static string Detail(string why, long? offset = null) => $"damaged ({why}{(offset is { } at ? $" at 0x{at:X}" : "")})";
 
     /// <summary>"entry: damaged (exception type at 0x...)".</summary>
-    public static string Note(string entry, Exception ex, long? offset = null) => $"{entry}: {Detail(ex.GetType().Name, offset)}";
+    public static string Note(string entry, Exception ex, long? offset = null) => Note(entry, ex.GetType().Name, offset);
+
+    /// <summary>"entry: damaged (why at 0x...)"; why loses a final period.</summary>
+    public static string Note(string entry, string why, long? offset = null) => $"{entry}: {Detail(why.TrimEnd('.'), offset)}";
 }
 
 /// <summary>Container kind, its items (one level deep), and notes on skipped or unusual entries.</summary>
@@ -227,7 +230,7 @@ public static class Containers
             // Compared as offset > length - stored to avoid overflow of offset + stored.
             if (offset < 0 || size < 0 || stored < 0 || stored > int.MaxValue || offset > length - stored)
             {
-                notes.Add($"Skipped {path}: its data lies outside the file (corrupt manifest).");
+                notes.Add(EntryDamage.Note(path, "its data lies outside the file"));
                 continue;
             }
             if (size > limits.MaxItemBytes || (total += size) > limits.MaxTotalBytes)
@@ -240,7 +243,7 @@ public static class Containers
                 : read(offset, (int)size);
             if (bytes == null || bytes.Length != size)
             {
-                notes.Add($"Skipped {path}: decompression failed or produced the wrong size.");
+                notes.Add(EntryDamage.Note(path, "decompression failed or produced the wrong size", offset));
                 continue;
             }
             items.Add(new ExtractedItem(path, bytes, $"bundle entry ({BundleType(type)}{(compressed > 0 ? ", deflate" : "")})"));
@@ -290,9 +293,9 @@ public static class Containers
                 if (!m.Success) continue;
                 byte[] raw;
                 try { raw = res.CreateReader().ToArray(); }
-                catch (Exception) { notes.Add($"Skipped {res.Name}: unreadable resource."); continue; }
+                catch (Exception) { notes.Add(EntryDamage.Note(res.Name, "unreadable resource")); continue; }
                 var bytes = m.Groups["compressed"].Success ? Blob.TryDecompress(raw, "deflate", limits.MaxItemBytes) : raw;
-                if (bytes == null) { notes.Add($"Skipped {res.Name}: not valid deflate data."); continue; }
+                if (bytes == null) { notes.Add(EntryDamage.Note(res.Name, "not valid deflate data")); continue; }
                 items.Add(new ExtractedItem(m.Groups["name"].Value, bytes, $"Costura resource {res.Name}{(m.Groups["compressed"].Success ? " (deflate)" : "")}"));
             }
             return items.Count == 0 && notes.Count == 0 ? null : new ContainerContents("Costura.Fody (embedded assemblies)", items, notes);
@@ -498,7 +501,12 @@ public static class Containers
             if (items.Count >= limits.MaxItems) { notes.Add("Stopped: too many entries."); break; }
             byte[]? bytes;
             try { bytes = e.Read(); }
-            catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException)
+            catch (InvalidDataException ex)
+            {
+                notes.Add(EntryDamage.Note(e.FullName, ex.Message));
+                continue;
+            }
+            catch (Exception ex) when (ex is IOException or NotSupportedException)
             {
                 notes.Add($"Skipped {e.FullName}: {ex.Message}");
                 continue;
@@ -516,7 +524,7 @@ public static class Containers
             if (Blob.TryDecompressAssembly(bytes, limits.MaxItemBytes) is (var decoded, { } compression))
             {
                 var label = compression == "lz4" ? "XALZ LZ4" : "XAZS Zstandard";
-                if (decoded == null) { notes.Add($"Skipped {e.FullName}: corrupt {label} data."); continue; }
+                if (decoded == null) { notes.Add(EntryDamage.Note(e.FullName, $"not valid {label} data")); continue; }
                 items.Add(new ExtractedItem(e.FullName, decoded, $"{kind} entry {e.FullName} ({label})"));
             }
             else if (IsAssemblyStore(e.FullName, bytes)) stores.Add((e.FullName, bytes));
@@ -600,8 +608,8 @@ public static class Containers
                     8 => Blob.TryDecompress(raw, "deflate", limits.MaxItemBytes),
                     _ => null,
                 };
-                if (bytes == null) skipped.Add($"Skipped {name}: {(method is 0 or 8 ? "unreadable data" : $"compression method {method} not supported")}.");
-                else if (Crc32(bytes) != crc) skipped.Add($"Skipped {name}: damaged data (CRC mismatch).");
+                if (bytes == null) skipped.Add(method is 0 or 8 ? EntryDamage.Note(name, "unreadable data", at) : $"Skipped {name}: compression method {method} not supported.");
+                else if (Crc32(bytes) != crc) skipped.Add(EntryDamage.Note(name, "CRC mismatch", at));
                 else result.Add((name, bytes));
             }
             at = next;
