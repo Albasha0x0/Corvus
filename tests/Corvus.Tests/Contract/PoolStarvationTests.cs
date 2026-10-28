@@ -114,6 +114,33 @@ public class PoolStarvationTests(Xunit.Abstractions.ITestOutputHelper output)
         }
     }
 
+    // The server's startup hook blocks its pool once the call starts; the
+    // export runs well past the client's 10 s on its own.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task A_server_answers_a_short_client_s_stop_while_its_pool_is_blocked(int cores)
+    {
+        using var dir = new TempDir();
+        await using var client = await McpProtocolTests.StartServerAsync(null, null, ["--load", McpProtocolTests.ServerDll, "--client-timeout", "10"],
+            new Dictionary<string, string?> { ["DOTNET_STARTUP_HOOKS"] = typeof(TestFixture.FakeTools.KillOnCloseJob).Assembly.Location, ["DOTNET_PROCESSOR_COUNT"] = $"{cores}" });
+        // Read while the answer is late, so a failure names what the server
+        // waits on.
+        using var answeredInTime = new CancellationTokenSource();
+        var pid = McpProtocolTests.ServerProcessId(client);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var stacks = Task.Delay(TimeSpan.FromSeconds(9), answeredInTime.Token)
+            .ContinueWith(t => t.IsCanceled ? "" : "\nat 9 s: " + ThreadPoolSnapshot.StacksOf(pid), TaskScheduler.Default);
+        var call = client.CallToolAsync("export_project", new Dictionary<string, object?> { ["assembly"] = "Corvus", ["outputDirectory"] = dir.File("export") }).AsTask();
+        var answer = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(30)));
+        var answered = clock.Elapsed;
+        answeredInTime.Cancel();
+        if (answer != call || answered >= TimeSpan.FromSeconds(10))
+            Assert.Fail($"{(answer == call ? $"answered after {answered}" : "no answer within 30 s")}, past the client's 10 s{await stacks}");
+        var result = await call;
+        Assert.Equal("timeout", McpProtocolTests.ErrorJson(result).GetProperty("code").GetString());
+    }
+
     private sealed class WriteOnlyStream : Stream
     {
         private readonly MemoryStream _bytes = new();
