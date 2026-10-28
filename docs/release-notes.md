@@ -1,5 +1,27 @@
 # Release notes
 
+## 2.7.2
+
+### Breaking changes
+
+None.
+
+### Changes
+
+- **Install:** Scoop bucket `Albasha0x0/scoop-corvus` and Homebrew tap `albasha0x0/corvus`. [c975d9d9](https://github.com/Albasha0x0/Corvus/commit/c975d9d9)
+- **Session:** `corvus status` and `update` name the winget, Scoop and Homebrew update commands. [23881bae](https://github.com/Albasha0x0/Corvus/commit/23881bae)
+
+### Fixes
+
+- **Live:** coverage and stop points see methods of a program whose JIT module notice arrives late. [dde8fca1](https://github.com/Albasha0x0/Corvus/commit/dde8fca1)
+- **Live:** a program that stalls during runtime start-up shows its JIT module as loaded. [abfa29e1](https://github.com/Albasha0x0/Corvus/commit/abfa29e1)
+- **Engines:** a worker that exits under its memory limit with no limit notice names its peak memory and the limit. [94812c34](https://github.com/Albasha0x0/Corvus/commit/94812c34)
+- **Session:** a Scoop install outside a folder named `scoop` is no longer reported as a build from source. [23881bae](https://github.com/Albasha0x0/Corvus/commit/23881bae)
+
+### In progress
+
+- Explain a live session whose program stops loading modules during runtime start-up.
+
 ## 2.7.1
 
 ### Highlights
