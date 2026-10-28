@@ -1,4 +1,6 @@
 using Corvus.Native.Providers;
+using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
@@ -42,6 +44,36 @@ public class PoolStarvationTests
         Assert.False(run.TimedOut);
         Assert.Equal(3, run.ExitCode);
         Assert.Equal("out", run.Text.Trim());
+    }
+
+    // Timer callbacks take the pool's high-priority queue, so the stop and the
+    // answer pass a backlog of blocked work items.
+    [Fact]
+    public async Task A_short_client_s_stop_is_answered_while_the_work_keeps_the_pool_busy()
+    {
+        using var services = new ServiceCollection()
+            .AddSingleton(new Corvus.Core.ServerOptions { ClientTimeoutSeconds = 10 }).AddSingleton<Corvus.Core.ResultStore>()
+            .AddSingleton(TimeProvider.System).BuildServiceProvider();
+        var finish = new CallToolResult { Content = [new TextContentBlock { Text = "done" }] };
+        var work = new TaskCompletionSource<CallToolResult>();
+        var release = Starve();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var call = Corvus.Mcp.CallFilter.Run(new CallToolRequestParams { Name = "export_project" }, null, services,
+                _ => new ValueTask<CallToolResult>(work.Task), default).AsTask();
+            // Waited on without the pool, blocked until the answer or 30 s.
+            ((IAsyncResult)call).AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(30));
+            var answered = clock.Elapsed;
+            Assert.True(call.IsCompleted, "no answer within 30 s on a blocked pool");
+            Assert.True(answered < TimeSpan.FromSeconds(10), $"answered after {answered}, past the client's 10 s");
+            Assert.Equal("timeout", McpProtocolTests.ErrorJson(await call).GetProperty("code").GetString());
+        }
+        finally
+        {
+            work.TrySetResult(finish);
+            release.Set();
+        }
     }
 
     /// <summary>Blocking search visitors run on at most one thread per core, so injected pool threads stay free.</summary>
