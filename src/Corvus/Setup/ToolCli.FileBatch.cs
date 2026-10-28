@@ -76,7 +76,8 @@ internal static partial class ToolCli
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
-        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract };
+        var baseline = a.Baseline == null ? null : ReadBaseline(Path.GetFullPath(a.Baseline), DateOnly.FromDateTime(DateTime.UtcNow));
+        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract, Baseline = baseline };
         if (extract != null) Directory.CreateDirectory(extract);
         JsonObject document;
         try
@@ -90,6 +91,7 @@ internal static partial class ToolCli
             if (run.Session != null) await run.Session.DisposeAsync();
         }
         WriteExtractIndex(run);
+        if (baseline != null) document["baseline"] = baseline.Record(Path.GetFullPath(a.Baseline!));
         if (a.FailOn == null)
         {
             io.Out.WriteLine(document.ToJsonString(Compact));
@@ -124,9 +126,10 @@ internal static partial class ToolCli
             if (allowIncomplete) continue;
             // The overview lists the strongest findings first, so an unlisted one
             // is at most as strong as the last listed.
-            if ((int?)record["summary"]?["findingTotal"] is { } total && total > findings.Count
-                && FindingLevel.Rank((string?)findings.LastOrDefault()?["level"]) >= threshold)
-                failures.Add($"{label}: {total - findings.Count} findings past the first {findings.Count} are not listed");
+            var listed = findings.Concat(record["suppressed"] as JsonArray ?? []).ToList();
+            if ((int?)record["summary"]?["findingTotal"] is { } total && total > listed.Count
+                && (listed.Count == 0 || listed.Min(f => FindingLevel.Rank((string?)f!["level"])) >= threshold))
+                failures.Add($"{label}: {total - listed.Count} findings past the first {listed.Count} are not listed");
             foreach (var section in record["sections"] as JsonArray ?? [])
                 if ((string?)section!["status"] is { } status and not (SectionStatus.Complete or SectionStatus.NotApplicable))
                     failures.Add($"{label}: {(string?)section["name"]} {status}");
@@ -149,6 +152,7 @@ internal static partial class ToolCli
         public ToolSession? Session { get; set; }
         public bool TimedOut { get; set; }
         public string? Extract { get; init; }
+        public Baseline? Baseline { get; init; }
         public JsonArray Index { get; } = [];
     }
 
@@ -164,8 +168,11 @@ internal static partial class ToolCli
         var document = RunFields(run, (string?)summary?["ruleTable"]);
         document["file"] = file;
         document["complete"] = Complete(sections);
-        document["summary"] = Verdict(summary);
-        document["findings"] = KeyedFindings((string?)summary?["sha256"], summary);
+        var sha = (string?)summary?["sha256"];
+        var (findings, suppressed) = ApplyBaseline(KeyedFindings(sha, summary), sha, run.Baseline);
+        document["summary"] = Verdict(summary, findings, suppressed);
+        document["findings"] = findings;
+        if (run.Baseline != null) document["suppressed"] = suppressed;
         document["sections"] = sections;
         if (extracted != null) document["extracted"] = extracted;
         return document;

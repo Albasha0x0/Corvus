@@ -33,7 +33,7 @@ internal static partial class ToolCli
             var (sections, summary) = await Steps(run, paths[0]);
             ruleTable ??= (string?)summary?["ruleTable"];
             var sha = hashed ?? (string?)summary?["sha256"];
-            var findings = KeyedFindings(sha, summary);
+            var (findings, suppressed) = ApplyBaseline(KeyedFindings(sha, summary), sha, run.Baseline);
             var relative = paths.Select(p => Relative(root, p)).ToList();
             var extracted = await Extract(run, paths[0], sha, summary, sections, relative);
             var file = new JsonObject
@@ -47,11 +47,12 @@ internal static partial class ToolCli
             {
                 ["file"] = file,
                 ["complete"] = Complete(sections),
-                ["summary"] = Verdict(summary),
+                ["summary"] = Verdict(summary, findings, suppressed),
                 ["counts"] = Counts(findings),
                 ["findings"] = findings,
                 ["sections"] = sections,
             };
+            if (run.Baseline != null) record["suppressed"] = suppressed;
             if (extracted != null) record["extracted"] = extracted;
             records.Add(record);
         }

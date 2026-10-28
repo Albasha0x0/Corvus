@@ -107,6 +107,12 @@ without an agent. Nothing in the file runs; no network calls are made.
   - `embedded`: `extract_embedded save=true` on .NET code; each item keeps its encoding chain (`base64`, `gzip`, ...).
   - `script`: the `script` view's plain text, layers peeled and constants folded, as `script.txt`; the chain names each layer.
   - `extracted` lists each file written with `path`, `kind`, `source` and `chain`; `index.json` holds the same per SHA-256.
+- `--baseline <file>` drops known findings by `key` before the levels, counts and gate are set.
+  - The file: `{"schema": "corvus.baseline/1", "entries": [{"key", "reason", "owner", "expires": "yyyy-MM-dd"}]}`.
+  - A dropped finding moves to `suppressed` with its entry's `reason`, `owner` and `expires`.
+  - An entry applies through its `expires` day; after it, the finding stays with `baseline.expired`.
+  - A level rise changes the key: the finding stays with `baseline.rose` naming the earlier level.
+  - `baseline` counts `entries`, `suppressed`, `expired`, `rose` and `unused`.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).
 - `--limit containerFiles=N`, `strings=N`, `yaraMatches=N`: default 500 each.
 - `--limit members=N`: files `--recurse` reads (default 10000).

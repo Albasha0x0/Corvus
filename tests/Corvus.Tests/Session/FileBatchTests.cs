@@ -474,6 +474,85 @@ public class FileBatchTests
         Assert.Empty(output);
     }
 
+    private static string WriteBaseline(TempDir dir, IEnumerable<(string Key, string Expires)> entries) =>
+        WriteText(dir.File("baseline.json"), new JsonObject
+        {
+            ["schema"] = "corvus.baseline/1",
+            ["entries"] = new JsonArray([.. entries.Select(e => (JsonNode?)new JsonObject { ["key"] = e.Key, ["reason"] = "reviewed", ["owner"] = "release", ["expires"] = e.Expires })]),
+        }.ToJsonString());
+
+    private static string WriteText(string path, string text)
+    {
+        File.WriteAllText(path, text);
+        return path;
+    }
+
+    [Fact]
+    public async Task A_baseline_entry_suppresses_its_exact_finding_and_the_gate_passes()
+    {
+        using var dir = new TempDir();
+        var package = Package(Path.Combine(dir.Path, "pkg.tgz"));
+        var (_, first, _) = await Batch("--file", package);
+        var keys = first!["findings"]!.AsArray().Select(f => (string)f!["key"]!).ToList();
+        Assert.NotEmpty(keys);
+        var baseline = WriteBaseline(dir, keys.Skip(1).Select(k => (k, "2999-12-31")));
+        var (code, document, _) = await Batch("--file", package, "--baseline", baseline, "--fail-on", "noteworthy");
+        Assert.Equal(1, code);
+        Assert.Equal(keys.Skip(1), document!["suppressed"]!.AsArray().Select(f => (string?)f!["key"]));
+        Assert.Equal("reviewed", (string?)document["suppressed"]![0]!["baseline"]!["reason"]);
+        Assert.Equal([keys[0]], document["findings"]!.AsArray().Select(f => (string?)f!["key"]));
+        Assert.Equal(keys.Count - 1, (int)document["baseline"]!["suppressed"]!);
+
+        baseline = WriteBaseline(dir, keys.Select(k => (k, "2999-12-31")));
+        (code, document, _) = await Batch("--file", package, "--baseline", baseline, "--fail-on", "review");
+        Assert.Equal(0, code);
+        Assert.Equal("none", (string?)document!["summary"]!["level"]);
+    }
+
+    [Fact]
+    public async Task A_baseline_entry_at_a_lower_level_does_not_suppress_a_level_rise()
+    {
+        using var dir = new TempDir();
+        var package = Package(Path.Combine(dir.Path, "pkg.tgz"));
+        var (_, first, _) = await Batch("--file", package);
+        var sha = (string)first!["file"]!["sha256"]!;
+        var noteworthy = first["findings"]!.AsArray().First(f => (string?)f!["level"] == "noteworthy")!;
+        var lower = ToolCli.FindingKey(sha, (string?)noteworthy["rule"], "review", (string?)noteworthy["evidence"], (string?)noteworthy["location"]);
+        var baseline = WriteBaseline(dir, [(lower, "2999-12-31")]);
+        var (code, document, _) = await Batch("--file", package, "--baseline", baseline, "--fail-on", "noteworthy");
+        Assert.Equal(1, code);
+        var kept = Assert.Single(document!["findings"]!.AsArray(), f => (string?)f!["key"] == (string?)noteworthy["key"])!;
+        Assert.Equal("review", (string?)kept["baseline"]!["rose"]);
+        Assert.Empty(document["suppressed"]!.AsArray());
+        Assert.Equal(1, (int)document["baseline"]!["rose"]!);
+    }
+
+    [Fact]
+    public async Task An_expired_baseline_entry_no_longer_suppresses_its_finding()
+    {
+        using var dir = new TempDir();
+        var package = Package(Path.Combine(dir.Path, "pkg.tgz"));
+        var (_, first, _) = await Batch("--file", package);
+        var key = (string)first!["findings"]!.AsArray().First(f => (string?)f!["level"] == "noteworthy")!["key"]!;
+        var baseline = WriteBaseline(dir, [(key, "2000-01-01")]);
+        var (code, document, _) = await Batch("--file", package, "--baseline", baseline, "--fail-on", "noteworthy");
+        Assert.Equal(1, code);
+        var kept = Assert.Single(document!["findings"]!.AsArray(), f => (string?)f!["key"] == key)!;
+        Assert.Equal("2000-01-01", (string?)kept["baseline"]!["expired"]);
+        Assert.Contains(document["gate"]!["reasons"]!.AsArray(), r => ((string)r!).EndsWith(key, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_baseline_entry_without_an_owner_is_a_usage_error()
+    {
+        using var dir = new TempDir();
+        var plain = WriteText(dir.File("notes.txt"), "plain text");
+        var baseline = WriteText(dir.File("baseline.json"), """{"schema":"corvus.baseline/1","entries":[{"key":"k","reason":"r","expires":"2999-12-31"}]}""");
+        var (code, _, output) = await Batch("--file", plain, "--baseline", baseline);
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+    }
+
     [Fact]
     public void A_summary_step_without_a_result_leaves_the_level_unknown()
     {
