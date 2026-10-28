@@ -21,6 +21,16 @@ internal sealed class MailReader : IContainerReader
         var notes = new List<string>();
         long total = 0;
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Add(m, "", items, entries, notes, used, limits, ref total);
+        if (streams != null) CompoundFileReader.TakeStreams(streams, "streams/", items, entries, notes, allFiles, limits, ref total, ct);
+        notes.Insert(0, $"{m.Format}: {m.Attachments.Count} attachment(s), {m.Links.Count} link(s); summarize_file view=mail lists the headers, received chain and recorded authentication results.");
+        return new ContainerContents(m.Format, items, notes) { Entries = entries };
+    }
+
+    /// <summary>A message's bodies and attachments under <paramref name="prefix"/>; an embedded message's own under attachments/name.msg/.</summary>
+    private static void Add(MailMessage m, string prefix, List<ExtractedItem> items, List<ContainerEntry> entries, List<string> notes, HashSet<string> used,
+        AnalysisLimits limits, ref long total)
+    {
         string Unique(string path)
         {
             if (used.Add(path)) return path;
@@ -30,17 +40,15 @@ internal sealed class MailReader : IContainerReader
                 if (used.Add($"{stem}-{i}{ext}")) return $"{stem}-{i}{ext}";
         }
         foreach (var (kind, text) in m.Bodies)
-            ArchiveItems.Take(items, entries, "message body", Unique($"body.{kind}"), Encoding.UTF8.GetBytes(text), true, limits, ref total);
+            ArchiveItems.Take(items, entries, "message body", Unique($"{prefix}body.{kind}"), Encoding.UTF8.GetBytes(text), true, limits, ref total);
         foreach (var a in m.Attachments)
         {
-            var path = Unique("attachments/" + a.Name);
-            if (a.Bytes is { } bytes) ArchiveItems.Take(items, entries, "attachment", path, bytes, true, limits, ref total);
+            var path = Unique($"{prefix}attachments/{a.Name}");
+            if (a.Embedded is { } inner) Add(inner, path + "/", items, entries, notes, used, limits, ref total);
+            else if (a.Bytes is { } bytes) ArchiveItems.Take(items, entries, "attachment", path, bytes, true, limits, ref total);
             else entries.Add(new ContainerEntry(path, 0, "not extracted; size unknown"));
             if (a.Problem != null) notes.Add($"{path}: {a.Problem}");
         }
-        if (streams != null) CompoundFileReader.TakeStreams(streams, "streams/", items, entries, notes, allFiles, limits, ref total, ct);
-        notes.Insert(0, $"{m.Format}: {m.Attachments.Count} attachment(s), {m.Links.Count} link(s); summarize_file view=mail lists the headers, received chain and recorded authentication results.");
-        notes.AddRange(m.Notes);
-        return new ContainerContents(m.Format, items, notes) { Entries = entries };
+        notes.AddRange(prefix.Length == 0 ? m.Notes : m.Notes.Select(n => $"{prefix.TrimEnd('/')}: {n}"));
     }
 }

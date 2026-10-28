@@ -319,7 +319,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Office OLE documents | streams, VBA source, Excel 4.0 macros, OLE packages |
 | PDF | embedded files, JavaScript, XFA forms; streams with `allFiles` |
 | `.lnk` | appended data |
-| Mail (`.eml`, `.msg`) | bodies and attachments |
+| Mail (`.eml`, `.msg`) | bodies, attachments, embedded messages; `.msg` streams |
 | OneNote `.one` | embedded files |
 | ISO / UDF, VHD / VHDX (NTFS, FAT, ext) | every file of each partition |
 | Apple `.dmg`, HFS+, APFS | every file; encrypted APFS volumes named |

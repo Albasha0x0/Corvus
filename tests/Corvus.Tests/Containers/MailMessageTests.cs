@@ -92,8 +92,8 @@ public sealed class MailMessageTests : IDisposable
         return o.ToArray();
     }
 
-    /// <summary>A .msg compound file with one recipient and two attachments; transport headers only when <paramref name="headers"/> is set.</summary>
-    internal static byte[] Msg(bool headers)
+    /// <summary>A .msg with one recipient and two attachments; transport headers and a third, embedded message, attachment on request.</summary>
+    internal static byte[] Msg(bool headers, bool embedded = false)
     {
         var submit = (ulong)new DateTime(2026, 10, 6, 9, 59, 58, DateTimeKind.Utc).ToFileTimeUtc();
         var streams = new List<(string, byte[])>
@@ -118,6 +118,21 @@ public sealed class MailMessageTests : IDisposable
         if (headers)
             streams.Add(("__substg1.0_007D001F", U16("Received: from relay.example.net by mx.example.com with ESMTP id 9; Tue, 6 Oct 2026 10:00:05 +0000\r\n" +
                 "Authentication-Results: mx.example.com; spf=fail smtp.mailfrom=example.org; dkim=none\r\n")));
+        if (embedded)
+        {
+            const string at = "__attach_version1.0_#00000002", inner = at + "/__substg1.0_3701000D";
+            streams.AddRange(
+            [
+                (at + "/__properties_version1.0", Props(8, (0x37050003, 5))),
+                (at + "/__substg1.0_3707001F", U16("Forwarded")),
+                (inner + "/__properties_version1.0", Props(24)),
+                (inner + "/__substg1.0_0037001F", U16("Original figures")),
+                (inner + "/__substg1.0_1000001F", U16("Earlier draft.")),
+                (inner + "/__attach_version1.0_#00000000/__properties_version1.0", Props(8)),
+                (inner + "/__attach_version1.0_#00000000/__substg1.0_3707001F", U16("draft.zip")),
+                (inner + "/__attach_version1.0_#00000000/__substg1.0_37010102", Report),
+            ]);
+        }
         return DocumentFixtures.Compound(streams);
     }
 
@@ -195,6 +210,18 @@ public sealed class MailMessageTests : IDisposable
     }
 
     [Fact]
+    public void An_embedded_message_attachment_is_read_in_place_with_its_own_attachments()
+    {
+        var f = View(Msg(headers: true, embedded: true), "report.msg");
+        var forwarded = Assert.Single(f.Attachments, a => a.Name == "Forwarded.msg");
+        Assert.Equal(("embedded Outlook message", null), (forwarded.Kind, forwarded.Problem));
+
+        var c = Containers.Open(Msg(headers: true, embedded: true), "report.msg", AnalysisLimits.Default, default);
+        Assert.Equal("Earlier draft.", Encoding.UTF8.GetString(Assert.Single(c.Items, i => i.Name == "attachments/Forwarded.msg/body.txt").Bytes));
+        Assert.Equal(Report, Assert.Single(c.Items, i => i.Name == "attachments/Forwarded.msg/attachments/draft.zip").Bytes);
+    }
+
+    [Fact]
     public void A_msg_still_lists_its_compound_file_streams()
     {
         var c = Containers.Open(Msg(headers: true), "report.msg", AnalysisLimits.Default, default);
@@ -226,7 +253,7 @@ public sealed class MailMessageTests : IDisposable
     [FuzzEntry(typeof(MailReader), typeof(MailFileView))]
     public void Fuzzed_mail_files_never_throw_past_a_tool_error()
     {
-        foreach (var (seed, name) in new[] { (Eml(), "a.eml"), (Msg(headers: true), "a.msg") })
+        foreach (var (seed, name) in new[] { (Eml(), "a.eml"), (Msg(headers: true, embedded: true), "a.msg") })
         {
             var failures = FormatFuzz.Run(seed, b =>
             {

@@ -18,7 +18,11 @@ internal sealed record AuthenticationResult(string Header, int? Instance, string
 internal sealed record MailSignature(string Header, int? Instance, string? Domain, string? Selector, string? Algorithm, string? SignedHeaders, string? ChainValidation);
 
 /// <summary>An attachment or inline part; null <see cref="Bytes"/> means its content was not decoded, and <see cref="Problem"/> says why.</summary>
-internal sealed record MailAttachment(string Name, string? ContentType, string? Disposition, string? ContentId, byte[]? Bytes, string? Problem);
+internal sealed record MailAttachment(string Name, string? ContentType, string? Disposition, string? ContentId, byte[]? Bytes, string? Problem)
+{
+    /// <summary>An Outlook message stored as the attachment, read in place; null for other attachments.</summary>
+    public MailMessage? Embedded { get; init; }
+}
 
 /// <summary>A mail message read from a MIME (.eml) or Outlook (.msg) file: headers, received chain, recorded authentication results, links and attachments.</summary>
 internal sealed class MailMessage

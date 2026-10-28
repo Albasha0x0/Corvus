@@ -6,7 +6,7 @@ namespace Corvus.Services.Analysis;
 /// <summary>view=mail: a .eml or .msg message's headers, received chain, recorded authentication results, links and attachments.</summary>
 internal sealed class MailFileView : IFileSummaryView
 {
-    /// <summary>An attachment; null Size, Kind and Sha256 mean its content was not decoded, and Problem says why.</summary>
+    /// <summary>An attachment; null Size and Sha256 mean no bytes were decoded: Kind then names a message read in place, else Problem says why.</summary>
     public sealed record Attachment(string Name, string? ContentType, string? Disposition, string? ContentId, long? Size, string? Kind, string? Sha256, string? Problem);
 
     public sealed record Facts(string Format, string? Subject, string? From, string? Sender, string? ReplyTo, string? ReturnPath, IReadOnlyList<string> To,
@@ -31,7 +31,7 @@ internal sealed class MailFileView : IFileSummaryView
         var facts = new Facts(m.Format, m.Subject, m.From, m.Sender, m.ReplyTo, m.ReturnPath, m.To, m.Cc, m.Date, m.MessageId, m.MessageClass, m.Mailer,
             m.HeadersRecorded, m.Received, m.Authentication, m.Signatures, m.Links,
             [.. m.Attachments.Select(a => new Attachment(a.Name, a.ContentType, a.Disposition, a.ContentId, a.Bytes?.Length,
-                a.Bytes is { } b ? Blob.Identify(b) : null, a.Bytes is { } h ? Blob.Sha256(h) : null, a.Problem))],
+                a.Bytes is { } b ? Blob.Identify(b) : a.Embedded != null ? "embedded Outlook message" : null, a.Bytes is { } h ? Blob.Sha256(h) : null, a.Problem))],
             m.Headers, m.Notes);
         return new FileView(facts, Highlights(m));
     }
@@ -54,7 +54,9 @@ internal sealed class MailFileView : IFileSummaryView
         foreach (var sig in m.Signatures.Where(s => s.Header == "DKIM-Signature").Take(3))
             h.Add($"DKIM-Signature present for d={sig.Domain ?? "(none)"} s={sig.Selector ?? "(none)"}; not verified.");
         foreach (var a in m.Attachments.Take(5))
-            h.Add(a.Bytes is { } b ? $"Attachment {a.Name} ({b.Length:N0} bytes, {Blob.Identify(b)})." : $"Attachment {a.Name}: {a.Problem}.");
+            h.Add(a.Bytes is { } b ? $"Attachment {a.Name} ({b.Length:N0} bytes, {Blob.Identify(b)})."
+                : a.Embedded is { } e ? $"Attachment {a.Name}: an embedded message, subject \"{e.Subject}\", {e.Attachments.Count} attachment(s)."
+                : $"Attachment {a.Name}: {a.Problem}.");
         if (m.Links.Count > 0) h.Add($"{m.Links.Count} link(s) in the body, first {m.Links[0]}.");
         return h;
     }
