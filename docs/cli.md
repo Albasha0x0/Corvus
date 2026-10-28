@@ -51,6 +51,7 @@ Every server option applies ([configuration.md](configuration.md#server-options)
 - `--no-index` skips background indexing in a `batch` session. A single call skips it unless its tool needs the index.
 - `--max-output N` restores paging. Without it, the command line prints whole results.
 - `--timeout S`, `--engine E`, `--toolsets T`, `--log-level L`: as for the server.
+- `--audit F` appends one JSON line per call to `F`; a path outputs may not reach stops start-up.
 - Logs go to stderr at `warning` unless `--log-level` or `CORVUS_LOG_LEVEL` says otherwise. Files are not watched for changes.
 
 ## Output

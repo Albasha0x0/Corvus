@@ -37,6 +37,13 @@ internal static partial class CallFilter
         var log = CallLog.Begin(request, services);
         var options = services?.GetService<ServerOptions>();
         var client = options != null ? ClientProfiles.Resolve(options, clientName) : null;
+        var audit = CallAudit.For(options);
+        void Audit(string outcome, CallToolResult? r)
+        {
+            if (audit == null) return;
+            var inputs = ToolOutput.Inputs(request?.Arguments, services?.GetService<AssemblyWorkspace>());
+            audit.Record(tool, request?.Arguments, clientName, outcome, inputs.Count == 1 ? inputs[0].Sha256 : null, r);
+        }
         CallToolResult result;
         OutputCall output;
         try
@@ -46,11 +53,13 @@ internal static partial class CallFilter
         catch (OperationCanceledException)
         {
             log.Cancelled();
+            Audit("cancelled", null);
             throw;
         }
         catch
         {
             log.Failed();
+            Audit("exception", null);
             throw;
         }
         // The bookkeeping below keeps the client's cancellation: Execute's scope, deadline included, has ended.
@@ -86,6 +95,7 @@ internal static partial class CallFilter
             result.Meta[ToolOutput.ProvenanceKey] = ToolOutput.Provenance(tool, request?.Arguments, services?.GetService<AssemblyWorkspace>(), log.Engine, result, output, answerSha256);
         }
         log.Completed(result);
+        Audit(result.IsError == true ? CallLog.CodeOf(result) : "ok", result);
         return result;
     }
 

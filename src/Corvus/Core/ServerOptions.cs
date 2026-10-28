@@ -190,7 +190,7 @@ public sealed class ServerOptions
     public static readonly IReadOnlySet<string> ValueOptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "--load", "--search-dir", "--max-output", "--timeout", "--binding-style", "--binding-project", "--prewarm", "--engine",
-        "--index-cache", "--index-cache-mb", "--index-cache-days", "--log-level", Core.Toolsets.Option, Core.Toolsets.ToolsFileOption, TraceOption,
+        "--index-cache", "--index-cache-mb", "--index-cache-days", "--log-level", Core.Toolsets.Option, Core.Toolsets.ToolsFileOption, TraceOption, AuditOption,
         ClientProfiles.ClientOption, ClientProfiles.ClientTimeoutOption,
     };
 
@@ -205,7 +205,7 @@ public sealed class ServerOptions
             : Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on" ? "ida" : null;
         string? logLevel = Environment.GetEnvironmentVariable(LogLevelVariable) is { Length: > 0 } levelFromEnv ? levelFromEnv : null;
         string? toolsets = Environment.GetEnvironmentVariable(Core.Toolsets.Variable) is { Length: > 0 } setsFromEnv ? setsFromEnv : null;
-        string? toolsFile = null, trace = null, client = null, clientTimeout = null;
+        string? toolsFile = null, trace = null, audit = null, client = null, clientTimeout = null;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value after {args[i]}");
@@ -244,6 +244,7 @@ public sealed class ServerOptions
                 case Core.Toolsets.ToolsFileOption: toolsFile = Next(); break;
                 case TraceOption: trace = Next(); break;
                 case TraceArgsOption: o.TraceArguments = true; break;
+                case AuditOption: audit = Next(); break;
                 case ClientProfiles.ClientOption: client = Next(); break;
                 case ClientProfiles.ClientTimeoutOption: clientTimeout = Next(); break;
                 case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
@@ -267,6 +268,8 @@ public sealed class ServerOptions
         if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
         o.ParseProductOptions(toolsFile, trace);
         o.ParseClientOptions(client, clientTimeout);
+        audit ??= Environment.GetEnvironmentVariable(AuditVariable) is { Length: > 0 } auditFromEnv ? auditFromEnv : null;
+        if (audit != null) o.AuditPath = AuditFile(audit);
         if (prewarm != null)
             o.Prewarm = EngineModes.TryParse(prewarm) is { } p && p != EngineMode.Ours ? p
                 : prewarm.Trim().ToLowerInvariant() is "off" or "0" or "none" ? null
@@ -372,6 +375,35 @@ public sealed class ServerOptions
         var full = Path.GetFullPath(path.Trim());
         if (DatabaseExtensions.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException($"{TraceOption} (or {TraceVariable}): the trace goes to a file of its own, not an engine database ('{full}')");
+        return full;
+    }
+
+    /// <summary>JSONL file of one audit line per tools/call; null: off.</summary>
+    public string? AuditPath { get; set; }
+
+    public const string AuditOption = "--audit";
+    public const string AuditVariable = "CORVUS_AUDIT";
+
+    /// <summary>
+    /// The full path of an audit file, created private to this account when new;
+    /// a path outputs may not reach, or a file another account can write, is an
+    /// <see cref="ArgumentException"/> naming the reason.
+    /// </summary>
+    public static string AuditFile(string path)
+    {
+        string full;
+        try { full = SafeFile.Output(path.Trim()); }
+        catch (ToolError e) { throw new ArgumentException($"{AuditOption} (or {AuditVariable}): {e.Message}"); }
+        try
+        {
+            using var file = Native.Providers.PrivateFile.OpenAppend(full);
+            if (Native.Providers.PrivateFile.OtherWriters(file) is { } writers)
+                throw new ArgumentException($"{AuditOption} (or {AuditVariable}): '{full}' {writers}; pick a file only this account can write");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new ArgumentException($"{AuditOption} (or {AuditVariable}): '{full}' does not open: {e.Message}");
+        }
         return full;
     }
 

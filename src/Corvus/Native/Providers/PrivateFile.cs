@@ -24,6 +24,31 @@ public static class PrivateFile
         return "has an owner and access list this platform does not report";
     }
 
+    /// <summary>
+    /// Opens <paramref name="path"/> for writing at its end; a new file is
+    /// created writable only by this account, SYSTEM and Administrators
+    /// (Windows) or with mode 0600 (POSIX). An existing file keeps its access.
+    /// </summary>
+    public static FileStream OpenAppend(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+            return new FileStream(path, new FileStreamOptions
+            {
+                Mode = FileMode.Append, Access = FileAccess.Write, Share = FileShare.ReadWrite | FileShare.Delete,
+                UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            });
+        var acl = new FileSecurity();
+        acl.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                     new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null) })
+            acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, AccessControlType.Allow));
+        // FileMode.Append takes no access-control rights, so the end is sought.
+        var stream = new FileInfo(path).Create(FileMode.OpenOrCreate, FileSystemRights.Write | FileSystemRights.ReadPermissions | FileSystemRights.Synchronize,
+            FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.None, acl);
+        stream.Seek(0, SeekOrigin.End);
+        return stream;
+    }
+
     [SupportedOSPlatform("windows")]
     private static string? WindowsWriters(FileStream file)
     {

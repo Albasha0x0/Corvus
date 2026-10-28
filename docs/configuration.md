@@ -107,6 +107,7 @@ Limit the programs a session may start or attach to:
 | | `CORVUS_LOG_FORMAT` | text | `json`: log lines as JSON |
 | `--trace <file>` | `CORVUS_TRACE` | off | one JSON line per call: time, tool, argument names, ms, error code, size |
 | `--trace-args` | `CORVUS_TRACE_ARGS` | off | see [Security switches](#security-switches) |
+| `--audit <file>` | `CORVUS_AUDIT` | off | one private JSON line per call: UTC time, account, client, version, tool, arguments (secrets masked), input and result SHA-256 |
 
 - `--timeout`: `export_project` gets 10 times as long. Tools not marked long-running end after twice the value.
 - `--toolsets` profiles: `full`, `core` (at most 100 tools), `lean` (at most 40).

@@ -159,6 +159,48 @@ public class CallLogTests
     }
 
     [Fact]
+    public async Task The_audit_log_has_one_line_per_call_with_the_input_and_result_hashes()
+    {
+        using var dir = new TempDir();
+        var input = dir.File("sample.bin");
+        File.WriteAllBytes(input, [1, 2, 3, 4]);
+        var path = dir.File("audit.jsonl");
+        var options = ServerOptions.Parse([ServerOptions.AuditOption, path]);
+        Assert.Equal(Path.GetFullPath(path), options.AuditPath);
+        using var services = new ServiceCollection().AddSingleton(options).BuildServiceProvider();
+        var request = new CallToolRequestParams
+        {
+            Name = "summarize_file",
+            Arguments = new Dictionary<string, System.Text.Json.JsonElement> { ["path"] = System.Text.Json.JsonSerializer.SerializeToElement(input) },
+        };
+        await CallFilter.Run(request, null, services, _ => ValueTask.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = "12345" }] }), default, "sample-client");
+        await CallFilter.Run(new CallToolRequestParams { Name = "server_status" }, null, services,
+            _ => ValueTask.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = "ok" }] }), default);
+        var lines = File.ReadAllLines(path).Select(l => System.Text.Json.JsonDocument.Parse(l).RootElement).ToList();
+        Assert.Equal(2, lines.Count);
+        var first = lines[0];
+        Assert.Equal(("summarize_file", "sample-client", Corvus.Setup.Installation.Version, Environment.UserName),
+            (first.GetProperty("tool").GetString(), first.GetProperty("client").GetString(), first.GetProperty("version").GetString(),
+             first.GetProperty("user").GetString()!.Split('\\')[^1]));
+        Assert.Equal(input, first.GetProperty("arguments").GetProperty("path").GetString());
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(input))), first.GetProperty("inputSha256").GetString());
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("12345"u8)), first.GetProperty("resultSha256").GetString());
+        Assert.True(DateTimeOffset.TryParse(first.GetProperty("time").GetString(), out var time) && time.Offset == TimeSpan.Zero);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, lines[1].GetProperty("inputSha256").ValueKind);
+        using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            Assert.Null(Corvus.Native.Providers.PrivateFile.OtherWriters(file));
+    }
+
+    [Fact]
+    public void An_audit_path_outputs_may_not_reach_is_refused_at_start_up()
+    {
+        using var dir = new TempDir();
+        var e = Assert.Throws<ArgumentException>(() => ServerOptions.Parse([ServerOptions.AuditOption, Path.Combine(dir.Path, ".git", "audit.jsonl")]));
+        Assert.Contains("in a repository's .git folder", e.Message);
+        Assert.Null(ServerOptions.Parse([]).AuditPath);
+    }
+
+    [Fact]
     public void The_log_level_option_parses_and_rejects_unknown_levels()
     {
         Assert.Equal(LogLevel.Information, ServerOptions.Parse([]).LogLevel);
