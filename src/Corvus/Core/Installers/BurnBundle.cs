@@ -101,7 +101,7 @@ internal sealed class BurnBundleReader : IContainerReader
         public static Manifest Parse(byte[] xml)
         {
             XElement root;
-            try { root = XElement.Load(new MemoryStream(xml, writable: false), LoadOptions.None); }
+            try { root = BoundedXml.Load(xml); }
             catch (System.Xml.XmlException ex) { throw new ToolError(ErrorCode.MalformedInput, $"manifest: {ex.Message}"); }
             var paths = new Dictionary<string, string>(StringComparer.Ordinal);
             var external = new List<ExternalPayload>();

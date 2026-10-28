@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
 
 namespace Corvus.Services.Web.Packages;
 
@@ -122,7 +121,7 @@ public static partial class PackageReview
         {
             try
             {
-                var doc = XDocument.Parse(xml);
+                var doc = Core.BoundedXml.Parse(xml);
                 var identity = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Identity");
                 id = identity?.Attribute("Id")?.Value;
                 version = identity?.Attribute("Version")?.Value;

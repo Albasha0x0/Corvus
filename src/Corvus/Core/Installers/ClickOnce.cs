@@ -51,7 +51,7 @@ internal static class ClickOnceDeployment
                 if (new FileInfo(file).Length > ClickOnceManifest.MaxBytes) continue;
                 if (ClickOnceManifest.TryParse(File.ReadAllBytes(file)) is { Deployment: true }) return file;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError) { }
         }
         return null;
     }
@@ -212,14 +212,19 @@ internal sealed class ClickOnceManifest
             || name.EndsWith(".manifest.deploy", StringComparison.OrdinalIgnoreCase))
         && data.IndexOf("urn:schemas-microsoft-com:asm.v1"u8) >= 0 && data.IndexOf("urn:schemas-microsoft-com:asm.v2"u8) >= 0;
 
-    /// <summary>The manifest, or null when the bytes are not an assembly manifest with a deployment or entry point element.</summary>
+    /// <summary>
+    /// The manifest, or null when the bytes are not an assembly manifest with a deployment or entry point element; throws
+    /// <see cref="ToolError"/> (MalformedInput) for XML nested past <see cref="BoundedXml.MaxDepth"/>.
+    /// </summary>
     public static ClickOnceManifest? TryParse(byte[] data)
     {
         XDocument doc;
+        var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = MaxBytes };
         try
         {
-            using var reader = XmlReader.Create(new MemoryStream(data, writable: false),
-                new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = MaxBytes });
+            if (!BoundedXml.WithinDepth(data, settings))
+                throw new ToolError(ErrorCode.MalformedInput, $"the manifest nests elements deeper than {BoundedXml.MaxDepth} levels.");
+            using var reader = XmlReader.Create(new MemoryStream(data, writable: false), settings);
             doc = XDocument.Load(reader);
         }
         catch (Exception ex) when (ex is XmlException or InvalidOperationException or ArgumentException) { return null; }

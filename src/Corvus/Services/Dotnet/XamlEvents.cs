@@ -19,7 +19,7 @@ public static partial class XamlEvents
     public static (List<Handler> Handlers, string? ParseError, string? ClassName) Resolve(ModuleDef module, string xaml)
     {
         XDocument doc;
-        try { doc = XDocument.Parse(xaml); }
+        try { doc = BoundedXml.Parse(xaml); }
         catch (XmlException e) { return ([], e.Message, null); }
         if (doc.Root?.Attribute(XName.Get("Class", XamlNamespace))?.Value is not { Length: > 0 } className) return ([], null, null);
         var methods = new Dictionary<string, MethodDef>(StringComparer.Ordinal);

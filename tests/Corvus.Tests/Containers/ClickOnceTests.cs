@@ -50,6 +50,19 @@ public sealed class ClickOnceTests
         Assert.Contains("Application Files also holds 1 other publish(es): App_0_9_0_0.", c.Notes);
     }
 
+    // A fuzz input that took 28 s: 41,903 nested dependency elements.
+    [Fact]
+    public void A_manifest_nested_past_the_depth_limit_is_refused_in_bounded_time()
+    {
+        var data = Encoding.UTF8.GetBytes(Head + """<asmv1:assemblyIdentity name="App.application" version="1.0.0.0" /><deployment install="true" />"""
+            + string.Concat(Enumerable.Repeat("<dependency>", 40_000)) + string.Concat(Enumerable.Repeat("</dependency>", 40_000)) + "</asmv1:assembly>");
+        var cpu = ThreadCpuClock.Now();
+        var e = Assert.Throws<ToolError>(() => Containers.Open(data, "App.application", AnalysisLimits.Default, default));
+        Assert.True(ThreadCpuClock.Now() - cpu < TimeSpan.FromSeconds(2));
+        Assert.Equal(ErrorCode.MalformedInput, e.Code);
+        Assert.Contains("deeper than 256 levels", e.Message);
+    }
+
     [Fact]
     [FuzzEntry(typeof(ClickOnceManifestReader), typeof(ClickOnceManifest))]
     public void Fuzzed_ClickOnce_manifests_never_throw_past_a_tool_error()

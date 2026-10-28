@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Reflection.PortableExecutable;
-using System.Xml.Linq;
 using dnlib.DotNet;
 
 namespace Corvus.Services.Analysis;
@@ -56,7 +55,7 @@ internal sealed class XbfFileView : IFileSummaryView
         long? next = offset + window.Length < xaml.Length ? offset + window.Length : null;
         if (next != null) notes.Add($"{xaml.Length:N0} characters of XAML; offset={next} reads on");
         int elements = 0;
-        try { elements = xaml.Length > 0 ? XDocument.Parse(xaml).Descendants().Count() + 1 : 0; }
+        try { elements = xaml.Length > 0 ? Core.BoundedXml.Parse(xaml).Descendants().Count() + 1 : 0; }
         catch (System.Xml.XmlException e) { notes.Add($"the XAML is not well-formed: {e.Message}"); }
         var facts = new Facts($"{result.Major}.{result.Minor}", result.ClassName, codeBehind, handlers, elements, xaml.Length, offset, next,
             result.Xaml != null ? window : null, !result.Partial, notes.Count > 0 ? notes : null);
