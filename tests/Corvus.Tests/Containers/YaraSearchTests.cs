@@ -77,7 +77,7 @@ public sealed class YaraSearchTests : IDisposable
         }
     }
 
-    /// <summary>The rule and pattern@offset lines yr 1.22.0 prints for <paramref name="file"/> (ndjson with patterns).</summary>
+    /// <summary>The rule and pattern@offset lines yr 1.22.1 prints for <paramref name="file"/> (ndjson with patterns).</summary>
     private static List<string> Reference(string rules, string file)
     {
         var psi = new ProcessStartInfo(YaraTestTools.Cli!) { RedirectStandardOutput = true, RedirectStandardError = true };
@@ -111,7 +111,7 @@ public sealed class YaraSearchTests : IDisposable
         var found = new UnpackService(_ws).Search(target, rules, "yara", 10, AnalysisLimits.Default, default);
         Assert.Equal(["finds_corvus", "fine"], found.Items.Select(i => i.Name).Order());
         Assert.Equal("$a at 0x2+6, 0x1A+6", found.Items.Single(i => i.Name == "finds_corvus").Detail);
-        Assert.Contains(found.Notes, n => n.StartsWith("YARA-X 1.22.0: 2 rules from 2 files; 1 errors, their rules not run", StringComparison.Ordinal));
+        Assert.Contains(found.Notes, n => n.StartsWith("YARA-X 1.22.1: 2 rules from 2 files; 1 errors, their rules not run", StringComparison.Ordinal));
         Assert.Contains(found.Notes, n => n.StartsWith($"{Path.Combine(rules, "bad.yar")}:3:14 rule broken: E009 unknown identifier `no_such_name`", StringComparison.Ordinal));
     }
 
@@ -198,7 +198,7 @@ public sealed class YaraSearchTests : IDisposable
 
         var found = search.Search(target, "rule inline_corvus { strings: $a = \"corvus\" condition: $a }", "yara", 10, AnalysisLimits.Default, default);
         Assert.Equal("inline_corvus", found.Items.Single().Name);
-        Assert.StartsWith("YARA-X 1.22.0: 1 rules from the query text;", found.Notes[0], StringComparison.Ordinal);
+        Assert.StartsWith("YARA-X 1.22.1: 1 rules from the query text;", found.Notes[0], StringComparison.Ordinal);
 
         // A mistyped path is neither a file nor rule text: the error says it was compiled as source.
         var e = Assert.Throws<ToolError>(() => search.Search(target, _dir.File("missing.yar"), "yara", 10, AnalysisLimits.Default, default));
@@ -223,7 +223,7 @@ public sealed class YaraSearchTests : IDisposable
 
             var found = new UnpackService(_ws).Search(FixtureFiles()[1], $"pack:{name}", "yara", 10, AnalysisLimits.Default, default);
             Assert.Equal(["finds_corvus", "finds_ver"], found.Items.Select(i => i.Name).Order());
-            Assert.StartsWith("YARA-X 1.22.0: 2 rules from 2 files;", found.Notes[0], StringComparison.Ordinal);
+            Assert.StartsWith("YARA-X 1.22.1: 2 rules from 2 files;", found.Notes[0], StringComparison.Ordinal);
         }
         finally { Directory.Delete(Path.Combine(RulePacks.Root, name), recursive: true); }
     }
@@ -263,7 +263,7 @@ public sealed class YaraSearchTests : IDisposable
 
         var e = await Assert.ThrowsAsync<ToolError>(() => Scan(pool, rules, rules));
         Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
-        Assert.Contains($"YARA-X 1.22.0 is not available for {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}", e.Message);
+        Assert.Contains($"YARA-X 1.22.1 is not available for {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}", e.Message);
     }
 
     private static void Add(ZipArchive zip, string name, byte[] bytes)

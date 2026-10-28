@@ -378,7 +378,7 @@ Labels:
 ### YARA rules
 
 - `search_container kind=yara`. The query is a rule file, a folder, rule text, or `pack:<name>` from `corvus rules fetch` ([cli.md](cli.md)). Corvus ships no rules.
-- Runs YARA-X 1.22.0 in a worker process. Unavailable with `CORVUS_WORKER_HOST=0`.
+- Runs YARA-X 1.22.1 in a worker process. Unavailable with `CORVUS_WORKER_HOST=0`.
 - Scans the file, then each container member. Minidumps and cores are scanned by their captured memory.
 - Modules: `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`, `time`, `lnk`.
 - Shipped for win-x64, win-arm64, linux-x64, linux-arm64 (glibc 2.34+), osx-x64 and osx-arm64. Elsewhere, set `CORVUS_YARA_LIBRARY`.

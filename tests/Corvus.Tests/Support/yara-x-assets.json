@@ -1,15 +1,15 @@
 {
-  "version": "1.22.0",
-  "release": "https://github.com/VirusTotal/yara-x/releases/download/v1.22.0/",
+  "version": "1.22.1",
+  "release": "https://github.com/VirusTotal/yara-x/releases/download/v1.22.1/",
   "source": "https://github.com/VirusTotal/yara-x",
-  "commit": "e27597f2c05e13fe1c2bb459781aef8899afc485",
+  "commit": "198fa48a5fbab79b88edc9bb16df99da4caffe91",
   "cargoC": "0.10.25+cargo-0.99.0",
   "assets": [
-    { "rid": "win-x64", "part": "library", "file": "yara-x-capi-v1.22.0-x86_64-pc-windows-msvc.zip", "sha256": "40317f65781e3a17bffe31f9837143a51c1c28ce5061eac2b90695fbb30e1664", "member": "yara_x_capi.dll" },
-    { "rid": "win-x64", "part": "cli", "file": "yara-x-v1.22.0-x86_64-pc-windows-msvc.zip", "sha256": "eac36a58699b94d3732a7fe1d8453fe89e0077bb18ac2c99b4c2ee102a431f2e", "member": "yr.exe" },
-    { "rid": "linux-x64", "part": "cli", "file": "yara-x-v1.22.0-x86_64-unknown-linux-gnu.tar.gz", "sha256": "7f470770b2c1a0d97f02298fc194978d999074d147d003d33dd62775761439db", "member": "yr" },
-    { "rid": "linux-arm64", "part": "cli", "file": "yara-x-v1.22.0-aarch64-unknown-linux-gnu.tar.gz", "sha256": "b1b90f0686ae3e9f607c07b743fd96d6283d9ea5e2fd764919b8505de8b63d4e", "member": "yr" },
-    { "rid": "osx-x64", "part": "cli", "file": "yara-x-v1.22.0-x86_64-apple-darwin.tar.gz", "sha256": "d059da4b91c7d7b43f6f50174a7739e3362b51f349f2ba8b33d46e3334bb3300", "member": "yr" },
-    { "rid": "osx-arm64", "part": "cli", "file": "yara-x-v1.22.0-aarch64-apple-darwin.tar.gz", "sha256": "79d596da5bf02205de63a1d7844a964daebc7293fa36fcb7da46c3e3c7567229", "member": "yr" }
+    { "rid": "win-x64", "part": "library", "file": "yara-x-capi-v1.22.1-x86_64-pc-windows-msvc.zip", "sha256": "f52c2105e52696461de5f4aa6df50051994855ceee069015d566d7c6eb321217", "member": "yara_x_capi.dll" },
+    { "rid": "win-x64", "part": "cli", "file": "yara-x-v1.22.1-x86_64-pc-windows-msvc.zip", "sha256": "dbe8c1ec5d59d8a81c777d949c518fb5e75f1026d3419bca7817727c5d47b327", "member": "yr.exe" },
+    { "rid": "linux-x64", "part": "cli", "file": "yara-x-v1.22.1-x86_64-unknown-linux-gnu.tar.gz", "sha256": "c0ff80408d57b94f8348b9b19b5c70fb03e6471e7fdd761c97e0b4876804eecf", "member": "yr" },
+    { "rid": "linux-arm64", "part": "cli", "file": "yara-x-v1.22.1-aarch64-unknown-linux-gnu.tar.gz", "sha256": "bdddb06ca550319c26aab57d2ee0ea792b0a5175565b22f1ba04813937450fb7", "member": "yr" },
+    { "rid": "osx-x64", "part": "cli", "file": "yara-x-v1.22.1-x86_64-apple-darwin.tar.gz", "sha256": "626be67664b28f2d36e36503703bbcbc1034433e72edc60e462f6920e8589783", "member": "yr" },
+    { "rid": "osx-arm64", "part": "cli", "file": "yara-x-v1.22.1-aarch64-apple-darwin.tar.gz", "sha256": "2c1e8e232ac584c8dcb3cd7eed28c4566e82afc32b782691b216a999ad185c25", "member": "yr" }
   ]
 }

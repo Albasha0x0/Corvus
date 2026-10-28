@@ -5,13 +5,13 @@ using Corvus.Core;
 
 namespace Corvus.Native.Providers.Worker.Yara;
 
-/// <summary>The YARA-X 1.22.0 C API, loaded only in a <c>corvus worker</c> as its native faults are real (VirusTotal/yara-x#663, #720).</summary>
+/// <summary>The YARA-X 1.22.1 C API, loaded only in a <c>corvus worker</c> as its native faults are real (VirusTotal/yara-x#663, #720).</summary>
 internal static class YaraX
 {
     /// <summary>Full path of a libyara_x_capi build to load instead of the one shipped under runtimes/&lt;rid&gt;/native.</summary>
     public const string LibraryVariable = "CORVUS_YARA_LIBRARY";
 
-    public const string Version = "1.22.0";
+    public const string Version = "1.22.1";
 
     private const string Library = "yara_x_capi";
 
