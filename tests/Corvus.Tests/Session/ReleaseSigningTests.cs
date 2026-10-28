@@ -146,11 +146,13 @@ public class ReleaseSigningTests
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
             .Where(d => !new[] { "gh", "gh.exe", "gh.cmd" }.Any(n => File.Exists(Path.Combine(d.Trim('"'), n))))));
 
-    private static (int ExitCode, string Output) Run(string exe, IEnumerable<string> args, IDictionary<string, string> env)
+    private static (int ExitCode, string Output) Run(string exe, IEnumerable<string> args, IDictionary<string, string?> env)
     {
         var start = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true };
         foreach (var a in args) start.ArgumentList.Add(a);
-        foreach (var (k, v) in env) start.Environment[k] = v;
+        foreach (var (k, v) in env)
+            if (v == null) start.Environment.Remove(k);
+            else start.Environment[k] = v;
         using var p = Process.Start(start)!;
         p.StandardInput.Close();
         var stdout = p.StandardOutput.ReadToEndAsync();
@@ -160,6 +162,9 @@ public class ReleaseSigningTests
     }
 
     private static string? Pwsh() => OperatingSystem.IsWindows() ? BundleTests.FindOnPath("pwsh.exe") : null;
+
+    private static string? WindowsPowerShell() =>
+        OperatingSystem.IsWindows() && Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe") is var exe && File.Exists(exe) ? exe : null;
 
     // Git for Windows ships sh beside the tools install.sh calls (openssl, tar).
     private static string? Sh()
@@ -175,8 +180,10 @@ public class ReleaseSigningTests
     private static (int ExitCode, string Output) RunPwsh(string pwsh, Fixture f, string key, bool gh)
     {
         if (gh) File.WriteAllText(Path.Combine(f.StubDir, "gh.cmd"), "@exit /b 0\r\n");
-        return Run(pwsh, ["-NoProfile", "-NonInteractive", "-File", f.Script("install.ps1", key), "-DryRun", "-Yes"], new Dictionary<string, string>
+        return Run(pwsh, ["-NoProfile", "-NonInteractive", "-File", f.Script("install.ps1", key), "-DryRun", "-Yes"], new Dictionary<string, string?>
         {
+            // A PowerShell 7 module path hides Get-FileHash from Windows PowerShell.
+            ["PSModulePath"] = null,
             ["PATH"] = PathWithout(f.StubDir),
             ["CORVUS_ARCHIVE"] = f.ArchivePath,
             ["CORVUS_SHA256SUMS"] = f.SumsPath,
@@ -193,7 +200,7 @@ public class ReleaseSigningTests
             foreach (var stub in Directory.EnumerateFiles(f.StubDir)) File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         var path = PathWithout(f.StubDir);
         if (OperatingSystem.IsWindows()) path = f.StubDir + Path.PathSeparator + Path.GetDirectoryName(sh) + Path.PathSeparator + path;
-        return Run(sh, [Unix(f.Script("install.sh", key)), "--dry-run", "--yes"], new Dictionary<string, string>
+        return Run(sh, [Unix(f.Script("install.sh", key)), "--dry-run", "--yes"], new Dictionary<string, string?>
         {
             ["PATH"] = path,
             ["CORVUS_ARCHIVE"] = Unix(f.ArchivePath),
@@ -231,7 +238,17 @@ public class ReleaseSigningTests
     [Fact]
     public void Install_ps1_refuses_another_key_with_and_without_gh_and_passes_its_own()
     {
-        if (Pwsh() is not { } pwsh) return;
+        if (Pwsh() is { } pwsh) InstallPs1ChecksTheSignature(pwsh);
+    }
+
+    [Fact]
+    public void Install_ps1_checks_the_signature_and_provenance_under_Windows_PowerShell_5_1()
+    {
+        if (WindowsPowerShell() is { } powershell) InstallPs1ChecksTheSignature(powershell);
+    }
+
+    private static void InstallPs1ChecksTheSignature(string pwsh)
+    {
         using var key = NewKey();
         using var other = NewKey();
         foreach (var gh in new[] { false, true })
