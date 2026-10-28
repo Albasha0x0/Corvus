@@ -4,6 +4,10 @@ using Corvus;
 using Corvus.Core;
 using Corvus.Mcp;
 
+// Platform imports load from System32 and the program's folders, never the
+// current folder or PATH.
+[assembly: System.Runtime.InteropServices.DefaultDllImportSearchPaths(System.Runtime.InteropServices.DllImportSearchPath.SafeDirectories)]
+
 if (Corvus.Native.Providers.Worker.WorkerHost.TryRun(args) is { } workerExitCode) return workerExitCode;
 if (Corvus.Native.Providers.Live.Inspector.InspectorWorker.TryRun(args) is { } inspectorExitCode) return inspectorExitCode;
 if (Corvus.Native.Providers.Live.Jdwp.JdwpWorker.TryRun(args) is { } jdwpExitCode) return jdwpExitCode;

@@ -1,3 +1,4 @@
+using System.Reflection;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 
@@ -104,6 +105,13 @@ public class LayeringTests
         ["Corvus.Native.Providers.WindowsJobProcess"] = "ChildProcess on Windows: a suspended start in a job",
         ["Corvus.Native.Diagnostics.PseudoConsoleProcess"] = "a program under a pseudo console, an attribute a ChildProcess start cannot carry",
     };
+
+    [Fact]
+    public void Platform_imports_search_only_safe_directories()
+    {
+        var paths = typeof(Corvus.Core.ToolError).Assembly.GetCustomAttribute<System.Runtime.InteropServices.DefaultDllImportSearchPathsAttribute>();
+        Assert.Equal(System.Runtime.InteropServices.DllImportSearchPath.SafeDirectories, paths?.Paths);
+    }
 
     [Fact]
     public void Processes_start_only_through_ChildProcess()
