@@ -23,6 +23,8 @@ Recipes: Corvus with other security tools.
 [Dependency-Track](recipes/dependency-track.md) · [Velociraptor](recipes/velociraptor.md) ·
 [GuardDog](recipes/guarddog.md) · [Package gate](recipes/package-gate.md).
 
+Tasks from a terminal: [review a reported mail message](recipes/reported-message.md).
+
 ## Contracts and formats
 
 | Page | Covers |
