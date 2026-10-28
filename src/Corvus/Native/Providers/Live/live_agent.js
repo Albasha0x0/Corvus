@@ -126,36 +126,48 @@ function hookJit(m, running) {
   const getJit = m.findExportByName('getJit');
   if (getJit === null) return;
   jitHooked = true;
-  const hookCompiler = jit => Interceptor.attach(jit.readPointer().readPointer(), {
-    // ICorJitCompiler slot 0: compileMethod(this, ICorJitInfo*, CORINFO_METHOD_INFO* {ftn, scope, ILCode, ...}, flags, uint8_t** entry, uint32_t* size)
-    onEnter(a) {
-      this.il = null;
-      if (jitWatched.size === 0 && jitCounted.size === 0) return;
-      const il = a[2].add(2 * Process.pointerSize).readPointer().toString();
-      const run = jitCounted.get(il);
-      if (run !== undefined) {
-        jitCounted.delete(il);
-        send({ type: 'jit_ran', run, il });
-      }
-      if (!jitWatched.has(il)) return;
-      this.il = il;
-      this.entry = a[4];
-      // The compiling thread's callers tell on-stack replacement from a new version of the method.
-      this.frames = Thread.backtrace(this.context, Backtracer.FUZZY).slice(0, 64).map(p => p.toString());
-    },
+  let compilerHooked = false;
+  const hookCompiler = jit => {
+    if (compilerHooked || jit.isNull()) return;
+    compilerHooked = true;
+    Interceptor.attach(jit.readPointer().readPointer(), {
+      // ICorJitCompiler slot 0: compileMethod(this, ICorJitInfo*, CORINFO_METHOD_INFO* {ftn, scope, ILCode, ...}, flags, uint8_t** entry, uint32_t* size)
+      onEnter(a) {
+        this.il = null;
+        if (jitWatched.size === 0 && jitCounted.size === 0) return;
+        const il = a[2].add(2 * Process.pointerSize).readPointer().toString();
+        const run = jitCounted.get(il);
+        if (run !== undefined) {
+          jitCounted.delete(il);
+          send({ type: 'jit_ran', run, il });
+        }
+        if (!jitWatched.has(il)) return;
+        this.il = il;
+        this.entry = a[4];
+        // The compiling thread's callers tell on-stack replacement from a new version of the method.
+        this.frames = Thread.backtrace(this.context, Backtracer.FUZZY).slice(0, 64).map(p => p.toString());
+      },
+      onLeave(r) {
+        if (this.il === null || r.toInt32() !== 0) return; // CORJIT_OK
+        const tid = Process.getCurrentThreadId();
+        expect('load-' + tid);
+        send({ type: 'compiled', il: this.il, code: this.entry.readPointer().toString(), frames: this.frames, held: true, tid });
+        waitFor('load-' + tid);
+      },
+    });
+  };
+  // The module notice can come after the runtime's one getJit call, so a JIT that already exists is hooked now:
+  // CoreCLR's getJit returns null until jitStartup, .NET Framework's makes its one JIT.
+  hookCompiler(new NativeFunction(getJit, 'pointer', [])());
+  if (compilerHooked || running) return;
+  // A starting runtime asks once, after the library's start-up.
+  const asked = Interceptor.attach(getJit, {
     onLeave(r) {
-      if (this.il === null || r.toInt32() !== 0) return; // CORJIT_OK
-      const tid = Process.getCurrentThreadId();
-      expect('load-' + tid);
-      send({ type: 'compiled', il: this.il, code: this.entry.readPointer().toString(), frames: this.frames, held: true, tid });
-      waitFor('load-' + tid);
+      if (r.isNull()) return;
+      asked.detach();
+      hookCompiler(r);
     },
   });
-  // A running runtime has its JIT already; a starting one asks once, after the library's start-up.
-  if (running) hookCompiler(new NativeFunction(getJit, 'pointer', [])());
-  else {
-    const asked = Interceptor.attach(getJit, { onLeave(r) { asked.detach(); hookCompiler(r); } });
-  }
 }
 
 const JIT_LIBRARY = /^(lib)?clrjit\.(dll|so|dylib)$/i;
