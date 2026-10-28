@@ -4,6 +4,7 @@
   "source": "https://github.com/VirusTotal/yara-x",
   "commit": "198fa48a5fbab79b88edc9bb16df99da4caffe91",
   "cargoC": "0.10.25+cargo-0.99.0",
+  "rust": "1.99.1",
   "assets": [
     { "rid": "win-x64", "part": "library", "file": "yara-x-capi-v1.22.1-x86_64-pc-windows-msvc.zip", "sha256": "f52c2105e52696461de5f4aa6df50051994855ceee069015d566d7c6eb321217", "member": "yara_x_capi.dll" },
     { "rid": "win-x64", "part": "cli", "file": "yara-x-v1.22.1-x86_64-pc-windows-msvc.zip", "sha256": "dbe8c1ec5d59d8a81c777d949c518fb5e75f1026d3419bca7817727c5d47b327", "member": "yr.exe" },

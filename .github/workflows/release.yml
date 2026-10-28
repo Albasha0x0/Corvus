@@ -35,8 +35,8 @@ jobs:
           global-json-file: global.json
       - run: dotnet test -c Release --blame-hang-timeout 15m
 
-  # YARA-X C library for runtimes/<rid>/native: upstream's win-x64 build checked by SHA-256, the others built with
-  # cargo-c from the pinned commit. musl archives ship without it.
+  # YARA-X C library for runtimes/<rid>/native: upstream's win-x64 build checked by SHA-256, the others built from
+  # the pinned commit with the table's Rust and cargo-c versions. musl archives ship without it.
   yara-x:
     needs: test
     strategy:
@@ -66,8 +66,8 @@ jobs:
           RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
         run: |
           set -e
-          commit=$(jq -r .commit "$TABLE"); cargoc=$(jq -r .cargoC "$TABLE")
-          rustup toolchain install stable --profile minimal --target "$TARGET" && rustup default stable
+          commit=$(jq -r .commit "$TABLE"); cargoc=$(jq -r .cargoC "$TABLE"); rust=$(jq -r .rust "$TABLE")
+          rustup toolchain install "$rust" --profile minimal --target "$TARGET" && rustup default "$rust"
           cargo install cargo-c --locked --version "$cargoc"
           git init -q yara-x-src && cd yara-x-src
           git fetch -q --depth 1 "$(jq -r .source "../$TABLE")" "$commit" && git checkout -q FETCH_HEAD
@@ -189,12 +189,12 @@ jobs:
       - name: Bundles
         shell: pwsh
         run: ./release.ps1 -Version $env:GITHUB_REF_NAME -Bundle .
-      # CycloneDX SBOM of the server's package graph, shared by every asset.
+      # CycloneDX SBOM of the server's package graph, shared by every asset; the tool version is in .config/dotnet-tools.json.
       - name: SBOM
         run: |
           dotnet restore src/Corvus/Corvus.csproj
-          dotnet tool install CycloneDX --version 6.2.0 --tool-path "$RUNNER_TEMP/cyclonedx"
-          "$RUNNER_TEMP/cyclonedx/dotnet-CycloneDX" src/Corvus/Corvus.csproj -o . -fn corvus-sbom.cdx.json -F Json -sn Corvus -sv "${GITHUB_REF_NAME#v}"
+          dotnet tool restore
+          dotnet tool run dotnet-CycloneDX src/Corvus/Corvus.csproj -o . -fn corvus-sbom.cdx.json -F Json -sn Corvus -sv "${GITHUB_REF_NAME#v}"
       # The full test pass the release shipped on (release/tests.json), attested.
       - name: Test summary
         run: cp release/tests.json corvus-tests.json
@@ -333,11 +333,11 @@ jobs:
             sleep 20
           done
           echo "CorvusRE $version is not listed on nuget.org after 30 minutes" >&2; exit 1
+      # The SHA-256 is the one upstream's checksums file lists for this archive, pinned here with the version.
       - name: MCP Registry
         run: |
           curl -fsSL -o publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
-          curl -fsSL -o checksums.txt https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/registry_1.8.1_checksums.txt
-          grep " mcp-publisher_linux_amd64.tar.gz$" checksums.txt | sed 's/mcp-publisher_linux_amd64.tar.gz$/publisher.tar.gz/' | sha256sum --check --strict
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  publisher.tar.gz" | sha256sum --check --strict
           tar -xzf publisher.tar.gz mcp-publisher
           ./mcp-publisher login github-oidc
           jq --arg v "${TAG#v}" '.version = $v | .packages[].version = $v' src/Corvus/.mcp/server.json > server.json

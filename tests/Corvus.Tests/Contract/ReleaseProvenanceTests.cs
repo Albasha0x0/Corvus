@@ -108,7 +108,7 @@ public partial class ReleaseProvenanceTests
         foreach (var permission in new[] { "id-token: write", "attestations: write", "artifact-metadata: write", "contents: write" })
             Assert.Contains(permission, release, StringComparison.Ordinal);
         Assert.Equal(3, Regex.Count(release, @"uses: actions/attest@"));
-        Assert.Contains("dotnet-CycloneDX\" src/Corvus/Corvus.csproj", release, StringComparison.Ordinal);
+        Assert.Contains("dotnet tool run dotnet-CycloneDX src/Corvus/Corvus.csproj", release, StringComparison.Ordinal);
         Assert.Contains("sbom-path: corvus-sbom.cdx.json", release, StringComparison.Ordinal);
         // Order: the SBOM is listed in SHA256SUMS, provenance covers SHA256SUMS, and the release attaches all of them.
         int At(string text) => release.IndexOf(text, StringComparison.Ordinal);
@@ -155,5 +155,28 @@ public partial class ReleaseProvenanceTests
         foreach (var file in new[] { "Dockerfile", Path.Combine("docs", "installation.md") })
             Assert.All(Regex.Matches(File.ReadAllText(Path.Combine(root, file)), @"docker run [^\n]*").Select(m => m.Value),
                 run => Assert.Contains("--network none", run, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Release_tools_are_pinned_to_exact_versions_and_digests()
+    {
+        var problems = new List<string>();
+        foreach (Match rustup in Regex.Matches(Workflow, @"rustup (?:toolchain install|default|update) [^\n&]*"))
+            if (Regex.IsMatch(rustup.Value, @"\b(stable|beta|nightly)\b")) problems.Add($"a channel, not a version: {rustup.Value}");
+        // A tool install outside a manifest takes whatever the feed serves for
+        // a range or a missing version.
+        foreach (Match install in Regex.Matches(Workflow, @"(?:dotnet tool install|cargo install)[^\n]*"))
+            if (!install.Value.StartsWith("cargo install", StringComparison.Ordinal) || !install.Value.Contains("--locked --version", StringComparison.Ordinal))
+                problems.Add($"not locked: {install.Value}");
+        foreach (Match download in Regex.Matches(Workflow, @"curl [^\n]*-o (\S+) https://[^\n]*"))
+            if (!Regex.IsMatch(Workflow, $@"[0-9a-f]{{64}}  {Regex.Escape(download.Groups[1].Value)}"" \| sha256sum --check --strict"))
+                problems.Add($"no pinned SHA-256: {download.Value}");
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+        using var table = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), "tests", "Corvus.Tests", "Support", "yara-x-assets.json")));
+        Assert.Matches(@"^\d+\.\d+\.\d+$", table.RootElement.GetProperty("rust").GetString());
+        Assert.Contains("rust=$(jq -r .rust \"$TABLE\")", Workflow, StringComparison.Ordinal);
+        var tool = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), ".config", "dotnet-tools.json")))!["tools"]!["cyclonedx"]!;
+        Assert.Matches(@"^\d+\.\d+\.\d+$", (string?)tool["version"]);
+        Assert.False((bool?)tool["rollForward"]);
     }
 }
