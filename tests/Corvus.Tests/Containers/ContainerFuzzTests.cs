@@ -65,6 +65,14 @@ public sealed class ContainerFuzzTests
     }
 
     [Fact]
+    public void The_full_set_runs_every_fuzz_entry_at_least_200_times_and_the_quick_set_25()
+    {
+        Assert.Equal((200, 200, 1000), (FormatFuzz.Iterations(100, full: true), FormatFuzz.Iterations(200, full: true), FormatFuzz.Iterations(1000, full: true)));
+        Assert.Equal((25, 25, 100), (FormatFuzz.Iterations(100, full: false), FormatFuzz.Iterations(250, full: false), FormatFuzz.Iterations(1000, full: false)));
+        Assert.Equal(10, FormatFuzz.Iterations(10, full: false));
+    }
+
+    [Fact]
     [FuzzEntry(typeof(WebPlayerData))]
     public void Fuzzed_WebGL_data_files_never_throw_past_a_tool_error()
     {
