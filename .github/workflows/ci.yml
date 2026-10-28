@@ -221,9 +221,13 @@ jobs:
           # setup-dotnet's DOTNET_ROOT names the x64 install, which an x86 apphost reads when DOTNET_ROOT(x86) is unset.
           "DOTNET_ROOT(x86)=${env:ProgramFiles(x86)}\dotnet" >> $env:GITHUB_ENV
 
+      # Temporary files on the workspace drive: writes to C: stalled for over
+      # 40 s on a Windows sweep shard (run 40686942699).
       - name: Test
         shell: pwsh
-        run: ./test.ps1 -RemoteRun -Group ${{ matrix.group }} -Shard ${{ matrix.shard }}/${{ matrix.shards }} -CrossPlatform:$${{ matrix.cross == true }}
+        run: |
+          if ($IsWindows) { $env:TEMP = $env:TMP = $env:RUNNER_TEMP }
+          ./test.ps1 -RemoteRun -Group ${{ matrix.group }} -Shard ${{ matrix.shard }}/${{ matrix.shards }} -CrossPlatform:$${{ matrix.cross == true }}
 
       - name: Upload test results
         if: always()
