@@ -197,13 +197,20 @@ public static partial class SymbolResolver
         var q = NormalizeTypeName(typeQuery);
         bool HasNs(string s) => s.Contains('.') || s.Contains('/');
         var refs = scope.SelectMany(a => a.Module.GetTypeRefs()).ToList();
+        // The name as written first, as FindTypes reads it.
+        var literal = typeQuery.Trim().Replace('+', '/');
+        Func<TypeRef, bool>[] asWritten = literal == q ? [] :
+        [
+            t => t.FullName == literal || Dotted(t.FullName) == Dotted(literal),
+            t => !HasNs(literal) && t.Name == literal,
+        ];
         var levels = new Func<TypeRef, bool>[]
         {
             t => t.FullName == q,
             t => Dotted(t.FullName) == Dotted(q) || Dotted(StripAllArity(t.FullName)) == Dotted(q),
             t => !HasNs(q) && (t.Name == q || Format.StripArity(t.Name) == q),
         };
-        foreach (var level in levels)
+        foreach (var level in asWritten.Concat(levels))
         {
             var hits = new List<ResolvedSymbol>();
             foreach (var group in refs.Where(level).GroupBy(t => t.FullName))

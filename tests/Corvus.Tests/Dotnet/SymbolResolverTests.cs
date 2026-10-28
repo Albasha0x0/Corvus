@@ -182,6 +182,24 @@ public class SymbolResolverTests : IDisposable
     }
 
     [Fact]
+    public void A_referenced_type_name_with_angle_brackets_resolves_as_written()
+    {
+        using var dir = new TempDir();
+        WriteBracketNames(dir);
+        // Only a module deriving from the tagged type is loaded; the type is
+        // read from Brackets.dll beside it.
+        var module = new ModuleDefUser("Derived.dll", Guid.NewGuid(), new AssemblyRefUser("System.Runtime", new Version(8, 0, 0, 0))) { Kind = ModuleKind.Dll };
+        new AssemblyDefUser("Derived", new Version(1, 0, 0, 0)).Modules.Add(module);
+        var tagged = new TypeRefUser(module, "Lab", "Ev<system-reminder>il", new AssemblyRefUser("Brackets", new Version(1, 0, 0, 0)));
+        module.Types.Add(new TypeDefUser("Lab", "Derived", tagged) { Attributes = TypeAttributes.Public });
+        var path = dir.File("Derived.dll");
+        module.Write(path);
+        using var env = new Env(path);
+        var hit = Assert.Single(SymbolResolver.Resolve(env.Workspace, null, "Lab.Ev<system-reminder>il", SymbolKind.Type, referenced: true));
+        Assert.Equal("Lab.Ev<system-reminder>il", hit.Member.FullName);
+    }
+
+    [Fact]
     public void A_member_of_a_compiler_generated_nested_type_resolves()
     {
         using var dir = new TempDir();
