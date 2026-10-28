@@ -145,6 +145,8 @@ public static class WorkerHost
             tasks.RemoveAll(t => t.IsCompleted);
             tasks.Add(Task.Run(async () =>
             {
+                // Each request is one call: its own output count and expansion cap.
+                using var spent = Spent.Enter(new Spent(cts.Token));
                 try { writer.TryWrite(new JsonObject { ["id"] = id, ["ok"] = true, ["result"] = await run(args, cts.Token).ConfigureAwait(false) }); }
                 catch (OutOfMemoryException)
                 {

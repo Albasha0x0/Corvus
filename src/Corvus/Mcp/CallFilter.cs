@@ -196,6 +196,7 @@ internal static partial class CallFilter
         using var confined = OutputRoots.Enter(serverOptions is { ConfineOutputs: true }
             ? OutputRoots.Resolve(serverOptions.OutputDirs, serverOptions.OutputDirs == null && Writes(effects.ReadOnly, request) ? await ClientRoots(services, call.Token) : [])
             : null);
+        using var spent = Spent.Enter(new Spent(call.Token));
         var joinStopped = CancellationToken.None;
         string? phase = null;
         try

@@ -77,13 +77,13 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             // compiler-generated types (empty from the name API) use the handle.
             if (type.DeclaringType == null)
             {
-                var withNamespace = decompiler.DecompileTypeAsString(new FullTypeName(type.ReflectionFullName));
+                var withNamespace = Print(decompiler.DecompileType(new FullTypeName(type.ReflectionFullName)));
                 if (!string.IsNullOrWhiteSpace(withNamespace))
                     return withNamespace;
             }
-            return decompiler.DecompileAsString(Handle(asm, type));
+            return Print(decompiler.Decompile(Handle(asm, type)));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not (OperationCanceledException or ToolError { Code: ErrorCode.LimitExceeded }))
         {
             var sb = new StringBuilder();
             sb.AppendLine($"// Whole-type decompilation failed ({ex.GetType().Name}: {FirstLine(ex.Message)}); decompiling members individually.");
@@ -186,10 +186,10 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 return header + "\n" + inContext;
             // An accessor decompiles to a bare block; its property or event names it.
             if (member is Dn.MethodDef accessor && AccessorOwner(accessor) is { } owner)
-                return header + $"\n// accessor of {owner.Name}, shown in it\n" + decompiler.DecompileAsString(Handle(asm, owner)).TrimEnd() + "\n";
-            return header + "\n" + decompiler.DecompileAsString(Handle(asm, member)).TrimEnd() + "\n";
+                return header + $"\n// accessor of {owner.Name}, shown in it\n" + Print(decompiler.Decompile(Handle(asm, owner))).TrimEnd() + "\n";
+            return header + "\n" + Print(decompiler.Decompile(Handle(asm, member))).TrimEnd() + "\n";
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not (OperationCanceledException or ToolError { Code: ErrorCode.LimitExceeded }))
         {
             var sb = new StringBuilder(header).AppendLine();
             sb.AppendLine($"// C# decompilation failed: {ex.GetType().Name}: {FirstLine(ex.Message)}");
@@ -200,6 +200,14 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
+    /// <summary>The syntax tree as C# text, as the decompiler prints it, bounded by <see cref="BoundedWriter"/>.</summary>
+    private static string Print(Syn.SyntaxTree tree)
+    {
+        using var writer = new BoundedWriter();
+        tree.AcceptVisitor(new ICSharpCode.Decompiler.CSharp.OutputVisitor.CSharpOutputVisitor(writer, CreateSettings().CSharpFormattingOptions));
+        return writer.ToString();
+    }
+
     private static Dn.IMemberDef? AccessorOwner(Dn.MethodDef method) =>
         !method.IsSpecialName || method.DeclaringType is not { } type ? null
             : (Dn.IMemberDef?)type.Properties.FirstOrDefault(p => p.GetMethods.Contains(method) || p.SetMethods.Contains(method))
@@ -208,13 +216,13 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => WithTimeout(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
-        return asm.DecompilerNote + decompiler.DecompileModuleAndAssemblyAttributesToString();
+        return asm.DecompilerNote + Print(decompiler.DecompileModuleAndAssemblyAttributes());
     }, ct);
 
     /// <summary>ildasm-style IL with metadata tokens and resolved operands; <paramref name="pdb"/> adds its source lines and local names.</summary>
     public string Disassemble(LoadedAssembly asm, Dn.IMemberDef member, CancellationToken ct, PortablePdb? pdb = null)
     {
-        var output = new PlainTextOutput();
+        var output = new PlainTextOutput(new BoundedWriter());
         var dis = new ReflectionDisassembler(output, ct)
         {
             DetectControlStructure = true,

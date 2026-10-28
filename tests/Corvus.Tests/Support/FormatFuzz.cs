@@ -1,8 +1,11 @@
+using Corvus.Core;
+
 namespace Corvus.Tests;
 
 /// <summary>
 /// Seeded mutation of a small seed file for readers that must never throw: bytes overwritten, flipped, truncated or
-/// duplicated. A failure names the iteration that reproduces it.
+/// duplicated. Each read runs as one call, bounded in CPU time and in bytes allocated. A failure names the iteration
+/// that reproduces it.
 /// </summary>
 internal static class FormatFuzz
 {
@@ -25,18 +28,34 @@ internal static class FormatFuzz
     {
         iterations = Iterations(iterations, Full);
         var failures = new List<string>();
+        // The seed is read once first, so caches a reader fills on its first
+        // call are not counted against an iteration.
+        try { read(seed); }
+        catch (Exception) { }
         for (int i = 0; i < iterations; i++)
         {
             var rng = new Random(unchecked(baseSeed * 1_000_003 + i));
             var bytes = Mutate(seed, rng);
             var cpu = ThreadCpuClock.Now();
-            try { read(bytes); }
+            long allocated = GC.GetAllocatedBytesForCurrentThread();
+            try
+            {
+                using var call = Spent.Enter(new Spent());
+                read(bytes);
+            }
             catch (Exception ex) { failures.Add($"iteration {i}: {ex.GetType().Name}: {ex.Message} (in {Where(ex)})"); }
             // A few ms each; the bound is CPU time, so a starved machine does not trip it.
             if (ThreadCpuClock.Now() - cpu is var took && took > TimeSpan.FromSeconds(2)) failures.Add($"iteration {i}: took {took.TotalSeconds:0.0} s of CPU");
+            // The expansion limit's own bound: a mutated header may not buy a
+            // large allocation.
+            if (GC.GetAllocatedBytesForCurrentThread() - allocated is var bytesTaken && bytesTaken > AllocationBound(bytes.Length))
+                failures.Add($"iteration {i}: allocated {bytesTaken:N0} bytes for a {bytes.Length:N0}-byte input");
         }
         return failures;
     }
+
+    /// <summary>The most bytes one read of <paramref name="input"/> bytes may allocate.</summary>
+    public static long AllocationBound(long input) => Spent.Floor + Spent.DefaultRatio * input;
 
     /// <summary>Where an exception was thrown: the pattern for a regex timeout, whose throwing method is the regex runner.</summary>
     private static string Where(Exception ex) => ex is System.Text.RegularExpressions.RegexMatchTimeoutException t

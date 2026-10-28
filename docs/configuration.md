@@ -259,6 +259,7 @@ The server goes online only when a call or command asks for it ([SECURITY.md](..
 | `CORVUS_AUTO_DART_NAMES` | | `0`: do not name Dart AOT images from their snapshot |
 | `CORVUS_RESULT_MODE` | text | `json`: a structured result's text block is its compact JSON |
 | `CORVUS_MAX_LEFTOVER_CALLS` | 2 | cancelled or timed-out calls still running; past it, new calls wait, then are refused |
+| `CORVUS_MAX_EXPANSION` | 2000 | past 256 MiB extracted, a call's output may reach this many times its input; `0`: no limit |
 
 ### Worker processes
 
@@ -275,6 +276,8 @@ the server keeps answering.
 
 - The worker memory limit uses a Windows job object, Linux RLIMIT_DATA or a macOS footprint watchdog. A worker that
   reaches it fails its call with `limit_exceeded` and is replaced.
+- A worker answer line over 256 Mi characters ends the worker and fails its call.
+- Decompiled C# and IL text stops at 64 Mi characters per print with `limit_exceeded`.
 
 ### Install, update and diagnostics
 

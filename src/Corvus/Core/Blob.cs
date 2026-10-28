@@ -17,6 +17,9 @@ public sealed record AnalysisLimits
     public int MaxItems { get; init; } = 20_000;
     /// <summary>Nesting depth for containers inside containers / encodings inside encodings.</summary>
     public int MaxDepth { get; init; } = 4;
+
+    /// <summary>The current call's counter, the same for every copy of these limits; null outside a call.</summary>
+    public Spent? Spent => Core.Spent.Current;
 }
 
 /// <summary>Byte-level helpers: file-type identification, entropy, hashes, bounded decompression, carving.</summary>
@@ -161,9 +164,11 @@ public static class Blob
     {
         using var output = new MemoryStream();
         var buffer = new byte[81920];
+        var spent = Spent.Current;
         int n;
         while ((n = s.Read(buffer, 0, buffer.Length)) > 0)
         {
+            spent?.Step();
             if (output.Length + n > maxBytes) return null;
             output.Write(buffer, 0, n);
         }

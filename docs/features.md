@@ -339,6 +339,7 @@ Untrusted input:
 - Runnable extensions (`.exe`, `.bat`, `.ps1`, `.lnk`, ...) get a `.bin` suffix. `.dll` is kept.
 - A corrupt entry is skipped with a note. A corrupt container fails with an error.
 - Limits: 512 MB per item; 4 GB and 20,000 files per extraction.
+- Expansion limit: past 256 MiB extracted, one call's output stops at 2,000 times its input (`CORVUS_MAX_EXPANSION`).
 - Default output: a folder under the temp directory, named by the file and its SHA-256. A given directory must be new, empty, or an earlier extract of the same file.
 
 Labels:

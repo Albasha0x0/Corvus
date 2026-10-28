@@ -13,6 +13,16 @@ public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin)
     /// A file the archive records by name; written even when its bytes repeat.
     /// </summary>
     public bool Member { get; init; }
+
+    // Each item counts toward its call's output here, so no reader needs a
+    // call of its own.
+    public byte[] Bytes { get; init; } = Counted(Bytes, Name);
+
+    private static byte[] Counted(byte[] bytes, string name)
+    {
+        Spent.Current?.Produced(bytes.Length, name);
+        return bytes;
+    }
 }
 
 /// <summary>An entry of an archive container (ASAR, WebPlayerData, HAR, flows), listed without extracting it.</summary>
@@ -83,6 +93,7 @@ public static class Containers
     public static ContainerContents Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct, string? location = null, bool allFiles = false)
     {
         ct.ThrowIfCancellationRequested();
+        limits.Spent?.Input(data.Length);
         var kind = Blob.Identify(data);
         if (kind == "asar") return AsarContainer.Open(data, location, allFiles, limits, ct);
         if (kind == "webdata") return WebPlayerData.Open(data, name, location, allFiles, limits, ct);
@@ -312,6 +323,9 @@ public static class Containers
     /// <summary>One container level read from a stream; null for other formats and a zip without a readable central directory, whose recovery needs the bytes.</summary>
     public static ContainerContents? OpenStream(Func<Stream> open, ReadOnlySpan<byte> head, string name, AnalysisLimits limits, CancellationToken ct)
     {
+        if (limits.Spent is { } spent)
+            using (var probe = open())
+                if (probe.CanSeek) spent.Input(probe.Length);
         var kind = Blob.Identify(head);
         if (Pcap.PcapReader.Looks(head) || SqliteDatabase.Looks(head))
             return new ContainerContents("none", [], [$"A {(SqliteDatabase.Looks(head) ? "SQLite database" : "packet capture")}, read as a stream: not a container, not carved."]);

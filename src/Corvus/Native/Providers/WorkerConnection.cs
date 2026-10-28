@@ -457,12 +457,16 @@ public sealed class WorkerConnection : IDisposable
 
     private static string Seconds(TimeSpan t) => t.TotalSeconds < 120 ? $"{t.TotalSeconds:0.#} s" : $"{t.TotalMinutes:0.#} min";
 
+    /// <summary>The longest worker answer line read, in characters (256 Mi).</summary>
+    public const int MaxAnswerChars = 256 << 20;
+
     private void ReadStdout(StreamReader reader)
     {
         try
         {
             using var _ = reader;
-            while (reader.ReadLine() is { } line)
+            var lines = new BoundedLineReader(reader, MaxAnswerChars);
+            while (lines.ReadLine() is { } line)
             {
                 Volatile.Write(ref _lastLineTicks, _options.Time.GetTimestamp());
                 switch (WorkerProtocol.Parse(line))
@@ -491,6 +495,12 @@ public sealed class WorkerConnection : IDisposable
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        catch (InvalidDataException)
+        {
+            _stderr.Append($"[an answer line passed {MaxAnswerChars:N0} characters; the worker was stopped]\n");
+            try { Kill("answer line over the limit"); }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        }
         _stdoutDone.TrySetResult();
         // Give the stderr thread a moment, so the error carries the exit message.
         _stderrDone.Task.Wait(1000);

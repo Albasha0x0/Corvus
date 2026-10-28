@@ -35,10 +35,13 @@ internal static class FormatFuzz
                 }
             }
             var cpu = ThreadCpuClock.Now();
+            long allocated = GC.GetAllocatedBytesForCurrentThread();
             try { parse(bytes); }
             catch (ToolError ex) when (ex.Code is ErrorCode.MalformedInput or ErrorCode.LimitExceeded) { }
             catch (Exception ex) { failures.Add($"iteration {i} (seed {which}): {ex}"); }
             if (ThreadCpuClock.Now() - cpu is var took && took > TimeBound) failures.Add($"iteration {i} (seed {which}): took {took.TotalSeconds:0.0} s of CPU");
+            if (GC.GetAllocatedBytesForCurrentThread() - allocated is var taken && taken > Tests.FormatFuzz.AllocationBound(bytes.Length))
+                failures.Add($"iteration {i} (seed {which}): allocated {taken:N0} bytes for a {bytes.Length:N0}-byte input");
         });
         return [.. failures];
     }

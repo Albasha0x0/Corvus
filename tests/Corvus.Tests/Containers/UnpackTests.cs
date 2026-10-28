@@ -500,6 +500,21 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
+    public void A_bundle_whose_entries_share_one_offset_is_stopped()
+    {
+        var bundle = System.IO.File.ReadAllBytes(fx.Bundle);
+        const int size = 64 * 1024;
+        var shared = ContainerFixtures.WithManifest(bundle,
+            [new("e0.bin", new byte[size]), .. Enumerable.Range(1, 399).Select(i => new ContainerFixtures.BundleEntry($"e{i}.bin", null, bundle.Length, size))]);
+        // A floor of 1 MiB and a ratio of 2: the bundle is a few hundred KB,
+        // its entries 25 MiB.
+        using var call = Spent.Enter(new Spent(ratio: 2, floor: 1 << 20));
+        var error = Assert.Throws<ToolError>(() => Containers.Open(shared, "shared.exe", AnalysisLimits.Default, default, allFiles: true));
+        Assert.Equal(ErrorCode.LimitExceeded, error.Code);
+        Assert.Contains("expansion limit", error.Message);
+    }
+
+    [Fact]
     public void Bundle_entries_with_bad_offsets_sizes_or_compression_are_skipped_with_notes()
     {
         var good = ContainerFixtures.Module("Good");
