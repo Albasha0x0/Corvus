@@ -10,8 +10,10 @@ public static partial class ToolEffects
     private static Dictionary<string, Effects> ContainersTools() => new(StringComparer.Ordinal)
     {
         // Files and containers (nothing executed)
-        ["summarize_file"] = Reads(),
-        ["survey_features"] = Reads(),
+        // A signature's revocation is checked online.
+        ["summarize_file"] = Reads(openWorld: true),
+        // category=capa runs capa (CORVUS_CAPA).
+        ["survey_features"] = Reads(openWorld: true),
         // With read_result, outputPath exports the kept values.
         ["extract_strings"] = Reads(),
         // Writes unique names, never over a different file.

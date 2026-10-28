@@ -11,20 +11,21 @@ public static partial class ToolEffects
     {
         // Query and read handles to a running process only (docs/live-inspection.md).
         ["inspect_process"] = Reads(openWorld: true),
-        // Session tools change the session, never the observed program; gated by --allow-live.
-        ["live_session"] = Changes(destructive: false, idempotent: false, openWorld: true),
-        ["live_break"] = Changes(destructive: false, idempotent: false, openWorld: true),
-        ["live_watch"] = Changes(destructive: false, idempotent: false, openWorld: true),
+        // Session tools start, stop, suspend and patch stop points into a running
+        // program; gated by --allow-live.
+        ["live_session"] = Changes(destructive: true, idempotent: false, openWorld: true),
+        ["live_break"] = Changes(destructive: true, idempotent: false, openWorld: true),
+        ["live_watch"] = Changes(destructive: true, idempotent: false, openWorld: true),
         ["live_read"] = Reads(openWorld: true),
         ["live_events"] = Reads(openWorld: true),
         // A user script runs inside the observed program and may change it; also gated by --live-scripting.
         ["live_script"] = Changes(destructive: true, idempotent: false, openWorld: true),
-        // Coverage stop points resume at once; the program runs as before.
-        ["live_coverage"] = Changes(destructive: false, idempotent: false, openWorld: true),
-        // An event tracing session reads what the OS reports; the program is not touched.
-        ["live_timeline"] = Changes(destructive: false, idempotent: false, openWorld: true),
+        // Coverage stop points are written into the program's code.
+        ["live_coverage"] = Changes(destructive: true, idempotent: false, openWorld: true),
+        // Traces a session's program, which the session can stop and end.
+        ["live_timeline"] = Changes(destructive: true, idempotent: false, openWorld: true),
         // Starts a program under a console and types the script's input; also gated by --allow-live-spawn.
-        ["live_console"] = Changes(destructive: false, idempotent: false, openWorld: true),
+        ["live_console"] = Changes(destructive: true, idempotent: false, openWorld: true),
     };
 }
 

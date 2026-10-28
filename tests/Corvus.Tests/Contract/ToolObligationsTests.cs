@@ -58,6 +58,28 @@ public partial class ToolObligationsTests
     }
 
     [Fact]
+    public void Every_tool_declares_its_annotations_and_each_fits_what_the_tool_runs()
+    {
+        var violations = new List<string>();
+        foreach (var name in Names)
+        {
+            if (!ToolEffects.Table.TryGetValue(name, out var e))
+            {
+                violations.Add($"{name}: no row in ToolEffects");
+                continue;
+            }
+            bool runsProgram = ToolAvailability.ExternalProgramTools.Contains(name) || ToolAvailability.EngineOnly.ContainsKey(name)
+                || ToolAvailability.WindowsOnly.Contains(name) || ToolAvailability.SessionTools.Contains(name)
+                || ParameterDomains.Table.TryGetValue(name, out var p) && p.ContainsKey("engine");
+            if (runsProgram && !e.OpenWorld) violations.Add($"{name}: runs a program or reads another process, so openWorld");
+            if (ToolAvailability.SessionTools.Contains(name) && !e.ReadOnly && !e.Destructive) violations.Add($"{name}: changes a running program, so destructive");
+        }
+        foreach (var name in new[] { "summarize_file", "survey_features" })
+            if (!ToolEffects.Of(name).OpenWorld) violations.Add($"{name}: reaches the network or runs capa, so openWorld");
+        Assert.True(violations.Count == 0, string.Join("\n", violations));
+    }
+
+    [Fact]
     public void Every_tool_has_a_protocol_sample()
     {
         var violations = Names.Where(n => !File.Exists(ProtocolSampleTests.SampleFile(n))).ToDictionary(n => n, _ => "no recorded request/response");

@@ -551,7 +551,7 @@ File inspection, containers and wrapped apps, build summary.
 
 ### summarize_file
 
-**Summarize file** (read-only, idempotent)
+**Summarize file** (read-only, idempotent, open-world)
 
 Summarize a file, folder or assembly, never run: type, hashes, signature, containers, assemblies, highlights, entry points. view= opens one aspect; the overview lists the views.
 
@@ -573,7 +573,7 @@ Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views
 
 ### survey_features
 
-**Survey features** (read-only, idempotent)
+**Survey features** (read-only, idempotent, open-world)
 
 Capabilities found by rules over API calls, imports and strings (network, execution, persistence, crypto); category= adds evidence. Apps add MASVS findings; category=capa adds capa labels by function (CORVUS_CAPA).
 
@@ -2843,7 +2843,7 @@ Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`,
 
 ### live_session
 
-**Session on a program** (edit, open-world)
+**Session on a program** (destructive, open-world)
 
 Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.
 
@@ -2864,7 +2864,7 @@ Structured output: `action`, `session`, `backend`, `program`, `processId`, `stat
 
 ### live_break
 
-**Stop points in a session** (edit, open-world)
+**Stop points in a session** (destructive, open-world)
 
 Set, list or clear stop points; continue resumes held threads; wait returns the next stop with a named stack.
 
@@ -2882,7 +2882,7 @@ Structured output: `session`, `stopPoints`, `stop`, `namedAddresses`.
 
 ### live_watch
 
-**Record calls in a session** (edit, open-world)
+**Record calls in a session** (destructive, open-world)
 
 Record each call of a function with arguments and result, decoded by prototype or known API, as events (live_events from=WATCH).
 
@@ -2951,7 +2951,7 @@ Structured output: `session`, `scripts`.
 
 ### live_coverage
 
-**Code coverage of a session** (edit, open-world)
+**Code coverage of a session** (destructive, open-world)
 
 Collect code coverage in a session: which functions of an image ran and how often; diff compares two runs.
 
@@ -2972,7 +2972,7 @@ Structured output: `run`, `items`, `offset`, `total`, `runs`, `namedAddresses`, 
 
 ### live_timeline
 
-**Activity trace of a session** (edit, open-world)
+**Activity trace of a session** (destructive, open-world)
 
 Trace the files, registry keys, endpoints and child processes a session's program opens, with times; report counts each name, diff compares two traces.
 
@@ -2993,7 +2993,7 @@ Structured output: `run`, `items`, `cursor`, `runs`, `dropped`, `names`, `diff`.
 
 ### live_console
 
-**Scripted console run** (edit, open-world)
+**Scripted console run** (destructive, open-world)
 
 Run a program under a console host, driven by send, wait, resize and delay steps; reports each step and pages the transcript with a cursor.
 
