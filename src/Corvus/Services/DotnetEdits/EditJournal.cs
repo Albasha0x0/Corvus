@@ -147,7 +147,7 @@ public sealed class EditJournal
                 if (content is { } bytes)
                 {
                     Directory.CreateDirectory(Root);
-                    SafeFile.WriteAllBytes(file, bytes, overwrite: true);
+                    SafeFile.WritePrivate(file, bytes, overwrite: true);
                     _files[file] = target;
                 }
                 else

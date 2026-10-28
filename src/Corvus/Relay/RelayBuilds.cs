@@ -96,12 +96,18 @@ public static class RelayBuilds
     }
 
     /// <summary>Starts the server in a staged folder: its apphost, else its dll under the dotnet host.</summary>
-    public static ChildProcess Launch(string directory, IReadOnlyList<string> serverArgs)
+    public static ChildProcess Launch(string directory, IReadOnlyList<string> serverArgs, string? target = null)
     {
         var exe = Path.Combine(directory, ProgramName);
-        if (File.Exists(exe)) return ChildProcess.Start(new ChildProcessStart(exe, serverArgs));
-        return ChildProcess.Start(new ChildProcessStart(Native.Providers.Worker.WorkerPool.DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs]));
+        var start = File.Exists(exe) ? new ChildProcessStart(exe, serverArgs)
+            : new ChildProcessStart(Native.Providers.Worker.WorkerPool.DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs]);
+        // The server refuses outputs in the folder it is published from.
+        if (target != null) start = start with { Environment = new Dictionary<string, string?> { [TargetVariable] = target } };
+        return ChildProcess.Start(start);
     }
+
+    /// <summary>Names the publish folder for the server the relay starts.</summary>
+    public const string TargetVariable = "CORVUS_RELAY_TARGET";
 
     /// <summary>Copies <paramref name="program"/>'s folder to a versioned, content-addressed folder under <paramref name="state"/>; returns the copy's program.</summary>
     public static string StageHost(string program, string state, bool dryRun)

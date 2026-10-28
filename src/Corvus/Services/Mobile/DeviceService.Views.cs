@@ -28,12 +28,12 @@ public sealed partial class DeviceService
         try
         {
             ExternalTools.RunResult r;
-            using (var file = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16))
+            using (var file = SafeFile.CreateNew(partial))
                 r = ExternalTools.Run(AdbPath(), [.. args], Long, budget, ct, Environment, sink: file);
             if (r.Truncated)
                 throw new ToolError(ErrorCode.LimitExceeded, $"{what} is over {budget >> 20} MB; nothing was kept.");
             if (check || r.StartError != null || r.TimedOut) Check(r, what);
-            File.Move(partial, final);
+            SafeFile.MoveToOutput(partial, final, overwrite: false);
             using var read = File.OpenRead(final);
             return (r, read.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(read)));
         }
@@ -43,7 +43,7 @@ public sealed partial class DeviceService
     /// <summary>The file to write: <paramref name="outputPath"/> (never replaced) or a new file in the temporary folder.</summary>
     private static string NewFile(string? outputPath, string name)
     {
-        var full = outputPath is { Length: > 0 } p ? SafeFile.FullPath(p) : Path.Combine(Path.GetTempPath(), "corvus-device", name);
+        var full = outputPath is { Length: > 0 } p ? SafeFile.Output(p) : Path.Combine(Path.GetTempPath(), "corvus-device", name);
         if (Directory.Exists(full)) full = Path.Combine(full, name);
         if (File.Exists(full)) throw new ToolError(ErrorCode.Conflict, $"{full} exists.", "pass another outputPath");
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);

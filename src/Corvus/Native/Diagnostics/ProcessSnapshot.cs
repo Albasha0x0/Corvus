@@ -23,7 +23,7 @@ public static class ProcessSnapshot
     /// <summary>Writes the snapshot of <paramref name="pid"/> to <paramref name="path"/> (a temp file first, then placed); returns its size.</summary>
     public static long Write(int pid, string path, bool overwrite, CancellationToken ct, Stop? stop = null)
     {
-        var full = SafeFile.FullPath(path);
+        var full = SafeFile.Output(path);
         if (File.Exists(full) && !overwrite)
             throw new ToolError(ErrorCode.Conflict, $"{full} exists.", "pass overwrite=true, or another outputPath");
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);

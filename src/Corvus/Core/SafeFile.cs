@@ -2,7 +2,7 @@ using System.Text;
 
 namespace Corvus.Core;
 
-/// <summary>Atomic output file writes; never over an existing file unless asked, never through a link or to a device name.</summary>
+/// <summary>Atomic output file writes; never over an existing file unless asked, never through a link, to a device name or to a place <see cref="OutputGuard"/> refuses.</summary>
 public static class SafeFile
 {
     private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -38,6 +38,39 @@ public static class SafeFile
         InputFiles.RequireLocal(full, full);
         if (OperatingSystem.IsWindows()) CheckSegments(full[Path.GetPathRoot(full)!.Length..], path);
         return full;
+    }
+
+    /// <summary>Full path of an output file or directory: local, its final path outside every place <see cref="OutputGuard"/> refuses, and no link at the target.</summary>
+    public static string Output(string path) => Output(path, OutputGuard.Current());
+
+    internal static string Output(string path, IReadOnlyList<OutputGuard.Place> places)
+    {
+        var full = FullPath(path);
+        var final = InputFiles.FinalPathOfNew(full);
+        RefuseLink(full);
+        OutputGuard.Check(final, full, places);
+        return full;
+    }
+
+    /// <summary>Full path of <paramref name="relative"/> under the output root <paramref name="root"/>, each checked as <see cref="Output(string)"/> checks a path.</summary>
+    public static string OutputUnderRoot(string root, string relative) => OutputUnderRoot(root, relative, OutputGuard.Current());
+
+    internal static string OutputUnderRoot(string root, string relative, IReadOnlyList<OutputGuard.Place> places)
+    {
+        var fullRoot = Output(root, places);
+        var full = UnderRoot(fullRoot, relative);
+        OutputGuard.Check(Path.Combine(InputFiles.FinalPathOfNew(fullRoot), Path.GetRelativePath(fullRoot, full)), full, places);
+        return full;
+    }
+
+    /// <summary>Checks the files an output root will hold, as relative paths, against <see cref="OutputGuard"/>; throws on the first refused.</summary>
+    public static void CheckOutputFiles(string root, IEnumerable<string> relatives)
+    {
+        var places = OutputGuard.Current();
+        var fullRoot = Output(root, places);
+        var finalRoot = InputFiles.FinalPathOfNew(fullRoot);
+        foreach (var relative in relatives)
+            OutputGuard.Check(Path.GetFullPath(Path.Combine(finalRoot, relative)), Path.Combine(fullRoot, relative), places);
     }
 
     private static void CheckSegments(string path, string shown)
@@ -87,20 +120,59 @@ public static class SafeFile
         }
     }
 
-    /// <summary>Writes bytes atomically and returns the full path; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
+    /// <summary>Writes bytes atomically to an output path (<see cref="Output(string)"/>) and returns the full path; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
     /// <remarks><paramref name="beforeReplace"/> gets the flushed temp file and throws to abort, leaving the target untouched.</remarks>
     public static string WriteAllBytes(string path, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null) =>
-        Write(FullPath(path), null, bytes, overwrite, beforeReplace);
+        Write(Output(path), null, bytes, overwrite, beforeReplace);
 
-    /// <summary>Writes UTF-8 text (no BOM) atomically; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
+    /// <summary>Writes UTF-8 text (no BOM) atomically to an output path; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
     public static string WriteAllText(string path, string text, bool overwrite) => WriteAllBytes(path, Encoding.UTF8.GetBytes(text), overwrite);
 
-    /// <summary>Writes under <paramref name="root"/> with no links on the path; without <paramref name="flush"/> it saves ~15 ms per file on Windows.</summary>
+    /// <summary>Writes under the output root <paramref name="root"/> with no links on the path; without <paramref name="flush"/> it saves ~15 ms per file on Windows.</summary>
     /// <remarks>Skip the flush only for files the source can give again, such as extracted ones.</remarks>
     public static string WriteUnderRoot(string root, string relative, ReadOnlySpan<byte> bytes, bool overwrite, bool flush = true)
     {
-        var full = UnderRoot(root, relative);
+        var full = OutputUnderRoot(root, relative);
         return Write(full, FullPath(root), bytes, overwrite, flush: flush);
+    }
+
+    /// <summary>Writes a file the server names itself in its data or temporary folder atomically; <see cref="OutputGuard"/> does not apply.</summary>
+    public static string WritePrivate(string path, ReadOnlySpan<byte> bytes, bool overwrite) => Write(FullPath(path), null, bytes, overwrite);
+
+    /// <summary>Writes under a root the server names itself, as <see cref="WriteUnderRoot"/> does, without <see cref="OutputGuard"/>.</summary>
+    public static string WritePrivateUnderRoot(string root, string relative, ReadOnlySpan<byte> bytes, bool overwrite, bool flush = true) =>
+        Write(UnderRoot(root, relative), FullPath(root), bytes, overwrite, flush: flush);
+
+    /// <summary>A new file at an output path, opened for writing; an existing file is a Conflict.</summary>
+    public static FileStream CreateNew(string path)
+    {
+        var full = Output(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        try { return new FileStream(full, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16); }
+        catch (IOException) when (Path.Exists(full)) { throw Exists(full); }
+    }
+
+    /// <summary>Moves a finished file to an output path whole: beside the target first, then over it in one rename; an existing target is a Conflict unless <paramref name="overwrite"/>.</summary>
+    public static string MoveToOutput(string source, string path, bool overwrite)
+    {
+        var full = Output(path);
+        var dir = Path.GetDirectoryName(full)!;
+        Directory.CreateDirectory(dir);
+        RefuseLink(full);
+        if (!overwrite && Path.Exists(full)) throw Exists(full);
+        var staging = Path.Combine(dir, ".save-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            File.Move(source, staging);
+            try { File.Move(staging, full, overwrite); }
+            catch (IOException) when (!overwrite && Path.Exists(full)) { throw Exists(full); }
+        }
+        finally
+        {
+            try { File.Delete(staging); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        return full;
     }
 
     private static string Write(string full, string? root, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null, bool flush = true)

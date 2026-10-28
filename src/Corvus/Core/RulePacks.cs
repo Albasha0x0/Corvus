@@ -114,12 +114,12 @@ public static class RulePacks
             {
                 if (pack.LicenseEntry != null)
                     throw new ToolError(ErrorCode.MalformedInput, $"{pack.Url} holds no {pack.LicenseEntry}; nothing was installed.");
-                SafeFile.WriteUnderRoot(staging, LicenseName,
+                SafeFile.WritePrivateUnderRoot(staging, LicenseName,
                     System.Text.Encoding.UTF8.GetBytes($"{pack.Name} {pack.Version}: license {pack.License}.\nSource: {pack.Url}\n"), overwrite: false);
             }
             if (!RuleFiles(staging).Any()) throw new ToolError(ErrorCode.MalformedInput, $"{pack.Url} holds no .yar or .yara files under {pack.RulesFolder}; nothing was installed.");
             var manifest = JsonSerializer.SerializeToUtf8Bytes(new { pack.Name, pack.Version, pack.Url, pack.Sha256, pack.License, Installed = DateTimeOffset.UtcNow }, ManifestJson);
-            SafeFile.WriteUnderRoot(staging, ManifestName, manifest, overwrite: false);
+            SafeFile.WritePrivateUnderRoot(staging, ManifestName, manifest, overwrite: false);
             if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
             Directory.Move(staging, target);
         }
@@ -144,10 +144,10 @@ public static class RulePacks
         void Entry(string name, Func<byte[]> read)
         {
             name = name.Replace('\\', '/');
-            if (name == pack.LicenseEntry) license = SafeFile.WriteUnderRoot(folder, LicenseName, read(), overwrite: true, flush: false);
+            if (name == pack.LicenseEntry) license = SafeFile.WritePrivateUnderRoot(folder, LicenseName, read(), overwrite: true, flush: false);
             else if (name.StartsWith(pack.RulesFolder, StringComparison.Ordinal) && name.Length > pack.RulesFolder.Length
                      && (name.EndsWith(".yar", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".yara", StringComparison.OrdinalIgnoreCase)))
-                SafeFile.WriteUnderRoot(folder, name[pack.RulesFolder.Length..], read(), overwrite: true, flush: false);
+                SafeFile.WritePrivateUnderRoot(folder, name[pack.RulesFolder.Length..], read(), overwrite: true, flush: false);
         }
 
         if (pack.Url.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))

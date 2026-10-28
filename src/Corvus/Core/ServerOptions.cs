@@ -284,6 +284,7 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(AllowLiveAttachVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveAttach = true;
         if (Environment.GetEnvironmentVariable(LiveAllowVariable) is { Length: > 0 } allowFromEnv)
             o.LiveAllow.AddRange(allowFromEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Path.GetFullPath));
+        OutputGuard.LiveAllow = [.. o.LiveAllow];
         if (Environment.GetEnvironmentVariable(LiveScriptingVariable)?.Trim() is "1" or "true" or "on") o.LiveScripting = true;
         if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);

@@ -340,8 +340,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
             notes.Add("the first window did not draw into an image (PrintWindow failed).");
             return report;
         }
-        var path = Path.GetFullPath(imagePath);
-        await File.WriteAllBytesAsync(path, image.Value.Png, ct);
+        var path = SafeFile.WriteAllBytes(imagePath, image.Value.Png, overwrite: true);
         notes.Add($"image of window 0x{windows[0]:X} saved: {path} ({image.Value.Width}x{image.Value.Height}, {image.Value.Png.Length:N0} bytes)");
         return report;
     }

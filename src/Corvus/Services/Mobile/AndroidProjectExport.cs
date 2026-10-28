@@ -21,7 +21,7 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
 
     public async Task<Result> Export(string path, string outputDirectory, Action<int, int, string>? progress, CancellationToken ct)
     {
-        var dir = SafeFile.FullPath(outputDirectory);
+        var dir = SafeFile.Output(outputDirectory);
         Directory.CreateDirectory(dir);
         if (Directory.EnumerateFileSystemEntries(dir).Any())
             throw new ToolError(ErrorCode.Conflict, $"Output directory is not empty: {dir}. Choose an empty or new directory.");

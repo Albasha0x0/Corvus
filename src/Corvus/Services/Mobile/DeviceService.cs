@@ -373,7 +373,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
             foreach (var remote in remotes)
             {
                 ct.ThrowIfCancellationRequested();
-                var local = SafeFile.UnderRoot(dir, Blob.SafeRelativePath(Path.GetFileName(remote.Replace('\\', '/')), "package.apk"));
+                var local = SafeFile.OutputUnderRoot(dir, Blob.SafeRelativePath(Path.GetFileName(remote.Replace('\\', '/')), "package.apk"));
                 Check(Run(ExternalTools.Arguments(Adb, "pull", ("serial", s), ("remote", remote), ("local", local)), Long, 1 << 20, ct), $"pulling {remote}");
                 if (!File.Exists(local)) throw new ToolError(ErrorCode.IoError, $"adb reported success but {local} was not written.");
                 var bytes = File.ReadAllBytes(local);
@@ -404,7 +404,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
 
     private static string EmptyDirectory(string path)
     {
-        var full = SafeFile.FullPath(path);
+        var full = SafeFile.Output(path);
         if (File.Exists(full)) throw new ToolError(ErrorCode.Conflict, $"{full} is a file; pass a new or empty directory.");
         if (Directory.Exists(full) && Directory.EnumerateFileSystemEntries(full).Any())
             throw new ToolError(ErrorCode.Conflict, $"{full} is not empty; pass a new or empty directory.");
@@ -424,7 +424,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
             throw new ToolError(ErrorCode.NotFound, $"{remotePath} does not exist on {s}.", "check the path on the device; get_android_package_info names an app's codePath and dataDir");
         var kind = Check(stat, $"checking {remotePath}").Trim();
         if (kind.Contains("directory", StringComparison.OrdinalIgnoreCase)) throw new ToolError(ErrorCode.InvalidArgument, $"{remotePath} is a directory; pull_android_file pulls one file.");
-        var full = SafeFile.FullPath(outputPath);
+        var full = SafeFile.Output(outputPath);
         if (Directory.Exists(full)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is a directory; pass the file to write.");
         if (File.Exists(full) && !overwrite) throw new ToolError(ErrorCode.Conflict, $"{full} exists.", "pass overwrite=true, or another outputPath");
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
@@ -433,7 +433,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
         {
             Check(Run(ExternalTools.Arguments(Adb, "pull", ("serial", s), ("remote", remotePath), ("local", partial)), Long, 1 << 20, ct), $"pulling {remotePath}");
             if (!File.Exists(partial)) throw new ToolError(ErrorCode.IoError, $"adb reported success but wrote nothing for {remotePath}.");
-            File.Move(partial, full, overwrite);
+            SafeFile.MoveToOutput(partial, full, overwrite);
         }
         finally { TryDelete(partial); }
         var bytes = File.ReadAllBytes(full);

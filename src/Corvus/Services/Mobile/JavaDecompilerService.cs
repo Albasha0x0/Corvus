@@ -93,7 +93,7 @@ public sealed class JavaDecompilerService(DexService dex) : IDisposable
     internal static void WriteClassFiles(string root, IEnumerable<(string Name, byte[] Bytes)> entries)
     {
         foreach (var (name, bytes) in entries)
-            SafeFile.WriteUnderRoot(root, Blob.SafeRelativePath(name, "class.class", maxParts: 64), bytes, overwrite: true, flush: false);
+            SafeFile.WritePrivateUnderRoot(root, Blob.SafeRelativePath(name, "class.class", maxParts: 64), bytes, overwrite: true, flush: false);
     }
 
     private async Task<string> DecompileUncached(string path, string symbol, bool smaliFallback, CancellationToken ct, string? mapping)

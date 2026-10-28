@@ -101,7 +101,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             string written;
             // An archive can hold both "a.dll" and "a.dll/b.dll".
             try { written = Blob.WriteUnique(root, item.Relative, item.Bytes); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            // A refused name (.git/, CLAUDE.md) skips that entry, not the extraction.
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException || ex is ToolError t && OutputGuard.IsRefusal(t))
             {
                 notes.Add($"Could not write {item.Relative}: {ex.Message}");
                 continue;
@@ -670,7 +671,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// <summary>Creates the output directory, or reuses it if empty or marked as an earlier unpack of the same file.</summary>
     internal static string PrepareOutput(string directory, string source, string sha)
     {
-        var root = SafeFile.FullPath(directory);
+        var root = SafeFile.Output(directory);
         var marker = Path.Combine(root, Marker);
         bool Ours() => File.Exists(marker) && File.ReadAllText(marker).StartsWith(sha, StringComparison.Ordinal);
         if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())

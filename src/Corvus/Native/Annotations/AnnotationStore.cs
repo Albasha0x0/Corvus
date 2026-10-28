@@ -239,7 +239,7 @@ public sealed class AnnotationStore
         {
             using var buffer = new MemoryStream();
             SavedNameLayer.Write(buffer, sha256.ToLowerInvariant(), imagePath, layer);
-            lock (_layerGate) SafeFile.WriteAllBytes(file, buffer.GetBuffer().AsSpan(0, (int)buffer.Length), overwrite: true);
+            lock (_layerGate) SafeFile.WritePrivate(file, buffer.GetBuffer().AsSpan(0, (int)buffer.Length), overwrite: true);
             return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)

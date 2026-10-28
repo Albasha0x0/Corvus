@@ -23,7 +23,7 @@ public static class ConfigFile
         ServerOptions.LiveScriptingVariable, ServerOptions.LiveInstallFridaVariable, ServerOptions.IdaScriptingVariable, ServerOptions.GhidraScriptingVariable,
         ServerOptions.AllowReplaceOriginalVariable, ServerOptions.AllowRemotePathsVariable, ServerOptions.AllowDeviceChangesVariable, ServerOptions.TraceArgsVariable,
         ServerOptions.InProcessParsingVariable, Services.LiveSessionService.MaxMinutesVariable,
-        Native.Providers.DataFolder.RootVariable, Variable, Setup.Installation.RepositoryVariable,
+        Native.Providers.DataFolder.RootVariable, Variable, Setup.Installation.RepositoryVariable, Relay.RelayBuilds.TargetVariable,
     };
 
     /// <summary>Variables that name a program, library, engine folder or URL the server starts, loads or reads from.</summary>

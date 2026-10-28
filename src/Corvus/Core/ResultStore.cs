@@ -243,10 +243,10 @@ public sealed partial class ResultStore
                 return;
             }
             // Text last: a reader finds the side record and record before the text that makes the entry visible.
-            if (kept.Record != null) SafeFile.WriteUnderRoot(root, Path.GetFileName(RecordPath(kept.Id)), Encoding.UTF8.GetBytes(kept.Record), overwrite: true);
-            SafeFile.WriteUnderRoot(root, Path.GetFileName(SidePath(kept.Id)), JsonSerializer.SerializeToUtf8Bytes(kept.Info, SideJson), overwrite: true);
+            if (kept.Record != null) SafeFile.WritePrivateUnderRoot(root, Path.GetFileName(RecordPath(kept.Id)), Encoding.UTF8.GetBytes(kept.Record), overwrite: true);
+            SafeFile.WritePrivateUnderRoot(root, Path.GetFileName(SidePath(kept.Id)), JsonSerializer.SerializeToUtf8Bytes(kept.Info, SideJson), overwrite: true);
             var bytes = Encoding.UTF8.GetBytes(kept.Text);
-            SafeFile.WriteUnderRoot(root, Path.GetFileName(text), bytes, overwrite: true);
+            SafeFile.WritePrivateUnderRoot(root, Path.GetFileName(text), bytes, overwrite: true);
             bool due;
             lock (_memory)
             {

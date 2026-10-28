@@ -86,7 +86,7 @@ public sealed partial class DevRelay : IAsyncDisposable
         _clientIn = clientIn;
         _clientOut = clientOut;
         _log = log;
-        _launch = launch ?? (dir => RelayBuilds.Launch(dir, options.ServerArgs));
+        _launch = launch ?? (dir => RelayBuilds.Launch(dir, options.ServerArgs, options.Target));
     }
 
     /// <summary>Serves until the client closes its input; 1 when the first server cannot start.</summary>

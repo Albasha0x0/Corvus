@@ -177,7 +177,7 @@ public sealed partial class MinidumpService
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var json = JsonSerializer.Serialize(new { settings, entries = entries.OrderBy(e => e.Path, StringComparer.Ordinal).ToList() });
-            SafeFile.WriteAllText(path, json, overwrite: true);
+            SafeFile.WritePrivate(path, System.Text.Encoding.UTF8.GetBytes(json), overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
         {

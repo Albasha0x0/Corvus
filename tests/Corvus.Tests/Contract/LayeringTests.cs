@@ -30,6 +30,52 @@ public class LayeringTests
         Assert.True(problems.Count == 0, "Layering violations:\n" + string.Join("\n", problems));
     }
 
+    // Files that write what the server names itself (caches, staging and
+    // temporary folders), with their write counts; every other write goes
+    // through SafeFile.
+    private static readonly Dictionary<string, (int Writes, string Reason)> OwnFileWriters = new(StringComparer.Ordinal)
+    {
+        ["Services/Analysis/Dependencies/OsvAdvisories.cs"] = (1, "the component list osv-scanner reads, in a private temporary folder"),
+        ["Services/Analysis/NativeCapa.cs"] = (1, "a copy of the input for capa, in a private temporary folder"),
+        ["Services/Analysis/ProgramEmulationOps.cs"] = (4, "the emulator's input copy, saved files and regions, in the folder the emulation names"),
+        ["Services/Analysis/WebGlBuild.cs"] = (2, "unpacked build files in the cache folder"),
+        ["Services/AotBuild/AotBuildLoader.cs"] = (1, "the cache marker in the data folder's staging folder"),
+        ["Services/AotBuild/AotBuildModel.cs"] = (2, "the saved model in the data folder's cache"),
+        ["Services/AotBuild/AotDummyBuilder.cs"] = (1, "dummy assemblies in the data folder's cache"),
+        ["Services/AotBuild/AotMetadataOnly.cs"] = (1, "dummy assemblies in the data folder's cache"),
+        ["Services/AotBuild/AotPackages.cs"] = (2, "files read from a package, in the data folder's cache"),
+        ["Services/AotBuild/CacheHolds.cs"] = (2, "lock files in the data folder's cache"),
+        ["Services/AotMetadata/AotCapa.cs"] = (1, "the feature file capa reads, in a private temporary folder"),
+        ["Services/Dotnet/DecompilerService.cs"] = (10, "project files in the export's staging folder, checked by ExportDirectory before the commit"),
+        ["Services/Dotnet/ExportDirectory.cs"] = (1, "the export marker in the staging folder"),
+        ["Services/Engines/NativeEngineService.cs"] = (1, "the patched bytes an engine opens, in a private temporary folder"),
+        ["Services/Engines/PackedDatabaseInput.cs"] = (5, "a copy of a packed engine database in the engine's cache folder"),
+        ["Services/Live/LiveYara.cs"] = (1, "the memory capture index in a private temporary folder"),
+        ["Services/Mobile/JavaSourceCache.cs"] = (2, "decompiled sources in the data folder's cache"),
+    };
+
+    private static readonly System.Text.RegularExpressions.Regex FileWrite = new(
+        @"(?<![\w.])File\.(?:Write\w*|AppendAll\w*|AppendText|Move|Copy|Create|CreateText|OpenWrite)\s*\(" +
+        @"|new\s+FileStream\s*\([^;]*?(?:FileMode\.(?:Create|CreateNew|OpenOrCreate|Append|Truncate)|FileAccess\.(?:Write|ReadWrite))");
+
+    [Fact]
+    public void Tools_and_services_write_files_only_through_SafeFile()
+    {
+        var src = Path.Combine(DocsTests.RepoRoot(), "src", Root);
+        var found = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var folder in new[] { "Tools", "Services" })
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(src, folder), "*.cs", SearchOption.AllDirectories))
+            {
+                var code = string.Join('\n', File.ReadLines(file).Where(l => !l.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+                if (FileWrite.Count(code) is var n and > 0) found[Path.GetRelativePath(src, file).Replace('\\', '/')] = n;
+            }
+        var problems = found.Where(f => !OwnFileWriters.TryGetValue(f.Key, out var allowed) || allowed.Writes != f.Value)
+            .Select(f => $"{f.Key}: {f.Value} write(s)")
+            .Concat(OwnFileWriters.Keys.Where(k => !found.ContainsKey(k)).Select(k => $"{k}: listed but writes nothing"))
+            .Order(StringComparer.Ordinal).ToList();
+        Assert.True(problems.Count == 0, "Writes outside SafeFile:\n" + string.Join("\n", problems));
+    }
+
     private const string Root = "Corvus";
 
     /// <summary>The top-level layer of a type's namespace: "Core" for Corvus.Core.X, "" for the root.</summary>

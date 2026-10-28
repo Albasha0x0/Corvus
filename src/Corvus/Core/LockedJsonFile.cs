@@ -92,7 +92,7 @@ public static class LockedJsonFile
             try
             {
                 if (result.Delete) File.Delete(file);
-                else if (result.Bytes != null) SafeFile.WriteAllBytes(file, result.Bytes, overwrite: true);
+                else if (result.Bytes != null) SafeFile.WritePrivate(file, result.Bytes, overwrite: true);
                 written?.Invoke();
                 return null;
             }

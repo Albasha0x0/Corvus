@@ -33,7 +33,7 @@ public sealed class ExportDirectory : IDisposable
     /// <summary>Checks <paramref name="outputDirectory"/> and creates the staging folder; refuses a non-empty directory unless it is a previous export and overwrite is set.</summary>
     public static ExportDirectory Begin(string outputDirectory, bool overwrite)
     {
-        var final = SafeFile.FullPath(outputDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var final = SafeFile.Output(outputDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (File.Exists(final))
             throw new ToolError(ErrorCode.Conflict, $"Output path is a file: {final}.", "pass a new or empty directory");
         bool replace = Directory.Exists(final) && Directory.EnumerateFileSystemEntries(final).Any();
@@ -75,6 +75,7 @@ public sealed class ExportDirectory : IDisposable
     {
         var files = Directory.EnumerateFiles(Staging, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(Staging, f).Replace('\\', '/'))
             .Order(StringComparer.Ordinal).ToList();
+        SafeFile.CheckOutputFiles(Final, files);
         File.WriteAllText(Path.Combine(Staging, Marker), string.Concat(files.Select(f => f + "\n")));
         if (Directory.Exists(Final))
         {

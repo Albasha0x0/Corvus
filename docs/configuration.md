@@ -274,5 +274,6 @@ the server keeps answering.
 | `CORVUS_VERSION`, `CORVUS_HOME`, `CORVUS_ARCHIVE`, `CORVUS_SHA256SUMS` | install-script options ([installation.md](installation.md#install-script)) |
 | `CORVUS_REQUIRE_ATTESTATION` | `1`: the install scripts and `update` refuse a build whose provenance `gh` could not check; `0`: skip the check (self-built archive) |
 | `CORVUS_RELAY_DIR` | staged copies of the [development reload](installation.md#development-reload) relay |
+| `CORVUS_RELAY_TARGET` | set by the relay for its server: the publish folder, which takes no outputs |
 | `CORVUS_LOCK_CHECK` | `1`: a read without the workspace lock fails (development check) |
 | `CORVUS_CLEANUP_LOG` | set: record the decompiler cleanup's rewrite decisions |

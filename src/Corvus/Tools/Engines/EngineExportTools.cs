@@ -29,7 +29,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var full = SafeFile.FullPath(outputPath);
+        var full = SafeFile.Output(outputPath);
         bool auto = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
         var given = Path.GetExtension(full).ToLowerInvariant();
         var id = !auto ? engine!.Trim().ToLowerInvariant() : given is ".gzf" or ".h" or ".gdt" ? "ghidra" : "ida";
@@ -66,7 +66,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
                     "open it in IDA; the server's own database is unchanged and stays in its analysis cache");
             }
             else throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} engine does not export its database.");
-            Publish(temp, staging, full);
+            Publish(temp, full);
             var text = $"Wrote {export.Path} ({export.Bytes:N0} bytes, {NativeEngineService.DisplayName(id)}): {export.Note}.\n";
             return ToolOutput.Report(text, export);
         }
@@ -77,14 +77,13 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         }
     });
 
-    /// <summary>A file beside <paramref name="full"/> the export moves through, written and removed once to prove the folder takes it.</summary>
+    /// <summary>A file beside <paramref name="full"/>, written and removed once to prove the folder takes it.</summary>
     private static string Staging(string full)
     {
         var staging = Path.Combine(Path.GetDirectoryName(full)!, $".{Path.GetFileName(full)}.{Guid.NewGuid().ToString("N")[..8]}.tmp");
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            File.WriteAllBytes(staging, []);
+            using (SafeFile.CreateNew(staging)) { }
             File.Delete(staging);
             return staging;
         }
@@ -96,11 +95,7 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
     }
 
     /// <summary>Moves the export into place whole: beside the target first, then over it in one rename.</summary>
-    private static void Publish(string temp, string staging, string full)
-    {
-        File.Move(temp, staging);
-        File.Move(staging, full, overwrite: true);
-    }
+    private static void Publish(string temp, string full) => SafeFile.MoveToOutput(temp, full, overwrite: true);
 
     private static void TryDelete(string path)
     {

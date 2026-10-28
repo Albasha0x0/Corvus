@@ -174,6 +174,25 @@ public class PathArgumentTests
     }
 
     [Fact]
+    public void Every_output_parameter_in_the_catalog_is_in_the_output_set()
+    {
+        var missing = new List<string>();
+        foreach (var (tool, schema) in Schemas)
+            foreach (var (name, property) in schema["properties"]!.AsObject())
+                if (property!.ToJsonString().Contains("\"string\"") && IsOutput(name, (string?)property["description"] ?? "")
+                    && !ArgumentCheck.OutputPathParameters.Contains(name))
+                    missing.Add($"{tool}.{name}: {(string?)property["description"]}");
+        Assert.True(missing.Count == 0, string.Join("\n", missing));
+        Assert.All(ArgumentCheck.OutputPathParameters, name => Assert.Contains(Schemas.Values, s => s["properties"]!.AsObject().ContainsKey(name)));
+        Assert.Empty(ArgumentCheck.InputPathParameters.Intersect(ArgumentCheck.OutputPathParameters));
+    }
+
+    private static bool IsOutput(string name, string description) =>
+        name.StartsWith("output", StringComparison.Ordinal)
+        || (ArgumentCheck.PathParameters.Contains(name) || System.Text.RegularExpressions.Regex.IsMatch(name, "(Path|Directory|Dir|File|Folder)$"))
+           && System.Text.RegularExpressions.Regex.IsMatch(description, @"(?i)\b(output|write|writes|written|saves?|saved|png|dump file)\b");
+
+    [Fact]
     public void Provenance_does_not_hash_a_device_or_a_network_path()
     {
         var device = OperatingSystem.IsWindows() ? @"\\.\NUL" : "/dev/zero";

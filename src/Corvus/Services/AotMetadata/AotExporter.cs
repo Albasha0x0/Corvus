@@ -33,7 +33,7 @@ public sealed class AotExporter(AotMetadataService aot)
         var methods = CollectMethods(scope, layout, ct);
         if (methods.Count == 0)
             throw new ToolError(ErrorCode.Unsupported, "No [Address] attributes in the selected assemblies; load dummy assemblies that carry them.");
-        var dir = SafeFile.FullPath(outputDirectory);
+        var dir = SafeFile.Output(outputDirectory);
         Directory.CreateDirectory(dir);
         string Write(string name, string content) => SafeFile.WriteUnderRoot(dir, name, System.Text.Encoding.UTF8.GetBytes(content), overwrite);
         var planned = new[] { (".h", wanted.Overlaps(["header", "ida", "ghidra"])), ("_ida.py", wanted.Contains("ida")),

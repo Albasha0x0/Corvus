@@ -11,6 +11,7 @@ if (Corvus.Native.Providers.Live.Ttd.TtdWorker.TryRun(args) is { } ttdExitCode) 
 if (Corvus.Native.Providers.DataFolder.MigratesOnStart(args)) Corvus.Native.Providers.DataFolder.MigrateDefault(Console.Error);
 // After the move of an older data folder, which may hold the file; workers inherit what it sets.
 ConfigFile.Apply(Console.Error);
+OutputGuard.ClientConfigs = () => Corvus.Setup.ClientCatalog.All(Corvus.Setup.SetupEnvironment.Current()).Select(c => c.Target.Path);
 if (Corvus.Relay.RelayCli.TryRun(args) is { } relayExitCode) return relayExitCode;
 if (Corvus.Setup.ToolCli.TryRun(args) is { } toolExitCode) return toolExitCode;
 if (Corvus.Setup.SetupCli.TryRun(args) is { } setupExitCode) return setupExitCode;

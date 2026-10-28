@@ -13,7 +13,7 @@ public static class SaveTarget
     public static Plan Resolve(string target, string originalPath, string originalSha256, bool overwrite, string? savedSha256 = null,
         bool replaceOriginal = false, bool versioned = false)
     {
-        var full = SafeFile.FullPath(target);
+        var full = SafeFile.Output(target);
         if (versioned) full = NextVersion(full);
         bool isOriginal = FileIdentity.Same(full, originalPath);
         if (isOriginal) full = FileIdentity.Resolve(full);

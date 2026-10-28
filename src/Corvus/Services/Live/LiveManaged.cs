@@ -190,7 +190,7 @@ public sealed partial class LiveSessionService
             if (!File.Exists(file))
             {
                 if (Containers.BundleEntry(program, entry, AnalysisLimits.Default, CancellationToken.None) is not { } bytes) return null;
-                SafeFile.WriteUnderRoot(root, entry, bytes, overwrite: true);
+                SafeFile.WritePrivateUnderRoot(root, entry, bytes, overwrite: true);
             }
             return Managed(file);
         }

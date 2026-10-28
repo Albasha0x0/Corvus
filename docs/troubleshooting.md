@@ -61,6 +61,17 @@
 - A second server opening an image whose IDA database another process holds gets a read-only snapshot of the last saved
   database, or a conflict naming the owner when none is saved. Limits: [configuration.md](configuration.md#ida-and-ghidra).
 
+## A save or export is refused
+
+- Output paths resolve links, junctions and short names before the check; a link at the target is refused.
+- Refused: the data folder outside `exports/`, `corvus.json` or `CORVUS_CONFIG`, the install folder, and files directly
+  in a `PATH` folder.
+- Refused: `--live-allow` entries, the relay's publish folder, Startup folders, shell profiles and start files, and
+  autostart folders.
+- Refused: any `.git/` or `.claude/` folder, `~/.gitconfig`, `~/.ssh/`, MCP client configurations, and agent instruction
+  and editor task files.
+- An unpack skips a refused entry and names it in its notes.
+
 ## Install or update fails
 
 - Cannot find the release: check the network, the proxy, and that the `--version` exists on the releases page. GitHub

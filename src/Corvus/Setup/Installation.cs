@@ -15,15 +15,7 @@ internal static class Installation
     public static string Version => typeof(Installation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     /// <summary>The install root when this process runs from &lt;root&gt;/versions/&lt;version&gt;/ or &lt;root&gt;/current/.</summary>
-    public static string? Root()
-    {
-        var dir = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
-        var parent = Path.GetDirectoryName(dir);
-        if (parent == null) return null;
-        if (Path.GetFileName(parent) == "versions") return Path.GetDirectoryName(parent);
-        if (Path.GetFileName(dir) == "current" && Directory.Exists(Path.Combine(parent, "versions"))) return parent;
-        return null;
-    }
+    public static string? Root() => Core.OutputGuard.InstallRoot();
 
     public const string HomeVariable = "CORVUS_HOME";
 

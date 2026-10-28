@@ -63,12 +63,20 @@ public static class ArgumentCheck
         }
     }
 
-    /// <summary>Parameters that name a file or directory on this machine, in every tool that declares them.</summary>
-    public static readonly IReadOnlySet<string> PathParameters = new HashSet<string>(StringComparer.Ordinal)
+    /// <summary>Parameters that name a file or directory on this machine to read, in every tool that declares them.</summary>
+    public static readonly IReadOnlySet<string> InputPathParameters = new HashSet<string>(StringComparer.Ordinal)
     {
-        "path", "outputPath", "outputDirectory", "mapping", "directory", "folder", "oldPath", "newPath", "headerPath",
-        "projectDir", "scriptPath", "sbomPath", "stixPath", "dacPath", "imageDirectories",
+        "path", "mapping", "directory", "folder", "oldPath", "newPath", "headerPath", "projectDir", "scriptPath", "dacPath", "imageDirectories",
     };
+
+    /// <summary>Parameters that name a file or directory to write, in every tool that declares them; each passes <see cref="SafeFile.Output(string)"/>.</summary>
+    public static readonly IReadOnlySet<string> OutputPathParameters = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "outputPath", "outputDirectory", "sbomPath", "stixPath", "imagePath",
+    };
+
+    /// <summary>Every input and output path parameter.</summary>
+    public static readonly IReadOnlySet<string> PathParameters = InputPathParameters.Union(OutputPathParameters).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Parameters that take a path or something else (an id, text, a pid); a value that looks like a path is checked as one; "tool.name" limits an entry to one tool.</summary>
     public static readonly IReadOnlySet<string> TargetParameters = new HashSet<string>(StringComparer.Ordinal)
@@ -91,6 +99,16 @@ public static class ArgumentCheck
         catch (ToolError e) { throw new ToolError(e.Code, e.Message, e.Remediation) { Details = new { parameter = name, path = full } }; }
     }
 
+    /// <summary>Throws invalid_argument naming <paramref name="name"/> when <paramref name="value"/> is a place outputs are not written to.</summary>
+    private static void CheckOutput(string name, string value)
+    {
+        try { SafeFile.Output(value); }
+        catch (ToolError e) when (e.Code == ErrorCode.InvalidArgument)
+        {
+            throw new ToolError(e.Code, e.Message, e.Remediation) { Details = new { parameter = name, path = value, reason = (e.Details as OutputGuard.Refused)?.Reason } };
+        }
+    }
+
     /// <summary>Checks a path argument; false for an empty optional path, invalid_argument for an empty required or malformed one.</summary>
     // Checked before any tool opens it: a JIT that inlines System.IO hides where a path exception came from.
     private static bool CheckPath(string name, string value, bool required, string? tool, JsonElement property)
@@ -109,6 +127,7 @@ public static class ArgumentCheck
                     Details = new { parameter = name },
                 };
             CheckLocal(name, path);
+            if (OutputPathParameters.Contains(name)) CheckOutput(name, path);
         }
         return true;
     }
