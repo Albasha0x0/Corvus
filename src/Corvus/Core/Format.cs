@@ -5,7 +5,7 @@ using dnlib.DotNet;
 namespace Corvus.Core;
 
 /// <summary>C#-flavoured, compact signatures for dnlib members (used in listings and search results).</summary>
-public static class Format
+public static partial class Format
 {
     /// <summary>"0x06000123", or "(new)" for members added by an edit (no token until the image is written).</summary>
     public static string Token(IMDTokenProvider p) => p.MDToken.Rid == 0 ? "(new)" : $"0x{p.MDToken.Raw:X8}";
@@ -293,8 +293,39 @@ public static class Format
         cp is >= 0xFE00 and <= 0xFE0F or >= 0xD800 and <= 0xDFFF or >= 0xE0000 and <= 0xE007F or >= 0xE0100 and <= 0xE01EF or >= 0xF0000
         || (cp <= 0xFFFF ? cp >= 0 && IsInvisible((char)cp) : CharUnicodeInfo.GetUnicodeCategory(cp) == UnicodeCategory.Format);
 
-    /// <summary>Invisible code points (see <see cref="IsInvisible(int)"/>) as \uXXXX, or \UXXXXXXXX above the BMP; a presentation selector after an emoji base is kept.</summary>
-    public static string EscapeInvisible(string s)
+    /// <summary>
+    /// Invisible code points (see <see cref="IsInvisible(int)"/>) as \uXXXX, or
+    /// \UXXXXXXXX above the BMP, and <see cref="TagEscape"/> after the "&lt;"
+    /// of each <see cref="IsHarnessTag"/> tag; a presentation selector after an
+    /// emoji base is kept.
+    /// </summary>
+    public static string EscapeInvisible(string s) => EscapeTags(EscapeCodePoints(s));
+
+    /// <summary>
+    /// Put after the "&lt;" or "&lt;/" of a tag an agent harness reads as its
+    /// own: the escaped form of U+2063, visible as text.
+    /// </summary>
+    public const string TagEscape = MarkerEscape;
+
+    /// <summary>
+    /// Whether <paramref name="s"/> holds a tag an agent harness reads as its
+    /// own (system-reminder, function_calls and the like).
+    /// </summary>
+    public static bool IsHarnessTag(string s) => s.Contains('<') && HarnessTag().IsMatch(s);
+
+    // Tag names agent harnesses put around their own messages and tool calls; file
+    // text that holds one could pass for a harness message once printed.
+    [System.Text.RegularExpressions.GeneratedRegex(@"<(?=/?\s*(?:antml:[\w-]*|system[-_]?reminder|system|function[-_]?calls?|function[-_]?results?|invoke|parameter|tool[-_]?(?:use|result|call)s?|thinking|human|assistant|user|instructions|pasted[-_]?content|[\w-]*-message)(?:[\s/>]|$))(/?)",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex HarnessTag();
+
+    private static string EscapeTags(string s) => s.Contains('<') ? HarnessTag().Replace(s, "<$1" + TagEscape) : s;
+
+    /// <summary>
+    /// <see cref="EscapeInvisible(string)"/> without the tag escape: only
+    /// invisible code points change.
+    /// </summary>
+    public static string EscapeCodePoints(string s)
     {
         int i = 0, width = 1;
         while (i < s.Length && !Hidden(s, i, out width)) i += width;
@@ -331,6 +362,7 @@ public static class Format
     public static string UnescapeInvisible(string s)
     {
         if (!s.Contains("\\u", StringComparison.OrdinalIgnoreCase)) return s;
+        s = s.Replace("<" + TagEscape, "<", StringComparison.Ordinal).Replace("</" + TagEscape, "</", StringComparison.Ordinal);
         return System.Text.RegularExpressions.Regex.Replace(s, @"\\U([0-9a-fA-F]{8})|\\[uU]([0-9a-fA-F]{4})", m =>
         {
             long cp = Convert.ToInt64(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value, 16);

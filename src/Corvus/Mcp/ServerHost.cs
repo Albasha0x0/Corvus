@@ -58,7 +58,8 @@ public static class ServerHost
                 context.Services!.GetRequiredService<ResourceSubscriptions>().Unsubscribe(context.Params!.Uri);
                 return ValueTask.FromResult(new EmptyResult());
             })
-            .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap))
+            .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap).AddReadResourceFilter(ProtocolFilter.ReadResource)
+                .AddGetPromptFilter(ProtocolFilter.GetPrompt).AddCompleteFilter(ProtocolFilter.Complete))
             .WithMessageFilters(filters => filters.AddIncomingFilter(next => async (context, ct) =>
                 await context.Services!.GetRequiredService<ResourceSubscriptions>().ListenFilter(next)(context, ct)));
 

@@ -253,7 +253,7 @@ public static partial class PackageReview
                 foreach (var dep in Strings(p, key)) entries.Add(new PackageEntryPoint(key, dep, null));
         }
         // Zero-width characters let a display name imitate another extension's.
-        if (display != null && Corvus.Core.Format.EscapeInvisible(display) != display)
+        if (display != null && Corvus.Core.Format.EscapeCodePoints(display) != display)
             findings.Add(new PackageFinding("package/invisible-name", "noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
         var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))
             .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t).ToList();

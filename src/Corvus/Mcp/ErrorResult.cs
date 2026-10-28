@@ -155,6 +155,7 @@ internal static class ErrorResult
             the response limit keeps its code; its message is cut and the full text is kept for `read_result` (`details.resultId`).
             Text quoted from the analyzed file is escaped: a line of it that starts like a server marker (`Error (`, `Next:`,
             `[More:`, `[End:`, `[workspace]`) gets `{{Format.MarkerEscape}}` in front, and invisible and control characters are written as `\uXXXX`.
+            A tag an agent harness reads as its own (`<system-reminder>`, `<function_calls>` and the like) gets `{{Format.TagEscape}}` after its `<`.
 
             | Code | Meaning | Retryable | Default next step |
             |---|---|---|---|
