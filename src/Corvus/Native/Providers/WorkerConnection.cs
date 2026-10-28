@@ -63,6 +63,9 @@ public sealed class WorkerConnection : IDisposable
     private bool _endedOnItsOwn;
     private int _disposed;
 
+    /// <summary>The time since the worker last wrote a line, a reply or an event.</summary>
+    internal TimeSpan SinceLastLine => _options.Time.GetElapsedTime(Volatile.Read(ref _lastLineTicks));
+
     /// <summary>Progress and other events; raised on the reader thread.</summary>
     public event Action<WorkerMessage.Event>? EventReceived;
 

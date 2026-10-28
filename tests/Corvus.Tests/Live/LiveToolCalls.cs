@@ -24,14 +24,25 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
         var call = $"{tool} {string.Join(" ", args.Select(a => $"{a.Key}={(a.Value is string[] l ? string.Join(",", l) : a.Value)}"))} ({sw.ElapsedMilliseconds} ms)";
         Output.WriteLine(log ? $"{call}:\n{text}" : $"{call}: {text.Length:N0} chars");
         Phases.Record(tool, args, text, r.IsError == true);
+        if (args.GetValueOrDefault("session") is string named) _lastSession = named;
         return (text, r.IsError == true);
     }
 
     private protected async Task<string> Ok(InProcessServer server, string tool, Dictionary<string, object?> args, bool log = true)
     {
         var (text, failed) = await Call(server, tool, args, log);
-        Assert.False(failed, $"{text}\n{Phases.Summary()}");
+        Assert.False(failed, $"{text}\n{Phases.Summary()}\n{(failed ? TargetState(server) : "")}");
         return text;
+    }
+
+    private string? _lastSession;
+
+    /// <summary>The target's CPU time and threads and the worker's quiet time for the session the test last named; "" without one.</summary>
+    private protected string TargetState(InProcessServer server, string? session = null)
+    {
+        var service = server.Services.GetService(typeof(Corvus.Services.LiveSessionService)) as Corvus.Services.LiveSessionService;
+        var s = service?.Sessions.FirstOrDefault(x => x.Id.Equals(session ?? _lastSession ?? "live-1", StringComparison.OrdinalIgnoreCase));
+        return s == null || s.ProcessId == 0 ? "" : $"{s.Id} target: " + LiveTargetDiagnostics.Describe(s.ProcessId, s.Worker.SinceLastLine);
     }
 
     /// <summary>Calls <paramref name="tool"/> expecting the error <paramref name="code"/> within a minute; returns its text.</summary>
@@ -65,7 +76,7 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
             if (status.Contains(", exited")) return status;
             await Task.Delay(100);
         }
-        Assert.Fail($"{session} did not exit within {seconds} s; {Phases.Summary()}");
+        Assert.Fail($"{session} did not exit within {seconds} s; {Phases.Summary()}\n{TargetState(server, session)}");
         return "";
     }
 
