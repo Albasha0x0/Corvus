@@ -602,8 +602,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             ct.ThrowIfCancellationRequested();
             var (item, prefix, depth, archived) = queue.Dequeue();
             var itemSha = Blob.Sha256(item.Bytes);
-            // Skips identical content such as per-ABI assembly stores.
-            if (!seen.Add(itemSha) && !archived) continue;
+            bool repeat = !seen.Add(itemSha);
+            // Skips identical decoded content such as per-ABI assembly stores.
+            if (repeat && !archived && !item.Member) continue;
             if (found.Count >= limits.MaxItems || (total += item.Bytes.Length) > limits.MaxTotalBytes)
             {
                 notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
@@ -622,6 +623,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 Original = recorded == relative.Replace(System.IO.Path.DirectorySeparatorChar, '/') ? null : recorded,
             });
             if (found.Count % 200 == 0) progress?.Invoke($"{found.Count} entries read ({total / (1024 * 1024):N0} MB)");
+            // A repeated member was opened at its first path.
+            if (repeat && item.Member) continue;
 
             bool opens = MayContainMore(kind) && !(archived && kind == "data") || Containers.ReaderFor(item.Bytes, item.Name) != null;
             if (!opens) continue;
@@ -657,14 +660,22 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     private void LoadAssemblies(List<UnpackedFile> files, List<string> notes, Action<string>? progress)
     {
         int assemblies = files.Count(f => f.Kind == DotNet), loaded = 0;
+        // Identical bytes at a second path load once.
+        var ids = new Dictionary<string, string>(StringComparer.Ordinal);
         for (int i = 0; i < files.Count; i++)
         {
             if (files[i].Kind != DotNet) continue;
+            if (ids.TryGetValue(files[i].Sha256, out var id))
+            {
+                files[i] = files[i] with { LoadedAs = id };
+                continue;
+            }
             if (++loaded % 20 == 0) progress?.Invoke($"{loaded} of {assemblies} assemblies loaded");
             try
             {
                 var asm = workspace.Load(files[i].Path);
                 files[i] = files[i] with { LoadedAs = asm.Id };
+                ids[files[i].Sha256] = asm.Id;
             }
             catch (ToolError ex)
             {

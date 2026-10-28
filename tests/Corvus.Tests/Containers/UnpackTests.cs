@@ -427,8 +427,43 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var decoded = Assert.Single(r.Files, f => f.Sha256 == Blob.Sha256(storeXalz));
         Assert.Contains("XALZ (LZ4) chunk", decoded.Origin);
 
-        Assert.DoesNotContain(r.Files, f => f.Path.EndsWith("icon.png") || f.Path.EndsWith("classes.dex"));
-        Assert.Equal(4, r.Files.Count);
+        Assert.Contains(r.Files, f => f.Path.EndsWith("icon.png") && f.LoadedAs == null);
+        Assert.Contains(r.Files, f => f.Path.EndsWith("classes.dex") && f.LoadedAs == null);
+        Assert.Equal(7, r.Files.Count);
+    }
+
+    // Packages without .NET code: stub manifest and dex bytes beside a resource.
+    [Theory]
+    [InlineData("app.aab", "Android App Bundle (no .NET runtime or assemblies)", "BundleConfig.pb", "base/manifest/AndroidManifest.xml", "base/dex/classes.dex", "base/res/raw/notes.txt")]
+    [InlineData("app.apk", "Android package (no .NET runtime or assemblies)", "AndroidManifest.xml", "classes.dex", "res/raw/notes.txt")]
+    public void An_android_package_without_assemblies_writes_every_member(string name, string container, params string[] members)
+    {
+        var output = _dir.File("out-" + Path.GetFileNameWithoutExtension(name));
+        var zip = ContainerFixtures.Zip([.. members.Select(m => (m, m.EndsWith(".dex") ? "dex\n035\0"u8.ToArray() : Encoding.UTF8.GetBytes(m)))]);
+        var r = Unpack(Save(name, zip), output: output);
+
+        Assert.Equal(container, r.Container);
+        Assert.Equal(members.Order(), r.Files.Select(f => Path.GetRelativePath(output, f.Path).Replace('\\', '/')).Order());
+    }
+
+    [Fact]
+    public void An_android_package_writes_each_member_whose_bytes_repeat()
+    {
+        var output = _dir.File("out-repeat");
+        var dll = System.IO.File.ReadAllBytes(Env.ConsumerPath);
+        var zip = ContainerFixtures.Zip(
+            ("AndroidManifest.xml", [0x03, 0x00, 0x08, 0x00]),
+            ("lib/x86/TestFixture.Consumer.dll", dll),
+            ("lib/arm64-v8a/TestFixture.Consumer.dll", dll),
+            ("res/raw/a.txt", "same"u8.ToArray()),
+            ("res/raw/b.txt", "same"u8.ToArray()));
+        var r = Unpack(Save("repeat.apk", zip), output: output, load: true);
+
+        Assert.Equal(5, r.Files.Count);
+        var loaded = r.Files.Where(f => f.Path.EndsWith(".dll")).Select(f => f.LoadedAs).ToList();
+        Assert.Equal(2, loaded.Count);
+        Assert.NotNull(loaded[0]);
+        Assert.Equal(loaded[0], loaded[1]);
     }
 
     [Trait("Smoke", "push")]

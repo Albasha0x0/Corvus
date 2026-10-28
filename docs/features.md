@@ -288,7 +288,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 
 ## Containers
 
-- `unpack_container` extracts the code inside a file and loads its assemblies. `extractOnly=true` only extracts.
+- `unpack_container` writes out a container's files (table below) and loads its assemblies. `extractOnly=true` only extracts.
 - Reads bytes only; never runs the file.
 - Nested containers open, up to 4 levels deep.
 - `list_assemblies path=` lists a container's assemblies and writes nothing.
@@ -298,8 +298,8 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 |---|---|
 | .NET single-file bundle | every manifest entry, compressed bundles inflated |
 | Costura.Fody | each embedded assembly |
-| NuGet (`.nupkg`), zip, `.vsix`, `.xap` | assemblies, deps files, nested packages |
-| Xamarin / MAUI `.apk` / `.aab` | assemblies from every store format, per ABI |
+| NuGet (`.nupkg`), zip, `.vsix`, `.xap` | every file; assemblies, deps files and nested packages opened |
+| `.apk` / `.aab` | every file; XALZ and store members as their decoded assemblies |
 | Java runtime image (`lib/modules`) | every resource, as `jimage extract` writes it |
 | Electron `.asar` | every file, integrity checked against the app's declared hash |
 | WebGL `.data` (UnityWebData) | every file with its role |

@@ -34,9 +34,11 @@ public partial class UnpackTests
         var native = McpProtocolTests.NativeSample(_dir);
         Assert.Equal(("load_assembly", native), (Unpack(native).Next!.Tool, Unpack(native).Next!.Arguments["path"]));
 
-        // A package without assemblies.
-        var empty = Save("empty.nupkg", ContainerFixtures.Zip(("x.nuspec", "<package/>"u8.ToArray()), ("build/x.targets", "<Project/>"u8.ToArray())));
-        Assert.Equal("summarize_file", Unpack(empty).Next!.Tool);
+        // A package without assemblies writes its files; an archive with none
+        // names the next call.
+        var package = Save("build.nupkg", ContainerFixtures.Zip(("x.nuspec", "<package/>"u8.ToArray()), ("build/x.targets", "<Project/>"u8.ToArray())));
+        Assert.Equal(2, Unpack(package).Files.Count);
+        Assert.Equal("summarize_file", Unpack(Save("empty.zip", ContainerFixtures.Zip())).Next!.Tool);
         // Something extracted: no next.
         Assert.Null(Unpack(fx.Bundle).Next);
     }

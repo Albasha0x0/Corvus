@@ -7,7 +7,13 @@ using dnlib.DotNet;
 namespace Corvus.Core;
 
 /// <summary>A file extracted from a container; Origin describes its location and decoding.</summary>
-public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin);
+public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin)
+{
+    /// <summary>
+    /// A file the archive records by name; written even when its bytes repeat.
+    /// </summary>
+    public bool Member { get; init; }
+}
 
 /// <summary>An entry of an archive container (ASAR, WebPlayerData, HAR, flows), listed without extracting it.</summary>
 public sealed record ContainerEntry(string Path, long Size, string? Detail = null)
@@ -467,8 +473,9 @@ public static class Containers
         foreach (var e in entries)
         {
             ct.ThrowIfCancellationRequested();
-            // A plain zip gives every file when all are asked for; a package (APK, NuGet) its code.
-            if (!IsInteresting(e.FullName) && !(allFiles && kind == "zip archive" && !e.FullName.EndsWith('/'))) continue;
+            // Every file when all are asked for, a package's as a plain zip's;
+            // otherwise only code.
+            if (!IsInteresting(e.FullName) && !(allFiles && !e.FullName.EndsWith('/'))) continue;
             if (items.Count >= limits.MaxItems) { notes.Add("Stopped: too many entries."); break; }
             byte[]? bytes;
             try { bytes = e.Read(); }
@@ -492,7 +499,7 @@ public static class Containers
             else
             {
                 if (Path.GetFileName(e.FullName) == "assemblies.manifest") v1Names = Mobile.AssemblyStore.ReadV1Manifest(Encoding.UTF8.GetString(bytes));
-                items.Add(new ExtractedItem(e.FullName, bytes, $"{kind} entry"));
+                items.Add(new ExtractedItem(e.FullName, bytes, $"{kind} entry") { Member = allFiles });
             }
         }
         // After the loop: assemblies.manifest may come after the stores.
