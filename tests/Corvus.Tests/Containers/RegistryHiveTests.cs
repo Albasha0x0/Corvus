@@ -131,6 +131,39 @@ public sealed class RegistryHiveTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void Run_dialog_commands_are_listed_in_order_with_encoded_commands_peeled()
+    {
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Output hello"));
+        var mru = new HiveSamples.Node("RunMRU")
+        {
+            Values =
+            {
+                new("a", 1, HiveSamples.Utf16("notepad\\1\0")),
+                new("b", 1, HiveSamples.Utf16($"powershell -nop -w hidden -enc {encoded}\\1\0")),
+                new("MRUList", 1, HiveSamples.Utf16("ba\0")),
+            },
+        };
+        var node = mru;
+        foreach (var name in new[] { "Explorer", "CurrentVersion", "Windows", "Microsoft", "Software" })
+        {
+            var parent = new HiveSamples.Node(name);
+            parent.Children.Add(node);
+            node = parent;
+        }
+        var root = new HiveSamples.Node("ROOT");
+        root.Children.Add(node);
+        var path = Path.Combine(_dir.Path, "ntuser.dat");
+        File.WriteAllBytes(path, new HiveSamples().Build(root));
+        var view = new RegistryFileView().Inspect(FileInput.Open(path), default)!;
+        var run = ((RegistryFileView.Facts)view.Detail).RunCommands!;
+        Assert.Equal(["b", "a"], run.Select(r => r.Name));
+        Assert.Equal(($"powershell -nop -w hidden -enc {encoded}", "Write-Output hello"), (run[0].Command, run[0].Plain));
+        Assert.Contains("powershell -EncodedCommand of base64 > utf-16le", run[0].Via!);
+        Assert.Equal(("notepad", null), (run[1].Command, run[1].Plain));
+        Assert.Contains(view.Highlights, h => h == "RunMRU b reads as: Write-Output hello.");
+    }
+
+    [Fact]
     public void A_dirty_or_cut_hive_is_read_with_notes()
     {
         var dirty = View(new HiveSamples { Sequence2 = 2 }.Build(Sample()));
