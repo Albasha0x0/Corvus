@@ -10,8 +10,11 @@ using Corvus.Native.Dump.Managed;
 
 namespace Corvus.Tools;
 
-/// <summary>A file read that runs in the server or a <c>corvus worker</c>; arguments and result cross the pipe as JSON.</summary>
-public sealed record FileOp<TArgs, TResult>(string Name, Func<IServiceProvider, TArgs, CancellationToken, TResult> Run);
+/// <summary>
+/// A file read of <paramref name="Tool"/> that runs in the server or a
+/// <c>corvus worker</c>; arguments and result cross the pipe as JSON.
+/// </summary>
+public sealed record FileOp<TArgs, TResult>(string Name, string Tool, Func<IServiceProvider, TArgs, CancellationToken, TResult> Run);
 
 /// <summary>Runs file reads in the "files" worker so a crashing reader ends the worker, not the server; in process when <see cref="ServerOptions.InProcessParsing"/> is set or no pool is given.</summary>
 public static class FileIsolation
@@ -62,17 +65,24 @@ internal sealed class FileOps : IWorkerOps
         return ServerHost.AddServices(new ServiceCollection().AddLogging(), options).BuildServiceProvider();
     });
 
-    public IReadOnlyDictionary<string, WorkerOp> Ops => new Dictionary<string, WorkerOp>(StringComparer.Ordinal)
-    {
-        [FileWork.Summarize.Name] = Op(FileWork.Summarize),
-        [FileWork.List.Name] = Op(FileWork.List),
-        [FileWork.Search.Name] = Op(FileWork.Search),
-        [FileWork.Extract.Name] = Op(FileWork.Extract),
-        [FileWork.DumpView.Name] = Op(FileWork.DumpView),
-        [FileWork.DumpRead.Name] = Op(FileWork.DumpRead),
-        [FileWork.DumpHeap.Name] = Op(FileWork.DumpHeap),
-        [FileWork.DumpObject.Name] = Op(FileWork.DumpObject),
-    };
+    /// <summary>
+    /// The op table: each op's name, the tool it reads for, and its worker
+    /// entry.
+    /// </summary>
+    private static readonly (string Name, string Tool, WorkerOp Op)[] Table =
+    [
+        Entry(FileWork.Summarize), Entry(FileWork.List), Entry(FileWork.Search), Entry(FileWork.Extract),
+        Entry(FileWork.DumpView), Entry(FileWork.DumpRead), Entry(FileWork.DumpHeap), Entry(FileWork.DumpObject),
+    ];
+
+    private static (string, string, WorkerOp) Entry<TArgs, TResult>(FileOp<TArgs, TResult> op) => (op.Name, op.Tool, Op(op));
+
+    public IReadOnlyDictionary<string, WorkerOp> Ops => Table.ToDictionary(e => e.Name, e => e.Op, StringComparer.Ordinal);
+
+    /// <summary>
+    /// The tools whose file reads the worker answers, in op table order.
+    /// </summary>
+    internal static IReadOnlyList<string> WorkerTools => [.. Table.Select(e => e.Tool).Distinct()];
 
     /// <summary>Tests: a file that starts with a <see cref="FixtureMarker"/> line makes the read fail that way.</summary>
     private static readonly bool Fixtures = Environment.GetEnvironmentVariable(WorkerHost.FixtureOpsVariable) == "1";
@@ -163,19 +173,19 @@ public static class FileWork
     public sealed record ExtractArgs(string Path, string? OutputDirectory, string? KeyLog);
 
     /// <summary>summarize_file over a path: the overview or view record, layers with the app graph's facts.</summary>
-    public static readonly FileOp<SummarizeArgs, FileSummaryRecord> Summarize = new("file_summarize",
+    public static readonly FileOp<SummarizeArgs, FileSummaryRecord> Summarize = new("file_summarize", "summarize_file",
         (services, a, ct) => SummarizeWith(services.GetRequiredService<InspectionService>(), services.GetService<Services.Mobile.AppGraph>(), a, ct));
 
     /// <summary>The managed assemblies or archive entries inside a container, one page, not extracted.</summary>
-    public static readonly FileOp<ListArgs, UnpackService.ContainerListing> List = new("file_list",
+    public static readonly FileOp<ListArgs, UnpackService.ContainerListing> List = new("file_list", "list_assemblies",
         (services, a, ct) => services.GetRequiredService<UnpackService>().List(a.Path, AnalysisLimits.Default, ct, a.Filter, a.Offset, a.Limit));
 
     /// <summary>search_container: one page of matches.</summary>
-    public static readonly FileOp<SearchArgs, UnpackService.ContainerSearch> Search = new("file_search",
+    public static readonly FileOp<SearchArgs, UnpackService.ContainerSearch> Search = new("file_search", "search_container",
         (services, a, ct) => services.GetRequiredService<UnpackService>().Search(a.Path, a.Query, a.Kind, a.Limit, AnalysisLimits.Default, ct, a.Offset, a.Capture, a.Values));
 
     /// <summary>unpack_container's reading half: the files written, nothing loaded.</summary>
-    public static readonly FileOp<ExtractArgs, UnpackService.Extraction> Extract = new("file_extract",
+    public static readonly FileOp<ExtractArgs, UnpackService.Extraction> Extract = new("file_extract", "unpack_container",
         (services, a, ct) => services.GetRequiredService<UnpackService>().Extract(a.Path, a.OutputDirectory, AnalysisLimits.Default, ct, null, a.KeyLog));
 
     /// <summary>A dump the server resolved: the id it gave the file and the image folders it is read with.</summary>
@@ -199,19 +209,19 @@ public static class FileWork
     }
 
     /// <summary>open_minidump: one view of a dump.</summary>
-    public static readonly FileOp<DumpViewArgs, DumpViewResult> DumpView = new("dump_view",
+    public static readonly FileOp<DumpViewArgs, DumpViewResult> DumpView = new("dump_view", "open_minidump",
         (services, a, ct) => ViewOf(Pinned(services, a.Dump), a, ct));
 
     /// <summary>read_dump_memory: the bytes at an address and what is there.</summary>
-    internal static readonly FileOp<DumpReadArgs, MinidumpService.MemoryBytes> DumpRead = new("dump_read",
+    internal static readonly FileOp<DumpReadArgs, MinidumpService.MemoryBytes> DumpRead = new("dump_read", "read_dump_memory",
         (services, a, ct) => Pinned(services, a.Dump).ReadBytes(a.Dump.Id, a.Address, a.Length, a.ImageFallback, ct).GetAwaiter().GetResult());
 
     /// <summary>dump_heap on a dump file.</summary>
-    public static readonly FileOp<DumpHeapArgs, MinidumpService.HeapReport> DumpHeap = new("dump_heap",
+    public static readonly FileOp<DumpHeapArgs, MinidumpService.HeapReport> DumpHeap = new("dump_heap", "dump_heap",
         (services, a, ct) => Pinned(services, a.Dump).Heap(a.Dump.Id, a.Mode, a.Type, a.MinSize, a.Offset, a.Limit, a.MaxObjects, ct).GetAwaiter().GetResult());
 
     /// <summary>dump_object on a dump file.</summary>
-    public static readonly FileOp<DumpObjectArgs, MinidumpService.ObjectReport> DumpObject = new("dump_object",
+    public static readonly FileOp<DumpObjectArgs, MinidumpService.ObjectReport> DumpObject = new("dump_object", "dump_object",
         (services, a, ct) => Pinned(services, a.Dump).Object(a.Dump.Id, a.Address, a.Depth, a.MaxFields, a.MaxArrayItems, ct).GetAwaiter().GetResult());
 
     private static MinidumpService Pinned(IServiceProvider services, DumpTarget dump)

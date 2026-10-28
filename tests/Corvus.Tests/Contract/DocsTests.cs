@@ -39,6 +39,35 @@ public class DocsTests
         Assert.True(text == expected,"docs/installation.md's client table is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 
+    [Fact]
+    public void Security_reader_lists_match_the_worker_op_table()
+    {
+        var path = Path.Combine(RepoRoot(), "SECURITY.md");
+        var text = File.ReadAllText(path).ReplaceLineEndings("\n");
+        int start = text.IndexOf(ReadersBegin, StringComparison.Ordinal), end = text.IndexOf(ReadersEnd, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start, $"SECURITY.md has no {ReadersBegin} ... {ReadersEnd} block");
+        var expected = text[..(start + ReadersBegin.Length)] + "\n" + ReaderLists() + text[end..];
+        if (Update) File.WriteAllText(path, text = expected);
+        Assert.True(text == expected, "SECURITY.md's reader lists are out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
+    }
+
+    internal const string ReadersBegin = "<!-- readers:begin (generated from the worker op table; CORVUS_UPDATE_DOCS=1 updates it) -->";
+    internal const string ReadersEnd = "<!-- readers:end -->";
+
+    // Engine and live tools read in their own workers; notes read no input file.
+    private static readonly string[] OwnProcess = ["engine", "live", "notes"];
+
+    private static string ReaderLists()
+    {
+        var worker = Corvus.Tools.FileOps.WorkerTools;
+        string Names(IEnumerable<string> tools) => string.Join(", ", tools.Select(t => $"`{t}`"));
+        var sb = new StringBuilder($"- Read in a Corvus worker process: {Names(worker)}.\n- Run over file content in the server process, where a crafted file can end it (engine-backed calls run in the engine workers):\n");
+        foreach (var f in Toolsets.Families.Where(f => !OwnProcess.Contains(f.Name)))
+            if (f.Tools.Where(t => !worker.Contains(t) && Mcp.ToolContract.Of(t).UntrustedContent).ToList() is { Count: > 0 } inServer)
+                sb.Append($"  - {f.Name}: {Names(inServer)}.\n");
+        return sb.ToString();
+    }
+
     internal const string ClientsBegin = "<!-- clients:begin (generated from Setup/ClientCatalog.cs; CORVUS_UPDATE_DOCS=1 updates it) -->";
     internal const string ClientsEnd = "<!-- clients:end -->";
 
