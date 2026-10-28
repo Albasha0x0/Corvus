@@ -65,6 +65,14 @@ public sealed record FileSummaryRecord(string Path, long Size, string Type, stri
     public IReadOnlyDictionary<string, int>? Values { get; init; }
     public JsonObject? Detail { get; init; }
     public IReadOnlyList<string>? Notes { get; init; }
+
+    [System.ComponentModel.Description("Overview: the strongest finding level (noteworthy, review, info), or none when no view found anything.")]
+    public string? Level { get; init; }
+
+    [System.ComponentModel.Description("Overview: findings of every view, strongest first, at most 50; each with level, rule id, category, evidence, location and source.")]
+    public IReadOnlyList<Finding>? Findings { get; init; }
+
+    public int? FindingTotal { get; init; }
 }
 
 /// <summary>An assembly of the file in the overview; features counts its survey_features matches.</summary>
@@ -112,7 +120,7 @@ internal static class ContainerText
     }
 
     internal const int MaxHighlights = 25;
-    private const int MaxEntryPoints = 10, MaxNotes = 12;
+    private const int MaxEntryPoints = 10, MaxNotes = 12, MaxFindings = 50, MaxTextFindings = 5;
 
     /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies, all.</summary>
     public static IReadOnlyList<string> ViewsOf(InspectionService.FileSummary s, bool triage) =>
@@ -130,8 +138,12 @@ internal static class ContainerText
         // The signature line already says who signed the file.
         var shown = s.Highlights.Where(h => !h.StartsWith("The file is Authenticode-signed by", StringComparison.Ordinal)).ToList();
         var highlights = shown.Take(MaxHighlights).ToList();
+        var findings = s.Findings();
         return record with
         {
+            Level = FindingLevel.Strongest(findings.Select(f => f.Level)),
+            Findings = findings.Count > 0 ? [.. findings.Take(MaxFindings)] : null,
+            FindingTotal = findings.Count > MaxFindings ? findings.Count : null,
             Md5 = s.File.Md5, Sha1 = s.File.Sha1, Entropy = s.File.Entropy,
             Signature = SignatureLine(s.File.Certificate),
             Assemblies = s.Assemblies.Count > 0 ? s.Assemblies.Select(a => new AssemblyRow(a.Path, a.Identity.Name, a.Identity.Kind, a.Identity.Architecture, a.Features.Count)
@@ -181,6 +193,12 @@ internal static class ContainerText
         {
             sb.Append($", entropy {r.Entropy:0.00}\n{r.Path}\nsha256 {r.Sha256}\nsha1 {r.Sha1}  md5 {r.Md5}\n");
             sb.Append("Signature: ").Append(r.Signature != null ? Escape(r.Signature) : "none").Append('\n');
+            if (r.Findings is { } findings)
+            {
+                sb.Append($"Level: {r.Level}, {r.FindingTotal ?? findings.Count} finding(s), strongest first:\n");
+                foreach (var f in findings.Take(MaxTextFindings))
+                    sb.Append($"  {f.Level} {f.Rule}: {Escape(f.Evidence)}{(f.Location != null ? $" ({Escape(f.Location)})" : "")}\n");
+            }
             if (r.Assemblies is { } assemblies)
             {
                 sb.Append($"Assemblies ({assemblies.Count}, the first in full in view=managed):\n");

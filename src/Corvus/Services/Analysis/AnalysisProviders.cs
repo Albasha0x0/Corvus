@@ -6,7 +6,11 @@ namespace Corvus.Services.Analysis;
 // Core.Providers finds these by type scan: a new view, search kind or rule set is one class in its own file.
 
 /// <summary>A view's facts: <see cref="Detail"/> is its record (serialized as the view's detail), highlights feed the overview.</summary>
-public sealed record FileView(object Detail, IReadOnlyList<string> Highlights);
+public sealed record FileView(object Detail, IReadOnlyList<string> Highlights)
+{
+    /// <summary>The view's findings as shared records; empty when the view reviews nothing.</summary>
+    public IReadOnlyList<Finding> Findings { get; init; } = [];
+}
 
 /// <summary>A summarize_file view (view=&lt;Name&gt;); the overview lists the views that apply and gathers their highlights.</summary>
 public interface IFileSummaryView

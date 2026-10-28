@@ -5,7 +5,11 @@ using Corvus.Core;
 namespace Corvus.Native;
 
 /// <summary>A packer or protector a file shows signs of: its name, packer / protector / suspicious, and what shows it.</summary>
-public sealed record PackerFinding(string Name, string Kind, string Evidence);
+public sealed record PackerFinding(string Name, string Kind, string Evidence)
+{
+    /// <summary>The rule id: packer/packing-tool or packer/hardening-tool for a named tool, one id per heuristic.</summary>
+    public string Rule { get; init; } = "packer/" + Kind.Replace(' ', '-');
+}
 
 /// <summary>Detects packers and protectors by section names, UPX headers and code heuristics; nothing is unpacked.</summary>
 public static class PackerDetection
@@ -112,7 +116,7 @@ public static class PackerDetection
         {
             if (s.RawSize == 0 && s.VirtualSize >= 0x10000)
             {
-                yield return new PackerFinding("unknown packer", "suspicious", $"code section {s.Name} is {s.VirtualSize:N0} bytes in memory and empty on disk (filled at run time)");
+                yield return new PackerFinding("unknown packer", "suspicious", $"code section {s.Name} is {s.VirtualSize:N0} bytes in memory and empty on disk (filled at run time)") { Rule = "packer/empty-code-section" };
                 continue;
             }
             // Only bytes from the file: a raw size past its end would count up to 4 GB of zero fill.
@@ -120,10 +124,10 @@ public static class PackerDetection
             if (size < 0x1000) continue;
             double entropy = Entropy(image, s.Rva, size, buffer);
             if (entropy >= HighEntropy)
-                yield return new PackerFinding("unknown packer", "suspicious", $"code section {s.Name} has entropy {entropy:0.00} over {size:N0} bytes (compressed or encrypted)");
+                yield return new PackerFinding("unknown packer", "suspicious", $"code section {s.Name} has entropy {entropy:0.00} over {size:N0} bytes (compressed or encrypted)") { Rule = "packer/high-entropy-code" };
         }
         if (image.EntryPointRva != 0 && image.SectionAt(image.EntryPointRva) is { } entry && (entry.Access & SectionAccess.Write) != 0 && entry.IsExecutable)
-            yield return new PackerFinding("unknown packer", "suspicious", $"the entry point is in {entry.Name}, writable and executable");
+            yield return new PackerFinding("unknown packer", "suspicious", $"the entry point is in {entry.Name}, writable and executable") { Rule = "packer/writable-entry" };
     }
 
     /// <summary>Shannon entropy in bits per byte of the mapped bytes.</summary>

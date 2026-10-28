@@ -34,7 +34,7 @@ internal sealed class PdfFileView : IFileSummaryView
             [.. doc.Scripts.Select(s => new Script(s.Object, s.Trigger, s.Code.Length, s.Code.Length <= 200 ? s.Code : s.Code[..200] + "..."))],
             [.. doc.Files.Select(f => new EmbeddedFile(f.Object, f.Name, f.Description, f.Bytes.Length, Blob.Identify(f.Bytes), Blob.Sha256(f.Bytes)))],
             doc.Findings, notes);
-        return new FileView(facts, Highlights(doc, facts));
+        return new FileView(facts, Highlights(doc, facts)) { Findings = FindingRules.FromMacros(doc.Findings, "pdf") };
     }
 
     private static List<string> Highlights(PdfDocument doc, Facts f)

@@ -30,7 +30,7 @@ internal sealed class ShellLinkFileView : IFileSummaryView
         var h = new List<string> { $"Shortcut to {l.Target ?? "(no target)"}{(l.Arguments is { Length: > 0 } a ? " " + ShellLinkRules.Clip(a) : "")}." };
         if (l.MachineId != null) h.Add($"Made on machine {l.MachineId}{(l.MacAddress != null ? $" ({l.MacAddress})" : "")}.");
         h.AddRange(findings.Where(x => x.Type == "Suspicious").Select(x => $"Worth reviewing: {x.Description}."));
-        return new FileView(facts, h);
+        return new FileView(facts, h) { Findings = FindingRules.FromMacros(findings, "shortcut") };
     }
 
     private static string Attributes(uint a)

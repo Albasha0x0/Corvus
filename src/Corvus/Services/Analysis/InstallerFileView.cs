@@ -83,6 +83,6 @@ internal sealed class InstallerFileView : IFileSummaryView
         var h = new List<string> { $"Windows Installer package: {product.Name} {product.Version} by {product.Manufacturer}; {p.Files.Count} file(s), {steps.Count(s => s.Kind is "DLL" or "EXE" or "JScript" or "VBScript")} custom action(s) running code." };
         h.AddRange(p.CustomActions.Where(c => c.System && c.Kind is "DLL" or "EXE" or "JScript" or "VBScript").Take(5).Select(c => $"Custom action {c.Action} runs {c.Kind} as LocalSystem."));
         h.AddRange(findings.Where(f => f.Location is "Registry" or "ServiceInstall" or "File").Take(5).Select(f => $"Worth reviewing: {f.Description} ({f.Keyword})."));
-        return new FileView(facts, h);
+        return new FileView(facts, h) { Findings = FindingRules.FromMacros(findings, "installer") };
     }
 }

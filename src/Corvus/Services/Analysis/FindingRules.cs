@@ -120,7 +120,9 @@ public static class FindingRules
         I("office/ioc", "a URL, address or file name in macro text"),
         I("office/encoded-string", "hex or base64 strings in macro text"),
         R("pdf/suspicious", "a PDF action or keyword worth reviewing"),
+        I("pdf/ioc", "a URL a PDF action opens"),
         R("shortcut/suspicious", "a shortcut target or argument worth reviewing"),
+        I("shortcut/ioc", "a URL in shortcut arguments"),
         R("installer/suspicious", "an installer action or keyword worth reviewing"),
         I("installer/ioc", "a URL, address or file name in installer script"),
         R("capture/pattern", "a request pattern worth reviewing in captured traffic"),
@@ -170,4 +172,30 @@ public static class FindingRules
 
     /// <summary>Packer kind to level: suspicious review; a named packing or hardening tool info.</summary>
     public static string FromPacker(string kind) => kind == "suspicious" ? FindingLevel.Review : FindingLevel.Info;
+
+    /// <summary>A packer finding as the shared record.</summary>
+    public static Finding ToFinding(Native.PackerFinding p) => new(Check(p.Rule, FromPacker(p.Kind)), p.Rule, "packer", $"{p.Name}: {p.Evidence}", null, "packer");
+
+    /// <summary>olevba-type findings of one view as shared records, rule ids "&lt;source&gt;/&lt;type&gt;"; AutoExec, IOC and encoded strings are info.</summary>
+    internal static IReadOnlyList<Finding> FromMacros(IEnumerable<Core.Documents.MacroFinding> found, string source)
+    {
+        var list = found.ToList();
+        // A keyword found only after decoding, in macros that run on their own, is
+        // decoded content in code that runs without asking.
+        bool autorun = list.Any(f => f.Type == "AutoExec");
+        return [.. list.Select(f =>
+        {
+            var (type, category) = f.Type switch
+            {
+                "AutoExec" => ("autoexec", "autorun"),
+                "Suspicious" => ("suspicious", "keyword"),
+                "IOC" => ("ioc", "address"),
+                _ => ("encoded-string", "encoded string"),
+            };
+            var level = type != "suspicious" ? FindingLevel.Info : autorun && f.Decoded != null ? FindingLevel.Noteworthy : FindingLevel.Review;
+            var rule = $"{source}/{type}";
+            var evidence = f.Decoded != null ? $"{f.Keyword} (decoded from {f.Decoded}): {f.Description}" : $"{f.Keyword}: {f.Description}";
+            return new Finding(Check(rule, level), rule, category, evidence, f.Location, source);
+        })];
+    }
 }

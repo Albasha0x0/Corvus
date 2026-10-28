@@ -55,7 +55,7 @@ internal sealed class NativeFileView : IFileSummaryView
         var highlights = new List<string>(image?.Highlights ?? []);
         foreach (var p in packers)
             highlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
-        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights);
+        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding)] };
     }
 
     private static NativeAotSummary? NativeAot(string kind, byte[] bytes, CancellationToken ct)

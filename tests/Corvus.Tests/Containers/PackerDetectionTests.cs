@@ -71,6 +71,8 @@ public sealed class PackerDetectionTests
         var noisy = Assert.Single(PackerDetection.OfFile("n.dll", plain.Build()));
         Assert.Equal("suspicious", noisy.Kind);
         Assert.Contains("code section .text has entropy 7.9", noisy.Evidence);
+        Assert.Equal(("info", "packer/hardening-tool"), (FindingRules.ToFinding(vmp).Level, vmp.Rule));
+        Assert.Equal(("review", "packer/high-entropy-code"), (FindingRules.ToFinding(noisy).Level, noisy.Rule));
 
         var ordinary = new PeBuilder();
         ordinary.Add(".text", Enumerable.Repeat((byte)0x90, 0x4000).ToArray(), 0x60000020);

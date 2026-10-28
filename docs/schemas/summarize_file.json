@@ -109,6 +109,47 @@
         "type": "string"
       }
     },
+    "level": {
+      "description": "Overview: the strongest finding level (noteworthy, review, info), or none when no view found anything.",
+      "type": "string"
+    },
+    "findings": {
+      "description": "Overview: findings of every view, strongest first, at most 50; each with level, rule id, category, evidence, location and source.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "rule",
+          "category",
+          "evidence",
+          "source"
+        ]
+      }
+    },
+    "findingTotal": {
+      "type": "integer"
+    },
     "notices": {
       "type": "array",
       "items": {

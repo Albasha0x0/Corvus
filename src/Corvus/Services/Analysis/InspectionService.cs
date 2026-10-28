@@ -94,6 +94,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         /// <summary>The views that apply to the file (<see cref="IFileSummaryView"/>), by name; the typed properties above are the built-in ones.</summary>
         [JsonIgnore] public IReadOnlyDictionary<string, FileView> Views { get; init; } = new Dictionary<string, FileView>();
+
+        /// <summary>The findings of every view that applies, strongest first; empty when none found anything.</summary>
+        public IReadOnlyList<Finding> Findings() => [.. Views.Values.SelectMany(v => v.Findings).OrderByDescending(f => FindingLevel.Rank(f.Level))];
     }
 
     public sealed record GoBuildFacts(string GoVersion, string? Path, Native.Go.GoModule? Main, int DependencyTotal, IReadOnlyList<Native.Go.GoModule> Dependencies,

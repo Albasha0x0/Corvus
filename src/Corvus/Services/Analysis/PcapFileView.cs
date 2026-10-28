@@ -51,7 +51,10 @@ internal sealed class PcapFileView : IFileSummaryView
         if (dns.Count > 0) highlights.Add($"DNS names: {List(dns.Select(d => d.Name), dns.Count)}.");
         highlights.AddRange(facts.Noteworthy.Select(n => $"Worth reviewing: {n}."));
         if (c.Issues.Count > 0) highlights.Add($"Capture structure issue: {c.Issues[0]}.");
-        return new FileView(facts, highlights);
+        return new FileView(facts, highlights)
+        {
+            Findings = [.. facts.Noteworthy.Select(n => new Finding(FindingLevel.Review, "capture/pattern", "capture", n, null, "capture"))],
+        };
     }
 
     /// <summary>Requests grouped by endpoint template, as search_container kind=endpoint shows them.</summary>

@@ -57,6 +57,21 @@ public sealed class OfficeDocumentTests
     }
 
     [Fact]
+    public void Macro_findings_read_as_shared_records_and_a_decoded_keyword_beside_autorun_is_noteworthy()
+    {
+        var data = WordDocument();
+        var view = new OfficeFileView().Inspect(new FileInput("doc.doc", data, Blob.Identify(data)), default)!;
+        Assert.Contains(view.Findings, f => f is { Rule: "office/autoexec", Level: "info", Location: "Module1:2" });
+        Assert.Contains(view.Findings, f => f is { Rule: "office/suspicious", Level: "review", Category: "keyword" } && f.Evidence.StartsWith("Shell: ", StringComparison.Ordinal));
+        Assert.Contains(view.Findings, f => f is { Rule: "office/encoded-string", Level: "info" });
+
+        MacroFinding auto = new("AutoExec", "AutoOpen", "runs when opened"), hidden = new("Suspicious", "Shell", "runs a program") { Decoded = "Base64" };
+        Assert.Equal("noteworthy", FindingRules.FromMacros([auto, hidden], "office").Single(f => f.Rule == "office/suspicious").Level);
+        Assert.Equal("review", FindingRules.FromMacros([hidden], "office").Single().Level);
+        Assert.Equal("review", FindingRules.FromMacros([hidden with { Decoded = null }, auto], "office").Single(f => f.Rule == "office/suspicious").Level);
+    }
+
+    [Fact]
     public void A_macro_enabled_ooxml_document_is_read_through_its_vba_project_part()
     {
         var bin = Compound(VbaStreams("", ("ThisDocument", "document", "Private Sub Document_Open()\r\n  CreateObject(\"WScript.Shell\").Run \"calc\"\r\nEnd Sub\r\n")));

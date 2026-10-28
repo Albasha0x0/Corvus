@@ -17,7 +17,7 @@ internal sealed class PackageFileView : IFileSummaryView
         if (!Likely(file)) return null;
         var report = PackageReview.Review(file.Path, ct);
         if (report == null) return null;
-        return new FileView(report, Highlights(report));
+        return Of(report);
     }
 
     /// <summary>A cheap test before the package is read: its extension, its manifest name, or a zip whose directory lists a manifest.</summary>
@@ -39,7 +39,7 @@ internal sealed class PackageFileView : IFileSummaryView
     }
 
     /// <summary>The view of a report already read.</summary>
-    internal static FileView Of(PackageReport report) => new(report, Highlights(report));
+    internal static FileView Of(PackageReport report) => new(report, Highlights(report)) { Findings = [.. report.Findings.Select(f => f.ToFinding())] };
 
     private static List<string> Highlights(PackageReport r)
     {

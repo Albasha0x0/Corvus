@@ -37,7 +37,7 @@ internal sealed class OfficeFileView : IFileSummaryView
             doc.Findings, doc.Xlm?.Sheets, doc.Xlm?.Names, doc.Xlm?.Cells.Count,
             [.. doc.Objects.Select(o => new EmbeddedFile(o.Path, o.Name, o.SourcePath, o.Bytes.Length, Blob.Identify(o.Bytes), Blob.Sha256(o.Bytes)))],
             doc.Links, doc.Notes);
-        return new FileView(facts, Highlights(doc));
+        return new FileView(facts, Highlights(doc)) { Findings = FindingRules.FromMacros(doc.Findings, "office") };
     }
 
     private static List<string> Highlights(OfficeDocument doc)
