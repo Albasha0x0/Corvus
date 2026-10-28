@@ -670,11 +670,13 @@ public static class BuildSummary
         _ => $"packer ({section})",
     };
 
+    internal const string DieVariable = "CORVUS_DIE";
+
     /// <summary>diec from CORVUS_DIE (the file or its folder) or PATH; null when absent.</summary>
     internal static string? FindDie()
     {
         var name = OperatingSystem.IsWindows() ? "diec.exe" : "diec";
-        if (ExternalTools.ReadVariable("CORVUS_DIE") is { Length: > 0 } configured)
+        if (ExternalTools.ReadVariable(DieVariable) is { Length: > 0 } configured)
         {
             if (File.Exists(configured)) return Path.GetFullPath(configured);
             if (Directory.Exists(configured) && File.Exists(Path.Combine(configured, name))) return Path.GetFullPath(Path.Combine(configured, name));

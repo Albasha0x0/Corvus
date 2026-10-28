@@ -192,7 +192,8 @@ internal sealed class RunStatus : IStatusSection
         string value = r.Problem != null ? $"{StatusPaths.Short(r.Path)} not applied: {r.Problem}"
             : $"{StatusPaths.Short(r.Path)}: {r.Applied.Count} set" + (r.Applied.Count > 0 ? $" ({Names(r.Applied)})" : "")
               + (r.Overridden.Count > 0 ? $"; the environment sets {Names(r.Overridden)}" : "")
-              + (r.Refused.Count > 0 ? $"; refused {Names(r.Refused)}" : "");
+              + (r.Refused.Count > 0 ? $"; refused {Names(r.Refused)}" : "")
+              + (r.Writers != null ? $"; locators refused: the file {r.Writers}" : "");
         return new("config", value, r.Source == ConfigFile.Variable ? ConfigFile.Variable : "default");
     }
 }

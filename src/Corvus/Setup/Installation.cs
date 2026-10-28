@@ -25,9 +25,11 @@ internal static class Installation
         return null;
     }
 
+    public const string HomeVariable = "CORVUS_HOME";
+
     /// <summary>Where the install scripts put the program: CORVUS_HOME, else %LOCALAPPDATA%\Corvus, else $XDG_DATA_HOME/Corvus (~/.local/share).</summary>
     public static string DefaultRoot(SetupEnvironment env) =>
-        env.Set("CORVUS_HOME") ?? (env.Os == HostOs.Windows ? Path.Combine(env.LocalAppData, "Corvus") : Path.Combine(XdgData(env), "Corvus"));
+        env.Set(HomeVariable) ?? (env.Os == HostOs.Windows ? Path.Combine(env.LocalAppData, "Corvus") : Path.Combine(XdgData(env), "Corvus"));
 
     /// <summary>$XDG_DATA_HOME, else ~/.local/share.</summary>
     public static string XdgData(SetupEnvironment env) => env.Set("XDG_DATA_HOME") ?? env.InHome(".local", "share");
@@ -70,6 +72,9 @@ internal static class Installation
             ? null
             : $"Checksum mismatch for {assetName} (expected {expected.ToLowerInvariant()}, got {actual}): download corrupt or altered. Nothing was installed.";
     }
+
+    /// <summary>The owner/name repository updates are read from; corvus.json refuses it.</summary>
+    public const string RepositoryVariable = "CORVUS_REPO";
 
     /// <summary>Set to 1 to refuse a build whose provenance could not be checked; 0 skips the check (a self-built archive).</summary>
     public const string RequireAttestationVariable = "CORVUS_REQUIRE_ATTESTATION";
@@ -181,7 +186,7 @@ internal static class Installation
             output.WriteLine(NotSelfUpdating(installKind ?? Mcp.ServerIdentity.InstallKind, version));
             return 1;
         }
-        var repo = Environment.GetEnvironmentVariable("CORVUS_REPO") is { Length: > 0 } r ? r : DefaultRepository;
+        var repo = Environment.GetEnvironmentVariable(RepositoryVariable) is { Length: > 0 } r ? r : DefaultRepository;
         using var http = GitHubHttp.Create("Corvus/" + Version, Environment.GetEnvironmentVariable("GITHUB_TOKEN"));
 
         JsonNode release;

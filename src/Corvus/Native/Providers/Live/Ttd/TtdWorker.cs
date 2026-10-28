@@ -21,8 +21,10 @@ internal static class TtdWorker
     /// <summary>True when <paramref name="program"/> names a recording (<c>ttd:PATH</c>) rather than a process.</summary>
     public static bool Is(string? program) => program?.TrimStart().StartsWith("ttd:", StringComparison.OrdinalIgnoreCase) == true;
 
+    public const string FolderVariable = "CORVUS_TTD";
+
     /// <summary>The folder holding TTDReplay.dll: CORVUS_TTD; null when unset.</summary>
-    public static string? Folder() => Environment.GetEnvironmentVariable("CORVUS_TTD") is { Length: > 0 } f ? f.Trim().Trim('"') : null;
+    public static string? Folder() => Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } f ? f.Trim().Trim('"') : null;
 
     private sealed record Watch(string Id, string[] Kinds);
 
