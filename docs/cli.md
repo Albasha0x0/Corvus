@@ -87,7 +87,9 @@ without an agent. Nothing in the file runs; no network calls are made.
   `result` is the tool's structured output; `error` is the tool's error record.
 - A `partial` section keeps every row it read. `limit` names the limit reached; `reason` names what stopped it.
 - `complete` is true only when every section is `complete` or `not_applicable`. Each step pages through all of its results.
-- `rulePacks` names each installed rule pack and its version (`corvus rules list`); empty when none is installed.
+- `ruleTable` is the digest of the rule table the levels come from; `unknown` when the summary step gave no result.
+- `rulePacks` names each installed rule pack with its version and digest (`corvus rules list`); empty when none is installed.
+- `read_result format=verify` on a kept `summarize_file` overview names "rules changed", both digests, and the matches new or gone.
 - `summary.level`: `noteworthy`, `review`, `info`, `none`, or `unknown` when the summary step gave no result.
   `summary.reasons` lists the findings at that level, each with `level`, `rule`, `category`, `evidence`, `location` and `source`.
 - `--time-limit <seconds>`: the whole run (default 120, at most 86400).

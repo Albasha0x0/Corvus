@@ -150,6 +150,10 @@
     "findingTotal": {
       "type": "integer"
     },
+    "ruleTable": {
+      "description": "Overview: the version digest of the rule table the levels come from; read_result format=verify names a change.",
+      "type": "string"
+    },
     "notices": {
       "type": "array",
       "items": {

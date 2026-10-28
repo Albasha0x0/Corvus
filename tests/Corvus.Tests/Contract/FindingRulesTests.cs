@@ -108,6 +108,13 @@ public sealed class FindingRulesTests
     }
 
     [Fact]
+    public void The_table_digest_is_16_hex_digits_and_stable_within_a_build()
+    {
+        Assert.Matches("^[0-9a-f]{16}$", FindingRules.Digest);
+        Assert.Equal(FindingRules.Digest, FindingRules.Digest);
+    }
+
+    [Fact]
     public void The_strongest_level_is_none_without_findings()
     {
         Assert.Equal("none", FindingLevel.Strongest([]));

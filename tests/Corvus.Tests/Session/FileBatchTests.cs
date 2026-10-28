@@ -320,14 +320,15 @@ public class FileBatchTests
     }
 
     [Fact]
-    public async Task The_document_names_each_installed_rule_pack_and_its_version()
+    public async Task The_document_names_the_rule_table_digest_and_each_installed_rule_pack_with_its_version_and_digest()
     {
         using var dir = new TempDir();
         var plain = Path.Combine(dir.Path, "notes.txt");
         File.WriteAllText(plain, "plain text");
         var (_, document, _) = await Batch("--file", plain);
-        var installed = Corvus.Core.RulePacks.Installed(Corvus.Core.RulePacks.Root).Select(p => $"{p.Name} {p.Version}");
-        Assert.Equal(installed, document!["rulePacks"]!.AsArray().Select(p => $"{(string?)p!["name"]} {(string?)p["version"]}"));
+        Assert.Equal(Corvus.Services.Analysis.FindingRules.Digest, (string?)document!["ruleTable"]);
+        var installed = Corvus.Core.RulePacks.Installed(Corvus.Core.RulePacks.Root).Select(p => $"{p.Name} {p.Version} {p.Digest ?? "unknown"}");
+        Assert.Equal(installed, document["rulePacks"]!.AsArray().Select(p => $"{(string?)p!["name"]} {(string?)p["version"]} {(string?)p["digest"]}"));
     }
 
     [Fact]

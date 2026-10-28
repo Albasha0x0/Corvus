@@ -153,6 +153,13 @@ public static class FindingRules
         new("package/invisible-name", "2.8.0", FindingLevel.Noteworthy, FindingLevel.Review, InvisibleNameUnprompted),
     }.ToDictionary(r => r.Id, StringComparer.Ordinal);
 
+    /// <summary>The table's version: the first 16 hex digits of the SHA-256 of every row, rename and level change; any edit changes it.</summary>
+    // Static properties initialize in text order, so this follows the maps it reads.
+    public static string Digest { get; } = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+        string.Join("\n", All.Select(r => $"{r.Id}\t{r.Level}\t{r.Noteworthy}")
+            .Concat(Renamed.OrderBy(r => r.Key, StringComparer.Ordinal).Select(r => $"renamed\t{r.Key}\t{r.Value}"))
+            .Concat(Relevelled.Values.OrderBy(r => r.Id, StringComparer.Ordinal).Select(r => $"relevelled\t{r.Id}\t{r.Release}\t{r.Old}\t{r.New}"))))))[..16];
+
     /// <summary>The row for <paramref name="id"/> after renames, or the family row of its prefix; null for an unknown id.</summary>
     public static FindingRule? Find(string id)
     {

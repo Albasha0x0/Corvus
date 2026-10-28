@@ -76,7 +76,27 @@ public static partial class EvidenceBundle
                 differs.Add($"input {i.Id} SHA-256 {i.Sha256[..12]}… here, {o.Sha256[..12]}… there");
         var hash = ContentSha256(other.Text, other.Record);
         if (hash != r.ContentSha256) differs.Add($"the content differs: SHA-256 {r.ContentSha256[..12]}… here, {hash[..12]}… there");
+        if (RuleChange(r.Structured, other.Record) is { } rules) differs.Add(rules);
         return differs.Count == 0 ? new(r.Id, r.Tool, true, $"same call, inputs and content as {other.Source.Ref}") : new(r.Id, r.Tool, false, string.Join("; ", differs));
+    }
+
+    /// <summary>"rules changed" with both rule table digests and the findings new or gone, when two records name different digests; else null.</summary>
+    internal static string? RuleChange(string? then, string? now)
+    {
+        JsonNode? Parse(string? s)
+        {
+            try { return s != null ? JsonNode.Parse(s) : null; }
+            catch (JsonException) { return null; }
+        }
+        var (old, @new) = (Parse(then), Parse(now));
+        if ((string?)old?["ruleTable"] is not { } before || (string?)@new?["ruleTable"] is not { } after || before == after) return null;
+        static HashSet<string> Matches(JsonNode? record) =>
+            [.. (record?["findings"] as JsonArray ?? []).Select(f => $"{(string?)f?["level"]} {(string?)f?["rule"]}" + ((string?)f?["location"] is { } at ? $" at {at}" : ""))];
+        var (was, @is) = (Matches(old), Matches(@new));
+        var added = @is.Except(was).Order(StringComparer.Ordinal).ToList();
+        var gone = was.Except(@is).Order(StringComparer.Ordinal).ToList();
+        static string List(List<string> rows) => rows.Count == 0 ? "none" : string.Join(", ", rows.Take(10)) + (rows.Count > 10 ? $" (+{rows.Count - 10})" : "");
+        return $"rules changed: rule table {before} then, {after} now; new matches: {List(added)}; gone: {List(gone)}";
     }
 
     public static Bundle Load(string path)
@@ -137,7 +157,8 @@ public static partial class EvidenceBundle
             var hash = ContentSha256(text, record);
             checks.Add(hash == r.ContentSha256
                 ? new(r.Id, r.Tool, true, "same content")
-                : new(r.Id, r.Tool, false, $"the content differs: SHA-256 {r.ContentSha256[..12]}… then, {hash[..12]}… now"));
+                : new(r.Id, r.Tool, false, $"the content differs: SHA-256 {r.ContentSha256[..12]}… then, {hash[..12]}… now" +
+                                           (RuleChange(r.Structured, record) is { } rules ? "; " + rules : "")));
         }
         return checks;
     }

@@ -77,6 +77,9 @@ public sealed record FileSummaryRecord(string Path, long Size, string Type, stri
     public IReadOnlyList<Finding>? Findings { get; init; }
 
     public int? FindingTotal { get; init; }
+
+    [System.ComponentModel.Description("Overview: the version digest of the rule table the levels come from; read_result format=verify names a change.")]
+    public string? RuleTable { get; init; }
 }
 
 /// <summary>An assembly of the file in the overview; features counts its survey_features matches.</summary>
@@ -148,6 +151,7 @@ internal static class ContainerText
             Level = FindingLevel.Strongest(findings.Select(f => f.Level)),
             Findings = findings.Count > 0 ? [.. findings.Take(MaxFindings)] : null,
             FindingTotal = findings.Count > MaxFindings ? findings.Count : null,
+            RuleTable = FindingRules.Digest,
             Md5 = s.File.Md5, Sha1 = s.File.Sha1, Entropy = s.File.Entropy,
             Signature = SignatureLine(s.File.Certificate),
             Assemblies = s.Assemblies.Count > 0 ? s.Assemblies.Select(a => new AssemblyRow(a.Path, a.Identity.Name, a.Identity.Kind, a.Identity.Architecture, a.Features.Count)

@@ -10,7 +10,11 @@ namespace Corvus.Core;
 public sealed record RulePack(string Name, string Version, string Url, string Sha256, string RulesFolder, string? LicenseEntry, string License, string Description);
 
 /// <summary>A rule pack installed under the data folder: its version, folder and number of rule files.</summary>
-public sealed record InstalledRulePack(string Name, string Version, string Folder, int RuleFiles);
+public sealed record InstalledRulePack(string Name, string Version, string Folder, int RuleFiles)
+{
+    /// <summary>The version digest: the SHA-256 of the archive the pack was installed from, as its manifest records it; null when unreadable.</summary>
+    public string? Digest { get; init; }
+}
 
 /// <summary>Opt-in YARA rule packs fetched by <c>corvus rules fetch</c> and verified against a pinned SHA-256.</summary>
 /// <remarks>Installed with their license under &lt;data&gt;/rules/&lt;pack&gt;/&lt;version&gt;/; search_container kind=yara reads them as query=pack:&lt;name&gt;.</remarks>
@@ -49,8 +53,20 @@ public static class RulePacks
         var packs = new List<InstalledRulePack>();
         foreach (var pack in Directory.EnumerateDirectories(root).Order(StringComparer.Ordinal))
             foreach (var version in Directory.EnumerateDirectories(pack).Where(d => File.Exists(Path.Combine(d, ManifestName))).Order(StringComparer.Ordinal))
-                packs.Add(new InstalledRulePack(Path.GetFileName(pack), Path.GetFileName(version), version, RuleFiles(version).Count()));
+                packs.Add(new InstalledRulePack(Path.GetFileName(pack), Path.GetFileName(version), version, RuleFiles(version).Count()) { Digest = ManifestDigest(version) });
         return packs;
+    }
+
+    /// <summary>The archive SHA-256 a pack's manifest records; null when the manifest is unreadable or names none.</summary>
+    private static string? ManifestDigest(string folder)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, ManifestName)));
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("sha256", out var sha) && sha.ValueKind == JsonValueKind.String
+                ? sha.GetString() : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return null; }
     }
 
     /// <summary>The installed pack's folder, pinned version first, else the last installed; null when none is.</summary>
