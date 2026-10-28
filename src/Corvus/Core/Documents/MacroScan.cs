@@ -18,6 +18,10 @@ internal static class MacroScan
     // NonBacktracking matches in linear time, so the rules take no match timeout.
     private const RegexOptions Linear = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 
+    // Keyword rules and IOC locators are BoundedRegex: NonBacktracking
+    // construction costs about 1.3 MB per rule, and there are about 200.
+    private const RegexOptions Bounded = RegexOptions.CultureInvariant;
+
     private static readonly (string Description, string[] Keywords)[] AutoExec =
     [
         ("runs when the Word document is opened", ["AutoExec", "AutoOpen", "DocumentOpen"]),
@@ -118,14 +122,19 @@ internal static class MacroScan
     private static readonly Regex NotHex = new("[G-Zg-z]", Linear);
     private static readonly HashSet<string> Base64Allowed = ["thisdocument", "thisworkbook", "test", "temp", "http", "open", "exit", "kernel32", "virtualalloc", "createthread"];
 
-    private static readonly Dictionary<string, Regex> Cache = [];
+    private static readonly Dictionary<string, BoundedRegex> Cache = [];
 
-    private static Regex Word(string pattern)
+    /// <summary>Every keyword and pattern rule as Scan builds it.</summary>
+    internal static IEnumerable<Regex> KeywordRules() =>
+        AutoExec.Concat(Suspicious).SelectMany(r => r.Keywords).Select(k => Word(Regex.Escape(k)))
+            .Concat(AutoExecPatterns.Concat(SuspiciousPatterns).SelectMany(r => r.Patterns).Select(Word));
+
+    private static BoundedRegex Word(string pattern)
     {
         lock (Cache)
         {
             if (!Cache.TryGetValue(pattern, out var r))
-                Cache[pattern] = r = new Regex(@"\b" + pattern + @"\b", RegexOptions.IgnoreCase | Linear);
+                Cache[pattern] = r = new BoundedRegex(@"\b" + pattern + @"\b", RegexOptions.IgnoreCase | Bounded);
             return r;
         }
     }
@@ -173,7 +182,7 @@ internal static class MacroScan
             foreach (var (type, pattern) in Iocs)
                 foreach (Match m in pattern.Matches(text))
                     if (!ExcludedUrls.Any(u => m.Value.StartsWith(u, StringComparison.Ordinal)))
-                        Add(new MacroFinding("IOC", m.Value, type) { Decoded = decoded }, new Regex(Regex.Escape(m.Value), Linear));
+                        Add(new MacroFinding("IOC", m.Value, type) { Decoded = decoded }, new BoundedRegex(Regex.Escape(m.Value), Bounded));
         }
         if (hex.Count > 0) Add(new MacroFinding("Suspicious", "Hex Strings", "hex-encoded strings, may hide strings"), null);
         if (b64.Count > 0) Add(new MacroFinding("Suspicious", "Base64 Strings", "base64-encoded strings, may hide strings"), null);

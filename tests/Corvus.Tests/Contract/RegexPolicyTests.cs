@@ -66,6 +66,33 @@ public sealed partial class RegexPolicyTests
         ["PackageReview.EntryPointSection"] = "A section starts at its header and ends at the next one.",
     };
 
+    // Backtracking regex types over file text, each with why every instance
+    // runs in linear time.
+    private static readonly Dictionary<Type, string> LinearTypes = new()
+    {
+        [typeof(BoundedRegex)] = "Its constructor refuses any pattern but literals, bounded repeats and one loop with a fixed start.",
+    };
+
+    [Fact]
+    public void A_bounded_regex_refuses_patterns_that_can_backtrack_past_linear()
+    {
+        foreach (var pattern in new[] { @"(?:a+)+", @"\w+\w+", @"a*b*", @"\w+_x", @"x.*y", @"\s+a", @"(?=a)b", @"(a)\1", @"^a+", @"(?:\w+_x)" })
+            Assert.True(BoundedRegex.Problem(pattern) != null, pattern);
+        foreach (var pattern in new[] { @"\bAutoOpen\b", @"\b\w+_Click\b", @"\b\.\s*Variables\b", @"\bEnumDateFormats(?:W|(?:Ex){1,2})?\b", @"\bexec[lv][ep]?\b",
+                     Regex.Escape("Print #"), Regex.Escape(@"HKCU\Environment"), Regex.Escape("http://a.test/x?y=1&z=[2]{3}") })
+            Assert.Null(BoundedRegex.Problem(pattern, RegexOptions.IgnoreCase));
+        Assert.Throws<ArgumentException>(() => new BoundedRegex(@"(?:a+)+"));
+    }
+
+    [Fact]
+    public void Macro_keyword_rules_finish_hostile_lines_under_100_ms()
+    {
+        var rules = Corvus.Core.Documents.MacroScan.KeywordRules().ToList();
+        Assert.All(rules, r => Assert.IsType<BoundedRegex>(r));
+        string[] lines = [string.Concat(Enumerable.Repeat("a_", 10_000)), string.Concat(Enumerable.Repeat(". ", 10_000)) + ".", new string('a', 20_000)];
+        foreach (var rule in rules) Within100Ms(rule, lines);
+    }
+
     [Fact]
     public void File_text_patterns_are_NonBacktracking_or_listed_as_linear()
     {
@@ -74,7 +101,7 @@ public sealed partial class RegexPolicyTests
         foreach (var type in typeof(RegexTimeouts).Assembly.GetTypes().Where(t => !t.ContainsGenericParameters && ReadsFileText(t)))
             foreach (var (name, regex) in StaticRegexes(type))
             {
-                bool linear = (regex.Options & RegexOptions.NonBacktracking) != 0;
+                bool linear = (regex.Options & RegexOptions.NonBacktracking) != 0 || LinearTypes.ContainsKey(regex.GetType());
                 if (!LinearBacktracking.ContainsKey(name)) { if (!linear) problems.Add($"{name}: {regex}"); }
                 else if (seen.Add(name) && linear) problems.Add($"{name}: NonBacktracking, drop it from the list");
             }
