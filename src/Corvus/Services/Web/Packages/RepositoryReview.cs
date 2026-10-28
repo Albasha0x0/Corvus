@@ -54,7 +54,7 @@ public static partial class PackageReview
         foreach (var path in paths.Where(p => p == ".envrc" || p.EndsWith("/.envrc", StringComparison.Ordinal)).Take(10))
         {
             review.Entries.Add(new AgentEntry("direnv", ".envrc", Clip(FirstCommand(files.Text(path)), 160), path));
-            review.Findings.Add(new PackageFinding("review", "repository hook", "direnv runs .envrc on entering the folder once it is allowed", path));
+            review.Findings.Add(new PackageFinding("package/direnv", "review", "repository hook", "direnv runs .envrc on entering the folder once it is allowed", path));
             if (files.Text(path) is { } text) ScanCommand(text, ".envrc", path, 1, review, ct);
         }
         var build = paths.Where(IsBuildFile).ToList();
@@ -121,7 +121,7 @@ public static partial class PackageReview
             if (hit.Key == null || key.StartsWith("alias.", StringComparison.Ordinal) && !value.StartsWith('!')) continue;
             if (key == "core.fsmonitor" && value is "true" or "false") continue;
             review.Entries.Add(new AgentEntry("git config", key, Clip(value, 200), path, line));
-            review.Findings.Add(new PackageFinding(hit.Noteworthy ? "noteworthy" : "review", "repository hook", $"git config {key} runs {hit.When}: {Clip(value, 200)}", path, line));
+            review.Findings.Add(new PackageFinding("package/git-config-command", hit.Noteworthy ? "noteworthy" : "review", "repository hook", $"git config {key} runs {hit.When}: {Clip(value, 200)}", path, line));
             ScanCommand(value, "git config " + key, path, line, review, ct);
         }
     }
@@ -132,7 +132,7 @@ public static partial class PackageReview
         var when = HookEvents.GetValueOrDefault(name, "git commands");
         var text = files.Text(path);
         review.Entries.Add(new AgentEntry("git hook", name, Clip(FirstCommand(text), 160), path));
-        review.Findings.Add(new PackageFinding(noteworthy ? "noteworthy" : "review", "repository hook", $"git hook {name} runs on {when}; {origin}", path));
+        review.Findings.Add(new PackageFinding("package/git-hook", noteworthy ? "noteworthy" : "review", "repository hook", $"git hook {name} runs on {when}; {origin}", path));
         if (text != null) ScanCommand(string.Join('\n', text.Split('\n').Take(MaxHookLines)), "git hook " + name, path, 1, review, ct);
         else review.Notes.Add($"{path}: not read; what the hook runs is unknown");
     }
@@ -153,7 +153,7 @@ public static partial class PackageReview
             foreach (var (name, command, line) in commands.Where(c => c.Command != null))
             {
                 review.Entries.Add(new AgentEntry("dev container", name, Clip(command), path, line));
-                review.Findings.Add(new PackageFinding(host ? "noteworthy" : "review", "repository hook",
+                review.Findings.Add(new PackageFinding("package/devcontainer-command", host ? "noteworthy" : "review", "repository hook",
                     (host ? $"{name} runs on the host before the dev container is built: " : $"{name} runs in the dev container: ") + Clip(command, 200), path, line));
                 ScanCommand(command!, name, path, line, review, ct);
             }
@@ -191,14 +191,14 @@ public static partial class PackageReview
                         break;
                     case "Exec" when target != null && reader.GetAttribute("Command") is { } command:
                         review.Entries.Add(new AgentEntry("build step", target, Clip(command), path, info.LineNumber));
-                        review.Findings.Add(new PackageFinding(designTime ? "noteworthy" : "review", "build step",
+                        review.Findings.Add(new PackageFinding("package/msbuild-exec", designTime ? "noteworthy" : "review", "build step",
                             $"MSBuild target {target} runs {Clip(command, 200)}" + (designTime ? "; the design-time build runs it when Visual Studio opens the project" : " at build"), path, info.LineNumber));
                         ScanCommand(command, "target " + target, path, info.LineNumber, review, ct);
                         break;
                     case "UsingTask" when reader.GetAttribute("TaskFactory") is { } factory && factory.Contains("CodeTaskFactory", StringComparison.Ordinal):
                         var task = reader.GetAttribute("TaskName") ?? "(no name)";
                         review.Entries.Add(new AgentEntry("build step", task, factory, path, info.LineNumber));
-                        review.Findings.Add(new PackageFinding("noteworthy", "build step", $"inline MSBuild task {task} ({factory}) compiles and runs code at build", path, info.LineNumber));
+                        review.Findings.Add(new PackageFinding("package/msbuild-inline-task", "noteworthy", "build step", $"inline MSBuild task {task} ({factory}) compiles and runs code at build", path, info.LineNumber));
                         break;
                 }
             }
@@ -212,7 +212,7 @@ public static partial class PackageReview
     private static void CargoBuildScript(string path, string text, AgentReview review, CancellationToken ct)
     {
         review.Entries.Add(new AgentEntry("build step", "build.rs", null, path));
-        review.Findings.Add(new PackageFinding("review", "build step", "Cargo build script: cargo runs it before compiling, and rust-analyzer when the folder opens", path));
+        review.Findings.Add(new PackageFinding("package/cargo-build-script", "review", "build step", "Cargo build script: cargo runs it before compiling, and rust-analyzer when the folder opens", path));
         foreach (var f in Scan(path, text, install: true, ct, peel: false))
             if (f.Level == "noteworthy") review.Findings.Add(f with { Detail = "build.rs: " + f.Detail });
     }
@@ -225,7 +225,7 @@ public static partial class PackageReview
             if (!GradleExec.IsMatch(lines[i])) continue;
             var command = Clip(lines[i].Trim(), 200)!;
             review.Entries.Add(new AgentEntry("build step", path[(path.LastIndexOf('/') + 1)..], command, path, i + 1));
-            review.Findings.Add(new PackageFinding("review", "build step", $"Gradle script starts a process; IDE sync runs it when the project opens: {command}", path, i + 1));
+            review.Findings.Add(new PackageFinding("package/gradle-process", "review", "build step", $"Gradle script starts a process; IDE sync runs it when the project opens: {command}", path, i + 1));
             ScanCommand(lines[i], "Gradle script", path, i + 1, review, ct);
         }
     }
@@ -240,7 +240,7 @@ public static partial class PackageReview
             var url = m.Groups[1].Value.Replace(@"\:", ":", StringComparison.Ordinal);
             if (Regex.IsMatch(url, @"^https://services\.gradle\.org/distributions/", RegexOptions.NonBacktracking)) return;
             review.Entries.Add(new AgentEntry("build step", "gradle wrapper", url, path, i + 1));
-            review.Findings.Add(new PackageFinding("noteworthy", "build step", $"the Gradle wrapper downloads and runs its build tool from {Clip(url, 200)}, not services.gradle.org", path, i + 1));
+            review.Findings.Add(new PackageFinding("package/gradle-wrapper-url", "noteworthy", "build step", $"the Gradle wrapper downloads and runs its build tool from {Clip(url, 200)}, not services.gradle.org", path, i + 1));
         }
     }
 
@@ -252,7 +252,7 @@ public static partial class PackageReview
             if (!CMakeExec.IsMatch(lines[i])) continue;
             var command = Clip(lines[i].Trim(), 200)!;
             review.Entries.Add(new AgentEntry("build step", path[(path.LastIndexOf('/') + 1)..], command, path, i + 1));
-            review.Findings.Add(new PackageFinding("review", "build step", $"CMake runs a process at configure: {command}", path, i + 1));
+            review.Findings.Add(new PackageFinding("package/cmake-process", "review", "build step", $"CMake runs a process at configure: {command}", path, i + 1));
             ScanCommand(lines[i], "CMake", path, i + 1, review, ct);
         }
     }

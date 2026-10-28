@@ -45,7 +45,7 @@ public static partial class PackageReview
                 var text = files.Text(pth) ?? "";
                 var imports = text.Split('\n').Where(l => Regex.IsMatch(l, @"^\s*import\s", RegexOptions.NonBacktracking)).ToList();
                 if (imports.Count == 0) continue;
-                findings.Add(new PackageFinding("review", "install script", $"{pth} runs at every interpreter start: {Clip(string.Join("; ", imports.Select(l => l.Trim())), 200)}", pth));
+                findings.Add(new PackageFinding("package/startup-pth", "review", "install script", $"{pth} runs at every interpreter start: {Clip(string.Join("; ", imports.Select(l => l.Trim())), 200)}", pth));
                 findings.AddRange(Scan(pth + ".py", string.Join("\n", imports), install: true, ct).Where(f => f.Level == "noteworthy" || f.Category != "install script"));
                 scripts.Add(new PackageScript(pth, Clip(string.Join("; ", imports.Select(l => l.Trim())), 300)!, true));
             }
@@ -60,7 +60,7 @@ public static partial class PackageReview
                 // pip runs setup.py to build an sdist, so its module-level code runs at install.
                 scripts.Add(new PackageScript("setup.py", "python setup.py (run by pip to build the package)", true));
                 if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)", RegexOptions.NonBacktracking))
-                    findings.Add(new PackageFinding("review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
+                    findings.Add(new PackageFinding("package/setup-cmdclass", "review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
                 findings.AddRange(Scan(root + "setup.py", SetupCode(files, root, setup), install: true, ct));
                 name ??= Regex.Match(setup, @"\bname\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } n ? n : null;
                 version ??= Regex.Match(setup, @"\bversion\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } v ? v : null;
@@ -72,7 +72,7 @@ public static partial class PackageReview
                 var backend = Regex.Match(pyproject, @"build-backend\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value;
                 if (Regex.IsMatch(pyproject, @"\bbackend-path\s*=", RegexOptions.NonBacktracking))
                 {
-                    findings.Add(new PackageFinding("review", "install script", $"an in-tree build backend ({backend}) runs from the package while installing", root + "pyproject.toml"));
+                    findings.Add(new PackageFinding("package/in-tree-backend", "review", "install script", $"an in-tree build backend ({backend}) runs from the package while installing", root + "pyproject.toml"));
                     scripts.Add(new PackageScript("build-backend", backend, true));
                 }
                 name ??= Regex.Match(pyproject, @"(?m)^\s*name\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } pn ? pn : null;
@@ -95,11 +95,11 @@ public static partial class PackageReview
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))
             .Select(p => files.Text(p) ?? ""));
         var kit = StealerKit.Matches(requires).Select(m => m.Value.ToLowerInvariant().Replace('-', '_')).Distinct().ToList();
-        if (kit.Count >= 2) findings.Add(new PackageFinding("noteworthy", "credentials", $"depends on {string.Join(", ", kit)}: browser cookie, Discord webhook and Roblox session libraries together"));
+        if (kit.Count >= 2) findings.Add(new PackageFinding("package/stealer-dependencies", "noteworthy", "credentials", $"depends on {string.Join(", ", kit)}: browser cookie, Discord webhook and Roblox session libraries together"));
         var binaries = Binaries(files);
-        if (binaries.Count > 0) findings.Add(new PackageFinding("review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
+        if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.PyPI) is { } popular)
-            findings.Add(new PackageFinding(scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
+            findings.Add(new PackageFinding("package/close-name", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
         return new PackageReport(ecosystem, name, version)
         {
             Publisher = author, Description = Clip(summary), Scripts = scripts, EntryPoints = entries, Dependencies = deps,
@@ -174,8 +174,8 @@ public static partial class PackageReview
             else { differ++; differing.Add(file); }
         }
         var unlisted = files.Paths.Where(p => !listed.Contains(p) && !p.EndsWith("/RECORD.jws", StringComparison.Ordinal) && !p.EndsWith("/RECORD.p7s", StringComparison.Ordinal)).ToList();
-        if (differ > 0) findings.Add(new PackageFinding("noteworthy", "record", $"{differ} file(s) differ from their RECORD hash: {string.Join(", ", differing.Take(5))}", differing[0]));
-        if (unlisted.Count > 0) findings.Add(new PackageFinding("review", "record", $"{unlisted.Count} file(s) not listed in RECORD: {string.Join(", ", unlisted.Take(5))}", unlisted[0]));
+        if (differ > 0) findings.Add(new PackageFinding("package/record-differs", "noteworthy", "record", $"{differ} file(s) differ from their RECORD hash: {string.Join(", ", differing.Take(5))}", differing[0]));
+        if (unlisted.Count > 0) findings.Add(new PackageFinding("package/record-unlisted", "review", "record", $"{unlisted.Count} file(s) not listed in RECORD: {string.Join(", ", unlisted.Take(5))}", unlisted[0]));
         return $"{match} match, {differ} differ, {unlisted.Count} not listed";
     }
 }

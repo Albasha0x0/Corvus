@@ -32,10 +32,10 @@ public static partial class PackageReview
         if (gyp) scripts.Add(new PackageScript("install", "node-gyp rebuild (binding.gyp)", true));
         foreach (var script in scripts.Where(x => x.AtInstall))
         {
-            findings.Add(new PackageFinding("review", "install script", $"{script.Name}: {Clip(script.Command)}", manifestPath));
+            findings.Add(new PackageFinding("package/install-script", "review", "install script", $"{script.Name}: {Clip(script.Command)}", manifestPath));
             foreach (var f in Scan(manifestPath + "#scripts." + script.Name, script.Command, install: true, ct)) findings.Add(f);
             if (NetworkCommand.IsMatch(script.Command))
-                findings.Add(new PackageFinding("noteworthy", "install script", $"{script.Name} runs a network tool: {Clip(script.Command, 160)}", manifestPath));
+                findings.Add(new PackageFinding("package/install-network-tool", "noteworthy", "install script", $"{script.Name} runs a network tool: {Clip(script.Command, 160)}", manifestPath));
             // Reads the file a node, node --require or node -e "require(...)" command runs.
             foreach (var run in NodeTargets(script.Command))
             {
@@ -67,9 +67,9 @@ public static partial class PackageReview
         if (!loaded.Any(files.Has)) loaded.Add(root + "index.js");
         findings.AddRange(ScanLoaded(files, root, loaded, ct));
         var binaries = Binaries(files);
-        if (binaries.Count > 0) findings.Add(new PackageFinding("review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
+        if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.Npm) is { } popular)
-            findings.Add(new PackageFinding(scripts.Any(x => x.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
+            findings.Add(new PackageFinding("package/close-name", scripts.Any(x => x.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
         int deps = 0;
         foreach (var key in new[] { "dependencies", "optionalDependencies", "peerDependencies" })
             if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object) deps += d.EnumerateObject().Count();

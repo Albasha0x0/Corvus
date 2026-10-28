@@ -1,13 +1,21 @@
 using System.ComponentModel;
 using System.Text.RegularExpressions;
+using Corvus.Services.Analysis;
 using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <param name="Level">noteworthy (look before installing) or review (expected in some packages).</param>
+/// <param name="Rule">The rule id in <see cref="FindingRules"/>.</param>
+/// <param name="Level">noteworthy (look before installing) or review (expected in some packages); a level above the rule's row throws.</param>
 /// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code, hidden text, agent configuration, repository hook, build step, rule match (GuardDog), provenance.</param>
 /// <param name="Line">1-based line in <paramref name="Path"/>, when the finding has one.</param>
-public sealed record PackageFinding(string Level, string Category, string Detail, string? Path = null, int? Line = null);
+public sealed record PackageFinding(string Rule, string Level, string Category, string Detail, string? Path = null, int? Line = null)
+{
+    public string Level { get; init; } = FindingRules.Check(Rule, Level);
+
+    /// <summary>The finding as the shared record, located at path:line.</summary>
+    public Finding ToFinding() => new(Level, Rule, Category, Detail, Line is { } line ? $"{Path}:{line}" : Path, "package");
+}
 
 /// <param name="AtInstall">True when the package manager runs it while installing.</param>
 public sealed record PackageScript(string Name, string Command, bool AtInstall);
@@ -129,9 +137,9 @@ public static partial class PackageReview
 
     // --- code rules ---
 
-    private sealed record Rule(string Category, string Level, Func<string, bool> IsMatch, string What)
+    private sealed record Rule(string Id, string Category, string Level, Func<string, bool> IsMatch, string What)
     {
-        public Rule(string category, string level, Regex pattern, string what) : this(category, level, pattern.IsMatch, what) { }
+        public Rule(string id, string category, string level, Regex pattern, string what) : this(id, category, level, pattern.IsMatch, what) { }
     }
 
     /// <summary>A rule level: noteworthy at install or beside credentials, host details, processes or decoded code; else review.</summary>
@@ -146,41 +154,41 @@ public static partial class PackageReview
     /// <summary>What code reaches, by pattern: each rule names what it found. Levels are raised by the install-time context.</summary>
     private static readonly Rule[] CodeRules =
     [
-        new("process", "review", R(@"\bchild_process\b|\bexecSync\s*\(|\bspawnSync?\s*\(|\bexecFile(?:Sync)?\s*\("), "starts processes (child_process)"),
-        new("process", "review", R(@"\bsubprocess\.(?:Popen|run|call|check_output|check_call)\b|\bos\.(?:system|popen|exec[lv]p?e?)\s*\(|\bpty\.spawn\b"), "starts processes (subprocess / os.system)"),
-        new("network", "review", R(@"require\(\s*['""](?:node:)?(?:https?|net|dns|dgram|tls)['""]\s*\)|\bfetch\s*\(\s*['""`]https?:|\bXMLHttpRequest\b|\bnew\s+WebSocket\s*\(|\bhttps?\.(?:request|get)\s*\(|require\(\s*['""](?:axios|node-fetch|got|undici)['""]\s*\)|\bawait\s+fetch\s*\(|\baxios\.(?:get|post|request)\s*\("), "opens network connections"),
-        new("network", "review", R(@"\b(?:urllib\.request|urllib2|requests\.(?:get|post|put)|http\.client|socket\.socket|urlopen)\b"), "opens network connections (Python)"),
-        new("network", "review", R(@"\b(?:curl|wget)\s+(?:-[\w-]+\s+)*['""]?https?://|\bInvoke-WebRequest\b|\biwr\s+https?:|\bbitsadmin\b|\bcertutil\s+-urlcache"), "downloads with a command-line tool"),
-        new("dynamic code", "review", R(@"\beval\s*\((?:[^'""`]|\z)|\bnew\s+Function\s*\(|\bvm\.runIn(?:This|New)Context\b"), "evaluates code built at run time (eval / Function)"),
-        new("dynamic code", "noteworthy", R(@"\bexec\s*\(\s*(?:base64\.\w*decode|zlib\.decompress|marshal\.loads|codecs\.decode|bytes\.fromhex|__import__\(\s*['""](?:base64|zlib|marshal|codecs))|\bexec\s*\(\s*['""][^'""]*['""]\s*\.decode\(\s*['""](?:base64|hex|rot13|rot_13)|\bexec\s*\([^\n]{0,300}?\b(?:b64decode|b32decode|b85decode|a85decode|decompress|marshal\.loads|unhexlify|fromhex)\s*\("), "executes decoded code (exec of base64 / zlib / marshal)"),
-        new("dynamic code", "noteworthy", R(@"\b(?:exec|eval)\s*\([^\n]{0,40}?\w*urlopen\s*\(|\b(?:exec|eval)\s*\(\s*requests\.get\s*\("), "executes code it downloads (exec of urlopen / requests)"),
-        new("dynamic code", "noteworthy", R(@"\beval\s*\(\s*\w+\.(?:data|body|responseText)\b[\w.]*\s*\)|\bnew\s+Function\s*\(\s*['""]require['""](?:\s*,\s*['""]\w+['""])*\s*,\s*[\w.]+\s*\)"), "runs code from a response (eval of response data, a Function given require)"),
-        new("process", "noteworthy", R(@"https?://(?:dl\.dropbox(?:usercontent)?\.com|cdn\.discordapp\.com/attachments|files\.catbox\.moe|transfer\.sh|github\.com/[\w.-]+/[\w.-]+/raw)/[^\s'""]*?\.(?:exe|sh|bat|cmd|ps1|vbs|scr|msi)\b"), "downloads a program from a file-sharing host"),
-        new("process", "noteworthy", R(@"\bcurl(?:\.exe)?\s+[^\n]{0,60}?https?://[^\s'""]+\.(?:exe|scr|msi)\b|\b(?:curl|wget)\b[^\n]{0,200}?&&\s*chmod\s+\+x|\burlretrieve\s*\([\s\S]{0,600}?(?:\bPopen\s*\(|\bos\.(?:system|startfile)\s*\(|\bchmod\s*\()|\[\s*['""]node['""]\s*,\s*['""]-e['""]\s*,\s*\w+\.stdout"), "downloads a program or script and runs it"),
-        new("process", "noteworthy", DownloadsAndStarts, "downloads a program to a file and starts it"),
-        new("process", "noteworthy", R(@"\b(?:os\.system|os\.popen|subprocess\.(?:Popen|run|call|check_output|check_call))\s*\(\s*\w*(?:b64d\w*|b64decode|decode|unhexlify|fromhex)\s*\(|(?:^|[^.\w$])(?:exec|execSync)\s*\(\s*(?:atob|Buffer\.from)\s*\("), "runs a decoded command"),
-        new("host details", "noteworthy", R(@"(?:^|[^.\w$])(?:exec|execSync|spawnSync|check_output|getoutput|popen|system)\s*\(\s*['""`](?:net\s+user|net\s+localgroup|whoami\s+/(?:priv|all|groups)|cat\s+/etc/passwd)\b"), "runs account and privilege listing commands"),
-        new("credentials", "noteworthy", R(@"\.npmrc\b|[/\\]\.ssh[/\\]|\bid_rsa\b|\.aws[/\\]credentials|\.git-credentials|\.bash_history|/etc/(?:shadow|passwd)\b|\bLogin Data\b|Local Storage[/\\]+leveldb|\bwallet\.dat\b|\bdiscord(?:app)?\b.{0,40}\btoken|\bkeychain-db\b|\bbrowser_cookie3\b"), "reads credential files (npmrc, ssh keys, cloud or browser stores)"),
-        new("credentials", "review", R(@"JSON\.stringify\(\s*process\.env\s*\)|Object\.(?:keys|entries|assign)\(\s*(?:\{\}\s*,\s*)?process\.env\s*\)|json\.dumps\(\s*(?:dict\()?os\.environ|dict\(\s*os\.environ\s*\)|os\.environ\.copy\(\)"), "collects all environment variables"),
-        new("host details", "review", R(@"\bos\.(?:hostname|userInfo|networkInterfaces|homedir)\(\)|\bsocket\.gethostname\(\)|\bgetpass\.getuser\(\)|\bplatform\.node\(\)|\bwhoami\b|\$\(hostname\)|\b(?:ip-api\.com|ipinfo\.io|api\.ipify\.org|ifconfig\.me|icanhazip\.com|checkip\.amazonaws\.com)\b"), "reads host and user details"),
+        new("package/child-process", "process", "review", R(@"\bchild_process\b|\bexecSync\s*\(|\bspawnSync?\s*\(|\bexecFile(?:Sync)?\s*\("), "starts processes (child_process)"),
+        new("package/python-process", "process", "review", R(@"\bsubprocess\.(?:Popen|run|call|check_output|check_call)\b|\bos\.(?:system|popen|exec[lv]p?e?)\s*\(|\bpty\.spawn\b"), "starts processes (subprocess / os.system)"),
+        new("package/network", "network", "review", R(@"require\(\s*['""](?:node:)?(?:https?|net|dns|dgram|tls)['""]\s*\)|\bfetch\s*\(\s*['""`]https?:|\bXMLHttpRequest\b|\bnew\s+WebSocket\s*\(|\bhttps?\.(?:request|get)\s*\(|require\(\s*['""](?:axios|node-fetch|got|undici)['""]\s*\)|\bawait\s+fetch\s*\(|\baxios\.(?:get|post|request)\s*\("), "opens network connections"),
+        new("package/python-network", "network", "review", R(@"\b(?:urllib\.request|urllib2|requests\.(?:get|post|put)|http\.client|socket\.socket|urlopen)\b"), "opens network connections (Python)"),
+        new("package/download-tool", "network", "review", R(@"\b(?:curl|wget)\s+(?:-[\w-]+\s+)*['""]?https?://|\bInvoke-WebRequest\b|\biwr\s+https?:|\bbitsadmin\b|\bcertutil\s+-urlcache"), "downloads with a command-line tool"),
+        new("package/eval", "dynamic code", "review", R(@"\beval\s*\((?:[^'""`]|\z)|\bnew\s+Function\s*\(|\bvm\.runIn(?:This|New)Context\b"), "evaluates code built at run time (eval / Function)"),
+        new("package/exec-decoded", "dynamic code", "noteworthy", R(@"\bexec\s*\(\s*(?:base64\.\w*decode|zlib\.decompress|marshal\.loads|codecs\.decode|bytes\.fromhex|__import__\(\s*['""](?:base64|zlib|marshal|codecs))|\bexec\s*\(\s*['""][^'""]*['""]\s*\.decode\(\s*['""](?:base64|hex|rot13|rot_13)|\bexec\s*\([^\n]{0,300}?\b(?:b64decode|b32decode|b85decode|a85decode|decompress|marshal\.loads|unhexlify|fromhex)\s*\("), "executes decoded code (exec of base64 / zlib / marshal)"),
+        new("package/exec-download", "dynamic code", "noteworthy", R(@"\b(?:exec|eval)\s*\([^\n]{0,40}?\w*urlopen\s*\(|\b(?:exec|eval)\s*\(\s*requests\.get\s*\("), "executes code it downloads (exec of urlopen / requests)"),
+        new("package/eval-response", "dynamic code", "noteworthy", R(@"\beval\s*\(\s*\w+\.(?:data|body|responseText)\b[\w.]*\s*\)|\bnew\s+Function\s*\(\s*['""]require['""](?:\s*,\s*['""]\w+['""])*\s*,\s*[\w.]+\s*\)"), "runs code from a response (eval of response data, a Function given require)"),
+        new("package/file-host-program", "process", "noteworthy", R(@"https?://(?:dl\.dropbox(?:usercontent)?\.com|cdn\.discordapp\.com/attachments|files\.catbox\.moe|transfer\.sh|github\.com/[\w.-]+/[\w.-]+/raw)/[^\s'""]*?\.(?:exe|sh|bat|cmd|ps1|vbs|scr|msi)\b"), "downloads a program from a file-sharing host"),
+        new("package/download-and-run", "process", "noteworthy", R(@"\bcurl(?:\.exe)?\s+[^\n]{0,60}?https?://[^\s'""]+\.(?:exe|scr|msi)\b|\b(?:curl|wget)\b[^\n]{0,200}?&&\s*chmod\s+\+x|\burlretrieve\s*\([\s\S]{0,600}?(?:\bPopen\s*\(|\bos\.(?:system|startfile)\s*\(|\bchmod\s*\()|\[\s*['""]node['""]\s*,\s*['""]-e['""]\s*,\s*\w+\.stdout"), "downloads a program or script and runs it"),
+        new("package/download-and-start", "process", "noteworthy", DownloadsAndStarts, "downloads a program to a file and starts it"),
+        new("package/decoded-command", "process", "noteworthy", R(@"\b(?:os\.system|os\.popen|subprocess\.(?:Popen|run|call|check_output|check_call))\s*\(\s*\w*(?:b64d\w*|b64decode|decode|unhexlify|fromhex)\s*\(|(?:^|[^.\w$])(?:exec|execSync)\s*\(\s*(?:atob|Buffer\.from)\s*\("), "runs a decoded command"),
+        new("package/account-listing", "host details", "noteworthy", R(@"(?:^|[^.\w$])(?:exec|execSync|spawnSync|check_output|getoutput|popen|system)\s*\(\s*['""`](?:net\s+user|net\s+localgroup|whoami\s+/(?:priv|all|groups)|cat\s+/etc/passwd)\b"), "runs account and privilege listing commands"),
+        new("package/credential-files", "credentials", "noteworthy", R(@"\.npmrc\b|[/\\]\.ssh[/\\]|\bid_rsa\b|\.aws[/\\]credentials|\.git-credentials|\.bash_history|/etc/(?:shadow|passwd)\b|\bLogin Data\b|Local Storage[/\\]+leveldb|\bwallet\.dat\b|\bdiscord(?:app)?\b.{0,40}\btoken|\bkeychain-db\b|\bbrowser_cookie3\b"), "reads credential files (npmrc, ssh keys, cloud or browser stores)"),
+        new("package/environment-dump", "credentials", "review", R(@"JSON\.stringify\(\s*process\.env\s*\)|Object\.(?:keys|entries|assign)\(\s*(?:\{\}\s*,\s*)?process\.env\s*\)|json\.dumps\(\s*(?:dict\()?os\.environ|dict\(\s*os\.environ\s*\)|os\.environ\.copy\(\)"), "collects all environment variables"),
+        new("package/host-details", "host details", "review", R(@"\bos\.(?:hostname|userInfo|networkInterfaces|homedir)\(\)|\bsocket\.gethostname\(\)|\bgetpass\.getuser\(\)|\bplatform\.node\(\)|\bwhoami\b|\$\(hostname\)|\b(?:ip-api\.com|ipinfo\.io|api\.ipify\.org|ifconfig\.me|icanhazip\.com|checkip\.amazonaws\.com)\b"), "reads host and user details"),
         // URLs only: a list of suffixes (a public suffix table) names these domains without sending anything to them
-        new("exfiltration", "noteworthy", R(@"https?://pastebin\.com/raw|https?://[\w.-]+\.ngrok(?:-free)?\.(?:io|app|dev)\b|https?://[\w.-]+\.(?:oast\.(?:fun|me|pro|live|site|online)|interact\.sh|burpcollaborator\.net|oastify\.com|beeceptor\.com|dnslog\.cn|ceye\.io|requestcatcher\.com)\b|https?://(?:[\w-]+\.)*(?:requestbin\.(?:com|net)|pipedream\.net|webhook\.site)\b"), "sends to a collection endpoint (paste site, tunnel, request catcher)"),
+        new("package/collection-url", "exfiltration", "noteworthy", R(@"https?://pastebin\.com/raw|https?://[\w.-]+\.ngrok(?:-free)?\.(?:io|app|dev)\b|https?://[\w.-]+\.(?:oast\.(?:fun|me|pro|live|site|online)|interact\.sh|burpcollaborator\.net|oastify\.com|beeceptor\.com|dnslog\.cn|ceye\.io|requestcatcher\.com)\b|https?://(?:[\w-]+\.)*(?:requestbin\.(?:com|net)|pipedream\.net|webhook\.site)\b"), "sends to a collection endpoint (paste site, tunnel, request catcher)"),
         // chat bots and raw addresses have ordinary uses (notification integrations, documentation): noteworthy beside other behaviour
-        new("exfiltration", Paired, R(@"https?://(?:[\w-]+\.)?discord(?:app)?\.com/api/webhooks|https?://api\.telegram\.org/bot"), "sends to a chat webhook (Discord, Telegram)"),
-        new("exfiltration", Paired, RawAddressUrl(), "sends to a raw address"),
-        new("exfiltration", "noteworthy", RawAddressSocket(), "opens a socket to a raw address"),
-        new("process", "noteworthy", R(@"bash\s+-i\s*>&\s*/dev/tcp/|/dev/tcp/[\w.-]+/\d+|\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+/bin/|\bos\.dup2\(\s*\w+\.fileno\(\)|\bpty\.spawn\(\s*['""]/bin/(?:ba)?sh"), "hands a shell to a network connection (reverse shell)"),
-        new("process", "noteworthy", R(@"(?:curl|wget)\b[^\n|;]{0,300}\|\s*(?:sudo\s+)?(?:ba|z)?sh\b|\bsh\s+-c\s+['""]?\$\((?:curl|wget)\b|(?i:\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod|DownloadString)\b[^\n]{0,300}(?:\|\s*iex\b|Invoke-Expression))"), "runs a downloaded script (download piped to a shell)"),
-        new("process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
-        new("persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
-        new("transformed code", "noteworthy", StringArrayNames, "obfuscator.io-style transformed code"),
-        new("transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
-        new("transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
-        new("transformed code", "review", R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]"), "a base64 literal over 2,000 characters"),
-        new("transformed code", Small, R(@"['""`](?:aHR0cHM6Ly|aHR0cDovL|68747470733a2f2f|687474703a2f2f)[A-Za-z0-9+/=]{8,}['""`]"), "a URL hidden in base64 or hex"),
-        new("transformed code", "noteworthy", R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d"), "executes code built from character codes"),
-        new("transformed code", "noteworthy", R(@"\(https://pyobfuscate\.com\)|\bimport\s+(?:marshal|zlib|base64)\s+as\s+_{3,}"), "pyobfuscate-style transformed code"),
-        new("transformed code", "noteworthy", R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
+        new("package/chat-webhook", "exfiltration", Paired, R(@"https?://(?:[\w-]+\.)?discord(?:app)?\.com/api/webhooks|https?://api\.telegram\.org/bot"), "sends to a chat webhook (Discord, Telegram)"),
+        new("package/raw-address-url", "exfiltration", Paired, RawAddressUrl(), "sends to a raw address"),
+        new("package/raw-address-socket", "exfiltration", "noteworthy", RawAddressSocket(), "opens a socket to a raw address"),
+        new("package/reverse-shell", "process", "noteworthy", R(@"bash\s+-i\s*>&\s*/dev/tcp/|/dev/tcp/[\w.-]+/\d+|\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+/bin/|\bos\.dup2\(\s*\w+\.fileno\(\)|\bpty\.spawn\(\s*['""]/bin/(?:ba)?sh"), "hands a shell to a network connection (reverse shell)"),
+        new("package/download-to-shell", "process", "noteworthy", R(@"(?:curl|wget)\b[^\n|;]{0,300}\|\s*(?:sudo\s+)?(?:ba|z)?sh\b|\bsh\s+-c\s+['""]?\$\((?:curl|wget)\b|(?i:\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod|DownloadString)\b[^\n]{0,300}(?:\|\s*iex\b|Invoke-Expression))"), "runs a downloaded script (download piped to a shell)"),
+        new("package/hidden-powershell", "process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
+        new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
+        new("package/string-array", "transformed code", "noteworthy", StringArrayNames, "obfuscator.io-style transformed code"),
+        new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
+        new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
+        new("package/long-base64", "transformed code", "review", R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]"), "a base64 literal over 2,000 characters"),
+        new("package/hidden-url", "transformed code", Small, R(@"['""`](?:aHR0cHM6Ly|aHR0cDovL|68747470733a2f2f|687474703a2f2f)[A-Za-z0-9+/=]{8,}['""`]"), "a URL hidden in base64 or hex"),
+        new("package/exec-char-codes", "transformed code", "noteworthy", R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d"), "executes code built from character codes"),
+        new("package/pyobfuscate", "transformed code", "noteworthy", R(@"\(https://pyobfuscate\.com\)|\bimport\s+(?:marshal|zlib|base64)\s+as\s+_{3,}"), "pyobfuscate-style transformed code"),
+        new("package/space-run", "transformed code", "noteworthy", R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
     ];
 
     /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
@@ -197,7 +205,7 @@ public static partial class PackageReview
             if (transformed)
             {
                 plain = text + "\n" + reading.Plain;
-                yield return new PackageFinding(install ? "noteworthy" : "review", "transformed code",
+                yield return new PackageFinding("package/peeled-layers", install ? "noteworthy" : "review", "transformed code",
                     $"transformation layers peeled ({string.Join(", ", reading.Layers.Select(l => l.Via).Concat(reading.Recovered).Distinct().Take(4))}); summarize_file view=script reads the file", path);
             }
         }
@@ -217,37 +225,37 @@ public static partial class PackageReview
             if (install && rule.Category == "network") level = "review";
             // Tools read credential paths for their own work; only at install are they noteworthy.
             if (!install && rule.Category == "credentials") level = "review";
-            yield return new PackageFinding(level, rule.Category, (install ? "at install: " : "") + rule.What, path);
+            yield return new PackageFinding(rule.Id, level, rule.Category, (install ? "at install: " : "") + rule.What, path);
         }
         if (install && BundledProgram.IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1)", path);
+            yield return new PackageFinding("package/install-bundled-program", "noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1)", path);
         if (install && CompiledEval().IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "dynamic code", "at install: evaluates code compiled from a string (eval(compile(...)))", path);
+            yield return new PackageFinding("package/install-compiled-eval", "noteworthy", "dynamic code", "at install: evaluates code compiled from a string (eval(compile(...)))", path);
         // A collector host outside a URL (request options, dns.lookup), at install or beside connections.
         if ((install || hits.Contains("network")) && CollectorHost.IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "exfiltration", (install ? "at install: " : "") + "contacts a collection endpoint (request catcher, out-of-band test host)", path);
+            yield return new PackageFinding("package/collector-host", "noteworthy", "exfiltration", (install ? "at install: " : "") + "contacts a collection endpoint (request catcher, out-of-band test host)", path);
         // Install-time code that reaches the network and collects host details or secrets, or runs decoded code.
         var with = hits.Where(h => h is "credentials" or "host details" or "transformed code").ToList();
         if (install && (hits.Contains("network") || with.Contains("host details") && FormattedUrl.IsMatch(plain))
             && (with.Count > 0 || plain.Contains("exec(", StringComparison.Ordinal) && hits.Contains("dynamic code")))
-            yield return new PackageFinding("noteworthy", "install script", $"install-time code reaches the network and {(with.Count > 0 ? string.Join(", ", with) : "runs decoded code")}", path);
+            yield return new PackageFinding("package/install-network-collect", "noteworthy", "install script", $"install-time code reaches the network and {(with.Count > 0 ? string.Join(", ", with) : "runs decoded code")}", path);
         else if (install && hits.Contains("network") && Launch.IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "install script", "install-time code reaches the network and launches a shell or a background process", path);
+            yield return new PackageFinding("package/install-network-launch", "noteworthy", "install script", "install-time code reaches the network and launches a shell or a background process", path);
         if (ReverseShell().IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "process", "pipes a socket into a spawned shell (reverse shell)", path);
+            yield return new PackageFinding("package/socket-shell", "noteworthy", "process", "pipes a socket into a spawned shell (reverse shell)", path);
         if (install && Detached.IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "process", "at install: starts a background process that outlives the install", path);
+            yield return new PackageFinding("package/install-detached", "noteworthy", "process", "at install: starts a background process that outlives the install", path);
         if (install && XorDecode.IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "transformed code", "at install: decodes its strings with XOR", path);
+            yield return new PackageFinding("package/install-xor", "noteworthy", "transformed code", "at install: decodes its strings with XOR", path);
         if (hits.Contains("network") && InterpreterStdin.IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "remote code", "runs code it fetches through an interpreter's standard input", path);
+            yield return new PackageFinding("package/stdin-remote-code", "noteworthy", "remote code", "runs code it fetches through an interpreter's standard input", path);
         if (ChatWebhook.IsMatch(plain) && (WebhookSecret.IsMatch(plain) || WalletSecret.IsMatch(plain)))
-            yield return new PackageFinding("noteworthy", "exfiltration", "sends passwords, keys, tokens or wallet secrets to a chat webhook", path);
+            yield return new PackageFinding("package/webhook-secrets", "noteworthy", "exfiltration", "sends passwords, keys, tokens or wallet secrets to a chat webhook", path);
         // A beacon at load: host identity or the environment sent from entry code.
         if (entry && hits.Contains("network") && LoadBeacon.IsMatch(plain))
-            yield return new PackageFinding("noteworthy", "host details", "sends host identity or the environment when loaded", path);
+            yield return new PackageFinding("package/load-beacon", "noteworthy", "host details", "sends host identity or the environment when loaded", path);
         if (SelfPublish.IsMatch(plain) && plain.Contains("package.json", StringComparison.Ordinal))
-            yield return new PackageFinding("noteworthy", "publishing", "rewrites package.json and runs npm publish from its own code", path);
+            yield return new PackageFinding("package/self-publish", "noteworthy", "publishing", "rewrites package.json and runs npm publish from its own code", path);
     }
 
     // A binary installer runs its own executable; these start a shell or outlive the installer.
@@ -429,5 +437,5 @@ public static partial class PackageReview
     private static IEnumerable<PackageFinding> ProvenanceFindings(PackageAttestation a) =>
         new[] { ("digest", a.Digest), ("signature", a.Signature), ("certificate chain", a.Chain), ("log entry", a.Log) }
             .Where(c => c.Item2.StartsWith("failed", StringComparison.Ordinal))
-            .Select(c => new PackageFinding("noteworthy", "provenance", $"{a.Format} {c.Item1} {c.Item2}", a.File));
+            .Select(c => new PackageFinding("package/provenance-failed", "noteworthy", "provenance", $"{a.Format} {c.Item1} {c.Item2}", a.File));
 }

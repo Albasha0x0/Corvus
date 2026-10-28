@@ -44,14 +44,14 @@ internal static class GuardDogRules
                 var level = rule.Name.StartsWith("threat-", StringComparison.Ordinal) ? "noteworthy" : "review";
                 // Source rules give a list of matches; metadata rules give a message, empty when they do not apply.
                 if (rule.Value.ValueKind == JsonValueKind.String && rule.Value.GetString() is { Length: > 0 } message)
-                    findings.Add(new PackageFinding(level, "rule match", $"GuardDog {rule.Name}: {PackageReview.Clip(message, 200)}"));
+                    findings.Add(new PackageFinding("guarddog/" + rule.Name, level, "rule match", $"GuardDog {rule.Name}: {PackageReview.Clip(message, 200)}"));
                 if (rule.Value.ValueKind != JsonValueKind.Array) continue;
                 foreach (var match in rule.Value.EnumerateArray())
                 {
                     if (findings.Count >= MaxMatches) { more++; continue; }
                     var (file, line) = Location(Text(match, "location"));
                     var text = Text(match, "match");
-                    findings.Add(new PackageFinding(level, "rule match",
+                    findings.Add(new PackageFinding("guarddog/" + rule.Name, level, "rule match",
                         $"GuardDog {rule.Name}: {PackageReview.Clip(Text(match, "message") ?? "matched", 160)}" + (text != null ? $" ({PackageReview.Clip(text.Trim(), 120)})" : ""), file, line));
                 }
             }
