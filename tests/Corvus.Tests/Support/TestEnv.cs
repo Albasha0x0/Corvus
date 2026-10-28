@@ -104,6 +104,10 @@ public sealed class TempDir : IDisposable
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 if (clock.Elapsed > TimeSpan.FromSeconds(3)) return; // best effort; the leak guard reports what stays
+                // Windows refuses to delete read-only files, such as the objects of a git repository.
+                if (ex is UnauthorizedAccessException)
+                    foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
+                        System.IO.File.SetAttributes(file, FileAttributes.Normal);
             }
         }
     }
