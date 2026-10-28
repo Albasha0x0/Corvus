@@ -129,11 +129,13 @@ public sealed partial class RegexPolicyTests
         Assert.True(found.Count == 0, string.Join("\n", found));
     }
 
+    // Regression: quick set 20261028-233001-905408b2 under load saw 4n grow
+    // less than 10x for this pattern.
     // The runtime finds the literal after a single-set loop first, so a pair
     // loop is what stays quadratic.
     [Fact]
     public void The_growth_check_fails_a_quadratic_pattern() =>
-        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => ScansInLinearTime(new Regex(@"(?:\w\w)+x"), [n => string.Concat(Enumerable.Repeat("a_", n))], 1_000));
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => ScansInLinearTime(new Regex(@"(?:\w\w)+x"), [n => string.Concat(Enumerable.Repeat("a_", n))], 500));
 
     [Fact]
     public void Hostile_lines_scan_in_linear_time()
@@ -181,26 +183,26 @@ public sealed partial class RegexPolicyTests
     }
 
     /// <summary>
-    /// Fails when a scan of a line 4 times longer takes over 10 times as long (linear: about 4, quadratic: 16) and over
+    /// Fails when a scan of a line 8 times longer takes over 24 times as long (linear: about 8, quadratic: 64) and over
     /// 50 ms; a quadratic scan of the longer line takes seconds. Each size keeps its best of 5 runs, taken in turn, so a
     /// burst of load slows both sizes alike.
     /// </summary>
-    private static void ScansInLinearTime(Regex regex, Func<int, string>[] lines, int n = 5_000)
+    private static void ScansInLinearTime(Regex regex, Func<int, string>[] lines, int n = 2_500)
     {
         foreach (var line in lines)
         {
             // NonBacktracking builds its states on first use: a short line of the
             // same shape builds them, so only the scan is timed.
             _ = regex.Count(line(100));
-            string input = line(n), longer = line(4 * n);
-            double once = double.MaxValue, fourTimes = double.MaxValue;
+            string input = line(n), longer = line(8 * n);
+            double once = double.MaxValue, eightTimes = double.MaxValue;
             for (int run = 0; run < 5; run++)
             {
                 once = Math.Min(once, Scan(regex, input));
-                fourTimes = Math.Min(fourTimes, Scan(regex, longer));
+                eightTimes = Math.Min(eightTimes, Scan(regex, longer));
             }
-            Assert.True(fourTimes < 50 || fourTimes < 10 * once,
-                $"{regex}: {once:0.0} ms on {input.Length} characters, {fourTimes:0.0} ms on {longer.Length} ({input[..20]}...)");
+            Assert.True(eightTimes < 50 || eightTimes < 24 * once,
+                $"{regex}: {once:0.0} ms on {input.Length} characters, {eightTimes:0.0} ms on {longer.Length} ({input[..20]}...)");
         }
     }
 
