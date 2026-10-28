@@ -6,14 +6,19 @@ using Corvus.Native.Providers;
 
 namespace Corvus.Core;
 
-/// <summary>A public YARA rule set pinned to one release archive by URL and SHA-256; LicenseEntry is null when it has none.</summary>
-public sealed record RulePack(string Name, string Version, string Url, string Sha256, string RulesFolder, string? LicenseEntry, string License, string Description);
+/// <summary>
+/// A public YARA rule set pinned to one release archive by URL and SHA-256;
+/// LicenseEntry is null when it has none, AsOf (the release's publication date)
+/// when it is not pinned.
+/// </summary>
+public sealed record RulePack(string Name, string Version, string Url, string Sha256, string RulesFolder, string? LicenseEntry, string License, string Description,
+    DateOnly? AsOf = null);
 
 /// <summary>
 /// A rule pack installed under the data folder: its version, folder, number of
-/// rule files, and the newest file time in its archive (null when unknown).
+/// rule files, and the as-of date pinned for it (null when unknown).
 /// </summary>
-public sealed record InstalledRulePack(string Name, string Version, string Folder, int RuleFiles, DateTimeOffset? AsOf = null)
+public sealed record InstalledRulePack(string Name, string Version, string Folder, int RuleFiles, DateOnly? AsOf = null)
 {
     /// <summary>The version digest: the SHA-256 of the archive the pack was installed from, as its manifest records it; null when unreadable.</summary>
     public string? Digest { get; init; }
@@ -21,7 +26,7 @@ public sealed record InstalledRulePack(string Name, string Version, string Folde
     /// <summary>
     /// "name version, rules as of yyyy-MM-dd"; "as of unknown" without the date.
     /// </summary>
-    public string Label => $"{Name} {Version}, rules as of {(AsOf is { } t ? t.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : "unknown")}";
+    public string Label => $"{Name} {Version}, rules as of {AsOf?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "unknown"}";
 }
 
 /// <summary>
@@ -39,16 +44,19 @@ public static class RulePacks
     /// <summary>Archives above this size are refused before they are hashed; the largest pinned one is 52 MB.</summary>
     public const long MaxArchiveBytes = 256L << 20;
 
-    /// <summary>The known packs. A new release is pinned by changing its row: URL, SHA-256, version and folder together.</summary>
+    /// <summary>
+    /// The known packs. A new release is pinned by changing its row: URL,
+    /// SHA-256, version, folder and as-of date together.
+    /// </summary>
     public static readonly IReadOnlyList<RulePack> Known =
     [
         new("malcontent", "1.27.1", "https://github.com/chainguard-dev/malcontent/archive/refs/tags/v1.27.1.tar.gz",
             "cb331829862efdc0a7d2a10abdbc47fbcfd4af3b6c9978b213938b756c87a180", "malcontent-1.27.1/rules/", "malcontent-1.27.1/LICENSE", "Apache-2.0",
-            "Chainguard malcontent's rules: capabilities and behaviours of programs and scripts."),
+            "Chainguard malcontent's rules: capabilities and behaviours of programs and scripts.", new DateOnly(2026, 10, 7)),
         new("yara-forge-core", "20261018", "https://github.com/YARAHQ/yara-forge/releases/download/20261018/yara-forge-rules-core.zip",
             "d5b5f0006a0c58684459c3967b6aaae94f1e128597ed23ea5d4e8f16965a74ba", "packages/core/", null,
             "per rule: each rule's license meta and its source repository's header block in the .yar file",
-            "YARA Forge's core package: curated rules from public repositories."),
+            "YARA Forge's core package: curated rules from public repositories.", new DateOnly(2026, 10, 18)),
     ];
 
     /// <summary>The folder packs are installed in: &lt;data&gt;/rules.</summary>
@@ -74,13 +82,14 @@ public static class RulePacks
     /// </summary>
     public static InstalledRulePack At(string folder)
     {
-        DateTimeOffset? asOf = null;
+        DateOnly? asOf = null;
         string? digest = null;
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, ManifestName)));
             if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("asOf", out var t)
-                && t.ValueKind == JsonValueKind.String && t.TryGetDateTimeOffset(out var date))
+                && t.ValueKind == JsonValueKind.String
+                && DateOnly.TryParseExact(t.GetString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
                 asOf = date;
             if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("sha256", out var sha) && sha.ValueKind == JsonValueKind.String)
                 digest = sha.GetString();
@@ -186,7 +195,7 @@ public static class RulePacks
         var staging = Path.Combine(root, pack.Name, ".new-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var (license, asOf) = Extract(pack, archive, staging);
+            var license = Extract(pack, archive, staging);
             if (license == null)
             {
                 if (pack.LicenseEntry != null)
@@ -196,7 +205,7 @@ public static class RulePacks
             }
             if (!RuleFiles(staging).Any()) throw new ToolError(ErrorCode.MalformedInput, $"{source} holds no .yar or .yara files under {pack.RulesFolder}; nothing was installed.");
             var manifest = JsonSerializer.SerializeToUtf8Bytes(
-                new { pack.Name, pack.Version, pack.Url, Source = source, pack.Sha256, pack.License, AsOf = asOf, Installed = DateTimeOffset.UtcNow }, ManifestJson);
+                new { pack.Name, pack.Version, pack.Url, Source = source, pack.Sha256, pack.License, AsOf = pack.AsOf?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), Installed = DateTimeOffset.UtcNow }, ManifestJson);
             SafeFile.WritePrivateUnderRoot(staging, ManifestName, manifest, overwrite: false);
             if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
             Directory.Move(staging, target);
@@ -215,19 +224,12 @@ public static class RulePacks
         Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
             .Where(f => f.EndsWith(".yar", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".yara", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>
-    /// Writes the pack's rule files and license under <paramref name="folder"/>;
-    /// returns the license path (null when the archive has none) and the newest
-    /// entry time (null when no entry has one).
-    /// </summary>
-    private static (string? License, DateTimeOffset? AsOf) Extract(RulePack pack, byte[] archive, string folder)
+    /// <summary>Writes the pack's rule files and license under <paramref name="folder"/>; returns the license path, or null when the archive has none.</summary>
+    private static string? Extract(RulePack pack, byte[] archive, string folder)
     {
         string? license = null;
-        DateTimeOffset? asOf = null;
-        void Entry(string name, DateTimeOffset time, Func<byte[]> read)
+        void Entry(string name, Func<byte[]> read)
         {
-            // Zip and tar store 1980 and 1970 for an entry without a time.
-            if (time.Year > 1980 && (asOf == null || time > asOf)) asOf = time;
             name = name.Replace('\\', '/');
             if (name == pack.LicenseEntry) license = SafeFile.WritePrivateUnderRoot(folder, LicenseName, read(), overwrite: true, flush: false);
             else if (name.StartsWith(pack.RulesFolder, StringComparison.Ordinal) && name.Length > pack.RulesFolder.Length
@@ -239,7 +241,7 @@ public static class RulePacks
         {
             using var zip = new ZipArchive(new MemoryStream(archive), ZipArchiveMode.Read);
             foreach (var e in zip.Entries.Where(e => !e.FullName.EndsWith('/')))
-                Entry(e.FullName, e.LastWriteTime, () =>
+                Entry(e.FullName, () =>
                 {
                     using var s = e.Open();
                     using var m = new MemoryStream();
@@ -253,13 +255,13 @@ public static class RulePacks
             // Links and devices are skipped: only regular files are written.
             while (tar.GetNextEntry() is { } e)
                 if (e.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile && e.DataStream != null)
-                    Entry(e.Name, e.ModificationTime, () =>
+                    Entry(e.Name, () =>
                     {
                         using var m = new MemoryStream();
                         e.DataStream.CopyTo(m);
                         return m.ToArray();
                     });
         }
-        return (license, asOf);
+        return license;
     }
 }

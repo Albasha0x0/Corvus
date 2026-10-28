@@ -38,16 +38,13 @@ public sealed class RulePackTests : IDisposable
         ("pack-1.0/tests/three.yar", "rule three { condition: true }"),
     ];
 
-    /// <summary>Every fixture entry's time: the pack's as-of date.</summary>
-    internal static readonly DateTimeOffset EntryTime = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
-
     internal static byte[] TarGz()
     {
         var ms = new MemoryStream();
         using (var gz = new GZipStream(ms, CompressionLevel.Fastest, leaveOpen: true))
         using (var tar = new TarWriter(gz))
             foreach (var (name, text) in Entries)
-                tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(Encoding.UTF8.GetBytes(text)), ModificationTime = EntryTime });
+                tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(Encoding.UTF8.GetBytes(text)) });
         return ms.ToArray();
     }
 
@@ -56,17 +53,12 @@ public sealed class RulePackTests : IDisposable
         var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
             foreach (var (name, text) in Entries)
-            {
-                var entry = zip.CreateEntry(name);
-                entry.LastWriteTime = EntryTime;
-                using var s = entry.Open();
-                s.Write(Encoding.UTF8.GetBytes(text));
-            }
+                using (var s = zip.CreateEntry(name).Open()) s.Write(Encoding.UTF8.GetBytes(text));
         return ms.ToArray();
     }
 
     internal static RulePack Pack(string extension, byte[] archive) => new("fixture", "1.0", $"https://example.com/pack-1.0{extension}",
-        Convert.ToHexStringLower(SHA256.HashData(archive)), "pack-1.0/rules/", "pack-1.0/LICENSE", "fixture", "a test pack");
+        Convert.ToHexStringLower(SHA256.HashData(archive)), "pack-1.0/rules/", "pack-1.0/LICENSE", "fixture", "a test pack", new DateOnly(2026, 10, 1));
 
     [Fact]
     public async Task A_pack_whose_hash_matches_installs_its_rules_and_license()
@@ -117,7 +109,7 @@ public sealed class RulePackTests : IDisposable
         // Import takes no HTTP handler: it has no way to reach the network.
         var (pack, installed) = RulePacks.Import(archive, root, pins: [Pack(".tar.gz", File.ReadAllBytes(archive))]);
         Assert.True(installed);
-        Assert.Equal((2, EntryTime), (pack.RuleFiles, pack.AsOf));
+        Assert.Equal((2, new DateOnly(2026, 10, 1)), (pack.RuleFiles, pack.AsOf));
         var listed = Assert.Single(RulePacks.Installed(root));
         Assert.Equal("fixture 1.0, rules as of 2026-10-01", listed.Label);
         Assert.False(RulePacks.Import(archive, root, "fixture", [Pack(".tar.gz", File.ReadAllBytes(archive))]).Installed);
@@ -136,6 +128,16 @@ public sealed class RulePackTests : IDisposable
         var unnamed = Assert.Throws<ToolError>(() => RulePacks.Import(archive, root, pins: [pinned]));
         Assert.Contains($"SHA-256 {actual} is not pinned (fixture 1.0: {pinned.Sha256})", unnamed.Message);
         Assert.Empty(RulePacks.Installed(root));
+    }
+
+    [Fact]
+    public async Task A_fetched_pack_records_its_pinned_date_and_one_without_a_pin_is_unknown()
+    {
+        var archive = Zip();
+        var (dated, _) = await RulePacks.FetchAsync(Pack(".zip", archive), _dir.File("dated"), new FixedResponse(archive), offline: false, default);
+        Assert.Equal("fixture 1.0, rules as of 2026-10-01", RulePacks.At(dated.Folder).Label);
+        var (undated, _) = await RulePacks.FetchAsync(Pack(".zip", archive) with { AsOf = null }, _dir.File("undated"), new FixedResponse(archive), offline: false, default);
+        Assert.Equal("fixture 1.0, rules as of unknown", RulePacks.At(undated.Folder).Label);
     }
 
     [Fact]
