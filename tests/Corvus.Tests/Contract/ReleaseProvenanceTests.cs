@@ -193,4 +193,23 @@ public partial class ReleaseProvenanceTests
         Assert.True(downloads >= 2, "the download pattern no longer finds the known downloads");
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
+
+    [Fact]
+    public void The_rebuild_check_runs_alone_nightly_and_reads_only()
+    {
+        var ci = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), ".github", "workflows", "ci.yml"));
+        Assert.Matches(@"(?m)^  schedule:\n    - cron: ""[^""]+""\n", ci);
+        var jobs = Regex.Matches(ci[ci.IndexOf("\njobs:\n", StringComparison.Ordinal)..], @"(?m)^  ([\w-]+):\n((?:    .*\n|\s*\n)*)").ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
+        var rebuild = jobs["rebuild"];
+        Assert.Contains("if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rebuild)", rebuild, StringComparison.Ordinal);
+        Assert.Contains("run: ./tools/compare-rebuild.ps1 -Tag $env:TAG", rebuild, StringComparison.Ordinal);
+        // The workflow's top-level contents: read applies; the job asks for nothing more.
+        Assert.DoesNotContain("permissions:", rebuild, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(DocsTests.RepoRoot(), "tools", "compare-rebuild.ps1")));
+        // Every other job skips a scheduled run, so the nightly run is the
+        // rebuild check alone.
+        foreach (var (name, body) in jobs.Where(j => j.Key != "rebuild"))
+            Assert.True(Regex.IsMatch(body, @"(?m)^    if: .*(github\.event_name != 'schedule'|github\.event_name == 'workflow_dispatch'|github\.event_name == 'push')"),
+                $"{name} runs on the nightly schedule");
+    }
 }

@@ -4,8 +4,15 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  # Nightly: the rebuild check alone.
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
+      rebuild:
+        description: Also rebuild the newest release tag and compare its managed DLLs with the published ones
+        type: boolean
+        default: false
       live:
         description: Also run the Live test family (Frida sessions) on macOS, Windows ARM64, Linux and Windows
         type: boolean
@@ -18,7 +25,7 @@ permissions:
 # Live runs and each pushed commit get their own group, so a push never cancels a live run or the offload results
 # test.ps1 waits for.
 concurrency:
-  group: ci-${{ github.ref }}${{ inputs.live && '-live' || '' }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  group: ci-${{ github.ref }}${{ inputs.live && '-live' || '' }}${{ github.event_name == 'schedule' && '-schedule' || '' }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: true
 
 env:
@@ -33,6 +40,7 @@ jobs:
   # Docs-only (docs/**, *.md) since the newest passing ancestor run, not the parent, so a failed code push still
   # gets tested. Any doubt answers no and every job runs.
   classify:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -75,7 +83,7 @@ jobs:
     name: test (${{ matrix.os }})
     needs: classify
     # A failed classify leaves the output empty, and every job runs.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
@@ -243,7 +251,7 @@ jobs:
   install:
     name: install script (${{ matrix.os }})
     needs: classify
-    if: ${{ !cancelled() && needs.classify.outputs.docs-only != 'true' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.classify.outputs.docs-only != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -355,6 +363,32 @@ jobs:
           test ! -e ~/.local/share/Corvus
           test ! -e "$data"
 
+  # Nightly and on request (rebuild=true): rebuild the newest release tag and compare its managed DLLs with the published
+  # package's. Reports in the run summary; a differing DLL does not fail the job.
+  rebuild:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rebuild)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # The tag's own global.json picks the SDK it was released with.
+      - name: Newest release tag
+        id: tag
+        run: |
+          tag=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          git show "$tag:global.json" > "$RUNNER_TEMP/global.json"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: ${{ runner.temp }}/global.json
+      - name: Rebuild and compare
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: ./tools/compare-rebuild.ps1 -Tag $env:TAG
   # Manual (live=true): the Live family with slow tests on macOS and Windows ARM64; the others are controls.
   live:
     name: live (${{ matrix.os }})
