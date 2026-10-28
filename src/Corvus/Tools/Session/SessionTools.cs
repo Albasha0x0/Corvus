@@ -139,10 +139,12 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             } + $"; set by --engine (or {ServerOptions.EngineVariable}), per call by engine=", null));
         capabilities.AddRange(external.GetAwaiter().GetResult());
         if (options.AllowLive)
-            capabilities.Add(options.LiveAllow.Count > 0
-                ? new("programs sessions may open", true, "limited to: " + string.Join(", ", options.LiveAllow), null)
-                : new("programs sessions may open", true, "any program the session switches allow",
-                    $"limit them with {ServerOptions.LiveAllowOption} <program or folder> (repeatable)"));
+            capabilities.Add(options.LiveScope.Count > 0
+                ? new("programs sessions may open", true, "limited to: " + string.Join(", ", options.LiveScope), null)
+                : options.LiveAllowAny
+                    ? new("programs sessions may open", true, $"any program the session switches allow ({ServerOptions.LiveAllowOption} {ServerOptions.LiveAllowAnyValue})", null)
+                    : new("programs sessions may open", true, "attach: any program the session switches allow; spawn: none",
+                        $"name the programs a session may start with {ServerOptions.LiveAllowOption} <program or folder> (repeatable)"));
         if (options.AllowLive && live?.Backend is { } backend) capabilities.Add(LiveBackendCapability(backend));
         // Listed only when on: status is at its report budget, and a refused save names the switch.
         if (options.AllowReplaceOriginal)
@@ -152,7 +154,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         var client = context?.Server?.ClientInfo;
         var unavailable = Group(ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges, options.GhidraScripting, options.AllowLive, options.AllowLiveSpawn, options.LiveScripting, options.AllowLiveAttach,
             // What is left of the one status deadline: these programs were checked above already.
-            deadline > DateTime.UtcNow ? deadline - DateTime.UtcNow : TimeSpan.Zero));
+            deadline > DateTime.UtcNow ? deadline - DateTime.UtcNow : TimeSpan.Zero, liveStartList: options.LiveAllow.Count > 0 || options.LiveAllowAny));
         return new ServerStatus(ServerIdentity.Product, typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", ServerIdentity.InformationalVersion,
             ServerIdentity.Executable, string.IsNullOrWhiteSpace(expectedExecutable) ? null : ServerIdentity.SamePath(expectedExecutable.Trim(), ServerIdentity.Executable),
             ServerIdentity.InstallKind, ServerIdentity.StartedAt, (long)(DateTimeOffset.UtcNow - ServerIdentity.StartedAt).TotalSeconds,

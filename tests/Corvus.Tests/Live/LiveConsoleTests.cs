@@ -57,7 +57,7 @@ public sealed class LiveConsoleTests : IDisposable
     {
         _host = new ScriptedConsoleHost { Answer = input => input == "Ada\r" ? "Ada\r\n\x1b[32mhello, Ada\x1b[0m\r\n> " : null };
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { ConsoleHost = _host, ConsoleTime = _clock };
-        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true }, _service);
         _program = _dir.File("prompt.exe");
         File.WriteAllBytes(_program, [0x4D, 0x5A]);
     }
@@ -165,7 +165,7 @@ public sealed class LiveConsoleTests : IDisposable
 
         using var workspace = new AssemblyWorkspace();
         using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options())) { ConsoleHost = new ScriptedConsoleHost { Missing = "no console here" } };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true }, service);
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => tools.LiveConsole("start", program: _program))).Code);
     }
 

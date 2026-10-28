@@ -38,7 +38,7 @@ public sealed class LiveYaraTests : LiveSessionTestBase
         {
             Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Platform = "darwin" },
         };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true }, service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true, LiveAllowAny = true }, service);
         await tools.LiveSession("spawn", program: Sqlite);
         var refused = await Assert.ThrowsAsync<ToolError>(() => tools.LiveRead("live-1", rules: Rule));
         Assert.Equal((ErrorCode.Unsupported, "a live YARA scan is not supported on macOS."), (refused.Code, refused.Message));
@@ -51,7 +51,7 @@ public sealed class LiveYaraTests : LiveSessionTestBase
         {
             Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Captures = false },
         };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true }, service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true, LiveAllowAny = true }, service);
         await tools.LiveSession("spawn", program: Sqlite);
         var refused = await Assert.ThrowsAsync<ToolError>(() => tools.LiveRead("live-1", rules: Rule));
         Assert.Equal(ErrorCode.Unsupported, refused.Code);

@@ -134,7 +134,7 @@ public sealed class LiveAndroidRealTests(ITestOutputHelper output) : IDisposable
         Adb("push", ("local", dex), ("remote", Remote));
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
 
         var (open, failed) = await Call(server, "live_session", new()
@@ -176,7 +176,7 @@ public sealed class LiveAndroidRealTests(ITestOutputHelper output) : IDisposable
         {
             await using var server = await InProcessServer.StartAsync(options: new ServerOptions
             {
-                BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+                BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
             });
             var (open, failed) = await Call(server, "live_session", new() { ["action"] = "spawn", ["device"] = _serial, ["program"] = LedgerPackage });
             Assert.False(failed, open);

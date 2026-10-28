@@ -29,6 +29,8 @@ namespace Corvus.Core;
 ///   --trace-args        the trace records argument values too, secrets masked (CORVUS_TRACE_ARGS=1)
 ///   --allow-device-changes  allow the Android device tools that install or uninstall apps (CORVUS_ALLOW_DEVICE_CHANGES=1)
 ///   --allow-replace-original  allow save_assembly and save_native replaceOriginal=true (CORVUS_ALLOW_REPLACE_ORIGINAL=1)
+///   --allow-window-capture  allow inspect_process view=windows (CORVUS_ALLOW_WINDOW_CAPTURE=1)
+///   --live-allow &lt;path|*&gt;  programs and folders sessions may open (repeatable; CORVUS_LIVE_ALLOW); spawn needs one, * allows any
 ///   --client &lt;id&gt;       the MCP client this registration is for (written by install; CORVUS_CLIENT): its output ceiling, deadline and tool profile
 ///   --client-timeout &lt;s&gt;  the client's per-call limit in seconds when raised from its default (CORVUS_CLIENT_TIMEOUT)
 /// The CORVUS_LOAD environment variable (';'-separated paths) is also honored; CORVUS_PREWARM sets --prewarm (CORVUS_IDA_PREWARM=1: ida); CORVUS_ENGINE sets --engine;
@@ -125,7 +127,7 @@ public sealed class ServerOptions
     public const string AllowLiveOption = "--allow-live";
     public const string AllowLiveVariable = "CORVUS_ALLOW_LIVE";
 
-    /// <summary>Allow live_session action=spawn, which starts a program under a session (with <see cref="AllowLive"/>); default off.</summary>
+    /// <summary>Allow live_session action=spawn, which starts a program under a session (with <see cref="AllowLive"/> and <see cref="LiveAllow"/>); default off.</summary>
     public bool AllowLiveSpawn { get; set; }
 
     public const string AllowLiveSpawnOption = "--allow-live-spawn";
@@ -137,8 +139,17 @@ public sealed class ServerOptions
     public const string AllowLiveAttachOption = "--allow-live-attach";
     public const string AllowLiveAttachVariable = "CORVUS_ALLOW_LIVE_ATTACH";
 
-    /// <summary>Programs and folders sessions may open (--live-allow, repeatable); empty: any program the switches allow.</summary>
+    /// <summary>Programs and folders sessions may open (--live-allow, repeatable); empty: attach to any, spawn none.</summary>
     public List<string> LiveAllow { get; } = [];
+
+    /// <summary>--live-allow *: sessions may open any program the switches allow; listed paths then scope nothing.</summary>
+    public bool LiveAllowAny { get; set; }
+
+    /// <summary>The paths sessions are held to; empty when none are listed or with <see cref="LiveAllowAny"/>.</summary>
+    public IReadOnlyList<string> LiveScope => LiveAllowAny ? [] : LiveAllow;
+
+    /// <summary>The value of --live-allow or CORVUS_LIVE_ALLOW that allows any program, read before path resolution.</summary>
+    public const string LiveAllowAnyValue = "*";
 
     public const string LiveAllowOption = "--live-allow";
     public const string LiveAllowVariable = "CORVUS_LIVE_ALLOW";
@@ -155,12 +166,19 @@ public sealed class ServerOptions
     public const string LiveInstallFridaOption = "--live-install-frida";
     public const string LiveInstallFridaVariable = "CORVUS_LIVE_INSTALL_FRIDA";
 
+    /// <summary>Allow inspect_process view=windows, which reads window titles and captures a window's pixels; default off.</summary>
+    public bool AllowWindowCapture { get; set; }
+
+    public const string AllowWindowCaptureOption = "--allow-window-capture";
+    public const string AllowWindowCaptureVariable = "CORVUS_ALLOW_WINDOW_CAPTURE";
+
     /// <summary>The security switches (value-less options, off by default) and their variables; corvus install --set and --unset take these.</summary>
     public static readonly IReadOnlyDictionary<string, string> Switches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         [AllowLiveOption] = AllowLiveVariable,
         [AllowLiveAttachOption] = AllowLiveAttachVariable,
         [AllowLiveSpawnOption] = AllowLiveSpawnVariable,
+        [AllowWindowCaptureOption] = AllowWindowCaptureVariable,
         [LiveScriptingOption] = LiveScriptingVariable,
         [LiveInstallFridaOption] = LiveInstallFridaVariable,
         ["--ida-scripting"] = IdaScriptingVariable,
@@ -261,7 +279,12 @@ public sealed class ServerOptions
                 case AllowLiveOption: o.AllowLive = true; break;
                 case AllowLiveSpawnOption: o.AllowLiveSpawn = true; break;
                 case AllowLiveAttachOption: o.AllowLiveAttach = true; break;
-                case LiveAllowOption: o.LiveAllow.Add(Path.GetFullPath(Next())); break;
+                case LiveAllowOption:
+                    var allowed = Next();
+                    if (allowed.Trim() == LiveAllowAnyValue) o.LiveAllowAny = true;
+                    else o.LiveAllow.Add(Path.GetFullPath(allowed));
+                    break;
+                case AllowWindowCaptureOption: o.AllowWindowCapture = true; break;
                 case LiveScriptingOption: o.LiveScripting = true; break;
                 case LiveInstallFridaOption: o.LiveInstallFrida = true; break;
                 case "--engine": engine = Next(); break;
@@ -315,7 +338,12 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(AllowLiveSpawnVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveSpawn = true;
         if (Environment.GetEnvironmentVariable(AllowLiveAttachVariable)?.Trim() is "1" or "true" or "on") o.AllowLiveAttach = true;
         if (Environment.GetEnvironmentVariable(LiveAllowVariable) is { Length: > 0 } allowFromEnv)
-            o.LiveAllow.AddRange(allowFromEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Path.GetFullPath));
+            foreach (var allowed in allowFromEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (allowed == LiveAllowAnyValue) o.LiveAllowAny = true;
+                else o.LiveAllow.Add(Path.GetFullPath(allowed));
+            }
+        if (Environment.GetEnvironmentVariable(AllowWindowCaptureVariable)?.Trim() is "1" or "true" or "on") o.AllowWindowCapture = true;
         OutputGuard.LiveAllow = [.. o.LiveAllow];
         if (Environment.GetEnvironmentVariable(LiveScriptingVariable)?.Trim() is "1" or "true" or "on") o.LiveScripting = true;
         if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;

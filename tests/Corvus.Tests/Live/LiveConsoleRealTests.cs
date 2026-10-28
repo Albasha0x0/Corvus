@@ -60,7 +60,7 @@ public sealed class LiveConsoleRealTests(ITestOutputHelper output) : IDisposable
         var exe = LiveFridaRealTests.Build(_dir, "prompt", Source);
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
 
         var run = await Call(server, "live_console", new()

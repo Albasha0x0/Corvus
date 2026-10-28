@@ -265,7 +265,7 @@ public abstract class LiveSessionTestBase : IDisposable
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
-        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true, LiveAllowAny = true }, _service);
     }
 
     public void Dispose()
@@ -292,7 +292,7 @@ public sealed class LiveSessionTests : LiveSessionTestBase
     public async Task The_programs_own_module_is_found_wherever_the_backend_lists_it()
     {
         var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { MainListedLast = true } };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true }, service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLiveSpawn = true, LiveAllowAny = true }, service);
         await tools.LiveSession("spawn", program: Sqlite);
         Assert.Contains("e_sqlite3.dll!sqlite3_open", await tools.LiveBreak("live-1", "set", at: "sqlite3_open"));
         Assert.Matches(@"matched to loaded images:\s+0x7FF610000000 e_sqlite3\.dll", await tools.LiveSession("status", session: "live-1"));
@@ -1352,7 +1352,7 @@ public sealed class LiveSessionReadTests : LiveSessionTestBase
         using var dumps = new MinidumpService(_workspace);
         var off = await Assert.ThrowsAsync<ToolError>(() => new MinidumpTools(dumps, _service, new ServerOptions()).DumpHeap("live-1"));
         Assert.Contains("Sessions on running programs are off", off.Message);
-        var tools = new MinidumpTools(dumps, _service, new ServerOptions { AllowLiveSpawn = true });
+        var tools = new MinidumpTools(dumps, _service, new ServerOptions { AllowLiveSpawn = true, LiveAllowAny = true });
         await _tools.LiveSession("spawn", program: Sqlite);
         var heap = await Assert.ThrowsAsync<ToolError>(() => tools.DumpHeap("live-1"));
         Assert.Equal(ErrorCode.Unsupported, heap.Code);

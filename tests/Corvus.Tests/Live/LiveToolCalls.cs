@@ -56,7 +56,7 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
 
     private protected Task<InProcessServer> Server(bool scripting = false) => Phases.Run("server start", () => InProcessServer.StartAsync(options: new ServerOptions
     {
-        BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true, AllowLiveSpawn = true, LiveScripting = scripting,
+        BackgroundIndexing = false, WatchFiles = false, AllowLiveAttach = true, AllowLiveSpawn = true, LiveAllowAny = true, LiveScripting = scripting,
     }));
 
     /// <summary>Starts <paramref name="exe"/> suspended as <paramref name="session"/>; returns its process id.</summary>

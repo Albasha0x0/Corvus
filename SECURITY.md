@@ -109,8 +109,9 @@ Each needs a server option or environment variable set by the person running the
 - Session tools (`live_session`, `live_break`, `live_watch`, `live_coverage`, `live_timeline`, `live_read`, `live_events`, `live_console`) are registered but refuse to run without one of:
   - `--allow-live` (`CORVUS_ALLOW_LIVE=1`);
   - `--allow-live-attach` (`CORVUS_ALLOW_LIVE_ATTACH=1`): attach to a running program. `--live-allow` limits attach and start to named programs or folders.
-  - `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`): `live_session` and `live_console` start a program.
+  - `--allow-live-spawn` (`CORVUS_ALLOW_LIVE_SPAWN=1`): `live_session` and `live_console` start a program `--live-allow` names (`*`: any program).
 - `--live-install-frida` (`CORVUS_LIVE_INSTALL_FRIDA=1`): with no tested Frida found, the first session installs the pinned Frida into a private Python environment with pip (hash-checked wheels).
+- `--allow-window-capture` (`CORVUS_ALLOW_WINDOW_CAPTURE=1`): `inspect_process view=windows` reads window titles, control text and a picture of a window.
 - `--toolsets` limits what is registered; without it every tool is registered, `inspect_process` included.
 
 Sessions are for your own programs, which run with your rights.

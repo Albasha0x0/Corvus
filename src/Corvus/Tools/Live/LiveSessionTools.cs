@@ -151,11 +151,12 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     if (names?.Contains("*") == true) names = [];
                     else if (names is { Count: 0 }) names = null;
                     var serial = string.IsNullOrWhiteSpace(device) ? null : device.Trim();
-                    if (serial != null && options.LiveAllow.Count > 0)
+                    if (serial != null && options.LiveScope.Count > 0)
                         throw new ToolError(ErrorCode.AccessDenied, "--live-allow names folders on this machine, so device sessions are refused while it is set.",
                             "ask the user to start the server without --live-allow to open a device session");
                     // A recording runs nothing, so --live-allow, which scopes running programs, does not apply.
                     var recording = Native.Providers.Live.Ttd.TtdWorker.Is(program);
+                    if (a == "spawn" && serial != null) RequireStartList();
                     var opened = await live.OpenAsync(a == "spawn", serial != null || recording ? program : Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
                         a == "spawn" ? environment : null, names, downloadDac: downloadDac, device: serial).ConfigureAwait(false);
                     return Report(a, opened);
@@ -164,7 +165,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 case "attach_child" or "release_child":
                     var parent = live.Get(RequireSession(session));
                     var pid = ChildId(program);
-                    if (options.LiveAllow.Count > 0) LiveProgramScope.Attach(pid.ToString(CultureInfo.InvariantCulture), options.LiveAllow);
+                    if (options.LiveScope.Count > 0) LiveProgramScope.Attach(pid.ToString(CultureInfo.InvariantCulture), options.LiveScope);
                     if (a == "release_child")
                     {
                         await live.ReleaseChildAsync(parent, pid, cancellationToken).ConfigureAwait(false);
@@ -196,11 +197,11 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             throw new ToolError(ErrorCode.InvalidArgument, "An inspector or JDWP agent is attached to: start the program with it yourself, on this machine, without childNames.",
                 "action=attach program=inspector:PORT (Node --inspect=PORT) or jdwp:PORT (java -agentlib:jdwp=transport=dt_socket,server=y,address=127.0.0.1:PORT)");
         var opened = await live.OpenAsync(false, program, [], ct).ConfigureAwait(false);
-        if (options.LiveAllow.Count == 0) return opened;
+        if (options.LiveScope.Count == 0) return opened;
         try
         {
             if (opened.ProcessId <= 0) throw new ToolError(ErrorCode.AccessDenied, "The target names no process, so --live-allow cannot be checked.", "ask the user to start the server without --live-allow");
-            LiveProgramScope.Attach(opened.ProcessId.ToString(CultureInfo.InvariantCulture), options.LiveAllow);
+            LiveProgramScope.Attach(opened.ProcessId.ToString(CultureInfo.InvariantCulture), options.LiveScope);
         }
         catch (ToolError)
         {
@@ -962,8 +963,22 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                 $"ask the user to start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1) as well");
     }
 
-    /// <summary>The program as the backend receives it: unchanged without --live-allow; with it, checked and resolved (full path or process id).</summary>
-    private string Scoped(bool spawn, string program) =>
-        options.LiveAllow.Count == 0 ? program
-        : spawn ? LiveProgramScope.Spawn(program, options.LiveAllow) : LiveProgramScope.Attach(program, options.LiveAllow);
+    /// <summary>
+    /// The program as the backend receives it: unchanged without --live-allow
+    /// or with --live-allow *; else checked and resolved (full path or process
+    /// id). A program is started only when the server lists what it may start.
+    /// </summary>
+    private string Scoped(bool spawn, string program)
+    {
+        if (spawn) RequireStartList();
+        return options.LiveScope.Count == 0 ? program
+            : spawn ? LiveProgramScope.Spawn(program, options.LiveScope) : LiveProgramScope.Attach(program, options.LiveScope);
+    }
+
+    private void RequireStartList()
+    {
+        if (options.LiveAllow.Count == 0 && !options.LiveAllowAny)
+            throw new ToolError(ErrorCode.Unsupported, "Starting a program needs the list of programs a session may start; this server has none.",
+                $"ask the user to start the server with {ServerOptions.LiveAllowOption} <program or folder> (repeatable), or {ServerOptions.LiveAllowOption} {ServerOptions.LiveAllowAnyValue} for any program");
+    }
 }

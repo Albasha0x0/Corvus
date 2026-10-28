@@ -19,7 +19,7 @@ Crash dumps and running processes.
 - inspect_process reads a running local Windows process (view=summary, modules, regions, threads, stacks) with query and read handles only; nothing is written or suspended.
 - inspect_process refuses a name several processes share and lists their pids.
 - Sessions are off unless the server runs with --allow-live-attach, --allow-live-spawn, --live-scripting or --allow-live; they need Python with Frida's bindings.
-- live_session attaches (--allow-live-attach) or spawns suspended (--allow-live-spawn), limited to --live-allow paths when set.
+- live_session attaches (--allow-live-attach) or spawns suspended (--allow-live-spawn with --live-allow <paths or *>), limited to --live-allow paths when set.
 - live_break sets stop points (name, module!export, address, file:line); continue resumes (and starts a spawned program); wait returns the next stop with a stack.
 - live_read reads a held thread's registers and memory; live_watch records calls with decoded arguments.
 - live_coverage counts which functions ran and diffs two runs; live_timeline traces files, registry keys, endpoints and child processes (Windows).

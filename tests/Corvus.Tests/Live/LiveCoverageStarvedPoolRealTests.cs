@@ -51,7 +51,7 @@ public sealed class LiveCoverageStarvedPoolRealTests(ITestOutputHelper output) :
         var done = _dir.File("done.txt");
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
         await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { "2", done } });
         Assert.Contains("counting", await Call(server, "live_coverage", new() { ["session"] = "live-1", ["action"] = "start", ["hitLimit"] = 1 }));

@@ -8,11 +8,11 @@ namespace Corvus.Tools;
 
 /// <summary>Read-only inspection of a running local process.</summary>
 [McpServerToolType]
-public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService sessions)
+public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService sessions, ServerOptions options)
 {
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true, OutputSchemaType = typeof(LiveProcessService.LiveReport))]
-    [Description("Inspect a running Windows process read-only: summary, modules, regions, threads, stacks or windows, with addresses " +
-                 "named as in dumps. Nothing is written or suspended.")]
+    [Description("Inspect a running Windows process read-only: summary, modules, regions, threads, stacks or windows (needs " +
+                 "--allow-window-capture), with addresses named as in dumps. Nothing is written or suspended.")]
     public Task<string> InspectProcess(
         [Description("Process id (decimal or 0x hex), name (notepad[.exe]; a shared name is refused with the ids) or session id (live-1).")] string process,
         [Description("summary, modules, regions, threads, stacks or windows.")] string view = "summary",
@@ -27,6 +27,9 @@ public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService
         [Description("windows: PNG of the first window.")] string? imagePath = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
+        if (view.Trim().Equals("windows", StringComparison.OrdinalIgnoreCase) && !options.AllowWindowCapture)
+            throw new ToolError(ErrorCode.Unsupported, "Reading a program's windows (titles, text and a picture) is off in this server.",
+                $"ask the user to start the server with {ServerOptions.AllowWindowCaptureOption} (or {ServerOptions.AllowWindowCaptureVariable}=1)");
         if (LiveSessionService.IsSessionId(process))
             process = sessions.Running(process).ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var r = await live.Inspect(process, view, thread, offset, limit, regionFilter, maxFrames, imageDirectories, timeoutSeconds, cancellationToken, imagePath);

@@ -22,9 +22,9 @@ public sealed class LiveProgramScopeTests : IDisposable
         _dir.Dispose();
     }
 
-    private LiveSessionTools Tools(bool attach = true, params string[] allow)
+    private LiveSessionTools Tools(bool attach = true, bool any = false, params string[] allow)
     {
-        var options = new ServerOptions { AllowLive = true, AllowLiveSpawn = true, AllowLiveAttach = attach };
+        var options = new ServerOptions { AllowLive = true, AllowLiveSpawn = true, AllowLiveAttach = attach, LiveAllowAny = any };
         options.LiveAllow.AddRange(allow);
         return new LiveSessionTools(options, _service);
     }
@@ -185,6 +185,39 @@ public sealed class LiveProgramScopeTests : IDisposable
         Assert.Contains("none inside", named.Message);
         await Refused(() => Tools(allow: _dir.Path).LiveSession("attach", program: "corvus-no-such-process"), ErrorCode.NotFound);
         Assert.Null(_backend.LastOpen);
+    }
+
+    [Fact]
+    public async Task Spawn_without_a_list_is_refused_and_the_refusal_names_live_allow()
+    {
+        var program = Program("app");
+        var e = await Refused(() => Tools().LiveSession("spawn", program: program));
+        Assert.Contains(ServerOptions.LiveAllowOption, e.Remediation);
+        Assert.Contains(ServerOptions.LiveAllowAnyValue, e.Remediation);
+        var console = await Refused(() => Tools().LiveConsole("start", program: program));
+        Assert.Contains(ServerOptions.LiveAllowOption, console.Remediation);
+        Assert.Null(_backend.LastOpen);
+    }
+
+    [Fact]
+    public async Task Spawn_starts_a_listed_program_and_any_program_with_star()
+    {
+        var program = Program("app");
+        await Tools(allow: Path.Combine(_dir.Path, "app")).LiveSession("spawn", program: program);
+        Assert.Contains("tool.exe", _backend.LastOpen!.ToJsonString());
+        await Tools().LiveSession("close", session: "live-1");
+        var other = Program("other", "other.exe");
+        await Tools(any: true, allow: Path.Combine(_dir.Path, "app")).LiveSession("spawn", program: other);
+        Assert.Contains("other.exe", _backend.LastOpen!.ToJsonString());
+    }
+
+    [Fact]
+    public void Star_in_the_list_is_read_before_path_resolution()
+    {
+        var o = ServerOptions.Parse([ServerOptions.AllowLiveSpawnOption, ServerOptions.LiveAllowOption, ServerOptions.LiveAllowAnyValue, ServerOptions.LiveAllowOption, _dir.Path]);
+        Assert.True(o.LiveAllowAny);
+        Assert.Equal([_dir.Path], o.LiveAllow);
+        Assert.Empty(o.LiveScope);
     }
 
     [Fact]

@@ -53,7 +53,7 @@ public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposabl
         var written = _dir.File("timeline-out.txt");
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
 
         await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { written } });
@@ -84,7 +84,7 @@ public sealed class LiveTimelineRealTests(ITestOutputHelper output) : IDisposabl
         var exe = LiveFridaRealTests.Build(_dir, "settings", Source);
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
 
         await Call(server, "live_session", new() { ["action"] = "spawn", ["program"] = exe, ["arguments"] = new[] { _dir.File("stop-out.txt") } });

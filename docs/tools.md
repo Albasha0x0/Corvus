@@ -2823,7 +2823,7 @@ Running programs: read-only inspection, and sessions with stop points, call reco
 
 **Inspect a running process (read-only)** (read-only, idempotent, open-world)
 
-Inspect a running Windows process read-only: summary, modules, regions, threads, stacks or windows, with addresses named as in dumps. Nothing is written or suspended.
+Inspect a running Windows process read-only: summary, modules, regions, threads, stacks or windows (needs --allow-window-capture), with addresses named as in dumps. Nothing is written or suspended.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

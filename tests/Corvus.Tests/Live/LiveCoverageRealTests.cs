@@ -88,7 +88,7 @@ public sealed class LiveCoverageRealTests(ITestOutputHelper output) : IDisposabl
         var exe = LiveFridaRealTests.Build(_dir, "shapes", Source);
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
 
         await Run(server, exe, "live-1", "2", new() { ["hitLimit"] = 1 });

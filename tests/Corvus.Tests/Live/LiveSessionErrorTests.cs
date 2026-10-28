@@ -16,7 +16,7 @@ public sealed class LiveSessionErrorTests : IDisposable
     public LiveSessionErrorTests()
     {
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) };
-        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true, LiveScripting = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveAttach = true, AllowLiveSpawn = true, LiveAllowAny = true, LiveScripting = true }, _service);
     }
 
     public void Dispose()
@@ -149,7 +149,7 @@ public sealed class LiveSessionErrorTests : IDisposable
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { ProcessId = observed.Id };
         using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
         using var dumps = new MinidumpService();
-        var inspect = new LiveProcessTools(new LiveProcessService(dumps), service);
+        var inspect = new LiveProcessTools(new LiveProcessService(dumps), service, new ServerOptions());
         try
         {
             await new LiveSessionTools(new ServerOptions { AllowLiveAttach = true }, service).LiveSession("attach", program: $"{observed.Id}");

@@ -7,8 +7,8 @@
   },
   "isError": true,
   "content": [
-    "Error (unsupported) in live_break: Sessions on running programs are off in this server.\nNext: start the server with --allow-live-attach or --allow-live-spawn",
-    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"Sessions on running programs are off in this server.\",\"next\":\"start the server with --allow-live-attach or --allow-live-spawn\",\"partial\":null,\"details\":null}"
+    "Error (unsupported) in live_break: Sessions on running programs are off in this server.\nNext: ask the user to start the server with --allow-live-attach or --allow-live-spawn",
+    "\n\nerror (json): {\"code\":\"unsupported\",\"retryable\":false,\"message\":\"Sessions on running programs are off in this server.\",\"next\":\"ask the user to start the server with --allow-live-attach or --allow-live-spawn\",\"partial\":null,\"details\":null}"
   ],
   "structuredContent": null
 }

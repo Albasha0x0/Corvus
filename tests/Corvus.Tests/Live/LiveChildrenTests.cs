@@ -20,7 +20,7 @@ public sealed class LiveChildrenTests : IDisposable
     {
         _backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000);
         _service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = _backend };
-        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, _service);
+        _tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true }, _service);
     }
 
     public void Dispose()
@@ -95,7 +95,7 @@ public sealed class LiveChildrenTests : IDisposable
     {
         var backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { Platform = "linux" };
         using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options())) { Backend = backend };
-        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true }, service);
+        var tools = new LiveSessionTools(new ServerOptions { AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true }, service);
         await tools.LiveSession("spawn", program: Sqlite, childNames: ["*"]);
         backend.Child(backend.Worker!, 4194305, "/app/child", held: true);
         backend.Child(backend.Worker!, 4194306, "/app/child", held: true);

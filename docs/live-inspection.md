@@ -27,7 +27,7 @@
 
 ## Windows and their handlers
 
-`inspect_process view=windows` lists the UI Automation control view of the visible top-level windows, depth first: control type, name, automation id, class name, framework, bounds and window handle.
+`inspect_process view=windows` (needs `--allow-window-capture`) lists the UI Automation control view of the visible top-level windows, depth first: control type, name, automation id, class name, framework, bounds and window handle.
 
 - An element with a window handle names its class window procedure (`GetClassLongPtr(GCLP_WNDPROC)`); a child control also names its control id and the parent procedure that gets `WM_COMMAND` and `WM_NOTIFY`.
 - `imagePath` saves a PNG of the first window (`PrintWindow`, `PW_RENDERFULLCONTENT`). The program's UI threads answer `WM_GETOBJECT` and `WM_PRINT`; no other handle or right is added. Queries time out after 2 s to connect and 5 s per call.
@@ -44,11 +44,11 @@ Registered by default; refused until the server starts with one of these switche
 |---|---|---|
 | `--allow-live` | `CORVUS_ALLOW_LIVE=1` | nothing more: no attach, no start |
 | `--allow-live-attach` | `CORVUS_ALLOW_LIVE_ATTACH=1` | attach to a running program |
-| `--allow-live-spawn` | `CORVUS_ALLOW_LIVE_SPAWN=1` | start a program (`live_session action=spawn`, `live_console action=start`) |
+| `--allow-live-spawn` | `CORVUS_ALLOW_LIVE_SPAWN=1` | start a program listed by `--live-allow` (`live_session action=spawn`, `live_console action=start`) |
 | `--live-scripting` | `CORVUS_LIVE_SCRIPTING=1` | `live_script` |
 
 - These are server start-up switches; the model cannot turn them on. See [configuration.md](configuration.md#security-switches).
-- `--live-allow <program or folder>` (repeatable) limits attach and spawn to the listed programs.
+- `--live-allow <program or folder>` (repeatable) limits attach and spawn to the listed programs. Spawn needs it; `--live-allow *` allows any program.
 - The check uses the final path (links resolved in every folder) and, for a running program, the image path the OS reports. Anything else is refused before a session opens.
 - List only folders you alone can write to: a file copied or hard-linked into one counts as inside it. `server_status` shows the list.
 

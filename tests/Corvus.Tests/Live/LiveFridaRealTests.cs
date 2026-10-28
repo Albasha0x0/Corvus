@@ -93,7 +93,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var exe = Build();
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
 
         var sw = Stopwatch.StartNew();
@@ -185,7 +185,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var exe = Build();
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true,
         });
 
         // 20,000 calls without a pause: every one recorded under a high limit
@@ -243,7 +243,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var exe = Build();
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveScripting = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true, LiveScripting = true,
         });
         await Spawn(server, exe, "live-1", "50");
         var (loaded, failed) = await Call(server, "live_script", new()
@@ -275,7 +275,7 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         var exe = Build();
         await using var server = await InProcessServer.StartAsync(options: new ServerOptions
         {
-            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveScripting = true,
+            BackgroundIndexing = false, WatchFiles = false, AllowLive = true, AllowLiveSpawn = true, LiveAllowAny = true, LiveScripting = true,
         });
         await Spawn(server, exe, "live-1", "50");
         var (loaded, failed) = await Call(server, "live_script", new()

@@ -15,15 +15,16 @@ Server options, environment variables and security switches. Setup: [installatio
 
 - Off by default: the server reads files and runs nothing from them. Each switch widens that.
 - Turn one on with `corvus install --set <switch>` ([Claude Code](#claude-code)) or in the entry's `args`.
-- `inspect_process` needs no switch. Session tools refuse every call until a `--allow-live*` switch is on.
+- `inspect_process` needs no switch, except `view=windows`. Session tools refuse every call until a `--allow-live*` switch is on.
 - Trust model: [SECURITY.md](../SECURITY.md).
 
 | Option | Variable | Allows |
 |---|---|---|
 | `--allow-live-attach` | `CORVUS_ALLOW_LIVE_ATTACH` | session tools; `live_session action=attach` |
-| `--allow-live-spawn` | `CORVUS_ALLOW_LIVE_SPAWN` | session tools; `live_session action=spawn` and `live_console action=start`, which run a program with your rights |
+| `--allow-live-spawn` | `CORVUS_ALLOW_LIVE_SPAWN` | session tools; `live_session action=spawn` and `live_console action=start`, which run a program with your rights; needs `--live-allow` |
 | `--allow-live` | `CORVUS_ALLOW_LIVE` | session tools without opening a program (lists processes); implied by the other live switches |
-| `--live-allow <path>` | `CORVUS_LIVE_ALLOW` | limits attach and start to these programs or folders (repeatable; a path list) |
+| `--live-allow <path>` | `CORVUS_LIVE_ALLOW` | the programs or folders a session may start or attach to (repeatable; a path list); `*`: any program |
+| `--allow-window-capture` | `CORVUS_ALLOW_WINDOW_CAPTURE` | `inspect_process view=windows`: window titles, control text and a picture of a window |
 | `--live-scripting` | `CORVUS_LIVE_SCRIPTING` | `live_script`: your script runs with the program's rights |
 | `--live-install-frida` | `CORVUS_LIVE_INSTALL_FRIDA` | without a usable Frida, the first session installs 17.24.3 from hash-checked wheels ([Frida](live-inspection.md#frida)); refused offline |
 | `--ida-scripting` | `CORVUS_IDA_SCRIPTING` | `ida_python`: any Python in the IDA worker, with the server's rights |
@@ -36,6 +37,7 @@ Server options, environment variables and security switches. Setup: [installatio
 | | `CORVUS_LIVE_MAX_MINUTES` | minutes a session stays open (default 30) |
 
 - `--live-allow`: links are resolved first. List only folders that only you can write to.
+- `--allow-live-spawn` without `--live-allow` starts nothing; `--live-allow *` allows any program.
 - `--in-process-parsing` covers `summarize_file`, `list_assemblies path=`, `search_container`, `unpack_container`,
   `open_minidump`, `read_dump_memory`, `dump_heap` and `dump_object`. A file that crashes a reader ends the server.
   By default, a worker that cannot start refuses the call.
@@ -79,7 +81,7 @@ corvus install --unset allow-live-spawn --project .
 - `claude mcp get corvus` shows a folder's `Args:` line, from that folder.
 - `server_status` lists switches that are off under `unavailableTools`, each with the option that turns it on.
 
-Limit the programs a session may start or attach to:
+Name the programs a session may start or attach to:
 
 ```json
 "env": { "CORVUS_ALLOW_LIVE_SPAWN": "1", "CORVUS_LIVE_ALLOW": "<program or folder>" }

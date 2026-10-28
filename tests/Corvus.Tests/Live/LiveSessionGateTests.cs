@@ -58,5 +58,20 @@ public class LiveSessionGateTests
         Assert.Contains(ServerOptions.AllowLiveAttachOption, live[1].Remediation);
         Assert.Contains(ServerOptions.LiveScriptingOption, live[3].Remediation);
         Assert.Empty(ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true, allowLiveSpawn: true, liveScripting: true, allowLiveAttach: true));
+        var unlisted = ToolAvailability.Of(registered, [], idaScripting: false, isWindows: true, allowLive: true, allowLiveSpawn: true, liveScripting: true, allowLiveAttach: true, liveStartList: false);
+        Assert.Equal([("live_session", "action=spawn"), ("live_console", "action=start")], unlisted.Select(u => (u.Tool, u.Mode)));
+        Assert.All(unlisted, u => Assert.Contains(ServerOptions.LiveAllowOption, u.Remediation));
+    }
+
+    [Fact]
+    public async Task The_window_view_is_refused_without_allow_window_capture()
+    {
+        var workspace = new AssemblyWorkspace();
+        using var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options()));
+        using var dumps = new MinidumpService();
+        var tools = new LiveProcessTools(new LiveProcessService(dumps), service, new ServerOptions());
+        var e = await Assert.ThrowsAsync<ToolError>(() => tools.InspectProcess($"{Environment.ProcessId}", view: "windows"));
+        Assert.Equal(ErrorCode.Unsupported, e.Code);
+        Assert.StartsWith($"ask the user to start the server with {ServerOptions.AllowWindowCaptureOption}", e.Remediation);
     }
 }
