@@ -240,24 +240,33 @@ public sealed partial class DotnetRealDataTests(Xunit.Abstractions.ITestOutputHe
     [Trait(PerfBudget.Trait, PerfBudget.Timing)]
     public async Task A_short_client_gets_a_partial_and_the_export_completes()
     {
+        var limit = TimeSpan.FromSeconds(10);
         await using var server = await _phases.Run("short client server start",
             () => McpProtocolTests.StartServerAsync(null, null, ["--no-watch", ClientProfiles.ClientTimeoutOption, "10", "--load", CoreLib]));
-        var target = _dir.File("corelib");
-        var before = MachineLoad.Factor();
-        var clock = Stopwatch.StartNew();
-        var r = await server.CallToolAsync("export_project", new Dictionary<string, object?> { ["assembly"] = "System.Private.CoreLib", ["outputDirectory"] = target });
-        var answered = clock.Elapsed;
-        _phases.Phase("export answered");
-        // The stop at 3.5 s leaves room for the first call's start on a loaded machine, so the export is running when it fires.
-        Assert.True(answered < TimeSpan.FromSeconds(10), $"answered after {answered}, past the client's 10 s; {_phases.Summary()}");
-        var stop = CallFilter.Early(TimeSpan.FromSeconds(10) - Deadlines.ClientMargin);
-        var fromStop = answered > stop ? answered - stop : TimeSpan.Zero;
-        var (_, load) = MachineLoad.Budget(TimeSpan.FromSeconds(3), before, MachineLoad.Factor());
-        PerfBudget.Time("dotnet/short-client-partial-answer", fromStop, TimeSpan.FromSeconds(3), output, $"{load}; answered after {answered.TotalSeconds:0.0} s");
-        var error = McpProtocolTests.ErrorJson(r);
-        Assert.Equal("timeout", error.GetProperty("code").GetString());
-        Assert.True(error.GetProperty("details").GetProperty("stillRunning").GetBoolean());
-        Assert.False(Directory.Exists(target));
+        // On a loaded machine the stop can fire before the export starts; the server then rightly answers stillRunning=false
+        // and stops it, so the call is made again into a new folder (failed at x2.4-3.0 with one attempt).
+        string target = "";
+        Stopwatch clock = new();
+        System.Text.Json.JsonElement error = default;
+        for (int attempt = 1; ; attempt++)
+        {
+            target = _dir.File($"corelib-{attempt}");
+            var before = MachineLoad.Factor();
+            clock = Stopwatch.StartNew();
+            var r = await server.CallToolAsync("export_project", new Dictionary<string, object?> { ["assembly"] = "System.Private.CoreLib", ["outputDirectory"] = target });
+            var answered = clock.Elapsed;
+            _phases.Phase($"export answered (attempt {attempt})");
+            Assert.True(answered < limit, $"answered after {answered}, past the client's 10 s; {_phases.Summary()}");
+            var stop = CallFilter.Early(limit - Deadlines.ClientMargin);
+            var fromStop = answered > stop ? answered - stop : TimeSpan.Zero;
+            var (_, load) = MachineLoad.Budget(TimeSpan.FromSeconds(3), before, MachineLoad.Factor());
+            PerfBudget.Time("dotnet/short-client-partial-answer", fromStop, TimeSpan.FromSeconds(3), output, $"{load}; answered after {answered.TotalSeconds:0.0} s");
+            error = McpProtocolTests.ErrorJson(r);
+            Assert.Equal("timeout", error.GetProperty("code").GetString());
+            if (error.GetProperty("details").GetProperty("stillRunning").GetBoolean()) break;
+            Assert.True(attempt < 3, $"the export never started before the stop in 3 attempts: {error}; {_phases.Summary()}");
+        }
+        Assert.False(Directory.Exists(target), $"{target} exists before the export finished");
         var marker = Path.Combine(target, Corvus.Services.ExportDirectory.Marker);
         while (!File.Exists(marker) && clock.Elapsed < TimeSpan.FromMinutes(10)) await Task.Delay(500);
         Assert.True(File.Exists(marker), $"the export did not complete within 10 min; {_phases.Summary()}");
