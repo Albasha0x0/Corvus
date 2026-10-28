@@ -17,12 +17,17 @@
 #   CORVUS_REPO                    owner/name
 #   CORVUS_HOME                    install folder
 #   CORVUS_ARCHIVE                 local release archive
-#   CORVUS_SHA256SUMS              manifest to verify CORVUS_ARCHIVE; without it a local archive is trusted
+#   CORVUS_SHA256SUMS              manifest to verify CORVUS_ARCHIVE; without it a local archive is trusted; <manifest>.sig is its signature
 #   GITHUB_TOKEN                   optional; higher GitHub API rate limit
-#   CORVUS_REQUIRE_ATTESTATION     1: refuse a build whose provenance was not checked; 0: skip the check (self-built)
+#   CORVUS_REQUIRE_ATTESTATION     1: refuse a build whose provenance was not checked; 0: skip the provenance and signature checks (self-built)
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
+# Once a release key is published, SHA256SUMS.sig must verify (openssl).
 # With gh signed in, the build provenance must name this repository's release workflow.
 set -eu
+
+# The release signing key, SubjectPublicKeyInfo in base64; Corvus's
+# ReleaseSigning.PublicKey holds the same value.
+SIGNING_KEY="NO-RELEASE-SIGNING-KEY-PUBLISHED"
 
 REPO="${CORVUS_REPO:-Albasha0x0/Corvus}"
 ROOT="${CORVUS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/Corvus}"
@@ -81,6 +86,7 @@ trap 'rm -rf "$tmp"' EXIT
 archive="$tmp/$asset"
 
 sums="$tmp/SHA256SUMS"
+sig="$tmp/SHA256SUMS.sig"
 unverified="refusing to install an unverified build"
 if [ -n "$version" ]; then release="v$version"; tag="v$version"; else release="the latest release"; tag=""; fi
 
@@ -88,6 +94,7 @@ if [ -n "${CORVUS_ARCHIVE:-}" ]; then
     cp "$CORVUS_ARCHIVE" "$archive"
     release="$CORVUS_ARCHIVE"
     if [ -n "${CORVUS_SHA256SUMS:-}" ]; then cp "$CORVUS_SHA256SUMS" "$sums"; source="$CORVUS_SHA256SUMS"; else sums=""; source="none (local archive)"; fi
+    if [ -n "${CORVUS_SHA256SUMS:-}" ] && [ -f "$CORVUS_SHA256SUMS.sig" ]; then cp "$CORVUS_SHA256SUMS.sig" "$sig"; fi
 elif [ -n "${GITHUB_TOKEN:-}" ]; then
     auth="Authorization: Bearer $GITHUB_TOKEN"
     if [ -n "$version" ]; then api="https://api.github.com/repos/$REPO/releases/tags/v$version"; else api="https://api.github.com/repos/$REPO/releases/latest"; fi
@@ -102,6 +109,8 @@ elif [ -n "${GITHUB_TOKEN:-}" ]; then
     [ -n "$sums_url" ] || fail "$release of $REPO has no SHA256SUMS manifest; $unverified"
     curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$url" -o "$archive"
     curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$sums_url" -o "$sums"
+    sig_url=$(asset_url SHA256SUMS.sig)
+    if [ -n "$sig_url" ]; then curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$sig_url" -o "$sig"; fi
     source="SHA256SUMS of $release"
 else
     if [ -n "$version" ]; then base="https://github.com/$REPO/releases/download/v$version"; else base="https://github.com/$REPO/releases/latest/download"; fi
@@ -111,10 +120,24 @@ else
     else fail "curl or wget is required"; fi
     fetch "$base/$asset" "$archive"
     fetch "$base/SHA256SUMS" "$sums" || fail "$release of $REPO has no SHA256SUMS manifest; $unverified"
+    fetch "$base/SHA256SUMS.sig" "$sig" 2>/dev/null || rm -f "$sig"
     source="$base/SHA256SUMS"
 fi
 
+# The placeholder key means none is published yet: the check reports unknown.
+check_signature() {
+    if [ "${CORVUS_REQUIRE_ATTESTATION:-}" = 0 ]; then echo "Signature not checked (CORVUS_REQUIRE_ATTESTATION=0)."; return; fi
+    if [ "$SIGNING_KEY" = "NO-RELEASE-SIGNING-KEY-PUBLISHED" ]; then echo "Signature of SHA256SUMS not checked: no release signing key is published yet."; return; fi
+    [ -s "$sig" ] || fail "$release has no SHA256SUMS.sig; refusing an unsigned SHA256SUMS"
+    command -v openssl >/dev/null 2>&1 || fail "openssl is required to verify SHA256SUMS.sig"
+    { echo "-----BEGIN PUBLIC KEY-----"; echo "$SIGNING_KEY" | fold -w 64; echo "-----END PUBLIC KEY-----"; } > "$tmp/release.pub"
+    openssl dgst -sha256 -verify "$tmp/release.pub" -signature "$sig" "$sums" > /dev/null 2>&1 ||
+        fail "SHA256SUMS.sig does not verify with the release key: SHA256SUMS was altered or signed by another key"
+    echo "Signature verified: SHA256SUMS is signed by the release key."
+}
+
 if [ -n "$sums" ]; then
+    check_signature
     expected=$(tr -d '\r' < "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print tolower($1); exit }')
     [ -n "$expected" ] || fail "SHA256SUMS lists no $asset; $unverified"
     if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$archive" | awk '{ print $1 }')

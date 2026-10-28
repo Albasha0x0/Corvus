@@ -221,9 +221,10 @@ internal static class Installation
             output.WriteLine($"Release {tag} has no {ChecksumManifest} manifest; refusing to install an unverified build.");
             return 1;
         }
+        var signatureAsset = Asset(ReleaseSigning.SignatureAsset);
         if (dryRun)
         {
-            output.WriteLine($"Would install {tag} ({AssetName}, checked against {ChecksumManifest} and, when gh can, its build provenance) into {Path.Combine(root, "versions", latest)},");
+            output.WriteLine($"Would install {tag} ({AssetName}, checked against {ChecksumManifest}, its signature and, when gh can, its build provenance) into {Path.Combine(root, "versions", latest)},");
             output.WriteLine($"point {Path.Combine(root, "current")} at it and refresh existing registrations; no clients are added.");
             output.WriteLine("Dry run: nothing was changed.");
             return 0;
@@ -238,35 +239,21 @@ internal static class Installation
             response.EnsureSuccessStatusCode();
             return response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
         }
-        byte[] archive;
-        string manifest;
+        byte[] archive, manifest;
+        byte[]? signature;
         try
         {
             archive = Download(asset);
-            manifest = System.Text.Encoding.UTF8.GetString(Download(sumsAsset));
+            manifest = Download(sumsAsset);
+            signature = signatureAsset != null ? Download(signatureAsset) : null;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             output.WriteLine($"Download failed: {ex.Message}");
             return 1;
         }
-        if (VerifyChecksum(manifest, AssetName, archive) is { } mismatch)
-        {
-            output.WriteLine(mismatch);
-            return 1;
-        }
-        // SHA256SUMS comes from the same release; the attestation ties the archive to this repository's workflow.
-        var check = Path.Combine(Path.GetTempPath(), "corvus-" + Guid.NewGuid().ToString("N")[..8], AssetName);
-        Provenance provenance;
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(check)!);
-            File.WriteAllBytes(check, archive);
-            provenance = CheckProvenance(check, AssetName, repo, tag, Environment.GetEnvironmentVariable(RequireAttestationVariable), RunGh);
-        }
-        finally { try { Directory.Delete(Path.GetDirectoryName(check)!, recursive: true); } catch (IOException) { } }
-        output.WriteLine(provenance.Message);
-        if (provenance.State == ProvenanceState.Refused) return 1;
+        if (!VerifyDownload(output, AssetName, archive, manifest, signature, ReleaseSigning.PublicKey, repo, tag,
+                Environment.GetEnvironmentVariable(RequireAttestationVariable), RunGh)) return 1;
 
         var versions = Path.Combine(root, "versions");
         var staging = Path.Combine(versions, ".new-" + Guid.NewGuid().ToString("N")[..8]);
@@ -292,6 +279,37 @@ internal static class Installation
         using var p = Process.Start(new ProcessStartInfo(exe, "install --refresh-only") { UseShellExecute = false })!;
         p.WaitForExit();
         return p.ExitCode;
+    }
+
+    /// <summary>
+    /// Checks a downloaded build: the signature of <paramref name="manifest"/>,
+    /// the archive's SHA-256 in it, then its build provenance through
+    /// <paramref name="gh"/>. Prints a line per check; false when one refuses.
+    /// </summary>
+    internal static bool VerifyDownload(TextWriter output, string assetName, byte[] archive, byte[] manifest, byte[]? signature, string publicKey,
+        string repo, string? tag, string? require, GhRunner gh)
+    {
+        // The signature comes first: SHA256SUMS is trusted only once it is.
+        var signed = ReleaseSigning.Check(manifest, signature, publicKey, require);
+        output.WriteLine(signed.Message);
+        if (signed.State == ReleaseSigning.SignatureState.Refused) return false;
+        if (VerifyChecksum(System.Text.Encoding.UTF8.GetString(manifest), assetName, archive) is { } mismatch)
+        {
+            output.WriteLine(mismatch);
+            return false;
+        }
+        // The attestation ties the archive to this repository's workflow.
+        var check = Path.Combine(Path.GetTempPath(), "corvus-" + Guid.NewGuid().ToString("N")[..8], assetName);
+        Provenance provenance;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(check)!);
+            File.WriteAllBytes(check, archive);
+            provenance = CheckProvenance(check, assetName, repo, tag, require, gh);
+        }
+        finally { try { Directory.Delete(Path.GetDirectoryName(check)!, recursive: true); } catch (IOException) { } }
+        output.WriteLine(provenance.Message);
+        return provenance.State != ProvenanceState.Refused;
     }
 
     /// <summary>Puts current on PATH (Windows) or links ~/.local/bin/corvus to it, and removes the dropped root's entry or link.</summary>

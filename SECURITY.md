@@ -134,6 +134,7 @@ The server reaches the network only:
 - for `--live-install-frida` (pip, hash-checked wheels), and when a DAC loads, for the revocation lists its signer's chain names;
 - for `corvus update` and the install scripts (GitHub releases):
   - a build whose SHA-256 is not in the release's `SHA256SUMS` is refused. This catches corruption, not a tampered release, since both come from the same release.
+  - once a release signing key is published, a `SHA256SUMS` whose `SHA256SUMS.sig` is missing or does not verify with it is refused; until then the signature is reported as not checked;
   - with `gh` signed in, the archive's signed build provenance must name this repository's release workflow and tag, else it is refused;
   - without `gh` the result says "provenance not checked" with the reason; `CORVUS_REQUIRE_ATTESTATION=1` refuses then;
   - `GITHUB_TOKEN` is sent to GitHub hosts over HTTPS only and dropped on redirects;

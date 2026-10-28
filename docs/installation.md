@@ -42,14 +42,15 @@ Restart the MCP client afterwards. The script:
 | | `GITHUB_TOKEN` | optional token for GitHub API requests (higher rate limit) |
 | | `CORVUS_HOME` | install folder (sh only) |
 | | `CORVUS_ARCHIVE`, `CORVUS_SHA256SUMS` | offline install from a local archive and manifest |
-| | `CORVUS_REQUIRE_ATTESTATION` | `1` refuses an unchecked build; `0` skips the check; also read by `corvus update` |
+| | `CORVUS_REQUIRE_ATTESTATION` | `1` refuses an unchecked build; `0` skips the provenance and signature checks; also read by `corvus update` |
 
 Offline install: download the archive and `SHA256SUMS` from the release page and set `CORVUS_ARCHIVE` and
-`CORVUS_SHA256SUMS`. Without a manifest the archive is trusted as is.
+`CORVUS_SHA256SUMS`; `<manifest>.sig` beside it is the signature. Without a manifest the archive is trusted as is.
 
 ### Verifying a release
 
 - `SHA256SUMS` comes from the same release, so it detects a corrupted download, not a tampered release.
+- `SHA256SUMS.sig` signs `SHA256SUMS` (ECDSA P-256); once a release key is published, a missing or bad signature is refused (`openssl` for `install.sh`).
 - Every asset has signed SLSA build provenance (Sigstore). With `gh` signed in, the scripts and `corvus update` check it.
 
 | Outcome | When | Result |

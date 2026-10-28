@@ -14,10 +14,11 @@
 #   CORVUS_VERSION, CORVUS_YES=1   as -Version, -Yes
 #   CORVUS_REPO                    owner/name
 #   CORVUS_ARCHIVE                 local release archive
-#   CORVUS_SHA256SUMS              manifest to verify CORVUS_ARCHIVE; without it a local archive is trusted
+#   CORVUS_SHA256SUMS              manifest to verify CORVUS_ARCHIVE; without it a local archive is trusted; <manifest>.sig is its signature
 #   GITHUB_TOKEN                   optional; higher GitHub API rate limit
-#   CORVUS_REQUIRE_ATTESTATION     1: refuse a build whose provenance was not checked; 0: skip the check (self-built)
+#   CORVUS_REQUIRE_ATTESTATION     1: refuse a build whose provenance was not checked; 0: skip the provenance and signature checks (self-built)
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
+# Once a release key is published, SHA256SUMS.sig must verify.
 # With gh signed in, the build provenance must name this repository's release workflow.
 param([switch]$Uninstall, [switch]$PurgeData, [string]$Version, [switch]$DryRun, [switch]$Yes, [string[]]$Client, [switch]$WithLive)
 
@@ -25,6 +26,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
+# The release signing key, SubjectPublicKeyInfo in base64; Corvus's
+# ReleaseSigning.PublicKey holds the same value.
+$signingKey = 'NO-RELEASE-SIGNING-KEY-PUBLISHED'
 $repo = if ($env:CORVUS_REPO) { $env:CORVUS_REPO } else { 'Albasha0x0/Corvus' }
 $root = Join-Path $env:LOCALAPPDATA 'Corvus'
 $current = Join-Path $root 'current'
@@ -57,6 +61,7 @@ $rid = if ($arch -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
 $asset = "corvus-$rid.zip"
 $archive = Join-Path ([IO.Path]::GetTempPath()) ("corvus-" + [guid]::NewGuid().ToString('N') + '.zip')
 $sums = "$archive.sha256sums"
+$sig = "$archive.sha256sums.sig"
 $dryStaging = "$archive.staged"
 $unverified = 'refusing to install an unverified build'
 $release = if ($Version) { "v$Version" } else { 'the latest release' }
@@ -86,10 +91,49 @@ function Test-Provenance([string]$file, [string]$tag) {
     return "Provenance not checked ($reason)."
 }
 
+# The line to print for SHA256SUMS.sig, or a throw when it is missing or does
+# not verify; the placeholder key reports unknown. Windows PowerShell's .NET
+# imports neither SubjectPublicKeyInfo nor DER signatures, so both are read here.
+function Test-Signature([string]$manifest, [string]$signature, [string]$key) {
+    if ($env:CORVUS_REQUIRE_ATTESTATION -eq '0') { return 'Signature not checked (CORVUS_REQUIRE_ATTESTATION=0).' }
+    if ($key -eq 'NO-RELEASE-SIGNING-KEY-PUBLISHED') { return 'Signature of SHA256SUMS not checked: no release signing key is published yet.' }
+    if (-not (Test-Path $signature) -or (Get-Item $signature).Length -eq 0) { throw 'The release has no SHA256SUMS.sig; refusing an unsigned SHA256SUMS.' }
+    $bad = 'SHA256SUMS.sig does not verify with the release key: SHA256SUMS was altered or signed by another key.'
+    $spki = [Convert]::FromBase64String($key)
+    # P-256 SubjectPublicKeyInfo: 26 bytes of identifiers, then 04 || X || Y.
+    if ($spki.Length -ne 91 -or $spki[26] -ne 4) { throw 'The release signing key is not a P-256 public key.' }
+    $parameters = New-Object Security.Cryptography.ECParameters
+    $parameters.Curve = [Security.Cryptography.ECCurve+NamedCurves]::nistP256
+    $point = New-Object Security.Cryptography.ECPoint
+    $point.X = [byte[]]$spki[27..58]
+    $point.Y = [byte[]]$spki[59..90]
+    $parameters.Q = $point
+    # DER SEQUENCE { INTEGER r, INTEGER s } to r || s, 32 bytes each.
+    $der = [IO.File]::ReadAllBytes($signature)
+    $p1363 = New-Object byte[] 64
+    $at = 2
+    if ($der.Length -lt 8 -or $der[0] -ne 0x30 -or $der[1] -ne $der.Length - 2) { throw $bad }
+    foreach ($half in 0, 1) {
+        if ($at + 2 -gt $der.Length -or $der[$at] -ne 2) { throw $bad }
+        $length = $der[$at + 1]
+        $value = [byte[]]$der[($at + 2)..($at + 1 + $length)]
+        while ($value.Length -gt 32 -and $value[0] -eq 0) { $value = [byte[]]$value[1..($value.Length - 1)] }
+        if ($value.Length -gt 32) { throw $bad }
+        [Array]::Copy($value, 0, $p1363, 32 * $half + 32 - $value.Length, $value.Length)
+        $at += 2 + $length
+    }
+    $ecdsa = [Security.Cryptography.ECDsa]::Create($parameters)
+    try { $valid = $ecdsa.VerifyData([IO.File]::ReadAllBytes($manifest), $p1363, [Security.Cryptography.HashAlgorithmName]::SHA256) }
+    finally { $ecdsa.Dispose() }
+    if (-not $valid) { throw $bad }
+    return 'Signature verified: SHA256SUMS is signed by the release key.'
+}
+
 try {
     if ($env:CORVUS_ARCHIVE) {
         Copy-Item $env:CORVUS_ARCHIVE $archive
         if ($env:CORVUS_SHA256SUMS) { Copy-Item $env:CORVUS_SHA256SUMS $sums; $source = $env:CORVUS_SHA256SUMS } else { $sums = $null; $source = 'none (local archive)' }
+        if ($env:CORVUS_SHA256SUMS -and (Test-Path "$($env:CORVUS_SHA256SUMS).sig")) { Copy-Item "$($env:CORVUS_SHA256SUMS).sig" $sig }
         $release = $env:CORVUS_ARCHIVE
     } elseif ($env:GITHUB_TOKEN) {
         $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; 'User-Agent' = 'Corvus-installer' }
@@ -102,6 +146,8 @@ try {
         $headers.Accept = 'application/octet-stream'
         Invoke-WebRequest $item.url -Headers $headers -OutFile $archive -UseBasicParsing
         Invoke-WebRequest $sumsItem.url -Headers $headers -OutFile $sums -UseBasicParsing
+        $sigItem = $info.assets | Where-Object { $_.name -eq 'SHA256SUMS.sig' } | Select-Object -First 1
+        if ($sigItem) { Invoke-WebRequest $sigItem.url -Headers $headers -OutFile $sig -UseBasicParsing }
         $release = $info.tag_name
         $tag = $info.tag_name
         $source = "SHA256SUMS of $($info.tag_name)"
@@ -111,10 +157,12 @@ try {
         Invoke-WebRequest "$base/$asset" -OutFile $archive -UseBasicParsing
         try { Invoke-WebRequest "$base/SHA256SUMS" -OutFile $sums -UseBasicParsing }
         catch { throw "$release has no SHA256SUMS manifest; $unverified." }
+        try { Invoke-WebRequest "$base/SHA256SUMS.sig" -OutFile $sig -UseBasicParsing } catch { }
         $source = "$base/SHA256SUMS"
     }
 
     if ($sums) {
+        Write-Host (Test-Signature $sums $sig $signingKey)
         $line = Get-Content $sums | Where-Object { $_ -match "^[0-9a-fA-F]{64} [ *]$([regex]::Escape($asset))$" } | Select-Object -First 1
         if (-not $line) { throw "SHA256SUMS lists no $asset; $unverified." }
         $expected = $line.Substring(0, 64)
@@ -171,6 +219,6 @@ try {
     Write-Host ''
     Write-Host 'Done. Commands: corvus status | update | uninstall (new terminals have it on PATH).'
 } finally {
-    Remove-Item $archive, "$archive.sha256sums" -Force -ErrorAction SilentlyContinue
+    Remove-Item $archive, "$archive.sha256sums", "$archive.sha256sums.sig" -Force -ErrorAction SilentlyContinue
     Remove-Item $dryStaging -Recurse -Force -ErrorAction SilentlyContinue
 }
