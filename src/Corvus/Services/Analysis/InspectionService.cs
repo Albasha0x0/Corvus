@@ -795,10 +795,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         var root = UnpackService.PrepareOutput(outputDirectory ?? UnpackService.DefaultOutput(source, sha, "corvus-embedded"), source, sha);
         var written = new List<EmbeddedContent>();
+        var zone = new ZoneMark();
         for (int i = 0; i < contents.Count; i++)
         {
             var p = contents[i];
-            var file = Blob.WriteUnique(root, Blob.SafeRelativePath($"embedded_{i + 1:D2}{Extension(p)}", $"embedded_{i + 1:D2}"), p.Bytes);
+            var file = Blob.WriteUnique(root, Blob.SafeRelativePath($"embedded_{i + 1:D2}{Extension(p)}", $"embedded_{i + 1:D2}"), p.Bytes, zone);
             string? loadedAs = null;
             if (load && p.Kind == ".NET assembly")
             {
@@ -807,6 +808,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             }
             written.Add(p with { SavedTo = file, LoadedAs = loadedAs });
         }
+        if (zone.Note is { } unmarked) notes.Add(unmarked);
         return new EmbeddedReport(label, written, root, notes);
     }
 

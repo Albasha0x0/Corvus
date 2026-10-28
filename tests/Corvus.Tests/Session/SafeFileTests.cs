@@ -108,6 +108,21 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public void A_refused_zone_mark_is_named_once_with_the_first_reason()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Directory.CreateDirectory(_dir.File("root")).FullName;
+        int attempts = 0;
+        // As a FAT volume refuses an alternate data stream.
+        var zone = new ZoneMark(_ => throw new IOException($"no streams {++attempts}"));
+        foreach (var name in new[] { "a.dll", "b.dll", "c.dll" }) Blob.WriteUnique(root, name, Bytes(name), zone);
+        Assert.Equal(3, attempts);
+        Assert.Equal("files not marked as from the internet zone: no streams 1", zone.Note);
+        Assert.Equal(3, Directory.GetFiles(root).Length);
+        Assert.Null(new ZoneMark(_ => { }).Note);
+    }
+
+    [Fact]
     public void Traversal_IsRefused()
     {
         foreach (var relative in new[] { "../escape.bin", "a/../../escape.bin", Path.Combine(Path.GetTempPath(), "abs.bin") })

@@ -97,6 +97,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var root = PrepareOutput(outputDirectory ?? DefaultOutput(source, sha), source, sha);
         var notes = walked.Notes;
         var files = new List<UnpackedFile>();
+        var zone = new ZoneMark();
         int index = 0;
         foreach (var item in walked.Items)
         {
@@ -104,7 +105,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             if (++index % 200 == 0) progress?.Invoke($"{index} of {walked.Items.Count} files written");
             string written;
             // An archive can hold both "a.dll" and "a.dll/b.dll".
-            try { written = Blob.WriteUnique(root, item.Relative, item.Bytes); }
+            try { written = Blob.WriteUnique(root, item.Relative, item.Bytes, zone); }
             // A refused name (.git/, CLAUDE.md) skips that entry, not the extraction.
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException || ex is ToolError t && OutputGuard.IsRefusal(t))
             {
@@ -116,6 +117,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 file = file with { ReadyToRun = AssemblyTraits.IsReadyToRun(item.Bytes), Merged = Inspect(item.Bytes)?.Merged };
             files.Add(file);
         }
+        if (zone.Note is { } unmarked) notes.Add(unmarked);
 
         // A managed host contains the app's own code; include it.
         if (data != null && kind == DotNet && walked.Container != "none")

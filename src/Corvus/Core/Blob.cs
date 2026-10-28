@@ -309,20 +309,21 @@ public static class Blob
 
     /// <summary>
     /// Writes an extracted file to a unique path under root, not flushed to disk, marked as from the Internet zone on
-    /// Windows; never overwrites a different file.
+    /// Windows through <paramref name="zone"/> (a mark of its own when null); never overwrites a different file.
     /// </summary>
-    public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes)
+    public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes, ZoneMark? zone = null)
     {
+        zone ??= new ZoneMark();
         var path = UnderRoot(root, relative);
         var dir = Path.GetDirectoryName(path)!;
         var stem = Path.GetFileNameWithoutExtension(path);
         var ext = Path.GetExtension(path);
         for (int i = 2; ; i++)
         {
-            try { return MarkInternetZone(SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false, flush: false)); }
+            try { return zone.Mark(SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false, flush: false)); }
             catch (ToolError ex) when (ex.Code == ErrorCode.Conflict)
             {
-                if (SameContent(path, bytes)) return MarkInternetZone(path);
+                if (SameContent(path, bytes)) return zone.Mark(path);
             }
             path = Path.Combine(dir, $"{stem}_{i}{ext}");
         }
@@ -330,15 +331,32 @@ public static class Blob
 
     /// <summary>The name of the alternate data stream Windows reads a file's security zone from.</summary>
     public const string ZoneStream = "Zone.Identifier";
+}
 
-    /// <summary>Writes ZoneId=3 to the file's <see cref="ZoneStream"/> on Windows and returns <paramref name="path"/>.</summary>
-    private static string MarkInternetZone(string path)
+/// <summary>Marks one extraction's files as from the Internet zone (ZoneId=3) on Windows and keeps the first failure.</summary>
+public sealed class ZoneMark
+{
+    private readonly Action<string> _write;
+    private string? _problem;
+
+    /// <summary>A mark that writes the zone stream; <paramref name="write"/> replaces the write of a stream path.</summary>
+    public ZoneMark(Action<string>? write = null) =>
+        _write = write ?? (stream => File.WriteAllText(stream, "[ZoneTransfer]\r\nZoneId=3\r\n"));
+
+    /// <summary>The note an extraction adds when a file was left unmarked, from the first failure; null when none failed.</summary>
+    public string? Note => _problem == null ? null : $"files not marked as from the internet zone: {_problem}";
+
+    /// <summary>Writes the zone stream of <paramref name="path"/> on Windows and returns the path; a failure is kept for <see cref="Note"/>.</summary>
+    public string Mark(string path)
     {
         if (!OperatingSystem.IsWindows()) return path;
-        try { File.WriteAllText(path + ":" + ZoneStream, "[ZoneTransfer]\r\nZoneId=3\r\n"); }
-        // A volume without alternate data streams (FAT, some shares) keeps the
-        // file unmarked.
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException) { }
+        try { _write(path + ":" + Blob.ZoneStream); }
+        // A volume without alternate data streams (FAT, some shares) refuses
+        // the write; the file stays unmarked and the note says so.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            Interlocked.CompareExchange(ref _problem, ex.Message, null);
+        }
         return path;
     }
 }
