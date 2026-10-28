@@ -122,6 +122,7 @@ internal static partial class ToolCli
             ["file"] = file,
             ["complete"] = sections.All(s => (string?)s!["status"] is SectionStatus.Complete or SectionStatus.NotApplicable),
             ["limits"] = new JsonObject([.. limits.Select(l => KeyValuePair.Create(l.Key, (JsonNode?)JsonValue.Create(l.Value)))]),
+            ["rulePacks"] = new JsonArray([.. RulePacks.Installed(RulePacks.Root).Select(p => new JsonObject { ["name"] = p.Name, ["version"] = p.Version })]),
             ["summary"] = Verdict(summary),
             ["sections"] = sections,
         };
