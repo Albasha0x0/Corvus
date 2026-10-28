@@ -153,7 +153,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     var serial = string.IsNullOrWhiteSpace(device) ? null : device.Trim();
                     if (serial != null && options.LiveAllow.Count > 0)
                         throw new ToolError(ErrorCode.AccessDenied, "--live-allow names folders on this machine, so device sessions are refused while it is set.",
-                            "start the server without --live-allow to open a device session");
+                            "ask the user to start the server without --live-allow to open a device session");
                     // A recording runs nothing, so --live-allow, which scopes running programs, does not apply.
                     var recording = Native.Providers.Live.Ttd.TtdWorker.Is(program);
                     var opened = await live.OpenAsync(a == "spawn", serial != null || recording ? program : Scoped(a == "spawn", program), arguments ?? [], cancellationToken,
@@ -199,7 +199,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (options.LiveAllow.Count == 0) return opened;
         try
         {
-            if (opened.ProcessId <= 0) throw new ToolError(ErrorCode.AccessDenied, "The target names no process, so --live-allow cannot be checked.", "start the server without --live-allow");
+            if (opened.ProcessId <= 0) throw new ToolError(ErrorCode.AccessDenied, "The target names no process, so --live-allow cannot be checked.", "ask the user to start the server without --live-allow");
             LiveProgramScope.Attach(opened.ProcessId.ToString(CultureInfo.InvariantCulture), options.LiveAllow);
         }
         catch (ToolError)
@@ -577,7 +577,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
             Require(spawn: false);
             if (!options.LiveScripting)
                 throw new ToolError(ErrorCode.Unsupported, "User scripts in sessions are off in this server: a script runs inside the observed program with its rights.",
-                    $"start the server with {ServerOptions.LiveScriptingOption} (or {ServerOptions.LiveScriptingVariable}=1) as well");
+                    $"ask the user to start the server with {ServerOptions.LiveScriptingOption} (or {ServerOptions.LiveScriptingVariable}=1) as well");
             var s = live.Get(session);
             var head = new StringBuilder();
             switch (action.Trim().ToLowerInvariant())
@@ -946,9 +946,9 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     /// <summary>The error of a session call while sessions are off, naming the flag that turns them on.</summary>
     internal static ToolError SessionsOff(bool spawn = false, bool attach = false) =>
         new(ErrorCode.Unsupported, "Sessions on running programs are off in this server.",
-            spawn ? $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1)"
-            : attach ? $"start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1)"
-            : $"start the server with {ServerOptions.AllowLiveAttachOption} or {ServerOptions.AllowLiveSpawnOption}");
+            spawn ? $"ask the user to start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1)"
+            : attach ? $"ask the user to start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1)"
+            : $"ask the user to start the server with {ServerOptions.AllowLiveAttachOption} or {ServerOptions.AllowLiveSpawnOption}");
 
     /// <summary>The opt-in flags: starting a program needs --allow-live-spawn, attaching --allow-live-attach (each turns on --allow-live).</summary>
     private void Require(bool spawn, bool attach = false)
@@ -956,10 +956,10 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (!options.AllowLive) throw SessionsOff(spawn, attach);
         if (spawn && !options.AllowLiveSpawn)
             throw new ToolError(ErrorCode.Unsupported, "Starting a program under a session is off in this server.",
-                $"start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1) as well");
+                $"ask the user to start the server with {ServerOptions.AllowLiveSpawnOption} (or {ServerOptions.AllowLiveSpawnVariable}=1) as well");
         if (attach && !options.AllowLiveAttach)
             throw new ToolError(ErrorCode.Unsupported, "Attaching to a running program is off in this server.",
-                $"start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1) as well");
+                $"ask the user to start the server with {ServerOptions.AllowLiveAttachOption} (or {ServerOptions.AllowLiveAttachVariable}=1) as well");
     }
 
     /// <summary>The program as the backend receives it: unchanged without --live-allow; with it, checked and resolved (full path or process id).</summary>

@@ -35,7 +35,7 @@ public static class SaveTarget
     {
         if (replaceOriginal && options?.AllowReplaceOriginal != true)
             throw new ToolError(ErrorCode.Unsupported, "Replacing the loaded file is off in this server. Nothing was written.",
-                $"start the server with {ServerOptions.AllowReplaceOriginalOption} (or {ServerOptions.AllowReplaceOriginalVariable}=1), or pass versioned=true");
+                $"ask the user to start the server with {ServerOptions.AllowReplaceOriginalOption} (or {ServerOptions.AllowReplaceOriginalVariable}=1), or pass versioned=true");
     }
 
     /// <summary>&lt;stem&gt;.1&lt;ext&gt;, &lt;stem&gt;.2&lt;ext&gt;, ...: the first that does not exist.</summary>

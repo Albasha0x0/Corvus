@@ -92,7 +92,7 @@ public static class InputFiles
     {
         if (RemoteProblem(full, AllowRemote && !named) is not { } problem) return;
         var next = problem == "a network path" && !named
-            ? $"copy it to a local drive, or start the server with {ServerOptions.AllowRemotePathsOption}"
+            ? $"copy it to a local drive, or ask the user to start the server with {ServerOptions.AllowRemotePathsOption}"
             : "pass the path of a local file";
         throw new ToolError(ErrorCode.InvalidArgument, $"{shown} is {problem}; only files on this machine are opened.", next) { Details = new { path = full, problem } };
     }

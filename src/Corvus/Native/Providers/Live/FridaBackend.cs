@@ -45,7 +45,7 @@ public sealed class FridaBackend : ILiveBackend
     public (string Reason, string Remediation)? Unavailable() => _ready.Value.Problem is { } problem
         ? (problem, InstallPinned && _ready.Value.Pending
             ? "Unset CORVUS_OFFLINE, or install a tested Frida yourself (python -m pip install frida) and restart the server."
-            : $"Install Frida (python -m pip install frida) in a 64-bit Python 3, set {PythonVariable}, or start the server with {Core.ServerOptions.LiveInstallFridaOption}.")
+            : $"Install Frida (python -m pip install frida) in a 64-bit Python 3, set {PythonVariable}, or ask the user to start the server with {Core.ServerOptions.LiveInstallFridaOption}.")
         : FridaVersions.Refusal(_ready.Value.Frida) is { } old ? (old, Upgrade) : null;
 
     /// <summary>The pip command that installs a Frida in the tested range.</summary>

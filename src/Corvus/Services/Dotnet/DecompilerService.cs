@@ -401,7 +401,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         {
             int written = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count();
             throw new ToolError(ErrorCode.Timeout, $"Project export timed out after {options.TimeoutSeconds * 10}s with {written} files written; nothing was kept.",
-                "decompile the types needed with decompile_member, or restart the server with a larger --timeout")
+                "decompile the types needed with decompile_member, or ask the user to restart the server with a larger --timeout")
             {
                 Partial = new { filesWritten = written },
             };
@@ -1058,7 +1058,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw new ToolError(ErrorCode.Timeout, $"Decompilation timed out after {options.TimeoutSeconds}s.",
-                "decompile one method with decompile_member, use get_il, or restart the server with a larger --timeout");
+                "decompile one method with decompile_member, use get_il, or ask the user to restart the server with a larger --timeout");
         }
     }
 

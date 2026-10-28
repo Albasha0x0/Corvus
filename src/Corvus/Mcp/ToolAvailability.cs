@@ -89,10 +89,10 @@ public static class ToolAvailability
         {
             if (AllMissing(providers) is { } m) result.Add(new(tool, null, m.Reason, m.Remediation));
             else if (tool == "ida_python" && !idaScripting)
-                result.Add(new(tool, null, "off: it runs arbitrary Python with the server's rights", $"start the server with --ida-scripting (or {Core.ServerOptions.IdaScriptingVariable}=1)"));
+                result.Add(new(tool, null, "off: it runs arbitrary Python with the server's rights", $"ask the user to start the server with --ida-scripting (or {Core.ServerOptions.IdaScriptingVariable}=1)"));
             else if (tool == "ghidra_script" && !ghidraScripting)
                 result.Add(new(tool, null, "off: it runs arbitrary Java with the server's rights",
-                    $"start the server with {Core.ServerOptions.GhidraScriptingOption} (or {Core.ServerOptions.GhidraScriptingVariable}=1)"));
+                    $"ask the user to start the server with {Core.ServerOptions.GhidraScriptingOption} (or {Core.ServerOptions.GhidraScriptingVariable}=1)"));
         }
         // Engine values of the engine parameters, e.g. engine=ida on disassemble.
         foreach (var tool in registered.Where(t => !EngineOnly.ContainsKey(t)).Order(StringComparer.Ordinal))
@@ -109,22 +109,22 @@ public static class ToolAvailability
             if (registered.Contains(tool) && !found) result.Add(new(tool, mode, reason, fix));
         foreach (var tool in DeviceChanging.Where(registered.Contains).Where(_ => !allowDeviceChanges))
             result.Add(new(tool, null, "off: it changes a connected device",
-                $"start the server with {Core.ServerOptions.AllowDeviceChangesOption} (or {Core.ServerOptions.AllowDeviceChangesVariable}=1)"));
+                $"ask the user to start the server with {Core.ServerOptions.AllowDeviceChangesOption} (or {Core.ServerOptions.AllowDeviceChangesVariable}=1)"));
         foreach (var tool in SessionTools.Where(registered.Contains).Where(_ => !allowLive))
             result.Add(new(tool, null, "off: it opens sessions on running programs",
-                $"start the server with {Core.ServerOptions.AllowLiveAttachOption} or {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveAttachVariable}=1 / {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
+                $"ask the user to start the server with {Core.ServerOptions.AllowLiveAttachOption} or {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveAttachVariable}=1 / {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
         if (allowLive && !allowLiveSpawn && registered.Contains("live_session"))
             result.Add(new("live_session", "action=spawn", "off: it starts a program under a session",
-                $"start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
+                $"ask the user to start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
         if (allowLive && !allowLiveAttach && registered.Contains("live_session"))
             result.Add(new("live_session", "action=attach", "off: it opens a session on a program already running",
-                $"start the server with {Core.ServerOptions.AllowLiveAttachOption} (or {Core.ServerOptions.AllowLiveAttachVariable}=1)"));
+                $"ask the user to start the server with {Core.ServerOptions.AllowLiveAttachOption} (or {Core.ServerOptions.AllowLiveAttachVariable}=1)"));
         if (allowLive && !allowLiveSpawn && registered.Contains("live_console"))
             result.Add(new("live_console", "action=start", "off: it starts a program under a console",
-                $"start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
+                $"ask the user to start the server with {Core.ServerOptions.AllowLiveSpawnOption} (or {Core.ServerOptions.AllowLiveSpawnVariable}=1)"));
         if (allowLive && !liveScripting && registered.Contains("live_script"))
             result.Add(new("live_script", null, "off: it runs a user-supplied script inside the observed program",
-                $"start the server with {Core.ServerOptions.LiveScriptingOption} (or {Core.ServerOptions.LiveScriptingVariable}=1)"));
+                $"ask the user to start the server with {Core.ServerOptions.LiveScriptingOption} (or {Core.ServerOptions.LiveScriptingVariable}=1)"));
         return result;
     }
 }

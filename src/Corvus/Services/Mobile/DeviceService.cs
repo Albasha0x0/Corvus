@@ -507,7 +507,7 @@ public sealed partial class DeviceService(ServerOptions options, DexService? dex
     {
         if (!options.AllowDeviceChanges)
             throw new ToolError(ErrorCode.Unsupported, $"{what} changes a connected device, which this server does not allow.",
-                $"start the server with {ServerOptions.AllowDeviceChangesOption} (or {ServerOptions.AllowDeviceChangesVariable}=1)");
+                $"ask the user to start the server with {ServerOptions.AllowDeviceChangesOption} (or {ServerOptions.AllowDeviceChangesVariable}=1)");
     }
 
     /// <summary>Installs an APK, every APK of a split set (.apks / .xapk / .apkm) or of a directory, in one session.</summary>

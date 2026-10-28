@@ -42,7 +42,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
             throw new ToolError(ErrorCode.InvalidArgument, hasCode ? "Pass code or scriptPath, not both." : "Pass code or scriptPath.");
         if (!options.IdaScripting)
             throw new ToolError(ErrorCode.Unsupported, "ida_python is disabled on this server.",
-                $"start the server with --ida-scripting or set {ServerOptions.IdaScriptingVariable}=1 to allow scripts");
+                $"ask the user to start the server with --ida-scripting (or {ServerOptions.IdaScriptingVariable}=1) to allow scripts");
         if (scriptPath != null)
         {
             var path = Path.GetFullPath(scriptPath.Trim());
@@ -110,7 +110,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     {
         if (!options.GhidraScripting)
             throw new ToolError(ErrorCode.Unsupported, "ghidra_script is disabled on this server.",
-                $"start the server with {ServerOptions.GhidraScriptingOption} or set {ServerOptions.GhidraScriptingVariable}=1 to allow scripts");
+                $"ask the user to start the server with {ServerOptions.GhidraScriptingOption} (or {ServerOptions.GhidraScriptingVariable}=1) to allow scripts");
         if (string.IsNullOrWhiteSpace(code) == string.IsNullOrWhiteSpace(name))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass code or name.", "code=<Java>, or name=<installed script file>");
         if (timeoutSeconds is < 1 or > 3600)
