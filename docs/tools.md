@@ -569,7 +569,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `stixPath` | string |  |  | Write findings here, STIX 2.1. |
 | `overwrite` | boolean |  |  | Overwrite either file. |
 
-Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`.
+Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`, `level`, `findings`, `findingTotal`, `ruleTable`.
 
 ### survey_features
 
