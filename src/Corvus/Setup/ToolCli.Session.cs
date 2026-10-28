@@ -47,7 +47,7 @@ internal static partial class ToolCli
     {
         if (a.BatchFile != null)
             return a.Json ? await FileBatchAsync(a, io, cancellationToken) : throw new UsageException("batch --file writes one JSON document: add --json.");
-        if (a.Rules != null) throw new UsageException("--rules goes with batch --file.");
+        if (a.Rules != null || a.Recurse) throw new UsageException($"{(a.Rules != null ? "--rules" : "--recurse")} goes with batch --file.");
         if (a.Positionals.Count != 1) throw new UsageException("batch takes one file (- for stdin).");
         var source = a.Positionals[0];
         string text;

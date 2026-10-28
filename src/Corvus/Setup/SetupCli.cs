@@ -116,6 +116,7 @@ internal static class SetupCli
           batch --file <path> --json   Read one file with fixed read-only steps (summary, container, strings,
                                 yara) into one corvus.batch/1 document. --rules <file|folder>, --time-limit S,
                                 --limit containerFiles=N, --limit strings=N, --limit yaraMatches=N.
+                                --recurse: every file under a folder, one record per SHA-256.
           prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
           resources             List resources and templates; read <uri> prints one.
           completion <shell>    A completion script for bash, zsh or pwsh.

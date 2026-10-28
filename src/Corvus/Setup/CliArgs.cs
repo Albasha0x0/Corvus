@@ -24,6 +24,7 @@ internal sealed partial class CliArgs
     public string? TimeLimit { get; private set; }
     public string? Rules { get; private set; }
     public List<string> Limits { get; } = [];
+    public bool Recurse { get; private set; }
 
     public static CliArgs Parse(IReadOnlyList<string> tokens)
     {
@@ -45,6 +46,7 @@ internal sealed partial class CliArgs
                 case "--time-limit": a.TimeLimit = Next(); continue;
                 case "--rules": a.Rules = Next(); continue;
                 case "--limit": a.Limits.Add(Next()); continue;
+                case "--recurse": a.Recurse = true; continue;
             }
             if (t.StartsWith("--", StringComparison.Ordinal))
             {

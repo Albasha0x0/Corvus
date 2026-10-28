@@ -32,6 +32,8 @@ internal static partial class ToolCli
         // Asset files read by the strings step; a direct extract_strings call reads up to 4 GiB.
         ["assetBytes"] = 1 << 30,
         ["summaryHighlights"] = Corvus.Tools.ContainerText.MaxHighlights,
+        // Files --recurse reads under a folder.
+        ["members"] = 10_000,
     };
 
     internal sealed record FileBatchStep(string Name, string Tool, string? Limit);
@@ -56,7 +58,7 @@ internal static partial class ToolCli
         {
             var (name, value) = spec.IndexOf('=') is var eq and > 0 ? (spec[..eq], spec[(eq + 1)..]) : (spec, "");
             if (!limits.ContainsKey(name) || name == "timeSeconds" || name == "summaryHighlights")
-                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches, assetBytes.");
+                throw new UsageException($"Unknown limit '{name}'. Limits: containerFiles, strings, yaraMatches, assetBytes, members.");
             limits[name] = int.TryParse(value, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : throw new UsageException($"--limit {name} needs a positive count.");
         }
         if (a.TimeLimit != null)
@@ -67,68 +69,103 @@ internal static partial class ToolCli
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        var sections = new JsonArray();
-        JsonNode? summary = null;
-        bool timedOut = false;
-        ToolSession? session = null;
+        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken);
+        JsonObject document;
         try
         {
-            try { session = await ToolSession.StartAsync(a.Server(oneShot: true), deadline.Token); }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { timedOut = true; }
-            foreach (var step in FileBatchSteps)
-            {
-                if (step.Name == "yara" && rules == null)
-                {
-                    sections.Add(Section(step, SectionStatus.NotApplicable, "No rules were given; --rules names a rule file or folder."));
-                    continue;
-                }
-                if (timedOut)
-                {
-                    sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."));
-                    continue;
-                }
-                var (arguments, skip) = Arguments(step, path, rules, summary, limits, limits["timeSeconds"] - clock.Elapsed.TotalSeconds);
-                if (skip != null)
-                {
-                    sections.Add(skip);
-                    continue;
-                }
-                JsonObject section;
-                try { (section, timedOut) = await Step(session!, step, arguments!, io, deadline.Token, cancellationToken); }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    timedOut = true;
-                    sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended this step."));
-                    continue;
-                }
-                if (step.Name == "summary") summary = section["result"];
-                sections.Add(section);
-            }
+            try { run.Session = await ToolSession.StartAsync(a.Server(oneShot: true), deadline.Token); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { run.TimedOut = true; }
+            document = a.Recurse ? await RecordsDocument(run, path) : await FileDocument(run, path);
         }
         finally
         {
-            if (session != null) await session.DisposeAsync();
+            if (run.Session != null) await run.Session.DisposeAsync();
         }
+        io.Out.WriteLine(document.ToJsonString(Compact));
+        return run.TimedOut ? Exit.Timeout : Exit.Ok;
+    }
 
+    /// <summary>The run's shared state: limits, rules, session and deadline; TimedOut is set once the deadline ends a step.</summary>
+    private sealed class FileBatchRun(Dictionary<string, double> limits, string? rules, CliIo io, CancellationToken deadline, CancellationToken cancellation)
+    {
+        public Dictionary<string, double> Limits { get; } = limits;
+        public string? Rules { get; } = rules;
+        public CliIo Io { get; } = io;
+        public CancellationToken Deadline { get; } = deadline;
+        public CancellationToken Cancellation { get; } = cancellation;
+        public System.Diagnostics.Stopwatch Clock { get; } = System.Diagnostics.Stopwatch.StartNew();
+        public ToolSession? Session { get; set; }
+        public bool TimedOut { get; set; }
+    }
+
+    /// <summary>The single-file document: run fields, the file, its summary, its keyed findings and its sections.</summary>
+    private static async Task<JsonObject> FileDocument(FileBatchRun run, string path)
+    {
+        var (sections, summary) = await Steps(run, path);
         var file = new JsonObject { ["path"] = path };
         if (summary != null)
             foreach (var key in new[] { "size", "sha256", "type" })
                 file[key] = summary[key]?.DeepClone();
-        var document = new JsonObject
+        var document = RunFields(run, (string?)summary?["ruleTable"]);
+        document["file"] = file;
+        document["complete"] = Complete(sections);
+        document["summary"] = Verdict(summary);
+        document["findings"] = KeyedFindings((string?)summary?["sha256"], summary);
+        document["sections"] = sections;
+        return document;
+    }
+
+    /// <summary>The fields every document starts with: schema, version, limits, rule table digest and rule packs.</summary>
+    private static JsonObject RunFields(FileBatchRun run, string? ruleTable) => new()
+    {
+        ["schema"] = FileBatchSchema,
+        ["corvus"] = Installation.Version,
+        ["limits"] = new JsonObject([.. run.Limits.Select(l => KeyValuePair.Create(l.Key, (JsonNode?)JsonValue.Create(l.Value)))]),
+        ["ruleTable"] = ruleTable ?? "unknown",
+        ["rulePacks"] = new JsonArray([.. RulePacks.Installed(RulePacks.Root).Select(p => new JsonObject { ["name"] = p.Name, ["version"] = p.Version, ["digest"] = p.Digest ?? "unknown" })]),
+    };
+
+    private static bool Complete(JsonArray sections) => sections.All(s => (string?)s!["status"] is SectionStatus.Complete or SectionStatus.NotApplicable);
+
+    /// <summary>Runs every step over one path; after the deadline the steps left are timeout sections.</summary>
+    private static async Task<(JsonArray Sections, JsonNode? Summary)> Steps(FileBatchRun run, string path)
+    {
+        var sections = new JsonArray();
+        JsonNode? summary = null;
+        foreach (var step in FileBatchSteps)
         {
-            ["schema"] = FileBatchSchema,
-            ["corvus"] = Installation.Version,
-            ["file"] = file,
-            ["complete"] = sections.All(s => (string?)s!["status"] is SectionStatus.Complete or SectionStatus.NotApplicable),
-            ["limits"] = new JsonObject([.. limits.Select(l => KeyValuePair.Create(l.Key, (JsonNode?)JsonValue.Create(l.Value)))]),
-            ["ruleTable"] = (string?)summary?["ruleTable"] ?? "unknown",
-            ["rulePacks"] = new JsonArray([.. RulePacks.Installed(RulePacks.Root).Select(p => new JsonObject { ["name"] = p.Name, ["version"] = p.Version, ["digest"] = p.Digest ?? "unknown" })]),
-            ["summary"] = Verdict(summary),
-            ["sections"] = sections,
-        };
-        io.Out.WriteLine(document.ToJsonString(Compact));
-        return timedOut ? Exit.Timeout : Exit.Ok;
+            if (step.Name == "yara" && run.Rules == null)
+            {
+                sections.Add(Section(step, SectionStatus.NotApplicable, "No rules were given; --rules names a rule file or folder."));
+                continue;
+            }
+            if (run.TimedOut)
+            {
+                sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."));
+                continue;
+            }
+            var (arguments, skip) = Arguments(step, path, run.Rules, summary, run.Limits, run.Limits["timeSeconds"] - run.Clock.Elapsed.TotalSeconds);
+            if (skip != null)
+            {
+                sections.Add(skip);
+                continue;
+            }
+            JsonObject section;
+            try
+            {
+                (section, var timedOut) = await Step(run.Session!, step, arguments!, run.Io, run.Deadline, run.Cancellation);
+                run.TimedOut |= timedOut;
+            }
+            catch (OperationCanceledException) when (!run.Cancellation.IsCancellationRequested)
+            {
+                run.TimedOut = true;
+                sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended this step."));
+                continue;
+            }
+            if (step.Name == "summary") summary = section["result"];
+            sections.Add(section);
+        }
+        return (sections, summary);
     }
 
     /// <summary>The file's level and the findings at that level as reasons; level unknown when the summary step gave no result.</summary>
