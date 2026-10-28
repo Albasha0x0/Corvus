@@ -103,6 +103,21 @@ corvus install
 - Framework-dependent; the release archives are self-contained.
 - `corvus status` names the install kind (`script`, `dotnet-tool`, `dnx`, `source`).
 
+## Scoop and Homebrew
+
+```powershell
+scoop bucket add corvus https://github.com/Albasha0x0/scoop-corvus
+scoop install corvus/corvus
+```
+
+```sh
+brew install albasha0x0/corvus/corvus
+```
+
+- Both install the release archive, checked against its SHA-256.
+- Run `corvus install` afterwards to register clients.
+- Update with `scoop update corvus` or `brew upgrade corvus`.
+
 ## Container image
 
 `ghcr.io/albasha0x0/corvus:<version>` (and `latest`) for linux/amd64 and linux/arm64 ([Dockerfile](../Dockerfile)): Microsoft's
