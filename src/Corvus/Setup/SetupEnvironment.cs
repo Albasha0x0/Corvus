@@ -41,7 +41,7 @@ internal sealed class SetupEnvironment
             AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             XdgConfig = string.IsNullOrEmpty(xdg) ? Path.Combine(home, ".config") : xdg,
-            FindTool = OnPath,
+            FindTool = OnPath(),
             Interactive = !Console.IsInputRedirected && !Console.IsOutputRedirected,
             Confirm = AskConsole,
         };
@@ -87,22 +87,42 @@ internal sealed class SetupEnvironment
         return Path.GetFullPath(path);
     }
 
-    private static string? OnPath(string tool)
+    // One listing per PATH folder for all the tools a probe looks up, not one
+    // File.Exists per folder, extension and tool.
+    private static Func<string, string?> OnPath() =>
+        new PathSearch(Environment.GetEnvironmentVariable("PATH"),
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT" : null).Find;
+}
+
+/// <summary>
+/// Finds a command in <c>path</c>'s folders, in order, with each of <c>extensions</c> (';'-separated; null: the name
+/// alone), as File.Exists would; each folder is listed once, on first use. A folder that cannot be listed holds nothing.
+/// </summary>
+internal sealed class PathSearch(string? path, string? extensions, Func<string, IEnumerable<string>>? list = null)
+{
+    private readonly string[] _dirs = (path ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).Select(d => d.Trim('"')).ToArray();
+    private readonly string[] _extensions = extensions?.Split(';', StringSplitOptions.RemoveEmptyEntries) ?? [""];
+    private readonly Func<string, IEnumerable<string>> _list = list ?? (d => Directory.EnumerateFiles(d).Select(Path.GetFileName)!);
+    private readonly Dictionary<string, HashSet<string>> _names = [];
+
+    /// <summary>The full path of <paramref name="tool"/>, or null when no folder holds it.</summary>
+    public string? Find(string tool)
     {
-        var dirs = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
-        string[] extensions = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT").Split(';', StringSplitOptions.RemoveEmptyEntries)
-            : [""];
-        foreach (var dir in dirs)
-            foreach (var ext in extensions)
-            {
-                try
-                {
-                    var candidate = Path.Combine(dir.Trim('"'), tool + ext);
-                    if (File.Exists(candidate)) return candidate;
-                }
-                catch (ArgumentException) { }
-            }
+        foreach (var dir in _dirs)
+            foreach (var ext in _extensions)
+                if (Names(dir).Contains(tool + ext)) return Path.Combine(dir, tool + ext);
         return null;
+    }
+
+    private HashSet<string> Names(string dir)
+    {
+        lock (_names)
+        {
+            if (_names.TryGetValue(dir, out var names)) return names;
+            var comparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+            try { names = new HashSet<string>(_list(dir), comparer); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException) { names = new(comparer); }
+            return _names[dir] = names;
+        }
     }
 }

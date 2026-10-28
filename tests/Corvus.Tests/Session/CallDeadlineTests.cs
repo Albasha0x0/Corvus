@@ -8,7 +8,7 @@ using Corvus.Services;
 namespace Corvus.Tests;
 
 /// <summary>The call deadline: tools not marked long-running end with a timeout error after DeadlineFactor x --timeout.</summary>
-public class CallDeadlineTests
+public class CallDeadlineTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static ServiceProvider Services(int timeoutSeconds = 1, TimeProvider? time = null) =>
         new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = timeoutSeconds }).AddSingleton<ResultStore>()
@@ -18,6 +18,42 @@ public class CallDeadlineTests
         CallFilter.Run(new CallToolRequestParams { Name = tool }, null, services, ct => new ValueTask<CallToolResult>(work(ct)), client);
 
     private static readonly CallToolResult Done = new() { Content = [new TextContentBlock { Text = "done" }] };
+
+    // Regression: run 20261028-230340-d9f136a6 answered after 28.8 s, the
+    // call held in its output path check by the client configuration probe.
+    // A child process, as the probe is process-wide.
+    [Fact]
+    public async Task A_stop_during_a_slow_argument_check_is_answered_within_the_client_s_limit()
+    {
+        if (ChildTest.Rerun(this, output)) return;
+        using var release = new ManualResetEventSlim();
+        OutputGuard.ClientConfigs = () =>
+        {
+            release.Wait();
+            return [];
+        };
+        using var services = new ServiceCollection().AddSingleton(new ServerOptions { ClientTimeoutSeconds = 6 }).AddSingleton<ResultStore>()
+            .AddSingleton(TimeProvider.System).BuildServiceProvider();
+        using var schema = System.Text.Json.JsonDocument.Parse("""{"type":"object","properties":{"outputDirectory":{"type":"string"}}}""");
+        var request = new CallToolRequestParams
+        {
+            Name = "export_project",
+            Arguments = new Dictionary<string, System.Text.Json.JsonElement> { ["outputDirectory"] = System.Text.Json.JsonSerializer.SerializeToElement(Path.Combine(Path.GetTempPath(), "corvus-export")) },
+        };
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            // Started on its own thread: a check run before the first await
+            // holds the caller.
+            var result = await Task.Run(() => CallFilter.Run(request, schema.RootElement, services, _ => new ValueTask<CallToolResult>(Done), default).AsTask())
+                .WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(6), $"answered after {clock.Elapsed}");
+            var error = McpProtocolTests.ErrorJson(result);
+            Assert.Equal("timeout", error.GetProperty("code").GetString());
+            Assert.Contains("while checking its arguments", error.GetProperty("message").GetString());
+        }
+        finally { release.Set(); }
+    }
 
     [Fact]
     public void Long_running_tools_have_no_deadline()

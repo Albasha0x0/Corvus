@@ -160,14 +160,28 @@ internal static partial class CallFilter
         }
         using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token, tool);
         var joinStopped = CancellationToken.None;
+        string? phase = null;
         try
         {
-            if (inputSchema is { } schema)
+            // The deadline covers the argument check: a path check can probe
+            // the file system for seconds.
+            phase = "checking its arguments";
+            var workspace = services?.GetService<AssemblyWorkspace>();
+            if (inputSchema != null || workspace != null)
             {
-                ArgumentCheck.Apply(schema, request?.Arguments, tool);
-                ArgumentCheck.RequireAll(schema, request?.Arguments, tool);
+                var prepare = Task.Run(() =>
+                {
+                    if (inputSchema is { } schema)
+                    {
+                        ArgumentCheck.Apply(schema, request?.Arguments, tool);
+                        ArgumentCheck.RequireAll(schema, request?.Arguments, tool);
+                    }
+                    if (workspace != null) Targets.PreResolve(workspace, tool, request?.Arguments?.AsReadOnly());
+                    return true;
+                }, call.Token);
+                await WithinDeadline(prepare, prepare, call.Token, deadline, cancellationToken, leftovers, time);
             }
-            if (services?.GetService<AssemblyWorkspace>() is { } workspace) await Task.Run(() => Targets.PreResolve(workspace, tool, request?.Arguments?.AsReadOnly()), call.Token);
+            phase = null;
             int tokens = Budget(tool, request?.Arguments, client);
             bool json = string.Equals(Environment.GetEnvironmentVariable(ResultModeVariable), "json", StringComparison.OrdinalIgnoreCase);
             var warnings = new List<string>();
@@ -223,11 +237,11 @@ internal static partial class CallFilter
         // A joined run stops at its own copy of the server deadline, possibly a moment before this call's timer.
         catch (OperationCanceledException) when ((call.IsCancellationRequested || joinStopped.IsCancellationRequested) && !cancellationToken.IsCancellationRequested && deadline != null)
         {
-            return (DeadlineError(tool, deadline.Value, stillRunning: false, waits.BlockedBy, client, joined: false), output);
+            return (DeadlineError(tool, deadline.Value, stillRunning: false, waits.BlockedBy, client, joined: false, phase), output);
         }
         catch (DeadlinePassedException ex)
         {
-            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null), output);
+            return (DeadlineError(tool, ex.Limit, stillRunning: true, waits.BlockedBy, client, joins != null && phase == null, phase), output);
         }
         catch (OperationCanceledException) when (!call.IsCancellationRequested)
         {
@@ -305,11 +319,14 @@ internal static partial class CallFilter
 
     /// <param name="blockedBy">The workspace lock holders the call was still waiting for, else null.</param>
     /// <param name="joined">The work runs on under a join key: the same call made again picks it up.</param>
-    private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning, string? blockedBy, ClientLimits? client, bool joined)
+    /// <param name="phase">The step the call was in before its work started ("checking its arguments"), else null.</param>
+    private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning, string? blockedBy, ClientLimits? client, bool joined,
+        string? phase = null)
     {
         bool byClient = client?.DeadlineSeconds is { } seconds && limit < TimeSpan.FromSeconds(seconds);
         return ErrorResult.From(new ToolError(ErrorCode.Timeout,
             $"the call did not finish within {limit.TotalSeconds:0} s ({(byClient ? $"the client waits {client!.DeadlineSeconds} s" : $"{DeadlineFactor}x --timeout")})" +
+            (phase != null ? $" while {phase}" : "") +
             (blockedBy != null ? $": it was waiting for the workspace lock, held by {blockedBy}" : "") +
             $"{(stillRunning ? "; its work is still finishing in the background" : "")}.",
             blockedBy != null

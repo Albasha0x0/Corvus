@@ -7,7 +7,7 @@ using Corvus.Setup;
 namespace Corvus.Tests;
 
 /// <summary>Output paths are refused in the server's own folders, PATH, start files, repositories, SSH and agent configuration, after links and short names resolve.</summary>
-public class OutputGuardTests : IDisposable
+public class OutputGuardTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
     public void Dispose() => _dir.Dispose();
@@ -31,6 +31,37 @@ public class OutputGuardTests : IDisposable
             _ => "",
         },
         _dir.File("install"), _dir.File("program"));
+
+    // A child process, as the probe is process-wide.
+    [Fact]
+    public void The_client_configurations_are_probed_once_across_calls()
+    {
+        if (ChildTest.Rerun(this, output)) return;
+        int probes = 0;
+        OutputGuard.ClientConfigs = () =>
+        {
+            Interlocked.Increment(ref probes);
+            return [];
+        };
+        for (int i = 0; i < 20; i++) OutputGuard.Current();
+        Assert.Equal(1, probes);
+    }
+
+    [Fact]
+    public void A_path_search_lists_each_folder_once_and_keeps_path_order()
+    {
+        var listed = new List<string>();
+        var folders = new Dictionary<string, string[]> { ["a"] = ["tool.CMD"], ["b"] = ["tool.exe", "other.exe"] };
+        var search = new PathSearch(string.Join(Path.PathSeparator, "a", "\"missing\"", "b"), ".EXE;.CMD", d =>
+        {
+            listed.Add(d);
+            return folders.TryGetValue(d, out var names) ? names : throw new DirectoryNotFoundException(d);
+        });
+        Assert.Equal(Path.Combine("a", "tool.CMD"), search.Find("tool"));
+        Assert.Equal(Path.Combine("b", "other.EXE"), search.Find("other"));
+        Assert.Null(search.Find("absent"));
+        Assert.Equal(["a", "missing", "b"], listed);
+    }
 
     private IReadOnlyList<OutputGuard.Place> Places(params string[] clients) =>
         OutputGuard.Final(OutputGuard.Defaults(StandIns(), [_dir.File("live")], clients));
