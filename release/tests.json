@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "2.7.0",
-  "commit": "a39b9ec7a4a5f2f5e1e9d947e1052c682fac8447",
-  "tree": "d8ed7713f5e89f0e1dc8b70894ae2ad6325a1ef0",
-  "date": "2026-10-27T13:26",
+  "version": "2.7.1",
+  "commit": "6815a2560aed7c50f8a55f7d45c7ef258bb3bc1d",
+  "tree": "090d800f353bfbb575242794dd023f5da2901b3e",
+  "date": "2026-10-28T09:21",
   "strength": "sampled",
-  "reusedEarlierPasses": false,
-  "commitsBehind": 0,
-  "testsRun": 3506,
+  "reusedEarlierPasses": true,
+  "commitsBehind": 1,
+  "testsRun": 3787,
   "failed": 0,
   "families": [
     {
@@ -19,205 +19,205 @@
     },
     {
       "name": "AotMetadata",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 118
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 119
     },
     {
       "name": "Builds",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 114
     },
     {
       "name": "class:AccuracyTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:AnnotationStoreTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:ApkSigningTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:AppGraphTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:BackgroundReanalysisTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:CallArgumentTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:ClientDeadlineRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:CodeIndexCacheTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:CompletionPassTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:DalvikDisassemblerTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:DotnetRealDataTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:DumpRealDataTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:ElectronGraphRealTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:ElectronTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:EngineControlRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:EngineInspectTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:EngineMemoryCompareTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:EngineOutputTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:EngineRealDataTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:EngineRenameMigrationTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:EngineSliceTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:ExportBuildTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:FileIsolationTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:FirmwareComparisonTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:FolderCompareTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:GoRealTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:HermesTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
@@ -244,491 +244,491 @@
     {
       "name": "class:ImportOverrideEngineTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:InspectionTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:IsaEngineTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:JavaDecompilerTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:JsFlowRealTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:JvmClassTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:LiveChildrenRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveCoverageRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveDotnetRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveFridaRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveLifecycleRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveLongSessionRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveReadRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveSessionExitTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveStopPointRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:LiveTargetRealTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:MinidumpRealTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:MinidumpSweepTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:MobileRulesTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:MsvcDemangleCorpusTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:MsvcRttiSweepTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeAdapterConsistencyTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeAotNamesTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativeAotSampleTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativeBuildUpdateRealTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativeCodeSweepTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativeConcurrencyTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeDiffRealTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativeEditParityTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeEngineEditTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeGhidraColdOpenTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeGhidraEditTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeGhidraEngineTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeGhidraProviderTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeGhidraTypeTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeGhidraViewTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeIdaEngineTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeIdaFormatsTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeIdaProviderTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeIdaTypeTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeImportVerifierSweepTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeLinkManagedSweepTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativePatchExportTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativePatchMigrationTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativePeSweepTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeQueryEngineTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeStdioSweepTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeSurveyTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeToolFuzzTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:NativeToolSweepTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:NativeTypeEditEngineTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:PackedDatabaseTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:ParallelDiscoveryTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:PdbOracleTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:PipelineRoundTripTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:RawImageEngineTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:ReadyToRunSweepTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:RealScenarioRegressionTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:SaveFidelitySweepTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:SimilarFunctionsRealTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:SimplifyFuzzTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:SimplifySweepTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:SqliteDepthTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:StreamedSummaryMemoryTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:StubAppsRealDataTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:TestRemoteSetupTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:TestRemoteTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:TestReuseTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:ToolCliSweepTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:ToolPackageTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
@@ -748,93 +748,93 @@
     {
       "name": "class:UnpackTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:VirtualCallTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "class:WasmTextTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:WasmValidationTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:XamlEventsTests",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": "unknown"
     },
     {
       "name": "class:XbfTests",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": "unknown"
     },
     {
       "name": "Containers",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 862
     },
     {
       "name": "Contract",
       "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "commit": "d31f05a8",
+      "at": "2026-10-28 03:05",
       "tests": 386
     },
     {
       "name": "Databases",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 34
     },
     {
       "name": "Dotnet",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 276
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 277
     },
     {
       "name": "DotnetEdits",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 290
     },
     {
       "name": "Dumps",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 172
     },
     {
       "name": "Engines",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 552
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 551
     },
     {
       "name": "Il2Cpp",
@@ -845,73 +845,73 @@
     },
     {
       "name": "Live",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 385
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 383
     },
     {
       "name": "Mobile",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 219
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 220
     },
     {
       "name": "Native",
       "mode": "sampled",
-      "commit": "a39b9ec7",
-      "at": "2026-10-27 13:26",
+      "commit": "6815a256",
+      "at": "2026-10-28 09:21",
       "tests": 23
     },
     {
       "name": "NativeAnalysis",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 942
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 939
     },
     {
       "name": "NativeAot",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 174
     },
     {
       "name": "NativeEdits",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 202
     },
     {
       "name": "NativeFormats",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 335
     },
     {
       "name": "Session",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 455
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 492
     },
     {
       "name": "Support",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
       "tests": 15
     },
     {
       "name": "Web",
-      "mode": "exhaustive",
-      "commit": "21b2d798",
-      "at": "2026-10-27 12:06",
-      "tests": 291
+      "mode": "sampled",
+      "commit": "aebf19ab",
+      "at": "2026-10-28 05:29",
+      "tests": 293
     }
   ],
   "deferred": {
@@ -1178,14 +1178,22 @@
   "tools": {
     "reason": "not found on the machine that tagged the release; the tests that need them skip",
     "notFound": [
+      "7z",
       "aapt2",
       "apksigner",
-      "capa",
+      "ark_disasm",
+      "carfile",
+      "dart",
       "emulator",
+      "flutter",
       "guarddog",
       "hbcdump",
+      "lzfse",
       "osv-scanner",
-      "protoc"
+      "protoc",
+      "rcodesign",
+      "repak",
+      "UndertaleModCli"
     ]
   },
   "os": "microsoft windows 10.0.26200 x64",
