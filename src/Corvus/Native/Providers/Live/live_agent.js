@@ -261,36 +261,41 @@ let moduleObserver = null;
 if (typeof Process.attachModuleObserver === 'function') {
   moduleObserver = Process.attachModuleObserver({
     onAdded(m) {
-      if (JIT_LIBRARY.test(m.name)) hookJit(m, !observing);
-      if (!observing) return;
-      const held = deferredModules.size > 0 && isDeferred(m);
-      // Start-up code overwrites earlier points: hold once it returns. The registry may report the DLL late (frida/frida-gum#1190).
-      const start = held ? codeWrittenAtStart(m) : null;
-      if (start === null) {
-        moduleLoaded(m, held, false);
-        return;
-      }
-      // Under emulation hooks in start-up-written code do not run and the loader's frames are native, so no return hook.
-      if (emulated) {
-        moduleLoaded(m, false, false, 'its entry point writes its code, and a stop point there is not seen in a program emulated on an ARM64 machine');
-        return;
-      }
-      const inside = returnFrom(m), tid = Process.getCurrentThreadId();
-      if (inside !== null) {
-        const returned = Interceptor.attach(inside.at, function () {
-          // Past the slot once returned (stdcall pops its arguments); a nested load's return stays below it.
-          if (this.threadId !== tid || this.context.sp.compare(inside.slot) <= 0) return;
-          returned.detach();
+      // The module event goes out before the JIT is hooked, so a stall while hooking still shows the JIT loaded.
+      const running = !observing;
+      try {
+        if (!observing) return;
+        const held = deferredModules.size > 0 && isDeferred(m);
+        // Start-up code overwrites earlier points: hold once it returns. The registry may report the DLL late (frida/frida-gum#1190).
+        const start = held ? codeWrittenAtStart(m) : null;
+        if (start === null) {
+          moduleLoaded(m, held, false);
+          return;
+        }
+        // Under emulation hooks in start-up-written code do not run and the loader's frames are native, so no return hook.
+        if (emulated) {
+          moduleLoaded(m, false, false, 'its entry point writes its code, and a stop point there is not seen in a program emulated on an ARM64 machine');
+          return;
+        }
+        const inside = returnFrom(m), tid = Process.getCurrentThreadId();
+        if (inside !== null) {
+          const returned = Interceptor.attach(inside.at, function () {
+            // Past the slot once returned (stdcall pops its arguments); a nested load's return stays below it.
+            if (this.threadId !== tid || this.context.sp.compare(inside.slot) <= 0) return;
+            returned.detach();
+            moduleLoaded(m, true, true);
+          });
+        } else if (start.empty.every(r => new Uint8Array(r.at.readByteArray(r.size)).every(b => b === 0))) { // the entry point has not run yet
+          const started = Interceptor.attach(start.entry, { onLeave() { started.detach(); moduleLoaded(m, true, true); } });
+        } else { // it has returned already
           moduleLoaded(m, true, true);
-        });
-      } else if (start.empty.every(r => new Uint8Array(r.at.readByteArray(r.size)).every(b => b === 0))) { // the entry point has not run yet
-        const started = Interceptor.attach(start.entry, { onLeave() { started.detach(); moduleLoaded(m, true, true); } });
-      } else { // it has returned already
-        moduleLoaded(m, true, true);
-        return;
+          return;
+        }
+        // Attached inside the observer: in place before the loader goes on.
+        Interceptor.flush();
+      } finally {
+        if (JIT_LIBRARY.test(m.name)) hookJit(m, running);
       }
-      // Attached inside the observer: in place before the loader goes on.
-      Interceptor.flush();
     },
     onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
   });
