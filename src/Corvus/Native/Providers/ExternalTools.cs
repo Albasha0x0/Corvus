@@ -43,9 +43,21 @@ public static partial class ExternalTools
     /// <summary>Variables a host adds to its children's environment; empty in the server, per-flow in tests.</summary>
     internal static Func<IReadOnlyDictionary<string, string?>> ChildVariables { get; set; } = () => new Dictionary<string, string?>();
 
-    /// <summary>The <see cref="ChildVariables"/> a child keeps: <see cref="KeptVariables"/> and ADB_*.</summary>
-    internal static Dictionary<string, string?> KeptChildVariables() =>
-        ChildVariables().Where(v => Kept(v.Key)).ToDictionary(v => v.Key, v => v.Value);
+    /// <summary>Comma-separated variable names, a trailing * for a prefix, that every child gets from the server's environment.</summary>
+    public const string ChildEnvironmentVariable = "CORVUS_CHILD_ENV";
+
+    /// <summary>The <see cref="ChildVariables"/> a child keeps: <see cref="KeptVariables"/>, ADB_* and those <see cref="ChildEnvironmentVariable"/> lists.</summary>
+    internal static Dictionary<string, string?> KeptChildVariables()
+    {
+        var listed = ListedChildVariables();
+        return ChildVariables().Where(v => Kept(v.Key) || Listed(v.Key, listed)).ToDictionary(v => v.Key, v => v.Value);
+    }
+
+    private static string[] ListedChildVariables() =>
+        (ReadVariable(ChildEnvironmentVariable) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static bool Listed(string name, string[] listed) =>
+        listed.Any(p => p.EndsWith('*') ? name.StartsWith(p[..^1], StringComparison.OrdinalIgnoreCase) : name.Equals(p, StringComparison.OrdinalIgnoreCase));
 
     internal static bool Kept(string name) =>
         KeptVariables.Contains(name, StringComparer.OrdinalIgnoreCase) || name.StartsWith("ADB_", StringComparison.OrdinalIgnoreCase);
@@ -414,10 +426,11 @@ public static partial class ExternalTools
     public static Dictionary<string, string?> MinimalEnvironment(IReadOnlyDictionary<string, string?>? extra = null)
     {
         var result = new Dictionary<string, string?>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var listed = ListedChildVariables();
         foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
         {
             var name = (string)e.Key;
-            if (!Kept(name)) result[name] = null;
+            if (!Kept(name) && !Listed(name, listed)) result[name] = null;
         }
         foreach (var (k, v) in KeptChildVariables()) result[k] = v;
         foreach (var (k, v) in extra ?? new Dictionary<string, string?>()) result[k] = v;

@@ -269,6 +269,7 @@ the server keeps answering.
 
 | Variable | Default | Effect |
 |---|---|---|
+| `CORVUS_CHILD_ENV` | unset | comma-separated variables, `*` suffix for a prefix (`PYTHON*`), passed to every child process on top of the minimal environment; environment or a private config file only |
 | `CORVUS_WORKER_HOST` | on | `0`: no workers; files read in the server; `search_container kind=yara` refused |
 | `CORVUS_WORKER_MEMORY_MB` | ½ of available | memory limit per worker, at least 256; `0`: none |
 | `CORVUS_WORKER_FIXTURE_OPS` | off | `1`: a worker also answers the tests' fixture ops |

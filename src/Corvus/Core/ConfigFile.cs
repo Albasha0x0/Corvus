@@ -42,7 +42,7 @@ public static class ConfigFile
             Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable, Native.Providers.Ida.IdaInstallation.DirectoryVariable,
             Native.Providers.Ida.IdaProvider.PythonVariable, Native.Providers.Live.FridaBackend.PythonVariable,
             Services.Analysis.BuildSummary.DieVariable, Setup.Installation.HomeVariable, ServerOptions.AuditVariable,
-            ServerOptions.MaxCallMinutesVariable,
+            ServerOptions.MaxCallMinutesVariable, Native.Providers.ExternalTools.ChildEnvironmentVariable,
         ]), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The startup report; before <see cref="Apply(TextWriter?)"/> runs, no file was read.</summary>

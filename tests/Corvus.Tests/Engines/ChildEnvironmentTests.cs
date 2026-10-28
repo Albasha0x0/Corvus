@@ -39,6 +39,16 @@ public sealed class ChildEnvironmentTests
     }
 
     [Fact]
+    public void A_server_variable_reaches_a_child_only_when_CORVUS_CHILD_ENV_lists_it()
+    {
+        var start = new ChildProcessStart(FakeTool.Executable, ["environment"]);
+        using (new EnvironmentScope().Set("PYTHONPATH", "listed-path"))
+            Assert.DoesNotContain("PYTHONPATH", Report(start).Variables.Keys);
+        using (new EnvironmentScope().Set("PYTHONPATH", "listed-path").Set(ExternalTools.ChildEnvironmentVariable, "OTHER, PYTHON*"))
+            Assert.Equal("listed-path", Report(start).Variables["PYTHONPATH"]);
+    }
+
+    [Fact]
     public void A_child_runs_in_a_private_folder_of_its_own_removed_after_it_exits()
     {
         var start = new ChildProcessStart(FakeTool.Executable, ["environment"]);
