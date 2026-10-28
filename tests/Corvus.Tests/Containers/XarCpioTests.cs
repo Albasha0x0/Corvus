@@ -26,11 +26,13 @@ public sealed class XarCpioTests
         return o.ToArray();
     }
 
-    /// <summary>xar: header, zlib table of contents naming one stored file, then the heap.</summary>
-    private static byte[] Xar(string name, byte[] bytes)
+    /// <summary>xar: header, zlib table of contents naming one stored file (in <paramref name="folder"/> when given), then the heap.</summary>
+    private static byte[] Xar(string name, byte[] bytes, string? folder = null)
     {
-        var toc = $"<?xml version=\"1.0\"?><xar><toc><file id=\"1\"><name>{name}</name><type>file</type><data><offset>0</offset><length>{bytes.Length}</length>" +
-                  $"<size>{bytes.Length}</size><encoding style=\"application/octet-stream\"/></data></file></toc></xar>";
+        var file = $"<file id=\"1\"><name>{name}</name><type>file</type><data><offset>0</offset><length>{bytes.Length}</length>" +
+                   $"<size>{bytes.Length}</size><encoding style=\"application/octet-stream\"/></data></file>";
+        if (folder != null) file = $"<file id=\"2\"><name>{folder}</name><type>directory</type>{file}</file>";
+        var toc = $"<?xml version=\"1.0\"?><xar><toc>{file}</toc></xar>";
         var compressed = new MemoryStream();
         using (var z = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true)) z.Write(Encoding.UTF8.GetBytes(toc));
         var header = new byte[28];
@@ -60,7 +62,7 @@ public sealed class XarCpioTests
     public void Fuzzed_archives_never_crash()
     {
         var cpio = Cpio("a.bin", new byte[64]);
-        var failures = FormatFuzz.Run(Xar("Payload", cpio), b => { try { Containers.Open(b, "x.pkg", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 800);
+        var failures = FormatFuzz.Run(Xar("Payload", cpio, "d"), b => { try { Containers.Open(b, "x.pkg", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 800);
         failures.AddRange(FormatFuzz.Run(cpio, b => { try { Containers.Open(b, "x.cpio", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { } }, 800));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
     }
