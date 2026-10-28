@@ -33,7 +33,7 @@ internal sealed class PackageFileView : IFileSummaryView
             using var zip = new ZipArchive(new MemoryStream(file.Head, writable: false), ZipArchiveMode.Read);
             return zip.Entries.Take(20_000).Any(e => e.FullName.Count(c => c == '/') <= 1 && Manifests.Contains(e.Name, StringComparer.Ordinal)
                                                      || e.FullName.EndsWith(".dist-info/METADATA", StringComparison.Ordinal)
-                                                     || e.FullName.Count(c => c == '/') <= 3 && AgentFiles.Kind(e.FullName) != null);
+                                                     || e.FullName.Count(c => c == '/') <= 3 && Core.AgentFiles.Kind(e.FullName) != null);
         }
         catch (InvalidDataException) { return false; }
     }

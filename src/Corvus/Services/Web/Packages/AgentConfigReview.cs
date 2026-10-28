@@ -1,45 +1,12 @@
 using System.Text;
 using System.Text.Json;
+using Corvus.Core;
 
 namespace Corvus.Services.Web.Packages;
 
 /// <summary>Configuration that runs or steers code, at its file and line (null: the whole file).</summary>
 /// <param name="Kind">instruction file, hook, mcp server, folder-open task, git hook, git config, dev container, direnv, or build step.</param>
 public sealed record AgentEntry(string Kind, string Name, string? Command, string Path, int? Line = null);
-
-// Kept apart from PackageReview so summarize_file does not build its regex tables.
-/// <summary>Names agent configuration files by path; no file is read.</summary>
-internal static class AgentFiles
-{
-    private static readonly HashSet<string> InstructionNames = new(StringComparer.Ordinal)
-    {
-        "CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "GEMINI.md", ".cursorrules", ".windsurfrules", ".clinerules",
-    };
-
-    /// <summary>Folders whose files configure an agent or editor; a path inside one is rooted at the folder's parent.</summary>
-    internal static readonly string[] Folders = [".claude", ".cursor", ".vscode", ".github", ".windsurf", ".clinerules"];
-
-    /// <summary>The agent configuration kind of a '/'-separated path, or null when it is none.</summary>
-    internal static string? Kind(string path)
-    {
-        var slashed = "/" + path;
-        var name = path[(path.LastIndexOf('/') + 1)..];
-        var dir = slashed[..slashed.LastIndexOf('/')];
-        dir = dir[(dir.LastIndexOf('/') + 1)..];
-        if (InstructionNames.Contains(name) || slashed.Contains("/.cursor/rules/", StringComparison.Ordinal) || slashed.Contains("/.windsurf/rules/", StringComparison.Ordinal)
-            || slashed.Contains("/.clinerules/", StringComparison.Ordinal) || slashed.EndsWith("/.github/copilot-instructions.md", StringComparison.Ordinal)
-            || slashed.Contains("/.github/instructions/", StringComparison.Ordinal) && name.EndsWith(".instructions.md", StringComparison.Ordinal))
-            return "instructions";
-        return (dir, name) switch
-        {
-            (".claude", "settings.json" or "settings.local.json") => "settings",
-            (_, ".mcp.json") or (".cursor" or ".vscode", "mcp.json") => "mcp",
-            (".vscode", "tasks.json") => "tasks",
-            (".vscode", "settings.json") => "editor settings",
-            _ => null,
-        };
-    }
-}
 
 public static partial class PackageReview
 {

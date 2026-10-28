@@ -133,6 +133,58 @@ public static class InputFiles
     public static string? NamedNameProblem(string name) =>
         IsPlainName(name) ? null : NamedProblem(name) ?? "not opened: not a file name";
 
+    /// <summary>The final path: junctions, symbolic links and short names resolved in every folder along it; the full path when it cannot be opened.</summary>
+    public static string FinalPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        return Path.TrimEndingDirectorySeparator((OperatingSystem.IsWindows() ? FinalPathOnWindows(full) : FinalPathByLinks(full)) ?? full);
+    }
+
+    /// <summary>The final path of <paramref name="full"/>, which may not exist yet: its deepest existing folder resolved, the rest appended.</summary>
+    public static string FinalPathOfNew(string full)
+    {
+        var existing = Path.TrimEndingDirectorySeparator(full);
+        var rest = new List<string>();
+        while (!Path.Exists(existing) && Path.GetDirectoryName(existing) is { } parent)
+        {
+            rest.Insert(0, Path.GetFileName(existing));
+            existing = parent;
+        }
+        return Path.Combine([FinalPath(existing), .. rest]);
+    }
+
+    private static string? FinalPathOnWindows(string full)
+    {
+        using var file = Native.Live.LiveNative.OpenForQuery(full, 0, Native.Live.LiveNative.FILE_SHARE_ALL, 0, Native.Live.LiveNative.OPEN_EXISTING,
+            Native.Live.LiveNative.FILE_FLAG_BACKUP_SEMANTICS, 0);
+        if (file.IsInvalid) return null;
+        var buffer = new char[32768];
+        uint n = Native.Live.LiveNative.GetFinalPathNameByHandle(file, buffer, (uint)buffer.Length, 0);
+        if (n == 0 || n >= buffer.Length) return null;
+        var final = new string(buffer, 0, (int)n);
+        return final.StartsWith(@"\\?\UNC\", StringComparison.Ordinal) ? @"\\" + final[8..]
+            : final.StartsWith(@"\\?\", StringComparison.Ordinal) ? final[4..] : final;
+    }
+
+    private static string FinalPathByLinks(string full, int depth = 0)
+    {
+        var root = Path.GetPathRoot(full) ?? "";
+        var current = root;
+        foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            try
+            {
+                FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+                // A target's folders can be links too (macOS /var); 40 is the kernel's limit on links followed.
+                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target)
+                    current = depth < 40 ? FinalPathByLinks(Path.GetFullPath(target.FullName), depth + 1) : Path.GetFullPath(target.FullName);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        return current;
+    }
+
     /// <summary>The full path of a regular file, symlinks followed; directories, FIFOs, sockets and devices are refused, since reading a FIFO blocks until a writer appears.</summary>
     public static string RequireRegularFile(string path, string what = "file")
     {
