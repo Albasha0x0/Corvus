@@ -104,20 +104,22 @@ jobs:
         with:
           global-json-file: global.json
 
-      # Not single-file: the decompiler resolves framework references from the runtime's assemblies on disk.
-      # macOS builds are published on macOS so the launcher is signed.
-      - name: Publish
-        shell: bash
-        run: >
-          dotnet publish src/Corvus/Corvus.csproj -c Release -r ${{ matrix.rid }}
-          --self-contained true -p:Version=${GITHUB_REF_NAME#v} -o out
-
+      # Downloaded before the build, which records the library's SHA-256.
       - name: YARA-X library
         if: ${{ !contains(matrix.rid, 'musl') }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: yara-x-${{ matrix.rid }}
-          path: out/runtimes/${{ matrix.rid }}/native
+          path: yarax/${{ matrix.rid }}/native
+
+      # Not single-file: the decompiler resolves framework references from the runtime's assemblies on disk.
+      # macOS builds are published on macOS so the launcher is signed.
+      - name: Publish
+        shell: bash
+        run: |
+          yarax=; [ -d yarax ] && yarax="-p:YaraXRuntimes=$GITHUB_WORKSPACE/yarax"
+          dotnet publish src/Corvus/Corvus.csproj -c Release -r ${{ matrix.rid }} --self-contained true -p:Version=${GITHUB_REF_NAME#v} $yarax -o out
+          if [ -d yarax ]; then mkdir -p out/runtimes && cp -R yarax/. out/runtimes/; fi
 
       - name: Smoke test
         if: matrix.smoke

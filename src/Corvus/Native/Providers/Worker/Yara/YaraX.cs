@@ -15,13 +15,18 @@ internal static class YaraX
 
     private const string Library = "yara_x_capi";
 
+    /// <summary>Assembly metadata key prefix for a shipped library's SHA-256, followed by its RID.</summary>
+    public const string HashKey = "YaraX.SHA256:";
+
     private static readonly Lock Gate = new();
     private static bool _resolverSet;
+    private static string? _refused;
 
     /// <summary>The library file name on this system.</summary>
     public static string FileName => OperatingSystem.IsWindows() ? "yara_x_capi.dll" : OperatingSystem.IsMacOS() ? "libyara_x_capi.dylib" : "libyara_x_capi.so";
 
-    /// <summary>Loads the library once from <see cref="LibraryVariable"/>, runtimes/&lt;rid&gt;/native or the program folder; else provider_unavailable.</summary>
+    /// <summary>Loads the library once from <see cref="LibraryVariable"/> as given, else from runtimes/&lt;rid&gt;/native or the program folder when its
+    /// SHA-256 matches the build's; else provider_unavailable.</summary>
     public static void Load()
     {
         lock (Gate)
@@ -37,7 +42,7 @@ internal static class YaraX
         catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
             throw new ToolError(ErrorCode.ProviderUnavailable,
-                $"YARA-X {Version} is not available for {RuntimeInformation.RuntimeIdentifier}: {e.Message}",
+                $"YARA-X {Version} is not available for {RuntimeInformation.RuntimeIdentifier}: {_refused ?? e.Message}",
                 $"set {LibraryVariable} to a libyara_x_capi {Version} build for this platform");
         }
     }
@@ -45,17 +50,30 @@ internal static class YaraX
     private static IntPtr Resolve(string name, Assembly assembly, DllImportSearchPath? path)
     {
         if (name != Library) return IntPtr.Zero;
-        foreach (var candidate in Candidates())
-            if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out var handle)) return handle;
+        if (Environment.GetEnvironmentVariable(LibraryVariable) is { Length: > 0 } configured)
+            return File.Exists(configured) && NativeLibrary.TryLoad(configured, out var chosen) ? chosen : IntPtr.Zero;
+        var hashes = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Where(a => a.Key.StartsWith(HashKey, StringComparison.Ordinal))
+            .ToDictionary(a => a.Key[HashKey.Length..], a => a.Value ?? "", StringComparer.Ordinal);
+        var dir = AppContext.BaseDirectory;
+        foreach (var candidate in (string[])[Path.Combine(dir, "runtimes", RuntimeInformation.RuntimeIdentifier, "native", FileName), Path.Combine(dir, FileName)])
+        {
+            if (!File.Exists(candidate)) continue;
+            if (Refusal(candidate, hashes, RuntimeInformation.RuntimeIdentifier) is { } refusal) { _refused = refusal; continue; }
+            if (NativeLibrary.TryLoad(candidate, out var handle)) return handle;
+        }
         return IntPtr.Zero;
     }
 
-    private static IEnumerable<string> Candidates()
+    /// <summary>Why the shipped library at <paramref name="path"/> is not loaded, or null when its SHA-256 matches the build's entry for
+    /// <paramref name="rid"/>; a build with no entries (one made without the release's libraries) checks nothing.</summary>
+    internal static string? Refusal(string path, IReadOnlyDictionary<string, string> hashes, string rid)
     {
-        if (Environment.GetEnvironmentVariable(LibraryVariable) is { Length: > 0 } configured) yield return configured;
-        var dir = AppContext.BaseDirectory;
-        yield return Path.Combine(dir, "runtimes", RuntimeInformation.RuntimeIdentifier, "native", FileName);
-        yield return Path.Combine(dir, FileName);
+        if (hashes.Count == 0) return null;
+        if (!hashes.TryGetValue(rid, out var expected)) return $"this build ships no YARA-X library for {rid}, so {path} is not loaded";
+        using var file = File.OpenRead(path);
+        var actual = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(file));
+        return actual.Equals(expected, StringComparison.OrdinalIgnoreCase) ? null
+            : $"{path} has SHA-256 {actual}, not the {expected} this build shipped, so it is not loaded";
     }
 
     /// <summary>The UTF-8 text at <paramref name="data"/> of <paramref name="length"/> bytes.</summary>

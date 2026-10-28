@@ -272,7 +272,7 @@ the server keeps answering.
 | `CORVUS_WORKER_HOST` | on | `0`: no workers; files read in the server; `search_container kind=yara` refused |
 | `CORVUS_WORKER_MEMORY_MB` | ½ of available | memory limit per worker, at least 256; `0`: none |
 | `CORVUS_WORKER_FIXTURE_OPS` | off | `1`: a worker also answers the tests' fixture ops |
-| `CORVUS_YARA_LIBRARY` | shipped build | path of a libyara_x_capi 1.22.1 build for an unsupported platform |
+| `CORVUS_YARA_LIBRARY` | shipped build | path of a libyara_x_capi 1.22.1 build for an unsupported platform; loaded without the SHA-256 check |
 | `CORVUS_CHILD_DATA_KB` | | set by Corvus for a capped Linux child; becomes its RLIMIT_DATA |
 
 - The worker memory limit uses a Windows job object, Linux RLIMIT_DATA or a macOS footprint watchdog. A worker that

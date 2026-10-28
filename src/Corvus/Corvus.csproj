@@ -54,6 +54,21 @@
   <ItemGroup Condition="'$(YaraXRuntimes)' != ''">
     <None Include="$(YaraXRuntimes)\**\*" Pack="true" PackagePath="tools/$(TargetFramework)/any/runtimes" Visible="false" />
   </ItemGroup>
+  <!-- Each library's SHA-256 goes into the assembly; the worker loads a shipped library only when it matches. -->
+  <Target Name="YaraXHashes" BeforeTargets="GetAssemblyAttributes" Condition="'$(YaraXRuntimes)' != ''">
+    <ItemGroup>
+      <YaraXLibrary Include="$(YaraXRuntimes)\*\native\*yara_x_capi*" />
+    </ItemGroup>
+    <GetFileHash Files="@(YaraXLibrary)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="YaraXHashed" />
+    </GetFileHash>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>YaraX.SHA256:$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName($([System.IO.Path]::GetDirectoryName('%(YaraXHashed.FullPath)'))))))</_Parameter1>
+        <_Parameter2>%(YaraXHashed.FileHash)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Corvus.Tests" />

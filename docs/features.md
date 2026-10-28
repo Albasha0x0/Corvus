@@ -383,6 +383,7 @@ Labels:
 - Scans the file, then each container member. Minidumps and cores are scanned by their captured memory.
 - Modules: `pe`, `elf`, `macho`, `dotnet`, `dex`, `hash`, `math`, `time`, `lnk`.
 - Shipped for win-x64, win-arm64, linux-x64, linux-arm64 (glibc 2.34+), osx-x64 and osx-arm64. Elsewhere, set `CORVUS_YARA_LIBRARY`.
+- The shipped library loads only when its SHA-256 matches the release's; a `CORVUS_YARA_LIBRARY` build loads unchecked.
 
 ## File inspection
 
