@@ -49,7 +49,7 @@ public static class ScriptReader
             ctx.Incomplete = true;
         }
         if (ctx.Budget.TimedOut) ctx.Note(FormattableString.Invariant($"The {ctx.Budget.Seconds:0.##} s time limit ran out: the reading is partial."));
-        return new ScriptReading(language, plain ?? text, ctx.Layers, ctx.Folded, ctx.Calls.ToList(), ctx.Notes) { Complete = !ctx.Incomplete && !ctx.Budget.Exhausted, Recovered = ctx.Recovered.ToList() };
+        return new ScriptReading(language, plain ?? text, ctx.Layers, ctx.Folded, ctx.Calls.ToList(), ctx.Notes) { Complete = !ctx.Incomplete && !ctx.Budget.Exhausted, Recovered = ctx.Recovered.ToList(), Copied = ctx.Copied };
     }
 
     /// <summary>One layer's plain text in its language.</summary>

@@ -15,7 +15,19 @@ public sealed record ScriptReading(string Language, string Plain, IReadOnlyList<
 
     /// <summary>The transformations undone besides layers (obfuscator.io string array, control-flow flattening, ...).</summary>
     public IReadOnlyList<string> Recovered { get; init; } = [];
+
+    /// <summary>
+    /// Shell commands the script writes to the clipboard; empty when it copies
+    /// none.
+    /// </summary>
+    public IReadOnlyList<ClipboardCommand> Copied { get; init; } = [];
 }
+
+/// <summary>
+/// A shell command written to the clipboard: the call that writes it, the text
+/// as copied and its plain text.
+/// </summary>
+public sealed record ClipboardCommand(string Via, string Text, string Plain);
 
 /// <summary>One reading's budget: evaluation steps, the largest string built, and a time cap.</summary>
 internal sealed class ScriptBudget(long steps = ScriptBudget.DefaultSteps, int milliseconds = ScriptBudget.DefaultMilliseconds,
@@ -82,6 +94,8 @@ internal sealed class ScriptContext(ScriptBudget budget)
 
     /// <summary>Text a layer put on the clipboard (echo text | clip), read by Get-Clipboard and Clipboard.GetText.</summary>
     public string? Clipboard { get; set; }
+
+    public List<ClipboardCommand> Copied { get; } = [];
 
     /// <summary>Environment variables a layer set (batch set, $env:), read by later layers in any language.</summary>
     public Dictionary<string, string> Environment { get; } = new(StringComparer.OrdinalIgnoreCase);

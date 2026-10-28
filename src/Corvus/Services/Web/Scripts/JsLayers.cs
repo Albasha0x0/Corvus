@@ -157,6 +157,7 @@ internal sealed class JsPass
         DeadBranches();
         Layers();
         Calls();
+        Clipboard();
         Fold();
         _ctx.Folded += _edits.Count;
         return _edits.Render();
@@ -844,6 +845,72 @@ internal sealed class JsPass
                 // The call stays; what it runs follows as a comment on the last character, apart from inner edits.
                 _edits.Set(statement.End - 1, statement.End, _text[statement.End - 1] + " /* runs: " + plain.Trim().Replace("*/", "* /") + " */");
         }
+    }
+
+    // --- clipboard writes ---
+
+    // NonBacktracking matches in linear time, so no match timeout.
+    private static readonly Regex ShellCommand = new(
+        @"^\s*""?(?:[a-z]:\\[^""]*\\)?(?:cmd|powershell|pwsh|mshta|curl|wget|msiexec|rundll32|regsvr32|certutil|bitsadmin|wscript|cscript|conhost|forfiles|bash)(?:\.exe)?\b|\|\s*(?:iex|invoke-expression)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
+    private static readonly HashSet<string> CopiedProperties = new(StringComparer.Ordinal) { "value", "textContent", "innerText" };
+
+    /// <summary>
+    /// Shell commands written by clipboard.writeText, clipboardData.setData or
+    /// execCommand('copy') of a field's text.
+    /// </summary>
+    private void Clipboard()
+    {
+        foreach (var (node, _) in _nodes)
+        {
+            if (node is not CallExpression { Callee: var callee } call || Unwrap(callee) is not MemberExpression { Computed: false, Property: Identifier property } member) continue;
+            var (text, via) = property.Name switch
+            {
+                "writeText" when call.Arguments.Count > 0 && Src(member.Object).EndsWith("clipboard", StringComparison.Ordinal) => (Constant(call.Arguments[0]), "navigator.clipboard.writeText"),
+                "setData" when call.Arguments.Count > 1 && Src(member.Object).EndsWith("clipboardData", StringComparison.Ordinal) => (Constant(call.Arguments[1]), "clipboardData.setData"),
+                "execCommand" when call.Arguments.Count > 0 && Constant(call.Arguments[0]) == "copy" => (Selected(call.Start), "document.execCommand('copy')"),
+                _ => (null, ""),
+            };
+            if (text == null || !ShellCommand.IsMatch(text) || _ctx.Copied.Any(c => c.Text == text)) continue;
+            _ctx.Clipboard = text;
+            var plain = _ctx.Peel("cmd", text, "clipboard via " + via, _depth + 1) ?? text;
+            _ctx.Copied.Add(new ClipboardCommand(via, text, plain.Trim()));
+        }
+    }
+
+    /// <summary>
+    /// The text last set on a field (value, textContent, innerText) before
+    /// <paramref name="before"/>; null when none is constant.
+    /// </summary>
+    private string? Selected(int before)
+    {
+        AssignmentExpression? last = null;
+        foreach (var (node, _) in _nodes)
+            if (node is AssignmentExpression { Left: MemberExpression { Computed: false, Property: Identifier p } } a && a.End <= before
+                && CopiedProperties.Contains(p.Name) && (last == null || a.Start > last.Start))
+                last = a;
+        return last == null ? null : Constant(last.Right);
+    }
+
+    /// <summary>
+    /// The string an expression builds, reading variables declared once and
+    /// never assigned; null when it is not constant.
+    /// </summary>
+    private string? Constant(Node n)
+    {
+        var saved = _eval.Names;
+        var open = new HashSet<string>(StringComparer.Ordinal);
+        object? Name(string name)
+        {
+            // A name being read already refers to itself; it stays unknown.
+            if (Declarator(name) is not { Init: { } init } || !open.Add(name)) return saved?.Invoke(name);
+            try { return _eval.Eval(init); }
+            finally { open.Remove(name); }
+        }
+        _eval.Names = Name;
+        try { return _eval.Eval(n) as string; }
+        finally { _eval.Names = saved; }
     }
 
     // --- constant folding ---

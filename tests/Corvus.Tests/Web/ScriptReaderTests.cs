@@ -146,6 +146,41 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
         Assert.Null(new Corvus.Services.Analysis.ScriptFileView().Inspect(new Corvus.Services.Analysis.FileInput("add.js", bytes, Corvus.Core.Blob.Identify(bytes)), default));
     }
 
+    private static Corvus.Services.Analysis.FileView? Page(string script)
+    {
+        var bytes = Encoding.UTF8.GetBytes($"<!doctype html><html><body><button id=\"b\">Copy</button><script>{script}</script></body></html>");
+        return new Corvus.Services.Analysis.ScriptFileView().Inspect(new Corvus.Services.Analysis.FileInput("page.html", bytes, Corvus.Core.Blob.Identify(bytes)), default);
+    }
+
+    [Fact]
+    public void A_page_that_copies_an_encoded_command_shows_it_decoded()
+    {
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Output hello"));
+        var view = Page($"const c = 'powershell -nop -enc ' + '{encoded}'; document.getElementById('b').onclick = () => navigator.clipboard.writeText(c);")!;
+        var copied = Assert.Single(((Corvus.Services.Analysis.ScriptFileView.Facts)view.Detail).Copied!);
+        Assert.Equal(("navigator.clipboard.writeText", $"powershell -nop -enc {encoded}", "Write-Output hello"), (copied.Via, copied.Text, copied.Plain));
+        Assert.Contains(view.Highlights, h => h.StartsWith("Copies a command to the clipboard (navigator.clipboard.writeText)", StringComparison.Ordinal)
+            && h.EndsWith("it reads as: Write-Output hello.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_command_copied_through_a_text_field_and_exec_command_is_reported()
+    {
+        var r = ScriptReader.Read("""
+            const cmd = 'cmd /c echo hello';
+            function copy() { const t = document.createElement('textarea'); t.value = cmd; document.body.appendChild(t); t.select(); document.execCommand('copy'); }
+            """, "javascript");
+        var copied = Assert.Single(r.Copied);
+        Assert.Equal(("document.execCommand('copy')", "cmd /c echo hello"), (copied.Via, copied.Text));
+    }
+
+    [Fact]
+    public void A_copy_button_for_ordinary_text_reports_nothing()
+    {
+        Assert.Null(Page("document.getElementById('b').onclick = () => navigator.clipboard.writeText('Order 1234 shipped');"));
+        Assert.Empty(ScriptReader.Read("e.clipboardData.setData('text/plain', 'hello world');", "javascript").Copied);
+    }
+
     [Fact]
     public void An_html_application_reads_its_script_blocks()
     {

@@ -18,7 +18,8 @@ internal sealed class ScriptFileView : IFileSummaryView
         [property: Description("Commands, methods and objects the script calls, with constant arguments.")] IReadOnlyList<string>? Calls,
         int PlainChars, long Offset, long? Next,
         [property: Description("The plain text from offset: peeled layers in place, constants folded.")] string Plain,
-        bool Complete, IReadOnlyList<string>? Notes);
+        bool Complete, IReadOnlyList<string>? Notes,
+        [property: Description("Shell commands the script writes to the clipboard, with their plain text.")] IReadOnlyList<ClipboardCommand>? Copied = null);
 
     public string Name => "script";
 
@@ -57,7 +58,8 @@ internal sealed class ScriptFileView : IFileSummaryView
         var facts = new Facts(reading.Language,
             reading.Layers.Select(l => new Layer(l.Depth, l.Language, l.Via, l.Text.Length, l.Text.Length > LayerText ? l.Text[..LayerText] : l.Text)).ToList(),
             reading.Recovered.Count > 0 ? reading.Recovered : null, reading.Folded, reading.Calls.Count > 0 ? reading.Calls : null,
-            reading.Plain.Length, offset, next, window, reading.Complete, notes.Count > 0 ? notes : null);
+            reading.Plain.Length, offset, next, window, reading.Complete, notes.Count > 0 ? notes : null,
+            reading.Copied.Count > 0 ? reading.Copied : null);
         return new FileView(facts, Highlights(reading));
     }
 
@@ -71,9 +73,13 @@ internal sealed class ScriptFileView : IFileSummaryView
         if (r.Layers.Count == 0 && r.Recovered.Count == 0) sb.Append($": {r.Folded} constant expression(s) folded");
         sb.Append("; view=script shows the plain text.");
         var list = new List<string> { sb.ToString() };
+        foreach (var c in r.Copied.Take(3))
+            list.Add($"Copies a command to the clipboard ({c.Via}): {Clip(c.Text)}" + (c.Plain != c.Text.Trim() ? $"; it reads as: {Clip(c.Plain)}" : "") + ".");
         if (r.Calls.Count > 0) list.Add("Script calls worth reviewing: " + string.Join("; ", r.Calls.Take(8)) + (r.Calls.Count > 8 ? "; ..." : "") + ".");
         return list;
     }
+
+    private static string Clip(string s) => s.Length <= 200 ? s : s[..197] + "...";
 
     private sealed record Block(string Language, string Text);
 
@@ -110,6 +116,7 @@ internal sealed class ScriptFileView : IFileSummaryView
         var calls = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         var notes = new List<string>();
         var recovered = new SortedSet<string>(StringComparer.Ordinal);
+        var copied = new List<ClipboardCommand>();
         int folded = 0;
         bool complete = true;
         foreach (var b in blocks.Take(64))
@@ -120,10 +127,11 @@ internal sealed class ScriptFileView : IFileSummaryView
             calls.UnionWith(r.Calls);
             notes.AddRange(r.Notes.Where(n => !notes.Contains(n)));
             recovered.UnionWith(r.Recovered);
+            copied.AddRange(r.Copied);
             folded += r.Folded;
             complete &= r.Complete;
         }
         var language = blocks.Select(b => b.Language).Distinct().Count() == 1 ? blocks[0].Language : "mixed";
-        return new ScriptReading(language, plain.ToString(), layers, folded, calls.ToList(), notes) { Complete = complete, Recovered = recovered.ToList() };
+        return new ScriptReading(language, plain.ToString(), layers, folded, calls.ToList(), notes) { Complete = complete, Recovered = recovered.ToList(), Copied = copied };
     }
 }
