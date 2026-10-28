@@ -22,6 +22,9 @@ internal sealed record MailAttachment(string Name, string? ContentType, string? 
 {
     /// <summary>An Outlook message stored as the attachment, read in place; null for other attachments.</summary>
     public MailMessage? Embedded { get; init; }
+
+    /// <summary>The compound file stream that holds <see cref="Bytes"/> in a .msg; null in a MIME message.</summary>
+    public string? Stream { get; init; }
 }
 
 /// <summary>A mail message read from a MIME (.eml) or Outlook (.msg) file: headers, received chain, recorded authentication results, links and attachments.</summary>

@@ -226,8 +226,12 @@ public sealed class MailMessageTests : IDisposable
     {
         var c = Containers.Open(Msg(headers: true), "report.msg", AnalysisLimits.Default, default);
         Assert.Contains(c.Entries!, e => e.Path == "streams/__substg1.0_0037001F" && e.Size == U16("Quarterly report").Length);
-        Assert.Contains(c.Entries!, e => e.Path == "streams/__attach_version1.0_#00000000/__substg1.0_37010102");
+        var data = Assert.Single(c.Entries!, e => e.Path == "streams/__attach_version1.0_#00000000/__substg1.0_37010102");
+        Assert.Equal((long)Report.Length, data.Size);
+        Assert.Equal("extracted as attachments/report.zip", data.Detail);
+        Assert.Single(c.Items, i => i.Bytes.AsSpan().SequenceEqual(Report));
         var all = Containers.Open(Msg(headers: true), "report.msg", AnalysisLimits.Default, default, allFiles: true);
+        Assert.Contains(all.Items, i => i.Name == "streams/__attach_version1.0_#00000000/__substg1.0_37010102");
         Assert.Equal(U16("IPM.Note"), Assert.Single(all.Items, i => i.Name == "streams/__substg1.0_001A001F").Bytes);
     }
 

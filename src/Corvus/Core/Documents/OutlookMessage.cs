@@ -109,7 +109,7 @@ internal static class OutlookMessage
                     problem = stored ? "stored as an OLE object storage; not extracted" : "no attachment data stream, as for an attachment by reference";
             }
             m.Attachments.Add(new MailAttachment(label, type ?? (message ? "application/vnd.ms-outlook" : null), contentId != null ? "inline" : "attachment", contentId, data, problem)
-                { Embedded = embedded });
+                { Embedded = embedded, Stream = data != null ? At(storage, $"__substg1.0_3701{Binary:X4}") : null });
         }
         m.FindLinks();
         return m;

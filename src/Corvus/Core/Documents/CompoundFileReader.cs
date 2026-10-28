@@ -35,13 +35,18 @@ internal sealed class CompoundFileReader : IContainerReader
         return new ContainerContents(doc.Format, items, notes) { Entries = entries };
     }
 
-    /// <summary>Lists every stream under <paramref name="prefix"/>; without <paramref name="allFiles"/> only binaries and containers are extracted.</summary>
+    /// <summary>Lists every stream under <paramref name="prefix"/>; without <paramref name="allFiles"/> only binaries and containers are extracted, and none that <paramref name="extractedAs"/> maps to a path.</summary>
     internal static void TakeStreams(CompoundFile cf, string prefix, List<ExtractedItem> items, List<ContainerEntry> entries, List<string> notes, bool allFiles,
-        AnalysisLimits limits, ref long total, CancellationToken ct)
+        AnalysisLimits limits, ref long total, CancellationToken ct, IReadOnlyDictionary<string, string>? extractedAs = null)
     {
         foreach (var e in cf.Entries.Where(e => !e.IsStorage))
         {
             ct.ThrowIfCancellationRequested();
+            if (!allFiles && extractedAs != null && extractedAs.TryGetValue(e.Path, out var copy))
+            {
+                entries.Add(new ContainerEntry(prefix + StreamPath(e.Path), e.Size, $"extracted as {copy}"));
+                continue;
+            }
             byte[] bytes;
             try { bytes = cf.Read(e, limits.MaxItemBytes); }
             catch (ToolError ex) when (ex.Code == ErrorCode.LimitExceeded) { entries.Add(new ContainerEntry(prefix + StreamPath(e.Path), e.Size)); notes.Add(ex.Message); continue; }
