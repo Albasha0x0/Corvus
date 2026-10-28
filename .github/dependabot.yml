@@ -1,4 +1,5 @@
-# Weekly update pull requests for the packages Corvus builds with and the actions its workflows pin by commit SHA.
+# Weekly update pull requests for the packages Corvus builds with, the actions its workflows pin by commit SHA and the
+# base image the Dockerfile pins by digest.
 # Minor and patch updates come grouped in one pull request per ecosystem; majors come one by one.
 # The exact-version PackageDownload items in tests/Corvus.Tests are test inputs (real libraries the tests read),
 # not dependencies: an update proposed for one of them is closed, not merged.
@@ -24,4 +25,14 @@ updates:
     open-pull-requests-limit: 5
     groups:
       actions-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      docker-minor-and-patch:
         update-types: [minor, patch]

@@ -140,6 +140,7 @@ docker run -i --rm --read-only --tmpfs /tmp --network none -v "$PWD:/work:ro" gh
 - Caches and kept results go to `/data` (`CORVUS_DATA_DIR`); `-v corvus-data:/data` keeps them.
 - IDA, Ghidra, Python and live sessions are not in the image.
 - `docker build -f Dockerfile out` packages a published Linux build the same way.
+- `gh attestation verify oci://ghcr.io/albasha0x0/corvus:<version> --repo Albasha0x0/Corvus` checks the image's provenance.
 
 ## Registering with clients
 

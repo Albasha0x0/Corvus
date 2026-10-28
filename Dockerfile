@@ -1,7 +1,7 @@
 # Packages a published Linux build (the release's out folder) as the build context:
 #   docker build -f Dockerfile out
-# Run it with a read-only root, temporary files on tmpfs and the inputs mounted read-only:
-#   docker run -i --rm --read-only --tmpfs /tmp -v "$PWD:/work:ro" IMAGE
+# Run it with a read-only root, temporary files on tmpfs, no network and the inputs mounted read-only:
+#   docker run -i --rm --read-only --tmpfs /tmp --network none -v "$PWD:/work:ro" IMAGE
 
 # The data folder must exist in the image, owned by the app user, so a volume mounted there is writable. WORKDIR
 # creates the folders without RUN, so the image builds for any platform without emulation.

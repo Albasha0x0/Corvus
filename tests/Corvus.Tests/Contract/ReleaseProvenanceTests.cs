@@ -104,7 +104,7 @@ public partial class ReleaseProvenanceTests
     [Fact]
     public void Release_assets_carry_provenance_and_an_SBOM()
     {
-        var release = Workflow[Workflow.IndexOf("\n  release:", StringComparison.Ordinal)..Workflow.IndexOf("\n  publish:", StringComparison.Ordinal)];
+        var release = Workflow[Workflow.IndexOf("\n  release:", StringComparison.Ordinal)..Workflow.IndexOf("\n  image:", StringComparison.Ordinal)];
         foreach (var permission in new[] { "id-token: write", "attestations: write", "artifact-metadata: write", "contents: write" })
             Assert.Contains(permission, release, StringComparison.Ordinal);
         Assert.Equal(3, Regex.Count(release, @"uses: actions/attest@"));
@@ -140,5 +140,20 @@ public partial class ReleaseProvenanceTests
             Assert.Contains($"            {asset}\n", files, StringComparison.Ordinal);
         var docs = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), "docs", "installation.md"));
         Assert.Contains("gh attestation verify corvus-win-x64.zip --bundle corvus-win-x64.zip.sigstore.json --repo Albasha0x0/Corvus", docs, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_container_image_is_attested_in_the_registry_and_documented_without_network()
+    {
+        var image = Workflow[Workflow.IndexOf("\n  image:", StringComparison.Ordinal)..Workflow.IndexOf("\n  publish:", StringComparison.Ordinal)];
+        foreach (var line in new[] { "id-token: write", "attestations: write", "artifact-metadata: write", "packages: write",
+            "subject-digest: ${{ steps.push.outputs.digest }}", "push-to-registry: true" })
+            Assert.Contains(line, image, StringComparison.Ordinal);
+        Assert.True(image.IndexOf("imagetools create", StringComparison.Ordinal) < image.IndexOf("uses: actions/attest@", StringComparison.Ordinal));
+        var root = DocsTests.RepoRoot();
+        Assert.Matches(@"(?m)^  - package-ecosystem: docker\n    directory: /\n", File.ReadAllText(Path.Combine(root, ".github", "dependabot.yml")));
+        foreach (var file in new[] { "Dockerfile", Path.Combine("docs", "installation.md") })
+            Assert.All(Regex.Matches(File.ReadAllText(Path.Combine(root, file)), @"docker run [^\n]*").Select(m => m.Value),
+                run => Assert.Contains("--network none", run, StringComparison.Ordinal));
     }
 }
