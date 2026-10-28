@@ -35,4 +35,20 @@ public class TestRunIsolationTests
                 if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
     }
+
+    // Reproduces the push run on d2fd7992: a tool folder of an ended server
+    // failed the leak check.
+    [Fact]
+    public void An_ended_process_s_tool_folder_is_swept_and_a_running_one_s_is_reported()
+    {
+        using var run = new TempDir();
+        // No process has this id, so the process that named the folder has ended.
+        var ended = Directory.CreateDirectory(run.File(Path.Combine("corvus-run", $"{int.MaxValue - 3}-a"))).FullName;
+        File.WriteAllText(Path.Combine(ended, "left.dll"), "x");
+        Assert.Empty(LeakGuard.Leftovers(run.Path));
+        var running = Directory.CreateDirectory(run.File(Path.Combine("corvus-run", $"{Environment.ProcessId}-b"))).FullName;
+        File.WriteAllText(Path.Combine(running, "left.dll"), "x");
+        Assert.Equal(["corvus-run"], LeakGuard.Leftovers(run.Path));
+        Assert.True(Directory.Exists(running));
+    }
 }

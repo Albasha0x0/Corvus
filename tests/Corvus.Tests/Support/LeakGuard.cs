@@ -104,9 +104,7 @@ internal static class LeakGuard
         var left = new List<string>();
         for (var clock = Stopwatch.StartNew(); ; Thread.Sleep(200))
         {
-            left = Directory.Exists(RunTemp)
-                ? Directory.EnumerateFileSystemEntries(RunTemp).Select(Path.GetFileName).Where(n => n != IdaSymbolStore && !RuntimeFiles.Any(n!.StartsWith) && !OnlyCompilerServerCache(Path.Combine(RunTemp, n))).Select(n => n!).Order().ToList()
-                : [];
+            left = Leftovers(RunTemp);
             if (left.Count == 0 || clock.Elapsed > TimeSpan.FromSeconds(5)) break;
         }
         if (left.Count > 0)
@@ -114,6 +112,21 @@ internal static class LeakGuard
         try { Directory.Delete(RunTemp, true); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         return problems.Count == 0 ? null : string.Join("; ", problems);
+    }
+
+    /// <summary>Names of the entries left in <paramref name="folder"/>, sorted; empty when it is absent.</summary>
+    internal static List<string> Leftovers(string folder)
+    {
+        if (!Directory.Exists(folder)) return [];
+        // A server killed during an external tool run leaves its tool folder,
+        // which the product sweeps once that process has ended: sweep it here.
+        var runs = Path.Combine(folder, "corvus-run");
+        Corvus.Native.Providers.ExternalTools.SweepRunFolders(runs);
+        try { if (Directory.Exists(runs) && !Directory.EnumerateFileSystemEntries(runs).Any()) Directory.Delete(runs); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return Directory.EnumerateFileSystemEntries(folder).Select(Path.GetFileName)
+            .Where(n => n != IdaSymbolStore && !RuntimeFiles.Any(n!.StartsWith) && !OnlyCompilerServerCache(Path.Combine(folder, n)))
+            .Select(n => n!).Order().ToList();
     }
 
     /// <summary>A folder holding only VBCSCompiler shadow copies, kept by the compiler server after a test build.</summary>
