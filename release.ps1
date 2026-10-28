@@ -53,6 +53,10 @@ $assets += $nupkg
 # The full pass the release relies on: committed with the bump, attached and attested by release.yml.
 $testSummary = 'release/tests.json'
 $assets += 'corvus-tests.json'
+# The SBOM, the docs site and the install scripts the docs' install URLs name.
+$assets += 'corvus-sbom.cdx.json', 'corvus-docs.zip', 'install.ps1', 'install.sh'
+# release.yml lists each target in two matrices.
+$assets = @($assets | Select-Object -Unique)
 
 # Summary of the full pass at $passedAt (null: none checked, $why says why) from test.ps1's records in $gitDir.
 # A fact not recorded is 'unknown'; tool names only, no paths.

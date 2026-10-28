@@ -16,13 +16,13 @@
 Windows（PowerShell）：
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
+irm https://github.com/Albasha0x0/Corvus/releases/latest/download/install.ps1 | iex
 ```
 
 Linux と macOS：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
+curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install.sh | sh
 ```
 
 インストーラーはダウンロードを検証し、見つかった MCP クライアントに Corvus を登録します。クライアントを再起動して次のように尋ねます：

@@ -1,8 +1,8 @@
 # Installs Corvus for the current user and registers it with the MCP clients found.
 # Existing registrations are refreshed; new clients are registered after one confirmation (Enter = yes).
-#   irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Yes
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Uninstall
+#   irm https://github.com/Albasha0x0/Corvus/releases/latest/download/install.ps1 | iex
+#   & ([scriptblock]::Create((irm https://github.com/Albasha0x0/Corvus/releases/latest/download/install.ps1))) -Yes
+#   & ([scriptblock]::Create((irm https://github.com/Albasha0x0/Corvus/releases/latest/download/install.ps1))) -Uninstall
 # Options:
 #   -Version X.Y.Z   install that release (pin or roll back)
 #   -DryRun          show what would be installed and registered; change nothing

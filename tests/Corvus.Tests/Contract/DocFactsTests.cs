@@ -50,6 +50,17 @@ public partial class DocFactsTests
     }
 
     [Fact]
+    public void Every_install_script_URL_is_a_release_download()
+    {
+        var release = $"https://github.com/{Installation.DefaultRepository}/releases/latest/download/";
+        var urls = MarkdownFiles().Concat(["README.ja.md", "README.zh-CN.md", "install.ps1", "install.sh"])
+            .SelectMany(f => InstallUrl().Matches(Read(f)).Select(m => (File: f, Url: m.Value))).ToList();
+        Assert.Contains(urls, u => u.File == "docs/installation.md");
+        var other = urls.Where(u => u.Url != release + Path.GetFileName(u.Url)).Select(u => $"{u.File}: {u.Url}").ToList();
+        Assert.True(other.Count == 0, "install from the release asset, not a branch:\n" + string.Join("\n", other));
+    }
+
+    [Fact]
     public void Commands_are_documented()
     {
         var cli = Read("docs/cli.md");
@@ -242,6 +253,9 @@ public partial class DocFactsTests
 
     [GeneratedRegex(@"Supported clients: ([^.]+)\.")]
     private static partial Regex SupportedClients();
+
+    [GeneratedRegex(@"https?://[^\s)""'`]*/install\.(?:ps1|sh)\b")]
+    private static partial Regex InstallUrl();
 
     [GeneratedRegex(@"rid: ([a-z0-9-]+)")]
     private static partial Regex Rid();

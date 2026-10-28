@@ -37,6 +37,7 @@ public class ReleaseScriptTests
     {
         Assert.Contains("$testSummary = 'release/tests.json'", Script);
         Assert.Contains("$assets += 'corvus-tests.json'", Script);
+        Assert.Contains("$assets += 'corvus-sbom.cdx.json', 'corvus-docs.zip', 'install.ps1', 'install.sh'", Script);
         Assert.True(Script.IndexOf("Write-TestSummary (Join-Path $root $testSummary)", StringComparison.Ordinal)
             < Script.IndexOf("Run 'git' @('add', '-A')", StringComparison.Ordinal), "the summary is written after the commit");
         var workflow = File.ReadAllText(Path.Combine(DocsTests.RepoRoot(), ".github", "workflows", "release.yml"));

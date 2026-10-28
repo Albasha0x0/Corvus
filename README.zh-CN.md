@@ -16,13 +16,13 @@
 Windows（PowerShell）：
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
+irm https://github.com/Albasha0x0/Corvus/releases/latest/download/install.ps1 | iex
 ```
 
 Linux 和 macOS：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
+curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install.sh | sh
 ```
 
 安装程序校验下载内容，并向它找到的 MCP 客户端注册 Corvus。重启客户端后提问：

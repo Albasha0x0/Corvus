@@ -8,13 +8,13 @@ The release archives need no .NET installation, admin rights or network port.
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
+irm https://github.com/Albasha0x0/Corvus/releases/latest/download/install.ps1 | iex
 ```
 
 Linux and macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
+curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install.sh | sh
 ```
 
 Restart the MCP client afterwards. The script:
@@ -74,7 +74,8 @@ gh attestation verify corvus-win-x64.zip --bundle corvus-win-x64.zip.sigstore.js
 - `SHA256SUMS.sigstore.json` is the bundle of `SHA256SUMS` itself.
 - Without network access, `gh` also needs `--custom-trusted-root`: save `gh attestation trusted-root > trusted_root.jsonl` once while online.
 
-Also released, each listed in `SHA256SUMS`: `corvus-sbom.cdx.json` (CycloneDX SBOM of the NuGet packages),
+Also released, each listed in `SHA256SUMS` and attested: `install.ps1` and `install.sh` (the install scripts),
+`corvus-sbom.cdx.json` (CycloneDX SBOM of the NuGet packages),
 `corvus-tests.json` (test record: commit, date, families, skipped tools, OS, SDK) and `corvus-docs.zip` (this documentation
 as a static HTML site).
 

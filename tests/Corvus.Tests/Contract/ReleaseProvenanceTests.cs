@@ -120,7 +120,11 @@ public partial class ReleaseProvenanceTests
         Assert.DoesNotContain("corvus-*.zip", release[release.LastIndexOf("uses: actions/attest@", StringComparison.Ordinal)..At("sbom-path:")], StringComparison.Ordinal);
         Assert.True(At("sha256sum corvus-*") < At("uses: actions/attest@"));
         Assert.True(At("uses: actions/attest@") < At("uses: softprops/action-gh-release@"));
-        Assert.Contains("sha256sum corvus-* CorvusRE.*.nupkg > \"$RUNNER_TEMP/assets.sha256\"", release, StringComparison.Ordinal);
+        // The install scripts the docs download are listed, attested and attached like the archives.
+        Assert.Contains("sha256sum corvus-* CorvusRE.*.nupkg install.ps1 install.sh > \"$RUNNER_TEMP/assets.sha256\"", release, StringComparison.Ordinal);
+        var attached = release[At("uses: softprops/action-gh-release@")..];
+        foreach (var script in new[] { "install.ps1*", "install.sh*" })
+            Assert.Contains(script, attached, StringComparison.Ordinal);
         Assert.Contains("subject-checksums: ${{ runner.temp }}/assets.sha256", release, StringComparison.Ordinal);
     }
 
@@ -227,5 +231,18 @@ public partial class ReleaseProvenanceTests
         Assert.Contains("sha256sum --check --ignore-missing --strict SHA256SUMS", changes, StringComparison.Ordinal);
         foreach (var (name, body) in jobs.Where(j => j.Key != "changes"))
             Assert.False(Regex.IsMatch(body, @"(?m)^    needs: .*\bchanges\b"), $"{name} waits for the change report");
+    }
+
+    [Fact]
+    public void SHA256SUMS_is_signed_with_the_repository_secret_before_it_is_attested_and_attached()
+    {
+        var release = Workflow[Workflow.IndexOf("\n  release:", StringComparison.Ordinal)..Workflow.IndexOf("\n  publish:", StringComparison.Ordinal)];
+        int At(string text) => release.IndexOf(text, StringComparison.Ordinal);
+        Assert.Contains("secrets.CORVUS_RELEASE_SIGNING_KEY", release, StringComparison.Ordinal);
+        Assert.Contains("::warning::CORVUS_RELEASE_SIGNING_KEY is not set", release, StringComparison.Ordinal);
+        var sign = At("-out SHA256SUMS.sig SHA256SUMS");
+        Assert.True(At("} > SHA256SUMS") < sign && sign < At("subject-path: SHA256SUMS*"));
+        // SHA256SUMS* adds the signature to the attested and attached files.
+        Assert.Equal(2, Regex.Count(release[sign..], @"^\s+(?:subject-path: )?SHA256SUMS\*$", RegexOptions.Multiline));
     }
 }

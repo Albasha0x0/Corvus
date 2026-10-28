@@ -2,9 +2,9 @@
 # Installs Corvus for the current user and registers it with the MCP clients found.
 # Existing registrations are refreshed; new clients are registered after one confirmation (Enter = yes), read from
 # /dev/tty even when the script arrives on stdin.
-#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --yes
-#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --uninstall
+#   curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install.sh | sh -s -- --yes
+#   curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install.sh | sh -s -- --uninstall
 # Options:
 #   --version X.Y.Z   install that release (pin or roll back)
 #   --dry-run         show what would be installed and registered; change nothing

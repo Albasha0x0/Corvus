@@ -17,13 +17,13 @@ Mach-O binaries.
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
+irm https://github.com/Albasha0x0/Corvus/releases/latest/download/install.ps1 | iex
 ```
 
 Linux and macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
+curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install.sh | sh
 ```
 
 The installer verifies the download and registers Corvus with the MCP clients it finds. Restart the client and ask:
