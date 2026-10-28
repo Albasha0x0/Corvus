@@ -4,10 +4,12 @@ Ops: hello; open {device, attach, stopped | spawn, arguments, cwd, temp, tmp, ch
 perSecond}; unwatch {id}; defer_module {name}; undefer_module {name}; release_load {thread}; load_script {id, source} (replies with its top-level exception);
 unload_script {id}; art_dump (Android: ART writes its thread dump; catcher: the Signal Catcher thread, or null); read {address, length}; capture_memory {path, protection, limit}; resume {thread}; resume_child {pid, stopped | hold | keep}; drop_child {pid};
 close {end, keep_handed}.
-Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child.
+Events: ready, stop (with stack: the bytes from the stack pointer up, outside Windows), calls, module, thread, exception, exit_status, output, exit, script_error, user_script, child,
+hold_overdue.
 - device (an adb serial): the program runs on that Android device through its frida-server; spawn takes a path or package, attach a pid or name.
 - A program started here stays suspended until the first resume; close resumes held threads and ends only programs started here.
-- defer_module holds the loading thread (module event with held) until release_load.
+- defer_module holds the loading thread (module event with held) until release_load, or for open's loadHold seconds
+  (default 10), after which hold_overdue {tid, module | il, waitedMs} names the thread let go.
 - A fatal exception event and exit_status {code} hold their thread until the worker has read them.
 - children {names}: a started child is held (Frida's child gating) and reported; one not in names is resumed at once.
 - resume_child runs a held child; stopped (Linux) leaves it stopped for open {attach, stopped} in another worker.
@@ -47,6 +49,9 @@ MemoryAccessMonitor.enable(ranges.map(r => ({ base: r.base, size: r.size })), { 
 } });
 """
 HOLD_WAIT = 5  # seconds a hold waits for the child to reach its code; one that never does runs on unheld
+# Seconds a load or compile hold waits for release_load before the worker
+# lets the thread go.
+LOAD_HOLD = 10.0
 CAPTURE_CHUNK = 1 << 20  # bytes of one read while memory is saved
 
 
@@ -156,6 +161,10 @@ class Session:
         self.released_at = 0.0  # when a resume last let threads go from their stops
         self.held = set()
         self.loading = set()  # threads held at the load of a deferred module or the compile of a watched method
+        # Each loading thread to its current hold, so a late timer does not end
+        # a newer hold.
+        self.load_holds = {}
+        self.load_hold = LOAD_HOLD
         self.lock = threading.Lock()
         self.user_scripts = {}
         self.children = {}  # pid of each held child to its path
@@ -177,8 +186,15 @@ class Session:
             if data:
                 payload["stack"] = data.hex()
         elif kind in ("module", "compiled") and payload.get("held"):
+            tid = payload.get("tid")
+            what = {"module": (payload.get("module") or {}).get("name")} if kind == "module" else {"il": payload.get("il")}
+            hold = object()
             with self.lock:
-                self.loading.add(payload.get("tid"))
+                self.loading.add(tid)
+                self.load_holds[tid] = hold
+            timer = threading.Timer(self.load_hold, self.load_overdue, args=(tid, hold, what, time.monotonic()))
+            timer.daemon = True
+            timer.start()
         if kind == "exit_status":
             self.exit_begun.set()
         ack = kind in ("exception", "exit_status") and payload.pop("ack", False)
@@ -417,6 +433,8 @@ class Session:
             except (frida.ProcessNotFoundError, frida.PermissionDeniedError) as e:
                 raise Failure("not_found" if isinstance(e, frida.ProcessNotFoundError) else "access_denied", str(e))
             self.session.on("detached", self.on_detached)
+            if args.get("loadHold"):
+                self.load_hold = float(args["loadHold"])
             children = args.get("children")
             if children is not None:
                 names = [str(n).lower() for n in (children.get("names") or []) if n]
@@ -559,12 +577,24 @@ class Session:
             self.suspended = False
         return {"resumed": targets, "started": started}
 
+    def load_overdue(self, tid, hold, what, since):
+        """Lets a thread go that waited the whole load hold, as a server that never answers would leave it."""
+        with self.lock:
+            if self.closing or self.script is None or self.load_holds.get(tid) is not hold:
+                return
+            self.loading.discard(tid)
+            del self.load_holds[tid]
+            script = self.script
+        script.post({"type": "load-%d" % tid})
+        emit(dict(what, event="hold_overdue", tid=tid, waitedMs=int((time.monotonic() - since) * 1000)))
+
     def release_load(self, args):
         self.require()
         tid = args.get("thread")
         with self.lock:
             held = tid in self.loading
             self.loading.discard(tid)
+            self.load_holds.pop(tid, None)
         if held:
             self.script.post({"type": "load-%d" % tid})
         return {"released": held}
@@ -596,6 +626,7 @@ class Session:
                     loading = list(self.loading)
                     self.held.clear()
                     self.loading.clear()
+                    self.load_holds.clear()
                 for tid in held:
                     self.script.post({"type": "resume-%d" % tid})
                 for tid in loading:

@@ -519,6 +519,7 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
                     ["environment"] = ProgramEnvironment(environment ?? []),
                 }
                 : new JsonObject { ["attach"] = target };
+            if (!recording) args["loadHold"] = LoadHoldLimit.TotalSeconds;
             if (childNames != null)
             {
                 session.ChildNames = childNames;
@@ -857,6 +858,11 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
             case "script_error":
                 session.Add("error", null, null, "session script: " + body.GetProperty("message").GetString());
                 break;
+            case "hold_overdue":
+                var heldAt = body.TryGetProperty("module", out var heldModule) ? heldModule.GetString() : $"the compile of IL body {body.GetProperty("il").GetString()}";
+                session.Add("error", Thread(), null,
+                    $"thread {Thread()} held at {heldAt} was let go after {body.GetProperty("waitedMs").GetInt64()} ms; points deferred there may miss its first calls");
+                break;
             case "exit":
                 var exitReason = body.GetProperty("reason").GetString() ?? "";
                 // Frida can report process-terminated while the process is still in its exit; wait for it to end so the
@@ -1004,6 +1010,9 @@ public sealed partial class LiveSessionService(AssemblyWorkspace workspace, Nati
 
     /// <summary>How long a program may stay in its exit (exit code set, process not ended) before it is ended.</summary>
     internal static TimeSpan StuckExit { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>How long a thread held at a module load or method compile waits for its points before the worker lets it go.</summary>
+    internal static TimeSpan LoadHoldLimit { get; set; } = TimeSpan.FromSeconds(10);
 
     // A module's DLL shutdown can wait forever; Frida's agent can, after a watch on x86.
     /// <summary>Ends, with its chosen exit code, a program whose ExitProcess does not finish within <see cref="StuckExit"/>.</summary>

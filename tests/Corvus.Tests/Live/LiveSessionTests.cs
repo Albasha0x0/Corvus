@@ -471,6 +471,17 @@ public sealed class LiveSessionTests : LiveSessionTestBase
     }
 
     [Fact]
+    public async Task A_load_hold_the_worker_ended_is_an_error_event_naming_module_thread_and_wait()
+    {
+        await _tools.LiveSession("attach", program: "99994242");
+        Assert.Equal(10, (double)_backend.LastOpen!["loadHold"]!);
+        _backend.Worker!.Emit(new JsonObject { ["event"] = "hold_overdue", ["module"] = "plugin.dll", ["tid"] = 77, ["waitedMs"] = 10_004 });
+        var errors = "";
+        for (int i = 0; i < 100 && !errors.Contains("let go"); i++, await Task.Delay(50)) errors = await _tools.LiveEvents("live-1", kind: "error");
+        Assert.Contains("thread 77 held at plugin.dll was let go after 10004 ms", errors);
+    }
+
+    [Fact]
     public async Task A_point_in_a_module_not_yet_loaded_is_deferred_until_its_load_event()
     {
         await _tools.LiveSession("attach", program: "99994242");

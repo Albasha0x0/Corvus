@@ -215,6 +215,55 @@ public sealed class LiveWorkerTests : IDisposable
             return _Device()
         """;
 
+    // The stand-in holds thread 9 at plugin.dll's load as a module is deferred;
+    // the replies the worker posts go to posted.txt.
+    private const string HoldingFrida = """
+        import os
+
+        __version__ = "17.24.3"
+
+
+        class ProcessNotFoundError(Exception): pass
+        class PermissionDeniedError(Exception): pass
+        class InvalidOperationError(Exception): pass
+
+
+        class _Exports:
+            def info(self):
+                return {"pid": 4242, "arch": "x64", "platform": "windows", "modules": []}
+            def defer_module(self, name):
+                module = {"name": "plugin.dll", "base": "0x10000", "size": 4096, "path": "/plugin.dll"}
+                _Script.receive({"type": "send", "payload": {"type": "module", "action": "loaded", "module": module, "held": True, "tid": 9}}, None)
+                return True
+
+
+        class _Script:
+            exports_sync = _Exports()
+            receive = None
+            def on(self, signal, callback):
+                if signal == "message":
+                    _Script.receive = callback
+            def load(self): pass
+            def post(self, message):
+                with open(os.path.join(os.path.dirname(__file__), "posted.txt"), "a") as f:
+                    print(message["type"], file=f)
+
+
+        class _Session:
+            def on(self, *args): pass
+            def create_script(self, source): return _Script()
+            def detach(self): pass
+
+
+        class _Device:
+            def on(self, *args): pass
+            def attach(self, pid): return _Session()
+
+
+        def get_local_device():
+            return _Device()
+        """;
+
     /// <summary>The worker on <paramref name="frida"/>, a stand-in frida module beside it.</summary>
     private Process StartWorker(string frida)
     {
@@ -251,6 +300,35 @@ public sealed class LiveWorkerTests : IDisposable
             Assert.Contains("""{"id":"a","ok":true}""", reply);
             Assert.Contains("""{"id":"b","ok":false,"error":{"code":"failed","message":"InvalidOperationError: unable to intercept instruction at 0xbad; please file a bug"}}""", reply);
             Assert.Contains("""{"id":"c","ok":true}""", reply);
+        }
+        finally
+        {
+            p.Kill();
+            p.WaitForExit(10_000);
+        }
+    }
+
+    [Fact]
+    public void A_load_hold_never_released_lets_its_thread_go_at_the_bound_and_names_it()
+    {
+        using var p = StartWorker(HoldingFrida);
+        try
+        {
+            Assert.Contains("\"ok\":true", Request(p, 1, "open", """{"attach":"4242","loadHold":0.5}"""));
+            var clock = Stopwatch.StartNew();
+            p.StandardInput.WriteLine("""{"id":2,"op":"defer_module","args":{"name":"plugin"}}""");
+            p.StandardInput.Flush();
+            string? line;
+            while ((line = p.StandardOutput.ReadLine()) != null && !line.Contains("\"hold_overdue\"", StringComparison.Ordinal)) { }
+            Assert.NotNull(line);
+            Assert.InRange(clock.Elapsed, TimeSpan.FromSeconds(0.4), TimeSpan.FromSeconds(30));
+            Assert.Contains("\"module\":\"plugin.dll\"", line);
+            Assert.Contains("\"tid\":9", line);
+            var waited = int.Parse(System.Text.RegularExpressions.Regex.Match(line, "\"waitedMs\":(\\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
+            Assert.InRange(waited, 450, 30_000);
+            Assert.Equal(["load-9"], File.ReadAllLines(_dir.File("posted.txt")));
+            // The server's late release finds the thread already gone.
+            Assert.Contains("\"released\":false", Request(p, 3, "release_load", """{"thread":9}"""));
         }
         finally
         {

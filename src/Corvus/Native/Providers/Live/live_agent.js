@@ -13,6 +13,8 @@ function expect(type) {
   awaited.add(type);
 }
 
+// recv().wait() takes no timeout: the worker bounds a load hold and posts its
+// reply itself (hold_overdue).
 function waitFor(type) {
   if (!closing) recv(type, () => {}).wait();
   awaited.delete(type);
