@@ -83,6 +83,12 @@ public static partial class PackageReview
             : files.Paths.Any(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || IsSdistFile(p)) ? Python(files, ct)
             : GemSpecPath(files) != null ? RubyGems(files, ct)
             : null;
+        if (report != null)
+        {
+            var assetNotes = new List<string>();
+            var assets = AssetTrailingData(files, report, assetNotes, ct);
+            if (assets.Count > 0 || assetNotes.Count > 0) report = report with { Findings = [.. report.Findings, .. assets], Notes = [.. report.Notes, .. assetNotes] };
+        }
         // A source tree with no package manifest is reviewed for its agent configuration alone.
         var agent = AgentConfig(files, standalone: report == null, ct);
         var hooks = RepositoryHooks(files, ct);

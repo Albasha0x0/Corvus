@@ -262,6 +262,52 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("none", Review(Tgz("left-pad-1.3.0.tgz", ("package/package.json", """{"name":"left-pad","version":"1.3.0","main":"index.js"}"""),
             ("package/index.js", "module.exports = (s, n, c) => String(s).padStart(n, c);"))).Review);
 
+    // An IHDR and an IEND chunk with unchecked CRCs: the smallest PNG structure the reader walks.
+    private static readonly byte[] PngImage = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0, 0, 0, 13, .. "IHDR"u8, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, .. "IEND"u8, 0, 0, 0, 0];
+
+    private PackageReport AssetPackage(string name, byte[] png, string main, string? postinstall = null) =>
+        Review(Zip(name, ("package/package.json", U("{\"name\":\"assets\",\"version\":\"1.0.0\",\"main\":\"index.js\"" + (postinstall != null ? $",\"scripts\":{{\"postinstall\":\"{postinstall}\"}}" : "") + "}")),
+            ("package/index.js", U(main)), ("package/install.js", U(main)), ("package/img/logo.png", png)));
+
+    [Fact]
+    public void A_png_with_data_past_its_iend_chunk_that_package_code_names_is_review_alone_and_noteworthy_when_an_install_script_names_it()
+    {
+        byte[] trailing = [.. PngImage, .. new byte[2048]];
+        var f = Assert.Single(AssetPackage("a.zip", trailing, "require('fs').readFileSync(__dirname + '/img/logo.png');").Findings, f => f.Rule == "package/asset-trailing-data");
+        Assert.Equal(("review", "package/img/logo.png"), (f.Level, f.Path));
+        Assert.Equal("package/img/logo.png: PNG data ends at byte 45, 2,048 bytes follow; named in package/index.js", f.Detail);
+        f = Assert.Single(AssetPackage("b.zip", trailing, "const p = 'logo.png';", "node install.js").Findings, f => f.Rule == "package/asset-trailing-data");
+        Assert.Equal("noteworthy", f.Level);
+        Assert.EndsWith("named in package/install.js, which runs at install", f.Detail);
+    }
+
+    [Fact]
+    public void Trailing_png_data_no_code_names_and_a_named_png_without_trailing_data_have_no_finding()
+    {
+        Assert.DoesNotContain(AssetPackage("c.zip", [.. PngImage, .. new byte[2048]], "module.exports = 1;").Findings, f => f.Rule == "package/asset-trailing-data");
+        Assert.DoesNotContain(AssetPackage("d.zip", PngImage, "require('fs').readFileSync('img/logo.png');").Findings, f => f.Rule == "package/asset-trailing-data");
+    }
+
+    [Fact]
+    public void A_named_woff2_font_is_noted_as_not_checked_rather_than_passed()
+    {
+        var r = Review(Zip("e.zip", ("package/package.json", U("""{"name":"fonts","version":"1.0.0","main":"index.js"}""")),
+            ("package/index.js", U("load('fonts/a.woff2');")), ("package/fonts/a.woff2", [.. "wOF2"u8, .. new byte[2048]]), ("package/fonts/b.woff2", [.. "wOF2"u8])));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/asset-trailing-data");
+        Assert.Contains("1 named assets not checked: WOFF2 or font collection (package/fonts/a.woff2)", r.Notes);
+    }
+
+    [Fact]
+    public void Each_asset_format_ends_where_its_own_structure_ends()
+    {
+        Assert.Equal(("JPEG", 12L), PackageReview.FormatEnd([0xFF, 0xD8, 0xFF, 0xDA, 0, 2, 1, 2, 0xFF, 0x00, 0xFF, 0xD9, 9, 9]));
+        Assert.Equal(("GIF", 19L), PackageReview.FormatEnd([.. "GIF89a"u8, 1, 0, 1, 0, 0, 0, 0, 0x21, 0xF9, 1, 0, 0, 0x3B, 0x3B, 7]));
+        Assert.Equal(("RIFF", 12L), PackageReview.FormatEnd([.. "RIFF"u8, 4, 0, 0, 0, .. "WAVE"u8, 1, 2]));
+        Assert.Equal(("font", 32L), PackageReview.FormatEnd([0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, .. "head"u8, 0, 0, 0, 0, 0, 0, 0, 28, 0, 0, 0, 2, 0, 0, 0, 0, 9, 9, 9, 9]));
+        Assert.Null(PackageReview.FormatEnd([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13]));
+    }
+
 
     private static byte[] Gzip(byte[] data)
     {
