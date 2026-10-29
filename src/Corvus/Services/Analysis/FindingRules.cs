@@ -49,7 +49,7 @@ public static class FindingRules
         N("package/hidden-url", "in a file of at most 64 KiB (bundles encode their own endpoints)", "a URL hidden in base64 or hex"),
         N("package/exec-char-codes", RunsDecoded, "executes code built from character codes"),
         N("package/pyobfuscate", "exact list: pyobfuscate markers", "pyobfuscate-style transformed code"),
-        N("package/space-run", "exact form: code after 300 or more spaces on one line", "code placed out of view in an editor"),
+        N("package/space-run", "exact form: code after spaces and tabs 300 or more columns wide on one line (a tab is 4)", "code placed out of view in an editor"),
         N("package/clipboard-address", "a file that runs at install or as a content script on every site", "reads and writes the clipboard beside a cryptocurrency address pattern"),
         // Package combinations.
         N("package/peeled-layers", AtInstall + ", with transformation layers peeled", "transformation layers peeled"),

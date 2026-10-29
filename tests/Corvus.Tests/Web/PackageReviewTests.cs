@@ -296,6 +296,26 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(install.Findings, f => f is { Rule: "package/space-run", Level: "noteworthy" });
     }
 
+    [Fact]
+    public void Code_after_128_tabs_is_noteworthy_as_a_tab_counts_4_columns()
+    {
+        var code = "module.exports = {};" + new string('\t', 128) + "global['r']=require;";
+        var wide = Review(Tgz("animate-1.0.0.tgz", ("package/package.json", """{"name":"animate","version":"1.0.0","main":"index.js"}"""), ("package/index.js", code)));
+        Assert.Contains(wide.Findings, f => f is { Rule: "package/space-run", Level: "noteworthy" });
+        var narrow = Review(Tgz("animate-1.0.1.tgz", ("package/package.json", """{"name":"animate","version":"1.0.1","main":"index.js"}"""),
+            ("package/index.js", "module.exports = {};" + new string('\t', 74) + "global['r']=require;")));
+        Assert.DoesNotContain(narrow.Findings, f => f.Rule == "package/space-run");
+    }
+
+    [Fact]
+    public void Code_after_deep_leading_tab_indentation_is_not_a_space_run()
+    {
+        var indent = new string('\t', 100);
+        var code = "module.exports = {};\n" + indent + "exports.a = 1;\r\n" + indent + "exports.b = 2;\n";
+        var install = Review(Tgz("indent-1.0.0.tgz", ("package/package.json", """{"name":"indent","version":"1.0.0","main":"index.js"}"""), ("package/index.js", code)));
+        Assert.DoesNotContain(install.Findings, f => f.Rule == "package/space-run");
+    }
+
     [Theory]
     [InlineData("package/string-array", "var _0x1a2b;_0x2a2b;_0x3a2b;_0x4a2b;_0x5a2b;_0x6a2b;_0x7a2b;_0x8a2b;_0x9a2b")]
     [InlineData("package/raw-address-socket", "s.connect(('203.0.113.9', 443))")]

@@ -210,7 +210,7 @@ public static partial class PackageReview
         new("package/hidden-url", "transformed code", Small, R(@"['""`](?:aHR0cHM6Ly|aHR0cDovL|68747470733a2f2f|687474703a2f2f)[A-Za-z0-9+/=]{8,}['""`]"), "a URL hidden in base64 or hex"),
         new("package/exec-char-codes", "transformed code", "noteworthy", R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d"), "executes code built from character codes"),
         new("package/pyobfuscate", "transformed code", "noteworthy", R(@"\(https://pyobfuscate\.com\)|\bimport\s+(?:marshal|zlib|base64)\s+as\s+_{3,}"), "pyobfuscate-style transformed code"),
-        new("package/space-run", "transformed code", "noteworthy", R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
+        new("package/space-run", "transformed code", "noteworthy", CodeAfterBlankRun, "code placed after hundreds of columns of spaces or tabs on one line (out of view in an editor)"),
     ];
 
     /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
@@ -390,6 +390,27 @@ public static partial class PackageReview
     private static partial Regex HiddenPowerShell();
 
     private static readonly Regex HexName = R(@"\b_0x[0-9a-f]{4,6}\b");
+
+    /// <summary>Whether code follows code on one line after spaces and tabs at least 300 columns wide.</summary>
+    private static bool CodeAfterBlankRun(string text)
+    {
+        // A tab counts as 4 columns, the default tab size in common editors.
+        int width = 0;
+        bool code = false;
+        foreach (char c in text)
+        {
+            if (c is ' ' or '\t')
+            {
+                if (code) width += c == '\t' ? 4 : 1;
+                continue;
+            }
+            bool printable = c is >= '!' and <= '~';
+            if (printable && width >= 300) return true;
+            code = printable;
+            width = 0;
+        }
+        return false;
+    }
 
     /// <summary>Whether nine obfuscator.io names (_0x1a2b) follow each other on one line, each within 400 characters.</summary>
     private static bool StringArrayNames(string text)
