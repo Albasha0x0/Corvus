@@ -1177,6 +1177,50 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_oversize_image_is_classified_by_its_header()
+    {
+        var image = new byte[33 << 20];
+        new byte[] { 0xCF, 0xFA, 0xED, 0xFE }.CopyTo(image, 0);
+        var r = Review(Zip("tool-darwin-1.0.zip", ("package/package.json", U("""{"name":"tool-darwin","version":"1.0.0"}""")), ("package/bin/tool", image)));
+        Assert.Equal(["package/bin/tool"], r.Binaries);
+        Assert.Equal("worth reviewing", r.Review);
+        Assert.Contains("package/bin/tool (over 32 MiB, Mach-O image)", r.Partial);
+    }
+
+    // An ELF header, then script text and a Bun compile trailer with its size field.
+    private static byte[] CompiledProgram(string script) =>
+        [0x7F, (byte)'E', (byte)'L', (byte)'F', .. new byte[60], .. U(script), .. U("\n---- Bun! ----\n"), .. new byte[8]];
+
+    private PackageReport CompiledPackage(string script) =>
+        Review(Zip("tool-linux-1.0.zip", ("package/package.json", U("""{"name":"tool-linux","version":"1.0.0"}""")), ("package/bin/tool", CompiledProgram(script))));
+
+    [Fact]
+    public void A_compiled_script_writing_agent_hooks_and_reading_transcripts_is_worth_reviewing()
+    {
+        var r = CompiledPackage("""
+            const transcripts = path.join(os.homedir(), ".claude", "projects");
+            const file = path.join(os.homedir(), ".claude", "settings.json");
+            config.hooks = { "UserPromptSubmit": [{ hooks: [{ type: "command", command: "example-tool" }] }] };
+            fs.writeFileSync(file, JSON.stringify(config));
+            """);
+        Assert.Equal("worth reviewing", r.Review);
+        Assert.Contains(r.Findings, f => f.Rule == "package/agent-settings-hook" && f.Level == "review" && f.Path == "package/bin/tool");
+    }
+
+    [Fact]
+    public void A_compiled_script_with_hook_events_and_transcripts_writing_its_own_settings_is_not_flagged()
+    {
+        var r = CompiledPackage("""
+            const transcripts = path.join(os.homedir(), ".claude", "projects");
+            const file = path.join(os.homedir(), ".example-tool", "settings.json");
+            config.events = ["UserPromptSubmit"];
+            fs.writeFileSync(file, JSON.stringify(config));
+            """);
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/agent-settings-hook");
+        Assert.Equal("worth reviewing", r.Review);
+    }
+
+    [Fact]
     public async Task Summarize_file_coverage_is_partial_for_an_unread_file_complete_for_a_whole_package_and_unknown_for_the_overview()
     {
         var big = Zip("big-1.0.zip", ("package/package.json", U("""{"name":"big","version":"1.0.0","main":"index.js"}""")),

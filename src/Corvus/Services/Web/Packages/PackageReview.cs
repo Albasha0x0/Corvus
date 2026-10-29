@@ -93,6 +93,7 @@ public static partial class PackageReview
         {
             var assetNotes = new List<string>();
             var assets = AssetTrailingData(files, report, assetNotes, ct);
+            assets.AddRange(AgentSettingsHooks(files));
             if (assets.Count > 0 || assetNotes.Count > 0) report = report with { Findings = [.. report.Findings, .. assets], Notes = [.. report.Notes, .. assetNotes] };
         }
         // A source tree with no package manifest is reviewed for its agent configuration alone.
@@ -508,8 +509,19 @@ public static partial class PackageReview
     /// <summary>Native and executable files a package carries.</summary>
     internal static List<string> Binaries(PackageFiles files) =>
         files.Paths.Where(p => Regex.IsMatch(p, @"\.(node|so|dylib|dll|exe|pyd|wasm|jar|bin|msi|scr|com)$", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)
-                               || files.Bytes(p) is { Length: >= 4 } b && (b[0] == 'M' && b[1] == 'Z' || b[0] == 0x7F && b[1] == 'E' && b[2] == 'L' && b[3] == 'F'))
+                               || files.Head(p) is { Length: >= 4 } h && PackageFiles.ImageKind(h) != null)
             .Order(StringComparer.Ordinal).Take(200).ToList();
+
+    private static readonly Regex HookEvent = R(@"['""`](?:UserPromptSubmit|PreToolUse|PostToolUse|SessionStart|SessionEnd|PreCompact|SubagentStop)['""`]");
+    private static readonly Regex SettingsFile = R(@"['""`]\.claude['""`]\s*,\s*['""`]settings(?:\.local)?\.json['""`]|\.claude/settings(?:\.local)?\.json");
+    private static readonly Regex FileWrite = R(@"\b(?:writeFile(?:Sync)?|Bun\.write|Deno\.writeTextFile(?:Sync)?)\s*\(");
+    private static readonly Regex TranscriptFolder = R(@"['""`]\.claude['""`]\s*,\s*['""`]projects['""`]|\.claude/projects/");
+
+    /// <summary>One finding per compiled program whose embedded script writes hook events into an agent settings file and reads its transcript folder; empty when none.</summary>
+    private static IEnumerable<PackageFinding> AgentSettingsHooks(PackageFiles files) =>
+        files.Embedded.Where(e => HookEvent.IsMatch(e.Value) && SettingsFile.IsMatch(e.Value) && FileWrite.IsMatch(e.Value) && TranscriptFolder.IsMatch(e.Value))
+            .Select(e => new PackageFinding("package/agent-settings-hook", "review", "agent configuration",
+                "the script compiled into this program writes hook events to an agent settings file and reads the agent's transcript folder", e.Key));
 
     // --- commands named like system commands ---
 

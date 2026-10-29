@@ -1,5 +1,6 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Text;
 using Corvus.Core;
 
 
@@ -11,8 +12,19 @@ internal sealed class PackageFiles
     public const int MaxEntries = 50_000;
     public const long MaxFile = 32L << 20, MaxTotal = 512L << 20;
 
+    /// <summary>Bytes kept from the end of an image over <see cref="MaxFile"/>, where a compile trailer sits.</summary>
+    public const int MaxTail = 8 << 20;
+
+    // Past MaxScan an oversize file is classified by its header alone.
+    private const long MaxScan = 256L << 20;
+    private const int MaxEmbedded = 4;
+
     private readonly Dictionary<string, byte[]?> _files = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _sizes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, byte[]> _heads = new(StringComparer.Ordinal);
+
+    /// <summary>Script text before a Bun or Deno compile trailer in the last <see cref="MaxTail"/> bytes of an image, by path.</summary>
+    public Dictionary<string, string> Embedded { get; } = new(StringComparer.Ordinal);
 
     public string Container { get; private set; } = "folder";
     public List<string> Notes { get; } = [];
@@ -31,6 +43,20 @@ internal sealed class PackageFiles
     public long Size(string path) => _sizes.GetValueOrDefault(path);
     public bool Has(string path) => _sizes.ContainsKey(path);
     public byte[]? Bytes(string path) => _files.GetValueOrDefault(path);
+
+    /// <summary>Up to the first 8 bytes of a file, read or over the limits; null when not opened.</summary>
+    public byte[]? Head(string path) => Bytes(path) is { } b ? b[..Math.Min(8, b.Length)] : _heads.GetValueOrDefault(path);
+
+    /// <summary>ELF, Mach-O or PE from a file's first bytes; null for any other header.</summary>
+    internal static string? ImageKind(ReadOnlySpan<byte> head) => head switch
+    {
+        [0x7F, (byte)'E', (byte)'L', (byte)'F', ..] => "ELF",
+        [(byte)'M', (byte)'Z', ..] => "PE",
+        [0xCE or 0xCF, 0xFA, 0xED, 0xFE, ..] or [0xFE, 0xED, 0xFA, 0xCE or 0xCF, ..] => "Mach-O",
+        // A Java class shares 0xCAFEBABE; its major version in bytes 6 and 7 is 45 or more.
+        [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, < 20] => "Mach-O",
+        _ => null,
+    };
 
     public string? Text(string path) => Bytes(path) is { } b ? Scripts.ScriptText.Decode(b, out _) : null;
 
@@ -126,12 +152,12 @@ internal sealed class PackageFiles
         foreach (var (file, rel) in found)
         {
             ct.ThrowIfCancellationRequested();
-            Add(rel, new FileInfo(file).Length, () => ReadFile(file));
+            Add(rel, new FileInfo(file).Length, () => ReadFile(file), () => File.OpenRead(file));
         }
         Notes.Add($"agent configuration read from {Path.GetFileName(root)} root files and {string.Join(", ", AgentFiles.Folders)}; other subfolders not read");
     }
 
-    private void Add(string path, long size, Func<byte[]?> read)
+    private void Add(string path, long size, Func<byte[]?> read, Func<Stream?>? open = null)
     {
         path = path.Replace('\\', '/').TrimStart('/');
         if (path.Length == 0 || path.EndsWith('/')) return;
@@ -144,15 +170,50 @@ internal sealed class PackageFiles
         if (size > MaxFile || _total + size > MaxTotal)
         {
             _files[path] = null;
-            NotRead.Add(size > MaxFile ? $"{path} (over {MaxFile >> 20} MiB)" : $"{path} (past {MaxTotal >> 20} MiB read)");
+            if (size > MaxFile && open != null) ReadEnds(path, size, open);
+            var kind = _heads.TryGetValue(path, out var head) && ImageKind(head) is { } k ? $", {k} image" : "";
+            NotRead.Add(size > MaxFile ? $"{path} (over {MaxFile >> 20} MiB{kind})" : $"{path} (past {MaxTotal >> 20} MiB read)");
             return;
         }
         var bytes = read();
         _total += bytes?.Length ?? 0;
         _files[path] = bytes;
+        if (bytes != null && ImageKind(bytes) != null) EmbeddedScript(path, bytes.AsSpan(Math.Max(0, bytes.Length - MaxTail)));
     }
 
     private long _total;
+
+    private static readonly byte[][] CompileTrailers = ["\n---- Bun! ----\n"u8.ToArray(), "d3n0l4nd"u8.ToArray()];
+
+    // Streams the file once, keeping its header and a ring of its last MaxTail bytes.
+    private void ReadEnds(string path, long size, Func<Stream?> open)
+    {
+        try
+        {
+            using var s = open();
+            if (s == null) return;
+            var head = new byte[8];
+            if (s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) < head.Length) return;
+            _heads[path] = head;
+            if (ImageKind(head) == null || size > MaxScan || Embedded.Count >= MaxEmbedded) return;
+            if (s.CanSeek) s.Position = size - MaxTail;
+            var ring = new byte[MaxTail];
+            long total = 0;
+            int n;
+            while ((n = s.Read(ring, (int)(total % MaxTail), (int)Math.Min(MaxTail - total % MaxTail, 81920))) > 0) total += n;
+            int start = (int)(total % MaxTail);
+            EmbeddedScript(path, total < MaxTail ? ring[..start] : [.. ring[start..], .. ring[..start]]);
+            if (Embedded.ContainsKey(path)) Notes.Add($"{path}: script before its compile trailer read from the last {MaxTail >> 20} MiB");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+    }
+
+    private void EmbeddedScript(string path, ReadOnlySpan<byte> tail)
+    {
+        int at = -1;
+        foreach (var t in CompileTrailers) at = Math.Max(at, tail.LastIndexOf(t));
+        if (at > 0 && Embedded.Count < MaxEmbedded) Embedded[path] = Encoding.UTF8.GetString(tail[..at]);
+    }
 
     private void ReadZip(Stream stream, CancellationToken ct)
     {
@@ -161,7 +222,7 @@ internal sealed class PackageFiles
         {
             ct.ThrowIfCancellationRequested();
             if (e.FullName.EndsWith('/')) continue;
-            Add(e.FullName, e.Length, () => ReadBounded(e.Open(), MaxFile));
+            Add(e.FullName, e.Length, () => ReadBounded(e.Open(), MaxFile), e.Open);
         }
     }
 
@@ -194,7 +255,7 @@ internal sealed class PackageFiles
                 ReadTar(gz, ct, prefix: GemData);
                 continue;
             }
-            Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : []);
+            Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : [], () => e.DataStream);
         }
     }
 
@@ -210,7 +271,7 @@ internal sealed class PackageFiles
             if (rel.StartsWith(".git/", StringComparison.Ordinal) && rel != ".git/config"
                 && !(rel.StartsWith(".git/hooks/", StringComparison.Ordinal) && rel.IndexOf('/', 11) < 0 && !rel.EndsWith(".sample", StringComparison.Ordinal))) continue;
             long size = new FileInfo(file).Length;
-            Add(rel, size, () => ReadFile(file));
+            Add(rel, size, () => ReadFile(file), () => File.OpenRead(file));
         }
     }
 

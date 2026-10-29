@@ -104,6 +104,7 @@ public static class FindingRules
         N("package/bidi-controls", "in a file an agent reads as instructions", "bidirectional control characters"),
         N("package/zero-width", "8 or more on one line of a file an agent reads as instructions", "zero-width characters"),
         N("package/agent-hook", "a hook on an event that runs without a tool call", "an agent hook runs a command"),
+        R("package/agent-settings-hook", "a compiled program installs agent hooks and reads transcripts"),
         R("package/mcp-approve-all", "every project MCP server approved without asking"),
         R("package/mcp-approve", "named project MCP servers approved without asking"),
         N("package/folder-open-task", "a folder-open task with automatic tasks allowed", "a task runs when the folder opens"),
