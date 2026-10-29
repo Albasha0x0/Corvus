@@ -89,7 +89,7 @@ internal sealed class PackageFiles
             return files;
         }
         var name = Path.GetFileName(path);
-        if (name is "package.json" or "manifest.json" or "setup.py" or "setup.cfg" or "pyproject.toml" or "extension.vsixmanifest" or "PKG-INFO" or "METADATA")
+        if (name is "package.json" or "composer.json" or "manifest.json" or "setup.py" or "setup.cfg" or "pyproject.toml" or "extension.vsixmanifest" or "PKG-INFO" or "METADATA")
         {
             files.Container = "file";
             files.ReadFolder(Path.GetDirectoryName(Path.GetFullPath(path))!, ct, only: name);

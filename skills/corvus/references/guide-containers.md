@@ -17,8 +17,7 @@ Files, containers and wrapped apps (nothing is executed).
 - unpack_container on a pcap reassembles TCP and writes HTTP responses and tls.json; keyLog (SSLKEYLOGFILE) decrypts TLS and QUIC.
 - summarize_file views for single formats: qlog, certificate, evtx, procmon, registry (table= a key path), pri, protobuf, flutter, wasm, assets.
 - summarize_file view=script peels PowerShell, batch, VBScript and JavaScript transformation layers without running them.
-- summarize_file view=package reviews an npm, PyPI, RubyGems, VS Code or browser extension package before install.
-- summarize_file view=package reviews an npm, PyPI, NuGet, VS Code or browser extension package before install.
+- summarize_file view=package reviews an npm, PyPI, RubyGems, NuGet, Composer, VS Code or browser extension package before install.
 - analyze_js: bundler signatures and source maps; view=position maps a minified line:column to the original.
 - Blazor WebAssembly (_framework/*.wasm): unpack_container converts the files to loadable PEs; save_assembly to a .wasm path writes Webcil back.
 - Other .wasm files load as native images: disassemble gives WAT, decompile_native a lifted view, find_xrefs and native_call_tree the calls.

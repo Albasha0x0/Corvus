@@ -66,8 +66,8 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
 
 /// <summary>Reviews npm, PyPI, RubyGems, VSIX and browser extension packages and agent configuration without installing or running them.</summary>
 /// <summary>
-/// Reviews npm, PyPI, NuGet, VSIX and browser extension packages and agent
-/// configuration without installing or running them.
+/// Reviews npm, PyPI, NuGet, Composer, VSIX and browser extension packages and
+/// agent configuration without installing or running them.
 /// </summary>
 public static partial class PackageReview
 {
@@ -87,6 +87,7 @@ public static partial class PackageReview
             : Root(files, "package.json") != null ? Npm(files, ct)
             : files.Paths.Any(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || IsSdistFile(p)) ? Python(files, ct)
             : GemSpecPath(files) != null ? RubyGems(files, ct)
+            : Root(files, "composer.json") != null ? Composer(files, ct)
             : null;
         if (report != null)
         {
@@ -95,6 +96,14 @@ public static partial class PackageReview
             if (assets.Count > 0 || assetNotes.Count > 0) report = report with { Findings = [.. report.Findings, .. assets], Notes = [.. report.Notes, .. assetNotes] };
         }
         // A source tree with no package manifest is reviewed for its agent configuration alone.
+        // A PHP project often carries a frontend package.json; its Composer
+        // scripts join the npm review, which keeps its ecosystem.
+        if (report is { Ecosystem: "npm" } && Root(files, "composer.json") != null && Composer(files, ct) is { } php)
+            report = report with
+            {
+                Scripts = [.. report.Scripts, .. php.Scripts], Findings = [.. report.Findings, .. php.Findings],
+                Notes = [.. report.Notes, "also composer.json: its install-time scripts are listed and reviewed", .. php.Notes],
+            };
         var agent = AgentConfig(files, standalone: report == null, ct);
         var hooks = RepositoryHooks(files, ct);
         if (report == null && agent == null && hooks == null && !folder) return null;

@@ -79,6 +79,51 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_composer_install_command_is_read_by_the_install_rules()
+    {
+        // The command is text the reader matches; nothing runs it.
+        var r = Review(Zip("sample-tools-1.0.0.zip",
+            ("composer.json", U("""{"name":"sample/tools","version":"1.0.0","require":{"php":">=8.1"},"scripts":{"post-install-cmd":"curl -s https://example.invalid/notes.txt -o notes.txt"}}"""))));
+        Assert.Equal(("composer", "sample/tools", 1), (r.Ecosystem, r.Name, r.Dependencies));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/install-script", Level: "info" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/install-network-tool", Level: "noteworthy" });
+        Assert.Equal("noteworthy", r.Review);
+    }
+
+    [Fact]
+    public void A_composer_callback_is_read_from_its_psr4_file_and_an_unresolved_one_is_noted()
+    {
+        var r = Review(Zip("sample-hooks-1.0.0.zip",
+            ("composer.json", U("""{"name":"sample/hooks","autoload":{"psr-4":{"Sample\\Hooks\\":"src/"}},"scripts":{"post-update-cmd":["Sample\\Hooks\\Setup::run","Other\\Missing::run"]}}""")),
+            ("src/Setup.php", U("<?php namespace Sample\\Hooks; class Setup { static function run() { $text = file_get_contents(getenv('HOME') . '/.npmrc'); } }"))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/credential-files", Path: "src/Setup.php" } && f.Detail.StartsWith("at install: ", StringComparison.Ordinal));
+        Assert.Contains("post-update-cmd calls Other\\Missing::run, whose file was not resolved in the package", r.Notes);
+    }
+
+    [Fact]
+    public void A_project_with_package_json_and_composer_json_reviews_both_scripts()
+    {
+        var r = Review(Zip("sample-site-1.0.0.zip",
+            ("package.json", U("""{"name":"sample-site","version":"1.0.0","scripts":{"build":"vite build"}}""")),
+            ("composer.json", U("""{"name":"sample/site","scripts":{"post-install-cmd":"curl -s https://example.invalid/notes.txt -o notes.txt"}}"""))));
+        Assert.Equal("npm", r.Ecosystem);
+        Assert.Contains(r.Scripts, s => s is { Name: "post-install-cmd", AtInstall: true });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/install-network-tool", Level: "noteworthy", Path: "composer.json" });
+        Assert.Contains("also composer.json: its install-time scripts are listed and reviewed", r.Notes);
+    }
+
+    [Fact]
+    public void A_composer_package_that_discovers_its_providers_is_listed_without_a_review()
+    {
+        var r = Review(Zip("sample-app-1.0.0.zip",
+            ("composer.json", U("""{"name":"sample/app","scripts":{"post-autoload-dump":["@php artisan package:discover --ansi"],"test":"phpunit"}}"""))));
+        Assert.Equal(2, r.Scripts.Count);
+        Assert.Equal(new PackageScript("post-autoload-dump", "@php artisan package:discover --ansi", true), r.Scripts[0]);
+        Assert.All(r.Findings, f => Assert.Equal("info", f.Level));
+        Assert.Equal("none", r.Review);
+    }
+
+    [Fact]
     public void Each_package_finding_names_a_rule_of_the_table_and_reads_as_the_shared_record()
     {
         var r = Review(Tgz("internal-auth-1.0.0.tgz",
