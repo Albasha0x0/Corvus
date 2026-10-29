@@ -417,6 +417,44 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Scripts, s => s is { Name: "tool_hook.pth", AtInstall: true });
     }
 
+    // A 3.11 .pyc header and no code object: the review lists the file, never loads it.
+    private static readonly byte[] Pyc = [0xA7, 0x0D, 0x0D, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    private static (string, byte[])[] Wheel(params (string Path, byte[] Data)[] files) =>
+        [("tool-1.0.dist-info/METADATA", U("Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n")), ("tool-1.0.dist-info/top_level.txt", U("tool\ntool_hook\n")), .. files];
+
+    [Fact]
+    public void A_wheel_of_compiled_only_modules_is_review_alone_and_noteworthy_when_a_pth_file_imports_one()
+    {
+        var alone = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.pyc", Pyc), ("tool/core.pyc", Pyc), ("tool/util.py", U("X = 1\n")))));
+        var f = Assert.Single(alone.Findings, f => f.Rule == "package/compiled-only");
+        Assert.Equal(("review", "tool/__init__.pyc"), (f.Level, f.Path));
+        Assert.StartsWith("2 of 3 modules compiled only, without .py source: tool, tool.core", f.Detail);
+        var started = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("")), ("tool/core.pyc", Pyc), ("tool_hook.pth", U("import tool.core\n")))));
+        f = Assert.Single(started.Findings, f => f.Rule == "package/compiled-only");
+        Assert.Equal("noteworthy", f.Level);
+        Assert.EndsWith("runs without asking: tool_hook.pth imports tool.core", f.Detail);
+    }
+
+    [Fact]
+    public void An_sdist_whose_setup_py_imports_a_compiled_only_module_is_noteworthy()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "from setuptools import setup\nfrom tool import core\nsetup(name='tool')\n"),
+            ("tool-1.0/src/tool/__init__.py", ""), ("tool-1.0/src/tool/core.pyc", "\u000d\u000d"), ("tool-1.0/tests/test_core.pyc", "")));
+        var f = Assert.Single(r.Findings, f => f.Rule == "package/compiled-only");
+        Assert.Equal(("noteworthy", "tool-1.0/src/tool/core.pyc"), (f.Level, f.Path));
+        Assert.Equal("1 of 2 modules compiled only, without .py source: tool.core; runs without asking: setup.py imports tool.core", f.Detail);
+    }
+
+    [Fact]
+    public void A_wheel_that_ships_source_beside_its_bytecode_cache_has_no_compiled_only_finding()
+    {
+        var r = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("")), ("tool/core.py", U("X = 1\n")),
+            ("tool/__pycache__/__init__.cpython-311.pyc", Pyc), ("tool/__pycache__/core.cpython-311.pyc", Pyc), ("tool/__pycache__/gone.cpython-311.pyc", Pyc))));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/compiled-only");
+    }
+
 
     [Fact]
     public void A_bin_named_like_a_system_command_is_reported_and_noteworthy_beside_an_install_script()

@@ -79,6 +79,7 @@ public static class FindingRules
         R("package/startup-pth", "a .pth file runs at every interpreter start"),
         R("package/setup-cmdclass", "setup.py replaces a setuptools command"),
         R("package/in-tree-backend", "an in-tree build backend runs while installing"),
+        N("package/compiled-only", AtInstall + ", loaded by a .pth file or setup.py", "modules shipped as .pyc without .py source"),
         N("package/stealer-dependencies", "exact list: cookie, webhook and session libraries together", "depends on credential collection libraries"),
         N("package/record-differs", "exact check: a file differs from its RECORD hash", "files differ from RECORD"),
         R("package/record-unlisted", "files not listed in RECORD"),

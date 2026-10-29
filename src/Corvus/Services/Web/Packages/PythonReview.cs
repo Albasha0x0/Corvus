@@ -26,6 +26,9 @@ public static partial class PackageReview
         var notes = new List<string>();
         var scripts = new List<PackageScript>();
         var entries = new List<PackageEntryPoint>();
+        var loaded = new List<(string From, string Module)>();
+        string moduleRoot = "";
+        HashSet<string>? topLevel = null;
         string? name = null, version = null, summary = null, author = null, record = null;
         int deps = 0;
         var distInfo = files.Paths.Where(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal)).OrderBy(p => p.Length).FirstOrDefault();
@@ -37,6 +40,8 @@ public static partial class PackageReview
             (name, version, summary, author, deps) = Metadata(files.Text(distInfo));
             if (files.Text(info + "entry_points.txt") is { } ep) entries.AddRange(EntryPoints(ep));
             record = Record(files, info + "RECORD", findings);
+            if (files.Text(info + "top_level.txt") is { } top)
+                topLevel = [.. top.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)];
             foreach (var script in files.Paths.Where(p => Regex.IsMatch(p, @"^[^/]+\.data/scripts/[^/]+$", RegexOptions.NonBacktracking)))
                 entries.Add(new PackageEntryPoint("script", script[(script.LastIndexOf('/') + 1)..], script));
             // Import lines in top-level .pth files run at every interpreter start.
@@ -45,6 +50,9 @@ public static partial class PackageReview
                 var text = files.Text(pth) ?? "";
                 var imports = text.Split('\n').Where(l => Regex.IsMatch(l, @"^\s*import\s", RegexOptions.NonBacktracking)).ToList();
                 if (imports.Count == 0) continue;
+                foreach (var line in imports)
+                    foreach (var module in line.Trim()[6..].Split(';')[0].Split(',', StringSplitOptions.TrimEntries))
+                        loaded.Add((pth, module.Split(' ')[0]));
                 findings.Add(new PackageFinding("package/startup-pth", "review", "install script", $"{pth} runs at every interpreter start: {Clip(string.Join("; ", imports.Select(l => l.Trim())), 200)}", pth));
                 findings.AddRange(Scan(pth + ".py", string.Join("\n", imports), install: true, ct).Where(f => f.Level == "noteworthy" || f.Category != "install script"));
                 scripts.Add(new PackageScript(pth, Clip(string.Join("; ", imports.Select(l => l.Trim())), 300)!, true));
@@ -54,6 +62,7 @@ public static partial class PackageReview
         {
             ecosystem = "pypi sdist";
             var root = files.Paths.Where(IsSdistFile).Select(Folder).OrderBy(p => p.Length).First();
+            moduleRoot = root;
             if (files.Text(root + "PKG-INFO") is { } pkgInfo) (name, version, summary, author, deps) = Metadata(pkgInfo);
             if (files.Text(root + "setup.py") is { } setup)
             {
@@ -62,6 +71,14 @@ public static partial class PackageReview
                 if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)", RegexOptions.NonBacktracking))
                     findings.Add(new PackageFinding("package/setup-cmdclass", "review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
                 findings.AddRange(Scan(root + "setup.py", SetupCode(files, root, setup), install: true, ct));
+                foreach (Match m in LocalImport.Matches(setup))
+                {
+                    var module = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[3].Value;
+                    loaded.Add(("setup.py", module));
+                    if (m.Groups[2].Success)
+                        foreach (var member in m.Groups[2].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                            loaded.Add(("setup.py", $"{module}.{member}"));
+                }
                 name ??= Regex.Match(setup, @"\bname\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } n ? n : null;
                 version ??= Regex.Match(setup, @"\bversion\s*=\s*['""]([^'""]+)['""]", RegexOptions.NonBacktracking).Groups[1].Value is { Length: > 0 } v ? v : null;
                 foreach (Match m in Regex.Matches(setup, @"['""]([\w.-]+)\s*=\s*([\w.]+:[\w.]+)['""]", RegexOptions.NonBacktracking))
@@ -96,6 +113,7 @@ public static partial class PackageReview
             .Select(p => files.Text(p) ?? ""));
         var kit = StealerKit.Matches(requires).Select(m => m.Value.ToLowerInvariant().Replace('-', '_')).Distinct().ToList();
         if (kit.Count >= 2) findings.Add(new PackageFinding("package/stealer-dependencies", "noteworthy", "credentials", $"depends on {string.Join(", ", kit)}: browser cookie, Discord webhook and Roblox session libraries together"));
+        if (CompiledOnly(files, Modules(files, moduleRoot, topLevel), loaded) is { } compiledOnly) findings.Add(compiledOnly);
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.PyPI) is { } popular)
@@ -120,6 +138,48 @@ public static partial class PackageReview
     private static partial Regex CfgGroup();
 
     private static readonly Regex LocalImport =new(@"(?m)^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+([\w, \t]+)|import[ \t]+([\w.]+))", RegexOptions.NonBacktracking);
+
+    /// <summary>Importable modules under <paramref name="root"/> by dotted name: Compiled when only a .pyc ships, Path its first file; tests and setup.py excluded.</summary>
+    private static Dictionary<string, (bool Compiled, string Path)> Modules(PackageFiles files, string root, HashSet<string>? topLevel)
+    {
+        var modules = new Dictionary<string, (bool, string)>(StringComparer.Ordinal);
+        foreach (var path in files.Paths.Order(StringComparer.Ordinal))
+        {
+            bool source = path.EndsWith(".py", StringComparison.Ordinal), compiled = path.EndsWith(".pyc", StringComparison.Ordinal);
+            // Without a source the import system ignores __pycache__, so only a .pyc in
+            // the package folder itself imports alone.
+            if (!source && !compiled || !path.StartsWith(root, StringComparison.Ordinal) || ("/" + path).Contains("/__pycache__/", StringComparison.Ordinal)
+                || path.Contains(".dist-info/", StringComparison.Ordinal) || path.Contains(".egg-info/", StringComparison.Ordinal) || NotImported.IsMatch(path)) continue;
+            var rel = path[root.Length..^(source ? 3 : 4)];
+            if (rel.StartsWith("src/", StringComparison.Ordinal)) rel = rel[4..];
+            if (rel == "setup") continue;
+            if (rel.EndsWith("/__init__", StringComparison.Ordinal)) rel = rel[..^9];
+            var module = rel.Replace('/', '.');
+            if (topLevel != null && !topLevel.Contains(module.Split('.')[0])) continue;
+            modules[module] = modules.TryGetValue(module, out var seen) ? (seen.Item1 && compiled, seen.Item2) : (compiled, path);
+        }
+        return modules;
+    }
+
+    /// <summary>The compiled-only finding, noteworthy when a .pth file or setup.py imports such a module; null when every module has source.</summary>
+    private static PackageFinding? CompiledOnly(PackageFiles files, Dictionary<string, (bool Compiled, string Path)> modules, List<(string From, string Module)> loaded)
+    {
+        var compiled = modules.Where(m => m.Value.Compiled).OrderBy(m => m.Key, StringComparer.Ordinal).ToList();
+        if (compiled.Count == 0) return null;
+        // Importing a.b also runs a, so any compiled-only prefix counts.
+        var started = loaded.Where(l => Prefixes(l.Module).Any(p => modules.TryGetValue(p, out var m) && m.Compiled))
+            .Select(l => $"{l.From} imports {l.Module}").Distinct().ToList();
+        var detail = $"{compiled.Count} of {modules.Count} modules compiled only, without .py source: {string.Join(", ", compiled.Take(5).Select(m => m.Key))}";
+        if (started.Count > 0) detail += $"; runs without asking: {string.Join(", ", started.Take(5))}";
+        if (files.Unlisted > 0) detail += $"; partial: files past the first {PackageFiles.MaxEntries:N0} not listed";
+        return new PackageFinding("package/compiled-only", started.Count > 0 ? "noteworthy" : "review", "transformed code", detail, compiled[0].Value.Path);
+    }
+
+    private static IEnumerable<string> Prefixes(string module)
+    {
+        for (int dot = module.IndexOf('.'); dot > 0; dot = module.IndexOf('.', dot + 1)) yield return module[..dot];
+        yield return module;
+    }
 
     /// <summary>setup.py with the package's own modules it imports (pip runs them too), up to eight small files.</summary>
     private static string SetupCode(PackageFiles files, string root, string setup)
