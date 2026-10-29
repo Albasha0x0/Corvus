@@ -1609,6 +1609,33 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_unused_dependency_holding_a_popular_name_as_whole_tokens_is_review_and_noteworthy_at_install()
+    {
+        int n = 0;
+        PackageReport Store(string deps, string extra, params (string Path, string Text)[] more) => Review(Tgz($"store-1.0.{n++}.tgz",
+            [("package/package.json", $$"""{"name":"@org/store","version":"1.0.0","main":"dist/index.js","dependencies":{{deps}}{{extra}}}"""), .. more]));
+        const string deps = """{"left-pad":"^1","sample-day-js":"^1","lodash.merge":"^4"}""";
+        const string code = "const pad = require('left-pad');\nimport merge from \"lodash.merge/index.js\";\n";
+        var finding = Assert.Single(Store(deps, "", ("package/dist/index.js", code)).Findings);
+        Assert.Equal(("package/dependency-lookalike", "review", "package/package.json"), (finding.Rule, finding.Level, finding.Path));
+        Assert.Equal("1 dependency that no shipped code names, under a popular name with affixes: sample-day-js (dayjs)", finding.Detail);
+        Assert.Equal("noteworthy", Store(deps, ""","scripts":{"postinstall":"node setup.js"}""", ("package/dist/index.js", code)).Review);
+        Assert.Contains(Store("""{"sample-day-js":"github:example/day"}""", "", ("package/dist/index.js", code)).Findings,
+            f => f is { Rule: "package/dependency-lookalike", Level: "noteworthy" });
+        Assert.Equal("none", Store(deps, "", ("package/dist/index.js", "require('left-pad'); require('sample-day-js'); require('lodash.merge');")).Review);
+        Assert.Equal("none", Store(deps, "").Review);
+        Assert.Equal("none", Store(deps, ""","scripts":{"start":"sample-day-js --watch"}""", ("package/dist/index.js", code)).Review);
+        Assert.Equal("none", Store(deps, ""","bin":{"store":"bin/store"}""", ("package/dist/index.js", code), ("package/bin/store", "require('sample-day-js');")).Review);
+        Assert.Equal("none", Store(deps, "", ("package/dist/index.js", "/******/ (() => { var __webpack_modules__ = {};")).Review);
+        Assert.Equal("none", Store("""{"@sample/day-js":"^1","serverless-http":"^3","globals":"^13","preact-render-to-string":"^6"}""", "",
+            ("package/dist/index.js", code)).Review);
+        Assert.Equal("none", Review(Tgz("dayjs-plugin-1.0.0.tgz", ("package/package.json", """{"name":"@org/dayjs-plugin","version":"1.0.0","dependencies":{"sample-dayjs":"^1"}}"""),
+            ("package/index.js", "module.exports = 1;"))).Review);
+        Assert.DoesNotContain(Review(Zip("store-2.0.0.zip", ("package/package.json", U("{\"name\":\"store\",\"version\":\"2.0.0\",\"dependencies\":" + deps + "}")),
+            ("package/index.js", U(code)), ("package/data.js", new byte[33 << 20]))).Findings, f => f.Rule == "package/dependency-lookalike");
+    }
+
+    [Fact]
     public void A_major_version_of_99_is_review_on_an_unscoped_name_only()
     {
         var unscoped = Review(Tgz("app-99.0.0.tgz", ("package/package.json", """{"name":"app","version":"99.0.0"}""")));

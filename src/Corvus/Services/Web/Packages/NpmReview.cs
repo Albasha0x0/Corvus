@@ -109,6 +109,7 @@ public static partial class PackageReview
         if (CarrierEntry(files, loaded, pkg) is { } carrier)
             findings.Add(new PackageFinding("package/carrier", "noteworthy", "dependency",
                 $"{carrier} holds no require, import or export and is the only code file; its dependencies are installed but never loaded", carrier));
+        findings.AddRange(LookalikeDependencies(files, root, pkg, name, scripts, entries, manifestPath));
         // A scope is owned by its publisher, so only an unscoped name can shadow a private one.
         if (name is { } n && !n.StartsWith('@') && HighVersion(Str(pkg, "version")) is { } high)
             findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher", manifestPath));
@@ -154,6 +155,76 @@ public static partial class PackageReview
         SourceUrl.Match(range.Trim()) is { Success: true } url && url.Groups["scheme"].Value.ToLowerInvariant() is "http" or "git+http" or "git";
 
     private const int MaxDependencies = 1000;
+
+    /// <summary>One finding naming the unscoped runtime dependencies that hold a popular name as whole tokens and that
+    /// no shipped file or script names: noteworthy when one is from outside the registry or the package runs at install,
+    /// else review; empty when none, when the package ships no code file, when a shipped code file was not read, or
+    /// when one is bundler output.</summary>
+    private static IEnumerable<PackageFinding> LookalikeDependencies(PackageFiles files, string root, JsonElement pkg, string? name,
+        List<PackageScript> scripts, List<PackageEntryPoint> entries, string manifestPath)
+    {
+        if (!pkg.TryGetProperty("dependencies", out var d) || d.ValueKind != JsonValueKind.Object) yield break;
+        // A package named after a popular one may depend on its own family.
+        var own = name == null ? "" : Normalize(name[(name.IndexOf('/') + 1)..]);
+        var named = new Dictionary<string, string>(StringComparer.Ordinal);
+        var outside = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var dep in d.EnumerateObject().Take(MaxDependencies))
+        {
+            if (dep.Name.StartsWith('@') || PopularNames.Npm.Contains(dep.Name) || PopularRun(dep.Name, own) is not { } popular) continue;
+            named.TryAdd(dep.Name, popular);
+            if (dep.Value.ValueKind == JsonValueKind.String && NpmSource(dep.Value.GetString()!) != null) outside.Add(dep.Name);
+        }
+        foreach (var script in scripts) named.Keys.Where(k => script.Command.Contains(k, StringComparison.Ordinal)).ToList().ForEach(k => named.Remove(k));
+        var entryFiles = entries.Where(e => e.Kind is "main" or "bin" or "exports" && e.Target != null).Select(e => Resolve(root, e.Target!)).ToHashSet(StringComparer.Ordinal);
+        var code = files.Paths.Where(p => p != manifestPath && p.StartsWith(root, StringComparison.Ordinal)
+            && (entryFiles.Contains(p) || ScannedSources.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase)))).ToList();
+        if (named.Count == 0 || code.Count == 0) yield break;
+        foreach (var path in code)
+        {
+            if (files.Text(path) is not { } text || BundlerMarkers.Any(m => text.Contains(m, StringComparison.Ordinal))) yield break;
+            named.Keys.Where(k => NamesModule(text, k)).ToList().ForEach(k => named.Remove(k));
+            if (named.Count == 0) yield break;
+        }
+        var level = scripts.Any(x => x.AtInstall) || named.Keys.Any(outside.Contains) ? "noteworthy" : "review";
+        yield return new PackageFinding("package/dependency-lookalike", level, "dependency",
+            $"{named.Count} dependenc{(named.Count == 1 ? "y" : "ies")} that no shipped code names, under a popular name with affixes: {string.Join(", ", named.Take(5).Select(n => $"{n.Key} ({n.Value})"))}", manifestPath);
+    }
+
+    /// <summary>The popular name that a run of whole tokens of <paramref name="name"/> spells, outside
+    /// <paramref name="own"/>; null when none.</summary>
+    private static string? PopularRun(string name, string own)
+    {
+        var t = name.ToLowerInvariant().Split(['-', '_', '.'], StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < t.Length; i++)
+        {
+            var run = "";
+            for (int j = i; j < t.Length && run.Length < 64; j++)
+                if (PopularBare.TryGetValue(run += t[j], out var p) && !own.Contains(run, StringComparison.Ordinal)) return p;
+        }
+        return null;
+    }
+
+    // Short names such as ws or pg sit inside too many ordinary names.
+    private static readonly Dictionary<string, string> PopularBare = PopularNames.Npm.Where(p => !p.StartsWith('@'))
+        .GroupBy(Normalize).Where(g => g.Key.Length >= 4).ToDictionary(g => g.Key, g => g.Min(StringComparer.Ordinal)!, StringComparer.Ordinal);
+
+    private static readonly string[] ScannedSources =
+        [".js", ".cjs", ".mjs", ".jsx", ".ts", ".tsx", ".cts", ".mts", ".vue", ".svelte", ".json", ".css", ".scss", ".less", ".gyp"];
+
+    // A bundler inlines its dependencies, so their names are not left in the output.
+    private static readonly string[] BundlerMarkers = ["__webpack_require__", "__commonJS(", "__toESM(", "/******/"];
+
+    /// <summary>True when <paramref name="text"/> holds <paramref name="module"/> in quotes, alone or before a subpath.</summary>
+    private static bool NamesModule(string text, string module)
+    {
+        foreach (var quote in "'\"`")
+        {
+            var needle = quote + module;
+            for (int i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = text.IndexOf(needle, i + 1, StringComparison.Ordinal))
+                if (i + needle.Length < text.Length && (text[i + needle.Length] == quote || text[i + needle.Length] == '/')) return true;
+        }
+        return false;
+    }
 
     private static readonly Regex GitHostShorthand = R(@"^(?i)(github|gitlab|bitbucket|gist):");
     private static readonly Regex SourceUrl = R(@"^(?<scheme>[A-Za-z][\w+.-]*)://(?:[^@/\s]*@)?(?<host>[^/:#?\s]+)(?<path>[^#?\s]*)");

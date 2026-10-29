@@ -95,6 +95,7 @@ public static class FindingRules
         R("package/binary", "native or executable files"),
         N("package/asset-trailing-data", AtInstall + ", in an asset that install-time code names", "an image, sound or font with data after its format's end, named by the package's code"),
         N("package/close-name", AtInstall + ", under a name close to a popular package", "a name close to a popular package"),
+        N("package/dependency-lookalike", AtInstall + ", or the unused dependency is from outside the registry", "an unused dependency named like a popular package"),
         N("package/command-name", AtInstall + ", installing a command named like a system command", "a package command named like a system or toolchain command"),
         N("package/command-replace", AtInstall + ", editing command files under the global npm prefix", "install-time code deletes, links, copies over or writes a command file under the global npm prefix"),
         R("package/startup-pth", "a .pth file runs at every interpreter start"),
