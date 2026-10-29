@@ -165,7 +165,7 @@ public static partial class PackageReview
     private static partial Regex EntryPointSection();
 
     // An unindented "group =" line opens a group; its indented lines are the entries.
-    [GeneratedRegex(@"(?m)^([\w.-]+)[ \t]*=[ \t\r]*$")]
+    [GeneratedRegex(@"(?m)^([\w.-]+)[ \t]*=[ \t\r]*$", RegexOptions.NonBacktracking)]
     private static partial Regex CfgGroup();
 
     private static readonly Regex LocalImport =new(@"(?m)^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+([\w, \t]+)|import[ \t]+([\w.]+))", RegexOptions.NonBacktracking);
