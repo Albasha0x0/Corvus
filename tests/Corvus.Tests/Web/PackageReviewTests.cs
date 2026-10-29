@@ -50,6 +50,34 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("host details", StringComparison.Ordinal));
     }
 
+    private string Nupkg(string name, string script) => Zip(name,
+        ("Sample.Tools.nuspec", U("""<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>Sample.Tools</id><version>1.0.0</version><authors>Sample</authors><description>Build helpers.</description></metadata></package>""")),
+        ("lib/net8.0/Sample.Tools.dll", [0x4D, 0x5A, 0x90, 0x00]),
+        ("tools/init.ps1", U(script)));
+
+    [Fact]
+    public void A_nuget_init_script_is_an_install_entry_point_read_by_the_install_rules()
+    {
+        // The script is text the reader matches; nothing runs it.
+        var r = Review(Nupkg("Sample.Tools.1.0.0.nupkg", "Invoke-WebRequest https://example.invalid/notes.txt -OutFile notes.txt\n"));
+        Assert.Equal(("nuget", "Sample.Tools", "1.0.0"), (r.Ecosystem, r.Name, r.Version));
+        Assert.Equal(new PackageScript("tools/init.ps1", "run by the Package Manager Console each time the solution opens", true), Assert.Single(r.Scripts));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/install-script", Level: "info", Path: "tools/init.ps1" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/download-tool", Level: "review" } && f.Detail.StartsWith("at install: ", StringComparison.Ordinal));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/install-network-tool", Level: "noteworthy" });
+        Assert.Equal("noteworthy", r.Review);
+    }
+
+    [Fact]
+    public void A_nuget_init_script_that_imports_a_module_is_listed_without_a_review()
+    {
+        var r = Review(Nupkg("Sample.Tools.1.0.1.nupkg", "param($installPath, $toolsPath, $package, $project)\nImport-Module (Join-Path $toolsPath 'Sample.Tools.psd1')\n"));
+        Assert.Single(r.Scripts);
+        Assert.All(r.Findings, f => Assert.Equal("info", f.Level));
+        Assert.Equal("none", r.Review);
+        Assert.Equal(["lib/net8.0/Sample.Tools.dll"], r.Binaries);
+    }
+
     [Fact]
     public void Each_package_finding_names_a_rule_of_the_table_and_reads_as_the_shared_record()
     {

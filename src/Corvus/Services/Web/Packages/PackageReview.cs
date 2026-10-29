@@ -65,6 +65,10 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
 }
 
 /// <summary>Reviews npm, PyPI, RubyGems, VSIX and browser extension packages and agent configuration without installing or running them.</summary>
+/// <summary>
+/// Reviews npm, PyPI, NuGet, VSIX and browser extension packages and agent
+/// configuration without installing or running them.
+/// </summary>
 public static partial class PackageReview
 {
     public static PackageReport? Review(string path, CancellationToken ct) => Review(path, ct, hosts: false);
@@ -79,6 +83,7 @@ public static partial class PackageReview
         PackageReport? report = files.Container == "gem" ? RubyGems(files, ct)
             : files.Crx != null || ManifestJson(files) != null && Root(files, "manifest.json") is { } m && IsExtensionManifest(files, m) ? Extension(files, ct)
             : Root(files, "extension.vsixmanifest") != null || files.Has("extension/package.json") ? Vsix(files, ct)
+            : Nuspec(files) != null ? Nuget(files, ct)
             : Root(files, "package.json") != null ? Npm(files, ct)
             : files.Paths.Any(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || IsSdistFile(p)) ? Python(files, ct)
             : GemSpecPath(files) != null ? RubyGems(files, ct)
