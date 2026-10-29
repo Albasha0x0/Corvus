@@ -72,6 +72,30 @@ public class TestReuseTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void A_family_with_a_test_a_permit_wait_left_unrun_is_not_recorded_and_its_class_is_named()
+    {
+        var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");
+        using var dir = new TempDir();
+        var trx = dir.File("full.trx");
+        File.WriteAllText(trx, Trx.Replace("""<UnitTestResult testId="2" outcome="Failed" />""", """<UnitTestResult testId="2" outcome="Passed" />""")
+            .Replace("""<UnitTestResult testId="4" outcome="NotExecuted" />""",
+                $$"""<UnitTestResult testId="4" outcome="NotExecuted" /><UnitTestResult testId="5" outcome="NotExecuted"><Output><ErrorInfo><Message>{{MachinePermits.NotRunPrefix}}engine-ghidra held for 25 min; not run.</Message></ErrorInfo></Output></UnitTestResult>""")
+            .Replace("</TestDefinitions>", """<UnitTest id="5"><TestMethod className="Corvus.Tests.EngineE" name="M" /></UnitTest></TestDefinitions>"""));
+        var lines = Run($$"""
+            Import-Module '{{module.Replace("'", "''")}}'
+            'passed=' + ((Get-PassedFamilies '{{trx}}' @{ Dotnet = @('DotnetA'); Engines = @('EngineB', 'EngineC', 'EngineE'); Web = @('WebD') } 0) -join ',')
+            'notrun=' + ((Get-PermitSkips '{{trx}}') -join ',')
+            """);
+        if (lines is ["skip"]) return; // no pwsh on this machine
+        string Line(string name) => lines.Single(l => l.StartsWith(name + "=")).Substring(name.Length + 1);
+        // Engines passed every test it ran; WebD's ordinary skip records
+        // nothing either way.
+        Assert.Equal("Dotnet", Line("passed"));
+        Assert.Equal("EngineE", Line("notrun"));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Passes_are_recorded_without_replacing_an_exhaustive_pass_on_the_same_key()
     {
         var module = Path.Combine(DocsTests.RepoRoot(), "test-reuse.psm1");

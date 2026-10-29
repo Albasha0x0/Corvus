@@ -215,6 +215,18 @@ function Save-RunTimes([string]$trx, [string]$mode, [int]$code, [hashtable]$extr
     }
 }
 
+# A permit wait ends 5 min (-Full) or 30 s short of the run's hang limit
+# (30 min, 2 min), so a busy machine skips the collection before the hang
+# dump ends the run.
+$permitMaxWait = if ($Full) { '00:25:00' } else { '00:01:30' }
+
+# Names the classes a permit wait left unrun and returns them; empty when none.
+function Get-NotRun([string]$trx) {
+    $notRun = @(if (Test-Path $trx) { Get-PermitSkips $trx })
+    if ($notRun) { Write-Host "Not run, their permits held elsewhere past the wait limit: $($notRun -join ', '); their families stay unrecorded." -ForegroundColor Yellow }
+    $notRun
+}
+
 # Perf run: Perf=Timing tests with budgets enforced, one at a time, under the heavy lock and every permit.
 # Over budget counts only when most of 5 samples are; past 1.5x Ratchets/perf-baseline.txt (median of 5) regresses.
 # Fails only when the previous perf run flagged the same test too, so one slow run is reported, two in a row fail.
@@ -505,6 +517,8 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
             Write-Host "Changed since ${Base}: $($changed.Count) files; quick tests of $($families -join ', ')."
             $results = Join-Path $tempRoot "corvus-trx-$PID"
             Start-RunTiming 'quick'
+            $savedMaxWait = $env:CORVUS_PERMIT_MAX_WAIT
+            $env:CORVUS_PERMIT_MAX_WAIT = $permitMaxWait
             # A failed build leaves the split and --no-build out: the test command builds again and names the errors.
             Invoke-TestBuild
             $built = $LASTEXITCODE -eq 0
@@ -521,7 +535,9 @@ if (-not ($Full -or $All -or $Affected -or $Filter -or $Coverage -or $CoverageMa
             }
             $code = $LASTEXITCODE
             if ($aloneJob) { $aloneCode = Receive-AloneRun $aloneJob (Join-Path $results 'full.trx') (Join-Path $results 'alone'); if ($code -eq 0) { $code = $aloneCode } }
+            $env:CORVUS_PERMIT_MAX_WAIT = $savedMaxWait
             Save-RunTimes (Join-Path $results 'full.trx') 'quick' $code @{ build = if ($built) { [math]::Round($buildSeconds, 1) } else { $null } }
+            Get-NotRun (Join-Path $results 'full.trx') | Out-Null
             if (Test-Path $results) { Remove-Item -Recurse -Force $results }
             exit $code
         }
@@ -604,6 +620,7 @@ if ($Stamp) {
     Save-FamilyPasses $familyStamps $passed $run.keys $run.mode $run.commit
     Write-Host "Recorded $($run.mode) passes for $($passed.Count) families from the run of $($run.at)."
     if ($run.code -ne 0) { Write-Host "The saved run failed (exit $($run.code)): the tree is not stamped." -ForegroundColor Red; exit 1 }
+    if (Get-PermitSkips $lastTrx) { Write-Host 'The saved run left collections unrun (permit wait): the tree is not stamped.' -ForegroundColor Yellow; exit 0 }
     Write-TreeStamp $tree $run.mode $run.reused
     exit 0
 }
@@ -875,9 +892,10 @@ if ($Coverage) {
     $arguments += @('--collect', 'XPlat Code Coverage', '--',
         'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[corvus]*')
 }
-$saved = $env:CORVUS_ALL_TESTS; $savedSweep = $env:CORVUS_SWEEP
+$saved = $env:CORVUS_ALL_TESTS; $savedSweep = $env:CORVUS_SWEEP; $savedMaxWait = $env:CORVUS_PERMIT_MAX_WAIT
 try {
     if ($Full) { $env:CORVUS_ALL_TESTS = '1' }
+    $env:CORVUS_PERMIT_MAX_WAIT = $permitMaxWait
     $env:CORVUS_SWEEP = if ($Exhaustive) { 'exhaustive' } else { $null }
     $tree = if ($wholeSuite -and -not $Coverage) { Get-CleanTree } else { $null }
     # A whole-suite run waits for a quiet machine and keeps it quiet until it ends, unless it is a push run (-Reuse).
@@ -971,6 +989,8 @@ try {
         Save-RunTimes $trx $runMode $code $timing
     }
     $recordFailed = $false
+    # A run that left collections unrun proved no full pass of the tree.
+    $notRun = @(Get-NotRun $trx)
     if ($familyKeys -and (Test-Path $trx)) {
         $commit = (git -C $root rev-parse --short HEAD).Trim()
         # Saved before recording, so a failed recording step costs no rerun (-Stamp).
@@ -1054,7 +1074,7 @@ try {
     if (Test-Path $results) { Remove-Item -Recurse -Force $results }
     if ($missingEngines) { Write-Host "Engine tests were skipped: $($missingEngines -join ', ')." -ForegroundColor Yellow }
     if ($code -ne 0) { exit $code }
-    if ($tree -and -not $recordFailed) {
+    if ($tree -and -not $recordFailed -and -not $notRun) {
         try { Write-TreeStamp $tree $mode ([bool]$Filter) }
         catch { Write-Host "Stamping the tree failed ($_); the results are kept: ./test.ps1 -Stamp records them without a rerun." -ForegroundColor Red }
     }
@@ -1064,6 +1084,6 @@ try {
     }
 }
 finally {
-    $env:CORVUS_ALL_TESTS = $saved; $env:CORVUS_SWEEP = $savedSweep
+    $env:CORVUS_ALL_TESTS = $saved; $env:CORVUS_SWEEP = $savedSweep; $env:CORVUS_PERMIT_MAX_WAIT = $savedMaxWait
     if ($heavy) { Exit-HeavyLock $heavyLock }
 }

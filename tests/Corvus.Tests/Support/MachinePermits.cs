@@ -44,6 +44,22 @@ public static class MachinePermits
     /// </summary>
     public static readonly TimeSpan WaitLimit = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// How long a collection waits for its permits in all, whatever the holder's progress, before its tests are
+    /// skipped as not run, when CORVUS_PERMIT_MAX_WAIT is unset (a direct dotnet test).
+    /// </summary>
+    public static readonly TimeSpan MaxWait = TimeSpan.FromMinutes(25);
+
+    /// <summary>The run's wait bound: CORVUS_PERMIT_MAX_WAIT (a time span, which test.ps1 sets from its hang limit), else <see cref="MaxWait"/>.</summary>
+    public static TimeSpan RunMaxWait => MaxWaitFrom(Environment.GetEnvironmentVariable("CORVUS_PERMIT_MAX_WAIT"));
+
+    /// <summary>The wait bound a CORVUS_PERMIT_MAX_WAIT value names; <see cref="MaxWait"/> when it is unset, not a time span or not positive.</summary>
+    internal static TimeSpan MaxWaitFrom(string? value) =>
+        TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var wait) && wait > TimeSpan.Zero ? wait : MaxWait;
+
+    /// <summary>The skip reason's prefix for tests a permit wait left unrun; test-reuse.psm1 matches it to keep their families unrecorded.</summary>
+    public const string NotRunPrefix = "Permit wait: ";
+
     // The Restart Manager reads every handle: 0.6-6.7 s under load, over 30 s beside a whole run, so the holder lookup is bounded.
     private static readonly TimeSpan HolderLookupLimit = TimeSpan.FromSeconds(30);
 
@@ -57,6 +73,12 @@ public static class MachinePermits
     // A runner test takes its permits from a folder of its own, so a run beside
     // it that holds every slot cannot stall it.
     internal static readonly AsyncLocal<string?> FolderScope = new();
+
+    // A runner test ends its wait sooner.
+    internal static readonly AsyncLocal<TimeSpan?> MaxWaitScope = new();
+
+    // A runner test bounds its holder lookup more tightly.
+    internal static readonly AsyncLocal<TimeSpan?> HolderLookupScope = new();
 
     /// <summary>
     /// The resources a test collection's runnable cases need, in name order; empty when none does or every case is
@@ -80,22 +102,25 @@ public static class MachinePermits
         return [.. needed];
     }
 
-    /// <summary>Waits for one permit per resource in name order and returns them with the time waited; cancellation or <see cref="WaitLimit"/> without progress releases them and throws, naming holders.</summary>
+    /// <summary>Waits for one permit per resource in name order and returns them with the time waited; cancellation or <see cref="WaitLimit"/> without progress releases them and throws, naming holders, and <see cref="RunMaxWait"/> in all throws <see cref="PermitWaitEndedException"/>.</summary>
     public static Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, CancellationToken cancellation = default) =>
         // The perf run holds every permit itself (test.ps1 -Perf), so its own tests take none.
         Environment.GetEnvironmentVariable("CORVUS_PERMITS_HELD") == "1"
             ? Task.FromResult((new PermitHandle(), TimeSpan.Zero))
-            : TakeAsync(resources, Folder, Here, cancellation, WaitLimit, Heartbeat);
+            : TakeAsync(resources, Folder, Here, cancellation, WaitLimit, Heartbeat, holderLookupLimit: HolderLookupScope.Value,
+                maxWait: MaxWaitScope.Value ?? RunMaxWait);
 
     // Tests measure the limit on their own clock, learn from polled when the waiter has checked the records, and
     // may replace the holder lookup or its bound (infinite: wait for its answer).
     internal static async Task<(PermitHandle Held, TimeSpan Waited)> TakeAsync(IReadOnlyList<string> resources, string folder,
         IReadOnlyDictionary<string, int> counts, CancellationToken cancellation, TimeSpan? limit = null, TimeSpan? heartbeat = null,
         Func<TimeSpan>? clock = null, Action? polled = null, Func<string, IReadOnlyList<(int Pid, string? CommandLine)>>? holders = null,
-        TimeSpan? holderLookupLimit = null)
+        TimeSpan? holderLookupLimit = null, TimeSpan? maxWait = null)
     {
         var watch = Stopwatch.StartNew();
         clock ??= () => watch.Elapsed;
+        var lookup = holders ?? FileHolders.Of;
+        var lookupLimit = holderLookupLimit ?? HolderLookupLimit;
         var held = new PermitHandle(heartbeat);
         try
         {
@@ -104,16 +129,28 @@ public static class MachinePermits
                 var dir = Path.Combine(folder, resource);
                 Directory.CreateDirectory(dir);
                 var count = counts[resource];
-                var quietSince = clock();
+                var started = clock();
+                var quietSince = started;
                 var seen = Owners(dir, count);
+                Task<string>? named = null;
                 FileStream? slot;
                 while ((slot = TryTake(dir, count)) == null)
                 {
+                    if (maxWait is { } cap)
+                    {
+                        // The holder lookup starts one lookup bound before the cap,
+                        // so its answer is in when the wait ends at the cap.
+                        var left = cap - clock();
+                        if (named == null && (lookupLimit == Timeout.InfiniteTimeSpan || left <= lookupLimit)) named = Holders(dir, count, lookup, lookupLimit);
+                        if (left < TimeSpan.Zero)
+                            throw new PermitWaitEndedException(
+                                $"{NotRunPrefix}{resource} held for {(clock() - started).TotalMinutes:0.##} min ({await named!}); not run.", watch.Elapsed);
+                    }
                     // A permit changing hands or a holder's progress restarts the limit; one holder keeping its
                     // permit without either fails the wait.
                     if (Owners(dir, count) is var now && now != seen) (seen, quietSince) = (now, clock());
                     else if (clock() - quietSince > limit)
-                        throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min without progress: {await Holders(dir, count, holders ?? FileHolders.Of, holderLookupLimit ?? HolderLookupLimit)}.");
+                        throw new TimeoutException($"No {resource} permit within {limit.Value.TotalMinutes:0.##} min without progress: {await Holders(dir, count, lookup, lookupLimit)}.");
                     polled?.Invoke();
                     await Task.Delay(Poll, cancellation);
                 }
@@ -141,31 +178,25 @@ public static class MachinePermits
 
     /// <summary>
     /// Each slot file of a resource and who holds it: the process id and command line where Windows reports them
-    /// within <paramref name="bound"/>, otherwise the holder is named unknown.
+    /// within <paramref name="bound"/>, one bound for every slot; otherwise the holder is named unknown.
     /// </summary>
     private static async Task<string> Holders(string dir, int count, Func<string, IReadOnlyList<(int Pid, string? CommandLine)>> lookup, TimeSpan bound)
     {
-        var named = new List<string>();
-        for (int i = 0; i < count; i++)
+        var slots = Enumerable.Range(0, count).Select(i => Path.Combine(dir, $"slot-{i}")).ToList();
+        // A lookup that outlasts the bound keeps its own thread until it ends;
+        // its result is dropped.
+        var queries = OperatingSystem.IsWindows()
+            ? slots.Select(slot => Task.Factory.StartNew(() => lookup(slot), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToList()
+            : null;
+        if (queries != null) await Task.WhenAny(Task.WhenAll(queries), Task.Delay(bound));
+        return string.Join("; ", slots.Select((slot, i) =>
         {
-            var slot = Path.Combine(dir, $"slot-{i}");
-            IReadOnlyList<(int Pid, string? CommandLine)> holders = [];
-            if (OperatingSystem.IsWindows())
-            {
-                // A lookup that outlasts the bound keeps its own thread until it ends; its result is dropped.
-                var query = Task.Factory.StartNew(() => lookup(slot), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-                if (await Task.WhenAny(query, Task.Delay(bound)) != query)
-                {
-                    named.Add($"{slot} is held by a process not known yet (the holder lookup took over {bound.TotalSeconds:0.#} s)");
-                    continue;
-                }
-                holders = await query;
-            }
-            named.Add(holders.Count == 0
+            if (queries?[i] is { IsCompleted: false }) return $"{slot} is held by a process not known yet (the holder lookup took over {bound.TotalSeconds:0.#} s)";
+            var holders = queries?[i].GetAwaiter().GetResult() ?? [];
+            return holders.Count == 0
                 ? $"{slot} is held by another process"
-                : $"{slot} is held by " + string.Join(", ", holders.Select(h => $"process {h.Pid}" + (h.CommandLine is { } c ? $" ({c})" : ""))));
-        }
-        return string.Join("; ", named);
+                : $"{slot} is held by " + string.Join(", ", holders.Select(h => $"process {h.Pid}" + (h.CommandLine is { } c ? $" ({c})" : "")));
+        }));
     }
 
     /// <summary>Owner records of a resource's slots: "pid test token progress" or "pid script"; a record being rewritten reads unknown.</summary>
@@ -360,4 +391,11 @@ internal static class FileHolders
 
     [DllImport("ntdll.dll")]
     private static extern int NtQueryInformationProcess(IntPtr process, int infoClass, IntPtr buffer, int length, out int returned);
+}
+
+/// <summary>A permit wait that reached its bound; the message is the skip reason, naming the resource, the time waited for it and its holders.</summary>
+public sealed class PermitWaitEndedException(string message, TimeSpan waited) : TimeoutException(message)
+{
+    /// <summary>The whole wait, over every resource.</summary>
+    public TimeSpan Waited { get; } = waited;
 }

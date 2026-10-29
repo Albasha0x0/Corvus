@@ -25,13 +25,14 @@ public sealed class PermitSchedulingTests
     [Fact]
     public async Task A_reference_tool_collection_waits_for_a_slot_while_every_slot_is_taken()
     {
-        // One parallel slot, held for 2 s by a collection queued first.
+        // One parallel slot, held for 2 s by the other collection; either may
+        // start first.
         // Regression: the 359a54f6 full run ran 34 classes at once on 20 slots
         // while reference-tool collections ran outside them.
         PermitSchedulingFixtures.Reset();
         var permits = await Run(
             (typeof(PermitSchedulingFixtures.BriefSlotHolder), nameof(PermitSchedulingFixtures.BriefSlotHolder.Holds_the_slot_for_two_seconds)),
-            (typeof(PermitSchedulingFixtures.ReferenceToolWaiter), nameof(PermitSchedulingFixtures.ReferenceToolWaiter.Runs_after_the_slot_holder)));
+            (typeof(PermitSchedulingFixtures.ReferenceToolWaiter), nameof(PermitSchedulingFixtures.ReferenceToolWaiter.Runs_while_no_slot_holder_does)));
         Assert.Contains("reference-tool", permits);
     }
 
@@ -70,6 +71,49 @@ public sealed class PermitSchedulingTests
         }
     }
 
+    [Fact]
+    public async Task A_collection_whose_permit_wait_ends_is_skipped_naming_the_holder()
+    {
+        var permits = Path.Combine(LeakGuard.RunTemp, "permits-" + Guid.NewGuid().ToString("N")[..8]);
+        var slots = Directory.CreateDirectory(Path.Combine(permits, "reference-tool")).FullName;
+        MachinePermits.FolderScope.Value = permits;
+        MachinePermits.MaxWaitScope.Value = TimeSpan.FromSeconds(1);
+        MachinePermits.HolderLookupScope.Value = TimeSpan.FromSeconds(20);
+        var holds = new List<FileStream>();
+        var results = new ResultSink();
+        var assembly = new TestAssembly(Reflector.Wrap(typeof(PermitSchedulingFixtures).Assembly));
+        try
+        {
+            // Every slot is held as live-slot.ps1 holds one, by a live process.
+            for (int i = 0; i < MachinePermits.Here["reference-tool"]; i++)
+            {
+                holds.Add(new FileStream(Path.Combine(slots, $"slot-{i}"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+                File.WriteAllText(Path.Combine(slots, $"slot-{i}.owner"), $"{Environment.ProcessId} script");
+            }
+            var collection = new TestCollection(assembly, null, $"Test collection for {typeof(PermitSchedulingFixtures.ReferenceToolWaiter).FullName}");
+            var testClass = new TestClass(collection, Reflector.Wrap(typeof(PermitSchedulingFixtures.ReferenceToolWaiter)));
+            var cases = new IXunitTestCase[]
+            {
+                new XunitTestCase(new NullSink(), TestMethodDisplay.Method, TestMethodDisplayOptions.None,
+                    new TestMethod(testClass, testClass.Class.GetMethod(nameof(PermitSchedulingFixtures.ReferenceToolWaiter.Runs_while_no_slot_holder_does), false))),
+            };
+            using var runner = new LeakGuardFramework.Runner(assembly, cases, new NullSink(), results, new Options(), checkLeaks: false);
+            var summary = await runner.RunAsync().WaitAsync(TimeSpan.FromMinutes(2));
+            Assert.Equal((1, 1, 0), (summary.Total, summary.Skipped, summary.Failed));
+            var reason = Assert.Single(results.Skips);
+            Assert.StartsWith(MachinePermits.NotRunPrefix + "reference-tool held for ", reason);
+            Assert.Contains($"held by process {Environment.ProcessId}", reason);
+        }
+        finally
+        {
+            foreach (var hold in holds) hold.Dispose();
+            MachinePermits.FolderScope.Value = null;
+            MachinePermits.MaxWaitScope.Value = null;
+            MachinePermits.HolderLookupScope.Value = null;
+            Directory.Delete(permits, recursive: true);
+        }
+    }
+
     private sealed class NullSink : LongLivedMarshalByRefObject, IMessageSink
     {
         public bool OnMessage(IMessageSinkMessage message) => true;
@@ -78,9 +122,12 @@ public sealed class PermitSchedulingTests
     private sealed class ResultSink : LongLivedMarshalByRefObject, IMessageSink
     {
         public List<string> Failures { get; } = [];
+        public List<string> Skips { get; } = [];
 
         public bool OnMessage(IMessageSinkMessage message)
         {
+            if (message is ITestSkipped skipped)
+                lock (Skips) Skips.Add(skipped.Reason);
             if (message is ITestFailed failed)
                 lock (Failures) Failures.Add($"{failed.Test.DisplayName}: {string.Join(" ", failed.Messages)}");
             return true;
@@ -106,13 +153,11 @@ internal static class PermitSchedulingFixtures
 {
     private static TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private static int _holding;
-    private static bool _held;
 
     public static void Reset()
     {
         _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _holding = 0;
-        _held = false;
     }
 
     internal sealed class SlotHolder
@@ -136,7 +181,6 @@ internal static class PermitSchedulingFixtures
         {
             Volatile.Write(ref _holding, 1);
             await Task.Delay(TimeSpan.FromSeconds(2));
-            _held = true;
             Volatile.Write(ref _holding, 0);
         }
     }
@@ -145,11 +189,7 @@ internal static class PermitSchedulingFixtures
     internal sealed class ReferenceToolWaiter
     {
         [Fact]
-        public void Runs_after_the_slot_holder()
-        {
-            Assert.Equal(0, Volatile.Read(ref _holding));
-            Assert.True(_held, "ran before the slot holder");
-        }
+        public void Runs_while_no_slot_holder_does() => Assert.Equal(0, Volatile.Read(ref _holding));
     }
 }
 #pragma warning restore xUnit1000

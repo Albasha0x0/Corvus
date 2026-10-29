@@ -138,6 +138,69 @@ public class MachinePermitsTests
         finally { steps.Delete(); }
     }
 
+    // Four held slots and a lookup that answers only after the test.
+    [Fact]
+    public async Task Holder_lookups_of_every_slot_share_one_bound()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"corvus-permits-{Guid.NewGuid():N}");
+        var counts = new Dictionary<string, int> { ["four"] = 4 };
+        using var answer = new ManualResetEventSlim();
+        var held = new List<PermitHandle>();
+        try
+        {
+            for (int i = 0; i < 4; i++) held.Add((await MachinePermits.TakeAsync(["four"], folder, counts, default)).Held);
+            var clock = Stopwatch.StartNew();
+            var late = await Assert.ThrowsAsync<TimeoutException>(() => MachinePermits.TakeAsync(["four"], folder, counts, default, TimeSpan.FromMilliseconds(500),
+                holders: _ => { answer.Wait(); return []; }, holderLookupLimit: TimeSpan.FromSeconds(2)).WaitAsync(TimeSpan.FromSeconds(30)));
+            if (OperatingSystem.IsWindows()) Assert.Equal(4, late.Message.Split("not known yet").Length - 1);
+            // One after another, the four lookups took 8 s.
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(7), $"{clock.Elapsed}");
+        }
+        finally
+        {
+            answer.Set();
+            foreach (var h in held) h.Dispose();
+            Directory.Delete(folder, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("00:01:30", 90)]
+    [InlineData("00:25:00", 1500)]
+    [InlineData(null, 1500)]
+    [InlineData("", 1500)]
+    [InlineData("soon", 1500)]
+    [InlineData("-00:01:00", 1500)]
+    public void The_run_wait_bound_is_read_from_its_variable_else_25_min(string? value, int seconds) =>
+        Assert.Equal(TimeSpan.FromSeconds(seconds), MachinePermits.MaxWaitFrom(value));
+
+    // Regression: push run c75b3409 waited past its 30 min hang limit for a
+    // Ghidra permit that a perf run's script held, and the run was aborted.
+    [Fact]
+    public async Task A_wait_behind_a_live_holder_ends_at_its_bound_as_not_run_naming_the_holder()
+    {
+        using var steps = new SteppedWait();
+        try
+        {
+            using (new FileStream(Path.Combine(steps.Dir, "slot-0"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                File.WriteAllText(Path.Combine(steps.Dir, "slot-0.owner"), $"{Environment.ProcessId} script");
+                var waiter = steps.Wait(maxWait: TimeSpan.FromMilliseconds(1800));
+                for (int i = 0; i < 3; i++)
+                {
+                    await steps.Advance(TimeSpan.FromMilliseconds(500), () => { });
+                    Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
+                }
+                steps.Pass(TimeSpan.FromMilliseconds(500));
+                var late = await Assert.ThrowsAsync<PermitWaitEndedException>(() => waiter.WaitAsync(TimeSpan.FromSeconds(30)));
+                Assert.StartsWith(MachinePermits.NotRunPrefix + "one held for 0.03 min (", late.Message);
+                Assert.Contains($"held by process {Environment.ProcessId}", late.Message);
+                Assert.EndsWith("); not run.", late.Message);
+            }
+        }
+        finally { steps.Delete(); }
+    }
+
     [Fact]
     public async Task A_wait_outlasts_its_limit_while_the_holder_is_alive_in_one_long_test()
     {
@@ -178,9 +241,9 @@ public class MachinePermitsTests
 
         public string Dir => Path.Combine(Folder, "one");
 
-        public Task<(PermitHandle Held, TimeSpan Waited)> Wait() =>
+        public Task<(PermitHandle Held, TimeSpan Waited)> Wait(TimeSpan? maxWait = null) =>
             MachinePermits.TakeAsync(["one"], Folder, Counts, default, TimeSpan.FromMilliseconds(600), clock: () => _now, polled: () => _polls.Release(),
-                holderLookupLimit: TimeSpan.FromSeconds(5));
+                holderLookupLimit: TimeSpan.FromSeconds(5), maxWait: maxWait);
 
         /// <summary>Moves the clock, runs <paramref name="act"/>, then waits two polls so one checked the records after the act.</summary>
         public async Task Advance(TimeSpan by, Action act)

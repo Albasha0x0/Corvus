@@ -332,6 +332,16 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
             PermitHandle held;
             TimeSpan waited;
             try { (held, waited) = await MachinePermits.TakeAsync(needed, cancellationTokenSource.Token); }
+            catch (PermitWaitEndedException e)
+            {
+                // Each test is skipped with the wait's reason: a busy machine
+                // is no failure.
+                MachinePermits.Record(needed, e.Waited, testCollection.DisplayName);
+                var skipped = testCases.Select(t => (IXunitTestCase)new XunitSkippedDataRowTestCase(DiagnosticMessageSink, TestMethodDisplay.ClassAndMethod,
+                    TestMethodDisplayOptions.None, t.TestMethod, e.Message, t.TestMethodArguments)).ToList();
+                return await new XunitTestCollectionRunner(testCollection, skipped, DiagnosticMessageSink, messageBus, TestCaseOrderer,
+                    new ExceptionAggregator(Aggregator), cancellationTokenSource).RunAsync();
+            }
             catch (TimeoutException e)
             {
                 // Each test fails with the wait's message instead of the run hanging without output.
