@@ -84,6 +84,7 @@ public static class FindingRules
         N("package/self-publish", "exact form: rewrites package.json and runs npm publish", "publishes itself"),
         N("package/ci-config-write", AtInstall + ", opening a CI pipeline file for writing", "writes a CI pipeline file"),
         N("package/nested-install", "a named package manager install after cd .., or of a package the file loads from outside its root", "installs another package outside its own folder"),
+        N("package/workspace-upload", "in a file of at most 64 KiB, one call archiving the working folder with dotfiles and a request body", "uploads the working folder"),
         N("package/provenance-failed", "exact check: a digest, signature, chain or log entry check failed", "provenance does not hold"),
         // Package manifests.
         R("package/install-script", "a script the package manager runs at install"),
@@ -92,6 +93,7 @@ public static class FindingRules
         N("package/builtin-dependency", "a Node built-in name aliased to another package or fetched from outside the registry", "a dependency named after a Node built-in module"),
         N("package/carrier", "the only code file, at most 200 bytes, loads nothing, beside runtime dependencies", "an entry file that only installs its dependencies"),
         N("package/dependency-source", AtInstall + ", with a dependency fetched from outside the registry, or, in an npm manifest, a dependency over http, git+http or git://", "a dependency fetched from outside the registry"),
+        R("package/self-dependency", "a package that lists its own name as a dependency"),
         R("package/high-version", "a major version of 99 or higher on a name without a scope"),
         R("package/binary", "native or executable files"),
         N("package/asset-trailing-data", AtInstall + ", in an asset that install-time code names", "an image, sound or font with data after its format's end, named by the package's code"),

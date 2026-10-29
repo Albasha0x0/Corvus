@@ -79,6 +79,7 @@ public static partial class PackageReview
         var builtins = new HashSet<string>(StringComparer.Ordinal);
         var builtinElsewhere = false;
         var plain = false;
+        bool self = false;
         foreach (var key in new[] { "dependencies", "optionalDependencies", "peerDependencies" })
             if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object)
                 foreach (var dep in d.EnumerateObject())
@@ -91,6 +92,7 @@ public static partial class PackageReview
                             && (spec.StartsWith("npm:", StringComparison.OrdinalIgnoreCase) || (key != "peerDependencies" && NpmSource(spec) is not null)))
                             builtinElsewhere = true;
                     }
+                    if (key != "peerDependencies" && dep.Name == name) self = true;
                     // npm installs peer dependencies from the registry, whatever their range says.
                     if (key != "peerDependencies" && deps <= MaxDependencies && dep.Value.ValueKind == JsonValueKind.String && NpmSource(dep.Value.GetString()!) is { } from)
                     {
@@ -110,6 +112,7 @@ public static partial class PackageReview
             findings.Add(new PackageFinding("package/carrier", "noteworthy", "dependency",
                 $"{carrier} holds no require, import or export and is the only code file; its dependencies are installed but never loaded", carrier));
         findings.AddRange(LookalikeDependencies(files, root, pkg, name, scripts, entries, manifestPath));
+        if (self) findings.Add(new PackageFinding("package/self-dependency", "review", "dependency", $"lists its own name '{name}' as a dependency", manifestPath));
         // A scope is owned by its publisher, so only an unscoped name can shadow a private one.
         if (name is { } n && !n.StartsWith('@') && HighVersion(Str(pkg, "version")) is { } high)
             findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher", manifestPath));

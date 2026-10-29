@@ -225,6 +225,8 @@ public static partial class PackageReview
         new("package/exec-char-codes", "transformed code", "noteworthy", ExecutesCharCodes, "executes code built from character codes"),
         new("package/pyobfuscate", "transformed code", "noteworthy", R(@"\(https://pyobfuscate\.com\)|\bimport\s+(?:marshal|zlib|base64)\s+as\s+_{3,}"), "pyobfuscate-style transformed code"),
         new("package/space-run", "transformed code", "noteworthy", CodeAfterBlankRun, "code placed after hundreds of columns of spaces or tabs on one line (out of view in an editor)"),
+        new("package/workspace-upload", "exfiltration", Small, WorkspaceUpload, "archives the working folder with dotfiles and sends it in a request"),
+        new("package/space-run", "transformed code", "noteworthy", R(@"[!-~][ \t]{300,}[!-~]"), "code placed after hundreds of spaces on one line (out of view in an editor)"),
     ];
 
     /// <summary>Findings for one file; <paramref name="install"/>: runs at install, <paramref name="entry"/>: loaded first, <paramref name="peel"/>: read through layers.</summary>
@@ -875,6 +877,14 @@ public static partial class PackageReview
         }
         return null;
     }
+    private static readonly Regex ArchiveModule = R(@"\brequire\(\s*['""](?:archiver|adm-zip)['""]\s*\)|\bfrom\s+['""](?:archiver|adm-zip)['""]");
+    // The directory and addLocalFolder calls include dotfiles without a dot option.
+    private static readonly Regex WorkingFolderArchive = R(@"\.glob\s*\([^;]{0,300}?(?:\bcwd\s*:\s*process\.cwd\(\)[^;]{0,300}?\bdot\s*:\s*(?:true|!0)|\bdot\s*:\s*(?:true|!0)[^;]{0,300}?\bcwd\s*:\s*process\.cwd\(\))|\.(?:directory|addLocalFolder)\s*\(\s*process\.cwd\(\)");
+    private static readonly Regex RequestBody = R(@"\bmethod\s*:\s*['""]POST['""]|\b(?:axios|got|superagent)\.(?:post|put)\s*\(|\bnew\s+FormData\b");
+
+    /// <summary>Whether one file loads an archive module, archives the working folder with dotfiles in one call and sends a request body.</summary>
+    private static bool WorkspaceUpload(string text) =>
+        ArchiveModule.IsMatch(text) && WorkingFolderArchive.IsMatch(text) && RequestBody.IsMatch(text);
 
     private static readonly Regex HexName = R(@"\b_0x[0-9a-f]{4,6}\b");
 

