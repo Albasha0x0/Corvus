@@ -145,13 +145,16 @@ internal static partial class CallFilter
     private static bool Writes(bool readOnly, CallToolRequestParams? request) =>
         !readOnly || request?.Arguments?.Keys.Any(ArgumentCheck.OutputPathParameters.Contains) == true;
 
+    // Roots are deprecated as of protocol 2026-07-28 (SEP-2577); clients of
+    // earlier versions still offer them, and a client that does not adds none.
+#pragma warning disable MCP9005
+    /// <summary>Whether the client offers roots.</summary>
+    private static bool OffersRoots(IServiceProvider? services) => services?.GetService<McpServer>() is { ClientCapabilities.Roots: not null };
+
     /// <summary>
     /// The client's roots as local folders; none when it offers no roots or
     /// does not answer in 5 s.
     /// </summary>
-    // Roots are deprecated as of protocol 2026-07-28 (SEP-2577); clients of
-    // earlier versions still offer them, and a client that does not adds none.
-#pragma warning disable MCP9005
     private static async Task<IReadOnlyList<string>> ClientRoots(IServiceProvider? services, CancellationToken ct)
     {
         if (services?.GetService<McpServer>() is not { ClientCapabilities.Roots: not null } server) return [];
@@ -200,33 +203,43 @@ internal static partial class CallFilter
             { Details = new { retryAfterMs = (long)LeftoverWork.RetryAfter.TotalMilliseconds, leftoverCalls = leftovers.Running, max = leftovers.Max } }, tool), output);
         }
         using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token, tool);
-        using var confined = OutputRoots.Enter(serverOptions is { ConfineOutputs: true }
-            ? OutputRoots.Resolve(serverOptions.OutputDirs, serverOptions.OutputDirs == null && Writes(effects.ReadOnly, request) ? await ClientRoots(services, call.Token) : [])
-            : null);
         using var spent = Spent.Enter(new Spent(call.Token));
         var joinStopped = CancellationToken.None;
         string? phase = null;
         try
         {
-            // The deadline covers the argument check: a path check can probe
-            // the file system for seconds.
+            // The deadline covers the argument check and the client's roots: a
+            // path check can probe the file system for seconds, and the roots
+            // request waits up to 5 s for the client.
             phase = "checking its arguments";
             var workspace = services?.GetService<AssemblyWorkspace>();
-            if (inputSchema != null || workspace != null)
+            bool confine = serverOptions is { ConfineOutputs: true };
+            // Only a client that offers roots is asked; without one the roots
+            // resolve here.
+            bool askClient = confine && serverOptions!.OutputDirs == null && Writes(effects.ReadOnly, request) && OffersRoots(services);
+            IReadOnlyList<string>? roots = confine && !askClient ? OutputRoots.Resolve(serverOptions!.OutputDirs, []) : null;
+            if (inputSchema != null || workspace != null || askClient)
             {
-                var prepare = Task.Run(() =>
+                var prepare = Task.Run(async () =>
                 {
-                    if (inputSchema is { } schema)
+                    if (askClient) roots = OutputRoots.Resolve(null, await ClientRoots(services, call.Token));
+                    // The output check refuses a path outside the roots, so
+                    // they are in force.
+                    using (OutputRoots.Enter(roots))
                     {
-                        ArgumentCheck.Apply(schema, request?.Arguments, tool);
-                        ArgumentCheck.RequireAll(schema, request?.Arguments, tool);
+                        if (inputSchema is { } schema)
+                        {
+                            ArgumentCheck.Apply(schema, request?.Arguments, tool);
+                            ArgumentCheck.RequireAll(schema, request?.Arguments, tool);
+                        }
+                        if (workspace != null) Targets.PreResolve(workspace, tool, request?.Arguments?.AsReadOnly());
                     }
-                    if (workspace != null) Targets.PreResolve(workspace, tool, request?.Arguments?.AsReadOnly());
                     return true;
                 }, call.Token);
                 await WithinDeadline(prepare, prepare, call.Token, deadline, cancellationToken, leftovers, time, tool);
             }
             phase = null;
+            using var confined = OutputRoots.Enter(roots);
             int tokens = Budget(tool, request?.Arguments, client);
             bool json = string.Equals(Environment.GetEnvironmentVariable(ResultModeVariable), "json", StringComparison.OrdinalIgnoreCase);
             var warnings = new List<string>();
