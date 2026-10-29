@@ -11,6 +11,9 @@ public static partial class PackageReview
     /// <summary>Scripts npm also runs on npm install inside a source folder or git checkout.</summary>
     private static readonly HashSet<string> NpmLocalInstallScripts = new(StringComparer.Ordinal) { "preprepare", "prepare", "postprepare" };
 
+    /// <summary>Node built-in module names a registry package can also take.</summary>
+    private static readonly HashSet<string> NodeBuiltins = new(StringComparer.Ordinal) { "child_process", "net", "http", "https", "fs", "path", "os", "crypto" };
+
     private static readonly Regex NetworkCommand = new(@"(?:^|[\s;&|(`'""])(?:[\w.-]*/)*(?:curl|wget|nc|ncat|nslookup|dig|Invoke-WebRequest|iwr)(?:\.exe)?\s", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
     private static PackageReport? Npm(PackageFiles files, CancellationToken ct)
@@ -73,11 +76,20 @@ public static partial class PackageReview
         findings.AddRange(CommandNames(name, entries, scripts.Any(x => x.AtInstall), manifestPath));
         int deps = 0;
         var outside = new List<string>();
+        var builtins = new HashSet<string>(StringComparer.Ordinal);
+        var builtinElsewhere = false;
         foreach (var key in new[] { "dependencies", "optionalDependencies", "peerDependencies" })
             if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object)
                 foreach (var dep in d.EnumerateObject())
                 {
                     deps++;
+                    if (NodeBuiltins.Contains(dep.Name))
+                    {
+                        builtins.Add(dep.Name);
+                        if (dep.Value.ValueKind == JsonValueKind.String && dep.Value.GetString()!.Trim() is var spec
+                            && (spec.StartsWith("npm:", StringComparison.OrdinalIgnoreCase) || (key != "peerDependencies" && NpmSource(spec) is not null)))
+                            builtinElsewhere = true;
+                    }
                     // npm installs peer dependencies from the registry, whatever their range says.
                     if (key != "peerDependencies" && deps <= MaxDependencies && dep.Value.ValueKind == JsonValueKind.String && NpmSource(dep.Value.GetString()!) is { } from)
                         outside.Add($"{dep.Name} ({from})");
@@ -85,6 +97,11 @@ public static partial class PackageReview
         if (outside.Count > 0)
             findings.Add(new PackageFinding("package/dependency-source", scripts.Any(x => x.AtInstall) ? "noteworthy" : "review", "dependency",
                 $"{outside.Count} dependenc{(outside.Count == 1 ? "y" : "ies")} from outside the registry: {string.Join(", ", outside.Take(5))}", manifestPath));
+        // A bundler resolves a dependency of a built-in name in place of the built-in;
+        // registry placeholders of these names are inert, so only other code is noteworthy.
+        if (builtins.Count > 0)
+            findings.Add(new PackageFinding("package/builtin-dependency", builtinElsewhere ? "noteworthy" : "review", "dependency",
+                $"dependenc{(builtins.Count == 1 ? "y" : "ies")} named after a Node built-in module: {string.Join(", ", builtins.Take(5))}", manifestPath));
         // A scope is owned by its publisher, so only an unscoped name can shadow a private one.
         if (name is { } n && !n.StartsWith('@') && HighVersion(Str(pkg, "version")) is { } high)
             findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher", manifestPath));

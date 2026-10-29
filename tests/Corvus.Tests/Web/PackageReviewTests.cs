@@ -682,6 +682,19 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_built_in_name_aliased_to_another_package_is_noteworthy_and_a_registry_range_is_review()
+    {
+        var aliased = Review(Tgz("app-1.0.0.tgz", ("package/package.json", """{"name":"app","version":"1.0.0","dependencies":{"left-pad":"^1.3.0","child_process":"npm:left-pad@1","path":"^0.12.7"}}""")));
+        var finding = Assert.Single(aliased.Findings);
+        Assert.Equal(("package/builtin-dependency", "noteworthy", "package/package.json"), (finding.Rule, finding.Level, finding.Path));
+        Assert.Equal("dependencies named after a Node built-in module: child_process, path", finding.Detail);
+        var placeholder = Review(Tgz("app-1.0.1.tgz", ("package/package.json", """{"name":"app","version":"1.0.1","dependencies":{"child_process":"^1.0.2"},"peerDependencies":{"child_process":"^1.0.2"}}""")));
+        Assert.Equal(("package/builtin-dependency", "review"), (Assert.Single(placeholder.Findings).Rule, placeholder.Findings[0].Level));
+        Assert.Equal("dependency named after a Node built-in module: child_process", placeholder.Findings[0].Detail);
+        Assert.Equal("none", Review(Tgz("app-1.0.2.tgz", ("package/package.json", """{"name":"app","version":"1.0.2","dependencies":{"events":"^3.3.0","fs-extra":"^11.0.0"}}"""))).Review);
+    }
+
+    [Fact]
     public void A_major_version_of_99_is_review_on_an_unscoped_name_only()
     {
         var unscoped = Review(Tgz("app-99.0.0.tgz", ("package/package.json", """{"name":"app","version":"99.0.0"}""")));
