@@ -40,7 +40,7 @@ public sealed class FolderTools(FolderCompare folders)
     /// <summary>Finding changes repeated in the notes; Changes holds them all.</summary>
     private const int MaxPackageRows = 50;
 
-    private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".vsix", ".crx", ".xpi"];
+    private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".gem", ".vsix", ".crx", ".xpi"];
 
     // A folder is reviewed only with a package manifest at its root: the review reads every file in it.
     private static readonly string[] FolderManifests = ["package.json", "pyproject.toml", "setup.py", "manifest.json"];

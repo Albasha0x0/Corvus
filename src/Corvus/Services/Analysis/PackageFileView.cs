@@ -3,7 +3,7 @@ using Corvus.Services.Web.Packages;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>view=package: reviews an npm, PyPI, VS Code or browser extension package, or a repository's agent configuration, without running it.</summary>
+/// <summary>view=package: reviews an npm, PyPI, RubyGems, VS Code or browser extension package, or a repository's agent configuration, without running it.</summary>
 internal sealed class PackageFileView : IFileSummaryView
 {
     private static readonly HashSet<string> RepositoryKinds = new(StringComparer.Ordinal) { "git hook", "git config", "dev container", "direnv", "build step" };
@@ -25,7 +25,7 @@ internal sealed class PackageFileView : IFileSummaryView
     {
         var name = Path.GetFileName(file.Path).ToLowerInvariant();
         var ext = Path.GetExtension(name);
-        if (ext is ".crx" or ".vsix" or ".whl" or ".xpi" or ".tgz" || name.EndsWith(".tar.gz", StringComparison.Ordinal)) return true;
+        if (ext is ".crx" or ".vsix" or ".whl" or ".xpi" or ".tgz" or ".gem" || name.EndsWith(".tar.gz", StringComparison.Ordinal)) return true;
         if (Manifests.Contains(Path.GetFileName(file.Path), StringComparer.Ordinal) || PackageFiles.AgentRoot(file.Path) != null) return true;
         if (file.Kind != "zip" || file.Streamed) return false;
         try

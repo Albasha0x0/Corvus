@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 | WebAssembly | モジュール、コンポーネント、逆アセンブル | なし |
 | コンテナー | 単一ファイルバンドル、APK、IPA、インストーラー、ディスクイメージ、ファームウェア | なし |
 | ドキュメントとスクリプト | Office マクロ、PDF アクション、難読化を解除したスクリプト | なし |
-| インストール前のパッケージ | npm、PyPI、拡張機能パッケージ | なし |
+| インストール前のパッケージ | npm、PyPI、RubyGems、拡張機能パッケージ | なし |
 | ネットワークキャプチャ | pcap ストリーム、HTTP オブジェクト、キーログで復号した TLS | なし |
 | Android | マニフェスト、リソース、DEX、Java | Java には JADX、デバイスには adb |
 | クラッシュダンプ | ミニダンプ、コアダンプ、スタック、.NET ヒープ | なし |

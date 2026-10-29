@@ -6,7 +6,7 @@ using Corvus.Services.Web.Scripts;
 namespace Corvus.Services.Web.Packages;
 
 /// <param name="Rule">The rule id in <see cref="FindingRules"/>.</param>
-/// <param name="Level">noteworthy (look before installing) or review (expected in some packages); a level above the rule's row throws.</param>
+/// <param name="Level">noteworthy (look before installing), review (expected in some packages) or info; a level above the rule's row throws.</param>
 /// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code, hidden text, agent configuration, repository hook, build step, rule match (GuardDog), provenance.</param>
 /// <param name="Line">1-based line in <paramref name="Path"/>, when the finding has one.</param>
 public sealed record PackageFinding(string Rule, string Level, string Category, string Detail, string? Path = null, int? Line = null)
@@ -64,7 +64,7 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     internal IReadOnlyList<string>? Hosts { get; init; }
 }
 
-/// <summary>Reviews npm, PyPI, VSIX and browser extension packages and agent configuration without installing or running them.</summary>
+/// <summary>Reviews npm, PyPI, RubyGems, VSIX and browser extension packages and agent configuration without installing or running them.</summary>
 public static partial class PackageReview
 {
     public static PackageReport? Review(string path, CancellationToken ct) => Review(path, ct, hosts: false);
@@ -76,10 +76,12 @@ public static partial class PackageReview
         // A folder always gets a report, so an empty one says nothing runs rather than that the folder was not read.
         bool folder = Directory.Exists(path);
         if (files == null || files.Count == 0 && !folder) return null;
-        PackageReport? report = files.Crx != null || ManifestJson(files) != null && Root(files, "manifest.json") is { } m && IsExtensionManifest(files, m) ? Extension(files, ct)
+        PackageReport? report = files.Container == "gem" ? RubyGems(files, ct)
+            : files.Crx != null || ManifestJson(files) != null && Root(files, "manifest.json") is { } m && IsExtensionManifest(files, m) ? Extension(files, ct)
             : Root(files, "extension.vsixmanifest") != null || files.Has("extension/package.json") ? Vsix(files, ct)
             : Root(files, "package.json") != null ? Npm(files, ct)
             : files.Paths.Any(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || IsSdistFile(p)) ? Python(files, ct)
+            : GemSpecPath(files) != null ? RubyGems(files, ct)
             : null;
         // A source tree with no package manifest is reviewed for its agent configuration alone.
         var agent = AgentConfig(files, standalone: report == null, ct);
@@ -103,7 +105,7 @@ public static partial class PackageReview
                 };
         }
         var findings = report.Findings.Distinct().OrderBy(f => f.Level == "noteworthy" ? 0 : 1).ThenBy(f => f.Category, StringComparer.Ordinal).ToList();
-        var review = findings.Any(f => f.Level == "noteworthy") ? "noteworthy" : findings.Count > 0 ? "worth reviewing" : "none";
+        var review = findings.Any(f => f.Level == "noteworthy") ? "noteworthy" : findings.Any(f => f.Level == "review") ? "worth reviewing" : "none";
         return report with
         {
             Findings = findings, Review = review, Files = files.Count, Notes = [.. files.Notes, .. report.Notes], Hosts = hosts ? Hosts(files, ct) : null,

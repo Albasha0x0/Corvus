@@ -263,6 +263,80 @@ public sealed class PackageReviewTests : IDisposable
             ("package/index.js", "module.exports = (s, n, c) => String(s).padStart(n, c);"))).Review);
 
 
+    private static byte[] Gzip(byte[] data)
+    {
+        using var ms = new MemoryStream();
+        using (var gz = new GZipStream(ms, CompressionLevel.Fastest)) gz.Write(data);
+        return ms.ToArray();
+    }
+
+    private static byte[] Tar(params (string Path, byte[] Data)[] files)
+    {
+        using var ms = new MemoryStream();
+        using (var tar = new TarWriter(ms, TarEntryFormat.Ustar, leaveOpen: true))
+            foreach (var (p, data) in files)
+                tar.WriteEntry(new UstarTarEntry(TarEntryType.RegularFile, p) { DataStream = new MemoryStream(data) });
+        return ms.ToArray();
+    }
+
+    // A .gem: a plain tar of a gzipped YAML gemspec and a gzipped tar of the gem's files.
+    private string Gem(string name, string spec, params (string Path, string Text)[] files)
+    {
+        var path = _dir.File(name);
+        File.WriteAllBytes(path, Tar(("metadata.gz", Gzip(U(spec))), ("data.tar.gz", Gzip(Tar([.. files.Select(f => (f.Path, U(f.Text)))])))));
+        return path;
+    }
+
+    private static string GemSpecYaml(string name) => $"""
+        --- !ruby/object:Gem::Specification
+        name: {name}
+        version: !ruby/object:Gem::Version
+          version: 1.0.0
+        platform: ruby
+        authors:
+        - Example Author
+        bindir: exe
+        dependencies:
+        - !ruby/object:Gem::Dependency
+          name: rake
+          type: :development
+        - !ruby/object:Gem::Dependency
+          name: json
+          type: :runtime
+        executables:
+        - {name}
+        extensions:
+        - ext/{name}/extconf.rb
+        summary: Native bindings
+        """;
+
+    [Fact]
+    public void A_gem_extension_that_reads_a_credential_file_is_noteworthy_at_install()
+    {
+        var r = Review(Gem("fastparse-1.0.0.gem", GemSpecYaml("fastparse"),
+            ("ext/fastparse/extconf.rb", "require 'mkmf'\ntoken = File.read(File.join(Dir.home, '.npmrc'))\ncreate_makefile('fastparse/fastparse')\n"),
+            ("exe/fastparse", "#!/usr/bin/env ruby\nrequire 'fastparse'\n"), ("lib/fastparse.rb", "module Fastparse; end\n")));
+        Assert.Equal(("rubygems", "fastparse", "1.0.0", 1), (r.Ecosystem, r.Name, r.Version, r.Dependencies));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Scripts, s => s is { Name: "ext/fastparse/extconf.rb", AtInstall: true });
+        Assert.Contains(new PackageEntryPoint("executable", "fastparse", "exe/fastparse"), r.EntryPoints);
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "credentials", Path: "data.tar.gz/ext/fastparse/extconf.rb" });
+    }
+
+    [Fact]
+    public void An_ordinary_gem_extension_and_gemspec_folder_list_the_build_with_nothing_above_info()
+    {
+        const string extconf = "require 'mkmf'\ncreate_makefile('fastparse/fastparse')\n";
+        var gem = Review(Gem("fastparse-1.0.0.gem", GemSpecYaml("fastparse"), ("ext/fastparse/extconf.rb", extconf), ("lib/fastparse.rb", "module Fastparse; end\n")));
+        Assert.Equal(("Native bindings", "Example Author", "none"), (gem.Description, gem.Publisher, gem.Review));
+        Assert.Contains(gem.Scripts, s => s is { Name: "ext/fastparse/extconf.rb", Command: "ruby extconf.rb, then make", AtInstall: true });
+        Assert.All(gem.Findings, f => Assert.Equal("info", f.Level));
+        var spec = "Gem::Specification.new do |s|\n  s.name = 'fastparse'\n  s.version = Fastparse::VERSION\n  s.extensions = Dir['ext/**/extconf.rb']\n  s.add_dependency 'json'\nend\n";
+        var folder = Review(Repository("fastparse", ("fastparse.gemspec", spec), ("ext/fastparse/extconf.rb", extconf)));
+        Assert.Equal(("rubygems", "fastparse", null, 1, "none"), (folder.Ecosystem, folder.Name, folder.Version, folder.Dependencies, folder.Review));
+        Assert.Contains(folder.Scripts, s => s is { Name: "ext/fastparse/extconf.rb", AtInstall: true });
+    }
+
     [Fact]
     public void A_setup_py_that_replaces_install_and_runs_decoded_code_is_noteworthy()
     {

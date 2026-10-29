@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh |
 | WebAssembly | 模块、组件、反汇编 | 无 |
 | 容器 | 单文件包、APK、IPA、安装程序、磁盘映像、固件 | 无 |
 | 文档和脚本 | Office 宏、PDF 动作、反混淆的脚本 | 无 |
-| 安装前的包 | npm、PyPI 和扩展包 | 无 |
+| 安装前的包 | npm、PyPI、RubyGems 和扩展包 | 无 |
 | 网络捕获 | pcap 流、HTTP 对象、借助密钥日志解密的 TLS | 无 |
 | Android | 清单、资源、DEX、Java | Java 需要 JADX，设备需要 adb |
 | 崩溃转储 | 小型转储、核心转储、堆栈、.NET 堆 | 无 |

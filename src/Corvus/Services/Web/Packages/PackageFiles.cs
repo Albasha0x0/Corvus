@@ -5,7 +5,7 @@ using Corvus.Core;
 
 namespace Corvus.Services.Web.Packages;
 
-/// <summary>A package's files from a zip, tar.gz, .crx, folder, manifest or agent file; files over the limits are listed, not read.</summary>
+/// <summary>A package's files from a zip, tar.gz, .gem, .crx, folder, manifest or agent file; files over the limits are listed, not read.</summary>
 internal sealed class PackageFiles
 {
     public const int MaxEntries = 50_000;
@@ -46,7 +46,8 @@ internal sealed class PackageFiles
         }
         if (!File.Exists(path)) return null;
         using var stream = File.OpenRead(path);
-        Span<byte> head = stackalloc byte[16];
+        // A tar names its format at offset 257, inside the first 512-byte header.
+        Span<byte> head = stackalloc byte[512];
         int n = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
         stream.Position = 0;
         head = head[..n];
@@ -72,6 +73,12 @@ internal sealed class PackageFiles
                 files.Container = "tar.gz";
                 using var gz = new GZipStream(stream, CompressionMode.Decompress);
                 files.ReadTar(gz, ct);
+                return files.Count > 0 ? files : null;
+            }
+            if (head.Length >= 262 && head[257..262].SequenceEqual("ustar"u8))
+            {
+                files.Container = "tar";
+                files.ReadTar(stream, ct, gem: true);
                 return files.Count > 0 ? files : null;
             }
         }
@@ -158,14 +165,36 @@ internal sealed class PackageFiles
         }
     }
 
-    private void ReadTar(Stream stream, CancellationToken ct)
+    /// <summary>The gem's data.tar.gz members are listed under this folder.</summary>
+    public const string GemData = "data.tar.gz/";
+
+    /// <summary>The gem's gemspec, unpacked from metadata.gz.</summary>
+    public const string GemSpec = "metadata.gz";
+
+    // With gem, metadata.gz is unpacked in place and data.tar.gz's members are read under GemData.
+    private void ReadTar(Stream stream, CancellationToken ct, bool gem = false, string prefix = "")
     {
         using var tar = new TarReader(stream, leaveOpen: true);
         while (tar.GetNextEntry(copyData: false) is { } e)
         {
             ct.ThrowIfCancellationRequested();
             if (e.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile or TarEntryType.ContiguousFile)) continue;
-            Add(e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : []);
+            if (gem && e.Name == GemSpec && e.DataStream is { } spec)
+            {
+                Container = "gem";
+                var bytes = ReadBounded(new GZipStream(spec, CompressionMode.Decompress), MaxFile);
+                Add(GemSpec, bytes?.Length ?? 0, () => bytes);
+                if (bytes == null) NotRead.Add($"{GemSpec} (gemspec over {MaxFile >> 20} MiB unpacked)");
+                continue;
+            }
+            if (gem && e.Name == "data.tar.gz" && e.DataStream is { } data)
+            {
+                Container = "gem";
+                using var gz = new GZipStream(data, CompressionMode.Decompress, leaveOpen: true);
+                ReadTar(gz, ct, prefix: GemData);
+                continue;
+            }
+            Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : []);
         }
     }
 

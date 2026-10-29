@@ -51,7 +51,7 @@ The installer verifies the download and registers Corvus with the MCP clients it
 | WebAssembly | modules, components, disassembly | nothing |
 | Containers | single-file bundles, APK, IPA, installers, disk images, firmware | nothing |
 | Documents and scripts | Office macros, PDF actions, deobfuscated scripts | nothing |
-| Packages before install | npm, PyPI and extension packages | nothing |
+| Packages before install | npm, PyPI, RubyGems and extension packages | nothing |
 | Network captures | pcap streams, HTTP objects, TLS with a key log | nothing |
 | Android | manifest, resources, DEX, Java | JADX for Java, adb for devices |
 | Crash dumps | minidumps, core dumps, stacks, .NET heap | nothing |
