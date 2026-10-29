@@ -1,5 +1,48 @@
 # Release notes
 
+## 2.7.3
+
+### Highlights
+
+- Get a call's timeout answer within the client's limit while the work keeps every thread-pool thread busy.
+- Get a timeout answer for a stop that arrives while a call checks its arguments.
+- Read Office documents with macros at 11 MB on the first read, down from 274 MB.
+- Close an IDA or Ghidra session knowing its worker has ended and released its files.
+
+### Breaking changes
+
+None.
+
+### Changes
+
+- **Office:** macro keyword rules run as linear regexes; the first document read allocates 11 MB, down from 274 MB. [56df1fa3](https://github.com/Albasha0x0/Corvus/commit/56df1fa3)
+- **Containers:** `unpack_container` writes every file of an `.apk`, `.aab` or `.nupkg`, not only its code. [1d352aac](https://github.com/Albasha0x0/Corvus/commit/1d352aac)
+
+### Fixes
+
+- **Session:** a stop is answered from its own thread, so a busy thread pool no longer delays the timeout answer. [1b229ada](https://github.com/Albasha0x0/Corvus/commit/1b229ada)
+- **Session:** a stop during a call's argument check is answered as a timeout "while checking its arguments". [8bb40f8f](https://github.com/Albasha0x0/Corvus/commit/8bb40f8f)
+- **Session:** standard output is written from a thread of its own, so a client that stops reading no longer holds up other answers. [e78024ee](https://github.com/Albasha0x0/Corvus/commit/e78024ee)
+- **Setup:** `corvus status` and `setup` report a slow-starting server's error, not "no reply to initialize". [200720bf](https://github.com/Albasha0x0/Corvus/commit/200720bf)
+- **Engines:** disposing a session ends a worker that closes late before it returns. [2cb2c7de](https://github.com/Albasha0x0/Corvus/commit/2cb2c7de)
+- **Containers:** `search_container kind=file` lists a file written under a safe name once, with its recorded name. [7482fa08](https://github.com/Albasha0x0/Corvus/commit/7482fa08)
+- **Containers:** XML nested past 256 levels is refused before it loads, so a ClickOnce, Burn, VSIX or XAML file no longer takes minutes. [181dae57](https://github.com/Albasha0x0/Corvus/commit/181dae57)
+- **Containers:** an RPM header whose string count runs past it is refused before it is allocated. [d70cd586](https://github.com/Albasha0x0/Corvus/commit/d70cd586)
+- **Containers:** a Process Monitor log table offset past the end of the file fails as a short read, not an unhandled exception. [408faa53](https://github.com/Albasha0x0/Corvus/commit/408faa53)
+- **Containers:** a PRI schema count past its section is noted before it is allocated. [5f745742](https://github.com/Albasha0x0/Corvus/commit/5f745742)
+- **Containers:** a pak entry larger than its compressed blocks can produce is refused before it is allocated. [ca38c584](https://github.com/Albasha0x0/Corvus/commit/ca38c584)
+- **.NET:** metadata table row counts the tables stream cannot hold are refused before the module loads. [25559c18](https://github.com/Albasha0x0/Corvus/commit/25559c18)
+- **Containers:** a safetensors header that is not UTF-8 is refused as invalid data. [c75b3409](https://github.com/Albasha0x0/Corvus/commit/c75b3409)
+- **Mobile:** an APK v1 signature entry's buffer grows with its data, so an inflated declared size is not allocated. [ea2df617](https://github.com/Albasha0x0/Corvus/commit/ea2df617)
+- **Mobile:** a class file length near 2^31 ends as malformed input, not an internal error. [ea7ed3a6](https://github.com/Albasha0x0/Corvus/commit/ea7ed3a6)
+- **Containers:** a protobuf map entry without fields 1 and 2 prints as a repeated message instead of failing. [6e85e4f8](https://github.com/Albasha0x0/Corvus/commit/6e85e4f8)
+- **Containers:** a Realm leaf's object count is bounded by the bytes that hold it. [61c777da](https://github.com/Albasha0x0/Corvus/commit/61c777da)
+- **Web:** `summarize_file` names a source-mapped script or bundle as a container, with its counts. [eadaaa2b](https://github.com/Albasha0x0/Corvus/commit/eadaaa2b)
+
+### In progress
+
+- An analysis service image that runs `corvus batch` on each submitted file.
+
 ## 2.7.2
 
 ### Breaking changes
