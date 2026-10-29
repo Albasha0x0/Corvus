@@ -54,6 +54,40 @@ public class BackgroundRunStatusTests
         Assert.Equal(1, Script(dir.Path, "-Wait")!.Value.Code);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Status_names_the_failed_CI_jobs_and_an_unknown_release_result()
+    {
+        // Regression: -Status reported the offload passed on eadaaa2b while its
+        // CI test jobs failed.
+        using var dir = new TempDir();
+        // No git on this machine.
+        if (!Copy(dir.Path)) return;
+        Git(dir.Path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "c");
+        Git(dir.Path, "update-ref", "refs/remotes/origin/main", "HEAD");
+        Git(dir.Path, "remote", "add", "origin", "https://github.com/owner/app.git");
+        // Stands in for gh: a failed CI push run with two failed jobs; the
+        // release list fails as without a login.
+        var gh = Path.Combine(dir.Path, "gh.ps1");
+        File.WriteAllText(gh, """
+            $a = $args -join ' '
+            if ($a -match '^run list -R owner/app --workflow ci\.yml .*--commit [0-9a-f]{40} --event push') {
+                '[{"databaseId":11,"status":"completed","conclusion":"failure","headSha":"0123abcd0123","headBranch":"main","createdAt":"2026-01-01T00:00:00Z"}]'; exit 0
+            }
+            if ($a -match '^run view 11 -R owner/app --json jobs') {
+                '{"jobs":[{"name":"test (ubuntu-latest)","conclusion":"failure"},{"name":"test (windows-latest)","conclusion":"success"},{"name":"test (macos-latest)","conclusion":"failure"}]}'; exit 0
+            }
+            [Console]::Error.WriteLine('To get started with GitHub CLI, please run:  gh auth login'); exit 4
+            """);
+
+        // No pwsh on this machine.
+        if (Script(dir.Path, "-Status", ("CORVUS_TEST_GH", gh)) is not { } status) return;
+        Assert.True(status.Code == 0, status.Error);
+        Assert.Contains("CI workflow on main ", status.Output);
+        Assert.Contains(": failure in run 11 on main (0123abcd) at 2026-01-01 00:00 UTC; failed jobs: test (ubuntu-latest), test (macos-latest)", status.Output);
+        Assert.Contains("Release workflow: unknown (gh exit 4: To get started with GitHub CLI", status.Output);
+    }
+
     // test.ps1 with the modules it imports, as they sit beside it in the repository, in a new repository; false without git.
     private static bool Copy(string dir)
     {
@@ -63,10 +97,12 @@ public class BackgroundRunStatusTests
         return true;
     }
 
-    // Runs the copied test.ps1 with one switch; null without pwsh.
-    private static (int Code, string Output, string Error)? Script(string dir, string option)
+    // Runs the copied test.ps1 with one switch and an optional environment
+    // variable; null without pwsh.
+    private static (int Code, string Output, string Error)? Script(string dir, string option, (string Name, string Value)? variable = null)
     {
         ProcessStartInfo start = new("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = dir };
+        if (variable is { } v) start.Environment[v.Name] = v.Value;
         foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-File", Path.Combine(dir, "test.ps1"), option })
             start.ArgumentList.Add(arg);
         Process? process;

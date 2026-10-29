@@ -11,7 +11,8 @@
 #         ./test.ps1 -Full -Background    # after a push: -Reuse on HEAD (or -Commit) in its own worktree; returns at once
 #                                         #   (-Exhaustive: patch release strength; -Whole: exhaustive without reuse)
 #         ./test.ps1 -SecondGhidra        # the Engines tests with CORVUS_SECOND_GHIDRA_DIR, unless they passed on these inputs
-#         ./test.ps1 -Status              # the last background run: passed / failed / running, its log, and run times
+#         ./test.ps1 -Status              # the last background run: passed / failed / running, its log, and run times;
+#                                         #   the CI and release workflow results on GitHub (gh), unknown without gh
 #         ./test.ps1 -Wait                # returns when the background run and any run queued behind it end: 0 passed, 1 not
 #         ./test.ps1 -Perf                # the speed measurements with their budgets, alone on the machine (nightly, after -Full)
 #         ./test.ps1 -Stamp               # records the last full run's passes when its recording step failed (same tree only)
@@ -115,7 +116,11 @@ if ($RemoteRun) {
 }
 
 if ($Status) {
-    if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; exit 0 }
+    # The offload line covers the offloaded classes only; the CI test jobs
+    # and the release build report here.
+    Import-Module (Join-Path $root 'test-remote.psm1') -Force
+    $showWorkflows = { Get-WorkflowStatus $root | ForEach-Object { Write-Host $_ } }
+    if (-not (Test-Path $result)) { Write-Host 'No background run yet.'; & $showWorkflows; exit 0 }
     $text = (Get-Content $result -Raw).Trim()
     # A killed run, or one whose worktree broke, leaves "running" and its record behind.
     $record = Join-Path $gitDir 'corvus-background.json'
@@ -139,8 +144,8 @@ if ($Status) {
     if ($times) { Write-Host "Run times ($timeReport):"; $times | ForEach-Object { Write-Host "  $_" } }
     $misses = Join-Path $gitDir 'corvus-selection-misses.txt'
     if (Test-Path $misses) { Write-Host "Last selection miss: $(Get-Content $misses -Tail 1)" }
-    Import-Module (Join-Path $root 'test-remote.psm1') -Force
     Get-RemoteStatus $gitDir | ForEach-Object { Write-Host "Offload $_" }
+    & $showWorkflows
     if (Get-DeferredStatus $gitDir) { Write-Host "Host-only classes left for the nightly run: $(Get-DeferredStatus $gitDir)" }
     if (Get-TierStatus $gitDir) { Write-Host "Host tier: $(Get-TierStatus $gitDir)" }
     $nightly = Join-Path $gitDir 'corvus-nightly.log'

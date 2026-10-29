@@ -55,6 +55,10 @@ $script:GhVariable = 'CORVUS_TEST_GH'
 # The workflow and the job name prefix of the CI offload job (.github/workflows/ci.yml); its TRX artifacts share it.
 $script:Workflow = 'ci.yml'
 $script:OffloadJob = 'offload'
+$script:ReleaseWorkflow = 'release.yml'
+# Seconds each gh call of -Status may take; past it the workflow's result is
+# unknown.
+$script:StatusCallSeconds = 10
 # Seconds for the commit's CI run to appear (push runs start before the push lands), minutes for offload jobs.
 $script:RunAppearSeconds = 120
 $script:RunFinishMinutes = 120
@@ -972,4 +976,77 @@ function Receive-GitHubRun($state, [string]$folder, [string]$group = '') {
     $result
 }
 
-Export-ModuleMember -Function Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-GhidraLocalClasses, Get-RealDataLocalClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Read-OffloadSeconds, Save-OffloadSeconds, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierFamiliesOf, Get-TierReturned, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
+# Runs gh (or its stand-in) for at most $seconds as @{ Code; Output; Error }.
+# Code is $null when gh is not installed or did not answer in time; Error
+# says which.
+function Invoke-GhBounded([string[]]$arguments, [int]$seconds = $script:StatusCallSeconds) {
+    $standIn = [Environment]::GetEnvironmentVariable($script:GhVariable)
+    $gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($standIn) { $start = [Diagnostics.ProcessStartInfo]::new('pwsh'); foreach ($a in '-NoProfile', '-File', $standIn) { $start.ArgumentList.Add($a) } }
+    elseif ($gh) { $start = [Diagnostics.ProcessStartInfo]::new($gh.Source) }
+    else { return @{ Code = $null; Output = ''; Error = 'gh not installed' } }
+    foreach ($a in $arguments) { $start.ArgumentList.Add($a) }
+    $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    # A missing login fails at once instead of waiting on a prompt.
+    $start.Environment['GH_PROMPT_DISABLED'] = '1'
+    $process = [Diagnostics.Process]::Start($start)
+    $output = $process.StandardOutput.ReadToEndAsync(); $errors = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($seconds * 1000)) {
+        try { $process.Kill($true) } catch { }
+        return @{ Code = $null; Output = ''; Error = "gh did not answer in $seconds s" }
+    }
+    $process.WaitForExit()
+    @{ Code = $process.ExitCode; Output = $output.Result; Error = $errors.Result }
+}
+
+# Why a gh call gave no answer: the reason Invoke-GhBounded named, or the
+# exit code and first error line.
+function Get-GhFailure($call) {
+    if ($null -eq $call.Code) { return $call.Error }
+    $line = @("$($call.Error)" -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+    "gh exit $($call.Code)$(if ($line) { ": $($line[0].Trim())" })"
+}
+
+# $workflow's newest run in $repository ($commit's push run, when given) as
+# one line: its state, run id, branch, commit, time and the jobs that did not
+# succeed; "unknown (<reason>)" when gh cannot tell, "no run" when it has none.
+function Get-WorkflowRunStatus([string]$repository, [string]$workflow, [string]$commit = '') {
+    $list = @('run', 'list', '-R', $repository, '--workflow', $workflow, '--json', 'databaseId,status,conclusion,headSha,headBranch,createdAt', '--limit', '1')
+    # A manual run of the live job must not hide the push run's test jobs.
+    if ($commit) { $list += '--commit', $commit, '--event', 'push' }
+    $found = Invoke-GhBounded $list
+    if ($found.Code -ne 0) { return "unknown ($(Get-GhFailure $found))" }
+    $run = try { @($found.Output | ConvertFrom-Json) | Select-Object -First 1 } catch { return "unknown (gh output is not JSON)" }
+    if (-not $run) { return 'no run' }
+    $state = if ($run.status -eq 'completed') { $run.conclusion } else { $run.status }
+    $sha = "$($run.headSha)"; $sha = $sha.Substring(0, [math]::Min(8, $sha.Length))
+    # ConvertFrom-Json reads gh's ISO 8601 times as DateTime.
+    $at = if ($run.createdAt -is [datetime]) { "$($run.createdAt.ToUniversalTime().ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)) UTC" } else { $run.createdAt }
+    $line = "$state in run $($run.databaseId) on $($run.headBranch) ($sha) at $at"
+    if ($run.status -ne 'completed' -or $run.conclusion -in 'success', 'skipped', 'neutral') { return $line }
+    $view = Invoke-GhBounded @('run', 'view', "$($run.databaseId)", '-R', $repository, '--json', 'jobs')
+    if ($view.Code -ne 0) { return "$line; failed jobs unknown ($(Get-GhFailure $view))" }
+    $jobs = try { @(($view.Output | ConvertFrom-Json).jobs) } catch { return "$line; failed jobs unknown (gh output is not JSON)" }
+    $failed = @($jobs | Where-Object { $_.conclusion -notin 'success', 'skipped', 'neutral' } | ForEach-Object name)
+    if ($failed) { "$line; failed jobs: $($failed -join ', ')" } else { $line }
+}
+
+# Two lines for -Status: the newest CI workflow push run on origin's main
+# (HEAD without it) and the newest release workflow run, each
+# "unknown (<reason>)" when origin is not on github.com or gh cannot tell.
+function Get-WorkflowStatus([string]$repo) {
+    $commit = git -C $repo rev-parse --verify -q 'origin/main^{commit}' 2>$null
+    $branch = 'main'
+    if ($LASTEXITCODE -ne 0 -or -not $commit) { $commit = git -C $repo rev-parse --verify -q 'HEAD^{commit}' 2>$null; $branch = 'HEAD' }
+    $commit = "$commit".Trim()
+    $label = if ($commit) { "CI workflow on $branch $($commit.Substring(0, 8))" } else { 'CI workflow' }
+    $url = (git -C $repo remote get-url origin 2>$null) -join ''
+    if ($url -notmatch 'github\.com[:/]([^/]+/[^/]+?)(\.git)?/?$') {
+        "${label}: unknown (origin is not on github.com)"; 'Release workflow: unknown (origin is not on github.com)'; return
+    }
+    $repository = $Matches[1]
+    "${label}: $(if ($commit) { Get-WorkflowRunStatus $repository $script:Workflow $commit } else { 'unknown (no commit)' })"
+    "Release workflow: $(Get-WorkflowRunStatus $repository $script:ReleaseWorkflow)"
+}
+
+Export-ModuleMember -Function Get-WorkflowStatus, Get-WorkflowRunStatus, Invoke-Transport, Test-RemoteHost, Get-RemoteRunScript, Invoke-RemoteRun, Receive-RemoteRun, New-RemoteSnapshot, Invoke-RemoteFilter, Invoke-Gh, Wait-GitHubRun, Receive-GitHubRun, Get-GitHubTarget, Receive-GitHubLive, Get-RemoteClasses, Get-IdaHostClasses, Get-GhidraLocalClasses, Get-RealDataLocalClasses, Get-HeldClasses, Get-HostVariables, Get-RealDataVariables, Get-RemoteShard, Read-OffloadSeconds, Save-OffloadSeconds, Get-LocalFilter, Get-ClassFilter, Get-ClassOutcomes, Get-TestOutcomes, Get-SkippedOnHost, Get-FastestClassSeconds, Get-SkippedOnBoth, Get-RerunClasses, Get-MixedClasses, Get-FailedThereNote, Join-TrxFiles, Get-TargetFileName, Save-RemoteRecord, Get-RemoteStatus, Get-TierFamilies, Get-TierClasses, Get-TierFilter, Get-TierFamiliesOf, Get-TierReturned, Get-TierHostClasses, Get-TierPasses, Save-TierRecord, Get-TierStatus, Get-DeferredClasses, Get-UndeferredFamilies, Save-DeferredClasses, Get-DeferredStatus, Get-OffloadTarget, Start-Offload, Receive-Offload
