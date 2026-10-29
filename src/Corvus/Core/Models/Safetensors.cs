@@ -47,6 +47,9 @@ public sealed class Safetensors
         if (n > MaxHeader || (long)n > length - 8) throw new InvalidDataException($"the header length {n:N0} is over the limit or the file");
         var json = new byte[n];
         s.ReadExactly(json);
+        // JsonDocument leaves strings unchecked until they are read, and then
+        // throws InvalidOperationException for bytes that are not UTF-8.
+        if (!System.Text.Unicode.Utf8.IsValid(json)) throw new InvalidDataException("the header is not UTF-8");
         JsonDocument doc;
         try { doc = JsonDocument.Parse(json); }
         catch (JsonException ex) { throw new InvalidDataException($"the header is not JSON: {ex.Message}"); }

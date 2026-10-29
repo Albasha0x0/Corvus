@@ -42,6 +42,16 @@ public sealed class ModelFileTests
         w.Key("eps", 6); w.U32(BitConverter.SingleToUInt32Bits(0.5f));
     }, 4, [("w", 0, [4, 2], 0), ("q", 8, [64], 64)], alignment: 64, dataBytes: 64 + 68);
 
+    // Regression: a header name with a byte that is not UTF-8 made JsonDocument
+    // throw InvalidOperationException when the name was read.
+    [Fact]
+    public void A_safetensors_header_that_is_not_UTF8_is_invalid_data()
+    {
+        var b = ModelSamples.Safetensors("""{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}""", 8);
+        b[8 + 2] = 0xD1;
+        Assert.Contains("not UTF-8", Assert.Throws<InvalidDataException>(() => ReadSafetensors(b)).Message);
+    }
+
     [Fact]
     public void Gguf_header_reads_metadata_and_places_tensors_after_the_alignment()
     {
