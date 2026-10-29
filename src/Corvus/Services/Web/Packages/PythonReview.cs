@@ -109,8 +109,9 @@ public static partial class PackageReview
                 entries.AddRange(EntryPoints(CfgGroup().Replace(cfgEntries.Groups[1].Value, "[$1]")));
         }
         // Import-time code, __init__ modules first; tests, examples and docs are not imported.
-        foreach (var source in Capped(files, [.. files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
-                     .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/'))]))
+        List<string> sources = [.. files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
+            .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/'))];
+        foreach (var source in Capped(files, sources))
             if (files.Text(source) is { } code)
                 findings.AddRange(Scan(source, code, install: false, ct, entry: source.EndsWith("__init__.py", StringComparison.Ordinal))
                     .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard"));
@@ -130,6 +131,12 @@ public static partial class PackageReview
             else undecoded++;
         }
         if (undecoded > 0) notes.Add($"partial: {undecoded} Cython extension(s) with no decoded string table; their strings were not read");
+        // Past the cap, a byte prefilter keeps a decoded file run in a large
+        // package in view.
+        foreach (var source in sources.Skip(MaxScannedSources))
+            if (files.Bytes(source) is { } bytes && bytes.AsSpan().IndexOf("b64decode"u8) >= 0 && bytes.AsSpan().IndexOf("subprocess"u8) >= 0
+                && files.Text(source) is { } code && WritesDecodedAndRuns(code))
+                findings.Add(new PackageFinding("package/decoded-file-run", "noteworthy", "process", DecodedFileRun, source));
         // Cookie, webhook and session libraries together mark a credential collector.
         var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))

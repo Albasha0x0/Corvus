@@ -174,6 +174,8 @@ public static partial class PackageReview
     // NonBacktracking matches in linear time, so whole-file rules take no match timeout.
     private static Regex R(string pattern) => new(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
 
+    private static readonly Regex LongBase64 = R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]");
+
     /// <summary>What code reaches, by pattern: each rule names what it found. Levels are raised by the install-time context.</summary>
     private static readonly Rule[] CodeRules =
     [
@@ -189,6 +191,7 @@ public static partial class PackageReview
         new("package/file-host-program", "process", "noteworthy", R(@"https?://(?:dl\.dropbox(?:usercontent)?\.com|cdn\.discordapp\.com/attachments|files\.catbox\.moe|transfer\.sh|github\.com/[\w.-]+/[\w.-]+/raw)/[^\s'""]*?\.(?:exe|sh|bat|cmd|ps1|vbs|scr|msi)\b"), "downloads a program from a file-sharing host"),
         new("package/download-and-run", "process", "noteworthy", R(@"\bcurl(?:\.exe)?\s+[^\n]{0,60}?https?://[^\s'""]+\.(?:exe|scr|msi)\b|\b(?:curl|wget)\b[^\n]{0,200}?&&\s*chmod\s+\+x|\burlretrieve\s*\([\s\S]{0,600}?(?:\bPopen\s*\(|\bos\.(?:system|startfile)\s*\(|\bchmod\s*\()|\[\s*['""]node['""]\s*,\s*['""]-e['""]\s*,\s*\w+\.stdout"), "downloads a program or script and runs it"),
         new("package/download-and-start", "process", "noteworthy", DownloadsAndStarts, "downloads a program to a file and starts it"),
+        new("package/decoded-file-run", "process", "noteworthy", WritesDecodedAndRuns, DecodedFileRun),
         new("package/decoded-command", "process", "noteworthy", R(@"\b(?:os\.system|os\.popen|subprocess\.(?:Popen|run|call|check_output|check_call))\s*\(\s*\w*(?:b64d\w*|b64decode|decode|unhexlify|fromhex)\s*\(|(?:^|[^.\w$])(?:exec|execSync)\s*\(\s*(?:atob|Buffer\.from)\s*\("), "runs a decoded command"),
         new("package/account-listing", "host details", "noteworthy", R(@"(?:^|[^.\w$])(?:exec|execSync|spawnSync|check_output|getoutput|popen|system)\s*\(\s*['""`](?:net\s+user|net\s+localgroup|whoami\s+/(?:priv|all|groups)|cat\s+/etc/passwd)\b"), "runs account and privilege listing commands"),
         new("package/credential-files", "credentials", "noteworthy", R(@"\.npmrc\b|[/\\]\.ssh[/\\]|\bid_rsa\b|\.aws[/\\]credentials|\.git-credentials|\.bash_history|/etc/(?:shadow|passwd)\b|\bLogin Data\b|Local Storage[/\\]+leveldb|\bwallet\.dat\b|\bdiscord(?:app)?\b.{0,40}\btoken|\bkeychain-db\b|\bbrowser_cookie3\b|\.pypirc\b|" + PublishTokenRead), "reads credential files or publish tokens (npmrc, pypirc, ssh keys, cloud or browser stores)"),
@@ -209,6 +212,7 @@ public static partial class PackageReview
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
         new("package/eval-inflated", "dynamic code", Small, RunsDecodedContent, "evaluates inflated or image-decoded content (eval / Function)"),
         new("package/long-base64", "transformed code", "review", R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]"), "a base64 literal over 2,000 characters"),
+        new("package/long-base64", "transformed code", "review", LongBase64, "a base64 literal over 2,000 characters"),
         new("package/hidden-url", "transformed code", Small, R(@"['""`](?:aHR0cHM6Ly|aHR0cDovL|68747470733a2f2f|687474703a2f2f)[A-Za-z0-9+/=]{8,}['""`]"), "a URL hidden in base64 or hex"),
         new("package/exec-char-codes", "transformed code", "noteworthy", R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d"), "executes code built from character codes"),
         new("package/pyobfuscate", "transformed code", "noteworthy", R(@"\(https://pyobfuscate\.com\)|\bimport\s+(?:marshal|zlib|base64)\s+as\s+_{3,}"), "pyobfuscate-style transformed code"),
@@ -456,6 +460,12 @@ public static partial class PackageReview
     private static readonly Regex DownloadSource = R(@"https?://|%\w*URL\w*%|\$\{?\w*URL");
     private static readonly Regex SavedTo = R(@"\s-(?:o|O|OutFile)\s+['""]?(?<f>%\w+%|\$?\{\w+\}|\$\w+|[^\s'""]+\.(?:exe|scr|msi|bat|cmd|ps1|sh|bin))['""]?");
     private static readonly Regex Starter = R(@"(?m)(?:^|[\s&;(|'""])(?:start|Start-Process|call|chmod\s+\+x)\b");
+
+    private static readonly Regex DecodedWriteThenRun = R(@"(?:(?:\.write|\bwrite_bytes)\s*\(\s*(?:base64\.)?(?:urlsafe_)?b64decode\s*\(|\b(?:urlsafe_)?b64decode\s*\([\s\S]{0,300}?(?:\.write|\bwrite_bytes)\s*\()[\s\S]{0,600}?\bsubprocess\.(?:run|Popen|call|check_call|check_output)\s*\(\s*\[\s*(?:sys\.executable|['""]python(?:w|[\d.]*)(?:\.exe)?['""])\s*,\s*(?:[A-Za-z_]|['""][^'""-])");
+    private const string DecodedFileRun = "writes a decoded base64 literal to a file and runs it with Python";
+
+    /// <summary>Whether a base64 literal over 2,000 characters sits beside a b64decode whose output is written to a file and passed as the first argument of a Python process.</summary>
+    private static bool WritesDecodedAndRuns(string text) => DecodedWriteThenRun.IsMatch(text) && LongBase64.IsMatch(text);
 
     /// <summary>Whether a URL download saves to a file that a start, call or chmod +x names within 3,000 characters.</summary>
     private static bool DownloadsAndStarts(string text)

@@ -728,6 +728,53 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(r.Findings, f => f.Rule == "package/compiled-only");
     }
 
+    // The literal decodes to inert text; with 250 modules first, pkg/z.py is
+    // past the source cap.
+    private (string, string)[] SdistWithLastModule(string last, int before = 250, int quads = 525) =>
+    [
+        ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+        .. Enumerable.Range(0, before).Select(i => ($"tool-1.0/pkg/m{i}.py", $"X = {i}\n")),
+        ("tool-1.0/pkg/z.py", $"import base64, subprocess, sys, pathlib\nB = \"{string.Concat(Enumerable.Repeat("QUJD", quads))}\"\np = pathlib.Path('p.py')\n{last}"),
+    ];
+
+    [Fact]
+    public void A_decoded_literal_assigned_then_written_and_run_with_python_is_noteworthy()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", SdistWithLastModule("data = base64.urlsafe_b64decode(B)\nopen(p, 'wb').write(data)\nsubprocess.Popen([sys.executable, str(p)])\n", before: 3)));
+        var f = Assert.Single(r.Findings, f => f.Rule == "package/decoded-file-run");
+        Assert.Equal(("noteworthy", "tool-1.0/pkg/z.py"), (f.Level, f.Path));
+    }
+
+    [Fact]
+    public void A_decoded_literal_written_then_pip_run_with_python_has_no_decoded_file_run_finding()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", SdistWithLastModule("p.write_bytes(base64.b64decode(B))\nsubprocess.run([sys.executable, '-m', 'pip', 'install', 'x'])\n", before: 3)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/decoded-file-run");
+    }
+
+    [Fact]
+    public void A_short_base64_literal_written_and_run_with_python_has_no_decoded_file_run_finding()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", SdistWithLastModule("p.write_bytes(base64.b64decode(B))\nsubprocess.run([sys.executable, p])\n", before: 3, quads: 20)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/decoded-file-run");
+    }
+
+    [Fact]
+    public void A_long_base64_literal_written_to_a_file_and_run_with_python_is_noteworthy_past_the_source_cap()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", SdistWithLastModule("p.write_bytes(base64.b64decode(B))\nsubprocess.run([sys.executable, p])\n")));
+        Assert.Contains("51 source(s) past the first 200", r.Partial, StringComparison.Ordinal);
+        var f = Assert.Single(r.Findings, f => f.Rule == "package/decoded-file-run");
+        Assert.Equal(("noteworthy", "tool-1.0/pkg/z.py"), (f.Level, f.Path));
+    }
+
+    [Fact]
+    public void A_long_base64_literal_written_to_a_file_that_is_not_run_has_no_decoded_file_run_finding()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", SdistWithLastModule("p.write_bytes(base64.b64decode(B))\nsubprocess.run(['git', 'status'])\n")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/decoded-file-run");
+    }
+
 
     [Fact]
     public void A_bin_named_like_a_system_command_is_reported_and_noteworthy_beside_an_install_script()

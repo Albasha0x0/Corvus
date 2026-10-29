@@ -29,6 +29,7 @@ public static class FindingRules
         N("package/file-host-program", "exact list: file-sharing hosts serving a program", "downloads a program from a file-sharing host"),
         N("package/download-and-run", RunsRemote, "downloads a program or script and runs it"),
         N("package/download-and-start", RunsRemote, "downloads a program to a file and starts it"),
+        N("package/decoded-file-run", RunsDecoded, "writes a decoded base64 literal to a file and runs it with Python"),
         N("package/decoded-command", RunsDecoded, "runs a decoded command"),
         N("package/account-listing", "exact list: account and privilege listing commands", "runs account and privilege listing commands"),
         N("package/credential-files", AtInstall + ", with an exact list of credential paths and publish token variables", "reads credential files or publish tokens"),
