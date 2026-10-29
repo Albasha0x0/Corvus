@@ -151,10 +151,11 @@ public class MachinePermitsTests
             for (int i = 0; i < 4; i++) held.Add((await MachinePermits.TakeAsync(["four"], folder, counts, default)).Held);
             var clock = Stopwatch.StartNew();
             var late = await Assert.ThrowsAsync<TimeoutException>(() => MachinePermits.TakeAsync(["four"], folder, counts, default, TimeSpan.FromMilliseconds(500),
-                holders: _ => { answer.Wait(); return []; }, holderLookupLimit: TimeSpan.FromSeconds(2)).WaitAsync(TimeSpan.FromSeconds(30)));
+                holders: _ => { answer.Wait(); return []; }, holderLookupLimit: TimeSpan.FromSeconds(5)).WaitAsync(TimeSpan.FromSeconds(60)));
             if (OperatingSystem.IsWindows()) Assert.Equal(4, late.Message.Split("not known yet").Length - 1);
-            // One after another, the four lookups took 8 s.
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(7), $"{clock.Elapsed}");
+            // One after another the four lookups take 20 s; shared, about 5.5 s.
+            // Regression of 4dfb9c4d: a 7 s bound failed on a loaded machine.
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"{clock.Elapsed}");
         }
         finally
         {
