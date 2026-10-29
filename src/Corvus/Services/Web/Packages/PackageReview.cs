@@ -179,7 +179,7 @@ public static partial class PackageReview
         new("package/download-and-start", "process", "noteworthy", DownloadsAndStarts, "downloads a program to a file and starts it"),
         new("package/decoded-command", "process", "noteworthy", R(@"\b(?:os\.system|os\.popen|subprocess\.(?:Popen|run|call|check_output|check_call))\s*\(\s*\w*(?:b64d\w*|b64decode|decode|unhexlify|fromhex)\s*\(|(?:^|[^.\w$])(?:exec|execSync)\s*\(\s*(?:atob|Buffer\.from)\s*\("), "runs a decoded command"),
         new("package/account-listing", "host details", "noteworthy", R(@"(?:^|[^.\w$])(?:exec|execSync|spawnSync|check_output|getoutput|popen|system)\s*\(\s*['""`](?:net\s+user|net\s+localgroup|whoami\s+/(?:priv|all|groups)|cat\s+/etc/passwd)\b"), "runs account and privilege listing commands"),
-        new("package/credential-files", "credentials", "noteworthy", R(@"\.npmrc\b|[/\\]\.ssh[/\\]|\bid_rsa\b|\.aws[/\\]credentials|\.git-credentials|\.bash_history|/etc/(?:shadow|passwd)\b|\bLogin Data\b|Local Storage[/\\]+leveldb|\bwallet\.dat\b|\bdiscord(?:app)?\b.{0,40}\btoken|\bkeychain-db\b|\bbrowser_cookie3\b"), "reads credential files (npmrc, ssh keys, cloud or browser stores)"),
+        new("package/credential-files", "credentials", "noteworthy", R(@"\.npmrc\b|[/\\]\.ssh[/\\]|\bid_rsa\b|\.aws[/\\]credentials|\.git-credentials|\.bash_history|/etc/(?:shadow|passwd)\b|\bLogin Data\b|Local Storage[/\\]+leveldb|\bwallet\.dat\b|\bdiscord(?:app)?\b.{0,40}\btoken|\bkeychain-db\b|\bbrowser_cookie3\b|\.pypirc\b|" + PublishTokenRead), "reads credential files or publish tokens (npmrc, pypirc, ssh keys, cloud or browser stores)"),
         new("package/environment-dump", "credentials", "review", R(@"JSON\.stringify\(\s*process\.env\s*\)|Object\.(?:keys|entries|assign)\(\s*(?:\{\}\s*,\s*)?process\.env\s*\)|json\.dumps\(\s*(?:dict\()?os\.environ|dict\(\s*os\.environ\s*\)|os\.environ\.copy\(\)"), "collects all environment variables"),
         new("package/host-details", "host details", "review", R(@"\bos\.(?:hostname|userInfo|networkInterfaces|homedir)\(\)|\bsocket\.gethostname\(\)|\bgetpass\.getuser\(\)|\bplatform\.node\(\)|\bwhoami\b|\$\(hostname\)|\b(?:ip-api\.com|ipinfo\.io|api\.ipify\.org|ifconfig\.me|icanhazip\.com|checkip\.amazonaws\.com)\b"), "reads host and user details"),
         // URLs only: a list of suffixes (a public suffix table) names these domains without sending anything to them
@@ -268,7 +268,51 @@ public static partial class PackageReview
             yield return new PackageFinding("package/load-beacon", "noteworthy", "host details", "sends host identity or the environment when loaded", path);
         if (SelfPublish.IsMatch(plain) && plain.Contains("package.json", StringComparison.Ordinal))
             yield return new PackageFinding("package/self-publish", "noteworthy", "publishing", "rewrites package.json and runs npm publish from its own code", path);
+        if (CiConfigWritten(plain) is { } ci)
+            yield return new PackageFinding("package/ci-config-write", install ? "noteworthy" : "review", "build step",
+                $"{(install ? "at install: " : "")}opens a CI pipeline file for writing: {Clip(ci, 160)}", path);
+        if (install && ShellTokenRead.IsMatch(plain))
+            yield return new PackageFinding("package/credential-files", "noteworthy", "credentials", "at install: reads a publish token variable ($NPM_TOKEN, %TWINE_PASSWORD%)", path);
     }
+
+    private static readonly Regex ShellTokenRead = R($@"\$\{{?(?:{PublishTokens})\b|%(?:{PublishTokens})%");
+
+    private const string PublishTokens = "NPM_TOKEN|NODE_AUTH_TOKEN|TWINE_PASSWORD|PYPI_TOKEN|PYPI_API_TOKEN";
+
+    // Reads of the npm and PyPI publish token variables from JavaScript or Python.
+    private const string PublishTokenRead = $@"\bprocess\.env(?:\.(?:{PublishTokens})\b|\[\s*['""`](?:{PublishTokens})['""`]\s*\])|\bos\.(?:environ(?:\.get\(|\[)|getenv\()\s*['""](?:{PublishTokens})['""]";
+
+    private const string CiPath = @"[^'""`\n]*(?:\.github/workflows/|\.gitlab-ci\.yml|azure-pipelines\.yml|\.circleci/config\.yml|Jenkinsfile)[^'""`\n]*";
+
+    // A join with '.github' then 'workflows' as adjacent literal segments, or a pathlib '/' join of them.
+    private static readonly Regex CiJoin = R(@"\b(?:path\.(?:join|resolve)|os\.path\.join)\s*\([^()\n]{0,200}?['""`]\.github['""`]\s*,\s*['""`]workflows['""`][^()\n]{0,200}\)|\bPath\s*\([^()\n]{0,200}?['""]\.github['""]\s*(?:,|\)\s*/)\s*['""]workflows['""][^\n]{0,120}");
+    private static readonly Regex JoinWrite = R(@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream|open)\s*\(\s*$|\.write_(?:text|bytes)\(|\bshutil\.copy(?:file|2)?\s*\([^,\n]{1,200},\s*$");
+    private static readonly Regex JoinAssign = R(@"(?:^|[\s;(])(?<v>[A-Za-z_$][\w$]*)\s*=\s*$");
+
+    /// <summary>The CI pipeline path a write call opens: a literal, or a join written in the same statement or through a variable within five lines; else null.</summary>
+    private static string? CiConfigWritten(string text)
+    {
+        if (CiConfigWrite.Match(text) is { Success: true } literal) return literal.Groups["p"].Value;
+        foreach (Match join in CiJoin.Matches(text))
+        {
+            int lineStart = text.LastIndexOf('\n', Math.Max(0, join.Index - 1)) + 1, lineEnd = text.IndexOf('\n', join.Index + join.Length) is var e and >= 0 ? e : text.Length;
+            var before = text[lineStart..join.Index];
+            // Same statement: a write call opened just before the join, or a pathlib write right after it.
+            if (JoinWrite.IsMatch(before) || join.Value.StartsWith("Path", StringComparison.Ordinal) && JoinWrite.IsMatch(text[join.Index..lineEnd])) return join.Value;
+            if (JoinAssign.Match(before) is not { Success: true } assign) continue;
+            var name = Regex.Escape(assign.Groups["v"].Value);
+            var next = string.Join('\n', text[lineEnd..].Split('\n', 7).Skip(1).Take(5));
+            if (Regex.IsMatch(next, $@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream|open)\s*\(\s*(?:(?:path\.(?:join|resolve)|os\.path\.join)\s*\(\s*)?{name}\b|(?:^|[^\w$.]){name}\s*(?:/\s*['""][^'""\n]*['""]\s*)?\.write_(?:text|bytes)\(|\bshutil\.copy(?:file|2)?\s*\([^,\n]{{1,200}},\s*{name}\b", RegexOptions.NonBacktracking))
+                return join.Value;
+        }
+        return null;
+    }
+
+    // A write call whose own arguments carry a CI pipeline path literal; group p is the literal.
+    private static readonly Regex CiConfigWrite = R($@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream)\s*\(\s*(?:[\w$.]+\s*\(\s*)?['""`](?<p>{CiPath})['""`]"
+        + $@"|\bopen\s*\(\s*['""](?<p>{CiPath})['""]\s*,\s*(?:mode\s*=\s*)?['""][wax]b?\+?['""]"
+        + $@"|\bPath\s*\(\s*['""](?<p>{CiPath})['""]\s*\)\s*\.(?:write_text|write_bytes|open\(\s*['""][wax])"
+        + $@"|\bshutil\.copy(?:file|2)?\s*\([^,\n]{{1,200}},\s*['""](?<p>{CiPath})['""]");
 
     // A binary installer runs its own executable; these start a shell or outlive the installer.
     private static readonly Regex Launch = R(@"\bdetached\s*:\s*true|\.unref\(\)|\b(?:spawn|exec|execSync|execFile)\s*\(\s*['""`](?:cmd(?:\.exe)?|powershell(?:\.exe)?|/bin/(?:ba)?sh|sh|bash|start)\b|\bshell\s*=\s*True|\bos\.(?:system|startfile|popen)\s*\(|\bsubprocess\.Popen\s*\(");
@@ -354,7 +398,7 @@ public static partial class PackageReview
         foreach (var entry in entryFiles)
             if (files.Text(entry) is { } code)
                 foreach (var f in Scan(entry, code, install: false, ct, entry: true))
-                    if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials") yield return f;
+                    if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step") yield return f;
         var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
                                              && !p.Contains("node_modules/", StringComparison.Ordinal) && !entryFiles.Contains(p))
             .OrderBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();
