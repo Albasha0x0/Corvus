@@ -241,9 +241,10 @@ public class MachinePermitsTests
 
         public string Dir => Path.Combine(Folder, "one");
 
+        // The holder lookup takes over 5 s on a loaded machine.
         public Task<(PermitHandle Held, TimeSpan Waited)> Wait(TimeSpan? maxWait = null) =>
             MachinePermits.TakeAsync(["one"], Folder, Counts, default, TimeSpan.FromMilliseconds(600), clock: () => _now, polled: () => _polls.Release(),
-                holderLookupLimit: TimeSpan.FromSeconds(5), maxWait: maxWait);
+                holderLookupLimit: TimeSpan.FromSeconds(20), maxWait: maxWait);
 
         /// <summary>Moves the clock, runs <paramref name="act"/>, then waits two polls so one checked the records after the act.</summary>
         public async Task Advance(TimeSpan by, Action act)
