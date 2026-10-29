@@ -25,14 +25,14 @@ public sealed class PermitSchedulingTests
     [Fact]
     public async Task A_reference_tool_collection_waits_for_a_slot_while_every_slot_is_taken()
     {
-        // One parallel slot, held for 2 s by the other collection; either may
-        // start first.
+        // One parallel slot; each collection holds it for 1.5 s and fails if
+        // the other runs during its hold, whichever starts first.
         // Regression: the 359a54f6 full run ran 34 classes at once on 20 slots
         // while reference-tool collections ran outside them.
         PermitSchedulingFixtures.Reset();
         var permits = await Run(
-            (typeof(PermitSchedulingFixtures.BriefSlotHolder), nameof(PermitSchedulingFixtures.BriefSlotHolder.Holds_the_slot_for_two_seconds)),
-            (typeof(PermitSchedulingFixtures.ReferenceToolWaiter), nameof(PermitSchedulingFixtures.ReferenceToolWaiter.Runs_while_no_slot_holder_does)));
+            (typeof(PermitSchedulingFixtures.BriefSlotHolder), nameof(PermitSchedulingFixtures.BriefSlotHolder.Holds_the_slot_alone)),
+            (typeof(PermitSchedulingFixtures.ReferenceToolWaiter), nameof(PermitSchedulingFixtures.ReferenceToolWaiter.Holds_its_permit_alone)));
         Assert.Contains("reference-tool", permits);
     }
 
@@ -95,7 +95,7 @@ public sealed class PermitSchedulingTests
             var cases = new IXunitTestCase[]
             {
                 new XunitTestCase(new NullSink(), TestMethodDisplay.Method, TestMethodDisplayOptions.None,
-                    new TestMethod(testClass, testClass.Class.GetMethod(nameof(PermitSchedulingFixtures.ReferenceToolWaiter.Runs_while_no_slot_holder_does), false))),
+                    new TestMethod(testClass, testClass.Class.GetMethod(nameof(PermitSchedulingFixtures.ReferenceToolWaiter.Holds_its_permit_alone), false))),
             };
             using var runner = new LeakGuardFramework.Runner(assembly, cases, new NullSink(), results, new Options(), checkLeaks: false);
             var summary = await runner.RunAsync().WaitAsync(TimeSpan.FromMinutes(2));
@@ -152,12 +152,26 @@ public sealed class PermitSchedulingTests
 internal static class PermitSchedulingFixtures
 {
     private static TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private static int _holding;
+    private static int _running;
 
     public static void Reset()
     {
         _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        _holding = 0;
+        _running = 0;
+    }
+
+    // Holds for 1.5 s; fails if another fixture runs at any point of the hold.
+    private static async Task HoldAlone()
+    {
+        Assert.Equal(1, Interlocked.Increment(ref _running));
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(750));
+            Assert.Equal(1, Volatile.Read(ref _running));
+            await Task.Delay(TimeSpan.FromMilliseconds(750));
+            Assert.Equal(1, Volatile.Read(ref _running));
+        }
+        finally { Interlocked.Decrement(ref _running); }
     }
 
     internal sealed class SlotHolder
@@ -177,19 +191,14 @@ internal static class PermitSchedulingFixtures
     internal sealed class BriefSlotHolder
     {
         [Fact]
-        public async Task Holds_the_slot_for_two_seconds()
-        {
-            Volatile.Write(ref _holding, 1);
-            await Task.Delay(TimeSpan.FromSeconds(2));
-            Volatile.Write(ref _holding, 0);
-        }
+        public Task Holds_the_slot_alone() => HoldAlone();
     }
 
     [Permit("reference-tool")]
     internal sealed class ReferenceToolWaiter
     {
         [Fact]
-        public void Runs_while_no_slot_holder_does() => Assert.Equal(0, Volatile.Read(ref _holding));
+        public Task Holds_its_permit_alone() => HoldAlone();
     }
 }
 #pragma warning restore xUnit1000
