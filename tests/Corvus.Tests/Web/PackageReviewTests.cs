@@ -327,6 +327,43 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_bin_that_passes_inflated_text_and_require_to_a_Function_is_noteworthy()
+    {
+        var r = Review(Tgz("loader-1.0.0.tgz",
+            ("package/package.json", """{"name":"loader","version":"1.0.0","bin":{"loader":"load.cjs"}}"""),
+            ("package/load.cjs", "const zlib = require('zlib');\nconst buf = Buffer.from('eJwDAAAAAAE=', 'base64');\nnew Function('require', 'd', zlib.inflateSync(buf).toString())(require, __dirname);")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/eval-inflated", Level: "noteworthy", Path: "package/load.cjs" });
+    }
+
+    private static bool RunsInflated(string code) => PackageReview.Scan("index.js", code, install: false, default, peel: false).Any(f => f.Rule == "package/eval-inflated");
+
+    [Fact]
+    public void A_QR_code_result_run_by_eval_is_noteworthy_and_image_data_alone_is_not()
+    {
+        Assert.True(RunsInflated("const t = jsQR(img.data, img.width, img.height);\nif (t) eval(t.data);"));
+        Assert.False(RunsInflated("const px = ctx.getImageData(0, 0, w, h);\neval(script);"));
+    }
+
+    [Fact]
+    public void An_inflate_call_more_than_1500_characters_from_eval_is_not_flagged()
+    {
+        Assert.False(RunsInflated("const out = pako.inflate(bytes);" + new string(' ', 1600) + "eval(script);"));
+    }
+
+    [Fact]
+    public void A_member_eval_or_string_literal_eval_beside_inflate_is_not_flagged()
+    {
+        Assert.False(RunsInflated("const v = zlib.gunzipSync(raw);\nawait redis.eval(lua, 1, key);"));
+        Assert.False(RunsInflated("/***/ (function(module) {\neval(\"const out = pako.inflate(x);\");\n/***/ })"));
+    }
+
+    [Fact]
+    public void A_geometry_inflate_method_beside_new_Function_is_not_flagged()
+    {
+        Assert.False(RunsInflated("const r = rect.inflate(2);\nconst get = new Function('a', 'return a');"));
+    }
+
+    [Fact]
     public void A_main_that_runs_code_from_a_response_is_noteworthy()
     {
         var r = Review(Tgz("string-utils-1.0.3.tgz", ("package/package.json", """{"name":"string-utils","version":"1.0.3","main":"index.js"}"""),

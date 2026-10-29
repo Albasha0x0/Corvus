@@ -207,6 +207,7 @@ public static partial class PackageReview
         new("package/string-array", "transformed code", "noteworthy", StringArrayNames, "obfuscator.io-style transformed code"),
         new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
+        new("package/eval-inflated", "dynamic code", Small, RunsDecodedContent, "evaluates inflated or image-decoded content (eval / Function)"),
         new("package/long-base64", "transformed code", "review", R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]"), "a base64 literal over 2,000 characters"),
         new("package/hidden-url", "transformed code", Small, R(@"['""`](?:aHR0cHM6Ly|aHR0cDovL|68747470733a2f2f|687474703a2f2f)[A-Za-z0-9+/=]{8,}['""`]"), "a URL hidden in base64 or hex"),
         new("package/exec-char-codes", "transformed code", "noteworthy", R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d"), "executes code built from character codes"),
@@ -424,6 +425,29 @@ public static partial class PackageReview
             run = end >= 0 && m.Index - end <= 400 && !text.AsSpan(end, m.Index - end).Contains('\n') ? run + 1 : 1;
             if (run >= 9) return true;
             end = m.Index + m.Length;
+        }
+        return false;
+    }
+
+    private static readonly Regex DecodeCall = R(@"\b(?:inflate(?:Raw)?Sync|unzipSync|gunzipSync|brotliDecompressSync)\s*\(|\b(?:pako|fflate|zlib)\.(?:inflate|ungzip)(?:Raw)?\s*\(|\bjsQR\s*\(");
+
+    // Member calls (client.eval) run a server script, and eval of a string
+    // literal is a bundler's module wrapper; neither takes decoded content.
+    private static readonly Regex RunCall = R(@"(?:^|[^.\w$])eval\s*\(\s*(?:[^\s'""`]|\z)|\bnew\s+Function\s*\(");
+
+    /// <summary>Whether an inflate or jsQR call and an eval or new Function call lie within 1,500 characters of each other.</summary>
+    private static bool RunsDecodedContent(string text)
+    {
+        // The window stands in for one function body; image data alone
+        // (getImageData) is no decode, since drawing code reads it too.
+        var runs = new List<int>();
+        foreach (var m in RunCall.EnumerateMatches(text)) runs.Add(m.Index);
+        if (runs.Count == 0) return false;
+        foreach (var m in DecodeCall.EnumerateMatches(text))
+        {
+            int i = runs.BinarySearch(m.Index);
+            if (i < 0) i = ~i;
+            if (i < runs.Count && runs[i] - m.Index <= 1500 || i > 0 && m.Index - runs[i - 1] <= 1500) return true;
         }
         return false;
     }

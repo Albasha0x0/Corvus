@@ -45,6 +45,7 @@ public static class FindingRules
         N("package/string-array", "exact form: obfuscator.io string array names", "obfuscator.io-style transformed code"),
         N("package/escaped-call", RunsHidden, "calls functions named by escaped strings"),
         N("package/eval-decoded", RunsDecoded, "evaluates decoded code"),
+        N("package/eval-inflated", RunsDecoded + ": inflate or jsQR output within 1,500 characters of eval or new Function, in a file of at most 64 KiB", "evaluates inflated or image-decoded content"),
         R("package/long-base64", "a base64 literal over 2,000 characters"),
         N("package/hidden-url", "in a file of at most 64 KiB (bundles encode their own endpoints)", "a URL hidden in base64 or hex"),
         N("package/exec-char-codes", RunsDecoded, "executes code built from character codes"),
