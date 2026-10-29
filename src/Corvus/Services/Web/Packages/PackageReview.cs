@@ -309,6 +309,8 @@ public static partial class PackageReview
                 "at install: deletes, links, copies over or writes a command file under the global npm prefix", path);
         if (hits.Contains("network") && InterpreterStdin.IsMatch(plain))
             yield return new PackageFinding("package/stdin-remote-code", "noteworthy", "remote code", "runs code it fetches through an interpreter's standard input", path);
+        if (hits.Contains("network") && plain.Contains("child_process", StringComparison.Ordinal) && RunsResponseCommand(plain))
+            yield return new PackageFinding("package/response-command", "noteworthy", "remote code", "runs a command read from a network response or socket", path);
         if (ChatWebhook.IsMatch(plain) && (WebhookSecret.IsMatch(plain) || WalletSecret.IsMatch(plain)))
             yield return new PackageFinding("package/webhook-secrets", "noteworthy", "exfiltration", "sends passwords, keys, tokens or wallet secrets to a chat webhook", path);
         // A beacon at load: host identity or the environment sent from entry code.
@@ -567,7 +569,7 @@ public static partial class PackageReview
     private static readonly Regex GlobalPrefix = R(@"\bprocess\.env(?:\.(?:npm_config_prefix|PREFIX)\b|\[\s*['""](?:npm_config_prefix|PREFIX)['""]\s*\])|\bnpm\s+(?:prefix|root|bin)\s+-g\b"
         + @"|\{[^{}]{0,80}\bnpm_config_prefix\b[^{}]{0,80}\}\s*=\s*process\.env");
     private static readonly Regex PrefixRename = R(@"\bnpm_config_prefix\s*:\s*(?<v>[A-Za-z_$][\w$]*)");
-    private static readonly Regex Declaration = R(@"\b(?:const|let|var)\s+(?<v>[A-Za-z_$][\w$]*)\s*=\s*(?<e>[^;\n]{1,300})");
+    private static readonly Regex CommandDeclaration = R(@"\b(?:const|let|var)\s+(?<v>[A-Za-z_$][\w$]*)\s*=\s*(?<e>[^;\n]{1,300})");
     private static readonly Regex CommandCall = R(@"(?:\b(?:fs|fsp|promises)\.(?:rm|unlink|symlink|link|rename|copyFile|cp|writeFile)|\b(?:rm|unlink|symlink|link|rename|copyFile|cp|writeFile)Sync)\s*\(\s*(?<a>[^;\n]{1,300})");
     private static readonly Regex CommandSegment = R(@"['""`](?:bin(?:[/\\][\w.-]+)?|[\w.-]+\.(?:cmd|ps1))['""`]");
 
@@ -581,7 +583,7 @@ public static partial class PackageReview
         // Declarations are read in source order, so a name holding the prefix
         // is known before a later path join uses it.
         var pathNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (Match d in Declaration.Matches(text))
+        foreach (Match d in CommandDeclaration.Matches(text))
         {
             var e = d.Groups["e"].Value;
             if (CommandSegment.IsMatch(e) && Prefixed(e)) pathNames.Add(d.Groups["v"].Value);
@@ -596,6 +598,89 @@ public static partial class PackageReview
         return false;
     }
     private static readonly Regex InterpreterStdin = R(@"\bspawn\s*\(\s*['""](?:node|python3?|sh|bash)['""][\s\S]{0,300}?\.stdin\.(?:write|end)\s*\((?:[^'""`]|\z)");
+    private static readonly Regex ChildProcessBinding = R(@"(?:\b(?:const|let|var)|,)\s*(?:\{(?<names>[^{}]{0,200})\}|(?<alias>[\w$]+))\s*=\s*require\(\s*['""](?:node:)?child_process['""]\s*\)");
+    private const string Param = @"(?:async\s*)?(?:function\s*[\w$]*\s*\(\s*(?<chunk>[\w$]+)|\(?\s*(?<chunk>[\w$]+)\s*\)?\s*=>)";
+    private const string Transforms = @"(?:\s*\.\s*(?:toString|trim|trimEnd|trimStart|pop|shift)\s*\([^()]{0,20}\)|\s*\.\s*split\s*\([^()]{0,40}\)|\s*\[\s*\d+\s*\])*";
+    private static readonly Regex NetworkStream = R(@"\bhttps?\.(?:get|request)\s*\([^()]{0,300}?(?:function\s*[\w$]*\s*\(\s*(?<name>[\w$]+)|\(?\s*(?<name>[\w$]+)\s*\)?\s*=>)|\b(?<name>[\w$]+)\s*=\s*(?:new\s+WebSocket\s*\(|(?:[\w$]+\.)?(?:connect|createConnection)\s*\()");
+    private static readonly Regex DataHandler = R(@"(?:^|[^.\w$])(?<on>[\w$]+)\.on(?<open>\()\s*['""]data['""]\s*,\s*" + Param + @"|\.text\(\)\s*\)?\s*\.then(?<open>\()\s*" + Param + @"|(?<chunk>[\w$]+)\s*=\s*await\s+[\w$.]+\.text\(\)");
+    private static readonly Regex EndHandler = R(@"(?:^|[^.\w$])(?<on>[\w$]+)\.on(?<open>\()\s*['""](?:end|close)['""]");
+    private static readonly Regex Accumulate = R(@"(?<to>[\w$]+)\s*(?:\+=|\.push\()\s*(?<from>[\w$]+)");
+    private static readonly Regex Declaration = R(@"\b(?:const|let|var)\s+(?<name>[\w$]+)\s*=\s*(?<src>[\w$]+)" + Transforms + @"\s*(?:[;\n,]|$)");
+    private static readonly Regex Call = R(@"(?:^|[^.\w$])(?<callee>(?:[\w$]+\.)?[\w$]+)\s*(?<open>\()\s*(?<arg>[\w$]+)" + Transforms + @"\s*[,)]");
+    private static readonly Regex HelperFunction = R(@"\bfunction\s+(?<name>[\w$]+)\s*\(\s*(?<param>[\w$]+)[^)]{0,100}\)\s*(?<open>\{)");
+    private static readonly Regex ShellOption = R(@"\bshell\s*:\s*(?:true|!0)");
+
+    // Index of the bracket closing the one opened before start, or start plus
+    // limit when it stays open that long; quoted text is skipped.
+    private static int CloseOf(string s, int start, int limit = 2000)
+    {
+        int depth = 0, end = Math.Min(s.Length, start + limit);
+        for (var i = start; i < end; i++)
+        {
+            var c = s[i];
+            if (c is '\'' or '"' or '`')
+                for (i++; i < end && s[i] != c; i++) { if (s[i] == '\\') i++; }
+            else if (c is '(' or '[' or '{') depth++;
+            else if (c is ')' or ']' or '}' && --depth < 0) return i;
+        }
+        return end;
+    }
+
+    private static string Inside(string s, int open) => s[(open + 1)..CloseOf(s, open + 1)];
+
+    /// <summary>True when a network 'data' handler or fetched text reaches exec, execSync, spawn or spawnSync with shell: true, or a helper passing its first parameter to one, within 2,000 characters.</summary>
+    private static bool RunsResponseCommand(string text)
+    {
+        var sinks = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match m in ChildProcessBinding.Matches(text))
+        {
+            if (m.Groups["alias"].Success)
+                foreach (var f in (string[])["exec", "execSync", "spawn", "spawnSync"]) sinks.Add(m.Groups["alias"].Value + "." + f);
+            foreach (var pair in m.Groups["names"].Value.Split(','))
+            {
+                var parts = pair.Split(':', StringSplitOptions.TrimEntries);
+                if (parts[0] is "exec" or "execSync" or "spawn" or "spawnSync") sinks.Add(parts[^1]);
+            }
+        }
+        if (sinks.Count == 0) return false;
+        bool Runs(Match call, string source) => sinks.Contains(call.Groups["callee"].Value)
+            && (!call.Groups["callee"].Value.Contains("spawn", StringComparison.Ordinal)
+                || ShellOption.IsMatch(Inside(source, call.Groups["open"].Index)));
+        var streams = NetworkStream.Matches(text).Select(m => m.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
+        var called = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match d in DataHandler.Matches(text))
+        {
+            var on = d.Groups["on"];
+            // A receiver counts only when bound to an http(s) callback
+            // parameter, a socket or a WebSocket.
+            if (on.Success && !streams.Contains(on.Value)) continue;
+            // The handler, then the stream's end handler; after an await, the
+            // rest of the enclosing block.
+            var window = d.Groups["open"].Success ? Inside(text, d.Groups["open"].Index) : text[d.Index..CloseOf(text, d.Index + d.Length)];
+            if (on.Success && EndHandler.Matches(text, d.Index + d.Length).FirstOrDefault(e => e.Groups["on"].Value == on.Value) is { } end)
+                window += "\n" + Inside(text, end.Groups["open"].Index);
+            var read = new HashSet<string>(StringComparer.Ordinal) { d.Groups["chunk"].Value };
+            foreach (Match a in Accumulate.Matches(window))
+                if (read.Contains(a.Groups["from"].Value)) read.Add(a.Groups["to"].Value);
+            foreach (Match v in Declaration.Matches(window))
+                if (read.Contains(v.Groups["src"].Value)) read.Add(v.Groups["name"].Value);
+            foreach (Match c in Call.Matches(window))
+            {
+                if (!read.Contains(c.Groups["arg"].Value)) continue;
+                if (Runs(c, window)) return true;
+                called.Add(c.Groups["callee"].Value);
+            }
+        }
+        // One level of helper: a called function that passes its first
+        // parameter to a sink.
+        foreach (Match f in HelperFunction.Matches(text))
+        {
+            if (!called.Contains(f.Groups["name"].Value)) continue;
+            var body = Inside(text, f.Groups["open"].Index);
+            if (Call.Matches(body).Any(c => c.Groups["arg"].Value == f.Groups["param"].Value && Runs(c, body))) return true;
+        }
+        return false;
+    }
     private static readonly Regex ChatWebhook = R(@"https?://(?:[\w-]+\.)?discord(?:app)?\.com/api/webhooks/|https?://api\.telegram\.org/bot");
     private static readonly Regex WebhookSecret = R(@"(?i)\b\w*webhook\w*\s*\([^()\n]{0,200}?\b(?:password|passwd|api[_ ]?key|token|secret|cookies?)\b");
     private static readonly Regex WalletSecret = R(@"(?i)\bprivate_?keys?\b|\bmnemonic\b|\bseed_?phrase\b");

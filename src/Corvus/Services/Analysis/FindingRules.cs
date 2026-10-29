@@ -73,6 +73,7 @@ public static class FindingRules
         N("package/loaded-detached", "entry code that starts node or a file in its own folder detached, beside network, credentials, host details or transformed code", "starts a background process from its own files"),
         N("package/install-xor", AtInstall + ", decoding its strings with XOR", "decodes its strings with XOR"),
         N("package/stdin-remote-code", RunsRemote, "runs fetched code through an interpreter's standard input"),
+        N("package/response-command", RunsRemote, "runs a command read from a network response or socket"),
         N("package/webhook-secrets", "a chat webhook combined with passwords, keys, tokens or wallet secrets", "sends secrets to a chat webhook"),
         N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment", "sends host identity when loaded"),
         N("package/redirect-entry", "entry JavaScript assigning the browser's location a URL literal that carries an email address", "redirects the browser with an email address"),
