@@ -292,6 +292,13 @@ public static partial class PackageReview
             yield return new PackageFinding("package/socket-shell", "noteworthy", "process", "pipes a socket into a spawned shell (reverse shell)", path);
         if (install && Detached.IsMatch(plain))
             yield return new PackageFinding("package/install-detached", "noteworthy", "process", "at install: starts a background process that outlives the install", path);
+        // A detached self-start is ordinary (update checks, daemons); it is
+        // noteworthy only in entry code beside network, credentials, host
+        // details or transformed code.
+        if (!install && LoadedDetached.IsMatch(plain))
+            yield return new PackageFinding("package/loaded-detached",
+                entry && hits.Overlaps(["network", "credentials", "host details", "transformed code"]) ? "noteworthy" : "review",
+                "process", "starts node or a file in its own folder as a background process that outlives the caller", path);
         if (install && XorDecode.IsMatch(plain))
             yield return new PackageFinding("package/install-xor", "noteworthy", "transformed code", "at install: decodes its strings with XOR", path);
         // The package manager links a package's own commands; install code that
@@ -495,6 +502,11 @@ public static partial class PackageReview
     private static readonly Regex Launch = R(@"\bdetached\s*:\s*true|\.unref\(\)|\b(?:spawn|exec|execSync|execFile)\s*\(\s*['""`](?:cmd(?:\.exe)?|powershell(?:\.exe)?|/bin/(?:ba)?sh|sh|bash|start)\b|\bshell\s*=\s*True|\bos\.(?:system|startfile|popen)\s*\(|\bsubprocess\.Popen\s*\(");
     private const string Socket = @"\bnew\s+net\.Socket\b|\bnet\.(?:connect|createConnection)\s*\(|\bsocket\.socket\s*\(";
     private static readonly Regex Detached = R(@"\bdetached\s*:\s*(?:true|!0)|\bstart_new_session\s*=\s*True|\bDETACHED_PROCESS\b|\bnohup\s");
+
+    /// <summary>One spawn, fork, execFile or Popen call whose first argument is
+    /// node, process.execPath or a path built from __dirname, __filename or
+    /// __file__, with a detached option inside the call.</summary>
+    private static readonly Regex LoadedDetached = R(@"\b(?:spawn|fork|execFile|Popen)\s*\(\s*(?:['""`]node['""`]|process\.execPath|\[?[^,;\n]{0,120}?(?:__dirname|__filename|__file__))[^;]{0,400}?(?:\bdetached\s*:\s*(?:true|!0)|\bstart_new_session\s*=\s*True|\bDETACHED_PROCESS\b)");
     private static readonly Regex XorDecode = R(@"\bfromCharCode\s*\([^()\n]{0,80}\^|\bchr\s*\([^()\n]{0,60}\^");
     // The global npm prefix: an environment read, a destructured read or the
     // npm command that prints it.

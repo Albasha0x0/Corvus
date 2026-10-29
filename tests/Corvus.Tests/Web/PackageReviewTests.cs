@@ -1185,6 +1185,26 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(r.Findings, f => f.Rule == "package/decoded-file-run");
     }
 
+    [Fact]
+    public void Entry_code_that_starts_its_own_files_detached_beside_the_network_is_noteworthy()
+    {
+        var npm = Review(Tgz("worker-1.0.0.tgz", ("package/package.json", """{"name":"worker","version":"1.0.0","main":"index.js"}"""),
+            ("package/index.js", "const { spawn } = require('child_process');\nconst https = require('https');\nconst path = require('path');\nmodule.exports = () => spawn('node', [path.join(__dirname, 'lib/w.js')], { detached: true, stdio: 'ignore' }).unref();\n"),
+            ("package/lib/w.js", "module.exports = 1;\n")));
+        Assert.Contains(npm.Findings, f => f is { Rule: "package/loaded-detached", Level: "noteworthy", Path: "package/index.js" });
+        var wheel = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(
+            ("tool/__init__.py", U("import subprocess, urllib.request\nfrom pathlib import Path\nsubprocess.Popen([Path(__file__).parent / 'bin' / 't'], start_new_session=True)\n")))));
+        Assert.Contains(wheel.Findings, f => f is { Rule: "package/loaded-detached", Level: "noteworthy", Path: "tool/__init__.py" });
+    }
+
+    [Fact]
+    public void A_detached_self_start_alone_is_review_and_a_detached_system_command_beside_own_folder_paths_is_not_reported()
+    {
+        var check = "const { spawn } = require('child_process');\nconst path = require('path');\nspawn(process.execPath, [path.join(__dirname, 'check.js'), '{}'], { detached: true, stdio: 'ignore' }).unref();\n";
+        Assert.Equal("review", PackageReview.Scan("index.js", check, install: false, default, entry: true, peel: false).Single(f => f.Rule == "package/loaded-detached").Level);
+        var opener = "const https = require('https');\nconst cfg = path.join(__dirname, 'x.json');\nmodule.exports = (f) => spawn('xdg-open', [f], { detached: true, stdio: 'ignore' }).unref();\n";
+        Assert.DoesNotContain(PackageReview.Scan("index.js", opener, install: false, default, entry: true, peel: false), f => f.Rule == "package/loaded-detached");
+    }
 
     [Fact]
     public void A_bin_named_like_a_system_command_is_reported_and_noteworthy_beside_an_install_script()

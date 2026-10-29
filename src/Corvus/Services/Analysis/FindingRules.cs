@@ -68,6 +68,7 @@ public static class FindingRules
         N("package/install-network-launch", AtInstall + ", reaching the network and launching a shell or a background process", "install-time code reaches the network and launches"),
         N("package/socket-shell", "exact form: a socket piped into a spawned shell", "pipes a socket into a spawned shell"),
         N("package/install-detached", AtInstall + ", leaving a process that outlives the install", "starts a background process"),
+        N("package/loaded-detached", "entry code that starts node or a file in its own folder detached, beside network, credentials, host details or transformed code", "starts a background process from its own files"),
         N("package/install-xor", AtInstall + ", decoding its strings with XOR", "decodes its strings with XOR"),
         N("package/stdin-remote-code", RunsRemote, "runs fetched code through an interpreter's standard input"),
         N("package/webhook-secrets", "a chat webhook combined with passwords, keys, tokens or wallet secrets", "sends secrets to a chat webhook"),
