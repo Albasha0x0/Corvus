@@ -37,6 +37,8 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
 
     /// <summary>Stages the open reports, each lasting the given milliseconds.</summary>
     public List<(string Stage, int Milliseconds)> OpenStages { get; } = [];
+    /// <summary>Stages that last until their source completes, in place of their milliseconds.</summary>
+    public Dictionary<string, TaskCompletionSource> StageGates { get; } = [];
     public int Opens;
 
     public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
@@ -46,7 +48,8 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
         foreach (var (stage, ms) in OpenStages)
         {
             options?.Progress?.Report(new NativeProviderProgress(stage, clock.Elapsed));
-            await Task.Delay(ms, cancellationToken);
+            if (StageGates.TryGetValue(stage, out var gate)) await gate.Task.WaitAsync(cancellationToken);
+            else await Task.Delay(ms, cancellationToken);
         }
         return new Session(this);
     }

@@ -99,15 +99,19 @@ public sealed class EngineOpenProfileTests : IDisposable
         var options = new ServerOptions { BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         var engine = new ScriptedEngine();
-        engine.OpenStages.AddRange([("start", 20), ("analysis", 1_500), ("ready", 0)]);
+        engine.OpenStages.AddRange([("start", 20), ("analysis", 0), ("ready", 0)]);
+        var analysis = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.StageGates["analysis"] = analysis;
         var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
         _owned.Add(engines);
         _owned.Add(workspace);
         var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
 
-        // The deadline starts with the analysis stage: a fixed one also ran out during a slow cold start.
+        // The deadline passes once the analysis stage is reported and the stage
+        // holds until released: a timed stage could end before the deadline
+        // fired on a slow runner (regression of e19e716d).
         using var deadline = new CancellationTokenSource();
-        var progress = new SyncProgress(p => { if (p.Stage == "analysis") deadline.CancelAfter(300); });
+        var progress = new SyncProgress(p => { if (p.Stage == "analysis") deadline.Cancel(); });
         var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, progress, deadline.Token));
         Assert.Equal(ErrorCode.Timeout, error.Code);
         Assert.Matches(@"still opening .+ \(analysis, \d+ s; a first analysis can take minutes\)", error.Message);
@@ -115,6 +119,7 @@ public sealed class EngineOpenProfileTests : IDisposable
         Assert.True(details.GetProperty("stillRunning").GetBoolean());
         Assert.Equal("analysis", details.GetProperty("stage").GetString());
 
+        analysis.SetResult();
         Assert.NotNull(await engines.Session(native, null, null, default));
         Assert.Equal(1, engine.Opens);
     }
