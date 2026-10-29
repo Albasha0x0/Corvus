@@ -330,6 +330,25 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_entry_that_loads_nothing_beside_runtime_dependencies_is_noteworthy()
+    {
+        const string manifest = """{"name":"greet","version":"1.0.0","main":"index.js","dependencies":{"a":"^1.0.0","b":"^2.0.0"}}""";
+        var r = Review(Tgz("greet-1.0.0.tgz", ("package/package.json", manifest), ("package/index.js", "console.info('ok')")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/carrier", Level: "noteworthy", Path: "package/index.js" });
+        var used = Review(Tgz("greet-1.0.1.tgz", ("package/package.json", manifest), ("package/index.js", "module.exports = require('a');")));
+        Assert.DoesNotContain(used.Findings, f => f.Rule == "package/carrier");
+        var second = Review(Tgz("greet-1.0.2.tgz", ("package/package.json", manifest), ("package/index.js", "console.info('ok')"), ("package/lib.js", "console.info('lib')")));
+        Assert.DoesNotContain(second.Findings, f => f.Rule == "package/carrier");
+        var word = Review(Tgz("greet-1.0.4.tgz", ("package/package.json", manifest), ("package/index.js", "console.info('important: run setup')")));
+        Assert.Contains(word.Findings, f => f.Rule == "package/carrier");
+        const string cli = """{"name":"greet","version":"1.0.5","main":"index.js","bin":"bin/cli","dependencies":{"a":"^1.0.0"}}""";
+        var bin = Review(Tgz("greet-1.0.5.tgz", ("package/package.json", cli), ("package/index.js", "console.info('ok')"), ("package/bin/cli", "#!/usr/bin/env node\nrequire('a');")));
+        Assert.DoesNotContain(bin.Findings, f => f.Rule == "package/carrier");
+        var alone = Review(Tgz("greet-1.0.3.tgz", ("package/package.json", """{"name":"greet","version":"1.0.3","main":"index.js"}"""), ("package/index.js", "console.info('ok')")));
+        Assert.DoesNotContain(alone.Findings, f => f.Rule == "package/carrier");
+    }
+
+    [Fact]
     public void A_plain_package_has_nothing_to_review() =>
         Assert.Equal("none", Review(Tgz("left-pad-1.3.0.tgz", ("package/package.json", """{"name":"left-pad","version":"1.3.0","main":"index.js"}"""),
             ("package/index.js", "module.exports = (s, n, c) => String(s).padStart(n, c);"))).Review);

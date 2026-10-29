@@ -102,6 +102,9 @@ public static partial class PackageReview
         if (builtins.Count > 0)
             findings.Add(new PackageFinding("package/builtin-dependency", builtinElsewhere ? "noteworthy" : "review", "dependency",
                 $"dependenc{(builtins.Count == 1 ? "y" : "ies")} named after a Node built-in module: {string.Join(", ", builtins.Take(5))}", manifestPath));
+        if (CarrierEntry(files, loaded, pkg) is { } carrier)
+            findings.Add(new PackageFinding("package/carrier", "noteworthy", "dependency",
+                $"{carrier} holds no require, import or export and is the only code file; its dependencies are installed but never loaded", carrier));
         // A scope is owned by its publisher, so only an unscoped name can shadow a private one.
         if (name is { } n && !n.StartsWith('@') && HighVersion(Str(pkg, "version")) is { } high)
             findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher", manifestPath));
@@ -129,6 +132,19 @@ public static partial class PackageReview
         }
         return GitHubShorthand.IsMatch(range) ? "git, github.com" : null;
     }
+
+    /// <summary>The loaded entry when it is the only small code file, loads nothing and runtime dependencies are declared; else null.</summary>
+    private static string? CarrierEntry(PackageFiles files, List<string> loaded, JsonElement pkg)
+    {
+        if (!pkg.TryGetProperty("dependencies", out var d) || d.ValueKind != JsonValueKind.Object || !d.EnumerateObject().Any()) return null;
+        var code = files.Paths.Where(p => NodeCodeFile.IsMatch(p)).Take(2).ToList();
+        // A bin script without an extension is code too, so the entry must be the only loaded file.
+        if (code.Count != 1 || files.Size(code[0]) > 200 || !loaded.Where(files.Has).Distinct().SequenceEqual([code[0]])) return null;
+        return files.Text(code[0]) is { } text && !ModuleKeyword.IsMatch(text) ? code[0] : null;
+    }
+
+    private static readonly Regex NodeCodeFile = R(@"\.(?:c|m)?[jt]sx?$");
+    private static readonly Regex ModuleKeyword = R(@"\b(?:require|import|exports?)\b");
 
     private const int MaxDependencies = 1000;
 
