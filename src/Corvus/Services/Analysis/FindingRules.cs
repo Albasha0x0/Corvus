@@ -98,6 +98,7 @@ public static class FindingRules
         N("package/crx-proof-failed", "exact check: a CRX key proof does not verify", "CRX key proofs do not verify"),
         R("package/startup-activation", "activates when the editor starts"),
         R("package/uninstall-script", "runs when uninstalled"),
+        N("package/foreign-extension-id", "activation on '*' with code that reads the install data of its own name or repository under another publisher", "looks up its own name or repository owner under another publisher"),
         N("package/invisible-name", "exact form: invisible characters in a display name", "a display name with invisible characters"),
         // Agent configuration and repository hooks.
         N("package/tag-characters", "exact form: Unicode tag characters that read as text", "Unicode tag characters"),

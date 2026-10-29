@@ -17,6 +17,10 @@ public static partial class PackageReview
 
     private static readonly Regex FetchedEval = R(@"(?:\.text\(\)|responseText)[^;]{0,200}?(?:;[^;]{0,200}?){0,2}\b(?:eval|new\s+Function)\s*\(");
 
+    private static readonly Regex ExtensionLookup = R(@"getExtension\s*\(\s*['""`]([\w-]{1,100})\.([\w.-]{1,100})['""`]\s*\)(\s*[?!]?\.\s*(?:packageJSON|extensionPath|extensionUri)\b)?");
+
+    private static readonly Regex RepositoryOwner = R(@"(?:github|gitlab)\.com[/:]([\w.-]{1,100})/([\w.-]{1,100}?)(?:\.git)?(?:[/#?]|$)");
+
     private static readonly Regex CookieSend = R(@"(?:chrome|browser)\.cookies\.getAll\s*\([\s\S]{0,400}?(?:\bfetch\s*\(\s*['""`]https?://|sendBeacon\s*\(\s*['""`]https?://)");
 
     private static bool IsBroadHost(string pattern) =>
@@ -252,7 +256,9 @@ public static partial class PackageReview
         if (display != null && Corvus.Core.Format.EscapeInvisible(display) != display)
             findings.Add(new PackageFinding("package/invisible-name", "noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
         var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))
-            .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t);
+            .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t).ToList();
+        if (pkg is { ValueKind: JsonValueKind.Object } q && Str(q, "publisher") is { } own && Str(q, "name") is { } name)
+            findings.AddRange(ForeignExtensionIds(files, loaded, own, name, q));
         findings.AddRange(ScanLoaded(files, root, loaded, ct));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
@@ -261,5 +267,36 @@ public static partial class PackageReview
             Publisher = publisher, Description = Clip(display), Scripts = scripts, EntryPoints = entries,
             Binaries = binaries.Count > 0 ? binaries : null, Findings = findings, Notes = notes,
         };
+    }
+
+    // Copied code still reads the original extension's install data by its id.
+    private static IEnumerable<PackageFinding> ForeignExtensionIds(PackageFiles files, List<string> loaded, string own, string name, JsonElement pkg)
+    {
+        var repo = Str(pkg, "repository") ?? (pkg.TryGetProperty("repository", out var r) && r.ValueKind == JsonValueKind.Object ? Str(r, "url") : null);
+        var match = repo != null ? RepositoryOwner.Match(repo) : Match.Empty;
+        string? owner = match.Success ? match.Groups[1].Value : null, repoName = match.Success ? match.Groups[2].Value : null;
+        // An original never lists its own id as a dependency or pack member.
+        var declared = Strings(pkg, "extensionDependencies").Concat(Strings(pkg, "extensionPack")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var star = Strings(pkg, "activationEvents").Contains("*");
+        PackageFinding? first = null;
+        foreach (var path in loaded.Distinct())
+        {
+            if (files.Text(path) is not { } code) continue;
+            foreach (Match m in ExtensionLookup.Matches(code))
+            {
+                string publisher = m.Groups[1].Value, target = m.Groups[2].Value;
+                if (publisher.Equals(own, StringComparison.OrdinalIgnoreCase) || declared.Contains($"{publisher}.{target}")) continue;
+                var sameName = target.Equals(name, StringComparison.OrdinalIgnoreCase);
+                if (!sameName && !(publisher.Equals(owner, StringComparison.OrdinalIgnoreCase) && target.Equals(repoName, StringComparison.OrdinalIgnoreCase))) continue;
+                // A presence check is how a renamed extension finds its old id, so only
+                // reading the looked-up extension's data is noteworthy.
+                var reads = star && m.Groups[3].Success;
+                var finding = new PackageFinding("package/foreign-extension-id", reads ? "noteworthy" : "review", "name",
+                    $"looks up '{publisher}.{target}': {(sameName ? "its own name" : "its repository owner")} under a publisher other than '{own}'", path);
+                if (reads) { yield return finding; yield break; }
+                first ??= finding;
+            }
+        }
+        if (first != null) yield return first;
     }
 }

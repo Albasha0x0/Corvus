@@ -955,6 +955,54 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_vscode_extension_that_looks_up_its_own_name_under_another_publisher_is_noteworthy_when_it_activates_on_star()
+    {
+        var pkg = """{"name":"tool","publisher":"b","version":"1.0.0","activationEvents":["*"],"main":"./extension.js"}""";
+        var code = U("const vscode = require('vscode');\nexports.activate = () => vscode.extensions.getExtension('a.tool').packageJSON;");
+        var r = Review(Zip("b.tool-1.0.0.vsix", ("extension/package.json", U(pkg)), ("extension/extension.js", code)));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/foreign-extension-id", Level: "noteworthy" } && f.Detail.Contains("'a.tool'", StringComparison.Ordinal));
+        var lazy = pkg.Replace("\"*\"", "\"onLanguage:csv\"", StringComparison.Ordinal);
+        var l = Review(Zip("b.tool-1.0.1.vsix", ("extension/package.json", U(lazy)), ("extension/extension.js", code)));
+        Assert.Contains(l.Findings, f => f is { Rule: "package/foreign-extension-id", Level: "review" });
+        var repo = pkg.Replace("\"main\"", "\"repository\":{\"url\":\"https://github.com/a/tool-src.git\"},\"main\"", StringComparison.Ordinal);
+        var o = Review(Zip("b.tool-1.0.2.vsix", ("extension/package.json", U(repo)),
+            ("extension/extension.js", U("exports.activate = () => require('vscode').extensions.getExtension(\"a.tool-src\")?.extensionPath;"))));
+        Assert.Contains(o.Findings, f => f is { Rule: "package/foreign-extension-id", Level: "noteworthy" } && f.Detail.Contains("repository owner", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_vscode_extension_that_only_checks_for_its_own_name_under_another_publisher_is_review()
+    {
+        var pkg = """{"name":"tool","publisher":"b","version":"1.0.0","activationEvents":["*"],"main":"./extension.js"}""";
+        var code = U("const vscode = require('vscode');\nif (vscode.extensions.getExtension('a.tool')) vscode.window.showWarningMessage('Uninstall the old copy.');");
+        var r = Review(Zip("b.tool-1.0.0.vsix", ("extension/package.json", U(pkg)), ("extension/extension.js", code)));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/foreign-extension-id", Level: "review" });
+        Assert.DoesNotContain(r.Findings, f => f is { Rule: "package/foreign-extension-id", Level: "noteworthy" });
+    }
+
+    [Fact]
+    public void A_vscode_extension_that_looks_up_its_own_id_or_an_unrelated_extension_has_no_foreign_id_finding()
+    {
+        var pkg = """{"name":"tool","publisher":"b","version":"1.0.0","activationEvents":["*"],"repository":"https://github.com/b/tool","main":"./extension.js"}""";
+        var r = Review(Zip("b.tool-1.0.0.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const x = require('vscode').extensions;\nx.getExtension('B.tool'); x.getExtension('c.runner'); x.getExtension('d.linter');"))));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/foreign-extension-id");
+    }
+
+    [Fact]
+    public void A_vscode_extension_that_reads_a_declared_dependency_or_another_extension_of_its_repository_owner_has_no_foreign_id_finding()
+    {
+        var dep = """{"name":"tool","publisher":"b","version":"1.0.0","activationEvents":["*"],"extensionDependencies":["a.tool"],"main":"./extension.js"}""";
+        var d = Review(Zip("b.tool-1.0.0.vsix", ("extension/package.json", U(dep)),
+            ("extension/extension.js", U("exports.activate = () => require('vscode').extensions.getExtension('a.tool').exports;"))));
+        Assert.DoesNotContain(d.Findings, f => f.Rule == "package/foreign-extension-id");
+        var sibling = """{"name":"tool","publisher":"b","version":"1.0.0","activationEvents":["*"],"repository":"https://github.com/a/tool-src","main":"./extension.js"}""";
+        var o = Review(Zip("b.tool-1.0.1.vsix", ("extension/package.json", U(sibling)),
+            ("extension/extension.js", U("exports.activate = () => require('vscode').extensions.getExtension('a.other-name').packageJSON;"))));
+        Assert.DoesNotContain(o.Findings, f => f.Rule == "package/foreign-extension-id");
+    }
+
+    [Fact]
     public void The_package_view_names_the_review_in_the_overview()
     {
         var path = Tgz("internal-auth-1.0.0.tgz",
