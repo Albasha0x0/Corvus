@@ -1466,6 +1466,56 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_file_that_replaces_an_XMLHttpRequest_method_beside_an_address_pattern_is_noteworthy()
+    {
+        const string hook = "const eth = /0x[a-fA-F0-9]{40}/g;\nconst send = XMLHttpRequest.prototype.send;\nXMLHttpRequest.prototype.send = function (b) { return send.call(this, typeof b === 'string' ? b.replace(eth, 'placeholder') : b); };\nmodule.exports = s => s.trim();\n";
+        var r = Review(Tgz("trim-1.0.0.tgz", ("package/package.json", """{"name":"trim","version":"1.0.0","main":"index.js"}"""), ("package/index.js", hook)));
+        var finding = Assert.Single(r.Findings, f => f.Rule == "package/network-override");
+        Assert.Equal(("noteworthy", "package/index.js"), (finding.Level, finding.Path));
+        Assert.Contains("Ethereum", finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_file_that_replaces_fetch_beside_window_ethereum_is_noteworthy()
+    {
+        var r = Review(Tgz("w-1.0.0.tgz", ("package/package.json", """{"name":"w","version":"1.0.0","main":"index.js"}"""),
+            ("package/index.js", "const f = fetch;\nfetch = async (...a) => f(...a);\nif (window.ethereum) console.log('present');\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/network-override", Level: "noteworthy", Detail: "replaces fetch beside window.ethereum" });
+    }
+
+    [Fact]
+    public void A_fetch_class_field_or_parameter_default_beside_an_address_pattern_is_not_reported()
+    {
+        const string local = "const eth = /0x[a-fA-F0-9]{40}/;\nclass Client {\n  fetch = async (u) => this.http(u);\n}\nfunction create({ fetch = globalThis.fetch } = {}) { return fetch; }\nmodule.exports = { Client, create, eth };\n";
+        var r = Review(Tgz("client-1.0.0.tgz", ("package/package.json", """{"name":"client","version":"1.0.0","main":"index.js"}"""), ("package/index.js", local)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/network-override");
+    }
+
+    [Fact]
+    public void A_guarded_fetch_polyfill_beside_an_address_pattern_is_not_reported()
+    {
+        const string polyfill = "const eth = /0x[a-fA-F0-9]{40}/;\nif (!global.fetch) {\n  global.fetch = function (u, o) { return impl(u, o); };\n}\nmodule.exports = eth;\n";
+        var r = Review(Tgz("gpoly-1.0.0.tgz", ("package/package.json", """{"name":"gpoly","version":"1.0.0","main":"index.js"}"""), ("package/index.js", polyfill)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/network-override");
+    }
+
+    [Fact]
+    public void A_bracketed_setRequestHeader_override_beside_an_address_pattern_is_not_reported()
+    {
+        const string header = "const eth = /0x[a-fA-F0-9]{40}/;\nconst set = XMLHttpRequest['prototype']['setRequestHeader'];\nXMLHttpRequest['prototype']['setRequestHeader'] = function (k, v) { return set.call(this, k, v); };\nmodule.exports = eth;\n";
+        var r = Review(Tgz("hdr-1.0.0.tgz", ("package/package.json", """{"name":"hdr","version":"1.0.0","main":"index.js"}"""), ("package/index.js", header)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/network-override");
+    }
+
+    [Fact]
+    public void A_fetch_polyfill_without_an_address_pattern_is_not_reported()
+    {
+        const string polyfill = "if (!globalThis.fetch) {\n  globalThis.fetch = require('./fetch-impl');\n}\nconst fetch = globalThis.fetch;\nmodule.exports = fetch;\n";
+        var r = Review(Tgz("poly-1.0.0.tgz", ("package/package.json", """{"name":"poly","version":"1.0.0","main":"index.js"}"""), ("package/index.js", polyfill)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/network-override");
+    }
+
+    [Fact]
     public void A_browser_extension_that_sends_cookies_and_runs_fetched_code_is_noteworthy()
     {
         var manifest = """{"manifest_version":3,"name":"Tab Saver","version":"1.0","permissions":["cookies","tabs","storage"],"host_permissions":["<all_urls>"],"background":{"service_worker":"bg.js"},"content_scripts":[{"matches":["<all_urls>"],"js":["cs.js"],"run_at":"document_start"}]}""";

@@ -58,6 +58,7 @@ public static class FindingRules
         N("package/normalized-exec", "exact form: a non-ASCII name called outside strings and comments that NFKC folds to exec, eval, compile, __import__ or getattr", "calls a builtin under a name that normalizes to it"),
         N("package/space-run", "exact form: code after 300 or more spaces on one line", "code placed out of view in an editor"),
         N("package/clipboard-address", "a file that runs at install or as a content script on every site", "reads and writes the clipboard beside a cryptocurrency address pattern"),
+        N("package/network-override", "a global fetch assigned a function, or XMLHttpRequest open or send replaced, beside a cryptocurrency address pattern or window.ethereum, outside an if (!fetch) guard", "replaces fetch or XMLHttpRequest beside a cryptocurrency address pattern"),
         // Package combinations.
         N("package/peeled-layers", AtInstall + ", with transformation layers peeled", "transformation layers peeled"),
         N("package/install-bundled-program", AtInstall + ", running a program the package carries", "runs a program the package carries"),

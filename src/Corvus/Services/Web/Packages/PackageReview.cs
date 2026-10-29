@@ -333,6 +333,9 @@ public static partial class PackageReview
         if (ClipboardAddress(plain) is { } swap)
             yield return new PackageFinding("package/clipboard-address", install ? "noteworthy" : "review", "clipboard",
                 $"{(install ? "at install: " : "")}reads and writes the clipboard ({swap.Pair}) beside a {swap.Kind} address pattern", path);
+        if (NetworkOverride.Match(plain) is { Success: true } hook && !FetchGuard.IsMatch(plain) && WalletTarget(plain) is { } target)
+            yield return new PackageFinding("package/network-override", "noteworthy", "exfiltration",
+                $"replaces {(hook.Value.Contains("fetch", StringComparison.Ordinal) ? "fetch" : "an XMLHttpRequest method")} beside {target}", path);
     }
 
     private static readonly HashSet<string> ExecNames = new(StringComparer.Ordinal) { "exec", "eval", "compile", "__import__", "getattr" };
@@ -445,6 +448,23 @@ public static partial class PackageReview
         var kind = pair == null ? null : AddressShapes.FirstOrDefault(a => a.Shape.IsMatch(text)).Kind;
         return kind == null ? null : (pair!, kind);
     }
+
+    // A global fetch assigned a function, or XMLHttpRequest.prototype.open or
+    // send assigned; a bare fetch counts only at column 0 or after a semicolon.
+    private static readonly Regex NetworkOverride = R($@"(?:^|\n|;[ \t]*)fetch[ \t]*={Wrapper}"
+        + $@"|\b(?:window|globalThis|self|global)\.fetch[ \t]*={Wrapper}"
+        + @"|\bXMLHttpRequest(?:\.prototype|\[[ \t]*['""]prototype['""][ \t]*\])"
+        + @"(?:\.(?:open|send)\b|\[[ \t]*['""](?:open|send)['""][ \t]*\])[ \t]*=[^=]");
+
+    private const string Wrapper = @"[ \t]*(?:async[ \t]*)?(?:function\b|\([^)\n]{0,80}\)[ \t]*=>|\w+[ \t]*=>)";
+
+    // A polyfill assigns fetch only under a check that it is absent.
+    private static readonly Regex FetchGuard = R(@"\bif[ \t]*\([ \t]*!(?:(?:window|globalThis|self|global)\.)?fetch\b");
+
+    /// <summary>A cryptocurrency address pattern or a window.ethereum reference a file holds, named for the finding; null when it holds neither.</summary>
+    private static string? WalletTarget(string text) =>
+        AddressShapes.FirstOrDefault(a => a.Shape.IsMatch(text)).Kind is { } kind ? $"a {kind} address pattern"
+        : text.Contains("window.ethereum", StringComparison.Ordinal) ? "window.ethereum" : null;
 
     private static readonly Regex ShellTokenRead = R($@"\$\{{?(?:{PublishTokens})\b|%(?:{PublishTokens})%");
 
