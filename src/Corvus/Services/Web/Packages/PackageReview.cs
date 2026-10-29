@@ -1086,6 +1086,7 @@ public static partial class PackageReview
         {
             int from = tool.Index + tool.Length, lineEnd = text.IndexOf('\n', from) is var n and >= 0 ? n : text.Length;
             if (!DownloadSource.IsMatch(text.AsSpan(from, lineEnd - from))) continue;
+            if (FirstUrlIsVendorInstaller(text.AsSpan(from, lineEnd - from))) continue;
             for (var saved = SavedTo.Match(text, from, lineEnd - from); saved.Success; saved = saved.NextMatch())
             {
                 var file = saved.Groups["f"].Value;
@@ -1098,6 +1099,17 @@ public static partial class PackageReview
                 }
             }
         }
+        return false;
+    }
+
+    private static readonly Regex AnyUrl = R(@"https?://[^\s'""`)]+");
+    private static readonly Regex VendorInstallerUrl = R(@"^https://(?:dot\.net|dotnet\.microsoft\.com|builds\.dotnet\.microsoft\.com)/|^https://raw\.githubusercontent\.com/dotnet/install-scripts/");
+
+    /// <summary>Whether the first URL after a download command is the platform vendor's own installer script or build host.</summary>
+    private static bool FirstUrlIsVendorInstaller(ReadOnlySpan<char> rest)
+    {
+        foreach (var url in AnyUrl.EnumerateMatches(rest))
+            return VendorInstallerUrl.IsMatch(rest.Slice(url.Index, url.Length));
         return false;
     }
 

