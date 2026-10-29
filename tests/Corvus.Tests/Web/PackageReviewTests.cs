@@ -419,6 +419,59 @@ public sealed class PackageReviewTests : IDisposable
 
 
     [Fact]
+    public void A_bin_named_like_a_system_command_is_reported_and_noteworthy_beside_an_install_script()
+    {
+        var plain = Review(Tgz("git-helper-1.0.0.tgz", ("package/package.json", """{"name":"git-helper","version":"1.0.0","bin":{"git":"cli.js"}}"""), ("package/cli.js", "#!/usr/bin/env node")));
+        var finding = Assert.Single(plain.Findings, f => f.Rule == "package/command-name");
+        Assert.Equal(("review", "package/package.json"), (finding.Level, finding.Path));
+        Assert.Contains("bin 'git' (cli.js)", finding.Detail, StringComparison.Ordinal);
+        var installed = Review(Tgz("git-helper-1.0.1.tgz", ("package/package.json", """{"name":"git-helper","version":"1.0.1","bin":{"git":"cli.js"},"scripts":{"postinstall":"node cli.js"}}"""), ("package/cli.js", "#!/usr/bin/env node")));
+        Assert.Contains(installed.Findings, f => f is { Rule: "package/command-name", Level: "noteworthy" });
+    }
+
+    [Fact]
+    public void A_bin_with_its_own_name_or_a_command_its_package_owns_is_not_reported()
+    {
+        var own = Review(Tgz("my-tool-1.0.0.tgz", ("package/package.json", """{"name":"my-tool","version":"1.0.0","bin":{"my-tool":"cli.js"}}"""), ("package/cli.js", "#!/usr/bin/env node")));
+        var npm = Review(Tgz("npm-11.0.0.tgz", ("package/package.json", """{"name":"npm","version":"11.0.0","bin":{"npm":"bin/npm-cli.js","npx":"bin/npx-cli.js"}}"""), ("package/bin/npm-cli.js", "")));
+        Assert.DoesNotContain(own.Findings.Concat(npm.Findings), f => f.Rule == "package/command-name");
+    }
+
+    [Fact]
+    public void A_console_script_named_like_a_system_command_is_reported_except_in_its_owner()
+    {
+        PackageReport Wheel(string name, string scripts) => Review(Zip($"{name}-1.0-py3-none-any.whl",
+            ($"{name}/__init__.py", U("def main():\n    pass\n")),
+            ($"{name}-1.0.dist-info/METADATA", U($"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n")),
+            ($"{name}-1.0.dist-info/entry_points.txt", U(scripts))));
+        var shadow = Wheel("pyrunner", "[console_scripts]\npython3 = pyrunner:main\n[gui_scripts]\nrunner = pyrunner:main\n");
+        var finding = Assert.Single(shadow.Findings, f => f.Rule == "package/command-name");
+        Assert.Equal(("review", "pyrunner-1.0.dist-info/entry_points.txt"), (finding.Level, finding.Path));
+        Assert.Contains("console_scripts 'python3'", finding.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain(Wheel("pip", "[console_scripts]\npip = pip:main\npip3 = pip:main\n").Findings, f => f.Rule == "package/command-name");
+    }
+
+    [Fact]
+    public void A_setup_cfg_console_script_named_like_a_system_command_keeps_its_group_and_is_reported()
+    {
+        var r = Review(Tgz("sdist-tool-1.0.tar.gz",
+            ("sdist-tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: sdist-tool\nVersion: 1.0\n"),
+            ("sdist-tool-1.0/setup.cfg", "[metadata]\nname = sdist-tool\n\n[options.entry_points]\nconsole_scripts =\n    curl = sdist_tool:main\n    sdist-tool = sdist_tool:main\n")));
+        Assert.Contains(new PackageEntryPoint("console_scripts", "curl", "sdist_tool:main"), r.EntryPoints);
+        Assert.Contains("console_scripts 'curl'", Assert.Single(r.Findings, f => f.Rule == "package/command-name").Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_wheel_data_script_named_like_a_system_command_is_reported()
+    {
+        var r = Review(Zip("helper-1.0-py3-none-any.whl",
+            ("helper/__init__.py", U("")),
+            ("helper-1.0.data/scripts/ssh", U("#!python\nprint('hi')\n")),
+            ("helper-1.0.dist-info/METADATA", U("Metadata-Version: 2.1\nName: helper\nVersion: 1.0\n"))));
+        Assert.Contains("script 'ssh' (helper-1.0.data/scripts/ssh)", Assert.Single(r.Findings, f => f.Rule == "package/command-name").Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_browser_extension_that_sends_cookies_and_runs_fetched_code_is_noteworthy()
     {
         var manifest = """{"manifest_version":3,"name":"Tab Saver","version":"1.0","permissions":["cookies","tabs","storage"],"host_permissions":["<all_urls>"],"background":{"service_worker":"bg.js"},"content_scripts":[{"matches":["<all_urls>"],"js":["cs.js"],"run_at":"document_start"}]}""";

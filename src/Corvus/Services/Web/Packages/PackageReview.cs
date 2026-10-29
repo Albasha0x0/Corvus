@@ -397,6 +397,31 @@ public static partial class PackageReview
                                || files.Bytes(p) is { Length: >= 4 } b && (b[0] == 'M' && b[1] == 'Z' || b[0] == 0x7F && b[1] == 'E' && b[2] == 'L' && b[3] == 'F'))
             .Order(StringComparer.Ordinal).Take(200).ToList();
 
+    // --- commands named like system commands ---
+
+    /// <summary>System and toolchain commands a package command can take the place of on PATH.</summary>
+    private static readonly HashSet<string> SystemCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "node", "npm", "npx", "yarn", "pnpm", "git", "python", "python3", "pip", "pip3", "sh", "bash", "ls", "cat",
+        "curl", "wget", "ssh", "scp", "sudo", "docker", "kubectl", "dotnet", "java", "go", "cargo", "code",
+    };
+
+    /// <summary>Commands shipped by a package of another name: npm installs npx, pip installs pip3.</summary>
+    private static readonly Dictionary<string, string> CommandOwners = new(StringComparer.OrdinalIgnoreCase) { ["npx"] = "npm", ["pip3"] = "pip" };
+
+    /// <summary>One finding per bin, console_scripts, gui_scripts or wheel script named like a system command, except in the package that owns it; empty when none.</summary>
+    internal static IEnumerable<PackageFinding> CommandNames(string? package, IEnumerable<PackageEntryPoint> entries, bool atInstall, string? path)
+    {
+        foreach (var e in entries.Where(e => e.Kind is "bin" or "console_scripts" or "gui_scripts" or "script"))
+        {
+            // npm names a string bin after the package without its scope.
+            var command = e.Name[(e.Name.LastIndexOf('/') + 1)..];
+            if (!SystemCommands.Contains(command) || string.Equals(package, CommandOwners.GetValueOrDefault(command, command), StringComparison.OrdinalIgnoreCase)) continue;
+            yield return new PackageFinding("package/command-name", atInstall ? "noteworthy" : "review", "name",
+                $"{e.Kind} '{e.Name}' ({Clip(e.Target, 120)}) installs a program named like the system command {command}", path);
+        }
+    }
+
     // --- names close to popular packages ---
 
     /// <summary>A popular name that <paramref name="name"/> is one or two edits (or a separator) away from, else null.</summary>

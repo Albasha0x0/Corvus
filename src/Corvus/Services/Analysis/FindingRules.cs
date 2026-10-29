@@ -75,6 +75,7 @@ public static class FindingRules
         N("package/install-network-tool", AtInstall + ", running a network tool", "an install script runs a network tool"),
         R("package/binary", "native or executable files"),
         N("package/close-name", AtInstall + ", under a name close to a popular package", "a name close to a popular package"),
+        N("package/command-name", AtInstall + ", installing a command named like a system command", "a package command named like a system or toolchain command"),
         R("package/startup-pth", "a .pth file runs at every interpreter start"),
         R("package/setup-cmdclass", "setup.py replaces a setuptools command"),
         R("package/in-tree-backend", "an in-tree build backend runs while installing"),

@@ -70,6 +70,7 @@ public static partial class PackageReview
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.Npm) is { } popular)
             findings.Add(new PackageFinding("package/close-name", scripts.Any(x => x.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
+        findings.AddRange(CommandNames(name, entries, scripts.Any(x => x.AtInstall), manifestPath));
         int deps = 0;
         foreach (var key in new[] { "dependencies", "optionalDependencies", "peerDependencies" })
             if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object) deps += d.EnumerateObject().Count();

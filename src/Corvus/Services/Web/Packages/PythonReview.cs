@@ -82,7 +82,7 @@ public static partial class PackageReview
                         entries.Add(new PackageEntryPoint(m.Groups[1].Value == "scripts" ? "console_scripts" : "gui_scripts", e.Groups[1].Value, e.Groups[2].Value));
             }
             if (files.Text(root + "setup.cfg") is { } cfg && EntryPointSection().Match(cfg) is { Success: true } cfgEntries)
-                entries.AddRange(EntryPoints("[x]\n" + cfgEntries.Groups[1].Value.Replace("\n    ", "\n")).Select(e => e with { Kind = "entry point" }));
+                entries.AddRange(EntryPoints(CfgGroup().Replace(cfgEntries.Groups[1].Value, "[$1]")));
         }
         // Import-time code, __init__ modules first; tests, examples and docs are not imported.
         foreach (var source in Capped(files, [.. files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
@@ -100,6 +100,7 @@ public static partial class PackageReview
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.PyPI) is { } popular)
             findings.Add(new PackageFinding("package/close-name", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
+        findings.AddRange(CommandNames(name, entries, scripts.Any(s => s.AtInstall), distInfo != null ? distInfo[..^"METADATA".Length] + "entry_points.txt" : null));
         return new PackageReport(ecosystem, name, version)
         {
             Publisher = author, Description = Clip(summary), Scripts = scripts, EntryPoints = entries, Dependencies = deps,
@@ -113,6 +114,10 @@ public static partial class PackageReview
 
     [GeneratedRegex(@"(?ms)^\[options\.entry_points\]\s*$(.*?)(?=^\[|\z)")]
     private static partial Regex EntryPointSection();
+
+    // An unindented "group =" line opens a group; its indented lines are the entries.
+    [GeneratedRegex(@"(?m)^([\w.-]+)[ \t]*=[ \t\r]*$")]
+    private static partial Regex CfgGroup();
 
     private static readonly Regex LocalImport =new(@"(?m)^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+([\w, \t]+)|import[ \t]+([\w.]+))", RegexOptions.NonBacktracking);
 
