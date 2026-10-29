@@ -1,3 +1,4 @@
+using System.Text;
 using System.ComponentModel;
 using System.Text.RegularExpressions;
 using Corvus.Services.Analysis;
@@ -738,9 +739,24 @@ public static partial class PackageReview
     private static readonly Regex BeaconSecondRegex = R(BeaconSecond);
     private const string BeaconSecond = HostIdentity + @"|\bos\.homedir\(\)|\bprocess\.cwd\(\)|\bos\.getcwd\(\)|\b__dirname";
 
+    /// <summary>The text with each os.hostname() call within 300 characters of a cloudRoleInstance key masked; a telemetry context records its role instance, which is not a beacon.</summary>
+    private static string WithoutTelemetryRoleInstance(string text)
+    {
+        if (!text.Contains("cloudRoleInstance", StringComparison.Ordinal)) return text;
+        var masked = new StringBuilder(text);
+        foreach (var call in HostName.EnumerateMatches(text))
+        {
+            int from = Math.Max(0, call.Index - 300), to = Math.Min(text.Length, call.Index + call.Length + 300);
+            if (text.AsSpan(from, to - from).Contains("cloudRoleInstance", StringComparison.Ordinal))
+                masked.Remove(call.Index, call.Length).Insert(call.Index, new string('_', call.Length));
+        }
+        return masked.ToString();
+    }
+
     /// <summary>Whether code sends host identity twice in a row, or the environment; bare calls count only for names taken from os.</summary>
     private static bool SendsLoadBeacon(string text)
     {
+        text = WithoutTelemetryRoleInstance(text);
         if (LoadBeacon.IsMatch(text)) return true;
         var calls = OsHostCalls(text);
         foreach (var end in calls)

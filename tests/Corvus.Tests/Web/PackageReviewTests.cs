@@ -1541,6 +1541,16 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(PackageReview.Scan("index.js", code, install: false, default, entry: true, peel: false), f => f.Rule == "package/logon-start");
     }
 
+    // A telemetry context that records its role instance is not a load beacon (fix(web) for load-beacon).
+    [Theory]
+    [InlineData("cloudRoleInstance", false)]
+    [InlineData("roleName", true)]
+    public void A_host_name_stored_as_a_telemetry_role_instance_is_not_a_load_beacon(string key, bool beacon)
+    {
+        var code = "const https = require('https');\nconst os = require('os');\nconst path = require('path');\nfunction load() {\n  this.tags['" + key + "'] = os.hostname();\n  return path.resolve(__dirname, '../package.json');\n}\nhttps.get('https://example.invalid/ping');\n";
+        Assert.Equal(beacon, PackageReview.Scan("index.js", code, install: false, default, entry: true, peel: false).Any(f => f.Rule == "package/load-beacon"));
+    }
+
     // A zip checkpoint whose protocol 2 pickle calls GLOBAL module.name
     // on the inert string "pass".
     private static byte[] Checkpoint(string module, string name) =>
