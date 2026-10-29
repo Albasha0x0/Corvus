@@ -412,7 +412,6 @@ public sealed class PackageReviewTests : IDisposable
     public void A_rule_reads_to_the_end_of_a_bundle_that_backtracked_past_the_match_timeout()
     {
         // Regression: macOS CI on 08f2735f threw RegexMatchTimeoutException from the package view.
-        // Eight names close together, then a gap, over 4 MB of one line: nested bounded gaps backtracked combinatorially.
         var names = string.Concat(Enumerable.Range(0, 8).Select(i => $"_0x{i}a2b ")) + new string(' ', 401);
         var bundle = string.Concat(Enumerable.Repeat(names, (4 << 20) / names.Length)) + names.TrimEnd() + " _0x9a2b";
         Assert.Contains(Details(bundle), d => d.StartsWith("obfuscator.io", StringComparison.Ordinal));
@@ -1074,12 +1073,12 @@ public sealed class PackageReviewTests : IDisposable
     [Fact]
     public void Import_time_code_with_a_webhook_escaped_eval_and_credential_collection_dependencies_is_noteworthy()
     {
-        var r = Review(Tgz("hugebbc-0.0.0.tar.gz",
-            ("hugebbc-0.0.0/PKG-INFO", "Metadata-Version: 2.1\nName: hugebbc\nVersion: 0.0.0\n"),
-            ("hugebbc-0.0.0/setup.py", "from setuptools import setup\nsetup(name='hugebbc', install_requires=['browser_cookie3', 'discordwebhook', 'requests'])\n"),
-            ("hugebbc-0.0.0/hugebbc/__init__.py", "_e=eval(\"\\145\\x76\\x61\\x6c\")\nH='https://discord.com/api/webhooks/1/x'\n")));
+        var r = Review(Tgz("cookiekit-0.0.0.tar.gz",
+            ("cookiekit-0.0.0/PKG-INFO", "Metadata-Version: 2.1\nName: cookiekit\nVersion: 0.0.0\n"),
+            ("cookiekit-0.0.0/setup.py", "from setuptools import setup\nsetup(name='cookiekit', install_requires=['browser_cookie3', 'discordwebhook', 'requests'])\n"),
+            ("cookiekit-0.0.0/cookiekit/__init__.py", "_e=eval(\"\\145\\x76\\x61\\x6c\")\nH='https://discord.com/api/webhooks/1/x'\n")));
         Assert.Equal("noteworthy", r.Review);
-        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "exfiltration", Path: "hugebbc-0.0.0/hugebbc/__init__.py" });
+        Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "exfiltration", Path: "cookiekit-0.0.0/cookiekit/__init__.py" });
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "transformed code" } && f.Detail.Contains("escaped", StringComparison.Ordinal));
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "credentials" } && f.Detail.Contains("browser_cookie3", StringComparison.Ordinal));
     }
