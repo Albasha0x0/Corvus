@@ -9,7 +9,7 @@
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>2.7.2</Version>
+    <Version>2.7.3</Version>
     <!-- The release targets (release.yml's matrix), so the lock file covers each RID-specific publish; a test keeps
          the lists equal. Left out only of a RID-neutral pack's build, as tools that rewrite the lock file outside
          a restore must see them. Workaround for dotnet/sdk#56774 (tested SDK 10.0.402, no fix yet): with them listed
