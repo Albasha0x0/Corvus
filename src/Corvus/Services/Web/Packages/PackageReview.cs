@@ -214,7 +214,7 @@ public static partial class PackageReview
         new("package/long-base64", "transformed code", "review", R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]"), "a base64 literal over 2,000 characters"),
         new("package/long-base64", "transformed code", "review", LongBase64, "a base64 literal over 2,000 characters"),
         new("package/hidden-url", "transformed code", Small, R(@"['""`](?:aHR0cHM6Ly|aHR0cDovL|68747470733a2f2f|687474703a2f2f)[A-Za-z0-9+/=]{8,}['""`]"), "a URL hidden in base64 or hex"),
-        new("package/exec-char-codes", "transformed code", "noteworthy", R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d"), "executes code built from character codes"),
+        new("package/exec-char-codes", "transformed code", "noteworthy", ExecutesCharCodes, "executes code built from character codes"),
         new("package/pyobfuscate", "transformed code", "noteworthy", R(@"\(https://pyobfuscate\.com\)|\bimport\s+(?:marshal|zlib|base64)\s+as\s+_{3,}"), "pyobfuscate-style transformed code"),
         new("package/space-run", "transformed code", "noteworthy", CodeAfterBlankRun, "code placed after hundreds of columns of spaces or tabs on one line (out of view in an editor)"),
     ];
@@ -507,6 +507,41 @@ public static partial class PackageReview
             width = 0;
         }
         return false;
+    }
+
+    private static readonly Regex PythonCharCodes = R(@"\b(?:exec|eval)\s*\(\s*['""]{2}\.join\(\s*map\(\s*chr\s*,|\b(?:exec|eval)\s*\(\s*bytes\(\s*\[\s*\d");
+
+    // An array as the argument of eval or Function: direct, through a call
+    // or an inline decoder.
+    private static readonly Regex ScriptCharCodes = R(@"(?:^|[^.\w$])(?:eval|Function)\s*\(\s*(?:[\w$.]{1,40}\s*\(\s*|\(?\s*(?:function\s*\([\w$,\s]{0,40}\)|\(?[\w$,\s]{0,40}\)?\s*=>)\s*\{?[^\n]{0,400}?\bfromCharCode\b[^\n]{0,400}?\(\s*)?\[");
+
+    /// <summary>True when Python exec or eval runs chr / bytes output, or eval or Function takes an array of 200 integers.</summary>
+    private static bool ExecutesCharCodes(string text)
+    {
+        if (PythonCharCodes.IsMatch(text)) return true;
+        foreach (var m in ScriptCharCodes.EnumerateMatches(text))
+            if (LeadingIntegers(text.AsSpan(m.Index + m.Length), 200) >= 200) return true;
+        return false;
+    }
+
+    /// <summary>The count of leading comma-separated integers (decimal up to five digits, hex up to four) in <paramref name="s"/>, stopping at <paramref name="limit"/>.</summary>
+    private static int LeadingIntegers(ReadOnlySpan<char> s, int limit)
+    {
+        int count = 0, i = 0;
+        while (count < limit)
+        {
+            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            bool hex = i + 1 < s.Length && s[i] == '0' && s[i + 1] is 'x' or 'X';
+            if (hex) i += 2;
+            int start = i;
+            while (i < s.Length && (hex ? char.IsAsciiHexDigit(s[i]) : char.IsAsciiDigit(s[i]))) i++;
+            if (i == start || i - start > (hex ? 4 : 5)) break;
+            count++;
+            while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
+            if (i >= s.Length || s[i] != ',') break;
+            i++;
+        }
+        return count;
     }
 
     /// <summary>Whether nine obfuscator.io names (_0x1a2b) follow each other on one line, each within 400 characters.</summary>

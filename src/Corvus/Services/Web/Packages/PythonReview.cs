@@ -137,6 +137,16 @@ public static partial class PackageReview
             if (files.Bytes(source) is { } bytes && bytes.AsSpan().IndexOf("b64decode"u8) >= 0 && bytes.AsSpan().IndexOf("subprocess"u8) >= 0
                 && files.Text(source) is { } code && WritesDecodedAndRuns(code))
                 findings.Add(new PackageFinding("package/decoded-file-run", "noteworthy", "process", DecodedFileRun, source));
+        // Scripts at the package root, beside the modules, can be started
+        // from module code. Build scripts there run at neither import nor
+        // install, so only transformed code is kept.
+        var rootScripts = files.Paths.Where(p => p.StartsWith(moduleRoot, StringComparison.Ordinal) && !p.AsSpan(moduleRoot.Length).Contains('/')
+                                                 && (p.EndsWith(".js", StringComparison.Ordinal) || p.EndsWith(".sh", StringComparison.Ordinal))).ToList();
+        files.NotRead.AddRange(rootScripts.Where(p => files.Size(p) > MaxScannedSourceBytes && files.Bytes(p) != null)
+            .Select(p => $"{p} (source over {MaxScannedSourceBytes >> 20} MiB)"));
+        foreach (var script in Capped(files, [.. rootScripts.Where(p => files.Size(p) <= MaxScannedSourceBytes)]))
+            if (files.Text(script) is { } code)
+                findings.AddRange(Scan(script, code, install: false, ct, peel: false).Where(f => f is { Level: "noteworthy", Category: "transformed code" }));
         // Cookie, webhook and session libraries together mark a credential collector.
         var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))

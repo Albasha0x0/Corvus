@@ -730,6 +730,45 @@ public sealed class PackageReviewTests : IDisposable
     private static (string, byte[])[] Wheel(params (string Path, byte[] Data)[] files) =>
         [("tool-1.0.dist-info/METADATA", U("Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n")), ("tool-1.0.dist-info/top_level.txt", U("tool\ntool_hook\n")), .. files];
 
+    // An inert decoder call over copies of one character code.
+    private static string CharCodeEval(int count, string call = "d(", string code = "120") =>
+        $"eval({call}[{string.Join(",", Enumerable.Repeat(code, count))}].map(String.fromCharCode).join(''),3));";
+
+    private PackageReport NpmScript(string code) => Review(Tgz("tool-1.0.0.tgz",
+        ("package/package.json", """{"name":"tool","version":"1.0.0","scripts":{"preinstall":"node index.js"}}"""), ("package/index.js", code)));
+
+    [Fact]
+    public void Eval_of_a_hex_array_or_through_an_arrow_decoder_matches_and_a_method_named_eval_does_not()
+    {
+        Assert.Contains(NpmScript(CharCodeEval(200, code: "0x78")).Findings, f => f.Rule == "package/exec-char-codes");
+        Assert.Contains(NpmScript(CharCodeEval(200, "(a=>a.map(c=>String.fromCharCode(c)).join(''))(")).Findings, f => f.Rule == "package/exec-char-codes");
+        Assert.Contains(NpmScript(CharCodeEval(200, "(function(a){return String.fromCharCode.apply(null,a)})(")).Findings, f => f.Rule == "package/exec-char-codes");
+        Assert.DoesNotContain(NpmScript("x." + CharCodeEval(200, "t(")).Findings, f => f.Rule == "package/exec-char-codes");
+    }
+
+    [Fact]
+    public void An_sdist_root_build_script_that_pipes_a_download_to_a_shell_is_not_noteworthy()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/tool/__init__.py", ""), ("tool-1.0/build.sh", "curl -sSf https://example.invalid/setup.sh | sh\n")));
+        Assert.DoesNotContain(r.Findings, f => f.Path == "tool-1.0/build.sh");
+    }
+
+    [Fact]
+    public void Eval_of_a_long_character_code_array_is_noteworthy_in_an_npm_package_and_a_wheel_root_script()
+    {
+        var npm = Review(Tgz("tool-1.0.0.tgz",
+            ("package/package.json", """{"name":"tool","version":"1.0.0","scripts":{"preinstall":"node index.js"}}"""),
+            ("package/index.js", CharCodeEval(200))));
+        Assert.Contains(npm.Findings, f => f is { Rule: "package/exec-char-codes", Level: "noteworthy", Path: "package/index.js" });
+        var wheel = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("")), ("_index.js", U(CharCodeEval(200, "function(s,n){return String.fromCharCode(n)}("))))));
+        Assert.Contains(wheel.Findings, f => f is { Rule: "package/exec-char-codes", Level: "noteworthy", Path: "_index.js" });
+        var brief = Review(Tgz("tool-1.0.0.tgz",
+            ("package/package.json", """{"name":"tool","version":"1.0.0","scripts":{"preinstall":"node index.js"}}"""),
+            ("package/index.js", CharCodeEval(50))));
+        Assert.DoesNotContain(brief.Findings, f => f.Rule == "package/exec-char-codes");
+    }
+
     [Fact]
     public void A_wheel_of_compiled_only_modules_is_review_alone_and_noteworthy_when_a_pth_file_imports_one()
     {
