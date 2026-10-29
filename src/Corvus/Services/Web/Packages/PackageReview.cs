@@ -198,7 +198,7 @@ public static partial class PackageReview
         new("package/account-listing", "host details", "noteworthy", R(@"(?:^|[^.\w$])(?:exec|execSync|spawnSync|check_output|getoutput|popen|system)\s*\(\s*['""`](?:net\s+user|net\s+localgroup|whoami\s+/(?:priv|all|groups)|cat\s+/etc/passwd)\b"), "runs account and privilege listing commands"),
         new("package/credential-files", "credentials", "noteworthy", R(@"\.npmrc\b|[/\\]\.ssh[/\\]|\bid_rsa\b|\.aws[/\\]credentials|\.git-credentials|\.bash_history|/etc/(?:shadow|passwd)\b|\bLogin Data\b|Local Storage[/\\]+leveldb|\bwallet\.dat\b|\bdiscord(?:app)?\b.{0,40}\btoken|\bkeychain-db\b|\bbrowser_cookie3\b|\.pypirc\b|" + PublishTokenRead), "reads credential files or publish tokens (npmrc, pypirc, ssh keys, cloud or browser stores)"),
         new("package/environment-dump", "credentials", "review", R(@"JSON\.stringify\(\s*process\.env\s*\)|Object\.(?:keys|entries|assign)\(\s*(?:\{\}\s*,\s*)?process\.env\s*\)|json\.dumps\(\s*(?:dict\()?os\.environ|dict\(\s*os\.environ\s*\)|os\.environ\.copy\(\)"), "collects all environment variables"),
-        new("package/host-details", "host details", "review", R(@"\bos\.(?:hostname|userInfo|networkInterfaces|homedir)\(\)|\bsocket\.gethostname\(\)|\bgetpass\.getuser\(\)|\bplatform\.node\(\)|\bwhoami\b|\$\(hostname\)|\b(?:ip-api\.com|ipinfo\.io|api\.ipify\.org|ifconfig\.me|icanhazip\.com|checkip\.amazonaws\.com)\b"), "reads host and user details"),
+        new("package/host-details", "host details", "review", ReadsHostDetails, "reads host and user details"),
         // URLs only: a list of suffixes (a public suffix table) names these domains without sending anything to them
         new("package/collection-url", "exfiltration", "noteworthy", R(@"https?://pastebin\.com/raw|https?://[\w.-]+\.ngrok(?:-free)?\.(?:io|app|dev)\b|https?://[\w.-]+\.(?:oast\.(?:fun|me|pro|live|site|online)|interact\.sh|burpcollaborator\.net|oastify\.com|beeceptor\.com|dnslog\.cn|ceye\.io|requestcatcher\.com)\b|https?://(?:[\w-]+\.)*(?:requestbin\.(?:com|net)|pipedream\.net|webhook\.site)\b"), "sends to a collection endpoint (paste site, tunnel, request catcher)"),
         // chat bots and raw addresses have ordinary uses (notification integrations, documentation): noteworthy beside other behaviour
@@ -293,7 +293,7 @@ public static partial class PackageReview
         if (ChatWebhook.IsMatch(plain) && (WebhookSecret.IsMatch(plain) || WalletSecret.IsMatch(plain)))
             yield return new PackageFinding("package/webhook-secrets", "noteworthy", "exfiltration", "sends passwords, keys, tokens or wallet secrets to a chat webhook", path);
         // A beacon at load: host identity or the environment sent from entry code.
-        if (entry && hits.Contains("network") && LoadBeacon.IsMatch(plain))
+        if (entry && hits.Contains("network") && SendsLoadBeacon(plain))
             yield return new PackageFinding("package/load-beacon", "noteworthy", "host details", "sends host identity or the environment when loaded", path);
         if (entry && RedirectsWithAddress(path, plain))
             yield return new PackageFinding("package/redirect-entry", "noteworthy", "redirect", "entry code sends the browser to a fixed URL that carries an email address", path);
@@ -485,7 +485,23 @@ public static partial class PackageReview
     // A socket near a spawned shell or a child piped to it; bounded gaps keep work per start constant, so no match timeout.
     [GeneratedRegex($@"(?:{Socket})[\s\S]{{0,1500}}?(?:{Shell}|\.pipe\(\s*[\w$.]+\.stdin\s*\)[\s\S]{{0,300}}?\.stdout\.pipe\()|(?:{Shell})[\s\S]{{0,1500}}?(?:{Socket})", RegexOptions.CultureInvariant)]
     private static partial Regex ReverseShell();
-    private static readonly Regex LoadBeacon = R(@"\b(?:os\.(?:hostname|userInfo|networkInterfaces)\(\)|socket\.gethostname\(\)|getpass\.getuser\(\)|platform\.node\(\))[\s\S]{0,600}?\b(?:os\.(?:hostname|userInfo|networkInterfaces|homedir)\(\)|socket\.gethostname\(\)|getpass\.getuser\(\)|platform\.node\(\)|process\.cwd\(\)|os\.getcwd\(\)|__dirname)|JSON\.stringify\(\s*process\.env\s*\)|json\.dumps\(\s*(?:dict\()?os\.environ");
+    private static readonly Regex LoadBeacon = R($@"(?:{HostIdentity})[\s\S]{{0,600}}?(?:{BeaconSecond})|JSON\.stringify\(\s*process\.env\s*\)|json\.dumps\(\s*(?:dict\()?os\.environ");
+    private static readonly Regex BeaconSecondRegex = R(BeaconSecond);
+    private const string BeaconSecond = HostIdentity + @"|\bos\.homedir\(\)|\bprocess\.cwd\(\)|\bos\.getcwd\(\)|\b__dirname";
+
+    /// <summary>Whether code sends host identity twice in a row, or the environment; bare calls count only for names taken from os.</summary>
+    private static bool SendsLoadBeacon(string text)
+    {
+        if (LoadBeacon.IsMatch(text)) return true;
+        var calls = OsHostCalls(text);
+        foreach (var end in calls)
+        {
+            if (calls.Exists(e => e > end && e - end <= 600)) return true;
+            if (BeaconSecondRegex.IsMatch(text.AsSpan(end, Math.Min(600, text.Length - end)))) return true;
+        }
+        return false;
+    }
+
     private static readonly Regex BundledProgram = R(@"\.(?:run|call|Popen|check_call|check_output|system|startfile)\(\s*\[?\s*(?:os\.path\.abspath\(\s*)?['""][^'""\n]*\.(?:exe|bat|cmd|ps1|vbs|scr)['""]|\.(?:run|call|Popen|check_call)\(\s*\[\s*exe_path\b");
     private static readonly Regex FormattedUrl = R(@"['""]https?://[^\s'""]*(?:\{\w*\}|%s|\$\{)");
     // Excludes compile(f.read(), ...), which setup.py uses to read its version module; no match timeout needed.
@@ -650,6 +666,39 @@ public static partial class PackageReview
             if (i < runs.Count && runs[i] - m.Index <= 1500 || i > 0 && m.Index - runs[i - 1] <= 1500) return true;
         }
         return false;
+    }
+
+    // Home directory reads are cache and config paths, not identity: only the
+    // os receiver form keeps them.
+    private const string HostIdentity = @"\bos\.(?:hostname|userInfo|networkInterfaces|getlogin)\(\)|require\(\s*['""](?:node:)?os['""]\s*\)\.(?:hostname|userInfo|networkInterfaces)\(|\bsocket\.gethostname\(\)|\bgetpass\.getuser\(\)|\bplatform\.node\(\)";
+    // Identity commands match only in their reading form, a string that ends
+    // after the key; setting a name passes a value after it.
+    private static readonly Regex HostDetailsCall = R(HostIdentity + @"|\bos\.homedir\(\)|\bwhoami\b|\$\(hostname\)|['""`]git\s+config\s+(?:--global\s+)?(?:--get\s+)?user\.(?:email|name)['""`]|['""`]ssh\s+-T\s+git@[\w.-]+['""`]|\b(?:ip-api\.com|ipinfo\.io|api\.ipify\.org|ifconfig\.me|icanhazip\.com|checkip\.amazonaws\.com)\b");
+    private static readonly Regex OsDestructure = R(@"\{(?<names>[\w\s,:$]{1,200})\}\s*=\s*require\(\s*['""](?:node:)?os['""]\s*\)");
+    private static readonly Regex OsImport = R(@"\bimport\s*\{(?<names>[\w\s,$]{1,200})\}\s*from\s*['""](?:node:)?os['""]");
+    private static readonly Regex BareCall = R(@"(?:^|[^.\w$])(?<name>[\w$]+)\s*\(\s*\)");
+    private static readonly HashSet<string> OsHostKeys = new(StringComparer.Ordinal) { "hostname", "userInfo", "networkInterfaces" };
+
+    /// <summary>Whether code reads host or user details: an os call, an identity command, or a name taken from os and called bare.</summary>
+    private static bool ReadsHostDetails(string text) => HostDetailsCall.IsMatch(text) || OsHostCalls(text).Count > 0;
+
+    /// <summary>End offsets of bare calls to identity names destructured or imported from os, under their local alias; empty when there are none.</summary>
+    private static List<int> OsHostCalls(string text)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var list in new[] { OsDestructure, OsImport })
+            for (var m = list.Match(text); m.Success; m = m.NextMatch())
+                foreach (var entry in m.Groups["names"].Value.Split(','))
+                {
+                    // Entries read "key", "key: local" or "key as local".
+                    var parts = entry.Split([':', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 0 && OsHostKeys.Contains(parts[0])) names.Add(parts[^1]);
+                }
+        var ends = new List<int>();
+        if (names.Count == 0) return ends;
+        for (var m = BareCall.Match(text); m.Success; m = m.NextMatch())
+            if (names.Contains(m.Groups["name"].Value)) ends.Add(m.Index + m.Length);
+        return ends;
     }
 
     private static readonly Regex Downloader = R(@"\b(?:curl|wget|Invoke-WebRequest|iwr)\b");
