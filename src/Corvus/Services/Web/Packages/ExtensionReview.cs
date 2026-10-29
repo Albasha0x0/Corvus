@@ -260,6 +260,7 @@ public static partial class PackageReview
         if (pkg is { ValueKind: JsonValueKind.Object } q && Str(q, "publisher") is { } own && Str(q, "name") is { } name)
             findings.AddRange(ForeignExtensionIds(files, loaded, own, name, q));
         findings.AddRange(ScanLoaded(files, root, loaded, ct, extension: true));
+        findings.AddRange(EditorContentSends(files, root, ct));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         return new PackageReport("vscode extension", publisher != null && id != null && !id.Contains('.') ? $"{publisher}.{id}" : id, version)
@@ -345,5 +346,46 @@ public static partial class PackageReview
         for (var w = FileWrite.Match(code, start, before - start); w.Success; w = w.NextMatch())
             if (w.Groups["w"].Value == file && NetworkRead.Match(code, Math.Max(0, w.Index - Window), Math.Min(Window, w.Index)).Success) return true;
         return false;
+    }
+
+    private const string EditorText = @"(?:\.getText\(\)|readFileSync\(\s*[\w$.]*\.(?:fileName|fsPath)\b)";
+    private const string FixedUrl = @"['""`](?<scheme>https?)://(?<host>[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])[^'""`\s]*['""`]\s*,";
+    private const string FixedPost = @"(?:\bfetch\w*|\(0,\s*[\w$]+\.default\))\s*\(\s*" + FixedUrl + @"\s*\{[^;]{0,200}?\bmethod\s*:\s*['""`]POST['""`]";
+    // The literal absolute URL keeps route registrations such as app.post('/x') out.
+    private const string ClientPost = @"\b[\w$.]+\.post\s*\(\s*" + FixedUrl;
+    private static readonly Regex EditorTextPost = R(EditorText + @"[\s\S]{0,400}?" + FixedPost + "|" + FixedPost + @"[^;]{0,400}?\bbody\s*:[^;]{0,200}?" + EditorText);
+    private static readonly Regex EditorTextClientPost = R(EditorText + @"[\s\S]{0,400}?" + ClientPost + "|" + ClientPost + @"[^;]{0,400}?" + EditorText);
+    private static readonly Regex RemoteFrame = new(@"<iframe\b[^>]{0,400}?\bsrc\s*=\s*['""]?https?://(?<host>[A-Za-z0-9.-]+)[^>]{0,400}>", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+    private const string ZeroSize = @"(?:^|[^\w-])(?:width|height)\s*[:=]\s*['""]?0(?:px)?[\s;'""}>]";
+    private static readonly Regex HiddenFrameAttribute = new(ZeroSize + @"|display\s*:\s*none|visibility\s*:\s*hidden", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+    // A brace or tag end before the selector keeps descendant and @media rules out.
+    private static readonly Regex HiddenFrameStyle = new(@"(?:^|[}>])\s*iframe\s*\{[^}]{0,200}?(?:" + ZeroSize + @"|display\s*:\s*none|visibility\s*:\s*hidden)", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+    private static readonly Regex OwnScriptOrPage = R(@"\.(?:c|m)?js$|\.html?$");
+
+    /// <summary>True for localhost names and loopback or private addresses; false for any other host.</summary>
+    private static bool IsLocalHost(string host) =>
+        host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase)
+        || System.Net.IPAddress.TryParse(host.Trim('[', ']'), out var ip) && (System.Net.IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal
+            || ip.GetAddressBytes() is [10, ..] or [192, 168, ..] or [172, >= 16 and < 32, ..] or [0, 0, 0, 0]);
+
+    /// <summary>One finding per extension script that posts document text to a fixed remote host, and per script or page holding a hidden remote iframe; empty when none.</summary>
+    private static IEnumerable<PackageFinding> EditorContentSends(PackageFiles files, string root, CancellationToken ct)
+    {
+        var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && OwnScriptOrPage.IsMatch(p)
+                                             && !p.Contains("node_modules/", StringComparison.Ordinal) && files.Size(p) <= MaxScannedSourceBytes)
+            .Order(StringComparer.Ordinal).ToList();
+        foreach (var path in Capped(files, sources))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (files.Text(path) is not { } text) continue;
+            bool script = path.EndsWith("js", StringComparison.Ordinal);
+            if (script && EditorTextPost.Matches(text).Concat(EditorTextClientPost.Matches(text)).FirstOrDefault(m => !IsLocalHost(m.Groups["host"].Value)) is { } send)
+                yield return new PackageFinding("package/editor-content-send", send.Groups["scheme"].Value == "http" ? "noteworthy" : "review", "exfiltration",
+                    $"posts editor document text to {send.Groups["scheme"].Value}://{send.Groups["host"].Value}", path);
+            // A style rule in a script string can target any view, so only pages apply it.
+            bool styled = !script && HiddenFrameStyle.IsMatch(text);
+            if (RemoteFrame.Matches(text).FirstOrDefault(m => !IsLocalHost(m.Groups["host"].Value) && (styled || HiddenFrameAttribute.IsMatch(m.Value))) is { } frame)
+                yield return new PackageFinding("package/hidden-frame", "noteworthy", "remote content", $"a hidden iframe loads {frame.Groups["host"].Value}", path);
+        }
     }
 }

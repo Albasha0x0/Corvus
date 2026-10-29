@@ -107,6 +107,8 @@ public static class FindingRules
         N("package/foreign-extension-id", "activation on '*' with code that reads the install data of its own name or repository under another publisher", "looks up its own name or repository owner under another publisher"),
         N("package/invisible-name", "exact form: invisible characters in a display name", "a display name with invisible characters"),
         N("package/extension-sideload", RunsRemote, "installs an extension from a file it downloads"),
+        N("package/editor-content-send", "a POST to a fixed plain-http remote host", "posts editor document text to a fixed host"),
+        N("package/hidden-frame", "exact form: a zero-size or hidden iframe to a remote host", "a hidden iframe loads a remote page"),
         // Agent configuration and repository hooks.
         N("package/tag-characters", "exact form: Unicode tag characters that read as text", "Unicode tag characters"),
         N("package/bidi-controls", "in a file an agent reads as instructions", "bidirectional control characters"),

