@@ -6,6 +6,7 @@ namespace Corvus.Core;
 /// <summary>
 /// XML trees read with a nesting bound. XContainer.AddNodeSkipNotify walks to the root for each node it adds, so
 /// XDocument.Load takes time quadratic in depth: 40,000 nested elements take about 28 s.
+/// Workaround for dotnet/runtime#136658, tested on .NET 8.0.33, 9.0.22 and 10.0.14; no fix released yet.
 /// </summary>
 internal static class BoundedXml
 {
