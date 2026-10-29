@@ -194,7 +194,7 @@ public static partial class PackageReview
             + ResponseCallback + "(?:" + DecodedRunInBlock + "|" + DecodedRunInExpression + ")"),
             "runs code from a response (eval of response data or its base64 decode, a Function given require)"),
         new("package/file-host-program", "process", "noteworthy", R(@"https?://(?:dl\.dropbox(?:usercontent)?\.com|cdn\.discordapp\.com/attachments|files\.catbox\.moe|transfer\.sh|github\.com/[\w.-]+/[\w.-]+/raw)/[^\s'""]*?\.(?:exe|sh|bat|cmd|ps1|vbs|scr|msi)\b"), "downloads a program from a file-sharing host"),
-        new("package/download-and-run", "process", "noteworthy", R(@"\bcurl(?:\.exe)?\s+[^\n]{0,60}?https?://[^\s'""]+\.(?:exe|scr|msi)\b|\b(?:curl|wget)\b[^\n]{0,200}?&&\s*chmod\s+\+x|\burlretrieve\s*\([\s\S]{0,600}?(?:\bPopen\s*\(|\bos\.(?:system|startfile)\s*\(|\bchmod\s*\()|\[\s*['""]node['""]\s*,\s*['""]-e['""]\s*,\s*\w+\.stdout"), "downloads a program or script and runs it"),
+        new("package/download-and-run", "process", "noteworthy", DownloadsAndRuns, "downloads a program or script and runs it"),
         new("package/download-and-start", "process", "noteworthy", DownloadsAndStarts, "downloads a program to a file and starts it"),
         new("package/decoded-file-run", "process", "noteworthy", WritesDecodedAndRuns, DecodedFileRun),
         new("package/decoded-command", "process", "noteworthy", R(@"\b(?:os\.system|os\.popen|subprocess\.(?:Popen|run|call|check_output|check_call))\s*\(\s*\w*(?:b64d\w*|b64decode|decode|unhexlify|fromhex)\s*\(|(?:^|[^.\w$])(?:exec|execSync)\s*\(\s*(?:atob|Buffer\.from)\s*\("), "runs a decoded command"),
@@ -899,6 +899,29 @@ public static partial class PackageReview
         for (var m = BareCall.Match(text); m.Success; m = m.NextMatch())
             if (names.Contains(m.Groups["name"].Value)) ends.Add(m.Index + m.Length);
         return ends;
+    }
+
+    private static readonly Regex DownloadAndRun = R(@"\bcurl(?:\.exe)?\s+[^\n]{0,60}?https?://[^\s'""]+\.(?:exe|scr|msi)\b|\b(?:curl|wget)\b[^\n]{0,200}?&&\s*chmod\s+\+x|\burlretrieve\s*\([\s\S]{0,600}?(?:\bPopen\s*\(|\bos\.(?:system|startfile)\s*\(|\bchmod\s*\()|\[\s*['""]node['""]\s*,\s*['""]-e['""]\s*,\s*\w+\.stdout");
+    private static readonly Regex WrittenFile = R(@"\bopen\(\s*(?<f>[A-Za-z_][\w.]*)\s*,\s*['""](?:wb|w\+b|bw)['""]\s*\)");
+    private static readonly Regex PythonDownload = R(@"\burlopen\s*\(|\brequests\.get\s*\(");
+    private static readonly Regex PathRunner = R(@"\bsubprocess\.(?:run|Popen|call|check_call|check_output)\s*\(\s*\[\s*(?:['""](?:python3?|sh|bash)['""]|sys\.executable)\s*,\s*(?<a>[A-Za-z_][\w.]*)\s*[,\]]|\bos\.chmod\s*\(\s*(?<a>[A-Za-z_][\w.]*)\s*,\s*(?:0o?[1357][0-7]{2}\b|[^)\n]{0,80}?\bstat\.S_I(?:X(?:USR|GRP|OTH)|EXEC)\b)|\bos\.system\s*\(\s*f['""](?:python3?|sh|bash)\s+\{(?<a>[A-Za-z_][\w.]*)\}");
+
+    /// <summary>Whether a download is run, or a Python download written to a path variable is passed as that variable to an interpreter or an executable os.chmod within 3,000 characters.</summary>
+    private static bool DownloadsAndRuns(string text)
+    {
+        if (DownloadAndRun.IsMatch(text)) return true;
+        // The interpreter must take the written variable itself: build scripts
+        // download an archive and then run an unrelated script.
+        foreach (Match open in WrittenFile.Matches(text))
+        {
+            int before = Math.Max(0, open.Index - 400), after = open.Index + open.Length;
+            if (!PythonDownload.IsMatch(text.AsSpan(before, after - before))
+                || !text.AsSpan(after, Math.Min(300, text.Length - after)).Contains(".write(", StringComparison.Ordinal)) continue;
+            var file = open.Groups["f"].Value;
+            for (var run = PathRunner.Match(text, after, Math.Min(3000, text.Length - after)); run.Success; run = run.NextMatch())
+                if (run.Groups["a"].Value == file) return true;
+        }
+        return false;
     }
 
     private static readonly Regex Downloader = R(@"\b(?:curl|wget|Invoke-WebRequest|iwr)\b");

