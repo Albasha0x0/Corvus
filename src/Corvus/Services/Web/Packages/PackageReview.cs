@@ -257,6 +257,9 @@ public static partial class PackageReview
             if (!install && rule.Category == "credentials") level = "review";
             yield return new PackageFinding(rule.Id, level, rule.Category, (install ? "at install: " : "") + rule.What, path);
         }
+        if (path.EndsWith(".py", StringComparison.OrdinalIgnoreCase) && NormalizedExec(plain) is { } name)
+            yield return new PackageFinding("package/normalized-exec", "noteworthy", "transformed code",
+                $"{(install ? "at install: " : "")}calls {name} under a non-ASCII name that normalizes to it", path);
         if (install && BundledProgram.IsMatch(plain))
             yield return new PackageFinding("package/install-bundled-program", "noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1)", path);
         if (install && CompiledEval().IsMatch(plain))
@@ -305,6 +308,58 @@ public static partial class PackageReview
             yield return new PackageFinding("package/clipboard-address", install ? "noteworthy" : "review", "clipboard",
                 $"{(install ? "at install: " : "")}reads and writes the clipboard ({swap.Pair}) beside a {swap.Kind} address pattern", path);
     }
+
+    private static readonly HashSet<string> ExecNames = new(StringComparer.Ordinal) { "exec", "eval", "compile", "__import__", "getattr" };
+
+    /// <summary>The builtin a non-ASCII name called outside strings and comments reads as after NFKC; null when none.</summary>
+    // Python folds identifiers with NFKC, so a name in mathematical
+    // letters calls the builtin.
+    private static string? NormalizedExec(string text)
+    {
+        if (!text.Any(c => c > 0x7F)) return null;
+        int n = text.Length;
+        for (int i = 0; i < n;)
+        {
+            char c = text[i];
+            if (c == '#')
+            {
+                while (i < n && text[i] != '\n') i++;
+            }
+            else if (c is '\'' or '"')
+            {
+                bool triple = i + 2 < n && text[i + 1] == c && text[i + 2] == c;
+                i += triple ? 3 : 1;
+                while (i < n && !(triple ? i + 2 < n && text[i] == c && text[i + 1] == c && text[i + 2] == c : text[i] == c || text[i] == '\n'))
+                    i += text[i] == '\\' ? 2 : 1;
+                i += triple ? 3 : 1;
+            }
+            else if (IsNameChar(c))
+            {
+                int start = i;
+                bool wide = false;
+                while (i < n && IsNameChar(text[i])) wide |= text[i++] > 0x7F;
+                int j = i;
+                while (j < n && text[j] is ' ' or '\t') j++;
+                if (wide && j < n && text[j] == '(')
+                {
+                    string name;
+                    // A lone surrogate does not normalize.
+                    try { name = text[start..i].Normalize(System.Text.NormalizationForm.FormKC); }
+                    catch (ArgumentException) { continue; }
+                    if (ExecNames.Contains(name)) return name;
+                }
+            }
+            else i++;
+        }
+        return null;
+    }
+
+    // Letter numbers and connector punctuation also fold to ASCII name
+    // characters.
+    private static bool IsNameChar(char c) =>
+        c == '_' || char.IsLetterOrDigit(c) || char.IsSurrogate(c) || char.GetUnicodeCategory(c) is
+            System.Globalization.UnicodeCategory.LetterNumber or System.Globalization.UnicodeCategory.ConnectorPunctuation
+            or System.Globalization.UnicodeCategory.NonSpacingMark or System.Globalization.UnicodeCategory.SpacingCombiningMark;
 
     /// <summary>Clipboard read and write calls, as pairs a file must hold both of.</summary>
     private static readonly (string Pair, Regex Read, Regex Write)[] ClipboardPairs =

@@ -687,6 +687,34 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_setup_py_that_calls_exec_in_mathematical_letters_is_noteworthy()
+    {
+        const string bold = "\U0001D41E\U0001D431\U0001D41E\U0001D41C";
+        var r = Review(Tgz("tool-0.1.tar.gz",
+            ("tool-0.1/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 0.1\n"),
+            ("tool-0.1/setup.py", $"from setuptools import setup\nfrom setuptools.command.install import install\nclass Post(install):\n    def run(self):\n        code = 'pass'\n        {bold} (code)\nsetup(name='tool', version='0.1', cmdclass={{'install': Post}})\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/normalized-exec", Level: "noteworthy", Path: "tool-0.1/setup.py" } && f.Detail.Contains("calls exec", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("e\u2179ec(code)\n", "exec")]
+    [InlineData("_\uFF3Fimport\uFF3F\uFF3F('os')\n", "__import__")]
+    public void A_call_whose_letter_number_or_connector_folds_to_a_builtin_is_reported(string code, string builtin) =>
+        Assert.Contains(PackageReview.Scan("setup.py", code, true, default, peel: false), f => f.Rule == "package/normalized-exec" && f.Detail.Contains($"calls {builtin} ", StringComparison.Ordinal));
+
+    [Theory]
+    [InlineData("print('\U0001D41E\U0001D431\U0001D41E\U0001D41C(x)')\n")]
+    [InlineData("doc = \"\"\"\n\U0001D41E\U0001D431\U0001D41E\U0001D41C(x)\n\"\"\"\n")]
+    [InlineData("# \U0001D41E\U0001D431\U0001D41E\U0001D41C(x)\n")]
+    [InlineData("\U0001D41E\U0001D431\U0001D41E\U0001D41C = 1\n")]
+    public void A_mathematical_name_in_a_string_comment_or_assignment_is_not_a_normalized_call(string code) =>
+        Assert.DoesNotContain(PackageReview.Scan("setup.py", code, true, default, peel: false), f => f.Rule == "package/normalized-exec");
+
+    [Fact]
+    public void A_non_ascii_call_that_folds_to_no_builtin_is_not_reported() =>
+        Assert.DoesNotContain(PackageReview.Scan("setup.py", "caf\u00E9(x)\n", true, default, peel: false), f => f.Rule == "package/normalized-exec");
+
+    [Fact]
     public void A_root_level_setup_py_that_runs_downloaded_code_and_a_bundled_program_is_noteworthy()
     {
         var r = Review(Zip("syntax-init-1.0.zip",
