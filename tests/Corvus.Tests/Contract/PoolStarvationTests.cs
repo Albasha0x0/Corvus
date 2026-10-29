@@ -84,6 +84,8 @@ public class PoolStarvationTests(Xunit.Abstractions.ITestOutputHelper output)
         }
     }
 
+    // Regression: e78024ee, a flush done while its caller subscribed resumed
+    // the caller on the blocked pool.
     // A child process of 1 or 4 processors; the inner stream overrides only
     // Write, as the console stream does.
     [Theory]

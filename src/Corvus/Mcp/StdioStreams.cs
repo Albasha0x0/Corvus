@@ -6,12 +6,19 @@ internal static class StdioStreams
     /// <summary>Standard input; a read waits for its token, as the SDK's stdio transport reads it.</summary>
     public static Stream Input() => new CancellableInput(Console.OpenStandardInput());
 
+    // How long a flush holds its caller's thread before it completes on the
+    // writer thread: past it, the client is not reading.
+    private static readonly TimeSpan QuickFlush = TimeSpan.FromMilliseconds(100);
+
     /// <summary>
-    /// <paramref name="inner"/> written by a thread of its own: a write queues its bytes and a flush completes, on that
-    /// thread, once everything queued before it is written. The console stream's own asynchronous write takes a
-    /// thread-pool thread, and a write on the caller's thread blocks it while the client is not reading.
+    /// <paramref name="inner"/> written by a thread of its own: a write queues its bytes and a flush completes once
+    /// everything queued before it is written. The console stream's own asynchronous write takes a thread-pool thread,
+    /// and a write on the caller's thread blocks it while the client is not reading.
     /// </summary>
-    public static Stream Output(Stream inner) => new QueuedOutput(inner);
+    public static Stream Output(Stream inner) => Output(inner, QuickFlush);
+
+    /// <summary><see cref="Output(Stream)"/> with a flush held on its caller's thread for up to <paramref name="quickFlush"/>.</summary>
+    internal static Stream Output(Stream inner, TimeSpan quickFlush) => new QueuedOutput(inner, quickFlush);
 
     private sealed class CancellableInput(Stream inner) : Stream
     {
@@ -46,6 +53,7 @@ internal static class StdioStreams
     private sealed class QueuedOutput : Stream
     {
         private readonly Stream _inner;
+        private readonly TimeSpan _quickFlush;
         private readonly Thread _writer;
         // Byte chunks, flush markers (a TaskCompletionSource) and null for
         // the end.
@@ -53,9 +61,10 @@ internal static class StdioStreams
         private Exception? _failed;
         private bool _ended;
 
-        public QueuedOutput(Stream inner)
+        public QueuedOutput(Stream inner, TimeSpan quickFlush)
         {
             _inner = inner;
+            _quickFlush = quickFlush;
             _writer = new Thread(Drain) { IsBackground = true, Name = "Corvus standard output" };
             _writer.Start();
         }
@@ -92,10 +101,21 @@ internal static class StdioStreams
             else FlushAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
 
+        // A flush the writer completes while the caller's await is subscribing
+        // to it resumes the caller on a thread-pool thread: the runtime queues
+        // a continuation added too late to a task completed meanwhile. A quick
+        // flush is waited for here and returned complete, so the caller
+        // resumes on its own thread. The writer thread, running a slow flush's
+        // continuation, never waits: only it can drain the flush.
         public override Task FlushAsync(CancellationToken cancellationToken)
         {
             var flushed = new TaskCompletionSource();
             Enqueue(flushed);
+            if (Thread.CurrentThread != _writer)
+            {
+                try { flushed.Task.Wait(_quickFlush, cancellationToken); }
+                catch (Exception ex) when (ex is AggregateException or OperationCanceledException) { }
+            }
             return flushed.Task.WaitAsync(cancellationToken);
         }
 

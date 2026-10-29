@@ -50,7 +50,8 @@ public class StdioOutputTests
         }
     }
 
-    // The inner stream blocks each write until released, as a full pipe does.
+    // The inner stream blocks each write and flush until released, as a full
+    // pipe does.
     [Fact]
     public async Task A_write_to_an_output_that_is_not_read_never_holds_the_caller_s_thread()
     {
@@ -76,7 +77,52 @@ public class StdioOutputTests
         output.Dispose();
     }
 
-    private sealed class BlockingOutput(ManualResetEventSlim release) : Stream
+    // Regression: e78024ee, a flush done while its caller subscribed resumed
+    // the caller on the pool.
+    // The inner flush is released 100 ms after the writer thread enters it,
+    // so a flush returned without its wait is still pending.
+    [Fact]
+    public void A_flush_written_within_its_wait_returns_complete()
+    {
+        using var release = new ManualResetEventSlim();
+        using var flushing = new ManualResetEventSlim();
+        using var output = Corvus.Mcp.StdioStreams.Output(new BlockingOutput(release, flushing), TimeSpan.FromSeconds(30));
+        new Thread(() => { flushing.Wait(); Thread.Sleep(100); release.Set(); }) { IsBackground = true }.Start();
+        var flushed = output.FlushAsync();
+        Assert.True(flushed.IsCompletedSuccessfully, $"the flush returned {flushed.Status}");
+    }
+
+    // The first flush returns pending, its write released only afterwards, so
+    // its continuation runs on the writer thread.
+    [Fact]
+    public async Task A_flush_sent_from_a_slow_flush_s_continuation_returns_at_once()
+    {
+        var quickFlush = TimeSpan.FromSeconds(2);
+        using var release = new ManualResetEventSlim();
+        var written = new BlockingOutput(release);
+        using var output = Corvus.Mcp.StdioStreams.Output(written, quickFlush);
+        output.Write(Encoding.UTF8.GetBytes("{}\n"));
+        var first = output.FlushAsync();
+        Assert.False(first.IsCompleted, "the first flush completed while its write was held");
+        string? thread = null;
+        var elapsed = TimeSpan.MaxValue;
+        var second = first.ContinueWith(_ =>
+        {
+            thread = Thread.CurrentThread.Name;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            output.Write(Encoding.UTF8.GetBytes("{}\n"));
+            var flushed = output.FlushAsync();
+            elapsed = clock.Elapsed;
+            return flushed;
+        }, TaskContinuationOptions.ExecuteSynchronously).Unwrap();
+        release.Set();
+        await second.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal("Corvus standard output", thread);
+        Assert.True(elapsed < quickFlush, $"the flush held the writer thread for {elapsed}");
+        Assert.Equal("{}\n{}\n", written.Text);
+    }
+
+    private sealed class BlockingOutput(ManualResetEventSlim release, ManualResetEventSlim? flushing = null) : Stream
     {
         private readonly MemoryStream _bytes = new();
 
@@ -93,7 +139,12 @@ public class StdioOutputTests
         public override bool CanWrite => true;
         public override long Length => throw new NotSupportedException();
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public override void Flush() { }
+        public override void Flush()
+        {
+            flushing?.Set();
+            release.Wait();
+        }
+
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
