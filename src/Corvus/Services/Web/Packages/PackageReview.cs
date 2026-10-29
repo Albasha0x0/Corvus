@@ -214,7 +214,8 @@ public static partial class PackageReview
         new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
         new("package/access-persistence", "persistence", "noteworthy", AddsAuthorizedKey, "appends a public key to authorized_keys"),
         new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user|['""]\.config['""]\s*[,/]\s*['""]systemd['""]\s*[,/]\s*['""]user['""]|\bsystemctl\b[^\n;|&]{0,80}--user\b[^\n;|&]{0,80}\benable\b|\bsystemctl\s+enable\b[^\n;|&]{0,80}--user\b"), "writes to a location that starts programs at logon"),
-        new("package/string-array", "transformed code", "noteworthy", StringArrayNames, "obfuscator.io-style transformed code"),
+        new("package/string-array", "transformed code", "noteworthy", StringArray, "obfuscator.io-style transformed code"),
+        new("package/string-array", "transformed code", "noteworthy", StringArray, "obfuscator.io-style transformed code"),
         new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
         new("package/eval-inflated", "dynamic code", Small, RunsDecodedContent, "evaluates inflated or image-decoded content (eval / Function)"),
@@ -231,7 +232,7 @@ public static partial class PackageReview
     {
         var plain = text;
         var language = ScriptReader.Detect(path, text);
-        if (peel && language != null && text.Length <= 4 << 20 && Transformed.IsMatch(text.Length > 200_000 ? text[..200_000] : text))
+        if (peel && language != null && text.Length <= 4 << 20 && Peelable(text.Length > 200_000 ? text[..200_000] : text))
         {
             var reading = ScriptReader.Read(text, language, ct, milliseconds: ScriptBudget.OverviewMilliseconds);
             // Decoded layers and obfuscator machinery count; ordinary eval does not.
@@ -928,9 +929,17 @@ public static partial class PackageReview
         return count;
     }
 
-    /// <summary>Whether nine obfuscator.io names (_0x1a2b) follow each other on one line, each within 400 characters.</summary>
-    private static bool StringArrayNames(string text)
+    // A while(!![]) loop whose try body calls parseInt or parseFloat and
+    // moves an array's first element to its end: string-array rotation under
+    // any names.
+    private static readonly Regex Rotation = R(@"while\s*\(\s*!!\s*\[\s*\]\s*\)\s*\{\s*try\s*\{[^}]*\bparse(?:Int|Float)\s*\([^}]*(?:\.push|\[['""]push['""]\])\(\s*[\w$]+(?:\.shift|\[['""]shift['""]\])\(\s*\)\s*\)");
+
+    private static bool Peelable(string text) => Transformed.IsMatch(text) || Rotation.IsMatch(text);
+
+    /// <summary>Whether a rotation loop or nine obfuscator.io names (_0x1a2b), each within 400 characters on one line, appear.</summary>
+    private static bool StringArray(string text)
     {
+        if (Rotation.IsMatch(text)) return true;
         // Consecutive names are the closest pair, so a run of them decides it;
         // one regex of nested bounded gaps backtracks combinatorially instead.
         int run = 0, end = -1;

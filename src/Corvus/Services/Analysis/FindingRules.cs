@@ -47,6 +47,7 @@ public static class FindingRules
         N("package/global-hooks-path", AtInstall + ", setting git config --global core.hooksPath to a value", "sets a global git hooks path"),
         N("package/shell-startup", AtInstall + ", or beside network, process or decoded code findings", "writes a shell startup file in the home folder"),
         N("package/string-array", "exact form: obfuscator.io string array names", "obfuscator.io-style transformed code"),
+        N("package/string-array", "exact form: obfuscator.io string array names or rotation loop", "obfuscator.io-style transformed code"),
         N("package/escaped-call", RunsHidden, "calls functions named by escaped strings"),
         N("package/eval-decoded", RunsDecoded, "evaluates decoded code"),
         N("package/eval-inflated", RunsDecoded + ": inflate or jsQR output within 1,500 characters of eval or new Function, in a file of at most 64 KiB", "evaluates inflated or image-decoded content"),

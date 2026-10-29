@@ -584,6 +584,33 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_string_array_rotation_loop_under_mixed_case_names_is_noteworthy_and_peeled()
+    {
+        var r = Review(Tgz("fmt-1.0.1.tgz", ("package/package.json", """{"name":"fmt","version":"1.0.1","scripts":{"install":"node lib/p.js"}}"""),
+            ("package/lib/p.js", "function aBcD(){const qWe=['12gamma','https','beta'];aBcD=function(){return qWe;};return aBcD();}\n"
+                + "function dEc(i){i=i-0x0;return aBcD()[i];}\n"
+                + "(function(Lst,Goal){const Dc=dEc,Get=Lst();while(!![]){try{const Val=parseInt(Dc(0x1))/1;if(Val===Goal)break;else Get['push'](Get['shift']());}"
+                + "catch(Err){Get['push'](Get['shift']());}}}(aBcD,0xc));\n"
+                + "const web=require(dEc(0x2));")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/string-array", Level: "noteworthy", Path: "package/lib/p.js" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/peeled-layers", Path: "package/lib/p.js" });
+        // The module name is an array item, so require('https') appears only
+        // after decoding.
+        Assert.Contains(r.Findings, f => f is { Rule: "package/network", Path: "package/lib/p.js" });
+    }
+
+    [Theory]
+    [InlineData("const q = [1, 2, 3];\nwhile (q.length) { try { parseInt(q[0]); } finally { q.push(q.shift()); break; } }")]
+    [InlineData("const q = [1, 2], s = '7';\nwhile(!![]){try{const v=parseInt(s);if(v)break;}catch(e){q.push(q.shift());}}")]
+    [InlineData("const q = ['x', 'y'];\nwhile(!![]){try{q.push(q.shift());if(q[0]==='x')break;}catch(e){}}")]
+    public void A_loop_without_parse_and_rotation_in_one_try_body_is_not_a_string_array(string code)
+    {
+        var r = Review(Tgz("fmt-1.0.2.tgz", ("package/package.json", """{"name":"fmt","version":"1.0.2","main":"lib/p.js"}"""),
+            ("package/lib/p.js", code)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/string-array");
+    }
+
+    [Fact]
     public void A_main_that_runs_code_from_a_response_is_noteworthy()
     {
         var r = Review(Tgz("string-utils-1.0.3.tgz", ("package/package.json", """{"name":"string-utils","version":"1.0.3","main":"index.js"}"""),
