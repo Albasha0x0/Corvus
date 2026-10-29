@@ -194,7 +194,8 @@ public class MachinePermitsTests
                 steps.Pass(TimeSpan.FromMilliseconds(500));
                 var late = await Assert.ThrowsAsync<PermitWaitEndedException>(() => waiter.WaitAsync(TimeSpan.FromSeconds(30)));
                 Assert.StartsWith(MachinePermits.NotRunPrefix + "one held for 0.03 min (", late.Message);
-                Assert.Contains($"held by process {Environment.ProcessId}", late.Message);
+                // Only Windows reports which process holds a slot file.
+                Assert.Contains(OperatingSystem.IsWindows() ? $"held by process {Environment.ProcessId}" : "held by another process", late.Message);
                 Assert.EndsWith("); not run.", late.Message);
             }
         }

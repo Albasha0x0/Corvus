@@ -58,7 +58,8 @@ public class OutputGuardTests(Xunit.Abstractions.ITestOutputHelper output) : IDi
             return folders.TryGetValue(d, out var names) ? names : throw new DirectoryNotFoundException(d);
         });
         Assert.Equal(Path.Combine("a", "tool.CMD"), search.Find("tool"));
-        Assert.Equal(Path.Combine("b", "other.EXE"), search.Find("other"));
+        // Linux file names are case-sensitive, so other.exe does not match .EXE there.
+        Assert.Equal(OperatingSystem.IsLinux() ? null : Path.Combine("b", "other.EXE"), search.Find("other"));
         Assert.Null(search.Find("absent"));
         Assert.Equal(["a", "missing", "b"], listed);
     }

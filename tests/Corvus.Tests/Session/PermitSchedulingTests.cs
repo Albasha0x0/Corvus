@@ -102,7 +102,8 @@ public sealed class PermitSchedulingTests
             Assert.Equal((1, 1, 0), (summary.Total, summary.Skipped, summary.Failed));
             var reason = Assert.Single(results.Skips);
             Assert.StartsWith(MachinePermits.NotRunPrefix + "reference-tool held for ", reason);
-            Assert.Contains($"held by process {Environment.ProcessId}", reason);
+            // Only Windows reports which process holds a slot file.
+            Assert.Contains(OperatingSystem.IsWindows() ? $"held by process {Environment.ProcessId}" : "held by another process", reason);
         }
         finally
         {
