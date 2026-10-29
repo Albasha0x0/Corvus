@@ -1676,7 +1676,7 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("none", Store(deps, "").Review);
         Assert.Equal("none", Store(deps, ""","scripts":{"start":"sample-day-js --watch"}""", ("package/dist/index.js", code)).Review);
         Assert.Equal("none", Store(deps, ""","bin":{"store":"bin/store"}""", ("package/dist/index.js", code), ("package/bin/store", "require('sample-day-js');")).Review);
-        Assert.Equal("none", Store(deps, "", ("package/dist/index.js", "/******/ (() => { var __webpack_modules__ = {};")).Review);
+        Assert.Equal("none", Store(deps, "", ("package/dist/index.js", "/******/ (() => { var __webpack_modules__ = {};\nmodule.exports = {};")).Review);
         Assert.Equal("none", Store("""{"@sample/day-js":"^1","serverless-http":"^3","globals":"^13","preact-render-to-string":"^6"}""", "",
             ("package/dist/index.js", code)).Review);
         Assert.Equal("none", Review(Tgz("dayjs-plugin-1.0.0.tgz", ("package/package.json", """{"name":"@org/dayjs-plugin","version":"1.0.0","dependencies":{"sample-dayjs":"^1"}}"""),

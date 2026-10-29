@@ -215,7 +215,6 @@ public static partial class PackageReview
         new("package/access-persistence", "persistence", "noteworthy", AddsAuthorizedKey, "appends a public key to authorized_keys"),
         new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user|['""]\.config['""]\s*[,/]\s*['""]systemd['""]\s*[,/]\s*['""]user['""]|\bsystemctl\b[^\n;|&]{0,80}--user\b[^\n;|&]{0,80}\benable\b|\bsystemctl\s+enable\b[^\n;|&]{0,80}--user\b"), "writes to a location that starts programs at logon"),
         new("package/string-array", "transformed code", "noteworthy", StringArray, "obfuscator.io-style transformed code"),
-        new("package/string-array", "transformed code", "noteworthy", StringArray, "obfuscator.io-style transformed code"),
         new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
         new("package/eval-inflated", "dynamic code", Small, RunsDecodedContent, "evaluates inflated or image-decoded content (eval / Function)"),
@@ -268,8 +267,6 @@ public static partial class PackageReview
         if (path.EndsWith(".py", StringComparison.OrdinalIgnoreCase) && NormalizedExec(plain) is { } name)
             yield return new PackageFinding("package/normalized-exec", "noteworthy", "transformed code",
                 $"{(install ? "at install: " : "")}calls {name} under a non-ASCII name that normalizes to it", path);
-        if (install && BundledProgram.IsMatch(plain))
-            yield return new PackageFinding("package/install-bundled-program", "noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1)", path);
         if (install && (BundledProgram.IsMatch(plain) || RunsNamedProgram(plain)))
             yield return new PackageFinding("package/install-bundled-program", "noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1, .sh)", path);
         if (install && CompiledEval().IsMatch(plain))
@@ -323,11 +320,9 @@ public static partial class PackageReview
                 "reads home credential folders (.ssh, .aws), holds token patterns (AKIA, ghp_, sk-) and reaches the network", path);
         if (SecretPrompt.IsMatch(plain) && (hits.Contains("exfiltration") || ChatWebhook.IsMatch(plain) || BrowserAutomation.IsMatch(plain)))
             yield return new PackageFinding("package/secret-prompt", "noteworthy", "credentials", "asks for a seed phrase, mnemonic or private key beside a chat webhook, collection endpoint or browser automation", path);
-        // A beacon at load: host identity or the environment sent from entry code.
-        if (entry && hits.Contains("network") && SendsLoadBeacon(plain))
         // A beacon at load: host identity or the environment sent from entry code,
         // or host identity POSTed from a small source file outside test folders.
-        if (hits.Contains("network") && (entry && LoadBeacon.IsMatch(plain)
+        if (hits.Contains("network") && (entry && SendsLoadBeacon(plain)
             || plain.Length <= 64 << 10 && !NotLoaded.IsMatch(path) && IdentityPosted(plain)))
             yield return new PackageFinding("package/load-beacon", "noteworthy", "host details", "sends host identity or the environment when loaded", path);
         if (entry && RedirectsWithAddress(path, plain))

@@ -46,7 +46,6 @@ public static class FindingRules
         N("package/access-persistence", "exact form: a write to an authorized_keys path in a file holding a public key literal", "appends a public key to authorized_keys"),
         N("package/global-hooks-path", AtInstall + ", setting git config --global core.hooksPath to a value", "sets a global git hooks path"),
         N("package/shell-startup", AtInstall + ", or beside network, process or decoded code findings", "writes a shell startup file in the home folder"),
-        N("package/string-array", "exact form: obfuscator.io string array names", "obfuscator.io-style transformed code"),
         N("package/string-array", "exact form: obfuscator.io string array names or rotation loop", "obfuscator.io-style transformed code"),
         N("package/escaped-call", RunsHidden, "calls functions named by escaped strings"),
         N("package/eval-decoded", RunsDecoded, "evaluates decoded code"),
@@ -58,7 +57,6 @@ public static class FindingRules
         N("package/pyobfuscate", "exact list: pyobfuscate markers", "pyobfuscate-style transformed code"),
         N("package/space-run", "exact form: code after spaces and tabs 300 or more columns wide on one line (a tab is 4)", "code placed out of view in an editor"),
         N("package/normalized-exec", "exact form: a non-ASCII name called outside strings and comments that NFKC folds to exec, eval, compile, __import__ or getattr", "calls a builtin under a name that normalizes to it"),
-        N("package/space-run", "exact form: code after 300 or more spaces on one line", "code placed out of view in an editor"),
         N("package/clipboard-address", "a file that runs at install or as a content script on every site", "reads and writes the clipboard beside a cryptocurrency address pattern"),
         N("package/network-override", "a global fetch assigned a function, or XMLHttpRequest open or send replaced, beside a cryptocurrency address pattern or window.ethereum, outside an if (!fetch) guard", "replaces fetch or XMLHttpRequest beside a cryptocurrency address pattern"),
         // Package combinations.
@@ -78,7 +76,6 @@ public static class FindingRules
         N("package/webhook-secrets", "a chat webhook combined with passwords, keys, tokens or wallet secrets", "sends secrets to a chat webhook"),
         N("package/secret-collector", "home credential folders read beside token patterns and a network connection, at install or in a file of at most 64 KiB", "collects credential files and tokens"),
         N("package/secret-prompt", "a prompt for a seed phrase, mnemonic or private key beside a chat webhook, collection endpoint, raw-address socket or browser automation", "asks for wallet secrets"),
-        N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment", "sends host identity when loaded"),
         N("package/redirect-entry", "entry JavaScript assigning the browser's location a URL literal that carries an email address", "redirects the browser with an email address"),
         N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment; or a small source file outside test folders POSTing two kinds of host identity near a literal URL", "sends host identity when loaded"),
         N("package/self-publish", "exact form: rewrites package.json and runs npm publish", "publishes itself"),
@@ -89,7 +86,6 @@ public static class FindingRules
         // Package manifests.
         R("package/install-script", "a script the package manager runs at install"),
         N("package/install-network-tool", AtInstall + ", running a network tool", "an install script runs a network tool"),
-        N("package/dependency-source", AtInstall + ", with a dependency fetched from outside the registry", "a dependency fetched from outside the registry"),
         N("package/builtin-dependency", "a Node built-in name aliased to another package or fetched from outside the registry", "a dependency named after a Node built-in module"),
         N("package/carrier", "the only code file, at most 200 bytes, loads nothing, beside runtime dependencies", "an entry file that only installs its dependencies"),
         N("package/dependency-source", AtInstall + ", with a dependency fetched from outside the registry, or, in an npm manifest, a dependency over http, git+http or git://", "a dependency fetched from outside the registry"),

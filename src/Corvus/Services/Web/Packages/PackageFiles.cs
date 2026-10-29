@@ -271,7 +271,6 @@ internal sealed class PackageFiles
                 ReadTar(gz, ct, prefix: GemData);
                 continue;
             }
-            Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : [], () => e.DataStream);
             Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : [], () => e.DataStream, ownsOpened: false);
         }
     }
