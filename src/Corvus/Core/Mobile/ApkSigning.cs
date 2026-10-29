@@ -701,7 +701,9 @@ public static class ApkSigning
             try
             {
                 using var s = entry.Open();
-                var buffer = new MemoryStream((int)entry.Length);
+                // The declared size comes from the central directory, so the
+                // buffer grows with the data read rather than taking it.
+                var buffer = new MemoryStream();
                 s.CopyTo(buffer);
                 return buffer.ToArray();
             }

@@ -229,6 +229,21 @@ public class ApkSigningTests
         Assert.StartsWith("v4 signer 2 (for v3.1): CN=Test EC Signer", facts.Signers[3]);
     }
 
+    // Regression: a central directory size of about 500 MB for a signature
+    // block entry was allocated before the entry was read.
+    [Fact]
+    public void A_declared_entry_size_past_its_data_is_not_allocated()
+    {
+        var apk = FullySigned(EcSigner);
+        // The last copy of the name is the one in the central directory.
+        int name = apk.AsSpan().LastIndexOf("META-INF/CERT.EC"u8);
+        int entry = apk.AsSpan(0, name).LastIndexOf("PK\u0001\u0002"u8);
+        apk[entry + 27] = 0x1E;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ApkSigning.Verify(apk);
+        Assert.InRange(GC.GetAllocatedBytesForCurrentThread() - before, 0, 64L << 20);
+    }
+
     [Fact]
     [FuzzEntry(typeof(ApkSigning))]
     public void Mutated_APKs_never_throw() => Fuzz(60, 120);
