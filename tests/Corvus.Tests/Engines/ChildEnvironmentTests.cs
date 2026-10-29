@@ -3,6 +3,7 @@ using Corvus.Native.Providers;
 namespace Corvus.Tests;
 
 /// <summary>What a child process sees: the minimal environment plus its start's declared variables.</summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class ChildEnvironmentTests
 {
     /// <summary>Runs the fake tool's environment mode and returns its working folder and variables.</summary>
