@@ -95,6 +95,9 @@ public static partial class PackageReview
             var assets = AssetTrailingData(files, report, assetNotes, ct);
             assets.AddRange(AgentSettingsHooks(files));
             if (assets.Count > 0 || assetNotes.Count > 0) report = report with { Findings = [.. report.Findings, .. assets], Notes = [.. report.Notes, .. assetNotes] };
+            var filler = files.CommentFiller.Select(p => new PackageFinding("package/comment-filler", "review", "transformed code",
+                $"a code file over {PackageFiles.MaxFile >> 20} MiB padded with NUL bytes or archive data inside /* */ comments; its code outside them was read", p));
+            report = report with { Findings = [.. report.Findings, .. filler] };
         }
         // A source tree with no package manifest is reviewed for its agent configuration alone.
         // A PHP project often carries a frontend package.json; its Composer

@@ -18,6 +18,8 @@ internal sealed class PackageFiles
     // Past MaxScan an oversize file is classified by its header alone.
     private const long MaxScan = 256L << 20;
     private const int MaxEmbedded = 4;
+    /// <summary>Input read from a code file over <see cref="MaxFile"/> to keep its code outside /* */ comments.</summary>
+    public const long MaxCommentedRead = 256L << 20;
 
     private readonly Dictionary<string, byte[]?> _files = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _sizes = new(StringComparer.Ordinal);
@@ -31,6 +33,9 @@ internal sealed class PackageFiles
 
     /// <summary>Listed files whose bytes were not read, each with the limit that stopped it.</summary>
     public List<string> NotRead { get; } = [];
+
+    /// <summary>Code files over <see cref="MaxFile"/> whose /* */ comments hold a 4 KiB NUL run or an archive header.</summary>
+    public List<string> CommentFiller { get; } = [];
 
     /// <summary>Files past <see cref="MaxEntries"/>: neither listed nor read.</summary>
     public int Unlisted { get; private set; }
@@ -157,7 +162,9 @@ internal sealed class PackageFiles
         Notes.Add($"agent configuration read from {Path.GetFileName(root)} root files and {string.Join(", ", AgentFiles.Folders)}; other subfolders not read");
     }
 
-    private void Add(string path, long size, Func<byte[]?> read, Func<Stream?>? open = null)
+    // A tar reader owns its entry streams and skips unread data itself, so
+    // ownsOpened is false for them.
+    private void Add(string path, long size, Func<byte[]?> read, Func<Stream?>? open = null, bool ownsOpened = true)
     {
         path = path.Replace('\\', '/').TrimStart('/');
         if (path.Length == 0 || path.EndsWith('/')) return;
@@ -167,6 +174,15 @@ internal sealed class PackageFiles
             return;
         }
         _sizes[path] = size;
+        if (size > MaxFile && size <= MaxCommentedRead && _total + MaxFile <= MaxTotal && open != null && CommentedCode(path)
+            && ReadOutsideComments(open(), ownsOpened, out bool filler) is { } code)
+        {
+            _total += code.Length;
+            _files[path] = code;
+            NotRead.Add($"{path} (over {MaxFile >> 20} MiB: only code outside /* */ comments read)");
+            if (filler) CommentFiller.Add(path);
+            return;
+        }
         if (size > MaxFile || _total + size > MaxTotal)
         {
             _files[path] = null;
@@ -256,6 +272,7 @@ internal sealed class PackageFiles
                 continue;
             }
             Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : [], () => e.DataStream);
+            Add(prefix + e.Name, e.Length, () => e.DataStream is { } s ? ReadBounded(s, MaxFile) : [], () => e.DataStream, ownsOpened: false);
         }
     }
 
@@ -280,6 +297,67 @@ internal sealed class PackageFiles
         try { return File.ReadAllBytes(path); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
+
+    private static bool CommentedCode(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() is ".js" or ".mjs" or ".cjs" or ".ts" or ".jsx" or ".tsx";
+
+    // Null unless the whole file is read within MaxCommentedRead and its code
+    // outside comments fits MaxFile, so the comments hold the excess. Quoted
+    // strings are tracked so a "/*" in one opens no comment; line comments
+    // and regular expression literals are not.
+    private static byte[]? ReadOutsideComments(Stream? s, bool dispose, out bool filler)
+    {
+        filler = false;
+        if (s == null) return null;
+        using (dispose ? s : null)
+        {
+            using var kept = new MemoryStream();
+            var buffer = new byte[81920];
+            bool comment = false, escaped = false;
+            byte prev = 0, quote = 0;
+            ulong window = 0;
+            int nulRun = 0;
+            long read = 0;
+            int n;
+            while ((n = s.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if ((read += n) > MaxCommentedRead || kept.Length > MaxFile) return null;
+                for (int i = 0; i < n; i++)
+                {
+                    byte b = buffer[i];
+                    if (comment)
+                    {
+                        window = window << 8 | b;
+                        nulRun = b == 0 ? nulRun + 1 : 0;
+                        // Source text holds no NUL run; the values are the ar
+                        // ("!<arch>\n") and zip member headers.
+                        if (nulRun >= 4096 || window == 0x213C617263683E0A || IsZipMember(window)) filler = true;
+                        if (prev == '*' && b == '/') { comment = false; b = 0; }
+                    }
+                    else if (quote != 0)
+                    {
+                        kept.WriteByte(b);
+                        if (escaped) escaped = false;
+                        else if (b == '\\') escaped = true;
+                        else if (b == quote || (b == '\n' && quote != '`')) quote = 0;
+                        b = 0;
+                    }
+                    else if (prev == '/' && b == '*') { comment = true; kept.SetLength(kept.Length - 1); window = 0; nulRun = 0; b = 0; }
+                    else
+                    {
+                        kept.WriteByte(b);
+                        if (b is (byte)'"' or (byte)'\'' or (byte)'`') { quote = b; b = 0; }
+                    }
+                    prev = b;
+                }
+            }
+            return kept.Length > MaxFile ? null : kept.ToArray();
+        }
+    }
+
+    // The last six bytes are "PK\x03\x04" and a version needed from 1.0 to 6.3.
+    private static bool IsZipMember(ulong window) =>
+        (window & 0xFFFF_FFFF_00FF) == 0x504B_0304_0000 && ((window >> 8) & 0xFF) is >= 10 and <= 63;
 
     private static byte[]? ReadBounded(Stream s, long max)
     {

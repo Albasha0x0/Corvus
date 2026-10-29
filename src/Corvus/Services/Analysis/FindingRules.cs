@@ -48,6 +48,7 @@ public static class FindingRules
         N("package/eval-decoded", RunsDecoded, "evaluates decoded code"),
         N("package/eval-inflated", RunsDecoded + ": inflate or jsQR output within 1,500 characters of eval or new Function, in a file of at most 64 KiB", "evaluates inflated or image-decoded content"),
         R("package/long-base64", "a base64 literal over 2,000 characters"),
+        R("package/comment-filler", "a code file over 32 MiB padded with NUL bytes or archive data inside /* */ comments"),
         N("package/hidden-url", "in a file of at most 64 KiB (bundles encode their own endpoints)", "a URL hidden in base64 or hex"),
         N("package/exec-char-codes", RunsDecoded, "executes code built from character codes"),
         N("package/pyobfuscate", "exact list: pyobfuscate markers", "pyobfuscate-style transformed code"),

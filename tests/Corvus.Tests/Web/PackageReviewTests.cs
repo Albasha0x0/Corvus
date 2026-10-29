@@ -1786,4 +1786,57 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Null(r.Agents);
         Assert.Empty(r.Findings);
     }
+
+    // A 33 MiB code file: optional leading code, one /* */ comment, then nine
+    // string-array names on one line.
+    private static byte[] Padded(byte[] comment, string before = "")
+    {
+        var head = U(before + "/*");
+        var code = U("*/\nvar _0x1a2b=1,_0x1a2c=2,_0x1a2d=3,_0x1a2e=4,_0x1a2f=5,_0x1a30=6,_0x1a31=7,_0x1a32=8,_0x1a33=9;\n");
+        var index = new byte[(32 << 20) + (1 << 20)];
+        Array.Fill(index, (byte)' ');
+        head.CopyTo(index, 0);
+        comment.CopyTo(index, head.Length);
+        code.CopyTo(index, index.Length - code.Length);
+        return index;
+    }
+
+    private string PaddedZip(string name, byte[] index) =>
+        Zip(name, ("package.json", U("""{"name":"sample-utils","version":"1.0.0","main":"index.js"}""")), ("index.js", index));
+
+    [Fact]
+    public void A_NUL_run_inside_a_comment_of_an_oversized_code_file_is_reported_and_its_code_is_read()
+    {
+        var r = Review(PaddedZip("padded.zip", Padded(new byte[4096])));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/comment-filler", Level: "review", Path: "index.js" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/string-array", Level: "noteworthy", Path: "index.js" });
+        Assert.Contains("index.js (over 32 MiB: only code outside /* */ comments read)", r.Partial, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_ar_header_inside_a_comment_of_an_oversized_code_file_is_reported()
+    {
+        var r = Review(PaddedZip("archive.zip", Padded(U("!<arch>\ndata.txt/"))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/comment-filler", Path: "index.js" });
+    }
+
+    [Fact]
+    public void Text_comments_and_comment_markers_in_strings_of_an_oversized_code_file_are_not_filler()
+    {
+        var r = Review(PaddedZip("license.zip", Padded(U("Licensed under the MIT license. x!<array> PK"), """var g="src/**/*.js",h='/*';""" + "\n")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/comment-filler");
+        Assert.Contains(r.Findings, f => f.Rule == "package/string-array");
+    }
+
+    [Fact]
+    public void An_oversized_tarball_entry_leaves_the_next_entry_readable()
+    {
+        var path = _dir.File("padded-1.0.0.tgz");
+        File.WriteAllBytes(path, Gzip(Tar(("package/package.json", U("""{"name":"padded","version":"1.0.0","main":"index.js"}""")),
+            ("package/index.js", Padded(new byte[4096])),
+            ("package/lib.js", U("var _0x2a2b=1,_0x2a2c=2,_0x2a2d=3,_0x2a2e=4,_0x2a2f=5,_0x2a30=6,_0x2a31=7,_0x2a32=8,_0x2a33=9;\n")))));
+        var r = Review(path);
+        Assert.Contains(r.Findings, f => f is { Rule: "package/comment-filler", Path: "package/index.js" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/string-array", Path: "package/lib.js" });
+    }
 }
