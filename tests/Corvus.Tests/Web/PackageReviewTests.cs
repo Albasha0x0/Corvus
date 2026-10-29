@@ -1297,6 +1297,49 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_setup_py_that_calls_a_module_the_sdist_does_not_hold_is_noteworthy()
+    {
+        var absent = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "from setuptools import setup\nimport os\nfrom helper import install\ninstall.start()\nsetup(name='x')\n")));
+        var f = Assert.Single(absent.Findings, f => f.Rule == "package/setup-absent-import");
+        Assert.Equal(("noteworthy", "tool-1.0/setup.py"), (f.Level, f.Path));
+        Assert.Equal("setup.py calls install.start from helper, a module the archive does not hold", f.Detail);
+        var shipped = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "from setuptools import setup\nfrom helper import install\nfrom builder import run\ninstall.start()\nrun()\nsetup(name='x')\n"),
+            ("tool-1.0/pyproject.toml", "[build-system]\nrequires = [\"setuptools\", \"builder>=1\"]\n"), ("tool-1.0/helper.py", "")));
+        Assert.DoesNotContain(shipped.Findings, f => f.Rule == "package/setup-absent-import");
+        var nested = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "from helper import (install)\ninstall.start()\n"), ("tool-1.0/tool/helper.py", "")));
+        Assert.Contains(nested.Findings, f => f.Rule == "package/setup-absent-import");
+    }
+
+    [Fact]
+    public void A_setup_py_that_calls_an_aliased_absent_module_is_noteworthy()
+    {
+        var aliased = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "import helper as h\nh.start()\n")));
+        Assert.Equal("setup.py calls h.start from helper, a module the archive does not hold",
+            Assert.Single(aliased.Findings, f => f.Rule == "package/setup-absent-import").Detail);
+    }
+
+    [Fact]
+    public void A_module_whose_name_is_part_of_a_declared_requirement_is_still_absent()
+    {
+        var absent = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "from tools import run\nrun()\n"), ("tool-1.0/pyproject.toml", "[build-system]\nrequires = [\"setuptools\"]\n")));
+        Assert.Contains(absent.Findings, f => f.Rule == "package/setup-absent-import");
+    }
+
+    [Fact]
+    public void A_build_tool_declared_under_its_distribution_name_is_not_reported()
+    {
+        var declared = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "from skbuild import setup\nsetup(name='tool')\n"),
+            ("tool-1.0/pyproject.toml", "[build-system]\nrequires = [\"setuptools\", \"scikit-build\"]\n")));
+        Assert.DoesNotContain(declared.Findings, f => f.Rule == "package/setup-absent-import");
+    }
+
+    [Fact]
     public void A_wheel_that_ships_source_beside_its_bytecode_cache_has_no_compiled_only_finding()
     {
         var r = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("")), ("tool/core.py", U("X = 1\n")),

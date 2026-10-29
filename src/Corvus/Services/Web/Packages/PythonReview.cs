@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Corvus.Core.Models;
+using Corvus.Core.Python;
 
 namespace Corvus.Services.Web.Packages;
 
@@ -83,6 +84,7 @@ public static partial class PackageReview
                 if (Regex.IsMatch(setup, @"\bcmdclass\s*=|class\s+\w+\s*\(\s*(?:_?install|develop|egg_info|build_py|build_ext|sdist|bdist_\w+)\s*\)", RegexOptions.NonBacktracking))
                     findings.Add(new PackageFinding("package/setup-cmdclass", "review", "install script", "setup.py replaces a setuptools command (cmdclass): its code runs while installing", root + "setup.py"));
                 findings.AddRange(Scan(root + "setup.py", SetupCode(files, root, setup), install: true, ct));
+                if (AbsentImportCall(files, root, setup) is { } absent) findings.Add(absent);
                 foreach (Match m in LocalImport.Matches(setup))
                 {
                     var module = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[3].Value;
@@ -293,6 +295,54 @@ public static partial class PackageReview
         }
         return text.ToString();
     }
+
+    private static readonly Regex TopLevelCall = R(@"(?m)^([A-Za-z_]\w*)(?:\.\w+)*[ \t]*\(");
+    // Column-0 imports: from-import members, bare or parenthesized, or an
+    // import with its alias.
+    private static readonly Regex SetupImport = R(@"(?m)^(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+(\([^)]*|[\w, \t]+)|import[ \t]+([\w.]+)(?:[ \t]+as[ \t]+(\w+))?)");
+    // Requirement lists in setup.py and pyproject.toml, and the
+    // indented setup_requires entry in setup.cfg.
+    private static readonly Regex BuildRequires = R(@"requires[ \t]*=[ \t]*\[[^\]]*\]|(?m)^setup_requires[ \t]*=[^\n]*(?:\n[ \t]+[^\n]*)*");
+    private static readonly Regex RequirementName = R(@"^[ \t]*([A-Za-z0-9][\w.-]*)");
+    private static readonly HashSet<string> SetupModules = new(StringComparer.Ordinal) { "setuptools", "pkg_resources", "_distutils_hack" };
+    // Import names whose normalized distribution name differs.
+    private static readonly Dictionary<string, string> Distribution = new(StringComparer.Ordinal)
+    {
+        ["skbuild"] = "scikit_build", ["grpc_tools"] = "grpcio_tools", ["google"] = "protobuf", ["yaml"] = "pyyaml", ["pil"] = "pillow",
+    };
+
+    /// <summary>The setup-absent-import finding when setup.py calls, at module level, a name it imports from a top-level module the archive does not hold; null otherwise or when the file list is partial.</summary>
+    private static PackageFinding? AbsentImportCall(PackageFiles files, string root, string setup)
+    {
+        if (files.Unlisted > 0) return null;
+        var declared = new[] { "setup.py", "setup.cfg", "pyproject.toml" }
+            .SelectMany(f => BuildRequires.Matches(files.Text(root + f) ?? ""))
+            .SelectMany(m => m.Value[(m.Value.IndexOf('=') + 1)..].Split((char[])['"', '\'', ',', '[', '\n', '\r']))
+            .Select(t => RequirementName.Match(t)).Where(n => n.Success)
+            .Select(n => n.Groups[1].Value.ToLowerInvariant().Replace('-', '_').Replace('.', '_')).ToHashSet(StringComparer.Ordinal);
+        var bindings = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (Match m in SetupImport.Matches(setup))
+        {
+            var module = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[3].Value;
+            var top = module.Split('.')[0];
+            var name = top.ToLowerInvariant();
+            if (top.Length == 0 || PyStdlib.Contains(top) || SetupModules.Contains(top) || declared.Contains(Distribution.GetValueOrDefault(name, name))
+                || Ships(files, root, top)) continue;
+            if (!m.Groups[2].Success) bindings.TryAdd(m.Groups[4].Success ? m.Groups[4].Value : top, module);
+            else
+                foreach (var member in m.Groups[2].Value.TrimStart('(').Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                    bindings.TryAdd(member.Split((char[])[' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries)[^1], module);
+        }
+        var call = TopLevelCall.Matches(setup).FirstOrDefault(c => bindings.ContainsKey(c.Groups[1].Value));
+        return call == null ? null : new PackageFinding("package/setup-absent-import", "noteworthy", "install script",
+            $"setup.py calls {Clip(call.Value.TrimEnd('(', ' ', '\t'), 80)} from {bindings[call.Groups[1].Value]}, a module the archive does not hold", root + "setup.py");
+    }
+
+    /// <summary>True when <paramref name="root"/> or its src/ folder holds <paramref name="top"/>.py, a <paramref name="top"/>/ package or a compiled <paramref name="top"/> extension.</summary>
+    private static bool Ships(PackageFiles files, string root, string top) =>
+        files.Paths.Any(p => ((string[])[root, root + "src/"]).Any(d => p.StartsWith(d, StringComparison.Ordinal) && p[d.Length..] is var rest
+            && (rest.StartsWith(top + "/", StringComparison.Ordinal) || rest == top + ".py"
+                || (rest.StartsWith(top + ".", StringComparison.Ordinal) && !rest.Contains('/') && (rest.EndsWith(".so", StringComparison.Ordinal) || rest.EndsWith(".pyd", StringComparison.Ordinal))))));
 
     /// <summary>Core metadata (METADATA / PKG-INFO): name, version, summary, author and the count of Requires-Dist.</summary>
     private static (string?, string?, string?, string?, int) Metadata(string? text)
