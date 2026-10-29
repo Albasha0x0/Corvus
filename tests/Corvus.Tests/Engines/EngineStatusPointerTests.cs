@@ -6,8 +6,8 @@ namespace Corvus.Tests;
 /// <summary>Outside the engine toolset no text sends an agent to get_engine_status; server_status carries the engine sessions.</summary>
 public sealed class EngineStatusPointerTests
 {
-    /// <summary>The only sources that may name get_engine_status: the tool itself, its contract row and its toolset.</summary>
-    private static readonly string[] Allowed = ["NativeEngineStatusTools.cs", "Engine.cs", "Toolsets.cs", "IdaPython.cs"];
+    /// <summary>The only sources that may name get_engine_status: the tool itself, its contract rows and its toolset.</summary>
+    private static readonly string[] Allowed = ["NativeEngineStatusTools.cs", "Engine.cs", "FileReads.cs", "Toolsets.cs", "IdaPython.cs"];
 
     [Fact]
     public void Nothing_outside_the_engine_toolset_points_to_get_engine_status()
