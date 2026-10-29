@@ -1310,6 +1310,79 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_vscode_extension_that_installs_a_vsix_it_writes_from_a_response_is_noteworthy_and_a_marketplace_id_is_not()
+    {
+        var pkg = """{"name":"updater","publisher":"acme","version":"1.0.0","main":"./out/extension.js"}""";
+        var download = """
+            const vscode = require('vscode'), fs = require('fs'), os = require('os'), path = require('path');
+            exports.update = async () => {
+              const res = await fetch('https://example.invalid/x.vsix');
+              const tmp = path.join(os.tmpdir(), 'x.vsix');
+              await fs.promises.writeFile(tmp, Buffer.from(await res.arrayBuffer()));
+              const uri = vscode.Uri.file(tmp);
+              await vscode.commands.executeCommand('workbench.extensions.installExtension', uri);
+            };
+            """;
+        var r = Review(Zip("acme.updater-1.0.0.vsix", ("extension/package.json", U(pkg)),
+            ("extension/out/extension.js", U("exports.activate = () => {};")), ("extension/out/Api.js", U(download))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/extension-sideload", Level: "noteworthy", Path: "extension/out/Api.js" });
+        var byId = download.Replace("const uri = vscode.Uri.file(tmp);", "const uri = 'acme.companion';", StringComparison.Ordinal);
+        var m = Review(Zip("acme.updater-1.0.1.vsix", ("extension/package.json", U(pkg)),
+            ("extension/out/extension.js", U("exports.activate = () => {};")), ("extension/out/Api.js", U(byId))));
+        Assert.DoesNotContain(m.Findings, f => f.Rule == "package/extension-sideload");
+    }
+
+    [Fact]
+    public void A_vscode_extension_that_runs_the_install_cli_on_a_vsix_it_writes_from_a_response_is_noteworthy()
+    {
+        var pkg = """{"name":"updater","publisher":"acme","version":"1.0.0","main":"./out/extension.js"}""";
+        var download = """
+            const cp = require('child_process'), fs = require('fs'), os = require('os'), path = require('path');
+            exports.update = async () => {
+              const res = await fetch('https://example.invalid/x.vsix');
+              const tmp = path.join(os.tmpdir(), 'x.vsix');
+              fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+              cp.execFile('code', ['--install-extension', tmp]);
+            };
+            """;
+        var r = Review(Zip("acme.updater-1.0.0.vsix", ("extension/package.json", U(pkg)), ("extension/out/extension.js", U(download))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/extension-sideload", Level: "noteworthy" });
+        var byId = """
+            const cp = require('child_process'), fs = require('fs'), vscode = require('vscode');
+            exports.add = async (cache) => {
+              const res = await fetch('https://example.invalid/list.json');
+              fs.writeFileSync(cache, await res.text());
+              await vscode.window.showOpenDialog({ filters: { VSIX: ['vsix'] }, title: '*.vsix' });
+              const id = 'acme.companion';
+              cp.exec(`code --install-extension ${id}`);
+            };
+            """;
+        var m = Review(Zip("acme.updater-1.0.1.vsix", ("extension/package.json", U(pkg)), ("extension/out/extension.js", U(byId))));
+        Assert.DoesNotContain(m.Findings, f => f.Rule == "package/extension-sideload");
+    }
+
+    [Fact]
+    public void An_extension_that_installs_a_vsix_it_ships_or_a_reused_minified_name_is_not_a_sideload()
+    {
+        var pkg = """{"name":"updater","publisher":"acme","version":"1.0.0","main":"./out/extension.js"}""";
+        var shipped = """
+            const vscode = require('vscode'), fs = require('fs'), path = require('path');
+            exports.activate = async (context) => {
+              const res = await fetch('https://example.invalid/list.json');
+              await fs.promises.writeFile(path.join(context.globalStorageUri.fsPath, 'list.json'), await res.text());
+              await vscode.commands.executeCommand('workbench.extensions.installExtension', vscode.Uri.file(path.join(context.extensionPath, 'companion.vsix')));
+            };
+            """;
+        // The bundle binds e to Uri.file in one function and to a marketplace id in the function that installs.
+        var minified = """async function p(t){const n=await fetch("https://example.invalid/x");await t.writeFile(c,Buffer.from(await n.arrayBuffer()));let e=s.Uri.file(c);return e}async function q(){let e="acme.companion";await s.commands.executeCommand("workbench.extensions.installExtension",e)}""";
+        foreach (var (name, code) in new[] { ("a", shipped), ("b", minified) })
+        {
+            var r = Review(Zip($"acme.updater-{name}.vsix", ("extension/package.json", U(pkg)), ("extension/out/extension.js", U(code))));
+            Assert.DoesNotContain(r.Findings, f => f.Rule == "package/extension-sideload");
+        }
+    }
+
+    [Fact]
     public void The_package_view_names_the_review_in_the_overview()
     {
         var path = Tgz("internal-auth-1.0.0.tgz",

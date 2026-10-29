@@ -259,7 +259,7 @@ public static partial class PackageReview
             .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t).ToList();
         if (pkg is { ValueKind: JsonValueKind.Object } q && Str(q, "publisher") is { } own && Str(q, "name") is { } name)
             findings.AddRange(ForeignExtensionIds(files, loaded, own, name, q));
-        findings.AddRange(ScanLoaded(files, root, loaded, ct));
+        findings.AddRange(ScanLoaded(files, root, loaded, ct, extension: true));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         return new PackageReport("vscode extension", publisher != null && id != null && !id.Contains('.') ? $"{publisher}.{id}" : id, version)
@@ -298,5 +298,52 @@ public static partial class PackageReview
             }
         }
         if (first != null) yield return first;
+    }
+
+    private static readonly Regex InstallCommand = R(@"workbench\.extensions\.installExtension['""`]\s*,\s*(?:[\w$.]*Uri\.file\s*\(\s*(?<f>[A-Za-z_$][\w$]*)\s*\)|(?<v>[A-Za-z_$][\w$]*)\s*[,)])");
+    private static readonly Regex InstallCli = R(@"--install-extension(?:\s+\$\{\s*(?<c>[A-Za-z_$][\w$]*)\s*\}|['""`]\s*[,+]\s*(?<c>[A-Za-z_$][\w$]*))");
+    private static readonly Regex Assignment = R(@"(?:^|[^\w$.])(?<n>[A-Za-z_$][\w$]*)\s*=");
+    private static readonly Regex UriFileOf = R(@"^\s*[\w$.]*Uri\.file\s*\(\s*(?<f>[A-Za-z_$][\w$]*)\s*\)");
+    private static readonly Regex NetworkRead = R(@"\bfetch\s*\(|\baxios\b|\bhttps?\.(?:get|request)\s*\(|\.arrayBuffer\s*\(");
+    private static readonly Regex FileWrite = R(@"\b(?:writeFile(?:Sync)?|createWriteStream)\s*\(\s*(?<w>[A-Za-z_$][\w$]*)\s*[,)]");
+    private const int Window = 3000;
+
+    /// <summary>A package/extension-sideload finding when code installs an
+    /// extension from a file it writes from a network response; null otherwise.</summary>
+    private static PackageFinding? Sideload(string path, string code)
+    {
+        if (!NetworkRead.IsMatch(code) || !FileWrite.IsMatch(code)) return null;
+        foreach (Match m in InstallCommand.Matches(code).Take(20))
+            if ((m.Groups["f"].Success ? m.Groups["f"].Value : BoundTo(code, m.Groups["v"].Value, m.Index, uri: true)) is { } f
+                && WrittenFromResponse(code, f, m.Index)) return SideloadFinding(path);
+        foreach (Match m in InstallCli.Matches(code).Take(20))
+            if (BoundTo(code, m.Groups["c"].Value, m.Index, uri: false) is { } f && WrittenFromResponse(code, f, m.Index)) return SideloadFinding(path);
+        return null;
+    }
+
+    private static PackageFinding SideloadFinding(string path) =>
+        new("package/extension-sideload", "noteworthy", "remote code", "installs an extension from a file it writes from a network response", path);
+
+    // Minified bundles reuse short names in every scope, so only the nearest
+    // assignment before the call binds the name.
+    private static string? BoundTo(string code, string name, int before, bool uri)
+    {
+        int start = Math.Max(0, before - Window);
+        Match? last = null;
+        for (var m = Assignment.Match(code, start, before - start); m.Success; m = m.NextMatch())
+            if (m.Groups["n"].Value == name && m.Index + m.Length < code.Length && code[m.Index + m.Length] is not ('=' or '>')) last = m;
+        if (last is null) return null;
+        int at = last.Index + last.Length, len = Math.Min(300, code.Length - at);
+        if (uri) return UriFileOf.Match(code, at, len) is { Success: true } f ? f.Groups["f"].Value : null;
+        int end = code.AsSpan(at, len).IndexOfAny(';', '\n') is var e and >= 0 ? e : len;
+        return code.AsSpan(at, end).Contains(".vsix", StringComparison.Ordinal) ? name : null;
+    }
+
+    private static bool WrittenFromResponse(string code, string file, int before)
+    {
+        int start = Math.Max(0, before - Window);
+        for (var w = FileWrite.Match(code, start, before - start); w.Success; w = w.NextMatch())
+            if (w.Groups["w"].Value == file && NetworkRead.Match(code, Math.Max(0, w.Index - Window), Math.Min(Window, w.Index)).Success) return true;
+        return false;
     }
 }

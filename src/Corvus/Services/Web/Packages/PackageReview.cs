@@ -708,14 +708,18 @@ public static partial class PackageReview
     private static ReadOnlySpan<char> FromCurrentFolder(ReadOnlySpan<char> path) =>
         path is ['.', '\\' or '/', ..] ? path[1..].TrimStart("\\/") : path;
 
-    /// <summary>Findings in the entry files, then noteworthy findings only in other scripts within a bound.</summary>
-    internal static IEnumerable<PackageFinding> ScanLoaded(PackageFiles files, string root, IEnumerable<string> entries, CancellationToken ct)
+    /// <summary>Findings in the entry files, then noteworthy findings only in other scripts within a bound;
+    /// <paramref name="extension"/> adds the editor extension checks to every file read.</summary>
+    internal static IEnumerable<PackageFinding> ScanLoaded(PackageFiles files, string root, IEnumerable<string> entries, CancellationToken ct, bool extension = false)
     {
         var entryFiles = entries.Distinct().ToList();
         foreach (var entry in entryFiles)
             if (files.Text(entry) is { } code)
+            {
                 foreach (var f in Scan(entry, code, install: false, ct, entry: true))
                     if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard") yield return f;
+                if (extension && Sideload(entry, code) is { } s) yield return s;
+            }
         var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
                                              && !p.Contains("node_modules/", StringComparison.Ordinal) && !entryFiles.Contains(p))
             .OrderBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();
@@ -723,8 +727,11 @@ public static partial class PackageReview
             .Select(p => $"{p} (source over {MaxScannedSourceBytes >> 20} MiB)"));
         foreach (var other in Capped(files, [.. sources.Where(p => files.Size(p) <= MaxScannedSourceBytes)]))
             if (files.Text(other) is { } code)
+            {
                 foreach (var f in Scan(other, code, install: false, ct, entry: Folder(other) == root, peel: false))
                     if (f.Level == "noteworthy") yield return f;
+                if (extension && Sideload(other, code) is { } s) yield return s;
+            }
     }
 
     private static readonly Regex LoadedSource = R(@"\.(?:c|m)?js$|\.(?:bat|cmd|ps1|sh)$");
@@ -766,12 +773,12 @@ public static partial class PackageReview
 
     private static readonly Regex HookEvent = R(@"['""`](?:UserPromptSubmit|PreToolUse|PostToolUse|SessionStart|SessionEnd|PreCompact|SubagentStop)['""`]");
     private static readonly Regex SettingsFile = R(@"['""`]\.claude['""`]\s*,\s*['""`]settings(?:\.local)?\.json['""`]|\.claude/settings(?:\.local)?\.json");
-    private static readonly Regex FileWrite = R(@"\b(?:writeFile(?:Sync)?|Bun\.write|Deno\.writeTextFile(?:Sync)?)\s*\(");
+    private static readonly Regex SettingsWrite = R(@"\b(?:writeFile(?:Sync)?|Bun\.write|Deno\.writeTextFile(?:Sync)?)\s*\(");
     private static readonly Regex TranscriptFolder = R(@"['""`]\.claude['""`]\s*,\s*['""`]projects['""`]|\.claude/projects/");
 
     /// <summary>One finding per compiled program whose embedded script writes hook events into an agent settings file and reads its transcript folder; empty when none.</summary>
     private static IEnumerable<PackageFinding> AgentSettingsHooks(PackageFiles files) =>
-        files.Embedded.Where(e => HookEvent.IsMatch(e.Value) && SettingsFile.IsMatch(e.Value) && FileWrite.IsMatch(e.Value) && TranscriptFolder.IsMatch(e.Value))
+        files.Embedded.Where(e => HookEvent.IsMatch(e.Value) && SettingsFile.IsMatch(e.Value) && SettingsWrite.IsMatch(e.Value) && TranscriptFolder.IsMatch(e.Value))
             .Select(e => new PackageFinding("package/agent-settings-hook", "review", "agent configuration",
                 "the script compiled into this program writes hook events to an agent settings file and reads the agent's transcript folder", e.Key));
 
