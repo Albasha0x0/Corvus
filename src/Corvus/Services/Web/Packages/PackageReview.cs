@@ -520,6 +520,8 @@ public static partial class PackageReview
     private static readonly Regex DownloadSource = R(@"https?://|%\w*URL\w*%|\$\{?\w*URL");
     private static readonly Regex SavedTo = R(@"\s-(?:o|O|OutFile)\s+['""]?(?<f>%\w+%|\$?\{\w+\}|\$\w+|[^\s'""]+\.(?:exe|scr|msi|bat|cmd|ps1|sh|bin))['""]?");
     private static readonly Regex Starter = R(@"(?m)(?:^|[\s&;(|'""])(?:start|Start-Process|call|chmod\s+\+x)\b");
+    private static readonly Regex BareCommand = R(@"(?:&&|[;|])\s*['""]?(?<c>[^\s'""&;|]+)");
+    private static readonly Regex BareRunnable = R(@"(?i:\.(?:bat|cmd|ps1|exe))$|^%\w+%$");
 
     private static readonly Regex DecodedWriteThenRun = R(@"(?:(?:\.write|\bwrite_bytes)\s*\(\s*(?:base64\.)?(?:urlsafe_)?b64decode\s*\(|\b(?:urlsafe_)?b64decode\s*\([\s\S]{0,300}?(?:\.write|\bwrite_bytes)\s*\()[\s\S]{0,600}?\bsubprocess\.(?:run|Popen|call|check_call|check_output)\s*\(\s*\[\s*(?:sys\.executable|['""]python(?:w|[\d.]*)(?:\.exe)?['""])\s*,\s*(?:[A-Za-z_]|['""][^'""-])");
     private const string DecodedFileRun = "writes a decoded base64 literal to a file and runs it with Python";
@@ -528,6 +530,7 @@ public static partial class PackageReview
     private static bool WritesDecodedAndRuns(string text) => DecodedWriteThenRun.IsMatch(text) && LongBase64.IsMatch(text);
 
     /// <summary>Whether a URL download saves to a file that a start, call or chmod +x names within 3,000 characters.</summary>
+    /// <summary>Whether a URL download saves to a file that a start, call or chmod +x names within 3,000 characters, or that its line runs as a bare command.</summary>
     private static bool DownloadsAndStarts(string text)
     {
         // Each step is a linear match; one regex with a backreference to the
@@ -540,6 +543,7 @@ public static partial class PackageReview
             {
                 var file = saved.Groups["f"].Value;
                 int after = saved.Index + saved.Length;
+                if (RunsBare(text, saved.Groups["f"].Index, after, lineEnd)) return true;
                 for (var start = Starter.Match(text, after); start.Success && start.Index <= after + 3000; start = start.NextMatch())
                 {
                     int at = start.Index + start.Length, end = text.IndexOf('\n', at) is var e and >= 0 ? e : text.Length;
@@ -549,6 +553,24 @@ public static partial class PackageReview
         }
         return false;
     }
+
+    /// <summary>Whether the whole saved path, a script, a program or a %VAR%, is the first token after a later &amp;&amp;, ; or | on its line.</summary>
+    private static bool RunsBare(string text, int path, int after, int lineEnd)
+    {
+        int stop = path;
+        while (stop < lineEnd && !char.IsWhiteSpace(text[stop]) && text[stop] is not ('\'' or '"' or '&' or ';' or '|')) stop++;
+        var saved = text.AsSpan(path, stop - path);
+        if (!BareRunnable.IsMatch(saved)) return false;
+        saved = FromCurrentFolder(saved);
+        int scan = Math.Max(after, stop);
+        for (var run = BareCommand.Match(text, scan, lineEnd - scan); run.Success; run = run.NextMatch())
+            if (FromCurrentFolder(run.Groups["c"].ValueSpan).SequenceEqual(saved)) return true;
+        return false;
+    }
+
+    /// <summary>The path without a leading .\ or ./, which PowerShell and sh need to run a file in the current folder.</summary>
+    private static ReadOnlySpan<char> FromCurrentFolder(ReadOnlySpan<char> path) =>
+        path is ['.', '\\' or '/', ..] ? path[1..].TrimStart("\\/") : path;
 
     /// <summary>Findings in the entry files, then noteworthy findings only in other scripts within a bound.</summary>
     internal static IEnumerable<PackageFinding> ScanLoaded(PackageFiles files, string root, IEnumerable<string> entries, CancellationToken ct)

