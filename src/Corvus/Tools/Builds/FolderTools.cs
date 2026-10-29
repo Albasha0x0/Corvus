@@ -40,16 +40,20 @@ public sealed class FolderTools(FolderCompare folders)
     /// <summary>Finding changes repeated in the notes; Changes holds them all.</summary>
     private const int MaxPackageRows = 50;
 
-    private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".gem", ".vsix", ".crx", ".xpi"];
+    private static readonly string[] PackageExtensions = [".tgz", ".tar.gz", ".whl", ".gem", ".nupkg", ".vsix", ".crx", ".xpi"];
 
     // A folder is reviewed only with a package manifest at its root: the review reads every file in it.
-    private static readonly string[] FolderManifests = ["package.json", "pyproject.toml", "setup.py", "manifest.json"];
+    private static readonly string[] FolderManifests = ["package.json", "pyproject.toml", "setup.py", "manifest.json", "composer.json"];
+
+    // Gem and NuGet manifests are named for their package.
+    private static readonly string[] FolderManifestPatterns = ["*.gemspec", "*.nuspec"];
 
     /// <summary>Adds package review changes and a policy note when both paths are packages; returns the comparison unchanged otherwise.</summary>
     private static FolderCompare.Comparison WithPackageChanges(FolderCompare.Comparison comparison, string oldPath, string newPath, CancellationToken ct)
     {
         static bool Package(string p) => File.Exists(p) && PackageExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase))
-                                         || Directory.Exists(p) && FolderManifests.Any(m => File.Exists(Path.Combine(p, m)));
+                                         || Directory.Exists(p) && (FolderManifests.Any(m => File.Exists(Path.Combine(p, m)))
+                                                                    || FolderManifestPatterns.Any(m => Directory.EnumerateFiles(p, m).Any()));
         if (comparison.Old.Complete && comparison.New.Complete) ToolOutput.Complete();
         if (!Package(oldPath) || !Package(newPath)) return comparison;
         if (Services.Web.Packages.PackageReview.Review(oldPath, ct, hosts: true) is not { Ecosystem: not "repository" } old

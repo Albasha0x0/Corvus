@@ -248,6 +248,34 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         return root;
     }
 
+    private const string Nuspec = """<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>Sample.Tools</id><version>1.0.0</version><authors>Sample</authors><description>Build helpers.</description></metadata></package>""";
+    private const string Gemspec = "Gem::Specification.new do |s|\n  s.name = 'fastparse'\n  s.version = '1.0.0'\n  s.extensions = Dir['ext/**/extconf.rb']\nend\n";
+
+    [Theory]
+    [InlineData("Sample.Tools.nuspec", Nuspec, Nuspec, "tools/init.ps1", "Import-Module (Join-Path $toolsPath 'Sample.Tools.psd1')\n")]
+    [InlineData("fastparse.gemspec", Gemspec, Gemspec, "ext/fastparse/extconf.rb", "require 'mkmf'\ncreate_makefile('fastparse/fastparse')\n")]
+    [InlineData("composer.json", """{"name":"sample/tools","version":"1.0.0"}""", """{"name":"sample/tools","version":"1.0.1","scripts":{"post-install-cmd":"php tools/setup.php"}}""", "tools/setup.php", "<?php echo 1;\n")]
+    public async Task A_nuget_gem_or_composer_folder_version_that_adds_an_install_script_lists_it_as_added(string manifest, string oldText, string newText, string script, string code)
+    {
+        var old = Folder(Path.GetFileNameWithoutExtension(manifest) + "-1", (manifest, oldText));
+        var @new = Folder(Path.GetFileNameWithoutExtension(manifest) + "-2", (manifest, newText), (script, code));
+        var result = await new FolderTools(new FolderCompare()).CompareFolders(old, @new);
+        output.WriteLine(string.Join("\n", result.Notes));
+        Assert.Contains(result.Changes!, c => c.Kind == "added" && c.Key.StartsWith("install script: ", StringComparison.Ordinal));
+        Assert.StartsWith("package policy: ", result.Notes[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_nupkg_version_that_adds_an_init_script_lists_it_as_added()
+    {
+        var old = _dir.File("Sample.Tools.1.0.0.nupkg");
+        File.WriteAllBytes(old, ContainerFixtures.Zip(("Sample.Tools.nuspec", Encoding.UTF8.GetBytes(Nuspec))));
+        var @new = _dir.File("Sample.Tools.1.0.1.nupkg");
+        File.WriteAllBytes(@new, ContainerFixtures.Zip(("Sample.Tools.nuspec", Encoding.UTF8.GetBytes(Nuspec)), ("tools/init.ps1", Encoding.UTF8.GetBytes("Write-Host ready\n"))));
+        var result = await new FolderTools(new FolderCompare()).CompareFolders(old, @new);
+        Assert.Contains(result.Changes!, c => c.Kind == "added" && c.Key.StartsWith("install script: ", StringComparison.Ordinal) && c.Key.Contains("init.ps1", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Two_source_folder_versions_report_endpoints_native_files_and_what_runs_on_open()
     {
