@@ -8,14 +8,16 @@ namespace Corvus.Tests;
 /// <summary>The session tools are registered everywhere and refuse calls until the server starts with their opt-in flags.</summary>
 public class LiveSessionGateTests
 {
-    private static LiveSessionTools Tools(bool live = false, bool spawn = false, bool attach = false)
+    private static LiveSessionTools Tools(bool live = false, bool spawn = false, bool attach = false, string? allow = null)
     {
         var workspace = new AssemblyWorkspace();
         var service = new LiveSessionService(workspace, new NativeCodeService(workspace, SharedCodeIndex.Options()))
         {
             Backend = new ScriptedLiveBackend("app.exe", 0, 1) { Missing = "no session backend" },
         };
-        return new(new ServerOptions { AllowLive = live, AllowLiveSpawn = spawn, AllowLiveAttach = attach }, service);
+        var options = new ServerOptions { AllowLive = live, AllowLiveSpawn = spawn, AllowLiveAttach = attach };
+        if (allow != null) options.LiveAllow.Add(allow);
+        return new(options, service);
     }
 
     [Fact]
@@ -44,6 +46,15 @@ public class LiveSessionGateTests
         Assert.Contains(ServerOptions.AllowLiveSpawnOption, console.Remediation);
         // Past the gates: the backend's own answer.
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => Tools(live: true, attach: true).LiveSession("attach", program: "app.exe"))).Code);
+    }
+
+    [Fact]
+    public async Task A_device_spawn_refused_by_a_program_list_names_live_allow_any()
+    {
+        // Regression: the hint said to drop --live-allow, which refuses a spawn too.
+        var e = await Assert.ThrowsAsync<ToolError>(() => Tools(live: true, spawn: true, allow: Path.GetTempPath()).LiveSession("spawn", program: "com.example.app", device: "emulator-5554"));
+        Assert.Equal(ErrorCode.AccessDenied, e.Code);
+        Assert.Equal($"ask the user to start the server with {ServerOptions.LiveAllowOption} * (any program) to open a device session", e.Remediation);
     }
 
     [Fact]

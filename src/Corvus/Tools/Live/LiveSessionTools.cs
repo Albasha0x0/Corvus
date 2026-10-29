@@ -153,7 +153,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
                     var serial = string.IsNullOrWhiteSpace(device) ? null : device.Trim();
                     if (serial != null && options.LiveScope.Count > 0)
                         throw new ToolError(ErrorCode.AccessDenied, "--live-allow names folders on this machine, so device sessions are refused while it is set.",
-                            "ask the user to start the server without --live-allow to open a device session");
+                            $"ask the user to start the server with {ServerOptions.LiveAllowOption} {ServerOptions.LiveAllowAnyValue} (any program) to open a device session");
                     // A recording runs nothing, so --live-allow, which scopes running programs, does not apply.
                     var recording = Native.Providers.Live.Ttd.TtdWorker.Is(program);
                     if (a == "spawn" && serial != null) RequireStartList();
@@ -200,7 +200,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         if (options.LiveScope.Count == 0) return opened;
         try
         {
-            if (opened.ProcessId <= 0) throw new ToolError(ErrorCode.AccessDenied, "The target names no process, so --live-allow cannot be checked.", "ask the user to start the server without --live-allow");
+            if (opened.ProcessId <= 0) throw new ToolError(ErrorCode.AccessDenied, "The target names no process, so --live-allow cannot be checked.",
+                $"ask the user to start the server with {ServerOptions.LiveAllowOption} {ServerOptions.LiveAllowAnyValue} (any program)");
             LiveProgramScope.Attach(opened.ProcessId.ToString(CultureInfo.InvariantCulture), options.LiveScope);
         }
         catch (ToolError)
