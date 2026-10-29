@@ -248,11 +248,9 @@ public static partial class PackageReview
             foreach (var key in new[] { "extensionDependencies", "extensionPack" })
                 foreach (var dep in Strings(p, key)) entries.Add(new PackageEntryPoint(key, dep, null));
         }
-        // Zero-width characters let a display name imitate another extension's;
-        // noteworthy only when the extension also runs at editor start or removal.
-        bool unprompted = findings.Any(f => f.Rule is "package/startup-activation" or "package/uninstall-script");
+        // Zero-width characters let a display name imitate another extension's.
         if (display != null && Corvus.Core.Format.EscapeInvisible(display) != display)
-            findings.Add(new PackageFinding("package/invisible-name", unprompted ? "noteworthy" : "review", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
+            findings.Add(new PackageFinding("package/invisible-name", "noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
         var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))
             .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t);
         findings.AddRange(ScanLoaded(files, root, loaded, ct));

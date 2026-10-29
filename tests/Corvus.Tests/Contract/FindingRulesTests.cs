@@ -76,16 +76,11 @@ public sealed class FindingRulesTests
     }
 
     [Fact]
-    public void Each_relevelled_rule_names_its_levels_and_the_combination_its_row_keeps()
+    public void No_rule_changes_level_in_2_8_and_the_five_package_heuristics_stay_noteworthy()
     {
-        Assert.Equal(["package/hidden-url", "package/invisible-name", "package/raw-address-socket", "package/space-run", "package/string-array"],
-            FindingRules.Relevelled.Keys.Order(StringComparer.Ordinal));
-        foreach (var (id, change) in FindingRules.Relevelled)
-        {
-            Assert.Contains(id, NoteworthyIn27);
-            Assert.Equal((id, "noteworthy", "review"), (change.Id, change.Old, change.New));
-            Assert.Equal(FindingRules.Find(id)!.Noteworthy, change.Noteworthy);
-        }
+        Assert.Empty(FindingRules.Relevelled);
+        foreach (var id in new[] { "package/hidden-url", "package/invisible-name", "package/raw-address-socket", "package/space-run", "package/string-array" })
+            Assert.Equal(FindingLevel.Noteworthy, FindingRules.Find(id)!.Level);
     }
 
     [Theory]

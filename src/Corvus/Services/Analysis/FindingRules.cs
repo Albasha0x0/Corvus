@@ -9,11 +9,6 @@ public static class FindingRules
     private const string RunsDecoded = "code that runs combined with content it decodes";
     private const string RunsRemote = "code that runs combined with code or a program it downloads";
     private const string RunsHidden = "code that runs combined with hidden or encoded text";
-    private const string SocketAtInstall = AtInstall + ", opening a socket to a literal address";
-    private const string StringArrayAtInstall = AtInstall + ", with obfuscator.io string array names";
-    private const string HiddenUrlAtInstall = AtInstall + ", in a file of at most 64 KiB, with a URL hidden in base64 or hex";
-    private const string SpaceRunAtInstall = AtInstall + ", with code after 300 or more spaces on one line";
-    private const string InvisibleNameUnprompted = "an extension that activates at editor start or runs at removal, under a display name with invisible characters";
 
     private static FindingRule N(string id, string noteworthy, string reason) => new(id, FindingLevel.Noteworthy, noteworthy, reason);
     private static FindingRule R(string id, string reason) => new(id, FindingLevel.Review, null, reason);
@@ -42,19 +37,19 @@ public static class FindingRules
         N("package/collection-url", "exact list: paste sites, tunnels and request catchers", "sends to a collection endpoint"),
         N("package/chat-webhook", AtInstall + ", or beside credentials, host details, processes or decoded code", "sends to a chat webhook"),
         N("package/raw-address-url", AtInstall + ", or beside credentials, host details, processes or decoded code", "sends to a raw address"),
-        N("package/raw-address-socket", SocketAtInstall, "opens a socket to a raw address"),
+        N("package/raw-address-socket", "exact form: a socket opened to a literal address", "opens a socket to a raw address"),
         N("package/reverse-shell", "exact list: reverse shell forms", "hands a shell to a network connection"),
         N("package/download-to-shell", RunsRemote, "runs a downloaded script through a shell"),
         N("package/hidden-powershell", RunsHidden, "runs a hidden or encoded PowerShell command"),
         N("package/logon-start", "exact list: locations that start programs at logon", "writes to a logon start location"),
-        N("package/string-array", StringArrayAtInstall, "obfuscator.io-style transformed code"),
+        N("package/string-array", "exact form: obfuscator.io string array names", "obfuscator.io-style transformed code"),
         N("package/escaped-call", RunsHidden, "calls functions named by escaped strings"),
         N("package/eval-decoded", RunsDecoded, "evaluates decoded code"),
         R("package/long-base64", "a base64 literal over 2,000 characters"),
-        N("package/hidden-url", HiddenUrlAtInstall, "a URL hidden in base64 or hex"),
+        N("package/hidden-url", "in a file of at most 64 KiB (bundles encode their own endpoints)", "a URL hidden in base64 or hex"),
         N("package/exec-char-codes", RunsDecoded, "executes code built from character codes"),
         N("package/pyobfuscate", "exact list: pyobfuscate markers", "pyobfuscate-style transformed code"),
-        N("package/space-run", SpaceRunAtInstall, "code placed out of view in an editor"),
+        N("package/space-run", "exact form: code after 300 or more spaces on one line", "code placed out of view in an editor"),
         N("package/clipboard-address", "a file that runs at install or as a content script on every site", "reads and writes the clipboard beside a cryptocurrency address pattern"),
         // Package combinations.
         N("package/peeled-layers", AtInstall + ", with transformation layers peeled", "transformation layers peeled"),
@@ -101,7 +96,7 @@ public static class FindingRules
         N("package/crx-proof-failed", "exact check: a CRX key proof does not verify", "CRX key proofs do not verify"),
         R("package/startup-activation", "activates when the editor starts"),
         R("package/uninstall-script", "runs when uninstalled"),
-        N("package/invisible-name", InvisibleNameUnprompted, "a display name with invisible characters"),
+        N("package/invisible-name", "exact form: invisible characters in a display name", "a display name with invisible characters"),
         // Agent configuration and repository hooks.
         N("package/tag-characters", "exact form: Unicode tag characters that read as text", "Unicode tag characters"),
         N("package/bidi-controls", "in a file an agent reads as instructions", "bidirectional control characters"),
@@ -151,15 +146,8 @@ public static class FindingRules
     /// <summary>Old id to new id for every renamed rule; a baseline maps its ids through it. Ids are never reused.</summary>
     public static IReadOnlyDictionary<string, string> Renamed { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
-    /// <summary>Each rule whose level changed, by id: the release, the level alone before and after, and what keeps it noteworthy.</summary>
-    public static IReadOnlyDictionary<string, FindingRelevel> Relevelled { get; } = new FindingRelevel[]
-    {
-        new("package/string-array", "2.8.0", FindingLevel.Noteworthy, FindingLevel.Review, StringArrayAtInstall),
-        new("package/space-run", "2.8.0", FindingLevel.Noteworthy, FindingLevel.Review, SpaceRunAtInstall),
-        new("package/hidden-url", "2.8.0", FindingLevel.Noteworthy, FindingLevel.Review, HiddenUrlAtInstall),
-        new("package/raw-address-socket", "2.8.0", FindingLevel.Noteworthy, FindingLevel.Review, SocketAtInstall),
-        new("package/invisible-name", "2.8.0", FindingLevel.Noteworthy, FindingLevel.Review, InvisibleNameUnprompted),
-    }.ToDictionary(r => r.Id, StringComparer.Ordinal);
+    /// <summary>Each rule whose level changed, by id: the release, the level alone before and after, and what keeps it noteworthy; empty in 2.8.0.</summary>
+    public static IReadOnlyDictionary<string, FindingRelevel> Relevelled { get; } = new Dictionary<string, FindingRelevel>(StringComparer.Ordinal);
 
     /// <summary>The table's version: the first 16 hex digits of the SHA-256 of every row, rename and level change; any edit changes it.</summary>
     // Static properties initialize in text order, so this follows the maps it reads.
