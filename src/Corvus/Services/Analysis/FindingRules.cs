@@ -77,6 +77,7 @@ public static class FindingRules
         N("package/response-command", RunsRemote, "runs a command read from a network response or socket"),
         N("package/webhook-secrets", "a chat webhook combined with passwords, keys, tokens or wallet secrets", "sends secrets to a chat webhook"),
         N("package/secret-collector", "home credential folders read beside token patterns and a network connection, at install or in a file of at most 64 KiB", "collects credential files and tokens"),
+        N("package/secret-prompt", "a prompt for a seed phrase, mnemonic or private key beside a chat webhook, collection endpoint, raw-address socket or browser automation", "asks for wallet secrets"),
         N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment", "sends host identity when loaded"),
         N("package/redirect-entry", "entry JavaScript assigning the browser's location a URL literal that carries an email address", "redirects the browser with an email address"),
         N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment; or a small source file outside test folders POSTing two kinds of host identity near a literal URL", "sends host identity when loaded"),

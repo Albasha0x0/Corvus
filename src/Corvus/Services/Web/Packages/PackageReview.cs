@@ -319,6 +319,8 @@ public static partial class PackageReview
         if (hits.Contains("network") && SecretShape.IsMatch(plain) && HomeFolderList.IsMatch(plain) && HomeDirectory.IsMatch(plain) && FolderRead.IsMatch(plain))
             yield return new PackageFinding("package/secret-collector", install || plain.Length <= 64 << 10 ? "noteworthy" : "review", "credentials",
                 "reads home credential folders (.ssh, .aws), holds token patterns (AKIA, ghp_, sk-) and reaches the network", path);
+        if (SecretPrompt.IsMatch(plain) && (hits.Contains("exfiltration") || ChatWebhook.IsMatch(plain) || BrowserAutomation.IsMatch(plain)))
+            yield return new PackageFinding("package/secret-prompt", "noteworthy", "credentials", "asks for a seed phrase, mnemonic or private key beside a chat webhook, collection endpoint or browser automation", path);
         // A beacon at load: host identity or the environment sent from entry code.
         if (entry && hits.Contains("network") && SendsLoadBeacon(plain))
         // A beacon at load: host identity or the environment sent from entry code,
@@ -697,7 +699,10 @@ public static partial class PackageReview
     private static readonly Regex HomeDirectory = R(@"\bPath\.home\(\)|\bexpanduser\(\s*['""]~|\bhomedir\(\)|\benviron(?:\.get\(|\[)\s*['""](?:HOME|USERPROFILE)['""]|\bprocess\.env\.(?:HOME|USERPROFILE)\b|\bgetenv\(\s*['""](?:HOME|USERPROFILE)");
     // A folder walk or file read; a deny list that is never read does not count.
     private static readonly Regex FolderRead = R(@"\bos\.(?:walk|listdir|scandir)\(|\.(?:rglob|glob|iterdir|read_text|read_bytes)\(|\bopen\(|\breaddir(?:Sync)?\(|\breadFile(?:Sync)?\(");
-    private static readonly Regex WalletSecret = R(@"(?i)\bprivate_?keys?\b|\bmnemonic\b|\bseed_?phrase\b");
+    private static readonly Regex WalletSecret = R(@"(?i)\bprivate_?keys?\b|(?-i:[A-Za-z0-9]PrivateKeys?)|\bmnemonic\b|\bseed[ _/]?phrase\b|\brecovery[ _]phrase\b");
+    // Prompt text passed to input, getpass, readline question or window.prompt.
+    private static readonly Regex SecretPrompt = R(@"(?i)\b(?:input|raw_input|getpass|question|prompt)\s*\(\s*[fr]?(?:""[^""\n]{0,120}?|'[^'\n]{0,120}?|`[^`\n]{0,120}?)(?:\bseed[ _/-]?phrase|\brecovery[ _-]?phrase|\bmnemonic|\bprivate[ _-]?key|\bsecret[ _-]?phrase)");
+    private static readonly Regex BrowserAutomation = R(@"\bwebdriver\.(?:Chrome|Firefox|Edge|Safari|Remote)\s*\(|\bpuppeteer\.launch\s*\(|\b(?:sync|async)_playwright\s*\(|\bchromium\.launch\s*\(");
     private const string Shell = @"\b(?:spawn|exec|Popen|call|run)\s*\(\s*\[?\s*['""](?:/bin/(?:ba|z)?sh|sh|bash|cmd(?:\.exe)?|powershell(?:\.exe)?)['""]";
     // A socket near a spawned shell or a child piped to it; bounded gaps keep work per start constant, so no match timeout.
     [GeneratedRegex($@"(?:{Socket})[\s\S]{{0,1500}}?(?:{Shell}|\.pipe\(\s*[\w$.]+\.stdin\s*\)[\s\S]{{0,300}}?\.stdout\.pipe\()|(?:{Shell})[\s\S]{{0,1500}}?(?:{Socket})", RegexOptions.CultureInvariant)]

