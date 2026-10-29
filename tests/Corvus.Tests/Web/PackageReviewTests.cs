@@ -579,6 +579,32 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_entry_that_redirects_to_a_url_carrying_an_email_address_is_noteworthy()
+    {
+        var r = Review(Tgz("r-1.0.0.tgz", ("package/package.json", """{"name":"r","version":"1.0.0","main":"index.js"}"""),
+            ("package/index.js", "(function r(){window.location.href='https://h.example/p'+'#a@b.example';})();\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/redirect-entry", Level: "noteworthy", Path: "package/index.js" });
+        Assert.True(Redirects("location.href = 'https://h.example/login?email=v@corp.example';\n"));
+        Assert.True(Redirects("var e = 'v@corp.example';\nwindow.location = 'https://h.example/#' + e;\n"));
+    }
+
+    [Fact]
+    public void A_redirect_or_location_name_beside_an_unrelated_address_raises_no_redirect_finding()
+    {
+        Assert.False(Redirects("const SUPPORT='help@vendor.example';\nwindow.location.href='https://vendor.example/docs';\n"));
+        Assert.False(Redirects("const location = 'https://registry.example'; const author = 'dev@vendor.example';\n"));
+        Assert.False(Redirects("const go = location => fetch('https://h.example/?to=dev@vendor.example');\n"));
+        Assert.False(Redirects("window.location.href = 'https://key@o1.ingest.example/1';\n"));
+        var py = Review(Tgz("geo-1.0.tar.gz", ("geo-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: geo\nVersion: 1.0\n"),
+            ("geo-1.0/geo/__init__.py", "__url__ = 'https://geo.example'\n__email__ = 'dev@vendor.example'\nlocation = 'https://geo.example/?contact=dev@vendor.example'\n")));
+        Assert.DoesNotContain(py.Findings, f => f.Rule == "package/redirect-entry");
+    }
+
+    private bool Redirects(string script) =>
+        Review(Tgz($"r-{Guid.NewGuid():N}.tgz", ("package/package.json", """{"name":"r","version":"1.0.0","main":"index.js"}"""), ("package/index.js", script)))
+            .Findings.Any(f => f.Rule == "package/redirect-entry");
+
+    [Fact]
     public void Code_that_writes_a_ci_pipeline_file_is_noteworthy_at_install_and_review_when_loaded()
     {
         const string write = "const fs = require('fs');\nfs.writeFileSync('.github/workflows/x.yml', 'name: x\\n');\n";

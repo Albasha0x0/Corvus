@@ -290,6 +290,8 @@ public static partial class PackageReview
         // A beacon at load: host identity or the environment sent from entry code.
         if (entry && hits.Contains("network") && LoadBeacon.IsMatch(plain))
             yield return new PackageFinding("package/load-beacon", "noteworthy", "host details", "sends host identity or the environment when loaded", path);
+        if (entry && RedirectsWithAddress(path, plain))
+            yield return new PackageFinding("package/redirect-entry", "noteworthy", "redirect", "entry code sends the browser to a fixed URL that carries an email address", path);
         if (SelfPublish.IsMatch(plain) && plain.Contains("package.json", StringComparison.Ordinal))
             yield return new PackageFinding("package/self-publish", "noteworthy", "publishing", "rewrites package.json and runs npm publish from its own code", path);
         if (CiConfigWritten(plain) is { } ci)
@@ -321,6 +323,35 @@ public static partial class PackageReview
         ("Litecoin", R(@"\[LM3?\]\[[1-9A-Za-z-]{5,20}\]\{2[5-9],3[0-9]\}")),
         ("Solana", R(@"\[1-9A-HJ-NP-Za-km-z\]\{3[2-3],4[3-4]\}")),
     ];
+
+    // The browser's location by its object, or a bare name opening a statement.
+    private static readonly Regex LocationAssign = R(@"(?:\b(?:window|document|top|self|parent)\.|(?:^|[;{}\n]\s*))location(?:\.href)?\s*=[^=>]");
+    private static readonly Regex UrlLiteral = R(@"['""`]https?://[\w.-]+");
+    private const string Address = @"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}";
+    // A quote, or a query or fragment mark; '/' and ':' stay out, so user@host
+    // URLs and DSNs do not match.
+    private static readonly Regex AddressInUrl = R(@"(?:['""`]#?|[?&#=])" + Address + @"['""`&]");
+    private static readonly Regex AddressVariable = R(@"\b([A-Za-z_$][\w$]*)\s*[:=]\s*['""`]" + Address + @"['""`]");
+    private static readonly Regex Identifier = R(@"[A-Za-z_$][\w$]*");
+    private static readonly Regex BrowserScript = R(@"\.(?:[cm]?js|html?)$");
+
+    /// <summary>True when a script assigns the browser's location a URL literal whose expression carries an email address literal or a variable holding one.</summary>
+    private static bool RedirectsWithAddress(string path, string text)
+    {
+        if (!BrowserScript.IsMatch(path.ToLowerInvariant()) || !text.Contains("location", StringComparison.Ordinal) || !text.Contains('@')) return false;
+        HashSet<string>? holders = null;
+        foreach (Match m in LocationAssign.Matches(text))
+        {
+            var start = m.Index + m.Length - 1;
+            var end = text.IndexOfAny([';', '\n'], start);
+            var expression = text.Substring(start, Math.Min(end < 0 ? text.Length : end, start + 300) - start);
+            if (!UrlLiteral.IsMatch(expression)) continue;
+            if (AddressInUrl.IsMatch(expression)) return true;
+            var known = holders ??= AddressVariable.Matches(text).Select(v => v.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+            if (Identifier.Matches(expression).Any(i => known.Contains(i.Value))) return true;
+        }
+        return false;
+    }
 
     /// <summary>The first clipboard pair and address kind a file holds together, or null when it lacks either.</summary>
     private static (string Pair, string Kind)? ClipboardAddress(string text)
@@ -399,7 +430,7 @@ public static partial class PackageReview
     private static readonly Regex ConstantName = R(@"^(?:'[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*'|""[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*""|`[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*`)");
     private static readonly Regex LocalName = R(@"\.(?:local|localhost|localdomain|internal)['""`]");
     private static readonly Regex Encoder = R(@"\b(?:b32encode|b64encode|hexlify|Buffer\.from)\b|\.hex\(\)|toString\(\s*['""](?:hex|base64)");
-    private static readonly Regex Identifier = R(@"^[A-Za-z_$][\w$]*\s*[,)]");
+    private static readonly Regex LeadingIdentifier = R(@"^[A-Za-z_$][\w$]*\s*[,)]");
 
     /// <summary>"encoded" or "built" when a DNS lookup takes a name built from values, "constant" for a constant non-local host name, else null.</summary>
     private static string? DnsName(string text)
@@ -413,7 +444,7 @@ public static partial class PackageReview
             // Calls in comments are usage examples (declarations, docstrings).
             if (InComment(text, call.Index)) continue;
             // A bare name reads through its first assignment in the file.
-            if (Identifier.Match(arg) is { Success: true } id)
+            if (LeadingIdentifier.Match(arg) is { Success: true } id)
             {
                 var name = Regex.Escape(id.Value.TrimEnd(',', ')', ' ', '\t'));
                 var assign = Regex.Match(text, $@"(?:^|[^\w$.]){name}\s*=\s*(?<e>[^=\n;][^\n;]{{0,199}})", RegexOptions.NonBacktracking);
