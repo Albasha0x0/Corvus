@@ -296,7 +296,7 @@ public static partial class PackageReview
         // A detached self-start is ordinary (update checks, daemons); it is
         // noteworthy only in entry code beside network, credentials, host
         // details or transformed code.
-        if (!install && LoadedDetached.IsMatch(plain))
+        if (!install && StartsDetachedWithoutPipes(plain))
             yield return new PackageFinding("package/loaded-detached",
                 entry && hits.Overlaps(["network", "credentials", "host details", "transformed code"]) ? "noteworthy" : "review",
                 "process", "starts node or a file in its own folder as a background process that outlives the caller", path);
@@ -568,6 +568,20 @@ public static partial class PackageReview
     /// node, process.execPath or a path built from __dirname, __filename or
     /// __file__, with a detached option inside the call.</summary>
     private static readonly Regex LoadedDetached = R(@"\b(?:spawn|fork|execFile|Popen)\s*\(\s*(?:['""`]node['""`]|process\.execPath|\[?[^,;\n]{0,120}?(?:__dirname|__filename|__file__))[^;]{0,400}?(?:\bdetached\s*:\s*(?:true|!0)|\bstart_new_session\s*=\s*True|\bDETACHED_PROCESS\b)");
+    private static readonly Regex PipedStdio = R(@"\bstdio\s*:\s*['""`]pipe['""`]");
+
+    /// <summary>Whether a detached self-start leaves no pipe to the caller; a child that keeps stdio pipes is a managed server, not a silent background process.</summary>
+    private static bool StartsDetachedWithoutPipes(string text)
+    {
+        for (var m = LoadedDetached.Match(text); m.Success; m = m.NextMatch())
+        {
+            // The options object continues past the detached key.
+            int end = text.IndexOf(';', m.Index + m.Length) is var e and >= 0 ? e : text.Length;
+            if (!PipedStdio.IsMatch(text.AsSpan(m.Index, end - m.Index))) return true;
+        }
+        return false;
+    }
+
     private static readonly Regex XorDecode = R(@"\bfromCharCode\s*\([^()\n]{0,80}\^|\bchr\s*\([^()\n]{0,60}\^");
     // The global npm prefix: an environment read, a destructured read or the
     // npm command that prints it.

@@ -1492,6 +1492,14 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(PackageReview.Scan("index.js", opener, install: false, default, entry: true, peel: false), f => f.Rule == "package/loaded-detached");
     }
 
+    // A detached child that keeps stdio pipes is a managed server (fix(web) for loaded-detached).
+    [Fact]
+    public void A_detached_self_start_that_keeps_stdio_pipes_is_not_reported()
+    {
+        var server = "const { spawn } = require('child_process');\nconst path = require('path');\nconst c = spawn(process.execPath, [path.join(__dirname, 'server.js')], { detached: true, stdio: 'pipe' });\nc.unref();\n";
+        Assert.DoesNotContain(PackageReview.Scan("index.js", server, install: false, default, entry: true, peel: false), f => f.Rule == "package/loaded-detached");
+    }
+
     // A zip checkpoint whose protocol 2 pickle calls GLOBAL module.name
     // on the inert string "pass".
     private static byte[] Checkpoint(string module, string name) =>
