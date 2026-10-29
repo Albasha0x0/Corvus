@@ -153,7 +153,7 @@ public sealed class JvmClass
 
         private ReadOnlySpan<byte> Take(int n)
         {
-            if (n < 0 || Position + n > data.Length) throw new InvalidDataException($"class file ends at {data.Length}, read of {n} bytes at {Position}");
+            if (n < 0 || n > data.Length - Position) throw new InvalidDataException($"class file ends at {data.Length}, read of {n} bytes at {Position}");
             var span = data.AsSpan(Position, n);
             Position += n;
             return span;

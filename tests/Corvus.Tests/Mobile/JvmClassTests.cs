@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using Corvus.Core;
@@ -200,6 +201,33 @@ public sealed class JvmClassTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => dex.Disassemble(jar, "p.Other", false, default)).Code);
         var single = AndroidSamples.Save(dir, "Shape.class", Shape());
         Assert.Equal(text, dex.Disassemble(single, "p.Shape", false, default));
+    }
+
+    // A structural fuzz edit set an attribute length to 0x7FFFFFFF.
+    [Fact]
+    public void A_length_near_the_int_maximum_at_any_offset_fails_as_malformed()
+    {
+        var seed = Shape();
+        for (int at = 0; at + 4 <= seed.Length; at++)
+        {
+            var b = (byte[])seed.Clone();
+            BinaryPrimitives.WriteInt32BigEndian(b.AsSpan(at), int.MaxValue);
+            try { JvmListing.Class(JvmClass.Read(b)); }
+            catch (InvalidDataException) { }
+        }
+    }
+
+    // A code length near the int maximum overflowed the Code attribute's
+    // bounds check, so the read failed from the slice, not from the check.
+    [Fact]
+    public void A_code_length_near_the_int_maximum_is_refused_by_the_code_check()
+    {
+        var b = Shape();
+        var m = JvmClass.Read(b).Methods.First(x => x.Find("Code") != null);
+        BinaryPrimitives.WriteInt32BigEndian(b.AsSpan(m.Find("Code")!.Value.Offset + 4), int.MaxValue - 4);
+        var c = JvmClass.Read(b);
+        var e = Assert.Throws<InvalidDataException>(() => JvmListing.Method(c, c.Methods.First(x => x.Name == m.Name && x.Descriptor == m.Descriptor)));
+        Assert.Equal("Code attribute is shorter than its code", e.Message);
     }
 
     [Fact]

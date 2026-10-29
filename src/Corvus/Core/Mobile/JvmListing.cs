@@ -258,7 +258,7 @@ public sealed class JvmListing
         _out.Println("Code:");
         _out.Indent(1);
         int start = attr.Offset + 8, length = _c.S4(attr.Offset + 4);
-        if (length < 0 || start + length > attr.Offset + attr.Length) throw new InvalidDataException("Code attribute is shorter than its code");
+        if (length < 0 || length > attr.Offset + attr.Length - start) throw new InvalidDataException("Code attribute is shorter than its code");
         var code = _c.Data.AsSpan(start, length).ToArray();
         for (int pc = 0; pc < length;) pc += WriteInstruction(code, pc);
         int table = start + length;
