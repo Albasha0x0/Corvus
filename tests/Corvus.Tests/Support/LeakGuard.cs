@@ -319,10 +319,11 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
         IMessageSink executionMessageSink, ITestFrameworkExecutionOptions executionOptions, bool checkLeaks = true)
         : XunitTestAssemblyRunner(testAssembly, testCases, diagnosticMessageSink, executionMessageSink, executionOptions)
     {
-        // A collection that needs permits takes them instead of a parallel slot,
-        // so a waiter holds no slot. Queued for a slot after its permits, a holder
-        // kept its engine idle until the queue reached it: no Ghidra test ran for
-        // 13 to 18 min of each full run.
+        // Permits are taken before the parallel slot, so a waiter holds no slot.
+        // An engine collection then runs without a slot: queued behind one, it
+        // kept its engine idle and no Ghidra test ran for 13 to 18 min of each
+        // full run. Other permit collections take a slot, since 34 classes at
+        // once on 20 slots starved engine workers in the 359a54f6 full run.
         protected override async Task<RunSummary> RunTestCollectionAsync(IMessageBus messageBus, ITestCollection testCollection,
             IEnumerable<IXunitTestCase> testCases, CancellationTokenSource cancellationTokenSource)
         {
@@ -341,7 +342,10 @@ public sealed class LeakGuardFramework(IMessageSink messageSink) : XunitTestFram
             using (held)
             {
                 MachinePermits.Record(needed, waited, testCollection.DisplayName);
-                return await new XunitTestCollectionRunner(testCollection, testCases, DiagnosticMessageSink, new ProgressBus(messageBus, held), TestCaseOrderer,
+                var bus = new ProgressBus(messageBus, held);
+                if (!needed.Any(r => r.StartsWith("engine-", StringComparison.Ordinal)))
+                    return await base.RunTestCollectionAsync(bus, testCollection, testCases, cancellationTokenSource);
+                return await new XunitTestCollectionRunner(testCollection, testCases, DiagnosticMessageSink, bus, TestCaseOrderer,
                     new ExceptionAggregator(Aggregator), cancellationTokenSource).RunAsync();
             }
         }
