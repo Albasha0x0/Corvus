@@ -305,6 +305,10 @@ public static partial class PackageReview
             yield return new PackageFinding("package/webhook-secrets", "noteworthy", "exfiltration", "sends passwords, keys, tokens or wallet secrets to a chat webhook", path);
         // A beacon at load: host identity or the environment sent from entry code.
         if (entry && hits.Contains("network") && SendsLoadBeacon(plain))
+        // A beacon at load: host identity or the environment sent from entry code,
+        // or host identity POSTed from a small source file outside test folders.
+        if (hits.Contains("network") && (entry && LoadBeacon.IsMatch(plain)
+            || plain.Length <= 64 << 10 && !NotLoaded.IsMatch(path) && IdentityPosted(plain)))
             yield return new PackageFinding("package/load-beacon", "noteworthy", "host details", "sends host identity or the environment when loaded", path);
         if (entry && RedirectsWithAddress(path, plain))
             yield return new PackageFinding("package/redirect-entry", "noteworthy", "redirect", "entry code sends the browser to a fixed URL that carries an email address", path);
@@ -550,6 +554,37 @@ public static partial class PackageReview
         return false;
     }
 
+    private static readonly Regex LoginName = R(@"\b(?:os\.(?:userInfo|getlogin)|getpass\.getuser)\(");
+    private static readonly Regex HostName = R(@"\b(?:os\.hostname|socket\.gethostname|platform\.node)\(");
+    private static readonly Regex EchoRequest = R(@"https?://(?:checkip\.amazonaws\.com|api\d?\.ipify\.org|ifconfig\.me|icanhazip\.com|ipinfo\.io)\b");
+    private static readonly Regex OsObject = R(@"\{[^{}]{1,800}\}");
+    private static readonly Regex OsField = R(@"\b(?:os|platform|socket|getpass)\.\w+\(");
+    private static readonly Regex PostCall = R(@"\b(?:requests|httpx|axios)\.post\s*\(|\bmethod\s*[:=]\s*['""`]POST['""`]");
+    // A named host with a letter top-level label, so localhost and
+    // loopback addresses do not count.
+    private static readonly Regex LiteralUrl = R(@"['""`]https?://[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b");
+    private static readonly Regex NotLoaded = R(@"(?:^|/)(?:tests?|__tests__|testing|examples?|scripts?|docs?|benchmarks?)/");
+
+    /// <summary>Whether a POST call has a literal URL and host identity near it.</summary>
+    private static bool IdentityPosted(string text)
+    {
+        foreach (var post in PostCall.EnumerateMatches(text))
+        {
+            int from = Math.Max(0, post.Index - 1500), to = Math.Min(text.Length, post.Index + post.Length + 800);
+            var near = text.AsSpan(from, to - from);
+            if (!LiteralUrl.IsMatch(near)) continue;
+            // Two kinds of identity: login name, host name, public address.
+            int kinds = (LoginName.IsMatch(near) ? 1 : 0) + (HostName.IsMatch(near) ? 1 : 0) + (EchoRequest.IsMatch(near) ? 1 : 0);
+            if (kinds >= 2) return true;
+            // An object of three or more OS fields, one of them the host or user name.
+            foreach (var o in OsObject.EnumerateMatches(near))
+            {
+                var obj = near.Slice(o.Index, o.Length);
+                if ((HostName.IsMatch(obj) || LoginName.IsMatch(obj)) && OsField.Count(obj) >= 3) return true;
+            }
+        }
+        return false;
+    }
     private static readonly Regex BundledProgram = R(@"\.(?:run|call|Popen|check_call|check_output|system|startfile)\(\s*\[?\s*(?:os\.path\.abspath\(\s*)?['""][^'""\n]*\.(?:exe|bat|cmd|ps1|vbs|scr)['""]|\.(?:run|call|Popen|check_call)\(\s*\[\s*exe_path\b"
         + @"|" + SpawnCall + @"\(\s*" + JoinedProgram);
     private const string SpawnCall = @"\b(?:spawn|spawnSync|execFile|execFileSync|exec|execSync)";
