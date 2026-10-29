@@ -252,13 +252,28 @@ public sealed class Realm : IDisposable
             Note($"{table.Name}: keys of cluster leaf {n.Ref} unreadable");
             return result;
         }
-        var columns = table.Columns.Where(c => c.Type != TypeBackLink).ToList();
-        var values = new List<object?>[count];
-        for (int i = 0; i < count; i++) values[i] = new List<object?>(columns.Count);
-        foreach (var c in columns)
+        // Keys are distinct, so a keys array of width w holds at most 2^w.
+        if (keys is { Width: < 32 } && keys.Size > 1L << keys.Width)
         {
-            var col = c.Index + 1 < n.Size ? ColumnValues(table, c, Ref(Int(n, c.Index + 1)), count, reached) : null;
-            for (int i = 0; i < count; i++) values[i].Add(col == null ? new Unread("column not in leaf") : col[i]);
+            Note($"{table.Name}: keys of cluster leaf {n.Ref}: {keys.Size:N0} keys of width {keys.Width} cannot be distinct");
+            return result;
+        }
+        // A compact key count holds no bytes per object, so a count past the
+        // file length is refused.
+        if (keys == null && count > Length)
+        {
+            Note($"{table.Name}: cluster leaf {n.Ref} claims {count:N0} objects, more than the file's {Length:N0} bytes");
+            return result;
+        }
+        var columns = table.Columns.Where(c => c.Type != TypeBackLink).ToList();
+        var cols = columns.Select(c => c.Index + 1 < n.Size ? ColumnValues(table, c, Ref(Int(n, c.Index + 1)), count, reached) : null).ToList();
+        if (count > 0 && columns.Count > 0 && cols.All(c => c == null)) Note($"{table.Name}: cluster leaf {n.Ref}: no column could be read");
+        var unread = columns.Select(c => new Unread(c.Index + 1 < n.Size ? "column unreadable" : "column not in leaf")).ToList();
+        var values = new List<object?>[count];
+        for (int i = 0; i < count; i++)
+        {
+            values[i] = new List<object?>(columns.Count);
+            for (int j = 0; j < cols.Count; j++) values[i].Add(cols[j] is { } col ? col[i] : unread[j]);
         }
         for (int i = 0; i < count; i++)
             result.Add(new Obj(offset == null ? null : offset + (keys == null ? i : (long)UInt(keys, i)), values[i]));
@@ -270,10 +285,10 @@ public sealed class Realm : IDisposable
     {
         if (Read(r) is not { } n) return null;
         reached?.Add(r);
-        var values = new object?[count];
         if (c.List || c.Set || c.Dictionary)
         {
             if (!n.HasRefs || n.Size < count) return null;
+            var values = new object?[count];
             for (int i = 0; i < count; i++)
             {
                 long cr = Ref(Int(n, i));
@@ -283,10 +298,23 @@ public sealed class Realm : IDisposable
             }
             return values;
         }
+        // Checked before decoding, since the values are allocated by the size.
+        if (Elements(c, n, count) is { } expected && n.Size != expected) return null;
         var items1 = LeafValues(c.Type, c.Nullable, c.Target, n, reached, table.Enums.GetValueOrDefault(c.SpecIndex), true);
         if (items1 == null || items1.Count != count) return null;
         return [.. items1];
     }
+
+    // Size of a column array that holds count values itself; null when they
+    // sit in arrays below it.
+    private static long? Elements(Column c, Node n, int count) => c.Type switch
+    {
+        TypeInt => c.Nullable ? count + 1L : count,
+        TypeTypedLink => 2L * count,
+        TypeString => n.HasRefs ? null : count,
+        TypeBinary or TypeTimestamp or TypeObjectId or TypeUuid or TypeMixed => null,
+        _ => count,
+    };
 
     // The values of a B+tree of one element type: inner nodes hold children between an offsets slot and a size slot.
     private List<object?>? Tree(int type, bool nullable, string? target, long r, HashSet<long>? reached, int depth)
@@ -714,11 +742,15 @@ public sealed class Realm : IDisposable
             byte flags = h[4];
             int width = (1 << (flags & 7)) >> 1, size = (h[5] << 16) | (h[6] << 8) | h[7];
             long bytes = ((flags >> 3) & 3) switch { 0 => ((long)size * width + 7) / 8, 1 => (long)size * width, 2 => size, _ => -1 };
-            if (bytes >= 0 && bytes <= MaxNode && r + 8 + bytes <= Length && (flags & 0x18) != 0x18 && !((flags & 0x40) != 0 && (flags & 0x18) != 0))
+            // An array of width 0 holds no bytes, so its size is bounded by the
+            // file length.
+            if (bytes >= 0 && bytes <= MaxNode && r + 8 + bytes <= Length && (flags & 0x18) != 0x18 && !((flags & 0x40) != 0 && (flags & 0x18) != 0)
+                && (width > 0 || size <= Length))
             {
                 if (ReadAt(r + 8, (int)bytes) is { } data) node = new Node(r, flags, width, size, data);
             }
             else if (note && bytes > MaxNode) Note($"node at {r}: {bytes:N0} bytes, over the {MaxNode >> 20} MiB read limit");
+            else if (note && width == 0 && size > Length) Note($"node at {r}: {size:N0} values of width 0, more than the file's {Length:N0} bytes");
         }
         if (_cache.Count >= MaxCached) _cache.Clear();
         _cache[r] = node;

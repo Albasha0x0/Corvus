@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using Corvus.Core;
@@ -101,6 +102,53 @@ public sealed class RealmTests(ITestOutputHelper output) : IDisposable
         var e = Assert.Throws<ToolError>(() => View("Ledger"));
         Assert.Equal(ErrorCode.InvalidArgument, e.Code);
         Assert.Contains("metadata, Account, Holder, Journal", e.Message);
+    }
+
+    // A fuzz edit copied seven bytes over offset 64,356 of the fixture: a
+    // keys array of width 0 then claimed 94,821 keys with no bytes.
+    [Fact]
+    public void A_keys_array_too_narrow_for_distinct_keys_is_noted_not_listed()
+    {
+        var b = File.ReadAllBytes(Fixture("ledger.realm"));
+        new byte[] { 0x00, 0x01, 0x72, 0x65, 0x67, 0x69, 0x6F }.CopyTo(b, 64_356);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        using var realm = new Realm(new MemoryStream(b));
+        int objects = realm.Tables.Sum(t => realm.Objects(t, default).Count());
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 32 << 20);
+        Assert.True(objects <= 541, $"{objects} objects");
+        Assert.Contains(realm.Notes, n => n.Contains("94,821 keys of width 0 cannot be distinct", StringComparison.Ordinal));
+    }
+
+    // Journal's second leaf (keys 256-299): a compact key count at 64,048
+    // and an id column array at 16,288 rewritten to claim 2,000,000 values
+    // of width 0.
+    [Fact]
+    public void A_compact_count_past_the_file_length_is_refused()
+    {
+        var b = File.ReadAllBytes(Fixture("ledger.realm"));
+        BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(64_048), 2_000_000 << 1 | 1);
+        b[16_292] &= 0xF8;
+        new byte[] { 0x1E, 0x84, 0x80 }.CopyTo(b, 16_293);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        using var realm = new Realm(new MemoryStream(b));
+        int objects = realm.Objects(realm.Tables.Single(t => t.Name == "class_Journal"), default).Count();
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 32 << 20);
+        Assert.Equal(256, objects);
+        Assert.Contains(realm.Notes, n => n.Contains("claims 2,000,000 objects, more than the file's 131,072 bytes", StringComparison.Ordinal));
+    }
+
+    // Journal's second leaf: each column slot points at the leaf itself, an
+    // array of 4 refs where 44 values belong.
+    [Fact]
+    public void A_leaf_whose_columns_cannot_be_read_keeps_its_objects()
+    {
+        var b = File.ReadAllBytes(Fixture("ledger.realm"));
+        for (int slot = 1; slot <= 3; slot++) BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(64_048 + 4 * slot), 64_040);
+        using var realm = new Realm(new MemoryStream(b));
+        var journal = realm.Objects(realm.Tables.Single(t => t.Name == "class_Journal"), default).ToList();
+        Assert.Equal(300, journal.Count);
+        Assert.Equal(44, journal.Count(o => o.Values.All(v => v is Realm.Unread { Reason: "column unreadable" })));
+        Assert.Contains(realm.Notes, n => n.Contains("cluster leaf 64040: no column could be read", StringComparison.Ordinal));
     }
 
     [Fact]
