@@ -92,6 +92,7 @@ public static class FindingRules
         R("package/all-sites-permissions", "every site, with sensitive permissions"),
         R("package/all-sites", "runs on or reads every site"),
         N("package/csp-remote-code", "a content security policy that lets remote or evaluated code run", "the CSP allows eval or remote scripts"),
+        N("package/header-removal", "a rule on every URL beside a content script on every site", "a network rule removes a page security header"),
         R("package/external-update", "updates from outside the store"),
         R("package/externally-connectable", "any site can message the extension"),
         N("package/fetched-eval", RunsRemote, "evaluates code it fetches"),

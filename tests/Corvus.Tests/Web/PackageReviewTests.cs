@@ -635,6 +635,49 @@ public sealed class PackageReviewTests : IDisposable
 
 
     [Fact]
+    public void A_network_rule_that_removes_the_csp_is_reported_and_noteworthy_on_every_url_beside_an_all_sites_script()
+    {
+        const string manifest = """{"manifest_version":3,"name":"Viewer","version":"1.0","permissions":["declarativeNetRequest"],"declarative_net_request":{"rule_resources":[{"id":"r","enabled":true,"path":"rules.json"}]},"content_scripts":[{"matches":["<all_urls>"],"js":["cs.js"]}]}""";
+        const string scoped = """[{"id":7,"action":{"type":"modifyHeaders","responseHeaders":[{"header":"Content-Security-Policy","operation":"remove"}]},"condition":{"requestDomains":["example.invalid"]}}]""";
+        var review = Review(Zip("viewer.zip", ("manifest.json", U(manifest)), ("rules.json", U(scoped)), ("cs.js", U(""))));
+        var finding = Assert.Single(review.Findings, f => f.Rule == "package/header-removal");
+        Assert.Equal(("review", "rules.json"), (finding.Level, finding.Path));
+        Assert.Contains("Content-Security-Policy (rule 7)", finding.Detail, StringComparison.Ordinal);
+        const string every = """[{"id":1,"action":{"type":"modifyHeaders","responseHeaders":[{"header":"x-frame-options","operation":"set","value":""}]},"condition":{"urlFilter":"*","resourceTypes":["sub_frame"]}}]""";
+        var all = Review(Zip("viewer-all.zip", ("manifest.json", U(manifest)), ("rules.json", U(every)), ("cs.js", U(""))));
+        Assert.Contains(all.Findings, f => f is { Rule: "package/header-removal", Level: "noteworthy" } && f.Detail.Contains("x-frame-options (rule 1)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_disabled_ruleset_that_removes_a_header_is_reported_as_disabled()
+    {
+        const string manifest = """{"manifest_version":3,"name":"Viewer","version":"1.0","declarative_net_request":{"rule_resources":[{"id":"r","enabled":false,"path":"rules.json"}]}}""";
+        const string rules = """[{"id":3,"action":{"type":"modifyHeaders","responseHeaders":[{"header":"cross-origin-opener-policy","operation":"remove"}]}}]""";
+        var review = Review(Zip("viewer-off.zip", ("manifest.json", U(manifest)), ("rules.json", U(rules))));
+        Assert.Contains("disabled at install, can be enabled by the extension", Assert.Single(review.Findings, f => f.Rule == "package/header-removal").Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_dynamic_rule_call_that_removes_the_csp_is_reported_at_its_script()
+    {
+        const string manifest = """{"manifest_version":3,"name":"Viewer","version":"1.0","permissions":["declarativeNetRequest"],"background":{"service_worker":"bg.js"}}""";
+        const string bg = "chrome.declarativeNetRequest.updateDynamicRules({addRules:[{id:1,action:{type:'modifyHeaders',responseHeaders:[{header:'content-security-policy',operation:'remove'}]},condition:{urlFilter:'*'}}]});";
+        var review = Review(Zip("viewer-dyn.zip", ("manifest.json", U(manifest)), ("bg.js", U(bg))));
+        var finding = Assert.Single(review.Findings, f => f.Rule == "package/header-removal");
+        Assert.Equal(("review", "bg.js"), (finding.Level, finding.Path));
+        Assert.Contains("content-security-policy", finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_network_rule_that_sets_a_request_header_is_not_reported()
+    {
+        const string manifest = """{"manifest_version":3,"name":"Tagger","version":"1.0","permissions":["declarativeNetRequest"],"declarative_net_request":{"rule_resources":[{"id":"r","enabled":true,"path":"rules.json"}]}}""";
+        const string rules = """[{"id":1,"action":{"type":"modifyHeaders","requestHeaders":[{"header":"X-Client","operation":"set","value":"tagger"}]},"condition":{"urlFilter":"*"}}]""";
+        var review = Review(Zip("tagger.zip", ("manifest.json", U(manifest)), ("rules.json", U(rules))));
+        Assert.DoesNotContain(review.Findings, f => f.Rule == "package/header-removal");
+    }
+
+    [Fact]
     public void A_browser_extension_that_sends_cookies_and_runs_fetched_code_is_noteworthy()
     {
         var manifest = """{"manifest_version":3,"name":"Tab Saver","version":"1.0","permissions":["cookies","tabs","storage"],"host_permissions":["<all_urls>"],"background":{"service_worker":"bg.js"},"content_scripts":[{"matches":["<all_urls>"],"js":["cs.js"],"run_at":"document_start"}]}""";

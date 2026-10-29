@@ -68,6 +68,8 @@ public static partial class PackageReview
         var csp = m.TryGetProperty("content_security_policy", out var c2) ? c2.ValueKind == JsonValueKind.String ? c2.GetString() : c2.ToString() : null;
         if (csp != null && Regex.IsMatch(csp, @"'unsafe-eval'|script-src[^;]*\bhttps?:", RegexOptions.NonBacktracking))
             findings.Add(new PackageFinding("package/csp-remote-code", "noteworthy", "remote code", $"the content security policy allows eval or remote scripts: {Clip(csp, 160)}", path));
+        bool allSitesScript = content.Any(c => c.Matches.Any(IsBroadHost));
+        findings.AddRange(HeaderRemovals(files, root, m, allSitesScript));
         if (Str(m, "update_url") is { } update && !Regex.IsMatch(update, @"^https://(clients2\.google\.com|edge\.microsoft\.com|addons\.mozilla\.org)/", RegexOptions.NonBacktracking))
             findings.Add(new PackageFinding("package/external-update", "review", "update", $"updates from outside the browser's store: {update}", path));
         if (m.TryGetProperty("externally_connectable", out var ec) && Strings(ec, "matches").Any(IsBroadHost))
@@ -81,6 +83,9 @@ public static partial class PackageReview
             findings.AddRange(Scan(script, code, install: false, ct).Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
             if (FetchedEval.IsMatch(code)) findings.Add(new PackageFinding("package/fetched-eval", "noteworthy", "remote code", "evaluates code it fetches", script));
             if (CookieSend.IsMatch(code)) findings.Add(new PackageFinding("package/cookie-send", "noteworthy", "credentials", "reads every cookie and sends data to a fixed address", script));
+            if (DynamicHeaderRemovals(code) is { Headers.Count: > 0 } dynamic)
+                findings.Add(new PackageFinding("package/header-removal", dynamic.EveryUrl && allSitesScript ? "noteworthy" : "review", "page security",
+                    $"updateDynamicRules or updateSessionRules removes response header(s): {string.Join(", ", dynamic.Headers.Take(5))}", script));
         }
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
@@ -97,6 +102,78 @@ public static partial class PackageReview
             Permissions = permissions, HostPermissions = hosts.Distinct().ToList(), ContentScripts = content.Count > 0 ? content : null,
             Binaries = binaries.Count > 0 ? binaries : null, Signature = files.Crx, Findings = findings, Notes = notes,
         };
+    }
+
+    /// <summary>Response headers that keep a page's own script, framing and window policy.</summary>
+    private static readonly HashSet<string> PageSecurityHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "content-security-policy", "content-security-policy-report-only", "x-frame-options", "cross-origin-opener-policy",
+    };
+
+    /// <summary>One finding per static declarativeNetRequest rules file whose modifyHeaders rules remove or empty a page security header; empty when none.</summary>
+    private static IEnumerable<PackageFinding> HeaderRemovals(PackageFiles files, string root, JsonElement manifest, bool allSitesScript)
+    {
+        if (!manifest.TryGetProperty("declarative_net_request", out var dnr) || dnr.ValueKind != JsonValueKind.Object || !dnr.TryGetProperty("rule_resources", out var resources) || resources.ValueKind != JsonValueKind.Array)
+            yield break;
+        foreach (var resource in resources.EnumerateArray())
+        {
+            if (Str(resource, "path") is not { } rel) continue;
+            var path = Resolve(root, rel);
+            if (Json(files, path) is not { ValueKind: JsonValueKind.Array } rules) continue;
+            var removed = new List<string>();
+            bool everyUrl = false;
+            foreach (var rule in rules.EnumerateArray())
+            {
+                if (rule.ValueKind != JsonValueKind.Object || !rule.TryGetProperty("action", out var action) || Str(action, "type") != "modifyHeaders"
+                    || !action.TryGetProperty("responseHeaders", out var headers) || headers.ValueKind != JsonValueKind.Array) continue;
+                var id = rule.TryGetProperty("id", out var i) ? i.ToString() : "?";
+                int before = removed.Count;
+                foreach (var h in headers.EnumerateArray())
+                    if (Str(h, "header") is { } header && PageSecurityHeaders.Contains(header)
+                        && (Str(h, "operation") == "remove" || Str(h, "operation") == "set" && string.IsNullOrWhiteSpace(Str(h, "value"))))
+                        removed.Add($"{header} (rule {id})");
+                if (removed.Count > before && EveryUrl(rule)) everyUrl = true;
+            }
+            if (removed.Count == 0) continue;
+            var disabled = resource.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False
+                ? "; disabled at install, can be enabled by the extension" : "";
+            yield return new PackageFinding("package/header-removal", everyUrl && allSitesScript ? "noteworthy" : "review", "page security",
+                $"{removed.Count} response header removal(s): {string.Join(", ", removed.Take(5))}{disabled}", path);
+        }
+    }
+
+    private static readonly Regex DynamicRulesCall = R(@"\.update(?:Dynamic|Session)Rules\s*\(");
+    private static readonly Regex SecurityHeaderLiteral = new(@"['""`](content-security-policy(?:-report-only)?|x-frame-options|cross-origin-opener-policy)['""`]", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+    private static readonly Regex RemoveLiteral = R(@"['""`]remove['""`]");
+    private static readonly Regex UrlCondition = R(@"\b(?:urlFilter|regexFilter|requestDomains)\b");
+    private static readonly Regex EveryUrlFilter = R(@"\burlFilter['""]?\s*:\s*['""`](?:\*|<all_urls>)['""`]");
+
+    /// <summary>Page security headers that updateDynamicRules or updateSessionRules calls remove, and whether such a call has no URL condition; empty headers when none.</summary>
+    private static (List<string> Headers, bool EveryUrl) DynamicHeaderRemovals(string code)
+    {
+        var headers = new List<string>();
+        bool everyUrl = false;
+        foreach (Match m in DynamicRulesCall.Matches(code).Take(50))
+        {
+            // The call's text runs to its closing parenthesis, at most 8 KiB on.
+            int end = m.Index + m.Length, depth = 1, limit = Math.Min(code.Length, end + (8 << 10));
+            while (end < limit && depth > 0) depth += code[end++] switch { '(' => 1, ')' => -1, _ => 0 };
+            var call = code[m.Index..end];
+            if (!RemoveLiteral.IsMatch(call)) continue;
+            var found = SecurityHeaderLiteral.Matches(call).Select(h => h.Groups[1].Value).ToList();
+            if (found.Count == 0) continue;
+            headers.AddRange(found);
+            everyUrl |= !UrlCondition.IsMatch(call) || EveryUrlFilter.IsMatch(call);
+        }
+        return (headers.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), everyUrl);
+    }
+
+    /// <summary>True when a rule's condition names no URL filter or domain list, or matches every URL.</summary>
+    private static bool EveryUrl(JsonElement rule)
+    {
+        if (!rule.TryGetProperty("condition", out var c) || c.ValueKind != JsonValueKind.Object) return true;
+        if (c.TryGetProperty("regexFilter", out _) || c.TryGetProperty("requestDomains", out _)) return false;
+        return Str(c, "urlFilter") is null or "*" or "<all_urls>";
     }
 
     private static IEnumerable<string> Strings(JsonElement e, string name)
