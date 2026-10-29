@@ -96,6 +96,7 @@ public static class FindingRules
         R("package/self-dependency", "a package that lists its own name as a dependency"),
         R("package/high-version", "a major version of 99 or higher on a name without a scope"),
         R("package/binary", "native or executable files"),
+        N("package/disguised-binary", "package code that XORs file bytes and writes the result", "a .py file that is an executable under a one-byte XOR key"),
         N("package/asset-trailing-data", AtInstall + ", in an asset that install-time code names", "an image, sound or font with data after its format's end, named by the package's code"),
         N("package/close-name", AtInstall + ", under a name close to a popular package", "a name close to a popular package"),
         N("package/dependency-lookalike", AtInstall + ", or the unused dependency is from outside the registry", "an unused dependency named like a popular package"),

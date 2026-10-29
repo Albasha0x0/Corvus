@@ -1,5 +1,7 @@
 using System.IO.Compression;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using Corvus.Core.Models;
 using Corvus.Core.Python;
@@ -153,6 +155,7 @@ public static partial class PackageReview
         foreach (var script in Capped(files, [.. rootScripts.Where(p => files.Size(p) <= MaxScannedSourceBytes)]))
             if (files.Text(script) is { } code)
                 findings.AddRange(Scan(script, code, install: false, ct, peel: false).Where(f => f is { Level: "noteworthy", Category: "transformed code" }));
+        if (DisguisedBinary(files) is { } disguised) findings.Add(disguised);
         // Cookie, webhook and session libraries together mark a credential collector.
         var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))
@@ -212,6 +215,61 @@ public static partial class PackageReview
             finally { budget -= read; }
             var table = buffer.AsSpan(0, read);
             if (table.IndexOf("__test__"u8) >= 0 || table.IndexOf("__name__"u8) >= 0) return System.Text.Encoding.UTF8.GetString(table);
+        }
+        return null;
+    }
+
+    // A bytewise XOR: bytes(b ^ k for b in d), bytearray(...), ord(c) ^ k,
+    // buf[i] ^= k or lambda b: b ^ k.
+    private static readonly Regex ByteXor = R(@"\b(?:bytes|bytearray)\s*\(\s*\[?\s*\w+\s*\^\s*\w+\s+for\s|\bord\s*\(\s*\w+\s*\)\s*\^|\w+\s*\[\s*\w+\s*\]\s*\^=|lambda\s+\w+\s*:\s*\w+\s*\^");
+    private static readonly Regex BinaryWrite = R(@"\bopen\s*\([^\n]{0,200}['""][wa]b\+?['""]|\.write_bytes\s*\(");
+
+    private static readonly (string Format, byte[] Magic)[] HeaderMagics =
+    [
+        ("ELF", [0x7F, (byte)'E', (byte)'L', (byte)'F']),
+        ("Mach-O", [0xFE, 0xED, 0xFA, 0xCE]), ("Mach-O", [0xFE, 0xED, 0xFA, 0xCF]),
+        ("Mach-O", [0xCE, 0xFA, 0xED, 0xFE]), ("Mach-O", [0xCF, 0xFA, 0xED, 0xFE]),
+    ];
+
+    /// <summary>The format and key when <paramref name="b"/> starts with a PE, ELF or Mach-O header XORed with one nonzero byte; null otherwise.</summary>
+    internal static (string Format, byte Key)? XorExecutable(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < 64) return null;
+        static bool Starts(ReadOnlySpan<byte> at, ReadOnlySpan<byte> magic, byte key)
+        {
+            for (int i = 0; i < magic.Length; i++)
+                if ((at[i] ^ key) != magic[i]) return false;
+            return true;
+        }
+        byte k = (byte)(b[0] ^ 'M');
+        // A PE image is MZ plus the PE signature where e_lfanew points.
+        if (k != 0 && Starts(b, "MZ"u8, k))
+        {
+            long pe = BinaryPrimitives.ReadUInt32LittleEndian(b[0x3C..]) ^ (k * 0x01010101u);
+            if (pe >= 64 && pe <= b.Length - 4 && Starts(b[(int)pe..], "PE\0\0"u8, k)) return ("PE", k);
+        }
+        foreach (var (format, magic) in HeaderMagics)
+        {
+            k = (byte)(b[0] ^ magic[0]);
+            if (k != 0 && Starts(b, magic, k)) return (format, k);
+        }
+        return null;
+    }
+
+    /// <summary>The disguised-binary finding for the first .py file that is not UTF-8 and decodes to an executable under a one-byte XOR key; null when none.</summary>
+    private static PackageFinding? DisguisedBinary(PackageFiles files)
+    {
+        var strict = new UTF8Encoding(false, throwOnInvalidBytes: true);
+        foreach (var path in files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+        {
+            if (files.Bytes(path) is not { } b || XorExecutable(b) is not ({ } format, var key)) continue;
+            try { strict.GetCharCount(b); continue; }
+            catch (DecoderFallbackException) { }
+            var writer = files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && p != path).Order(StringComparer.Ordinal)
+                .FirstOrDefault(p => files.Text(p) is { } code && ByteXor.IsMatch(code) && BinaryWrite.IsMatch(code));
+            var detail = $"{path} is a {format} image XORed with the key 0x{key:X2}";
+            return new PackageFinding("package/disguised-binary", writer != null ? "noteworthy" : "review", "binary",
+                writer != null ? $"{detail}; {writer} XORs file bytes and writes the result" : detail, path);
         }
         return null;
     }

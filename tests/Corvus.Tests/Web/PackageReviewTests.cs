@@ -1366,6 +1366,56 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(declared.Findings, f => f.Rule == "package/setup-absent-import");
     }
 
+    // A 68-byte PE header stub: MZ, e_lfanew 0x40 and the PE signature, no code.
+    private static byte[] XorPeStub(byte key)
+    {
+        var b = new byte[68];
+        b[0] = (byte)'M'; b[1] = (byte)'Z'; b[0x3C] = 0x40; b[0x40] = (byte)'P'; b[0x41] = (byte)'E';
+        return [.. b.Select(x => (byte)(x ^ key))];
+    }
+
+    [Fact]
+    public void A_py_file_that_is_a_xored_executable_is_review_alone_and_noteworthy_beside_code_that_writes_it_decoded()
+    {
+        var n = 0;
+        PackageFinding[] Disguised(string init, byte[]? t = null)
+        {
+            var path = _dir.File($"tool-1.{n++}.tar.gz");
+            File.WriteAllBytes(path, Gzip(Tar(("tool-1.0/PKG-INFO", U("Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n")),
+                ("tool-1.0/tool/__init__.py", U(init)), ("tool-1.0/tool/t.py", t ?? XorPeStub(0xA5)))));
+            return [.. Review(path).Findings.Where(f => f.Rule == "package/disguised-binary")];
+        }
+        var alone = Assert.Single(Disguised("X = 1\n"));
+        Assert.Equal(("review", "tool-1.0/tool/t.py", "tool-1.0/tool/t.py is a PE image XORed with the key 0xA5"), (alone.Level, alone.Path, alone.Detail));
+        foreach (var writer in new[]
+        {
+            "d = open('t.py', 'rb').read()\nopen('out.bin', 'wb').write(bytes(b ^ 0xA5 for b in d))\n",
+            "d = open('t.py', 'rb').read()\nPath('out.bin').write_bytes(bytearray(b ^ 0xA5 for b in d))\n",
+            "d = bytearray(open('t.py', 'rb').read())\nfor i in range(len(d)):\n    d[i] ^= 0xA5\nopen('out.bin', 'wb').write(d)\n",
+            "d = open('t.py', 'rb').read()\nopen('out.bin', 'ab').write(bytes(map(lambda b: b ^ 0xA5, d)))\n",
+        })
+        {
+            var written = Assert.Single(Disguised(writer));
+            Assert.Equal("noteworthy", written.Level);
+            Assert.EndsWith("; tool-1.0/tool/__init__.py XORs file bytes and writes the result", written.Detail);
+        }
+        Assert.Equal("review", Assert.Single(Disguised("open('out.bin', 'wb').write(data)\n")).Level);
+        Assert.Equal("review", Assert.Single(Disguised("x = bytes(b ^ 0xA5 for b in data)\n")).Level);
+        // Key 0x20 keeps every byte of the stub ASCII, so the file is valid UTF-8.
+        Assert.Empty(Disguised("X = 1\n", XorPeStub(0x20)));
+        Assert.Empty(Disguised("X = 1\n", [.. Enumerable.Repeat((byte)0xA5, 80)]));
+    }
+
+    [Fact]
+    public void Only_a_header_xored_with_one_nonzero_key_reads_as_an_executable()
+    {
+        Assert.Equal(("PE", (byte)0xA5), PackageReview.XorExecutable(XorPeStub(0xA5)));
+        Assert.Equal(("ELF", (byte)0x33), PackageReview.XorExecutable([.. new byte[] { 0x7F, (byte)'E', (byte)'L', (byte)'F' }.Concat(new byte[60]).Select(x => (byte)(x ^ 0x33))]));
+        Assert.Null(PackageReview.XorExecutable(XorPeStub(0)));
+        Assert.Null(PackageReview.XorExecutable([.. XorPeStub(0xA5)[..0x40], .. new byte[4]]));
+        Assert.Null(PackageReview.XorExecutable(U(new string('#', 80))));
+    }
+
     [Fact]
     public void A_wheel_that_ships_source_beside_its_bytecode_cache_has_no_compiled_only_finding()
     {
