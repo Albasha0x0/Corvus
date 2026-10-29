@@ -442,6 +442,14 @@ public static partial class PackageReview
         return null;
     }
 
+    /// <summary><paramref name="version"/> when its major version is 99 or higher, else null; a year or date major (2000 to 2099) is a calendar version.</summary>
+    internal static string? HighVersion(string? version) =>
+        version != null && LeadingNumber.Match(version) is { Success: true } m && long.Parse(m.Groups[1].Value) is >= 99 and not (>= 2000 and <= 2099 or >= 20000101 and <= 20991231)
+            ? Clip(version, 40) : null;
+
+    // A PEP 440 epoch (N!) comes before the major version.
+    private static readonly Regex LeadingNumber = R(@"^\s*[vV=]?(?:\d+!)?0*(\d{1,12})");
+
     private static string Normalize(string name)
     {
         // The scope stays: @swc/core and @babel/core are different names.

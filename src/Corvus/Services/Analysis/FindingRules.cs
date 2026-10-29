@@ -73,6 +73,8 @@ public static class FindingRules
         // Package manifests.
         R("package/install-script", "a script the package manager runs at install"),
         N("package/install-network-tool", AtInstall + ", running a network tool", "an install script runs a network tool"),
+        N("package/dependency-source", AtInstall + ", with a dependency fetched from outside the registry", "a dependency fetched from outside the registry"),
+        R("package/high-version", "a major version of 99 or higher on a name without a scope"),
         R("package/binary", "native or executable files"),
         N("package/close-name", AtInstall + ", under a name close to a popular package", "a name close to a popular package"),
         N("package/command-name", AtInstall + ", installing a command named like a system command", "a package command named like a system or toolchain command"),

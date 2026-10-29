@@ -508,6 +508,45 @@ public sealed class PackageReviewTests : IDisposable
             ("helper-1.0.dist-info/METADATA", U("Metadata-Version: 2.1\nName: helper\nVersion: 1.0\n"))));
         Assert.Contains("script 'ssh' (helper-1.0.data/scripts/ssh)", Assert.Single(r.Findings, f => f.Rule == "package/command-name").Detail, StringComparison.Ordinal);
     }
+    [Fact]
+    public void Dependencies_from_git_or_a_tarball_are_review_alone_and_noteworthy_beside_an_install_script()
+    {
+        const string deps = """
+            "dependencies":{"left-pad":"^1.3.0","helper":"git+ssh://git@git.example.org:team/helper.git","blob":"https://files.example.net/blob-1.0.0.tgz","util":"team/util#v2","local":"file:../local"},"peerDependencies":{"peer":"team/peer"}}
+            """;
+        var plain = Review(Tgz("app-1.0.0.tgz", ("package/package.json", """{"name":"app","version":"1.0.0",""" + deps)));
+        var finding = Assert.Single(plain.Findings);
+        Assert.Equal(("package/dependency-source", "review", "package/package.json"), (finding.Rule, finding.Level, finding.Path));
+        Assert.Equal("4 dependencies from outside the registry: helper (git, git.example.org), blob (tarball, files.example.net), util (git, github.com), local (file)", finding.Detail);
+        var installs = Review(Tgz("app-1.0.1.tgz", ("package/package.json", """{"name":"app","version":"1.0.1","scripts":{"postinstall":"node setup.js"},""" + deps)));
+        Assert.Contains(installs.Findings, f => f is { Rule: "package/dependency-source", Level: "noteworthy" });
+        Assert.Equal("none", Review(Tgz("app-1.0.2.tgz", ("package/package.json", """{"name":"app","version":"1.0.2","dependencies":{"left-pad":"^1.3.0","x":"npm:left-pad@1"}}"""))).Review);
+    }
+
+    [Fact]
+    public void A_major_version_of_99_is_review_on_an_unscoped_name_only()
+    {
+        var unscoped = Review(Tgz("app-99.0.0.tgz", ("package/package.json", """{"name":"app","version":"99.0.0"}""")));
+        Assert.Equal(("package/high-version", "review"), (Assert.Single(unscoped.Findings).Rule, unscoped.Findings[0].Level));
+        Assert.Equal("none", Review(Tgz("x-99.0.0.tgz", ("package/package.json", """{"name":"@org/x","version":"99.0.0"}"""))).Review);
+        Assert.Equal("none", Review(Tgz("tz-2024.1.0.tgz", ("package/package.json", """{"name":"tz","version":"2024.1.0"}"""))).Review);
+    }
+
+    [Fact]
+    public void A_direct_reference_is_review_in_a_wheel_and_noteworthy_in_an_sdist_setup_py()
+    {
+        var r = Review(Zip("tool-100.0-py3-none-any.whl",
+            ("tool/__init__.py", U("")),
+            ("tool-100.0.dist-info/METADATA", U("Metadata-Version: 2.1\nName: tool\nVersion: 100.0\nRequires-Dist: click>=8\nRequires-Dist: helper[cli] @ git+https://git.example.org/team/helper.git ; extra == \"dev\"\nRequires-Dist: blob @ https://files.example.net/blob-1.0.tar.gz\n\npip install git+https://github.com/team/tool\n"))));
+        var source = Assert.Single(r.Findings, f => f.Rule == "package/dependency-source");
+        Assert.Equal(("review", "tool-100.0.dist-info/METADATA"), (source.Level, source.Path));
+        Assert.Equal("2 dependencies from outside the registry: helper (git, git.example.org), blob (url, files.example.net)", source.Detail);
+        Assert.Contains(r.Findings, f => f is { Rule: "package/high-version", Level: "review" });
+        var sdist = Review(Tgz("tool-1.0.tar.gz",
+            ("tool-1.0/setup.py", "from setuptools import setup\nsetup(name='tool', version='1.0', install_requires=['click', 'helper @ git+https://git.example.org/team/helper.git'])\n")));
+        Assert.Contains(sdist.Findings, f => f is { Rule: "package/dependency-source", Level: "noteworthy", Path: "tool-1.0/setup.py" });
+    }
+
 
     [Fact]
     public void A_browser_extension_that_sends_cookies_and_runs_fetched_code_is_noteworthy()

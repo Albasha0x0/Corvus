@@ -72,14 +72,54 @@ public static partial class PackageReview
             findings.Add(new PackageFinding("package/close-name", scripts.Any(x => x.AtInstall) ? "noteworthy" : "review", "name", $"the name '{name}' is close to the popular package '{popular}'"));
         findings.AddRange(CommandNames(name, entries, scripts.Any(x => x.AtInstall), manifestPath));
         int deps = 0;
+        var outside = new List<string>();
         foreach (var key in new[] { "dependencies", "optionalDependencies", "peerDependencies" })
-            if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object) deps += d.EnumerateObject().Count();
+            if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object)
+                foreach (var dep in d.EnumerateObject())
+                {
+                    deps++;
+                    // npm installs peer dependencies from the registry, whatever their range says.
+                    if (key != "peerDependencies" && deps <= MaxDependencies && dep.Value.ValueKind == JsonValueKind.String && NpmSource(dep.Value.GetString()!) is { } from)
+                        outside.Add($"{dep.Name} ({from})");
+                }
+        if (outside.Count > 0)
+            findings.Add(new PackageFinding("package/dependency-source", scripts.Any(x => x.AtInstall) ? "noteworthy" : "review", "dependency",
+                $"{outside.Count} dependenc{(outside.Count == 1 ? "y" : "ies")} from outside the registry: {string.Join(", ", outside.Take(5))}", manifestPath));
+        // A scope is owned by its publisher, so only an unscoped name can shadow a private one.
+        if (name is { } n && !n.StartsWith('@') && HighVersion(Str(pkg, "version")) is { } high)
+            findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher", manifestPath));
         return new PackageReport("npm", name, Str(pkg, "version"))
         {
             Publisher = Person(pkg, "author"), Description = Clip(Str(pkg, "description")), Scripts = scripts, EntryPoints = entries,
             Dependencies = deps, Binaries = binaries.Count > 0 ? binaries : null, Findings = findings, Notes = notes,
         };
     }
+
+    /// <summary>The source kind and host of an npm dependency range fetched from outside the registry, else null.</summary>
+    private static string? NpmSource(string range)
+    {
+        range = range.Trim();
+        if (range.StartsWith("file:", StringComparison.OrdinalIgnoreCase)) return "file";
+        if (range.StartsWith("link:", StringComparison.OrdinalIgnoreCase)) return "link";
+        if (GitHostShorthand.Match(range) is { Success: true } hosted)
+            return "git, " + hosted.Groups[1].Value.ToLowerInvariant() switch { "gitlab" => "gitlab.com", "bitbucket" => "bitbucket.org", "gist" => "gist.github.com", _ => "github.com" };
+        if (GitScp.Match(range) is { Success: true } scp) return $"git, {scp.Groups[1].Value.ToLowerInvariant()}";
+        if (SourceUrl.Match(range) is { Success: true } url)
+        {
+            var (scheme, host, path) = (url.Groups["scheme"].Value.ToLowerInvariant(), url.Groups["host"].Value.ToLowerInvariant(), url.Groups["path"].Value);
+            if (scheme.StartsWith("git", StringComparison.Ordinal) || scheme == "ssh") return $"git, {host}";
+            if (scheme is "http" or "https") return $"{(path.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? "git" : "tarball")}, {host}";
+        }
+        return GitHubShorthand.IsMatch(range) ? "git, github.com" : null;
+    }
+
+    private const int MaxDependencies = 1000;
+
+    private static readonly Regex GitHostShorthand = R(@"^(?i)(github|gitlab|bitbucket|gist):");
+    private static readonly Regex SourceUrl = R(@"^(?<scheme>[A-Za-z][\w+.-]*)://(?:[^@/\s]*@)?(?<host>[^/:#?\s]+)(?<path>[^#?\s]*)");
+    private static readonly Regex GitScp = R(@"^(?:git\+)?[\w.-]+@([\w.-]+):");
+    // npm reads user/repo, with an optional #ref, as a GitHub repository.
+    private static readonly Regex GitHubShorthand = R(@"^[\w.-]+/[\w.-]+(?:#\S*)?$");
 
     private static IEnumerable<string> NodeTargets(string command)
     {

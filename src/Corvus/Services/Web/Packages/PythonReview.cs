@@ -31,6 +31,7 @@ public static partial class PackageReview
         HashSet<string>? topLevel = null;
         string? name = null, version = null, summary = null, author = null, record = null;
         int deps = 0;
+        var manifests = new List<(string Path, string? Text)>();
         var distInfo = files.Paths.Where(p => p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal)).OrderBy(p => p.Length).FirstOrDefault();
         string ecosystem;
         if (distInfo != null)
@@ -38,6 +39,7 @@ public static partial class PackageReview
             ecosystem = "pypi wheel";
             var info = distInfo[..^"METADATA".Length];
             (name, version, summary, author, deps) = Metadata(files.Text(distInfo));
+            manifests.Add((distInfo, RequiresDist(files.Text(distInfo))));
             if (files.Text(info + "entry_points.txt") is { } ep) entries.AddRange(EntryPoints(ep));
             record = Record(files, info + "RECORD", findings);
             if (files.Text(info + "top_level.txt") is { } top)
@@ -64,6 +66,10 @@ public static partial class PackageReview
             var root = files.Paths.Where(IsSdistFile).Select(Folder).OrderBy(p => p.Length).First();
             moduleRoot = root;
             if (files.Text(root + "PKG-INFO") is { } pkgInfo) (name, version, summary, author, deps) = Metadata(pkgInfo);
+            manifests.Add((root + "PKG-INFO", RequiresDist(files.Text(root + "PKG-INFO"))));
+            foreach (var file in new[] { "setup.py", "setup.cfg", "pyproject.toml" }) manifests.Add((root + file, files.Text(root + file)));
+            foreach (var eggInfo in files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && Regex.IsMatch(p[root.Length..], @"^[^/]+\.egg-info/requires\.txt$", RegexOptions.NonBacktracking)).Take(4))
+                manifests.Add((eggInfo, files.Text(eggInfo)));
             if (files.Text(root + "setup.py") is { } setup)
             {
                 // pip runs setup.py to build an sdist, so its module-level code runs at install.
@@ -114,6 +120,23 @@ public static partial class PackageReview
         var kit = StealerKit.Matches(requires).Select(m => m.Value.ToLowerInvariant().Replace('-', '_')).Distinct().ToList();
         if (kit.Count >= 2) findings.Add(new PackageFinding("package/stealer-dependencies", "noteworthy", "credentials", $"depends on {string.Join(", ", kit)}: browser cookie, Discord webhook and Roblox session libraries together"));
         if (CompiledOnly(files, Modules(files, moduleRoot, topLevel), loaded) is { } compiledOnly) findings.Add(compiledOnly);
+        var outside = new List<string>();
+        string? outsideAt = null;
+        foreach (var (path, text) in manifests)
+            foreach (Match m in DirectReference.Matches(text ?? "").Take(MaxDependencies))
+            {
+                var url = m.Groups["url"].Value;
+                var dep = m.Groups["name"].Success ? m.Groups["name"].Value : EggName.Match(url) is { Success: true } egg ? egg.Groups[1].Value : "(unnamed)";
+                var kind = url.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ? "file"
+                    : url.IndexOf('+') is > 0 and var plus && plus < url.IndexOf(':') ? url[..plus].ToLowerInvariant() : "url";
+                var item = SourceUrl.Match(url) is { Success: true } h ? $"{dep} ({kind}, {h.Groups["host"].Value.ToLowerInvariant()})" : $"{dep} ({kind})";
+                if (outside.Count < MaxDependencies && !outside.Contains(item)) { outside.Add(item); outsideAt ??= path; }
+            }
+        if (outside.Count > 0)
+            findings.Add(new PackageFinding("package/dependency-source", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "dependency",
+                $"{outside.Count} dependenc{(outside.Count == 1 ? "y" : "ies")} from outside the registry: {string.Join(", ", outside.Take(5))}", outsideAt));
+        if (HighVersion(version) is { } high)
+            findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher"));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
         if (name != null && CloseTo(name, PopularNames.PyPI) is { } popular)
@@ -125,6 +148,14 @@ public static partial class PackageReview
             Binaries = binaries.Count > 0 ? binaries : null, Record = record, Findings = findings, Notes = notes,
         };
     }
+
+    // PEP 508 direct references (name @ url) and bare VCS URLs (git+https://...#egg=name).
+    private static readonly Regex DirectReference = R(@"(?<name>[A-Za-z0-9][\w.-]*)\s*(?:\[[^\]\n]*\])?\s*@\s*(?<url>(?:(?:git|hg|svn|bzr)\+[a-z]+://|https?://|file:)[^\s'"";,]+)|(?<url>(?:git|hg|svn|bzr)\+[a-z]+://[^\s'"";,]+)");
+    private static readonly Regex EggName = R(@"#egg=([\w.-]+)");
+
+    /// <summary>The Requires-Dist lines of core metadata, so URLs in its description are not read as dependencies.</summary>
+    private static string? RequiresDist(string? text) =>
+        text == null ? null : string.Join("\n", text.Split('\n').Where(l => l.StartsWith("Requires-Dist:", StringComparison.Ordinal)));
 
     // A section starts at its header and ends at the next one, so the lookahead keeps work linear.
     [GeneratedRegex(@"(?ms)^\[project\.(scripts|gui-scripts)\]\s*$(.*?)(?=^\[|\z)")]
