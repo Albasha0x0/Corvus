@@ -55,6 +55,7 @@ public static class FindingRules
         N("package/exec-char-codes", RunsDecoded, "executes code built from character codes"),
         N("package/pyobfuscate", "exact list: pyobfuscate markers", "pyobfuscate-style transformed code"),
         N("package/space-run", SpaceRunAtInstall, "code placed out of view in an editor"),
+        N("package/clipboard-address", "a file that runs at install or as a content script on every site", "reads and writes the clipboard beside a cryptocurrency address pattern"),
         // Package combinations.
         N("package/peeled-layers", AtInstall + ", with transformation layers peeled", "transformation layers peeled"),
         N("package/install-bundled-program", AtInstall + ", running a program the package carries", "runs a program the package carries"),

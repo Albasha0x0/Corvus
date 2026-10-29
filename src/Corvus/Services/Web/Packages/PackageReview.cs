@@ -273,6 +273,39 @@ public static partial class PackageReview
                 $"{(install ? "at install: " : "")}opens a CI pipeline file for writing: {Clip(ci, 160)}", path);
         if (install && ShellTokenRead.IsMatch(plain))
             yield return new PackageFinding("package/credential-files", "noteworthy", "credentials", "at install: reads a publish token variable ($NPM_TOKEN, %TWINE_PASSWORD%)", path);
+        if (ClipboardAddress(plain) is { } swap)
+            yield return new PackageFinding("package/clipboard-address", install ? "noteworthy" : "review", "clipboard",
+                $"{(install ? "at install: " : "")}reads and writes the clipboard ({swap.Pair}) beside a {swap.Kind} address pattern", path);
+    }
+
+    /// <summary>Clipboard read and write calls, as pairs a file must hold both of.</summary>
+    private static readonly (string Pair, Regex Read, Regex Write)[] ClipboardPairs =
+    [
+        ("navigator.clipboard readText and writeText", R(@"\bclipboard\.readText\s*\("), R(@"\bclipboard\.writeText\s*\(")),
+        ("execCommand paste and copy", R(@"\bexecCommand\s*\(\s*['""]paste['""]"), R(@"\bexecCommand\s*\(\s*['""]copy['""]")),
+        ("pyperclip paste and copy", R(@"\bpyperclip\.paste\s*\("), R(@"\bpyperclip\.copy\s*\(")),
+        ("clipboard paste and copy", R(@"\bclipboard\.paste\s*\("), R(@"\bclipboard\.copy\s*\(")),
+        ("clipboardy read and write", R(@"\bclipboardy\.read(?:Sync)?\s*\("), R(@"\bclipboardy\.write(?:Sync)?\s*\(")),
+    ];
+
+    /// <summary>Address kinds, each by the shape of a regular expression that matches its addresses.</summary>
+    private static readonly (string Kind, Regex Shape)[] AddressShapes =
+    [
+        ("Bitcoin", R(@"(?:\[13\]|\(\?:1\|3\)|\(1\|3\))[^\n'""`]{0,60}\{2[5-9],3[0-9]\}|\bbc1[^\n'""`]{0,40}\{[0-9]{2}(?:,[0-9]{2})?\}")),
+        ("Ethereum", R(@"0x\[[0-9a-fA-F-]{3,12}\]\{40\}")),
+        ("Tron", R(@"\bT\[[1-9A-Za-z-]{5,20}\]\{33\}")),
+        ("Litecoin", R(@"\[LM3?\]\[[1-9A-Za-z-]{5,20}\]\{2[5-9],3[0-9]\}")),
+        ("Solana", R(@"\[1-9A-HJ-NP-Za-km-z\]\{3[2-3],4[3-4]\}")),
+    ];
+
+    /// <summary>The first clipboard pair and address kind a file holds together, or null when it lacks either.</summary>
+    private static (string Pair, string Kind)? ClipboardAddress(string text)
+    {
+        if (!text.Contains("clipboard", StringComparison.OrdinalIgnoreCase) && !text.Contains("execCommand", StringComparison.Ordinal)
+            && !text.Contains("pyperclip", StringComparison.Ordinal)) return null;
+        var pair = ClipboardPairs.FirstOrDefault(p => p.Read.IsMatch(text) && p.Write.IsMatch(text)).Pair;
+        var kind = pair == null ? null : AddressShapes.FirstOrDefault(a => a.Shape.IsMatch(text)).Kind;
+        return kind == null ? null : (pair!, kind);
     }
 
     private static readonly Regex ShellTokenRead = R($@"\$\{{?(?:{PublishTokens})\b|%(?:{PublishTokens})%");
@@ -398,7 +431,7 @@ public static partial class PackageReview
         foreach (var entry in entryFiles)
             if (files.Text(entry) is { } code)
                 foreach (var f in Scan(entry, code, install: false, ct, entry: true))
-                    if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step") yield return f;
+                    if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard") yield return f;
         var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
                                              && !p.Contains("node_modules/", StringComparison.Ordinal) && !entryFiles.Contains(p))
             .OrderBy(p => p.Count(c => c == '/')).ThenBy(p => p, StringComparer.Ordinal).ToList();

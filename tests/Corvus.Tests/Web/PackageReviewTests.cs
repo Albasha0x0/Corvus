@@ -678,6 +678,31 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_file_that_reads_and_writes_the_clipboard_beside_an_address_pattern_is_reported()
+    {
+        const string swap = "const btc = /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}$/;\nasync function check() {\n  const t = await navigator.clipboard.readText();\n  if (btc.test(t)) await navigator.clipboard.writeText('placeholder');\n}\nmodule.exports = check;\n";
+        var r = Review(Tgz("clip-1.0.0.tgz", ("package/package.json", """{"name":"clip","version":"1.0.0","main":"index.js"}"""), ("package/index.js", swap)));
+        var finding = Assert.Single(r.Findings, f => f.Rule == "package/clipboard-address");
+        Assert.Equal(("review", "package/index.js"), (finding.Level, finding.Path));
+        Assert.Contains("navigator.clipboard readText and writeText", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("Bitcoin", finding.Detail, StringComparison.Ordinal);
+        const string manifest = """{"manifest_version":3,"name":"Helper","version":"1.0","content_scripts":[{"matches":["<all_urls>"],"js":["cs.js"]}]}""";
+        var ext = Review(Zip("helper.zip", ("manifest.json", U(manifest)), ("cs.js", U(swap.Replace("module.exports = check;", "check();", StringComparison.Ordinal)))));
+        Assert.Contains(ext.Findings, f => f is { Rule: "package/clipboard-address", Level: "noteworthy", Path: "cs.js" });
+    }
+
+    [Fact]
+    public void A_copy_button_or_an_address_pattern_alone_is_not_reported()
+    {
+        const string copy = "const eth = /^0x[a-fA-F0-9]{40}$/;\nbutton.onclick = () => navigator.clipboard.writeText(input.value);\n";
+        const string pattern = "const eth = /^0x[a-fA-F0-9]{40}$/;\nmodule.exports = s => eth.test(s);\n";
+        var r = Review(Tgz("addr-1.0.0.tgz", ("package/package.json", """{"name":"addr","version":"1.0.0","main":"index.js"}"""), ("package/index.js", pattern), ("package/copy.js", copy)));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/clipboard-address");
+        var only = Review(Tgz("copy-1.0.0.tgz", ("package/package.json", """{"name":"copy","version":"1.0.0","main":"index.js"}"""), ("package/index.js", copy)));
+        Assert.DoesNotContain(only.Findings, f => f.Rule == "package/clipboard-address");
+    }
+
+    [Fact]
     public void A_browser_extension_that_sends_cookies_and_runs_fetched_code_is_noteworthy()
     {
         var manifest = """{"manifest_version":3,"name":"Tab Saver","version":"1.0","permissions":["cookies","tabs","storage"],"host_permissions":["<all_urls>"],"background":{"service_worker":"bg.js"},"content_scripts":[{"matches":["<all_urls>"],"js":["cs.js"],"run_at":"document_start"}]}""";

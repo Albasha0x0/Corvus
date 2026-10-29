@@ -77,10 +77,13 @@ public static partial class PackageReview
         var scripts = Capped(files, [.. entries.Where(e => e.Target != null && e.Target.EndsWith(".js", StringComparison.Ordinal)).Select(e => Resolve(root, e.Target!))
             .Concat(files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && p.EndsWith(".js", StringComparison.Ordinal)))
             .Distinct()]);
+        var allSitesFiles = content.Where(c => c.Matches.Any(IsBroadHost)).SelectMany(c => c.Files).Select(f => Resolve(root, f)).ToHashSet(StringComparer.Ordinal);
         foreach (var script in scripts)
         {
             if (files.Text(script) is not { } code) continue;
-            findings.AddRange(Scan(script, code, install: false, ct).Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials"));
+            // A content script on every site sees what every page copies.
+            findings.AddRange(Scan(script, code, install: false, ct).Where(f => f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "clipboard")
+                .Select(f => f.Rule == "package/clipboard-address" && allSitesFiles.Contains(script) ? f with { Level = "noteworthy" } : f));
             if (FetchedEval.IsMatch(code)) findings.Add(new PackageFinding("package/fetched-eval", "noteworthy", "remote code", "evaluates code it fetches", script));
             if (CookieSend.IsMatch(code)) findings.Add(new PackageFinding("package/cookie-send", "noteworthy", "credentials", "reads every cookie and sends data to a fixed address", script));
             if (DynamicHeaderRemovals(code) is { Headers.Count: > 0 } dynamic)
