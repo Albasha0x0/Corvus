@@ -265,6 +265,8 @@ public static partial class PackageReview
                 $"{(install ? "at install: " : "")}calls {name} under a non-ASCII name that normalizes to it", path);
         if (install && BundledProgram.IsMatch(plain))
             yield return new PackageFinding("package/install-bundled-program", "noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1)", path);
+        if (install && (BundledProgram.IsMatch(plain) || RunsNamedProgram(plain)))
+            yield return new PackageFinding("package/install-bundled-program", "noteworthy", "process", "at install: runs a program the package carries (.exe, .bat, .ps1, .sh)", path);
         if (install && CompiledEval().IsMatch(plain))
             yield return new PackageFinding("package/install-compiled-eval", "noteworthy", "dynamic code", "at install: evaluates code compiled from a string (eval(compile(...)))", path);
         // A collector host outside a URL (request options, dns.lookup), at install or beside connections.
@@ -543,7 +545,33 @@ public static partial class PackageReview
         return false;
     }
 
-    private static readonly Regex BundledProgram = R(@"\.(?:run|call|Popen|check_call|check_output|system|startfile)\(\s*\[?\s*(?:os\.path\.abspath\(\s*)?['""][^'""\n]*\.(?:exe|bat|cmd|ps1|vbs|scr)['""]|\.(?:run|call|Popen|check_call)\(\s*\[\s*exe_path\b");
+    private static readonly Regex BundledProgram = R(@"\.(?:run|call|Popen|check_call|check_output|system|startfile)\(\s*\[?\s*(?:os\.path\.abspath\(\s*)?['""][^'""\n]*\.(?:exe|bat|cmd|ps1|vbs|scr)['""]|\.(?:run|call|Popen|check_call)\(\s*\[\s*exe_path\b"
+        + @"|" + SpawnCall + @"\(\s*" + JoinedProgram);
+    private const string SpawnCall = @"\b(?:spawn|spawnSync|execFile|execFileSync|exec|execSync)";
+    // A path.join or path.resolve call whose last argument names a .exe or .bin file.
+    private const string JoinedProgram = @"(?:require\(\s*['""](?:node:)?path['""]\s*\)|\w+)\.(?:join|resolve)\([^\n;]{0,200}['""](?:[^'""\n]*/)?[\w-][\w.-]*\.(?:exe|bin)['""]\s*\)";
+    private static readonly Regex LocalProgram = R(@"\.(?:run|call|Popen|check_call|check_output|system)\(\s*\[?\s*['""]\./([\w-]+|[\w.-]+\.sh)['""]");
+    // The conventional build entry points an sdist runs to compile a bundled library.
+    private const string BuildEntryPoint = @"configure|autogen\.sh|bootstrap|bootstrap\.sh|gradlew|make";
+    private static readonly HashSet<string> BuildEntryPoints = [.. BuildEntryPoint.Replace(@"\.", ".", StringComparison.Ordinal).Split('|')];
+    private static readonly Regex BuildEntryPointVariable = R(@"\b(\w+)\s*=\s*os\.path\.join\([^\n;]{0,200}['""](?:" + BuildEntryPoint + @")['""]\s*\)");
+    private static readonly Regex JoinedProgramVariable = R(@"\b(\w+)\s*=\s*" + JoinedProgram);
+    private static readonly Regex SpawnedVariable = R(SpawnCall + @"\(\s*(\w+)\s*[,)]");
+    private static readonly Regex ChmodExecVariable = R(@"\bos\.chmod\(\s*(\w+)\s*,\s*(?:0o?[57][0-7]{2}\b|[\w.]*S_I(?:X\w*|EXEC|RWX[UGO])|\w+\.st_mode\s*\|)");
+    private static readonly Regex SubprocessVariable = R(@"\bsubprocess\.(?:run|call|Popen|check_call|check_output)\(\s*\[?\s*(\w+)\s*[,\])]");
+    private static readonly Regex ScriptFolder = R(@"\bos\.path\.dirname\(\s*(?:os\.path\.(?:abspath|realpath)\(\s*)?__file__");
+
+    /// <summary>True when code runs a local file other than a build entry point, starts a variable bound to a joined .exe or .bin path, or starts one it made executable beside its own folder.</summary>
+    private static bool RunsNamedProgram(string code)
+    {
+        static HashSet<string> Names(Regex pattern, string text) => pattern.Matches(text).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        if (!Names(LocalProgram, code).IsSubsetOf(BuildEntryPoints)) return true;
+        if (Names(JoinedProgramVariable, code).Overlaps(Names(SpawnedVariable, code))) return true;
+        if (!ScriptFolder.IsMatch(code)) return false;
+        var chmodded = Names(ChmodExecVariable, code);
+        chmodded.ExceptWith(Names(BuildEntryPointVariable, code));
+        return chmodded.Overlaps(Names(SubprocessVariable, code));
+    }
     private static readonly Regex FormattedUrl = R(@"['""]https?://[^\s'""]*(?:\{\w*\}|%s|\$\{)");
     // Excludes compile(f.read(), ...), which setup.py uses to read its version module; no match timeout needed.
     [GeneratedRegex(@"\b(?:eval|exec)\s*\(\s*compile\s*\(\s*(?![\w.]*\.read\(|open\()", RegexOptions.CultureInvariant)]

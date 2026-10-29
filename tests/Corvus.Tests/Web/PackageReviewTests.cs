@@ -809,6 +809,72 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_postinstall_spawning_a_joined_exe_path_is_noteworthy()
+    {
+        var inline = Review(Tgz("h-1.0.0.tgz",
+            ("package/package.json", """{"name":"h","version":"1.0.0","scripts":{"postinstall":"node -e \"require('child_process').spawn(require('path').join(process.cwd(),'h','h.exe'))\""}}"""),
+            ("package/h/h.exe", "MZ")));
+        Assert.Contains(inline.Findings, f => f is { Rule: "package/install-bundled-program", Level: "noteworthy" });
+        var bound = Review(Tgz("h-1.0.1.tgz",
+            ("package/package.json", """{"name":"h","version":"1.0.1","scripts":{"postinstall":"node setup.js"}}"""),
+            ("package/setup.js", "const p = require('path'), { spawn } = require('child_process');\nconst src = p.join(__dirname, 'h', 'h.exe');\nspawn(src, [], { stdio: 'inherit' });\n"),
+            ("package/h/h.exe", "MZ")));
+        Assert.Contains(bound.Findings, f => f is { Rule: "package/install-bundled-program", Path: "package/setup.js" });
+        var resolved = Review(Tgz("h-1.0.2.tgz",
+            ("package/package.json", """{"name":"h","version":"1.0.2","scripts":{"postinstall":"node setup.js"}}"""),
+            ("package/setup.js", "const { execSync } = require('child_process');\nexecSync(require('path').resolve(__dirname, 'h.exe'));\n"),
+            ("package/h.exe", "MZ")));
+        Assert.Contains(resolved.Findings, f => f is { Rule: "package/install-bundled-program", Path: "package/setup.js" });
+    }
+
+    [Fact]
+    public void A_setup_py_running_a_local_script_or_chmodded_program_is_noteworthy()
+    {
+        var script = Review(Tgz("s-1.0.tar.gz",
+            ("s-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: s\nVersion: 1.0\n"),
+            ("s-1.0/setup.py", "import subprocess\nsubprocess.call('./s.sh')\nfrom setuptools import setup\nsetup(name='s', version='1.0')\n"),
+            ("s-1.0/s.sh", "echo placeholder\n")));
+        Assert.Contains(script.Findings, f => f is { Rule: "package/install-bundled-program", Level: "noteworthy" });
+        var chmod = Review(Tgz("t-1.0.tar.gz",
+            ("t-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: t\nVersion: 1.0\n"),
+            ("t-1.0/setup.py", "from setuptools import setup\nfrom setuptools.command.install import install\nclass Post(install):\n    def run(self):\n        from t.tool import start\n        start()\n        install.run(self)\nsetup(name='t', version='1.0', cmdclass={'install': Post})\n"),
+            ("t-1.0/t/tool.py", "import os, subprocess\ndef start():\n    binary = os.path.join(os.path.dirname(__file__), 'bin', 'tool')\n    os.chmod(binary, 0o755)\n    subprocess.call([binary, '--version'])\n"),
+            ("t-1.0/t/bin/tool", "placeholder")));
+        Assert.Contains(chmod.Findings, f => f is { Rule: "package/install-bundled-program", Path: "t-1.0/setup.py" });
+        var rwx = Review(Tgz("u-1.0.tar.gz",
+            ("u-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: u\nVersion: 1.0\n"),
+            ("u-1.0/setup.py", "import os, stat, subprocess\nhere = os.path.dirname(__file__)\ntool = os.path.join(here, 'bin', 'tool')\nos.chmod(tool, stat.S_IRWXU)\nsubprocess.call([tool])\nfrom setuptools import setup\nsetup(name='u', version='1.0')\n"),
+            ("u-1.0/bin/tool", "placeholder")));
+        Assert.Contains(rwx.Findings, f => f is { Rule: "package/install-bundled-program", Level: "noteworthy" });
+    }
+
+    [Fact]
+    public void Running_node_or_python_on_package_files_at_install_is_not_reported()
+    {
+        var npm = Review(Tgz("n-1.0.0.tgz",
+            ("package/package.json", """{"name":"n","version":"1.0.0","scripts":{"postinstall":"node install.js"}}"""),
+            ("package/install.js", "const path = require('path'), cp = require('child_process');\nconst main = path.join(__dirname, 'lib', 'main.js');\ncp.execFileSync(process.execPath, [main]);\n")));
+        Assert.DoesNotContain(npm.Findings, f => f.Rule == "package/install-bundled-program");
+        var py = Review(Tgz("q-1.0.tar.gz",
+            ("q-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: q\nVersion: 1.0\n"),
+            ("q-1.0/setup.py", "import os, sys, subprocess\nhere = os.path.dirname(os.path.abspath(__file__))\nscript = os.path.join(here, 'scripts', 'q')\nos.chmod(script, 0o755)\nsubprocess.check_call([sys.executable, 'gen.py'])\nfrom setuptools import setup\nsetup(name='q', version='1.0', scripts=[script])\n")));
+        Assert.DoesNotContain(py.Findings, f => f.Rule == "package/install-bundled-program");
+    }
+
+    [Fact]
+    public void Build_entry_points_and_the_npm_bin_folder_at_install_are_not_reported()
+    {
+        var configure = Review(Tgz("c-1.0.tar.gz",
+            ("c-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: c\nVersion: 1.0\n"),
+            ("c-1.0/setup.py", "import os, subprocess\nsubprocess.check_call(['./configure', '--prefix=/tmp'], cwd='deps/lib')\nhere = os.path.dirname(__file__)\ncfg = os.path.join(here, 'deps', 'configure')\nos.chmod(cfg, 0o755)\nsubprocess.check_call([cfg])\nfrom setuptools import setup\nsetup(name='c', version='1.0')\n")));
+        Assert.DoesNotContain(configure.Findings, f => f.Rule == "package/install-bundled-program");
+        var binDir = Review(Tgz("b-1.0.0.tgz",
+            ("package/package.json", """{"name":"b","version":"1.0.0","scripts":{"postinstall":"node install.js"}}"""),
+            ("package/install.js", "const path = require('path'), { spawn } = require('child_process');\nconst binDir = path.join(__dirname, 'node_modules', '.bin');\nspawn(binDir, []);\n")));
+        Assert.DoesNotContain(binDir.Findings, f => f.Rule == "package/install-bundled-program");
+    }
+
+    [Fact]
     public void A_setup_py_install_command_is_read_with_the_local_module_it_imports_and_a_decoded_command_is_noteworthy()
     {
         var r = Review(Tgz("netobs-99.6.tar.gz",
