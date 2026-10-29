@@ -419,6 +419,34 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_function_constructor_given_require_or_eval_of_a_decoded_response_is_noteworthy_and_a_literal_body_is_not()
+    {
+        var r = Review(Tgz("fn-loader-1.0.0.tgz", ("package/package.json", """{"name":"fn-loader","version":"1.0.0","main":"index.js"}"""),
+            ("package/lib/caller.js", "axios.get(u).then(r => new (Function.constructor)('require', r.data.code)(require));"),
+            ("package/index.js", "https.get(u, res => { let body = ''; res.on('data', c => body += c);\nres.on('end', () => { eval(Buffer.from(body, 'base64').toString()); }); });")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/eval-response", Level: "noteworthy", Path: "package/lib/caller.js" });
+        Assert.Contains(r.Findings, f => f is { Rule: "package/eval-response", Level: "noteworthy", Path: "package/index.js" });
+        var then = PackageReview.Scan("index.js", "load().then((t) => {\nconst d = Buffer.from(t, 'base64');\neval(d.toString('utf8'));\n});", install: false, default, peel: false);
+        Assert.Contains(then, f => f.Rule == "package/eval-response");
+        foreach (var code in new[]
+        {
+            "fetch(u).then(function (r) { eval(atob(r)); });",
+            "fetch(u).then(async function(r){ return eval(atob(r)); });",
+            "get(u).then(({ data }) => eval(atob(data)));",
+            "const f = Function('require', src);",
+            "const f = (() => {}).constructor('require', src);",
+        })
+            Assert.Contains(PackageReview.Scan("index.js", code, install: false, default, peel: false), f => f.Rule == "package/eval-response");
+        foreach (var code in new[]
+        {
+            "const f = new Function.constructor('require', 'return 1');\nconst b = Buffer.from(s, 'base64');",
+            "load().then((t) => { const b = Buffer.from(t, 'base64'); save(b); });\neval(x);",
+            "lock().then(v => { const t = Buffer.from(v, 'base64').toString(); return client.eval(lua, 1, t); });",
+        })
+            Assert.DoesNotContain(PackageReview.Scan("index.js", code, install: false, default, peel: false), f => f.Rule == "package/eval-response");
+    }
+
+    [Fact]
     public void An_install_script_that_decodes_with_xor_and_detaches_and_a_main_that_hides_a_url_or_feeds_fetched_text_to_node_are_noteworthy()
     {
         var r = Review(Tgz("dayjs-2.3.12.tgz",

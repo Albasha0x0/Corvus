@@ -187,7 +187,9 @@ public static partial class PackageReview
         new("package/eval", "dynamic code", "review", R(@"\beval\s*\((?:[^'""`]|\z)|\bnew\s+Function\s*\(|\bvm\.runIn(?:This|New)Context\b"), "evaluates code built at run time (eval / Function)"),
         new("package/exec-decoded", "dynamic code", "noteworthy", R(@"\bexec\s*\(\s*(?:base64\.\w*decode|zlib\.decompress|marshal\.loads|codecs\.decode|bytes\.fromhex|__import__\(\s*['""](?:base64|zlib|marshal|codecs))|\bexec\s*\(\s*['""][^'""]*['""]\s*\.decode\(\s*['""](?:base64|hex|rot13|rot_13)|\bexec\s*\([^\n]{0,300}?\b(?:b64decode|b32decode|b85decode|a85decode|decompress|marshal\.loads|unhexlify|fromhex)\s*\("), "executes decoded code (exec of base64 / zlib / marshal)"),
         new("package/exec-download", "dynamic code", "noteworthy", R(@"\b(?:exec|eval)\s*\([^\n]{0,40}?\w*urlopen\s*\(|\b(?:exec|eval)\s*\(\s*requests\.get\s*\("), "executes code it downloads (exec of urlopen / requests)"),
-        new("package/eval-response", "dynamic code", "noteworthy", R(@"\beval\s*\(\s*\w+\.(?:data|body|responseText)\b[\w.]*\s*\)|\bnew\s+Function\s*\(\s*['""]require['""](?:\s*,\s*['""]\w+['""])*\s*,\s*[\w.]+\s*\)"), "runs code from a response (eval of response data, a Function given require)"),
+        new("package/eval-response", "dynamic code", "noteworthy", R(@"(?:^|[^.\w$])eval\s*\(\s*\w+\.(?:data|body|responseText)\b[\w.]*\s*\)|(?:\bnew\s+)?\(?\s*(?:\bFunction(?:\.constructor)?|\.constructor(?:\.constructor)?)\s*\)?\s*\(\s*['""]require['""](?:\s*,\s*['""]\w+['""])*\s*,\s*[\w.]+\s*\)|"
+            + ResponseCallback + "(?:" + DecodedRunInBlock + "|" + DecodedRunInExpression + ")"),
+            "runs code from a response (eval of response data or its base64 decode, a Function given require)"),
         new("package/file-host-program", "process", "noteworthy", R(@"https?://(?:dl\.dropbox(?:usercontent)?\.com|cdn\.discordapp\.com/attachments|files\.catbox\.moe|transfer\.sh|github\.com/[\w.-]+/[\w.-]+/raw)/[^\s'""]*?\.(?:exe|sh|bat|cmd|ps1|vbs|scr|msi)\b"), "downloads a program from a file-sharing host"),
         new("package/download-and-run", "process", "noteworthy", R(@"\bcurl(?:\.exe)?\s+[^\n]{0,60}?https?://[^\s'""]+\.(?:exe|scr|msi)\b|\b(?:curl|wget)\b[^\n]{0,200}?&&\s*chmod\s+\+x|\burlretrieve\s*\([\s\S]{0,600}?(?:\bPopen\s*\(|\bos\.(?:system|startfile)\s*\(|\bchmod\s*\()|\[\s*['""]node['""]\s*,\s*['""]-e['""]\s*,\s*\w+\.stdout"), "downloads a program or script and runs it"),
         new("package/download-and-start", "process", "noteworthy", DownloadsAndStarts, "downloads a program to a file and starts it"),
@@ -369,6 +371,19 @@ public static partial class PackageReview
 
     // Reads of the npm and PyPI publish token variables from JavaScript or Python.
     private const string PublishTokenRead = $@"\bprocess\.env(?:\.(?:{PublishTokens})\b|\[\s*['""`](?:{PublishTokens})['""`]\s*\])|\bos\.(?:environ(?:\.get\(|\[)|getenv\()\s*['""](?:{PublishTokens})['""]";
+
+    // A .then callback or a response 'end' handler, up to its body.
+    private const string ResponseCallback = @"\.(?:then\s*\(\s*(?:async\s+)?(?:(?:\(\s*[\w{}\s,]*\)|\w+)\s*=>|function\s*\w*\s*\(\s*[\w{}\s,]*\))|on\s*\(\s*['""]end['""]\s*,\s*(?:\(\s*\)\s*=>|function\s*\(\s*\)))";
+
+    private const string Base64Decode = @"Buffer\.from\s*\(\s*\w+\s*,\s*['""]base64['""]";
+
+    private const string RunsDecoded = @"(?:eval|Function)\s*\(\s*(?:atob\s*\(|" + Base64Decode + ")";
+
+    // Stops at the block's first '}'; skips member calls such as client.eval.
+    private const string DecodedRunInBlock = @"\s*\{(?:[^}]{0,200}?[^.\w$}])?(?:" + RunsDecoded + @"|\b" + Base64Decode + @"\s*\)(?:[^}]{0,120}?[^.\w$}])?eval\s*\()";
+
+    // Stops at the first ';' or '}', where an expression body ends.
+    private const string DecodedRunInExpression = @"(?:[^;}]{0,200}?[^.\w$;}])?(?:" + RunsDecoded + @"|\b" + Base64Decode + @"\s*\)(?:[^;}]{0,120}?[^.\w$;}])?eval\s*\()";
 
     private const string CiPath = @"[^'""`\n]*(?:\.github/workflows/|\.gitlab-ci\.yml|azure-pipelines\.yml|\.circleci/config\.yml|Jenkinsfile)[^'""`\n]*";
 
