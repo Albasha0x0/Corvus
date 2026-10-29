@@ -493,6 +493,46 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_preinstall_that_installs_a_named_package_from_the_parent_folder_is_noteworthy()
+    {
+        var r = Review(Tgz("sample-a-1.0.0.tgz",
+            ("package/package.json", """{"name":"sample-a","version":"1.0.0","scripts":{"preinstall":"cd .. && npm i sample-b"}}"""),
+            ("package/index.js", "module.exports = {};")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/nested-install", Level: "noteworthy" } && f.Detail.Contains("'sample-b'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Code_that_installs_a_package_and_loads_it_from_outside_its_root_is_noteworthy()
+    {
+        var r = Review(Tgz("sample-c-1.0.0.tgz",
+            ("package/package.json", """{"name":"sample-c","version":"1.0.0","main":"lib/w.js"}"""),
+            ("package/lib/w.js", "const { execSync } = require('child_process');\ntry { require('../../sample-d/a.js') } catch {\n  execSync('npm install sample-d --no-save')\n  require('../../sample-d/a.js')\n}")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/nested-install", Level: "noteworthy" } && f.Detail.Contains("outside the package root", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("execSync('npm install --no-save sample-native-x64')\nrequire('./binding.js')")]
+    [InlineData("console.log('run: cd .. && npm i sample-e')")]
+    [InlineData("subprocess.run('pip install sample-f', shell=True)")]
+    public void A_named_install_without_a_parent_folder_or_an_outside_require_is_not_reported(string code)
+    {
+        Assert.DoesNotContain(PackageReview.Scan("install.js", code, install: true, default, peel: false), f => f.Rule == "package/nested-install");
+    }
+
+    [Theory]
+    [InlineData("postinstall", "cd .. && npm install")]
+    [InlineData("postinstall", "cd .. && npm i --production")]
+    [InlineData("preinstall", "cd ../docs && npm i sample-g")]
+    [InlineData("postinstall", "cd .. && pip install -e .")]
+    public void A_parent_folder_install_script_without_a_named_package_or_with_a_sibling_folder_is_not_reported(string hook, string command)
+    {
+        var r = Review(Tgz("sample-h-1.0.0.tgz",
+            ("package/package.json", $$$"""{"name":"sample-h","version":"1.0.0","scripts":{"{{{hook}}}":"{{{command}}}"}}"""),
+            ("package/index.js", "module.exports = {};")));
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/nested-install");
+    }
+
+    [Fact]
     public void A_main_that_runs_code_from_a_response_is_noteworthy()
     {
         var r = Review(Tgz("string-utils-1.0.3.tgz", ("package/package.json", """{"name":"string-utils","version":"1.0.3","main":"index.js"}"""),

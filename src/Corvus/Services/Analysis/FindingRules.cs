@@ -78,6 +78,7 @@ public static class FindingRules
         N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment; or a small source file outside test folders POSTing two kinds of host identity near a literal URL", "sends host identity when loaded"),
         N("package/self-publish", "exact form: rewrites package.json and runs npm publish", "publishes itself"),
         N("package/ci-config-write", AtInstall + ", opening a CI pipeline file for writing", "writes a CI pipeline file"),
+        N("package/nested-install", "a named package manager install after cd .., or of a package the file loads from outside its root", "installs another package outside its own folder"),
         N("package/provenance-failed", "exact check: a digest, signature, chain or log entry check failed", "provenance does not hold"),
         // Package manifests.
         R("package/install-script", "a script the package manager runs at install"),

@@ -330,6 +330,8 @@ public static partial class PackageReview
                 $"{(install ? "at install: " : "")}sets a global git hooks path (git config --global core.hooksPath)", path);
         if (install && ShellTokenRead.IsMatch(plain))
             yield return new PackageFinding("package/credential-files", "noteworthy", "credentials", "at install: reads a publish token variable ($NPM_TOKEN, %TWINE_PASSWORD%)", path);
+        if (NestedInstall(path, plain, install) is { } nested)
+            yield return new PackageFinding("package/nested-install", "noteworthy", "dependency", (install ? "at install: " : "") + nested, path);
         if (ClipboardAddress(plain) is { } swap)
             yield return new PackageFinding("package/clipboard-address", install ? "noteworthy" : "review", "clipboard",
                 $"{(install ? "at install: " : "")}reads and writes the clipboard ({swap.Pair}) beside a {swap.Kind} address pattern", path);
@@ -465,6 +467,32 @@ public static partial class PackageReview
     private static string? WalletTarget(string text) =>
         AddressShapes.FirstOrDefault(a => a.Shape.IsMatch(text)).Kind is { } kind ? $"a {kind} address pattern"
         : text.Contains("window.ethereum", StringComparison.Ordinal) ? "window.ethereum" : null;
+    // A package manager install of a named package; group n is the name.
+    private const string NamedInstall = @"(?:(?:npm|pnpm)\s+(?:i|install|add)|yarn\s+add|pip3?\s+install)(?:\s+(?:--[\w-]+(?:=[^\s'""`]+)?|-[gDSEUq]))*\s+(?<n>[@\w][\w@./^~=<>-]{0,213})";
+    private const string ParentFolder = @"\bcd\s+\.\.(?:[/\\]\.\.)*[/\\]?\s*(?:&&|;)\s*";
+    private static readonly Regex ParentInstall = R(ParentFolder + NamedInstall);
+    private static readonly Regex OutsideRequire = R(@"\brequire\(\s*['""`](?:\.\./){2,}(?<t>(?:@[\w.-]+/)?[\w.-]+)");
+    private static readonly Regex CallInstall = R(@"\b(?:exec|execSync|spawn|spawnSync|system|run|call|Popen|check_call|check_output)\s*\(\s*['""`](?<up>" + ParentFolder + ")?" + NamedInstall);
+
+    /// <summary>What a nested install does: a named install after cd .. in an install script or a process call, or one whose package the file loads from outside its root; else null.</summary>
+    private static string? NestedInstall(string path, string text, bool install)
+    {
+        // Install script commands only; message text in code is not a command.
+        if (install && path.Contains("#scripts.", StringComparison.Ordinal) && ParentInstall.Match(text) is { Success: true } script)
+            return $"changes to the parent folder and installs '{script.Groups["n"].Value}' with a package manager";
+        HashSet<string>? outside = null;
+        foreach (Match call in CallInstall.Matches(text))
+        {
+            var name = call.Groups["n"].Value;
+            if (call.Groups["up"].Success) return $"runs a package manager in the parent folder to install '{name}'";
+            int at = name.IndexOf('@', 1);
+            var bare = (at > 0 ? name[..at] : name).Split('=', '<', '>', '^', '~')[0];
+            outside ??= OutsideRequire.Matches(text).Select(m => m.Groups["t"].Value).ToHashSet(StringComparer.Ordinal);
+            if (outside.Contains(bare))
+                return $"runs a package manager to install '{name}' and loads it from outside the package root";
+        }
+        return null;
+    }
 
     private static readonly Regex ShellTokenRead = R($@"\$\{{?(?:{PublishTokens})\b|%(?:{PublishTokens})%");
 
