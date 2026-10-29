@@ -1,5 +1,8 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using Corvus.Core;
 
 namespace Corvus.Tests;
@@ -35,6 +38,30 @@ public sealed class ContainerFuzzTests
         foreach (var (name, bytes) in seeds)
             failures.AddRange(FormatFuzz.Run(bytes, b => Open(b, name), 300).Select(f => $"{name}: {f}"));
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
+
+    // Regression for 25559c18: a fuzz edit set a Costura host's
+    // ManifestResource row count to 0x7FFFFFFF in a 148-byte tables stream.
+    [Fact]
+    public void A_host_whose_resource_rows_exceed_the_tables_stream_is_refused_without_a_large_allocation()
+    {
+        var host = ContainerFixtures.Module("Host", ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(Fixture)));
+        Assert.Contains(Containers.Open(host, "host.dll", AnalysisLimits.Default, default, allFiles: true).Items, i => i.Name.Contains("testfixture", StringComparison.OrdinalIgnoreCase));
+        int rows;
+        using (var pe = new PEReader(new MemoryStream(host)))
+        {
+            // The row counts end where the Module table starts.
+            var md = pe.GetMetadataReader();
+            int later = Enum.GetValues<TableIndex>().Count(t => t > TableIndex.ManifestResource && md.GetTableRowCount(t) > 0);
+            rows = pe.PEHeaders.MetadataStartOffset + md.GetTableMetadataOffset(TableIndex.Module) - 4 * (later + 1);
+        }
+        BinaryPrimitives.WriteInt32LittleEndian(host.AsSpan(rows), int.MaxValue);
+        var (offset, length) = MetadataSurvey.TablesStream(host)!.Value;
+        Assert.Equal($"metadata table ManifestResource declares 16777215 rows; the tables stream holds {length} bytes", MetadataRows.Check(host.AsSpan(offset, length)));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var opened = Containers.Open(host, "host.dll", AnalysisLimits.Default, default, allFiles: true);
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 32 << 20);
+        Assert.DoesNotContain(opened.Items, i => i.Name.Contains("testfixture", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
