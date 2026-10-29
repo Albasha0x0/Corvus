@@ -13,7 +13,11 @@ public sealed class PermitSchedulingTests
     {
         // One parallel slot, held by a collection that ends only when the
         // permit collection has run.
+        // Regression: a quick set beside push run 359a54f6 timed out here while
+        // the push run held every machine-wide reference-tool permit.
         PermitSchedulingFixtures.Reset();
+        var permits = Path.Combine(LeakGuard.RunTemp, "permits-" + Guid.NewGuid().ToString("N")[..8]);
+        MachinePermits.FolderScope.Value = permits;
         var results = new ResultSink();
         var assembly = new TestAssembly(Reflector.Wrap(typeof(PermitSchedulingFixtures).Assembly));
         IXunitTestCase Case(Type type, string method)
@@ -31,10 +35,21 @@ public sealed class PermitSchedulingTests
         var options = new Options();
         options.SetValue("xunit.execution.MaxParallelThreads", 1);
         options.SetValue("xunit.execution.DisableParallelization", false);
-        using var runner = new LeakGuardFramework.Runner(assembly, cases, new NullSink(), results, options, checkLeaks: false);
-        var summary = await runner.RunAsync().WaitAsync(TimeSpan.FromMinutes(2));
-        Assert.True(summary.Failed == 0, string.Join("\n", results.Failures));
-        Assert.Equal(2, summary.Total);
+        try
+        {
+            using (var runner = new LeakGuardFramework.Runner(assembly, cases, new NullSink(), results, options, checkLeaks: false))
+            {
+                var summary = await runner.RunAsync().WaitAsync(TimeSpan.FromMinutes(2));
+                Assert.True(summary.Failed == 0, string.Join("\n", results.Failures));
+                Assert.Equal(2, summary.Total);
+            }
+            Assert.True(Directory.Exists(Path.Combine(permits, "reference-tool")));
+        }
+        finally
+        {
+            MachinePermits.FolderScope.Value = null;
+            if (Directory.Exists(permits)) Directory.Delete(permits, recursive: true);
+        }
     }
 
     private sealed class NullSink : LongLivedMarshalByRefObject, IMessageSink

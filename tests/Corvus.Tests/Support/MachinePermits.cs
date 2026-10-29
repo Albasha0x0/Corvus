@@ -52,7 +52,11 @@ public static class MachinePermits
     private static readonly object LogLock = new();
 
     /// <summary>The folder of the slot files, in the machine's temporary folder rather than the run's own.</summary>
-    public static string Folder => Path.Combine(LeakGuard.SharedTemp, "corvus-test-data", "permits");
+    public static string Folder => FolderScope.Value ?? Path.Combine(LeakGuard.SharedTemp, "corvus-test-data", "permits");
+
+    // A runner test takes its permits from a folder of its own, so a run beside
+    // it that holds every slot cannot stall it.
+    internal static readonly AsyncLocal<string?> FolderScope = new();
 
     /// <summary>
     /// The resources a test collection's runnable cases need, in name order; empty when none does or every case is
