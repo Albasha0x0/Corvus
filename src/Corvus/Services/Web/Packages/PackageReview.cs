@@ -7,8 +7,10 @@ using Corvus.Services.Web.Scripts;
 namespace Corvus.Services.Web.Packages;
 
 /// <param name="Rule">The rule id in <see cref="FindingRules"/>.</param>
-/// <param name="Level">noteworthy (look before installing), review (expected in some packages) or info; a level above the rule's row throws.</param>
-/// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, permission, activation, remote code, hidden text, agent configuration, repository hook, build step, rule match (GuardDog), provenance.</param>
+/// <param name="Level">noteworthy (look before installing), review (expected in
+/// some packages) or info (listed); a level above the rule's row
+/// throws.</param>
+/// <param name="Category">install script, network, process, dynamic code, credentials, host details, exfiltration, persistence, publishing, transformed code, binary, name, version, dependency, permission, activation, remote code, hidden text, agent configuration, repository hook, build step, rule match (GuardDog), provenance.</param>
 /// <param name="Line">1-based line in <paramref name="Path"/>, when the finding has one.</param>
 public sealed record PackageFinding(string Rule, string Level, string Category, string Detail, string? Path = null, int? Line = null)
 {
@@ -65,10 +67,9 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     internal IReadOnlyList<string>? Hosts { get; init; }
 }
 
-/// <summary>Reviews npm, PyPI, RubyGems, VSIX and browser extension packages and agent configuration without installing or running them.</summary>
 /// <summary>
-/// Reviews npm, PyPI, NuGet, Composer, VSIX and browser extension packages and
-/// agent configuration without installing or running them.
+/// Reviews npm, PyPI, RubyGems, NuGet, Composer, VSIX and browser extension
+/// packages and agent configuration without installing or running them.
 /// </summary>
 public static partial class PackageReview
 {
@@ -224,7 +225,7 @@ public static partial class PackageReview
         new("package/raw-address-url", "exfiltration", Paired, RawAddressUrl(), "sends to a raw address"),
         new("package/raw-address-socket", "exfiltration", "noteworthy", RawAddressSocket(), "opens a socket to a raw address"),
         new("package/reverse-shell", "process", "noteworthy", R(@"bash\s+-i\s*>&\s*/dev/tcp/|/dev/tcp/[\w.-]+/\d+|\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+/bin/|\bos\.dup2\(\s*\w+\.fileno\(\)|\bpty\.spawn\(\s*['""]/bin/(?:ba)?sh"), "hands a shell to a network connection (reverse shell)"),
-        new("package/download-to-shell", "process", "noteworthy", ShellPipe, "runs a downloaded script (download piped to a shell)"),
+        new("package/download-to-shell", "process", "noteworthy", HasShellPipe, "runs a downloaded script (download piped to a shell)"),
         new("package/hidden-powershell", "process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
         new("package/logon-start", "persistence", "noteworthy", Code(R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user")), "writes to a location that starts programs at logon"),
         new("package/access-persistence", "persistence", "noteworthy", AddsAuthorizedKey, "appends a public key to authorized_keys"),
@@ -1137,12 +1138,23 @@ public static partial class PackageReview
     private static readonly Regex AnyUrl = R(@"https?://[^\s'""`)]+");
     private static readonly Regex VendorInstallerUrl = R(@"^https://(?:dot\.net|dotnet\.microsoft\.com|builds\.dotnet\.microsoft\.com)/|^https://raw\.githubusercontent\.com/dotnet/install-scripts/|^https://gh\.io/copilot-install$|^https://astral\.sh/uv/install\.(?:sh|ps1)$");
 
+    private static readonly Regex BarePipe = R(@"^(?:curl|wget)\s*\|");
+
+    /// <summary>Whether text pipes a download into a shell; a curl or wget with no argument is prose naming the pattern.</summary>
+    private static bool HasShellPipe(string text)
+    {
+        foreach (var pipe in ShellPipe.EnumerateMatches(text))
+            if (!BarePipe.IsMatch(text.AsSpan(pipe.Index, pipe.Length))) return true;
+        return false;
+    }
+
     /// <summary>Whether every pipe-to-shell match starts from a vendor installer URL; false when there is none.</summary>
     private static bool PipesOnlyVendorInstallers(string text)
     {
         bool any = false;
         foreach (var pipe in ShellPipe.EnumerateMatches(text))
         {
+            if (BarePipe.IsMatch(text.AsSpan(pipe.Index, pipe.Length))) continue;
             any = true;
             if (!FirstUrlIsVendorInstaller(text.AsSpan(pipe.Index, pipe.Length))) return false;
         }

