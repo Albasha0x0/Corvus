@@ -313,6 +313,11 @@ public static partial class PackageReview
             yield return new PackageFinding("package/response-command", "noteworthy", "remote code", "runs a command read from a network response or socket", path);
         if (ChatWebhook.IsMatch(plain) && (WebhookSecret.IsMatch(plain) || WalletSecret.IsMatch(plain)))
             yield return new PackageFinding("package/webhook-secrets", "noteworthy", "exfiltration", "sends passwords, keys, tokens or wallet secrets to a chat webhook", path);
+        // Bundles carry their own deny lists and redaction patterns, so past
+        // 64 KiB outside install this is review.
+        if (hits.Contains("network") && SecretShape.IsMatch(plain) && HomeFolderList.IsMatch(plain) && HomeDirectory.IsMatch(plain) && FolderRead.IsMatch(plain))
+            yield return new PackageFinding("package/secret-collector", install || plain.Length <= 64 << 10 ? "noteworthy" : "review", "credentials",
+                "reads home credential folders (.ssh, .aws), holds token patterns (AKIA, ghp_, sk-) and reaches the network", path);
         // A beacon at load: host identity or the environment sent from entry code.
         if (entry && hits.Contains("network") && SendsLoadBeacon(plain))
         // A beacon at load: host identity or the environment sent from entry code,
@@ -683,6 +688,14 @@ public static partial class PackageReview
     }
     private static readonly Regex ChatWebhook = R(@"https?://(?:[\w-]+\.)?discord(?:app)?\.com/api/webhooks/|https?://api\.telegram\.org/bot");
     private static readonly Regex WebhookSecret = R(@"(?i)\b\w*webhook\w*\s*\([^()\n]{0,200}?\b(?:password|passwd|api[_ ]?key|token|secret|cookies?)\b");
+    // Regular expression literals for cloud, source host and API tokens.
+    private static readonly Regex SecretShape = R(@"\b(?:AKIA|ASIA)(?:\[(?:0-9A-Z|A-Z0-9)|\|)|\bA3T\[A-Z0-9\]|\bgh(?:p|\[[pousr]{2,5}\])_\[|\bxox(?:[bp]-(?:\[|\(|\\d)|\[[a-z]{2,6}\]-)|\bsk-(?:proj-)?\[[A-Za-z0-9_-]{3}");
+    private const string CredentialFolder = @"['""`]\.(?:ssh|aws|kube|docker|gnupg|azure)['""`]";
+    // Two credential folder literals in one list, up to eight dot folders between.
+    private static readonly Regex HomeFolderList = R($@"{CredentialFolder}(?:\s*,\s*['""`]\.[\w-]{{1,20}}['""`]){{0,8}}\s*,\s*{CredentialFolder}");
+    private static readonly Regex HomeDirectory = R(@"\bPath\.home\(\)|\bexpanduser\(\s*['""]~|\bhomedir\(\)|\benviron(?:\.get\(|\[)\s*['""](?:HOME|USERPROFILE)['""]|\bprocess\.env\.(?:HOME|USERPROFILE)\b|\bgetenv\(\s*['""](?:HOME|USERPROFILE)");
+    // A folder walk or file read; a deny list that is never read does not count.
+    private static readonly Regex FolderRead = R(@"\bos\.(?:walk|listdir|scandir)\(|\.(?:rglob|glob|iterdir|read_text|read_bytes)\(|\bopen\(|\breaddir(?:Sync)?\(|\breadFile(?:Sync)?\(");
     private static readonly Regex WalletSecret = R(@"(?i)\bprivate_?keys?\b|\bmnemonic\b|\bseed_?phrase\b");
     private const string Shell = @"\b(?:spawn|exec|Popen|call|run)\s*\(\s*\[?\s*['""](?:/bin/(?:ba|z)?sh|sh|bash|cmd(?:\.exe)?|powershell(?:\.exe)?)['""]";
     // A socket near a spawned shell or a child piped to it; bounded gaps keep work per start constant, so no match timeout.

