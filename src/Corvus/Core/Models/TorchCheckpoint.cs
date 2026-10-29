@@ -23,8 +23,8 @@ public sealed class TorchCheckpoint
     public static bool IsLegacy(ReadOnlySpan<byte> head) =>
         head.Length >= 14 && head[0] == 0x80 && head[1] == 0x02 && head[2] == 0x8a && head[3] == 0x0a && head.Slice(4, 10).SequenceEqual(LegacyMagic);
 
-    /// <summary>Reads a zip checkpoint from <paramref name="s"/>; throws <see cref="InvalidDataException"/> when it has no data.pkl.</summary>
-    public static TorchCheckpoint ReadZip(Stream s, CancellationToken ct = default)
+    /// <summary>Reads a zip checkpoint from <paramref name="s"/>; throws <see cref="InvalidDataException"/> when it has no data.pkl or one over <paramref name="maxPickle"/> bytes.</summary>
+    public static TorchCheckpoint ReadZip(Stream s, CancellationToken ct = default, long maxPickle = int.MaxValue)
     {
         using var zip = new ZipArchive(s, ZipArchiveMode.Read, leaveOpen: true);
         var pkl = zip.Entries.Where(e => e.FullName == "data.pkl" || e.FullName.EndsWith("/data.pkl", StringComparison.Ordinal))
@@ -38,7 +38,7 @@ public sealed class TorchCheckpoint
             using var r = new StreamReader(e.Open());
             return r.ReadToEnd().Trim();
         }
-        if (pkl.Length > int.MaxValue) throw new InvalidDataException($"data.pkl is {pkl.Length:N0} bytes");
+        if (pkl.Length > Math.Min(maxPickle, int.MaxValue)) throw new InvalidDataException($"data.pkl is {pkl.Length:N0} bytes, over the {Math.Min(maxPickle, int.MaxValue):N0} byte limit");
         var bytes = new byte[pkl.Length];
         using (var p = pkl.Open()) p.ReadExactly(bytes);
         var scan = PickleScan.Read(new MemoryStream(bytes, writable: false), bytes.Length, ct);

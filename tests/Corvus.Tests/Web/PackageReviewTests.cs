@@ -1206,6 +1206,68 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(PackageReview.Scan("index.js", opener, install: false, default, entry: true, peel: false), f => f.Rule == "package/loaded-detached");
     }
 
+    // A zip checkpoint whose protocol 2 pickle calls GLOBAL module.name
+    // on the inert string "pass".
+    private static byte[] Checkpoint(string module, string name) =>
+        ContainerFixtures.Zip([("m/data.pkl", [0x80, 0x02, (byte)'c', .. U($"{module}\n{name}\n"), (byte)'X', 4, 0, 0, 0, .. U("pass"), 0x85, (byte)'R', (byte)'.'])]);
+
+    [Fact]
+    public void A_wheel_model_whose_pickle_imports_exec_is_noteworthy_and_its_unsafe_load_is_review()
+    {
+        var r = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/model.pt", Checkpoint("__builtin__", "exec")),
+            ("tool/__init__.py", U("import os, torch\np = os.path.join(os.path.dirname(__file__), 'model.pt')\nm = torch.load(p, weights_only=False)\n")))));
+        var f = Assert.Single(r.Findings, f => f.Rule == "package/pickle-code");
+        Assert.Equal(("noteworthy", "tool/model.pt"), (f.Level, f.Path));
+        Assert.Equal("tool/model.pt: the pickle imports __builtin__.exec, which runs when it is loaded; tool/__init__.py loads it with code allowed", f.Detail);
+        Assert.Contains(r.Findings, f => f is { Rule: "package/pickle-load", Level: "review", Path: "tool/__init__.py" });
+    }
+
+    [Fact]
+    public void An_sdist_setup_py_that_loads_a_pickle_with_code_allowed_is_noteworthy_and_an_unshipped_model_is_a_note()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "import torch\nfrom setuptools import setup\ntorch.load('src/tool/weights.pt', weights_only=False)\nsetup(name='tool')\n"),
+            ("tool-1.0/src/tool/__init__.py", "")));
+        var f = Assert.Single(r.Findings, f => f.Rule == "package/pickle-load");
+        Assert.Equal(("noteworthy", "tool-1.0/setup.py"), (f.Level, f.Path));
+        Assert.Contains("tool-1.0/setup.py names weights.pt, which the package does not ship; not checked", r.Notes);
+    }
+
+    [Fact]
+    public void An_sdist_setup_py_that_loads_a_shipped_plain_dictionary_pickle_is_review()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/setup.py", "import torch\nfrom setuptools import setup\ntorch.load('model.pkl', weights_only=False)\nsetup(name='tool')\n"),
+            ("tool-1.0/src/tool/model.pkl", "ccollections\nOrderedDict\n)R."), ("tool-1.0/src/tool/__init__.py", "")));
+        Assert.Equal("review", Assert.Single(r.Findings, f => f.Rule == "package/pickle-load").Level);
+        Assert.DoesNotContain(r.Findings, f => f.Rule == "package/pickle-code");
+    }
+
+    [Fact]
+    public void A_test_pickle_that_imports_os_system_and_no_loader_names_is_review()
+    {
+        var r = Review(Tgz("tool-1.0.tar.gz", ("tool-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: tool\nVersion: 1.0\n"),
+            ("tool-1.0/tests/data/sample.pkl", "cos\nsystem\n(S'pass'\ntR."), ("tool-1.0/src/tool/__init__.py", "")));
+        var f = Assert.Single(r.Findings, f => f.Rule == "package/pickle-code");
+        Assert.Equal(("review", "tool-1.0/tests/data/sample.pkl"), (f.Level, f.Path));
+    }
+
+    [Fact]
+    public void A_protocol_0_pickle_that_imports_os_popen_is_noteworthy()
+    {
+        var r = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/state.pkl", U("cos\npopen\n(S'pass'\ntR.")), ("tool/__init__.py", U("")))));
+        var f = Assert.Single(r.Findings, f => f.Rule == "package/pickle-code");
+        Assert.Equal(("noteworthy", "tool/state.pkl: the pickle imports os.popen, which runs when it is loaded"), (f.Level, f.Detail));
+    }
+
+    [Fact]
+    public void A_model_of_plain_dictionaries_loaded_safely_has_no_pickle_finding()
+    {
+        var r = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/model.pt", Checkpoint("collections", "OrderedDict")), ("tool_hook.pth", U("tool\n")),
+            ("tool/__init__.py", U("import torch\nm = torch.load('model.pt', weights_only=True)\n")))));
+        Assert.DoesNotContain(r.Findings, f => f.Rule is "package/pickle-code" or "package/pickle-load");
+    }
+
     [Fact]
     public void A_bin_named_like_a_system_command_is_reported_and_noteworthy_beside_an_install_script()
     {

@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using Corvus.Core.Models;
 
 namespace Corvus.Services.Web.Packages;
 
@@ -18,6 +19,10 @@ public static partial class PackageReview
     }
 
     private static readonly Regex NotImported = new(@"(?:^|/)(?:tests?|testing|examples?|docs?|benchmarks?)/|(?:^|/)(?:test_[^/]*|[^/]*_test|conftest)\.py$", RegexOptions.NonBacktracking);
+
+    private static IEnumerable<string> ImportTimeSources(PackageFiles files) =>
+        files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
+            .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/'));
 
     private static readonly Regex StealerKit = new(@"(?i)\b(?:browser[_-]cookie3|discord[_-]?webhook|robloxpy|discord_webhook)\b", RegexOptions.NonBacktracking);
 
@@ -109,8 +114,7 @@ public static partial class PackageReview
                 entries.AddRange(EntryPoints(CfgGroup().Replace(cfgEntries.Groups[1].Value, "[$1]")));
         }
         // Import-time code, __init__ modules first; tests, examples and docs are not imported.
-        List<string> sources = [.. files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
-            .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/'))];
+        List<string> sources = [.. ImportTimeSources(files)];
         foreach (var source in Capped(files, sources))
             if (files.Text(source) is { } code)
                 findings.AddRange(Scan(source, code, install: false, ct, entry: source.EndsWith("__init__.py", StringComparison.Ordinal))
@@ -169,6 +173,7 @@ public static partial class PackageReview
         if (outside.Count > 0)
             findings.Add(new PackageFinding("package/dependency-source", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "dependency",
                 $"{outside.Count} dependenc{(outside.Count == 1 ? "y" : "ies")} from outside the registry: {string.Join(", ", outside.Take(5))}", outsideAt));
+        findings.AddRange(PickleCode(files, distInfo == null ? moduleRoot + "setup.py" : null, notes, ct));
         if (HighVersion(version) is { } high)
             findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher"));
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
@@ -333,5 +338,81 @@ public static partial class PackageReview
         if (differ > 0) findings.Add(new PackageFinding("package/record-differs", "noteworthy", "record", $"{differ} file(s) differ from their RECORD hash: {string.Join(", ", differing.Take(5))}", differing[0]));
         if (unlisted.Count > 0) findings.Add(new PackageFinding("package/record-unlisted", "review", "record", $"{unlisted.Count} file(s) not listed in RECORD: {string.Join(", ", unlisted.Take(5))}", unlisted[0]));
         return $"{match} match, {differ} differ, {unlisted.Count} not listed";
+    }
+
+    private static readonly Regex ModelFile = R(@"\.(?:pt|pth|pkl|ckpt)$");
+
+    private static readonly Regex UnsafeLoad = R(@"\btorch\.load\([^\r\n]*\bweights_only\s*=\s*False|\bpickle\.load\(\s*open\([^)\r\n]*(?:__file__|\.(?:pt|pth|pkl|ckpt)['""])");
+
+    private static readonly Regex ModelLiteral = R(@"['""]([^'""\r\n]*\.(?:pt|pth|pkl|ckpt))['""]");
+
+    /// <summary>True for a pickle global that runs code or a command when loaded.</summary>
+    private static bool RunsCode(string name) =>
+        name is "builtins.exec" or "builtins.eval" or "builtins.compile" or "builtins.__import__"
+            or "__builtin__.exec" or "__builtin__.eval" or "__builtin__.compile" or "__builtin__.__import__" or "os.system" or "os.popen"
+        || name.StartsWith("os.exec", StringComparison.Ordinal) || name.StartsWith("os.spawn", StringComparison.Ordinal)
+        || name.StartsWith("os.posix_spawn", StringComparison.Ordinal)
+        || name.StartsWith("posix.", StringComparison.Ordinal) || name.StartsWith("nt.", StringComparison.Ordinal)
+        || name.StartsWith("subprocess.", StringComparison.Ordinal) || name.StartsWith("runpy.", StringComparison.Ordinal);
+
+    private static string BaseName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
+
+    /// <summary>Model pickles that import code-running globals, and unsafe loads in setup.py or import-time code; empty when none.</summary>
+    private static List<PackageFinding> PickleCode(PackageFiles files, string? setup, List<string> notes, CancellationToken ct)
+    {
+        var findings = new List<PackageFinding>();
+        var models = new List<(string Path, List<string> Code)>();
+        foreach (var path in files.Paths.Where(p => ModelFile.IsMatch(p)).Order(StringComparer.Ordinal))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (files.Bytes(path) is not { } bytes)
+            {
+                notes.Add($"{path}: model file not read; its pickle is not checked");
+                continue;
+            }
+            PickleScan? scan = null;
+            try
+            {
+                using var s = new MemoryStream(bytes, writable: false);
+                if (bytes.AsSpan().StartsWith("PK\x03\x04"u8)) scan = TorchCheckpoint.ReadZip(s, ct, PackageFiles.MaxFile).Pickle;
+                else if (TorchCheckpoint.IsLegacy(bytes)) scan = TorchCheckpoint.ReadLegacy(s, bytes.Length, ct).Pickle;
+                // Protocol 0 and 1 pickles have no PROTO header; they start with an opcode.
+                else if (PickleScan.Looks(bytes) || bytes.Length > 0 && "ci(]})SVINKJ"u8.IndexOf(bytes[0]) >= 0) scan = PickleScan.Read(s, bytes.Length, ct);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+            {
+                notes.Add($"{path}: {ex.Message}; its pickle is not checked");
+            }
+            if (scan?.Imports.Select(i => i.Name).Where(RunsCode).Distinct().ToList() is { Count: > 0 } code) models.Add((path, code));
+        }
+        var loads = new List<(string Path, bool Install, HashSet<string> Names)>();
+        // Setup.py first, then the import-time scan's sources in its order; that
+        // scan names the sources past the cap in the not-read list.
+        var sources = ImportTimeSources(files).Take(MaxScannedSources);
+        if (setup != null) sources = sources.Prepend(setup);
+        foreach (var source in sources)
+        {
+            if (files.Text(source) is not { } code || UnsafeLoad.Match(code) is not { Success: true } m) continue;
+            var named = ModelLiteral.Matches(code).Select(l => BaseName(l.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);
+            var unshipped = named.Where(n => !files.Paths.Any(p => BaseName(p) == n)).ToList();
+            foreach (var name in unshipped) notes.Add($"{source} names {name}, which the package does not ship; not checked");
+            bool install = source == setup;
+            // A load alone is review; setup.py naming a model that runs code or
+            // that the package does not ship is noteworthy.
+            bool noteworthy = install && (unshipped.Count > 0 || models.Any(x => named.Contains(BaseName(x.Path))));
+            loads.Add((source, install, named));
+            findings.Add(new PackageFinding("package/pickle-load", noteworthy ? "noteworthy" : "review", "binary",
+                $"{source} loads a pickle with code allowed: {Clip(m.Value, 160)}" + (install ? ", while installing" : ""), source));
+        }
+        foreach (var (path, code) in models)
+        {
+            var loader = loads.FirstOrDefault(l => l.Names.Contains(BaseName(path)));
+            var detail = $"{path}: the pickle imports {string.Join(", ", code.Take(5))}, which runs when it is loaded";
+            if (loader.Path != null) detail += $"; {loader.Path} loads it with code allowed" + (loader.Install ? ", while installing" : "");
+            // Test and example pickles are not loaded unless a loader names them.
+            var level = loader.Path == null && NotImported.IsMatch(path) ? "review" : "noteworthy";
+            findings.Add(new PackageFinding("package/pickle-code", level, "binary", detail, path));
+        }
+        return findings;
     }
 }
