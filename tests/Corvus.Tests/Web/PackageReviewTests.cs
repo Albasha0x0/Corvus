@@ -704,6 +704,43 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void Install_code_that_replaces_a_command_under_the_global_prefix_is_noteworthy_and_a_prefix_read_is_not()
+    {
+        const string replace = "import fs from 'node:fs';\nimport path from 'node:path';\nconst own = path.join(import.meta.dirname, 'tool.js');\n"
+            + "const target = path.join(process.env.npm_config_prefix, 'bin', 'tool');\nfs.rmSync(target, { force: true });\nfs.symlinkSync(own, target);\n";
+        var r = Review(Tgz("tool-1.0.0.tgz", ("package/package.json", """{"name":"tool","version":"1.0.0","scripts":{"postinstall":"node p.mjs"}}"""), ("package/p.mjs", replace)));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/command-replace", Level: "noteworthy", Path: "package/p.mjs" });
+        const string shim = "const fs = require('fs');\nconst dir = process.env.PREFIX;\nfs.writeFileSync(require('path').join(dir, 'tool.cmd'), '@ECHO OFF\\r\\n');\n";
+        var cmd = Review(Tgz("tool-1.0.1.tgz", ("package/package.json", """{"name":"tool","version":"1.0.1","scripts":{"postinstall":"node p.js"}}"""), ("package/p.js", shim)));
+        Assert.Contains(cmd.Findings, f => f is { Rule: "package/command-replace", Level: "noteworthy" });
+        var read = Review(Tgz("tool-1.0.2.tgz", ("package/package.json", """{"name":"tool","version":"1.0.2","scripts":{"postinstall":"node p.js"}}"""),
+            ("package/p.js", "console.log('prefix: ' + process.env.npm_config_prefix);\n")));
+        Assert.DoesNotContain(read.Findings, f => f.Rule == "package/command-replace");
+        var loaded = Review(Tgz("tool-1.0.3.tgz", ("package/package.json", """{"name":"tool","version":"1.0.3","main":"p.mjs"}"""), ("package/p.mjs", replace)));
+        Assert.DoesNotContain(loaded.Findings, f => f.Rule == "package/command-replace");
+    }
+
+    [Theory]
+    [InlineData("fs.linkSync(__filename, path.join(process.env.npm_config_prefix, 'bin', 'tool'));")]
+    [InlineData("fs.copyFileSync('own.js', path.join(process.env.npm_config_prefix, 'bin', 'tool'));")]
+    [InlineData("await fs.promises.rm(path.join(process.env['npm_config_prefix'], 'tool.cmd'));")]
+    [InlineData("fs.writeFileSync(path.join(process.env.npm_config_prefix, 'bin', 'tool'), 'x');")]
+    [InlineData("const root = execSync('npm prefix -g').toString().trim();\nfs.unlinkSync(path.join(root, 'bin', 'tool'));")]
+    [InlineData("const { npm_config_prefix } = process.env;\nfs.rmSync(path.join(npm_config_prefix, 'tool.ps1'));")]
+    [InlineData("const { npm_config_prefix: p } = process.env;\nconst t = path.join(p, 'bin', 'tool');\nfs.renameSync('own.js', t);")]
+    public void Each_install_call_form_on_a_prefix_command_path_is_noteworthy(string code) =>
+        Assert.Equal("noteworthy", PackageReview.Scan("p.js", code, install: true, default, peel: false).Single(f => f.Rule == "package/command-replace").Level);
+
+    [Fact]
+    public void A_prefix_read_beside_a_delete_of_another_path_is_not_reported()
+    {
+        const string npm = "console.log(process.env.npm_config_prefix);\nconst isGlobal = !!process.env.npm_config_prefix;\nfs.unlinkSync(path.join(__dirname, 'bin.tgz'));\nfs.rmSync(path.join(__dirname, 'bin', 'tool'));\n";
+        Assert.DoesNotContain(PackageReview.Scan("p.js", npm, install: true, default, peel: false), f => f.Rule == "package/command-replace");
+        const string py = "import os\nprefix = os.environ.get('PREFIX')\nos.remove('build/tmp.o')\n";
+        Assert.DoesNotContain(PackageReview.Scan("setup.py", py, install: true, default, peel: false), f => f.Rule == "package/command-replace");
+    }
+
+    [Fact]
     public void A_joined_workflow_path_written_through_a_variable_at_install_is_noteworthy()
     {
         var r = Review(Tgz("ci-1.0.3.tgz", ("package/package.json", """{"name":"ci","version":"1.0.3","scripts":{"postinstall":"node setup.js"}}"""),

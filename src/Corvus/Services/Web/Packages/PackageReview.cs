@@ -291,6 +291,11 @@ public static partial class PackageReview
             yield return new PackageFinding("package/install-detached", "noteworthy", "process", "at install: starts a background process that outlives the install", path);
         if (install && XorDecode.IsMatch(plain))
             yield return new PackageFinding("package/install-xor", "noteworthy", "transformed code", "at install: decodes its strings with XOR", path);
+        // The package manager links a package's own commands; install code that
+        // edits files under the global prefix replaces commands it does not own.
+        if (install && ReplacesGlobalCommand(plain))
+            yield return new PackageFinding("package/command-replace", "noteworthy", "install script",
+                "at install: deletes, links, copies over or writes a command file under the global npm prefix", path);
         if (hits.Contains("network") && InterpreterStdin.IsMatch(plain))
             yield return new PackageFinding("package/stdin-remote-code", "noteworthy", "remote code", "runs code it fetches through an interpreter's standard input", path);
         if (ChatWebhook.IsMatch(plain) && (WebhookSecret.IsMatch(plain) || WalletSecret.IsMatch(plain)))
@@ -480,6 +485,39 @@ public static partial class PackageReview
     private const string Socket = @"\bnew\s+net\.Socket\b|\bnet\.(?:connect|createConnection)\s*\(|\bsocket\.socket\s*\(";
     private static readonly Regex Detached = R(@"\bdetached\s*:\s*(?:true|!0)|\bstart_new_session\s*=\s*True|\bDETACHED_PROCESS\b|\bnohup\s");
     private static readonly Regex XorDecode = R(@"\bfromCharCode\s*\([^()\n]{0,80}\^|\bchr\s*\([^()\n]{0,60}\^");
+    // The global npm prefix: an environment read, a destructured read or the
+    // npm command that prints it.
+    private static readonly Regex GlobalPrefix = R(@"\bprocess\.env(?:\.(?:npm_config_prefix|PREFIX)\b|\[\s*['""](?:npm_config_prefix|PREFIX)['""]\s*\])|\bnpm\s+(?:prefix|root|bin)\s+-g\b"
+        + @"|\{[^{}]{0,80}\bnpm_config_prefix\b[^{}]{0,80}\}\s*=\s*process\.env");
+    private static readonly Regex PrefixRename = R(@"\bnpm_config_prefix\s*:\s*(?<v>[A-Za-z_$][\w$]*)");
+    private static readonly Regex Declaration = R(@"\b(?:const|let|var)\s+(?<v>[A-Za-z_$][\w$]*)\s*=\s*(?<e>[^;\n]{1,300})");
+    private static readonly Regex CommandCall = R(@"(?:\b(?:fs|fsp|promises)\.(?:rm|unlink|symlink|link|rename|copyFile|cp|writeFile)|\b(?:rm|unlink|symlink|link|rename|copyFile|cp|writeFile)Sync)\s*\(\s*(?<a>[^;\n]{1,300})");
+    private static readonly Regex CommandSegment = R(@"['""`](?:bin(?:[/\\][\w.-]+)?|[\w.-]+\.(?:cmd|ps1))['""`]");
+
+    /// <summary>True when an fs call deletes, links, copies or writes a path built from the global npm prefix with a bin segment or a .cmd or .ps1 name.</summary>
+    private static bool ReplacesGlobalCommand(string text)
+    {
+        if (!GlobalPrefix.IsMatch(text)) return false;
+        var prefixNames = new HashSet<string>(StringComparer.Ordinal) { "npm_config_prefix" };
+        foreach (Match m in PrefixRename.Matches(text)) prefixNames.Add(m.Groups["v"].Value);
+        bool Prefixed(string code) => GlobalPrefix.IsMatch(code) || Identifier.Matches(code).Any(m => prefixNames.Contains(m.Value));
+        // Declarations are read in source order, so a name holding the prefix
+        // is known before a later path join uses it.
+        var pathNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match d in Declaration.Matches(text))
+        {
+            var e = d.Groups["e"].Value;
+            if (CommandSegment.IsMatch(e) && Prefixed(e)) pathNames.Add(d.Groups["v"].Value);
+            // Only a direct prefix read names the prefix, so a flag derived from it does not.
+            else if (GlobalPrefix.IsMatch(e)) prefixNames.Add(d.Groups["v"].Value);
+        }
+        foreach (Match c in CommandCall.Matches(text))
+        {
+            var args = c.Groups["a"].Value;
+            if (Identifier.Matches(args).Any(m => pathNames.Contains(m.Value)) || CommandSegment.IsMatch(args) && Prefixed(args)) return true;
+        }
+        return false;
+    }
     private static readonly Regex InterpreterStdin = R(@"\bspawn\s*\(\s*['""](?:node|python3?|sh|bash)['""][\s\S]{0,300}?\.stdin\.(?:write|end)\s*\((?:[^'""`]|\z)");
     private static readonly Regex ChatWebhook = R(@"https?://(?:[\w-]+\.)?discord(?:app)?\.com/api/webhooks/|https?://api\.telegram\.org/bot");
     private static readonly Regex WebhookSecret = R(@"(?i)\b\w*webhook\w*\s*\([^()\n]{0,200}?\b(?:password|passwd|api[_ ]?key|token|secret|cookies?)\b");
