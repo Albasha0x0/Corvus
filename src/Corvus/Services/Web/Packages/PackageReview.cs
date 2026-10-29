@@ -181,6 +181,18 @@ public static partial class PackageReview
 
     private static readonly Regex ShellPipe = R(@"(?:curl|wget)\b[^\n|;]{0,300}\|\s*(?:sudo\s+)?(?:ba|z)?sh\b|\bsh\s+-c\s+['""]?\$\((?:curl|wget)\b|(?i:\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod|DownloadString)\b[^\n]{0,300}(?:\|\s*iex\b|Invoke-Expression))");
 
+    /// <summary>A rule test that counts a match only outside a comment line (one that starts with *, //, # or /*).</summary>
+    private static Func<string, bool> Code(Regex pattern) => text =>
+    {
+        foreach (var m in pattern.EnumerateMatches(text))
+        {
+            int start = text.LastIndexOf('\n', Math.Max(0, m.Index - 1)) + 1;
+            var line = text.AsSpan(start, m.Index - start).TrimStart();
+            if (!(line.StartsWith("*") || line.StartsWith("//") || line.StartsWith("#") || line.StartsWith("/*"))) return true;
+        }
+        return false;
+    };
+
     /// <summary>What code reaches, by pattern: each rule names what it found. Levels are raised by the install-time context.</summary>
     private static readonly Rule[] CodeRules =
     [
@@ -213,9 +225,9 @@ public static partial class PackageReview
         new("package/reverse-shell", "process", "noteworthy", R(@"bash\s+-i\s*>&\s*/dev/tcp/|/dev/tcp/[\w.-]+/\d+|\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+/bin/|\bos\.dup2\(\s*\w+\.fileno\(\)|\bpty\.spawn\(\s*['""]/bin/(?:ba)?sh"), "hands a shell to a network connection (reverse shell)"),
         new("package/download-to-shell", "process", "noteworthy", ShellPipe, "runs a downloaded script (download piped to a shell)"),
         new("package/hidden-powershell", "process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
-        new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
+        new("package/logon-start", "persistence", "noteworthy", Code(R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user")), "writes to a location that starts programs at logon"),
         new("package/access-persistence", "persistence", "noteworthy", AddsAuthorizedKey, "appends a public key to authorized_keys"),
-        new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user|['""]\.config['""]\s*[,/]\s*['""]systemd['""]\s*[,/]\s*['""]user['""]|\bsystemctl\b[^\n;|&]{0,80}--user\b[^\n;|&]{0,80}\benable\b|\bsystemctl\s+enable\b[^\n;|&]{0,80}--user\b"), "writes to a location that starts programs at logon"),
+        new("package/logon-start", "persistence", "noteworthy", Code(R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user|['""]\.config['""]\s*[,/]\s*['""]systemd['""]\s*[,/]\s*['""]user['""]|\bsystemctl\b[^\n;|&]{0,80}--user\b[^\n;|&]{0,80}\benable\b|\bsystemctl\s+enable\b[^\n;|&]{0,80}--user\b")), "writes to a location that starts programs at logon"),
         new("package/string-array", "transformed code", "noteworthy", StringArray, "obfuscator.io-style transformed code"),
         new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),

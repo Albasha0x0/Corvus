@@ -1531,6 +1531,16 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal(level, finding.Level);
     }
 
+    // A comment that quotes a run key is not a logon start (fix(web) for logon-start).
+    [Fact]
+    public void A_run_key_named_only_in_a_comment_is_not_a_logon_start()
+    {
+        var comment = "/**\n * @example\n * key: '\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run'\n */\nfunction Registry() {}\n";
+        Assert.DoesNotContain(PackageReview.Scan("index.js", comment, install: false, default, entry: true, peel: false), f => f.Rule == "package/logon-start");
+        var code = "const key = '\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run';\n";
+        Assert.Contains(PackageReview.Scan("index.js", code, install: false, default, entry: true, peel: false), f => f.Rule == "package/logon-start");
+    }
+
     // A zip checkpoint whose protocol 2 pickle calls GLOBAL module.name
     // on the inert string "pass".
     private static byte[] Checkpoint(string module, string name) =>
