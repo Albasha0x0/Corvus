@@ -262,6 +262,14 @@ public static partial class PackageReview
         // A collector host outside a URL (request options, dns.lookup), at install or beside connections.
         if ((install || hits.Contains("network")) && CollectorHost.IsMatch(plain))
             yield return new PackageFinding("package/collector-host", "noteworthy", "exfiltration", (install ? "at install: " : "") + "contacts a collection endpoint (request catcher, out-of-band test host)", path);
+        // An encoded label or host details carry data; a constant lookup
+        // counts only at install.
+        bool carried = hits.Contains("host details") || hits.Contains("credentials");
+        if (DnsName(plain) is { } dns && (dns != "constant" || install))
+            yield return dns == "constant"
+                ? new PackageFinding("package/dns-send", carried ? "noteworthy" : "review", "exfiltration", "at install: looks up a constant host name", path)
+                : new PackageFinding("package/dns-send", dns == "encoded" || carried || install ? "noteworthy" : "review", "exfiltration",
+                    (install ? "at install: " : "") + "looks up a host name whose leftmost label is built from values (data sent in the DNS name)", path);
         // Install-time code that reaches the network and collects host details or secrets, or runs decoded code.
         var with = hits.Where(h => h is "credentials" or "host details" or "transformed code").ToList();
         if (install && (hits.Contains("network") || with.Contains("host details") && FormattedUrl.IsMatch(plain))
@@ -383,6 +391,58 @@ public static partial class PackageReview
     [GeneratedRegex(@"\b(?:eval|exec)\s*\(\s*compile\s*\(\s*(?![\w.]*\.read\(|open\()", RegexOptions.CultureInvariant)]
     private static partial Regex CompiledEval();
     private static readonly Regex CollectorHost = R(@"['""`/.@](?:[\w-]+\.)*(?:oast\.(?:fun|me|pro|live|site|online)|interact\.sh|burpcollaborator\.net|oastify\.com|dnslog\.cn|ceye\.io|requestcatcher\.com|pipedream\.net|webhook\.site)['""`/]");
+    // A Node dns or Python socket lookup; group a is the rest of the statement.
+    private static readonly Regex DnsCall = R(@"\b(?:dns\.(?:promises\.)?(?:lookup|resolve\w*)|socket\.(?:gethostbyname(?:_ex)?|getaddrinfo))\s*\(\s*(?<a>[^\n;]{1,200})");
+    // A value label before a literal domain label: a template, an
+    // f-string, a join or a format string.
+    private static readonly Regex BuiltName = R(@"^`\$\{[^}`\n]+\}[\w-]*\.[\w-]|^f['""]\{[^}'""\n]+\}[\w-]*\.[\w-]|^[\w.()\[\]'""=]+\s*\+\s*['""]\.[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*['""]|^['""](?:\{\w*\}|%s)[\w-]*(?:\.[\w-]+)+['""]\s*(?:\.format\(|%)");
+    private static readonly Regex ConstantName = R(@"^(?:'[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*'|""[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*""|`[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*`)");
+    private static readonly Regex LocalName = R(@"\.(?:local|localhost|localdomain|internal)['""`]");
+    private static readonly Regex Encoder = R(@"\b(?:b32encode|b64encode|hexlify|Buffer\.from)\b|\.hex\(\)|toString\(\s*['""](?:hex|base64)");
+    private static readonly Regex Identifier = R(@"^[A-Za-z_$][\w$]*\s*[,)]");
+
+    /// <summary>"encoded" or "built" when a DNS lookup takes a name built from values, "constant" for a constant non-local host name, else null.</summary>
+    private static string? DnsName(string text)
+    {
+        if (!text.Contains("dns.", StringComparison.Ordinal) && !text.Contains("gethostbyname", StringComparison.Ordinal)
+            && !text.Contains("getaddrinfo", StringComparison.Ordinal)) return null;
+        string? found = null;
+        foreach (Match call in DnsCall.Matches(text).Take(20))
+        {
+            var arg = call.Groups["a"].Value;
+            // Calls in comments are usage examples (declarations, docstrings).
+            if (InComment(text, call.Index)) continue;
+            // A bare name reads through its first assignment in the file.
+            if (Identifier.Match(arg) is { Success: true } id)
+            {
+                var name = Regex.Escape(id.Value.TrimEnd(',', ')', ' ', '\t'));
+                var assign = Regex.Match(text, $@"(?:^|[^\w$.]){name}\s*=\s*(?<e>[^=\n;][^\n;]{{0,199}})", RegexOptions.NonBacktracking);
+                if (!assign.Success) continue;
+                arg = assign.Groups["e"].Value.Trim();
+            }
+            if (BuiltName.IsMatch(arg))
+            {
+                if (LocalName.IsMatch(arg)) continue;
+                if (Encoder.IsMatch(arg)) return "encoded";
+                found = "built";
+            }
+            else if (found is null && ConstantName.Match(arg) is { Success: true } constant && !LocalName.IsMatch(constant.Value))
+                found = "constant";
+        }
+        return found;
+    }
+
+    /// <summary>True when index lies on a comment or doctest line, in an open block comment or in a triple-quoted string.</summary>
+    private static bool InComment(string text, int index)
+    {
+        var line = text[(text.LastIndexOf('\n', index) + 1)..index].TrimStart();
+        if (line.StartsWith('*') || line.StartsWith('#') || line.StartsWith("//", StringComparison.Ordinal)
+            || line.StartsWith("/*", StringComparison.Ordinal) || line.StartsWith(">>>", StringComparison.Ordinal)) return true;
+        if (text.LastIndexOf("/*", index, StringComparison.Ordinal) > text.LastIndexOf("*/", index, StringComparison.Ordinal)) return true;
+        var before = text.AsSpan(0, index);
+        return before.Count("\"\"\"".AsSpan()) % 2 == 1 || before.Count("'''".AsSpan()) % 2 == 1;
+    }
+
     private static readonly Regex SelfPublish = R(@"\bexec(?:Sync)?\s*\(\s*['""`]npm\s+publish\b");
 
     // Lookaheads read a bounded stretch per start, so no match timeout.
