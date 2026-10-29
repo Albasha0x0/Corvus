@@ -105,7 +105,7 @@ public static class FindingRules
         N("package/compiled-only", AtInstall + ", loaded by a .pth file or setup.py", "modules shipped as .pyc without .py source"),
         N("package/pickle-code", "exact list: a model pickle imports exec, eval, compile, __import__, os.system, os.popen, os.exec*, os.spawn*, os.posix_spawn*, posix, nt, subprocess or runpy, outside tests and examples or named by a loader", "a shipped model pickle runs code when loaded"),
         N("package/pickle-load", AtInstall + ", setup.py loading with weights_only=False or pickle.load a model that runs code or is not shipped", "loads a pickle with code allowed"),
-        N("package/stealer-dependencies", "exact list: cookie, webhook and session libraries together", "depends on credential collection libraries"),
+        N("package/credential-collection-dependencies", "exact list: cookie, webhook and session libraries together", "depends on credential collection libraries"),
         N("package/record-differs", "exact check: a file differs from its RECORD hash", "files differ from RECORD"),
         R("package/record-unlisted", "files not listed in RECORD"),
         // Browser and editor extensions.

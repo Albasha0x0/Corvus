@@ -16,7 +16,7 @@ public sealed class FindingRulesTests
         "package/install-compiled-eval", "package/collector-host", "package/install-network-collect", "package/install-network-launch",
         "package/socket-shell", "package/install-detached", "package/install-xor", "package/stdin-remote-code", "package/webhook-secrets",
         "package/load-beacon", "package/self-publish", "package/provenance-failed", "package/install-network-tool", "package/close-name",
-        "package/stealer-dependencies", "package/record-differs", "package/csp-remote-code", "package/fetched-eval", "package/cookie-send",
+        "package/credential-collection-dependencies", "package/record-differs", "package/csp-remote-code", "package/fetched-eval", "package/cookie-send",
         "package/crx-proof-failed", "package/invisible-name", "package/tag-characters", "package/bidi-controls", "package/zero-width",
         "package/agent-hook", "package/folder-open-task", "package/git-config-command", "package/git-hook", "package/devcontainer-command",
         "package/msbuild-exec", "package/msbuild-inline-task", "package/gradle-wrapper-url", "guarddog/threat-runtime-exec",

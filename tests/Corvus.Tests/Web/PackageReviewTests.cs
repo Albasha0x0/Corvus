@@ -1072,7 +1072,7 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
-    public void Import_time_code_with_a_webhook_escaped_eval_and_stealer_dependencies_is_noteworthy()
+    public void Import_time_code_with_a_webhook_escaped_eval_and_credential_collection_dependencies_is_noteworthy()
     {
         var r = Review(Tgz("hugebbc-0.0.0.tar.gz",
             ("hugebbc-0.0.0/PKG-INFO", "Metadata-Version: 2.1\nName: hugebbc\nVersion: 0.0.0\n"),

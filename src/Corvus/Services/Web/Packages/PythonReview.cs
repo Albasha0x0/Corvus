@@ -27,7 +27,7 @@ public static partial class PackageReview
         files.Paths.Where(p => p.EndsWith(".py", StringComparison.Ordinal) && !p.EndsWith("setup.py", StringComparison.Ordinal) && !NotImported.IsMatch(p))
             .OrderBy(p => p.EndsWith("__init__.py", StringComparison.Ordinal) ? 0 : 1).ThenBy(p => p.Count(c => c == '/'));
 
-    private static readonly Regex StealerKit = new(@"(?i)\b(?:browser[_-]cookie3|discord[_-]?webhook|robloxpy|discord_webhook)\b", RegexOptions.NonBacktracking);
+    private static readonly Regex CredentialLibraries = new(@"(?i)\b(?:browser[_-]cookie3|discord[_-]?webhook|robloxpy|discord_webhook)\b", RegexOptions.NonBacktracking);
 
     private static PackageReport? Python(PackageFiles files, CancellationToken ct)
     {
@@ -160,8 +160,8 @@ public static partial class PackageReview
         var requires = string.Join("\n", files.Paths.Where(p => p.EndsWith("/setup.py", StringComparison.Ordinal) || p == "setup.py" || p.EndsWith("/PKG-INFO", StringComparison.Ordinal)
                                                               || p.EndsWith(".dist-info/METADATA", StringComparison.Ordinal) || p.EndsWith("/requires.txt", StringComparison.Ordinal))
             .Select(p => files.Text(p) ?? ""));
-        var kit = StealerKit.Matches(requires).Select(m => m.Value.ToLowerInvariant().Replace('-', '_')).Distinct().ToList();
-        if (kit.Count >= 2) findings.Add(new PackageFinding("package/stealer-dependencies", "noteworthy", "credentials", $"depends on {string.Join(", ", kit)}: browser cookie, Discord webhook and Roblox session libraries together"));
+        var kit = CredentialLibraries.Matches(requires).Select(m => m.Value.ToLowerInvariant().Replace('-', '_')).Distinct().ToList();
+        if (kit.Count >= 2) findings.Add(new PackageFinding("package/credential-collection-dependencies", "noteworthy", "credentials", $"depends on {string.Join(", ", kit)}: browser cookie, chat webhook and session libraries together"));
         if (CompiledOnly(files, Modules(files, moduleRoot, topLevel), loaded) is { } compiledOnly) findings.Add(compiledOnly);
         var outside = new List<string>();
         string? outsideAt = null;
