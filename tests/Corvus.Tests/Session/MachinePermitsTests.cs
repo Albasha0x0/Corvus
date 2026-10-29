@@ -104,7 +104,7 @@ public class MachinePermitsTests
                 Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
             }
             held.Dispose();
-            (await waiter.WaitAsync(TimeSpan.FromSeconds(30))).Held.Dispose();
+            (await waiter).Held.Dispose();
         }
         finally { steps.Delete(); }
     }
@@ -131,7 +131,7 @@ public class MachinePermitsTests
                 await ended.WaitForExitAsync();
                 await steps.Advance(TimeSpan.Zero, () => File.WriteAllText(Path.Combine(steps.Dir, "slot-0.owner"), $"{ended.Id} script"));
                 steps.Pass(TimeSpan.FromMilliseconds(700));
-                var late = await Assert.ThrowsAsync<TimeoutException>(() => waiter.WaitAsync(TimeSpan.FromSeconds(30)));
+                var late = await Assert.ThrowsAsync<TimeoutException>(() => waiter);
                 Assert.Contains("without progress", late.Message);
             }
         }
@@ -185,14 +185,15 @@ public class MachinePermitsTests
             using (new FileStream(Path.Combine(steps.Dir, "slot-0"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
             {
                 File.WriteAllText(Path.Combine(steps.Dir, "slot-0.owner"), $"{Environment.ProcessId} script");
-                var waiter = steps.Wait(maxWait: TimeSpan.FromMilliseconds(1800));
+                // The holder lookup is waited for however long the machine's load makes it.
+                var waiter = steps.Wait(maxWait: TimeSpan.FromMilliseconds(1800), holderLookupLimit: Timeout.InfiniteTimeSpan);
                 for (int i = 0; i < 3; i++)
                 {
                     await steps.Advance(TimeSpan.FromMilliseconds(500), () => { });
                     Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
                 }
                 steps.Pass(TimeSpan.FromMilliseconds(500));
-                var late = await Assert.ThrowsAsync<PermitWaitEndedException>(() => waiter.WaitAsync(TimeSpan.FromSeconds(30)));
+                var late = await Assert.ThrowsAsync<PermitWaitEndedException>(() => waiter);
                 Assert.StartsWith(MachinePermits.NotRunPrefix + "one held for 0.03 min (", late.Message);
                 // Only Windows reports which process holds a slot file.
                 Assert.Contains(OperatingSystem.IsWindows() ? $"held by process {Environment.ProcessId}" : "held by another process", late.Message);
@@ -219,41 +220,58 @@ public class MachinePermitsTests
                     await steps.Advance(TimeSpan.FromMilliseconds(500), () =>
                     {
                         var before = steps.Record();
-                        Assert.True(SpinWait.SpinUntil(() => steps.Record() is { Length: > 0 } r && r != before, 30_000), "no heartbeat");
+                        SpinWait.SpinUntil(() => steps.Record() is { Length: > 0 } r && r != before);
                     });
                     Assert.False(waiter.IsCompleted, waiter.Exception?.InnerException?.Message);
                 }
                 held.Dispose();
-                (await waiter.WaitAsync(TimeSpan.FromSeconds(30))).Held.Dispose();
+                (await waiter).Held.Dispose();
             }
         }
         finally { steps.Delete(); }
     }
 
-    /// <summary>A wait on one slot with a 600 ms limit measured on a clock the test advances, naming holders found within 5 s.</summary>
+    /// <summary>
+    /// A wait on one slot with a 600 ms limit measured on a clock the test advances, naming holders found within 20 s
+    /// by default. The waiter's polls, its end and the holder's heartbeat are awaited without a wall-clock bound: a slow
+    /// runner only delays them, and the run's hang limit bounds one that never comes.
+    /// </summary>
     private sealed class SteppedWait : IDisposable
     {
         public readonly string Folder = Path.Combine(Path.GetTempPath(), $"corvus-permits-{Guid.NewGuid():N}");
         public readonly Dictionary<string, int> Counts = new() { ["one"] = 1 };
         private readonly SemaphoreSlim _polls = new(0);
+        private Task? _waiter;
         private TimeSpan _now;
 
         public SteppedWait() => Directory.CreateDirectory(Dir);
 
         public string Dir => Path.Combine(Folder, "one");
 
-        // The holder lookup takes over 5 s on a loaded machine.
-        public Task<(PermitHandle Held, TimeSpan Waited)> Wait(TimeSpan? maxWait = null) =>
-            MachinePermits.TakeAsync(["one"], Folder, Counts, default, TimeSpan.FromMilliseconds(600), clock: () => _now, polled: () => _polls.Release(),
-                holderLookupLimit: TimeSpan.FromSeconds(20), maxWait: maxWait);
+        // The holder lookup takes over 5 s on a loaded machine and at times past
+        // 20 s; a test that checks the holder's name passes no limit.
+        public Task<(PermitHandle Held, TimeSpan Waited)> Wait(TimeSpan? maxWait = null, TimeSpan? holderLookupLimit = null)
+        {
+            var waiter = MachinePermits.TakeAsync(["one"], Folder, Counts, default, TimeSpan.FromMilliseconds(600), clock: () => _now,
+                polled: () => _polls.Release(), holderLookupLimit: holderLookupLimit ?? TimeSpan.FromSeconds(20), maxWait: maxWait);
+            _waiter = waiter;
+            return waiter;
+        }
 
-        /// <summary>Moves the clock, runs <paramref name="act"/>, then waits two polls so one checked the records after the act.</summary>
+        /// <summary>
+        /// Moves the clock, runs <paramref name="act"/>, then waits two polls so one checked the records after the act;
+        /// fails at once, with the waiter's outcome, when the waiter ends instead.
+        /// </summary>
         public async Task Advance(TimeSpan by, Action act)
         {
             _now += by;
             act();
             while (_polls.CurrentCount > 0) await _polls.WaitAsync();
-            for (int i = 0; i < 2; i++) Assert.True(await _polls.WaitAsync(TimeSpan.FromSeconds(30)), "the waiter stopped polling");
+            // Regression of df52c7d3: a slow runner outlasted a 30 s wall-clock
+            // bound on the next poll.
+            for (int i = 0; i < 2; i++)
+                if (await Task.WhenAny(_polls.WaitAsync(), _waiter!) == _waiter)
+                    Assert.Fail($"The waiter ended before its next poll: {_waiter.Exception?.InnerException?.Message ?? "it took the slot"}");
         }
 
         /// <summary>The slot's owner record; empty while its holder rewrites it.</summary>
