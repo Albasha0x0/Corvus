@@ -1011,6 +1011,30 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("none", Review(Tgz("app-1.0.2.tgz", ("package/package.json", """{"name":"app","version":"1.0.2","dependencies":{"left-pad":"^1.3.0","x":"npm:left-pad@1"}}"""))).Review);
     }
 
+    [Theory]
+    [InlineData("git+http://host.example.invalid/x.git")]
+    [InlineData("git://host.example.invalid/x")]
+    [InlineData("http://host.example.invalid/x.git")]
+    [InlineData("http://host.example.invalid/x.tgz")]
+    public void A_dependency_over_plain_transport_is_noteworthy_without_an_install_script(string range)
+    {
+        var report = Review(Tgz("app-1.0.0.tgz", ("package/package.json", $$$"""{"name":"app","version":"1.0.0","optionalDependencies":{"x":"{{{range}}}"}}""")));
+        Assert.Equal(("package/dependency-source", "noteworthy"), (Assert.Single(report.Findings).Rule, report.Findings[0].Level));
+    }
+
+    [Theory]
+    [InlineData("https://host.example.invalid/x.tgz")]
+    [InlineData("git+https://host.example.invalid/x.git#0123456789abcdef0123456789abcdef01234567")]
+    [InlineData("github:org/repo#0123456789abcdef0123456789abcdef01234567")]
+    [InlineData("team/y#cafe123")]
+    [InlineData("team/y#v2")]
+    [InlineData("file:../x")]
+    public void A_git_dependency_of_any_ref_an_https_tarball_or_a_local_path_stays_review(string range)
+    {
+        var report = Review(Tgz("app-1.0.0.tgz", ("package/package.json", $$$"""{"name":"app","version":"1.0.0","dependencies":{"x":"{{{range}}}"}}""")));
+        Assert.Equal(("package/dependency-source", "review"), (Assert.Single(report.Findings).Rule, report.Findings[0].Level));
+    }
+
     [Fact]
     public void A_built_in_name_aliased_to_another_package_is_noteworthy_and_a_registry_range_is_review()
     {

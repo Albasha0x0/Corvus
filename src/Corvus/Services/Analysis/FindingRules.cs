@@ -79,6 +79,7 @@ public static class FindingRules
         N("package/dependency-source", AtInstall + ", with a dependency fetched from outside the registry", "a dependency fetched from outside the registry"),
         N("package/builtin-dependency", "a Node built-in name aliased to another package or fetched from outside the registry", "a dependency named after a Node built-in module"),
         N("package/carrier", "the only code file, at most 200 bytes, loads nothing, beside runtime dependencies", "an entry file that only installs its dependencies"),
+        N("package/dependency-source", AtInstall + ", with a dependency fetched from outside the registry, or, in an npm manifest, a dependency over http, git+http or git://", "a dependency fetched from outside the registry"),
         R("package/high-version", "a major version of 99 or higher on a name without a scope"),
         R("package/binary", "native or executable files"),
         N("package/asset-trailing-data", AtInstall + ", in an asset that install-time code names", "an image, sound or font with data after its format's end, named by the package's code"),

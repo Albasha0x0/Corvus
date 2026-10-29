@@ -78,6 +78,7 @@ public static partial class PackageReview
         var outside = new List<string>();
         var builtins = new HashSet<string>(StringComparer.Ordinal);
         var builtinElsewhere = false;
+        var plain = false;
         foreach (var key in new[] { "dependencies", "optionalDependencies", "peerDependencies" })
             if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object)
                 foreach (var dep in d.EnumerateObject())
@@ -92,10 +93,13 @@ public static partial class PackageReview
                     }
                     // npm installs peer dependencies from the registry, whatever their range says.
                     if (key != "peerDependencies" && deps <= MaxDependencies && dep.Value.ValueKind == JsonValueKind.String && NpmSource(dep.Value.GetString()!) is { } from)
+                    {
                         outside.Add($"{dep.Name} ({from})");
+                        plain |= PlainTransport(dep.Value.GetString()!);
+                    }
                 }
         if (outside.Count > 0)
-            findings.Add(new PackageFinding("package/dependency-source", scripts.Any(x => x.AtInstall) ? "noteworthy" : "review", "dependency",
+            findings.Add(new PackageFinding("package/dependency-source", scripts.Any(x => x.AtInstall) || plain ? "noteworthy" : "review", "dependency",
                 $"{outside.Count} dependenc{(outside.Count == 1 ? "y" : "ies")} from outside the registry: {string.Join(", ", outside.Take(5))}", manifestPath));
         // A bundler resolves a dependency of a built-in name in place of the built-in;
         // registry placeholders of these names are inert, so only other code is noteworthy.
@@ -145,6 +149,9 @@ public static partial class PackageReview
 
     private static readonly Regex NodeCodeFile = R(@"\.(?:c|m)?[jt]sx?$");
     private static readonly Regex ModuleKeyword = R(@"\b(?:require|import|exports?)\b");
+    /// <summary>True for a range fetched over http, git+http or git://, whose code is not protected in transit; false for any other range.</summary>
+    private static bool PlainTransport(string range) =>
+        SourceUrl.Match(range.Trim()) is { Success: true } url && url.Groups["scheme"].Value.ToLowerInvariant() is "http" or "git+http" or "git";
 
     private const int MaxDependencies = 1000;
 
