@@ -83,7 +83,8 @@ internal sealed class XbfFileView : IFileSummaryView
                 ModuleDefMD? module = null;
                 try
                 {
-                    module = ModuleDefMD.Load(candidate);
+                    module = Corvus.Core.MetadataRows.Load(File.ReadAllBytes(candidate));
+                    module.Location = candidate;
                     if (className != null ? module.Find(className, isReflectionName: true) != null : (className = Loader(module, path)) != null)
                         return (candidate, module, className!);
                 }

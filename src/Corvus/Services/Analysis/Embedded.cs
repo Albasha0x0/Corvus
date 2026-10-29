@@ -147,7 +147,7 @@ public static class Embedded
         {
             try
             {
-                using var m = ModuleDefMD.Load(data);
+                using var m = MetadataRows.Load(data);
                 detail = m.Assembly?.FullName ?? m.Name;
             }
             catch (Exception) { detail = "unreadable metadata"; }

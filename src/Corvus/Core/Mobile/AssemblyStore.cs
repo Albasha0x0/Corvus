@@ -154,7 +154,7 @@ public sealed class AssemblyStore
     {
         try
         {
-            using var module = dnlib.DotNet.ModuleDefMD.Load(image);
+            using var module = MetadataRows.Load(image);
             return module.Assembly?.Name is { Length: > 0 } n ? n + (module.Kind == dnlib.DotNet.ModuleKind.Windows || module.Kind == dnlib.DotNet.ModuleKind.Console ? ".exe" : ".dll") : null;
         }
         // dnlib throws several types on malformed images.

@@ -92,7 +92,7 @@ public sealed partial class CSharpPatcher
                 {
                     // Embedded (Costura) assemblies resolve their references from the host's folder.
                     var bytes = target.Bytes ?? RuntimeFile(target.File!) ?? throw new IOException(target.File);
-                    Enqueue(name, bytes, ModuleDefMD.Load(bytes), owned: true, target.File ?? from);
+                    Enqueue(name, bytes, MetadataRows.Load(bytes), owned: true, target.File ?? from);
                 }
                 catch
                 {
@@ -231,7 +231,7 @@ public sealed partial class CSharpPatcher
     {
         try
         {
-            using var module = ModuleDefMD.Load(image);
+            using var module = MetadataRows.Load(image);
             change(module);
             foreach (var m in module.GetTypes().SelectMany(t => t.Methods))
                 m.Body = null;
@@ -243,7 +243,7 @@ public sealed partial class CSharpPatcher
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            using var module = ModuleDefMD.Load(image);
+            using var module = MetadataRows.Load(image);
             change(module);
             using var ms = new MemoryStream();
             FaithfulWriter.WritePlain(module, ms);
@@ -278,7 +278,7 @@ public sealed partial class CSharpPatcher
     {
         try
         {
-            using var module = ModuleDefMD.Load(image);
+            using var module = MetadataRows.Load(image);
             if (module.Assembly is not { } assembly) return image;
             FixReferences(module, standIns);
             // Reuse the core library's own attribute: a reference would give it an assembly reference Roslyn rejects.

@@ -497,7 +497,7 @@ public static class BuildSummary
         if (PeImage.TryParse(head) is not { } pe || pe.Directory(head, PeImage.ComDescriptorDirectory).Size == 0) return ("encrypted", null, 0);
         try
         {
-            using var module = ModuleDefMD.Load(path, new ModuleCreationOptions { TryToLoadPdbFromDisk = false });
+            using var module = MetadataRows.Load(File.ReadAllBytes(path));
             var full = new HashSet<string>(StringComparer.Ordinal);
             var identifiers = new List<string>();
             foreach (var t in module.GetTypes().Take(MaxTypeNames))

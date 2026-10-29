@@ -346,7 +346,7 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         // Join the scope a Prepare call left its compile work in.
         using var reuse = csharp.ReuseCompiles(join: true);
         CallProgress.Report(1, 3, $"compiling against {asm.Id} (decompiled context, references)");
-        using (var scratch = ModuleDefMD.Load(asm.GetImageBytes(), workspace.DnlibContext))
+        using (var scratch = MetadataRows.Load(asm.GetImageBytes(), workspace.DnlibContext))
         {
             scratch.EnableTypeDefFindCache = true;
             preview = merge(scratch);

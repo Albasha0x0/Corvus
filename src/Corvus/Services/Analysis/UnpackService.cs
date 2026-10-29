@@ -336,7 +336,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         {
             ct.ThrowIfCancellationRequested();
             ModuleDefMD module;
-            try { module = ModuleDefMD.Load(a.Bytes); }
+            try { module = MetadataRows.Load(a.Bytes); }
             catch (Exception) { notes.Add($"{a.Path}: unreadable metadata, not searched."); continue; }
             using (module)
             {
@@ -480,7 +480,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     {
         try
         {
-            using var module = ModuleDefMD.Load(bytes);
+            using var module = MetadataRows.Load(bytes);
             return (module.Assembly?.FullName ?? module.Name.String, module.Assembly?.Version?.ToString(), AssemblyTraits.MergeNote(module));
         }
         catch (Exception)

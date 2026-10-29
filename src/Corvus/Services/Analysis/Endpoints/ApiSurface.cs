@@ -90,7 +90,7 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
                 }
                 else if (item.Kind == ".NET assembly")
                 {
-                    using var module = ModuleDefMD.Load(item.Bytes);
+                    using var module = MetadataRows.Load(item.Bytes);
                     IlEndpoints.Scan(module, item.Path, rows, descriptors, ct);
                 }
                 else if (item.Kind is "elf" or "mach-o" or "native PE" or "NativeAOT executable" or "data")

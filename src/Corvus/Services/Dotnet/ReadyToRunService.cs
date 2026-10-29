@@ -194,7 +194,7 @@ public sealed class ReadyToRunService(AssemblyWorkspace workspace)
         var key = (Path.GetFullPath(file), File.GetLastWriteTimeUtc(file));
         return FileModules.GetOrAdd(key, _ => new Once<ModuleDef?>()).Get(() =>
         {
-            try { return ModuleDefMD.Load(File.ReadAllBytes(key.Item1)); }
+            try { return MetadataRows.Load(File.ReadAllBytes(key.Item1)); }
             catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException) { return null; }
         }, default);
     }

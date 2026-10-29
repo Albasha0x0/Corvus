@@ -415,7 +415,7 @@ internal sealed partial class AssetFileView : IFileSummaryView
                         resolver.FindExactMatch = false;
                         foreach (var dir in new[] { _assemblies?.Managed, _assemblies?.Dummies }.OfType<string>()) resolver.PreSearchPaths.Add(dir);
                     }
-                    module = ModuleDefMD.Load(File.ReadAllBytes(file), _moduleContext);
+                    module = MetadataRows.Load(File.ReadAllBytes(file), _moduleContext);
                     ((AssemblyResolver)_moduleContext.AssemblyResolver).AddToCache(module);
                 }
             }

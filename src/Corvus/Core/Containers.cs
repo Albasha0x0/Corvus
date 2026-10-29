@@ -248,7 +248,7 @@ public static class Containers
     private static ContainerContents? OpenCostura(byte[] data, AnalysisLimits limits, CancellationToken ct)
     {
         ModuleDefMD module;
-        try { module = ModuleDefMD.Load(data); }
+        try { module = MetadataRows.Load(data); }
         catch (Exception) { return null; }
         using (module)
         {

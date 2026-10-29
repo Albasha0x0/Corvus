@@ -150,7 +150,7 @@
         "type": "object",
         "properties": {
           "code": {
-            "description": "Short code: duplicate_stream, unknown_stream, stream_out_of_range, unknown_tables, extra_data_flag, bad_metadata_root, implmap_scope_out_of_range, implmap_name_out_of_range, implmap_member_out_of_range, moduleref_name_out_of_range, bad_table_index, bad_list_index, bad_coded_index, bad_heap_index, decompiler_reader.",
+            "description": "Short code: duplicate_stream, unknown_stream, stream_out_of_range, unknown_tables, extra_data_flag, bad_metadata_root, implmap_scope_out_of_range, implmap_name_out_of_range, implmap_member_out_of_range, moduleref_name_out_of_range, table_rows_past_stream, bad_table_index, bad_list_index, bad_coded_index, bad_heap_index, decompiler_reader.",
             "type": "string"
           },
           "location": {

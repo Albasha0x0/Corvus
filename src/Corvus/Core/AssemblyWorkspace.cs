@@ -543,7 +543,7 @@ public sealed class AssemblyWorkspace : IDisposable
         ModuleDefMD module;
         try
         {
-            module = ModuleDefMD.Load(bytes, DnlibContext);
+            module = MetadataRows.Load(bytes, DnlibContext);
             // Avoids linear type lookups. Reads the NestedClass table, so corrupt metadata fails here.
             module.EnableTypeDefFindCache = true;
         }
@@ -972,7 +972,7 @@ public sealed class AssemblyWorkspace : IDisposable
             {
                 try
                 {
-                    using var m = ModuleDefMD.Load(bytes);
+                    using var m = MetadataRows.Load(bytes);
                     if (m.Assembly?.PublicKeyToken?.Data is not { } t || !t.AsSpan().SequenceEqual(token)) continue;
                 }
                 catch (Exception) { continue; }
@@ -1043,7 +1043,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 {
                     try
                     {
-                        module = ModuleDefMD.Load(target.Bytes ?? File.ReadAllBytes(target.File!), ws.DnlibContext);
+                        module = MetadataRows.Load(target.Bytes ?? File.ReadAllBytes(target.File!), ws.DnlibContext);
                         MetadataUtil.MarkReferenceOnly(module);
                         // Location drives where this module's own references resolve; embedded images use the requester's folder.
                         module.Location = target.File ?? (requester != null ? Path.Combine(SafeDirectory(requester) ?? "", name + ".dll") : name + ".dll");

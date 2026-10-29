@@ -358,7 +358,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                 var context = new ModuleContext();
                 foreach (var a in assemblies)
                 {
-                    try { fromPackage.Add(new Source(ModuleDefMD.Load(a.Bytes, context), a.Path, false)); }
+                    try { fromPackage.Add(new Source(MetadataRows.Load(a.Bytes, context), a.Path, false)); }
                     // dnlib throws several exception types on malformed images.
                     catch (Exception) { notes.Add($"{a.Path} is not readable .NET metadata."); }
                 }

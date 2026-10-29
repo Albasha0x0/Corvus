@@ -8,7 +8,7 @@ public static class MetadataNormalizer
     /// <summary>The normalized image, and what was dropped (empty when nothing).</summary>
     public static (byte[] Image, string Dropped) Normalize(byte[] image)
     {
-        using var module = ModuleDefMD.Load(image);
+        using var module = MetadataRows.Load(image);
         int dropped = 0;
         void Clean(IHasCustomAttribute? owner)
         {

@@ -111,7 +111,7 @@ public sealed class LoadedAssembly : IDisposable
         using (AssemblyWorkspace.Lock(_sync))
         {
             var previous = (Module, Edits.ToList());
-            var fresh = ModuleDefMD.Load(_originalBytes, context);
+            var fresh = MetadataRows.Load(_originalBytes, context);
             fresh.Location = FilePath;
             fresh.EnableTypeDefFindCache = true;
             Module = fresh;
@@ -141,7 +141,7 @@ public sealed class LoadedAssembly : IDisposable
         {
             if (_originalView == null)
             {
-                var module = ModuleDefMD.Load(_originalBytes, context);
+                var module = MetadataRows.Load(_originalBytes, context);
                 module.Location = FilePath;
                 module.EnableTypeDefFindCache = true;
                 _originalView = new LoadedAssembly(Id + " (original)", FilePath, _originalBytes, module);
@@ -227,7 +227,7 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>A separate, never edited load of the original image: tells what edits changed.</summary>
     private ModuleDefMD Pristine()
     {
-        using (AssemblyWorkspace.Lock(_sync)) return _pristine ??= ModuleDefMD.Load(_originalBytes);
+        using (AssemblyWorkspace.Lock(_sync)) return _pristine ??= MetadataRows.Load(_originalBytes);
     }
 
     /// <summary>A member's token in the current image; added members are found by name and signature in the written image.</summary>
@@ -240,7 +240,7 @@ public sealed class LoadedAssembly : IDisposable
             if (_imageModule == null || _imageModuleVersion != Version)
             {
                 _imageModule?.Dispose();
-                _imageModule = ModuleDefMD.Load(GetImageBytes());
+                _imageModule = MetadataRows.Load(GetImageBytes());
                 _imageModule.EnableTypeDefFindCache = true;
                 _imageModuleVersion = Version;
             }

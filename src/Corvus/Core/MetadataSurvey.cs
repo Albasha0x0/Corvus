@@ -11,7 +11,7 @@ namespace Corvus.Core;
 public sealed record MetadataIssue(
     [property: Description("Short code: duplicate_stream, unknown_stream, stream_out_of_range, unknown_tables, extra_data_flag, bad_metadata_root, " +
                            "implmap_scope_out_of_range, implmap_name_out_of_range, implmap_member_out_of_range, moduleref_name_out_of_range, " +
-                           "bad_table_index, bad_list_index, bad_coded_index, bad_heap_index, decompiler_reader.")] string Code,
+                           "table_rows_past_stream, bad_table_index, bad_list_index, bad_coded_index, bad_heap_index, decompiler_reader.")] string Code,
     [property: Description("Stream, table and row (token) concerned.")] string Location,
     [property: Description("File offset of the structure, when known (hex).")] string? FileOffset,
     string Detail);
@@ -103,6 +103,8 @@ public static class MetadataSurvey
         if (tables.Name != null && (uint)tables.Offset <= (uint)mdSize && tables.Size >= 24 && (uint)tables.Size <= (uint)(mdSize - tables.Offset))
         {
             var t = md.Slice(tables.Offset, tables.Size);
+            if (MetadataRows.Check(t) is { } overrun)
+                issues.Add(new("table_rows_past_stream", $"stream {tables.Name} header, row counts", Hex(mdStart + tables.Offset + 24), overrun));
             byte heapSizes = t[6];
             ulong valid = BinaryPrimitives.ReadUInt64LittleEndian(t[8..]);
             int fileAt = mdStart + tables.Offset;
@@ -120,6 +122,40 @@ public static class MetadataSurvey
             }
         }
         return issues;
+    }
+
+    /// <summary>The file range of the tables stream in use (the last #~ or #-); null when the headers do not lead to one inside the file.</summary>
+    internal static (int Offset, int Length)? TablesStream(byte[] image)
+    {
+        int mdStart, mdSize;
+        try
+        {
+            var headers = new PEHeaders(new MemoryStream(image, writable: false));
+            if (headers.CorHeader == null) return null;
+            (mdStart, mdSize) = (headers.MetadataStartOffset, headers.MetadataSize);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or IOException)
+        {
+            return null;
+        }
+        if (mdStart < 0 || mdSize < 20 || mdStart > image.Length - mdSize) return null;
+        var md = image.AsSpan(mdStart, mdSize);
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(md[12..]);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(md) != 0x424A5342 || versionLength < 0 || versionLength > md.Length - 20) return null;
+        int at = 16 + versionLength, count = BinaryPrimitives.ReadUInt16LittleEndian(md[(at + 2)..]);
+        at += 4;
+        (int Offset, int Length)? found = null;
+        for (int i = 0; i < count && at + 8 <= md.Length; i++)
+        {
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(md[at..]), size = BinaryPrimitives.ReadInt32LittleEndian(md[(at + 4)..]);
+            var rest = md[(at + 8)..];
+            int nameLength = rest[..Math.Min(rest.Length, 32)].IndexOf((byte)0);
+            if (nameLength < 0) break;
+            if (rest[..nameLength] is [(byte)'#', (byte)'~' or (byte)'-'])
+                found = (uint)offset <= (uint)mdSize && (uint)size <= (uint)(mdSize - offset) ? (mdStart + offset, size) : null;
+            at += 8 + ((nameLength + 4) & ~3);
+        }
+        return found;
     }
 
     /// <summary>ImplMap rows with out-of-range columns by rid, which dnlib reads as null without a trace.</summary>

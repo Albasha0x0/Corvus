@@ -98,13 +98,34 @@ public sealed class TransformerTests : IDisposable
     [Fact]
     public void PlainModule_NamesNone() => Assert.Empty(Identify(_ => { }));
 
+    // Regression: fuzz iteration 636 set the TypeDef row count to 5439490, and
+    // dnlib 4.5.0 allocated 326 MB for its type list before reading a row.
+    [Fact]
+    public void A_row_count_past_the_tables_stream_is_refused_before_dnlib_loads_it()
+    {
+        var image = ContainerFixtures.Module("App", Confuser);
+        var (stream, length) = MetadataSurvey.TablesStream(image)!.Value;
+        ulong valid = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(stream + 8));
+        int typeDefRows = stream + 24 + 4 * System.Numerics.BitOperations.PopCount(valid & 0b11);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(typeDefRows), 0x0053_0002);
+        string expected = $"metadata table TypeDef declares 5439490 rows; the tables stream holds {length} bytes";
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Equal(expected, Assert.Throws<BadImageFormatException>(() => MetadataRows.Load(image)).Message);
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 64 << 20);
+        var path = _dir.File("App.dll");
+        File.WriteAllBytes(path, image);
+        var e = Assert.Throws<ToolError>(() => _workspace.Load(path));
+        Assert.Equal(ErrorCode.MalformedInput, e.Code);
+        Assert.Contains(expected, e.Message);
+    }
+
     [Fact]
     public void Fuzzed_Module_NeverThrows()
     {
         var failures = FormatFuzz.Run(ContainerFixtures.Module("App", Confuser), b =>
         {
             ModuleDefMD module;
-            try { module = ModuleDefMD.Load(b); }
+            try { module = MetadataRows.Load(b); }
             catch (Exception) { return; } // a module dnlib refuses is not ours to read
             using (module) Transformers.Identify(module);
         }, 800);

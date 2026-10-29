@@ -291,7 +291,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     private Dn.ModuleDefMD LoadScratch(byte[] image, string location)
     {
-        var module = Dn.ModuleDefMD.Load(image, workspace.DnlibContext);
+        var module = MetadataRows.Load(image, workspace.DnlibContext);
         module.Location = location;
         module.EnableTypeDefFindCache = true;
         return module;

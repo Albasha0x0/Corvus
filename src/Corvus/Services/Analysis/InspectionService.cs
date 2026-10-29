@@ -197,7 +197,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     private static ModuleDefMD LoadModule(byte[] bytes, string label)
     {
-        try { return ModuleDefMD.Load(bytes); }
+        try { return MetadataRows.Load(bytes); }
         catch (Exception ex) { throw new ToolError(ErrorCode.MalformedInput, $"{label}: unreadable .NET metadata ({ex.Message})."); }
     }
 

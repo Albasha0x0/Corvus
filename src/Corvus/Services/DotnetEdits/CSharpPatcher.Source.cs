@@ -172,7 +172,7 @@ public sealed partial class CSharpPatcher
             image = CompileImage(asm, tree, targetImage?.Invoke(), ct);
             cache?.Images[key] = image;
         }
-        return ModuleDefMD.Load(image!, workspace.DnlibContext);
+        return MetadataRows.Load(image!, workspace.DnlibContext);
     }
 
     /// <summary>Roslyn compile runs of this patcher (tests check that an edit compiles each tree once).</summary>
