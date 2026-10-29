@@ -126,6 +126,19 @@ public sealed class ProtobufTests
         Assert.Contains("gRPC services demo.v1.Users", view!.Highlights[0], StringComparison.Ordinal);
     }
 
+    // A structural fuzz edit renumbered a map entry's value field to 127.
+    [Fact]
+    public void A_map_entry_without_fields_1_and_2_prints_as_a_repeated_message()
+    {
+        var text = ProtoText.Write(ProtoFile.Read(new ProtoWriter().Str(1, "m.proto").Str(2, "m")
+            .Msg(4, m => m.Str(1, "M")
+                .Field(2, "scores", 1, 11, label: 3, typeName: ".m.M.ScoresEntry")
+                .Msg(3, e => e.Str(1, "ScoresEntry").Field(2, "key", 1, 9).Field(2, "value", 127, 5).Msg(7, o => o.Int(7, 1))))
+            .Str(12, "proto3").ToArray())!);
+        Assert.Contains("repeated .m.M.ScoresEntry scores = 1;", text);
+        Assert.Contains("message ScoresEntry", text);
+    }
+
     [Fact]
     [FuzzEntry(typeof(ProtoFile))]
     public void Fuzzed_descriptors_never_throw()

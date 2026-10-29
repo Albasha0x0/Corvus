@@ -134,11 +134,11 @@ public static class ProtoText
             return;
         }
         Indent(w, depth);
-        if (f.Type == 11 && f.Label == 3 && nested.TryGetValue(local, out var entry) && entry.MapEntry && entry.Fields.Count == 2)
+        // A map entry needs fields 1 and 2; any other prints as a message.
+        if (f.Type == 11 && f.Label == 3 && nested.TryGetValue(local, out var entry) && entry.MapEntry && entry.Fields.Count == 2
+            && entry.Fields.FirstOrDefault(x => x.Number == 1) is { } key && entry.Fields.FirstOrDefault(x => x.Number == 2) is { } value)
         {
             inline.Add(local);
-            var key = entry.Fields.First(x => x.Number == 1);
-            var value = entry.Fields.First(x => x.Number == 2);
             w.Append("map<").Append(TypeOf(key)).Append(", ").Append(TypeOf(value)).Append("> ");
         }
         else w.Append(inOneof ? "" : Label(f, syntax)).Append(TypeOf(f)).Append(' ');
