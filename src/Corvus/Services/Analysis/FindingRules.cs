@@ -43,6 +43,8 @@ public static class FindingRules
         N("package/download-to-shell", RunsRemote, "runs a downloaded script through a shell"),
         N("package/hidden-powershell", RunsHidden, "runs a hidden or encoded PowerShell command"),
         N("package/logon-start", "exact list: locations that start programs at logon", "writes to a logon start location"),
+        N("package/access-persistence", "exact form: a write to an authorized_keys path in a file holding a public key literal", "appends a public key to authorized_keys"),
+        N("package/global-hooks-path", AtInstall + ", setting git config --global core.hooksPath to a value", "sets a global git hooks path"),
         N("package/string-array", "exact form: obfuscator.io string array names", "obfuscator.io-style transformed code"),
         N("package/escaped-call", RunsHidden, "calls functions named by escaped strings"),
         N("package/eval-decoded", RunsDecoded, "evaluates decoded code"),

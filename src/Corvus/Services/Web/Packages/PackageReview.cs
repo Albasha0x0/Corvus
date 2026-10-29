@@ -212,6 +212,7 @@ public static partial class PackageReview
         new("package/download-to-shell", "process", "noteworthy", R(@"(?:curl|wget)\b[^\n|;]{0,300}\|\s*(?:sudo\s+)?(?:ba|z)?sh\b|\bsh\s+-c\s+['""]?\$\((?:curl|wget)\b|(?i:\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod|DownloadString)\b[^\n]{0,300}(?:\|\s*iex\b|Invoke-Expression))"), "runs a downloaded script (download piped to a shell)"),
         new("package/hidden-powershell", "process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
         new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
+        new("package/access-persistence", "persistence", "noteworthy", AddsAuthorizedKey, "appends a public key to authorized_keys"),
         new("package/string-array", "transformed code", "noteworthy", StringArrayNames, "obfuscator.io-style transformed code"),
         new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
@@ -312,6 +313,10 @@ public static partial class PackageReview
         if (CiConfigWritten(plain) is { } ci)
             yield return new PackageFinding("package/ci-config-write", install ? "noteworthy" : "review", "build step",
                 $"{(install ? "at install: " : "")}opens a CI pipeline file for writing: {Clip(ci, 160)}", path);
+        // Hook managers and scanners set it on the user's command; only at install is it noteworthy.
+        if (GlobalHooksPath.IsMatch(plain))
+            yield return new PackageFinding("package/global-hooks-path", install ? "noteworthy" : "review", "persistence",
+                $"{(install ? "at install: " : "")}sets a global git hooks path (git config --global core.hooksPath)", path);
         if (install && ShellTokenRead.IsMatch(plain))
             yield return new PackageFinding("package/credential-files", "noteworthy", "credentials", "at install: reads a publish token variable ($NPM_TOKEN, %TWINE_PASSWORD%)", path);
         if (ClipboardAddress(plain) is { } swap)
@@ -772,6 +777,14 @@ public static partial class PackageReview
 
     private static readonly Regex Downloader = R(@"\b(?:curl|wget|Invoke-WebRequest|iwr)\b");
     private static readonly Regex DownloadSource = R(@"https?://|%\w*URL\w*%|\$\{?\w*URL");
+    // A value must follow the key: a bare git config --global core.hooksPath reads it.
+    private static readonly Regex GlobalHooksPath = R(@"--global['""]?\s*,?\s*['""]?core\.hooksPath\b['""`]?[ \t]*(?:,\s*)?(?:['""`]?[ \t]*\+|['""`]?[^\s'""`,)+&;|])");
+    private static readonly Regex AuthorizedKeysWrite = R(@"\b(?:appendFile|writeFile)(?:Sync)?\s*\([^\n;]{0,200}authorized_keys|>>\s*['""]?[^\s'"";|&]{0,200}authorized_keys|\bopen\s*\([^\n]{0,200}authorized_keys[^\n]{0,40}['""]a");
+    private static readonly Regex KeyLiteral = R(@"\bssh-(?:rsa|ed25519)\s+AAAA[A-Za-z0-9+/]{16,}");
+
+    /// <summary>Whether code writes to an authorized_keys path and holds a public key literal.</summary>
+    private static bool AddsAuthorizedKey(string text) => AuthorizedKeysWrite.IsMatch(text) && KeyLiteral.IsMatch(text);
+
     private static readonly Regex SavedTo = R(@"\s-(?:o|O|OutFile)\s+['""]?(?<f>%\w+%|\$?\{\w+\}|\$\w+|[^\s'""]+\.(?:exe|scr|msi|bat|cmd|ps1|sh|bin))['""]?");
     private static readonly Regex Starter = R(@"(?m)(?:^|[\s&;(|'""])(?:start|Start-Process|call|chmod\s+\+x)\b");
     private static readonly Regex BareCommand = R(@"(?:&&|[;|])\s*['""]?(?<c>[^\s'""&;|]+)");

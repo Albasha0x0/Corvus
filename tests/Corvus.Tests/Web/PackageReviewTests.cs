@@ -297,6 +297,41 @@ public sealed class PackageReviewTests : IDisposable
     private static IEnumerable<string> Details(string text, bool install = false) =>
         PackageReview.Scan("index.js", text, install, default, peel: false).Select(f => f.Detail);
 
+    private static IEnumerable<PackageFinding> Access(string text, bool install = false) =>
+        PackageReview.Scan("src/t.js", text, install, default, peel: false)
+            .Where(f => f.Rule is "package/access-persistence" or "package/global-hooks-path");
+
+    [Fact]
+    public void A_key_literal_appended_to_joined_authorized_keys_is_noteworthy()
+    {
+        var text = "const k = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAexample0000 placeholder';\n"
+                   + "fs.appendFileSync(path.join(os.homedir(), '.ssh', 'authorized_keys'), k);";
+        Assert.Contains(Access(text), f => f is { Rule: "package/access-persistence", Level: "noteworthy", Category: "persistence" });
+    }
+
+    [Fact]
+    public void A_global_git_hooks_path_set_at_install_is_noteworthy_and_review_otherwise()
+    {
+        var exec = "exec('git config --global core.hooksPath ' + dir);";
+        var spawn = "spawn('git', ['config', '--global', 'core.hooksPath', dir]);";
+        Assert.Contains(Access(exec, install: true), f => f is { Rule: "package/global-hooks-path", Level: "noteworthy" });
+        Assert.Contains(Access(spawn, install: true), f => f is { Rule: "package/global-hooks-path", Level: "noteworthy" });
+        Assert.Contains(Access(spawn), f => f is { Rule: "package/global-hooks-path", Level: "review" });
+        Assert.DoesNotContain(Access(spawn), f => f.Level == "noteworthy");
+    }
+
+    [Fact]
+    public void Reading_or_naming_authorized_keys_or_a_hooks_path_is_not_access_persistence()
+    {
+        Assert.Empty(Access("const keys = fs.readFileSync(path.join(home, '.ssh', 'authorized_keys'), 'utf8');"));
+        Assert.Empty(Access("fs.writeFileSync(out, lines); // see ~/.ssh/authorized_keys"));
+        Assert.Empty(Access("const keys = fs.readFileSync(path.join(home, '.ssh', 'authorized_keys'), 'utf8');\n"
+                            + "const n = b >> 8; process.stdout.write(String(n));\n"
+                            + "assert(keys.includes('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAexample0000'));"));
+        Assert.Empty(Access("execSync('git config core.hooksPath .hooks');", install: true));
+        Assert.Empty(Access("const cur = execSync('git config --global core.hooksPath');", install: true));
+    }
+
     [Fact]
     public void Rules_that_took_lookarounds_or_a_backreference_find_what_they_found_before()
     {
