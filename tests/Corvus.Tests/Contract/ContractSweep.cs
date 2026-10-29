@@ -35,8 +35,14 @@ public static partial class ContractSweep
     /// <summary>Parameters whose value can launch a process or reach the network; a tool with any of them is open-world.</summary>
     public static readonly string[] OpenWorldParameters = ["engine", "crossCheck", "download", "server", "detectItEasy", "downloadDac"];
 
-    /// <summary>Open-world whatever the arguments: server_status probes Python, inspect_process and the session tools reach another process.</summary>
-    public static readonly string[] AlwaysOpenWorld = ["server_status", "inspect_process", .. Corvus.Mcp.ToolAvailability.SessionTools, .. Corvus.Mcp.ToolAvailability.DeviceTools];
+    /// <summary>
+    /// Open-world whatever the arguments: server_status probes Python,
+    /// inspect_process and the session tools reach another process,
+    /// summarize_file checks a signature's revocation online and
+    /// survey_features category=capa runs capa.
+    /// </summary>
+    public static readonly string[] AlwaysOpenWorld = ["server_status", "inspect_process", "summarize_file", "survey_features",
+        .. Corvus.Mcp.ToolAvailability.SessionTools, .. Corvus.Mcp.ToolAvailability.DeviceTools];
 
 
     /// <summary>A parameter that names a file or directory the tool writes.</summary>
