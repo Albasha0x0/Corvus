@@ -273,6 +273,57 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "install script" } && f.Detail.Contains("network tool", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("const os=require('os'),path=require('path');\nconst d=path.join(os.homedir(),'.config','systemd','user');")]
+    [InlineData("from pathlib import Path\nunits = Path.home() / '.config' / 'systemd' / 'user'\n")]
+    [InlineData("require('child_process').execSync('systemctl --user enable sample.service');")]
+    [InlineData("require('child_process').execSync('systemctl enable --user sample.service');")]
+    [InlineData("require('child_process').execSync('systemctl --user --now enable sample.service');")]
+    public void An_install_script_that_writes_a_logon_start_location_by_joined_segments_is_noteworthy(string script)
+    {
+        Assert.Contains(Installed(script).Findings, f => f is { Rule: "package/logon-start", Level: "noteworthy" });
+    }
+
+    [Theory]
+    [InlineData("const fs=require('fs'),os=require('os'),path=require('path');\nfs.appendFileSync(path.join(os.homedir(),'.bashrc'),'echo ok');")]
+    [InlineData("const fs=require('fs'),os=require('os'),path=require('path');\nconst rc=path.join(os.homedir(),'.zshrc');\nfs.writeFileSync(rc,'');")]
+    [InlineData("from pathlib import Path\nrc = Path.home() / '.zshrc'\nwith open(rc, 'a') as f:\n    f.write('echo ok')\n")]
+    [InlineData("import os\nwith open(os.path.expanduser('~/.profile'), 'a') as f:\n    f.write('echo ok')\n")]
+    public void An_install_script_that_writes_a_home_shell_startup_file_is_noteworthy(string script)
+    {
+        Assert.Contains(Installed(script).Findings, f => f is { Rule: "package/shell-startup", Level: "noteworthy" });
+    }
+
+    [Theory]
+    [InlineData("const fs=require('fs'),path=require('path');\nfs.writeFileSync(path.join(tmp,'.zshrc'),'');")]
+    [InlineData("const fs=require('fs'),os=require('os'),path=require('path');\nconst home=fs.mkdtempSync(path.join(os.tmpdir(),'home-'));\nfs.writeFileSync(path.join(home,'.bashrc'),'');")]
+    [InlineData("filenames = ['*.sh', '.bashrc', '.zshrc', '.profile']\n")]
+    [InlineData("import os, webbrowser\nwith open(os.path.expanduser('~/.bashrc')) as f:\n    seen = 'tool' in f.read()\nwebbrowser.open('https://example.invalid')\n")]
+    public void A_shell_startup_file_not_written_in_the_home_folder_is_not_reported(string script)
+    {
+        Assert.DoesNotContain(Installed(script).Findings, f => f.Rule is "package/shell-startup" or "package/logon-start");
+    }
+
+    [Fact]
+    public void A_completion_installer_that_writes_a_home_shell_startup_file_outside_install_is_not_noteworthy()
+    {
+        var wheel = Review(Zip("tool-1.0-py3-none-any.whl", Wheel(("tool/__init__.py", U("")),
+            ("tool/completion.py", U("from pathlib import Path\nrc_path = Path.home() / '.bashrc'\nrc_content = rc_path.read_text() if rc_path.is_file() else ''\nrc_content += 'source ~/.tool-complete.bash'\nrc_path.write_text(rc_content)\n")))));
+        Assert.DoesNotContain(wheel.Findings, f => f is { Rule: "package/shell-startup", Level: "noteworthy" });
+        var loaded = Review(Tgz("tool-1.0.0.tgz", ("package/package.json", """{"name":"tool","version":"1.0.0","main":"completion.js"}"""),
+            ("package/completion.js", "const fs=require('fs'),os=require('os'),path=require('path');\nconst rc=path.join(os.homedir(),'.bashrc');\nfs.appendFileSync(rc,'source ~/.tool-complete.bash');\n")));
+        Assert.Contains(loaded.Findings, f => f is { Rule: "package/shell-startup", Level: "review", Path: "package/completion.js" });
+    }
+
+    // A script that calls require( runs as an npm postinstall, others as setup.py.
+    private PackageReport Installed(string script) => script.Contains("require(", StringComparison.Ordinal)
+        ? Review(Tgz("startup-1.0.0.tgz",
+            ("package/package.json", """{"name":"startup","version":"1.0.0","scripts":{"postinstall":"node p.js"}}"""),
+            ("package/p.js", script)))
+        : Review(Tgz("startup-1.0.0.tar.gz",
+            ("startup-1.0.0/PKG-INFO", "Metadata-Version: 2.1\nName: startup\nVersion: 1.0.0\n"),
+            ("startup-1.0.0/setup.py", script + "from setuptools import setup\nsetup(name='startup', version='1.0.0')\n")));
+
     [Fact]
     public void A_postinstall_that_starts_a_detached_script_is_read_with_that_script()
     {

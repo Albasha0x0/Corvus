@@ -213,6 +213,7 @@ public static partial class PackageReview
         new("package/hidden-powershell", "process", "noteworthy", HiddenPowerShell(), "runs a hidden or encoded PowerShell command"),
         new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user"), "writes to a location that starts programs at logon"),
         new("package/access-persistence", "persistence", "noteworthy", AddsAuthorizedKey, "appends a public key to authorized_keys"),
+        new("package/logon-start", "persistence", "noteworthy", R(@"Start Menu['""\\/, ]+Programs['""\\/, ]+Startup|CurrentVersion\\+Run\b|\bcrontab\s+-|/etc/cron\.|Library/LaunchAgents|\.config/autostart|\.config/systemd/user|['""]\.config['""]\s*[,/]\s*['""]systemd['""]\s*[,/]\s*['""]user['""]|\bsystemctl\b[^\n;|&]{0,80}--user\b[^\n;|&]{0,80}\benable\b|\bsystemctl\s+enable\b[^\n;|&]{0,80}--user\b"), "writes to a location that starts programs at logon"),
         new("package/string-array", "transformed code", "noteworthy", StringArrayNames, "obfuscator.io-style transformed code"),
         new("package/escaped-call", "transformed code", "noteworthy", R(@"\b(?:eval|exec|compile|getattr|__import__)\s*\(\s*['""](?:\\(?:x[0-9a-fA-F]{2}|[0-7]{3})){4,}['""]"), "calls functions named by escaped strings"),
         new("package/eval-decoded", "transformed code", "noteworthy", R(@"\beval\s*\(\s*(?:atob|unescape|Buffer\.from|String\.fromCharCode|function\s*\(p,a,c,k,e,[dr]\))"), "evaluates decoded code"),
@@ -328,6 +329,11 @@ public static partial class PackageReview
         if (GlobalHooksPath.IsMatch(plain))
             yield return new PackageFinding("package/global-hooks-path", install ? "noteworthy" : "review", "persistence",
                 $"{(install ? "at install: " : "")}sets a global git hooks path (git config --global core.hooksPath)", path);
+        // Completion and PATH installers write these files too, so a write is
+        // noteworthy only at install or beside network, process or decoded code.
+        if (ShellStartupWritten(plain) is { } rc)
+            yield return new PackageFinding("package/shell-startup", install || hits.Overlaps(["network", "process", "dynamic code", "transformed code"]) ? "noteworthy" : "review", "persistence",
+                $"{(install ? "at install: " : "")}writes a shell startup file in the home folder: {Clip(rc, 160)}", path);
         if (install && ShellTokenRead.IsMatch(plain))
             yield return new PackageFinding("package/credential-files", "noteworthy", "credentials", "at install: reads a publish token variable ($NPM_TOKEN, %TWINE_PASSWORD%)", path);
         if (NestedInstall(path, plain, install) is { } nested)
@@ -741,6 +747,31 @@ public static partial class PackageReview
     [GeneratedRegex(@"(?i:powershell(?:\.exe)?\b[^\n]{0,120}(?:-w(?:indowstyle)?\s+hidden(?![^\n]{0,40}-Verb\s+runAs)|-e(?:nc(?:odedcommand)?)?\s+[A-Za-z0-9+/=]{40}))", RegexOptions.CultureInvariant)]
     private static partial Regex HiddenPowerShell();
 
+    private const string ShellStartupName = @"\.(?:bashrc|zshrc|profile|bash_profile|zprofile)";
+
+    // A shell startup file joined to the home folder: homedir(), expanduser('~') or Path.home().
+    private static readonly Regex HomeShellStartup = R($@"\b(?:path\.(?:join|resolve)|os\.path\.join)\s*\(\s*(?:(?:os\.)?homedir\(\)|os\.path\.expanduser\(\s*['""]~['""]\s*\))\s*,\s*['""`]{ShellStartupName}['""`]\s*\)|\bPath\.home\(\)\s*/\s*['""]{ShellStartupName}['""]|\bexpanduser\(\s*['""]~/{ShellStartupName}['""]\s*\)");
+    private static readonly Regex HomeWriteBefore = R(@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream)\s*\(\s*$");
+    private static readonly Regex HomeWriteAfter = R(@"^\s*,\s*(?:mode\s*=\s*)?['""][aw]|^\)?\s*\.(?:write_text\(|open\(\s*['""][aw])");
+
+    /// <summary>The home shell startup path a write call opens, in the same statement or through a variable within 12 lines; else null.</summary>
+    private static string? ShellStartupWritten(string text)
+    {
+        foreach (Match join in HomeShellStartup.Matches(text))
+        {
+            int lineStart = text.LastIndexOf('\n', Math.Max(0, join.Index - 1)) + 1, lineEnd = text.IndexOf('\n', join.Index + join.Length) is var e and >= 0 ? e : text.Length;
+            string before = text[lineStart..join.Index], after = text[(join.Index + join.Length)..lineEnd];
+            // Python open() writes only with an 'a' or 'w' mode.
+            if (HomeWriteBefore.IsMatch(before) || HomeWriteAfter.IsMatch(after)) return join.Value;
+            if (JoinAssign.Match(before) is not { Success: true } assign) continue;
+            var name = Regex.Escape(assign.Groups["v"].Value);
+            var next = string.Join('\n', text[lineEnd..].Split('\n', 14).Skip(1).Take(12));
+            if (Regex.IsMatch(next, $@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream)\s*\(\s*{name}\b|\bopen\s*\(\s*{name}\s*,\s*(?:mode\s*=\s*)?['""][aw]|(?:^|[^\w$.]){name}\.(?:write_text\(|open\(\s*['""][aw])", RegexOptions.NonBacktracking))
+                return join.Value;
+        }
+        return null;
+    }
+
     private static readonly Regex HexName = R(@"\b_0x[0-9a-f]{4,6}\b");
 
     /// <summary>Whether code follows code on one line after spaces and tabs at least 300 columns wide.</summary>
@@ -943,7 +974,7 @@ public static partial class PackageReview
             if (files.Text(entry) is { } code)
             {
                 foreach (var f in Scan(entry, code, install: false, ct, entry: true))
-                    if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard") yield return f;
+                    if (f.Level == "noteworthy" || f.Category is "transformed code" or "credentials" or "build step" or "clipboard" or "persistence") yield return f;
                 if (extension && Sideload(entry, code) is { } s) yield return s;
             }
         var sources = files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && LoadedSource.IsMatch(p)
