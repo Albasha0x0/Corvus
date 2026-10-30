@@ -179,7 +179,7 @@ public class CallLogTests
         var lines = File.ReadAllLines(path).Select(l => System.Text.Json.JsonDocument.Parse(l).RootElement).ToList();
         Assert.Equal(2, lines.Count);
         var first = lines[0];
-        Assert.Equal(("summarize_file", "sample-client", Corvus.Setup.Installation.Version, Environment.UserName),
+        Assert.Equal(("summarize_file", "sample-client", Corvus.Mcp.ServerIdentity.InformationalVersion, Environment.UserName),
             (first.GetProperty("tool").GetString(), first.GetProperty("client").GetString(), first.GetProperty("version").GetString(),
              first.GetProperty("user").GetString()!.Split('\\')[^1]));
         Assert.Equal(input, first.GetProperty("arguments").GetProperty("path").GetString());

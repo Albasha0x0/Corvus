@@ -21,8 +21,9 @@ public sealed class ChildEnvironmentTests
         return (folder, variables);
     }
 
-    // Variables a POSIX shell sets for itself, here the fake tool's launcher and the watching shell.
-    private static readonly string[] ShellVariables = ["PWD", "OLDPWD", "SHLVL", "_"];
+    // Variables a POSIX shell sets for itself, here the fake tool's launcher and
+    // the watching shell; macOS sets __CF_USER_TEXT_ENCODING in every process.
+    private static readonly string[] ShellVariables = ["PWD", "OLDPWD", "SHLVL", "_", "__CF_USER_TEXT_ENCODING"];
 
     [Fact]
     public void A_child_gets_the_minimal_environment_and_its_declared_variables()
@@ -55,11 +56,15 @@ public sealed class ChildEnvironmentTests
         var start = new ChildProcessStart(FakeTool.Executable, ["environment"]);
         var (first, _) = Report(start);
         var (second, _) = Report(start);
-        Assert.StartsWith(Path.Combine(Path.GetTempPath(), "corvus-run") + Path.DirectorySeparatorChar, first + Path.DirectorySeparatorChar);
+        // macOS reports the temp folder under /private/var, through the /var link.
+        Assert.StartsWith(Unlinked(Path.Combine(Path.GetTempPath(), "corvus-run")) + Path.DirectorySeparatorChar, Unlinked(first) + Path.DirectorySeparatorChar);
         Assert.NotEqual(Path.GetFullPath(Environment.CurrentDirectory), Path.GetFullPath(first));
         Assert.NotEqual(first, second);
         Assert.True(SpinWait.SpinUntil(() => !Directory.Exists(first), TimeSpan.FromSeconds(10)), $"{first} was left behind");
     }
+
+    private static string Unlinked(string path) =>
+        OperatingSystem.IsMacOS() && path.StartsWith("/private/", StringComparison.Ordinal) ? path["/private".Length..] : path;
 
     [Fact]
     public void A_child_running_this_program_also_gets_its_settings()

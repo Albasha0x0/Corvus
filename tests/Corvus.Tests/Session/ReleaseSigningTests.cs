@@ -141,10 +141,26 @@ public class ReleaseSigningTests
     }
 
     // PATH without the folders that hold gh, so a host with gh runs without it.
-    private static string PathWithout(string first) =>
-        string.Join(Path.PathSeparator, new[] { first }.Concat((Environment.GetEnvironmentVariable("PATH") ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Where(d => !new[] { "gh", "gh.exe", "gh.cmd" }.Any(n => File.Exists(Path.Combine(d.Trim('"'), n))))));
+    private static readonly string[] GhNames = ["gh", "gh.exe", "gh.cmd"];
+
+    // On Linux the folder that holds gh holds the shell tools too (/usr/bin
+    // on the CI runners), so it is replaced by links to all of it but gh.
+    private static string PathWithout(string first)
+    {
+        var dirs = new List<string> { first };
+        foreach (var entry in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var dir = entry.Trim('"');
+            if (!GhNames.Any(n => File.Exists(Path.Combine(dir, n)))) { dirs.Add(entry); continue; }
+            if (OperatingSystem.IsWindows()) continue;
+            var mirror = Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(first)!, $"path-{dirs.Count}")).FullName;
+            foreach (var tool in Directory.EnumerateFileSystemEntries(dir))
+                if (!GhNames.Contains(Path.GetFileName(tool)) && !File.Exists(Path.Combine(mirror, Path.GetFileName(tool))))
+                    File.CreateSymbolicLink(Path.Combine(mirror, Path.GetFileName(tool)), tool);
+            dirs.Add(mirror);
+        }
+        return string.Join(Path.PathSeparator, dirs);
+    }
 
     private static (int ExitCode, string Output) Run(string exe, IEnumerable<string> args, IDictionary<string, string?> env)
     {
