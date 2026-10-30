@@ -37,7 +37,7 @@ public static class StixBundle
         var file = summary.File;
         int networkValues = 0;
         bool cut = false;
-        var sampleHashes = Hashes(("MD5", file.Md5), ("SHA-1", file.Sha1), ("SHA-256", file.Sha256));
+        var sampleHashes = Hashes(("MD5", file.Md5), ("SHA-1", file.Sha1), ("SHA-256", file.Sha256), ("IMPHASH", file.Imphash));
         var sample = FileObject(sampleHashes, Path.GetFileName(file.Path), null);
         sample.Properties["size"] = file.Size;
 

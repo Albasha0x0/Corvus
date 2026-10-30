@@ -39,7 +39,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     public sealed record EmbeddedReport(string Assembly, IReadOnlyList<EmbeddedContent> Contents,
         string? OutputDirectory, IReadOnlyList<string> Notes);
 
-    public sealed record FileFacts(string Path, long Size, string Md5, string Sha1, string Sha256, string Type, double Entropy, CertificateInfo Certificate);
+    public sealed record FileFacts(string Path, long Size, string Md5, string Sha1, string Sha256, string Type, double Entropy, CertificateInfo Certificate)
+    {
+        /// <summary>The import hash of a PE image with regular imports (MD5 over "library.function" terms, as pefile computes it); null otherwise.</summary>
+        public string? Imphash { get; init; }
+    }
 
     public sealed record IdentityFacts(string Name, string? Version, string Mvid, string? TargetFramework, string Kind, string Architecture,
         bool ReadyToRun, string? Merged, int Types, int Methods,
@@ -1087,9 +1091,21 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         return new(input.Path, input.Length, md5, sha1, sha256, input.Kind, Math.Round(entropy, 2), certificate);
     }
 
-    private static FileFacts Facts(string path, byte[] bytes) =>
-        new(path, bytes.Length, Blob.Md5(bytes), Blob.Sha1(bytes), Blob.Sha256(bytes), Blob.Identify(bytes), Math.Round(Blob.Entropy(bytes), 2),
-            PeImage.TryParse(bytes) != null ? Certificates.Read(bytes) : new CertificateInfo(false));
+    private static FileFacts Facts(string path, byte[] bytes)
+    {
+        bool pe = PeImage.TryParse(bytes) != null;
+        return new(path, bytes.Length, Blob.Md5(bytes), Blob.Sha1(bytes), Blob.Sha256(bytes), Blob.Identify(bytes), Math.Round(Blob.Entropy(bytes), 2),
+            pe ? Certificates.Read(bytes) : new CertificateInfo(false))
+        {
+            Imphash = pe ? Imphash(bytes) : null,
+        };
+    }
+
+    private static string? Imphash(byte[] bytes)
+    {
+        try { return Native.Pe.ImportHash.Of(Native.Pe.PeFile.FromBytes(bytes)); }
+        catch (Exception e) when (e is not OperationCanceledException) { return null; }
+    }
 
     private static AssemblySummary SummarizeAssembly(string path, ModuleDef module, ModuleScan scan, byte[] image, CancellationToken ct, bool network = false)
     {
