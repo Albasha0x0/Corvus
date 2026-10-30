@@ -240,6 +240,9 @@ web/js-flow-computed-getters	windows	5000	ms
 web/js-flow-pdfjs-openjpeg	linux	2	s
 web/js-flow-pdfjs-openjpeg	macos	2	s
 web/js-flow-pdfjs-openjpeg	windows	2	s
+web/script-reader-fold-many-expressions	linux	5000	ms
+web/script-reader-fold-many-expressions	macos	5000	ms
+web/script-reader-fold-many-expressions	windows	5000	ms
 web/script-reader-loop-budget	linux	5000	ms
 web/script-reader-loop-budget	macos	5000	ms
 web/script-reader-loop-budget	windows	5000	ms

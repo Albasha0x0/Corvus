@@ -245,14 +245,18 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Many_small_expressions_fold_within_the_default_budget()
+    [Trait(PerfBudget.Trait, PerfBudget.Timing)]
+    public void Many_small_expressions_fold_within_the_step_budget()
     {
-        // Regression: each folding check read every node of the file, so 40,000
-        // expressions ran for minutes past the time limit.
+        // Regression for df283e25: each folding check read every node of the
+        // file, so 40,000 expressions ran for minutes past the time limit.
+        // The 120 s cap keeps a loaded test machine from stopping the read.
         var text = string.Concat(Enumerable.Repeat("f(x + 1);\n", 40_000)) + "var t = 'a' + 'b';\n";
-        var r = ScriptReader.Read(text, "javascript");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var r = ScriptReader.Read(text, "javascript", milliseconds: 120_000);
         Assert.True(r.Complete, string.Join(" | ", r.Notes));
         Assert.Contains("var t = 'ab'", r.Plain, StringComparison.Ordinal);
+        PerfBudget.Time("web/script-reader-fold-many-expressions", watch.Elapsed, TimeSpan.FromSeconds(5), output);
     }
 
     [Fact]
