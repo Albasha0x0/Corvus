@@ -116,7 +116,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     [Description("Open, list, inspect or close a session on a program: id, backend, modules matched to images; snapshot saves a dump.")]
     public Task<string> LiveSession(
         [Description("What to do.")] string action = "list",
-        [Description("attach: pid, name, inspector:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
+        [Description("attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid.")] string? program = null,
         [Description("spawn: program arguments.")] string[]? arguments = null,
         [Description("spawn: NAME=value variables.")] string[]? environment = null,
         [Description(SessionDescription)] string? session = null,
@@ -195,7 +195,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
     {
         if (action != "attach" || !string.IsNullOrWhiteSpace(device) || childNames != null)
             throw new ToolError(ErrorCode.InvalidArgument, "An inspector or JDWP agent is attached to: start the program with it yourself, on this machine, without childNames.",
-                "action=attach program=inspector:PORT (Node --inspect=PORT) or jdwp:PORT (java -agentlib:jdwp=transport=dt_socket,server=y,address=127.0.0.1:PORT)");
+                "action=attach program=inspector:PORT (Node --inspect=PORT), cdp:PORT (browser --remote-debugging-port=PORT) or jdwp:PORT (java -agentlib:jdwp=transport=dt_socket,server=y,address=127.0.0.1:PORT)");
         var opened = await live.OpenAsync(false, program, [], ct).ConfigureAwait(false);
         if (options.LiveScope.Count == 0) return opened;
         try

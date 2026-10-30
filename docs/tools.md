@@ -2850,7 +2850,7 @@ Open, list, inspect or close a session on a program: id, backend, modules matche
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `action` | string |  | `list` | What to do. Values: list, processes, attach, spawn, status, snapshot, ipc, close, children, attach_child, release_child. |
-| `program` | string |  |  | attach: pid, name, inspector:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid. |
+| `program` | string |  |  | attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: NAME=value variables. |
 | `session` | string |  |  | Session id from live_session. |

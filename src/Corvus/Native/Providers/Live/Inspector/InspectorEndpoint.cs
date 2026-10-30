@@ -5,13 +5,17 @@ using Corvus.Core;
 namespace Corvus.Native.Providers.Live.Inspector;
 
 // Loopback hosts only: the inspector runs any code it is sent.
-/// <summary>A V8 inspector: <c>inspector:PORT</c>, <c>inspector:HOST:PORT</c> or <c>inspector:ws://HOST:PORT/ID</c>, optional <c>#TARGET</c>.</summary>
+/// <summary>A V8 inspector: <c>inspector:PORT</c>, <c>inspector:HOST:PORT</c> or <c>inspector:ws://HOST:PORT/ID</c>, optional <c>#TARGET</c>; <c>cdp:</c> in place of <c>inspector:</c> names a browser page.</summary>
 public static class InspectorEndpoint
 {
     public const string Prefix = "inspector:";
+    public const string PagePrefix = "cdp:";
 
-    /// <summary>True when <paramref name="program"/> names an inspector rather than a process.</summary>
-    public static bool Is(string? program) => program?.TrimStart().StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) == true;
+    /// <summary>True when <paramref name="program"/> names an inspector or a browser page rather than a process.</summary>
+    public static bool Is(string? program) => program?.TrimStart().StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) == true || IsPage(program);
+
+    /// <summary>True when <paramref name="program"/> names a browser page (<c>cdp:</c>).</summary>
+    public static bool IsPage(string? program) => program?.TrimStart().StartsWith(PagePrefix, StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>One debuggable target of an inspector: what /json/list reports for it.</summary>
     public sealed record Target(string Id, string Type, string Title, string Url, Uri WebSocket);
@@ -19,25 +23,27 @@ public static class InspectorEndpoint
     /// <summary>The target <paramref name="program"/> names: a WebSocket URL as given, else the first match in the inspector's list (node targets first).</summary>
     public static async Task<Target> ResolveAsync(string program, CancellationToken ct)
     {
-        var text = program.Trim()[Prefix.Length..];
+        var page = IsPage(program);
+        var text = program.Trim()[(page ? PagePrefix : Prefix).Length..];
         string? select = null;
         if (text.IndexOf('#') is var hash and >= 0) (text, select) = (text[..hash], text[(hash + 1)..]);
         if (text.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
         {
             if (!Uri.TryCreate(text, UriKind.Absolute, out var ws)) throw Bad(program, "the WebSocket URL does not parse");
             RequireLoopback(ws.Host, program);
-            return new Target(ws.AbsolutePath.Trim('/'), "?", "", "", ws);
+            return new Target(ws.AbsolutePath.Trim('/'), page ? "page" : "?", "", "", ws);
         }
         var (host, port) = text.LastIndexOf(':') is var colon and > 0 ? (text[..colon], text[(colon + 1)..]) : ("127.0.0.1", text);
         if (!int.TryParse(port, out var number) || number is < 1 or > 65535) throw Bad(program, $"'{port}' is not a port");
         RequireLoopback(host, program);
         var list = await ListAsync(new Uri($"http://{(host.Contains(':') ? $"[{host.Trim('[', ']')}]" : host)}:{number}/json/list"), ct).ConfigureAwait(false);
-        var match = list.Where(t => select == null || t.Id == select || t.Type.Equals(select, StringComparison.OrdinalIgnoreCase)
-                || t.Title.Contains(select, StringComparison.OrdinalIgnoreCase))
+        // A browser also lists service workers and extension pages; cdp: reads pages only.
+        var match = list.Where(t => (!page || t.Type == "page") && (select == null || t.Id == select || t.Type.Equals(select, StringComparison.OrdinalIgnoreCase)
+                || t.Title.Contains(select, StringComparison.OrdinalIgnoreCase) || t.Url.Contains(select, StringComparison.OrdinalIgnoreCase)))
             .OrderBy(t => t.Type == "node" ? 0 : t.Type == "page" ? 1 : 2).FirstOrDefault();
         return match ?? throw new ToolError(ErrorCode.NotFound,
-            $"The inspector at {host}:{number} lists {list.Count} target(s){(select != null ? $", none matching '{select}'" : "")}: {string.Join(", ", list.Select(t => $"{t.Type} {t.Id} \"{t.Title}\""))}.",
-            "program=inspector:PORT#TARGET names one by id, type or title");
+            $"The {(page ? "browser" : "inspector")} at {host}:{number} lists {list.Count} target(s){(select != null ? $", none matching '{select}'" : "")}{(page ? " among its pages" : "")}: {string.Join(", ", list.Select(t => $"{t.Type} {t.Id} \"{t.Title}\""))}.",
+            page ? "program=cdp:PORT#TARGET names a page by id, title or url" : "program=inspector:PORT#TARGET names one by id, type or title");
     }
 
     private static async Task<List<Target>> ListAsync(Uri list, CancellationToken ct)
@@ -48,7 +54,7 @@ public static class InspectorEndpoint
         catch (HttpRequestException ex)
         {
             throw new ToolError(ErrorCode.NotFound, $"No inspector answers at {list.Authority}: {ex.Message}",
-                "start the program with --inspect=PORT (Node, Electron main) or --remote-debugging-port=PORT (Electron pages)");
+                "start the program with --inspect=PORT (Node, Electron main) or --remote-debugging-port=PORT (a browser or Electron pages)");
         }
         var targets = new List<Target>();
         try

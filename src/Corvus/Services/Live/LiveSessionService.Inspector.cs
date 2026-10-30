@@ -26,7 +26,7 @@ public sealed class LiveScriptState(string id, string url, string? mapUrl)
 /// <summary>A V8 inspector or JDWP session's target, runtime, scripts or classes by id, and for a JVM its last-read threads.</summary>
 public sealed class LiveScriptRuntime(string kind)
 {
-    /// <summary>"V8 inspector" or "JVM".</summary>
+    /// <summary>"V8 inspector", "browser page" or "JVM".</summary>
     public string Kind { get; } = kind;
     public bool Jvm => Kind == "JVM";
     public string Target { get; internal set; } = "";
@@ -68,7 +68,7 @@ public sealed partial class LiveSessionService
         var jvm = Native.Providers.Live.Jdwp.JdwpWorker.Is(program);
         Native.Providers.Live.ILiveBackend backend = jvm ? new Native.Providers.Live.Jdwp.JdwpBackend() : new InspectorBackend();
         var worker = backend.Start();
-        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), backend.Name, program.Trim(), false, worker) { ScriptRuntime = new(jvm ? "JVM" : "V8 inspector") };
+        var session = new LiveSession("live-" + Interlocked.Increment(ref _next), backend.Name, program.Trim(), false, worker) { ScriptRuntime = new(jvm ? "JVM" : InspectorEndpoint.IsPage(program) ? "browser page" : "V8 inspector") };
         worker.EventReceived += e => OnEvent(session, e);
         try
         {
