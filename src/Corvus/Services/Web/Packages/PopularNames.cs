@@ -43,6 +43,29 @@ internal static class PopularNames
         "colorlog", "loguru", "discord", "discord.py", "pycryptodome", "pycrypto", "py", "tabulate", "termcolor", "python-dotenv", "dnspython",
     };
 
+    // Popular names that close-name checks compare against.
+    public static readonly HashSet<string> NuGet = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Newtonsoft.Json", "Microsoft.Extensions.Logging", "Microsoft.Extensions.DependencyInjection", "Microsoft.Extensions.Configuration",
+        "Microsoft.Extensions.Options", "Microsoft.Extensions.Http", "Microsoft.Extensions.Hosting", "Microsoft.EntityFrameworkCore",
+        "System.Text.Json", "System.Memory", "System.Buffers", "System.Collections.Immutable", "System.Reflection.Metadata",
+        "Serilog", "Serilog.Sinks.Console", "Serilog.Sinks.File", "Serilog.AspNetCore", "NLog", "log4net", "AutoMapper", "Dapper", "Polly",
+        "xunit", "xunit.runner.visualstudio", "NUnit", "NUnit3TestAdapter", "MSTest.TestFramework", "Moq", "FluentAssertions", "coverlet.collector",
+        "Castle.Core", "RestSharp", "CsvHelper", "EntityFramework", "Npgsql", "MySql.Data", "StackExchange.Redis", "MongoDB.Driver",
+        "Swashbuckle.AspNetCore", "MediatR", "FluentValidation", "Humanizer", "HtmlAgilityPack", "SharpZipLib", "BouncyCastle.Cryptography",
+        "Azure.Storage.Blobs", "Azure.Identity", "AWSSDK.Core", "AWSSDK.S3", "Google.Protobuf", "Grpc.Net.Client", "Hangfire", "Quartz",
+        "SkiaSharp", "Selenium.WebDriver", "Autofac", "Ninject", "SixLabors.ImageSharp", "System.Data.SqlClient", "Microsoft.Data.SqlClient",
+    };
+
+    public static readonly HashSet<string> RubyGems = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "rails", "rake", "bundler", "rspec", "rack", "nokogiri", "activesupport", "activerecord", "actionpack", "actionmailer", "puma", "sinatra",
+        "devise", "json", "minitest", "thor", "i18n", "tzinfo", "concurrent-ruby", "mime-types", "addressable", "faraday", "httparty", "rest-client",
+        "redis", "sidekiq", "pg", "mysql2", "sqlite3", "capybara", "rubocop", "pry", "factory_bot", "faker", "webmock", "jwt", "bcrypt", "aws-sdk",
+        "aws-sdk-s3", "kaminari", "will_paginate", "carrierwave", "paperclip", "cucumber", "unicorn", "thin", "builder", "mail", "net-ssh",
+        "colorize", "rainbow", "tty-prompt", "dotenv", "figaro", "oj", "multi_json", "ffi", "yard", "simplecov", "timecop", "webpacker",
+    };
+
     /// <summary>GitHub source repositories (owner/repo, lower case) of popular editor extensions, with the publisher
     /// ids that ship each; a manifest naming one under another publisher is a copy.</summary>
     public static readonly Dictionary<string, string[]> EditorExtensionRepositories = new(StringComparer.OrdinalIgnoreCase)

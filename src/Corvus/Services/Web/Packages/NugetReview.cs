@@ -41,6 +41,8 @@ public static partial class PackageReview
             if (NetworkCommand.IsMatch(code))
                 findings.Add(new PackageFinding("package/install-network-tool", "noteworthy", "install script", $"{path} runs a network tool", path));
         }
+        if (Element("id") is { } id && CloseTo(id, PopularNames.NuGet) is { } popular)
+            findings.Add(new PackageFinding("package/close-name", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "name", $"the name '{id}' is close to the popular package '{popular}'"));
         var binaries = Binaries(files);
         return new PackageReport("nuget", Element("id"), Element("version"))
         {

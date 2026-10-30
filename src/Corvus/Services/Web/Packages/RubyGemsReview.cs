@@ -45,6 +45,8 @@ public static partial class PackageReview
         findings.AddRange(ScanLoaded(files, root, entries.Select(e => Resolve(root, e.Target!)), ct));
         var binaries = Binaries(files);
         if (binaries.Count > 0) findings.Add(new PackageFinding("package/binary", "review", "binary", $"{binaries.Count} native or executable file(s): {string.Join(", ", binaries.Take(5))}", binaries[0]));
+        if (gem.Name != null && CloseTo(gem.Name, PopularNames.RubyGems) is { } popular)
+            findings.Add(new PackageFinding("package/close-name", scripts.Any(s => s.AtInstall) ? "noteworthy" : "review", "name", $"the name '{gem.Name}' is close to the popular package '{popular}'"));
         return new PackageReport("rubygems", gem.Name, gem.Version)
         {
             Publisher = gem.Author, Description = Clip(gem.Summary), Scripts = scripts, EntryPoints = entries, Dependencies = gem.Dependencies,

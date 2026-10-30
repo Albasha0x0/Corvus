@@ -255,6 +255,9 @@ public static class Blob
         ".hta", ".lnk", ".msi", ".msp", ".cpl", ".jar", ".reg", ".sh", ".py", ".appref-ms", ".application", ".gadget",
     };
 
+    /// <summary>True when <paramref name="extension"/> (with its dot) is one Windows runs or hands to a script host.</summary>
+    public static bool IsRunnableExtension(string extension) => RunnableExtensions.Contains(extension);
+
     // Explorer reads these when it lists or previews a folder, or hands them to
     // a host on open, so a file is parsed without being run.
     private static readonly HashSet<string> ShellParsedExtensions = new(StringComparer.OrdinalIgnoreCase)

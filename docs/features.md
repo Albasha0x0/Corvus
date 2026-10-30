@@ -558,3 +558,8 @@ ret
 - Build-convention files (`Directory.Build.*`, `*.props`, `*.targets`, `NuGet.config`, `global.json`, `gradle/wrapper/*`, `init.gradle`) and shell-parsed files get a `.bin` suffix. `renamedFiles` lists them.
 - Missing dependencies are rebuilt as stand-ins from how the code uses them. The project still builds.
 - Known decompiler output errors are rewritten. A method that cannot be decompiled throws `NotSupportedException`.
+
+### Names
+
+- A zip member or mail attachment name with a bidirectional control, a runnable extension after a document extension or long padding is named.
+- A package name close to a popular npm, PyPI, NuGet or RubyGems name, or one with filler words or look-alike letters added, is review.

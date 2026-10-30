@@ -100,6 +100,8 @@ public static partial class PackageReview
             var filler = files.CommentFiller.Select(p => new PackageFinding("package/comment-filler", "review", "transformed code",
                 $"a code file over {PackageFiles.MaxFile >> 20} MiB padded with NUL bytes or archive data inside /* */ comments; its code outside them was read", p));
             report = report with { Findings = [.. report.Findings, .. filler] };
+            if (Corvus.Core.MemberNames.Check(files.Paths) is { } disguised)
+                report = report with { Findings = [.. report.Findings, new PackageFinding("package/member-name", "review", "name", $"file names that disguise their type: {disguised}")] };
         }
         // A source tree with no package manifest is reviewed for its agent configuration alone.
         // A PHP project often carries a frontend package.json; its Composer
@@ -1557,12 +1559,19 @@ public static partial class PackageReview
     {
         var bare = Normalize(name);
         if (popular.Contains(name, StringComparer.OrdinalIgnoreCase)) return null;
+        var words = name.ToLowerInvariant().Split(['-', '_', '.', '/'], StringSplitOptions.RemoveEmptyEntries);
+        var look = Skeleton(bare);
         foreach (var p in popular)
         {
             // A scope is owned by its publisher: @swc/core is no copy of cors.
             if (name.StartsWith('@') && !p.StartsWith('@')) continue;
             var q = Normalize(p);
             if (q == bare) return p;
+            if (q.Length >= 4 && Skeleton(q) == look) return p;
+            // A popular name with only filler words added: react-dom-utils.
+            var core = p.ToLowerInvariant().Split(['-', '_', '.', '/'], StringSplitOptions.RemoveEmptyEntries);
+            if (q.Length >= 4 && words.Length > core.Length && (words.Take(core.Length).SequenceEqual(core) && words.Skip(core.Length).All(SquatWords.Contains)
+                || words.Skip(words.Length - core.Length).SequenceEqual(core) && words.Take(words.Length - core.Length).All(SquatWords.Contains))) return p;
             if (Math.Abs(q.Length - bare.Length) > 2 || q.Length < 4) continue;
             int d = Distance(bare, q);
             if (d == 1 || d == 2 && q.Length >= 8) return p;
@@ -1577,6 +1586,22 @@ public static partial class PackageReview
 
     // A PEP 440 epoch (N!) comes before the major version.
     private static readonly Regex LeadingNumber = R(@"^\s*[vV=]?(?:\d+!)?0*(\d{1,12})");
+
+    // Words squatters add to a popular name; real extensions of a package use words that name a feature.
+    private static readonly HashSet<string> SquatWords = new(StringComparer.Ordinal)
+    {
+        "util", "utils", "helper", "helpers", "tool", "tools", "lib", "official", "secure", "free", "pro", "plus", "new", "fix", "update",
+        "security", "patch", "extra", "extras",
+    };
+
+    private static readonly (string From, string To)[] Confusables =
+    [
+        ("rn", "m"), ("vv", "w"), ("0", "o"), ("1", "l"), ("а", "a"), ("е", "e"), ("о", "o"), ("р", "p"), ("с", "c"),
+        ("х", "x"), ("у", "y"), ("і", "i"), ("ο", "o"), ("α", "a"), ("ρ", "p"),
+    ];
+
+    // Letters that read alike (Latin, Cyrillic, Greek, digits) reduced to one form.
+    private static string Skeleton(string bare) => Confusables.Aggregate(bare, (s, c) => s.Replace(c.From, c.To, StringComparison.Ordinal));
 
     private static string Normalize(string name)
     {

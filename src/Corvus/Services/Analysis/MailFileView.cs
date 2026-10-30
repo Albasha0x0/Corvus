@@ -57,6 +57,7 @@ internal sealed class MailFileView : IFileSummaryView
             h.Add(a.Bytes is { } b ? $"Attachment {a.Name} ({b.Length:N0} bytes, {Blob.Identify(b)})."
                 : a.Embedded is { } e ? $"Attachment {a.Name}: an embedded message, subject \"{e.Subject}\", {e.Attachments.Count} attachment(s)."
                 : $"Attachment {a.Name}: {a.Problem}.");
+        if (MemberNames.Check(m.Attachments.Select(a => a.Name)) is { } disguised) h.Add($"Attachment names that disguise their type: {disguised}.");
         if (m.Links.Count > 0) h.Add($"{m.Links.Count} link(s) in the body, first {m.Links[0]}.");
         return h;
     }

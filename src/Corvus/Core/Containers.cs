@@ -504,6 +504,7 @@ public static class Containers
         var items = new List<ExtractedItem>();
         var notes = new List<string>();
         var stores = new List<(string Path, byte[] Bytes)>();
+        if (MemberNames.Check(entries.Select(e => e.FullName)) is { } disguised) notes.Add("Member names that disguise their type: " + disguised + ".");
         Dictionary<(uint, int), string>? v1Names = null;
         long total = 0;
         foreach (var e in entries)
