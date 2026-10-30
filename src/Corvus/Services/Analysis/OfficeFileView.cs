@@ -3,7 +3,7 @@ using Corvus.Core.Documents;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>view=office: active content of an OLE, OOXML, SYLK or OneNote document: VBA, Excel 4.0 macros, OLE objects, links, findings.</summary>
+/// <summary>view=office: active content of an OLE, OOXML, RTF, SYLK or OneNote document: VBA, Excel 4.0 macros, OLE objects, links, findings.</summary>
 internal sealed class OfficeFileView : IFileSummaryView
 {
     public sealed record Module(string Name, string Type, string Stream, int Lines, bool SourceMissing,
@@ -24,12 +24,12 @@ internal sealed class OfficeFileView : IFileSummaryView
 
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
-        bool ole = CompoundFile.Looks(file.Head) && !Core.Installers.MsiDatabase.Looks(file.Head) || OneNoteReader.Looks(file.Head);
+        bool ole = CompoundFile.Looks(file.Head) && !Core.Installers.MsiDatabase.Looks(file.Head) || OneNoteReader.Looks(file.Head) || RtfObjects.Looks(file.Head);
         if (!ole && !(file.Kind == "text" && XlmMacros.IsSylk(file.Head)) && !(file.Kind == "zip" && file.HasZipEntry(n => n == "[Content_Types].xml"))) return null;
         if (file.Length > MaxDocument) return null;
         var doc = OfficeDocument.Read(file.Bytes, System.IO.Path.GetFileName(file.Path), ct);
         if (doc == null) return null;
-        bool active = doc.Projects.Count > 0 || doc.Xlm != null || doc.Objects.Count > 0 || doc.Links.Count > 0 || doc.Encrypted;
+        bool active = doc.Projects.Count > 0 || doc.Xlm != null || doc.Objects.Count > 0 || doc.Links.Count > 0 || doc.Classes.Count > 0 || doc.Encrypted;
         // A document without active content is listed only when asked for.
         if (!active && file.Options.View != Name) return null;
         var budget = System.Diagnostics.Stopwatch.StartNew();
@@ -74,7 +74,7 @@ internal sealed class OfficeFileView : IFileSummaryView
         var iocs = doc.Findings.Where(f => f.Type == "IOC").Select(f => f.Keyword).Distinct().ToList();
         if (iocs.Count > 0) h.Add($"Addresses and file names in the macros: {string.Join(", ", iocs.Take(5))}{(iocs.Count > 5 ? ", ..." : "")}.");
         foreach (var o in doc.Objects.Take(5)) h.Add($"Embedded object {o.Name} ({o.Bytes.Length:N0} bytes, {Blob.Identify(o.Bytes)}).");
-        foreach (var l in doc.Links.Where(l => l.Type is "attachedTemplate" or "oleObject" or "frame" or "subDocument").Take(3))
+        foreach (var l in doc.Links.Where(l => l.Type is "attachedTemplate" or "oleObject" or "frame" or "subDocument" or "template" or "objautlink").Take(3))
             h.Add($"External {l.Type}: {l.Target}.");
         if (doc.Encrypted) h.Add(doc.DecryptedPackage != null ? "Encrypted with Excel's built-in password: decrypted and read." : "The document is encrypted; its content is not read.");
         if (h.Count == 0) h.Add($"{doc.Format}: no macros, embedded objects or external links.");

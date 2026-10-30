@@ -185,6 +185,8 @@ public static class FindingRules
         N("office/suspicious", "a decoded keyword in a document whose macros run on open", "a keyword worth reviewing in macro text"),
         I("office/ioc", "a URL, address or file name in macro text"),
         I("office/encoded-string", "hex or base64 strings in macro text"),
+        N("office/ole-class", "exact list: Equation Editor and OLE Package objects", "an embedded or linked object of a class that runs code"),
+        R("office/template", "a remote template or linked object target"),
         R("pdf/suspicious", "a PDF action or keyword worth reviewing"),
         I("pdf/ioc", "a URL a PDF action opens"),
         R("shortcut/suspicious", "a shortcut target or argument worth reviewing"),
@@ -263,9 +265,11 @@ public static class FindingRules
                 "AutoExec" => ("autoexec", "autorun"),
                 "Suspicious" => ("suspicious", "keyword"),
                 "IOC" => ("ioc", "address"),
+                "OleClass" => ("ole-class", "object class"),
+                "Template" => ("template", "remote target"),
                 _ => ("encoded-string", "encoded string"),
             };
-            var level = type != "suspicious" ? FindingLevel.Info : autorun && f.Decoded != null ? FindingLevel.Noteworthy : FindingLevel.Review;
+            var level = type == "ole-class" ? FindingLevel.Noteworthy : type == "template" ? FindingLevel.Review : type != "suspicious" ? FindingLevel.Info : autorun && f.Decoded != null ? FindingLevel.Noteworthy : FindingLevel.Review;
             var rule = $"{source}/{type}";
             var evidence = f.Decoded != null ? $"{f.Keyword} (decoded from {f.Decoded}): {f.Description}" : $"{f.Keyword}: {f.Description}";
             return new Finding(Check(rule, level), rule, category, evidence, f.Location, source);

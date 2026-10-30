@@ -11,6 +11,9 @@ internal sealed record EmbeddedObject(string Path, string Name, string? SourcePa
 /// <summary>A relationship of an OOXML part to an outside target (template, OLE link, frame, hyperlink).</summary>
 internal sealed record ExternalLink(string Part, string Type, string Target);
 
+/// <summary>The OLE class of an object in a document, by display name; Active when opening the object runs code.</summary>
+internal sealed record OleObjectClass(string Path, string Name, bool Active);
+
 /// <summary>The active content of an OLE or OOXML Office document: macros, OLE objects, external relationships; nothing is run.</summary>
 internal sealed class OfficeDocument
 {
@@ -19,6 +22,7 @@ internal sealed class OfficeDocument
     public XlmMacros? Xlm { get; set; }
     public List<EmbeddedObject> Objects { get; } = [];
     public List<ExternalLink> Links { get; } = [];
+    public List<OleObjectClass> Classes { get; } = [];
     public List<string> Notes { get; } = [];
     public bool Encrypted { get; set; }
     public List<MacroFinding> Findings { get; private set; } = [];
@@ -32,6 +36,13 @@ internal sealed class OfficeDocument
     public static OfficeDocument? Read(byte[] data, string name, CancellationToken ct)
     {
         if (CompoundFile.Looks(data)) return FromCompound(CompoundFile.Read(data, name), ct);
+        if (RtfObjects.Looks(data))
+        {
+            var rtf = new OfficeDocument { Format = "Rich Text Format document" };
+            RtfObjects.Read(data, rtf, ct);
+            rtf.Scan();
+            return rtf;
+        }
         if (OneNoteReader.Looks(data))
         {
             var one = new OfficeDocument { Format = "OneNote section" };
@@ -80,7 +91,7 @@ internal sealed class OfficeDocument
         return doc;
     }
 
-    private void ReadCompound(CompoundFile cf, string prefix, CancellationToken ct, int depth = 0)
+    internal void ReadCompound(CompoundFile cf, string prefix, CancellationToken ct, int depth = 0)
     {
         if (cf.Find("EncryptedPackage") is { } encrypted) Decrypt(cf, encrypted, prefix, ct);
         foreach (var root in VbaProject.Roots(cf).ToList())
@@ -288,6 +299,10 @@ internal sealed class OfficeDocument
         if (Xlm != null && Xlm.Text.Length > 0) texts.Add(("xlm", Xlm.Text));
         Findings = MacroScan.Scan(texts);
         if (Xlm?.HasMacroSheets == true) Findings.Add(new MacroFinding("Suspicious", "XLM macro", "Excel 4.0 macro sheets, which can run commands"));
+        foreach (var c in Classes.Where(c => c.Active))
+            Findings.Add(new MacroFinding("OleClass", c.Name, $"an embedded or linked {c.Name} object") { Location = c.Path });
+        foreach (var link in Links.Where(l => l.Type is "template" or "objautlink"))
+            Findings.Add(new MacroFinding("Template", link.Target, $"a remote {link.Type} target, loaded when the document opens") { Location = link.Part });
         foreach (var link in Links.Where(l => l.Type is "attachedTemplate" or "oleObject" or "frame" or "subDocument"))
             Findings.Add(new MacroFinding("IOC", link.Target, $"external {link.Type} relationship, loaded when the document opens") { Location = link.Part });
         foreach (var o in Objects.Where(o => Runnable.Contains(Path.GetExtension(o.Name).ToLowerInvariant())))
