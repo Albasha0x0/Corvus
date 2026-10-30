@@ -91,6 +91,9 @@ internal static class WindowsJob
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool CloseHandle(IntPtr handle);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool SetInformationJobObject(SafeFileHandle job, int infoClass, ref uint info, uint length);
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct JOBOBJECT_ASSOCIATE_COMPLETION_PORT { public IntPtr CompletionKey, CompletionPort; }
 

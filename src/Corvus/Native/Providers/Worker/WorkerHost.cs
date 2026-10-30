@@ -65,6 +65,8 @@ public static class WorkerHost
                 Environment.FailFast("fixture_exit: the worker ends without unwinding");
                 return Task.FromResult<JsonNode?>(null);
             };
+            ops["fixture_sandbox"] = (args, ct) => OperatingSystem.IsWindows() ? Sandbox(args, ct) : throw new ToolError(ErrorCode.Unsupported, "fixture_sandbox runs on Windows only.");
+            ops["fixture_spawn"] = Spawn;
             // Answers once the file the request names exists.
             ops["fixture_wait"] = async (args, ct) =>
             {
@@ -78,6 +80,59 @@ public static class WorkerHost
 
     private static Task<JsonNode?> Ping(JsonObject args, CancellationToken cancellationToken) =>
         Task.FromResult<JsonNode?>(new JsonObject { ["pid"] = Environment.ProcessId, ["echo"] = args["echo"]?.DeepClone() });
+
+    /// <summary>Windows: the integrity level and mitigation policies of this worker, and whether it can write the profile folder, HKCU and its temporary folder.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static Task<JsonNode?> Sandbox(JsonObject args, CancellationToken cancellationToken)
+    {
+        var profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "corvus-fixture-" + Guid.NewGuid().ToString("N"));
+        var temp = Path.Combine(Path.GetTempPath(), "corvus-fixture-" + Guid.NewGuid().ToString("N"));
+        var key = @"Software\Corvus-fixture-" + Guid.NewGuid().ToString("N");
+        var (strict, extension, remote, lowLabel) = WindowsSandbox.ReadPolicies();
+        var result = new JsonObject
+        {
+            ["integrity"] = WindowsSandbox.IntegrityRid(),
+            ["strictHandleChecks"] = strict,
+            ["extensionPointsDisabled"] = extension,
+            ["noRemoteImages"] = remote,
+            ["noLowLabelImages"] = lowLabel,
+            ["profileWritable"] = Writes(() => File.WriteAllText(profile, "x"), profile),
+            ["temporaryWritable"] = Writes(() => File.WriteAllText(temp, "x"), temp),
+            ["registryWritable"] = Writes(() =>
+            {
+                using var created = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(key);
+                Microsoft.Win32.Registry.CurrentUser.DeleteSubKey(key, throwOnMissingSubKey: false);
+            }, null),
+        };
+        return Task.FromResult<JsonNode?>(result);
+    }
+
+    /// <summary>Starts up to <c>count</c> idle child processes and reports how many started; the others are ended.</summary>
+    private static Task<JsonNode?> Spawn(JsonObject args, CancellationToken cancellationToken)
+    {
+        var started = new List<ChildProcess>();
+        try
+        {
+            for (int i = 0; i < args["count"]!.GetValue<int>(); i++)
+            {
+                try { started.Add(ChildProcess.Start(new ChildProcessStart(Path.Combine(Environment.SystemDirectory, "ping.exe"), ["-n", "30", "127.0.0.1"]))); }
+                catch (System.ComponentModel.Win32Exception) { break; }
+            }
+            return Task.FromResult<JsonNode?>(new JsonObject { ["started"] = started.Count });
+        }
+        finally
+        {
+            foreach (var child in started) child.Dispose();
+        }
+    }
+
+    private static bool Writes(Action write, string? file)
+    {
+        try { write(); }
+        catch (Exception e) when (e is UnauthorizedAccessException or IOException or System.Security.SecurityException) { return false; }
+        finally { if (file != null) try { File.Delete(file); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
+        return true;
+    }
 
     /// <summary>Allocates written 16 MB blocks until one fails; <c>native</c> uses the native heap, <c>hang</c> then never answers.</summary>
     private static Task<JsonNode?> Allocate(JsonObject args, CancellationToken cancellationToken)

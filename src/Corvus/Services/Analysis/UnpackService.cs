@@ -9,7 +9,7 @@ namespace Corvus.Services.Analysis;
 /// <summary>Opens nested containers up to <see cref="AnalysisLimits.MaxDepth"/>; a marker file lets a repeat unpack reuse its output folder and keeps writes out of unrelated folders.</summary>
 public sealed class UnpackService(AssemblyWorkspace workspace)
 {
-    private const string Marker = ".corvus-unpack";
+    internal const string Marker = ".corvus-unpack";
     private const string DotNet = ".NET assembly";
     internal const string HostOrigin = "the file itself (container host)";
 

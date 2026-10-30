@@ -27,9 +27,12 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
             int step = 0;
             void Report(string message) => progress.Report(new ProgressNotificationValue { Progress = ++step, Message = message });
             // The worker writes the files; loading them stays here, where the workspace is.
-            var args = new FileWork.ExtractArgs(path, outputDirectory, keyLog);
+            // A sandboxed worker writes only under labelled folders: it extracts to a staging folder and the server fills the named one.
+            var staging = outputDirectory != null && FileIsolation.PoolFor(options, workers) is { Sandboxed: true } ? StagedExtraction.NewStaging() : null;
+            var args = new FileWork.ExtractArgs(path, staging ?? outputDirectory, keyLog);
             Func<UnpackService.Extraction> extract = () => unpacker.Extract(path, outputDirectory, AnalysisLimits.Default, cancellationToken, Report, keyLog);
             var extraction = await FileIsolation.RunAsync(options, workers, FileWork.Extract, args, path, extract, cancellationToken);
+            if (staging != null) extraction = StagedExtraction.Place(extraction, staging, outputDirectory!);
             var report = await Task.Run(() => unpacker.Finish(extraction, !extractOnly, Report), cancellationToken);
             return ContainerText.Unpack(report, offset, ClampLimit(limit));
         });

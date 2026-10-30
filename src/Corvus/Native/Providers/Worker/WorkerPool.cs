@@ -10,6 +10,8 @@ public sealed record WorkerPoolOptions
 {
     /// <summary>Null: <see cref="WorkerPool.EnableVariable"/> decides.</summary>
     public bool? Enabled { get; init; }
+    /// <summary>Null: <see cref="WorkerPool.SandboxVariable"/> decides.</summary>
+    public bool? Sandbox { get; init; }
     /// <summary>Bytes; 0: none; null: <see cref="WorkerPool.MemoryVariable"/>, else half of the available memory.</summary>
     public long? MemoryLimitBytes { get; init; }
     /// <summary>The worker command; null: this program's own <c>corvus worker</c>.</summary>
@@ -26,6 +28,12 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
 {
     /// <summary>0 turns every worker off: the file tools then read in the server.</summary>
     public const string EnableVariable = "CORVUS_WORKER_HOST";
+
+    /// <summary>1: the files worker runs sandboxed on Windows (restricted token, low integrity, mitigation policies, job limits); off by default.</summary>
+    public const string SandboxVariable = "CORVUS_WORKER_SANDBOX";
+
+    /// <summary>The kind of worker that reads untrusted files and so runs sandboxed.</summary>
+    public const string SandboxedKind = "files";
 
     /// <summary>Memory limit of each worker in MB; 0 or off: none. Default: half of the memory available to this process.</summary>
     public const string MemoryVariable = "CORVUS_WORKER_MEMORY_MB";
@@ -74,6 +82,10 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     }
 
     public bool Enabled => _options.Enabled ?? Environment.GetEnvironmentVariable(EnableVariable)?.Trim() is not ("0" or "false" or "off");
+
+    /// <summary>True when the files worker starts sandboxed: Windows only, set by <see cref="SandboxVariable"/>.</summary>
+    public bool Sandboxed => OperatingSystem.IsWindows()
+        && (_options.Sandbox ?? Environment.GetEnvironmentVariable(SandboxVariable)?.Trim() is "1" or "true" or "on");
 
     /// <summary>The memory limit each worker gets, in bytes, or null for none.</summary>
     public long? MemoryLimitBytes => _options.MemoryLimitBytes is { } c
@@ -191,6 +203,13 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             // A pool worker reads the call's paths, so it resolves a relative one
             // against the server's folder, not a private one.
             start = start with { WorkingDirectory = start.WorkingDirectory ?? Environment.CurrentDirectory };
+            if (kind == SandboxedKind && Sandboxed)
+            {
+                // A low-integrity worker writes only under labelled folders, so its temporary files go to the scratch folder.
+                var scratch = WindowsSandbox.Scratch();
+                var variables = new Dictionary<string, string?>(start.Environment) { ["TEMP"] = scratch, ["TMP"] = scratch };
+                start = start with { Sandbox = true, Environment = variables };
+            }
             if (OperatingSystem.IsMacOS() && start.MemoryLimitBytes is { } bytes)
                 // The watchdog ends the worker; the GC's own limit fails a managed allocation first, which the worker reports.
                 start = start with { Environment = new Dictionary<string, string?>(start.Environment) { ["DOTNET_GCHeapHardLimit"] = "0x" + bytes.ToString("X", CultureInfo.InvariantCulture) } };

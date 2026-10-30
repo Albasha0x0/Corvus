@@ -19,6 +19,8 @@ public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Ar
     public bool MemoryLimitOnPosix { get; init; }
     /// <summary>Runs this program itself: the CORVUS_* and DOTNET_* variables and the others this program reads pass to the child.</summary>
     public bool OwnProgram { get; init; }
+    /// <summary>Windows only: runs on a restricted token at low integrity with mitigation policies and job limits (<see cref="WindowsSandbox"/>); it can write only to low-labelled folders.</summary>
+    public bool Sandbox { get; init; }
 }
 
 /// <summary>A child process with redirected stdio whose tree ends on <see cref="Kill"/>, <see cref="Dispose"/> or this process's exit (Windows job object; elsewhere a watching shell).</summary>
@@ -552,7 +554,8 @@ internal sealed class WindowsJobProcess : ChildProcess
         var job = CreateJobObjectW(IntPtr.Zero, null);
         if (job.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
         SafeFileHandle? inRead = null, inWrite = null, outRead = null, outWrite = null, errRead = null, errWrite = null, port = null;
-        IntPtr attributes = IntPtr.Zero, handleList = IntPtr.Zero;
+        IntPtr attributes = IntPtr.Zero, handleList = IntPtr.Zero, policy = IntPtr.Zero;
+        SafeFileHandle? token = null;
         var info = default(PROCESS_INFORMATION);
         try
         {
@@ -560,12 +563,20 @@ internal sealed class WindowsJobProcess : ChildProcess
             {
                 BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION
                 {
-                    LimitFlags = KillOnJobClose | DieOnUnhandledException | (start.MemoryLimitBytes is > 0 ? JobMemory : 0),
+                    LimitFlags = KillOnJobClose | DieOnUnhandledException | (start.MemoryLimitBytes is > 0 ? JobMemory : 0)
+                        | (start.Sandbox ? WindowsSandbox.JobActiveProcessLimit : 0),
+                    ActiveProcessLimit = start.Sandbox ? WindowsSandbox.ActiveProcessLimit : 0,
                 },
                 JobMemoryLimit = checked((UIntPtr)(ulong)Math.Max(0, start.MemoryLimitBytes ?? 0)),
             };
             if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
+            if (start.Sandbox)
+            {
+                var ui = WindowsSandbox.JobUiLimitAll;
+                if (!SetInformationJobObject(job, WindowsSandbox.JobObjectBasicUiRestrictions, ref ui, sizeof(uint)))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject (UI limits) failed");
+            }
             if (start.MemoryLimitBytes is > 0)
             {
                 port = CreateIoCompletionPort(new IntPtr(-1), IntPtr.Zero, UIntPtr.Zero, 1);
@@ -581,10 +592,11 @@ internal sealed class WindowsJobProcess : ChildProcess
             PipesCreated?.Invoke(start);
 
             // Inherit only the three child pipe ends, not the MCP stdio transport's pipes.
+            var attributeCount = start.Sandbox ? 2 : 1;
             IntPtr listSize = IntPtr.Zero;
-            InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref listSize);
+            InitializeProcThreadAttributeList(IntPtr.Zero, attributeCount, 0, ref listSize);
             attributes = Marshal.AllocHGlobal(listSize);
-            if (!InitializeProcThreadAttributeList(attributes, 1, 0, ref listSize))
+            if (!InitializeProcThreadAttributeList(attributes, attributeCount, 0, ref listSize))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "InitializeProcThreadAttributeList failed");
             handleList = Marshal.AllocHGlobal(IntPtr.Size * 3);
             Marshal.WriteIntPtr(handleList, 0, inRead.DangerousGetHandle());
@@ -592,6 +604,14 @@ internal sealed class WindowsJobProcess : ChildProcess
             Marshal.WriteIntPtr(handleList, IntPtr.Size * 2, errWrite.DangerousGetHandle());
             if (!UpdateProcThreadAttribute(attributes, 0, ProcThreadAttributeHandleList, handleList, IntPtr.Size * 3, IntPtr.Zero, IntPtr.Zero))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "UpdateProcThreadAttribute failed");
+            if (start.Sandbox)
+            {
+                policy = Marshal.AllocHGlobal(sizeof(ulong));
+                Marshal.WriteInt64(policy, unchecked((long)WindowsSandbox.MitigationPolicy));
+                if (!UpdateProcThreadAttribute(attributes, 0, WindowsSandbox.ProcThreadAttributeMitigationPolicy, policy, sizeof(ulong), IntPtr.Zero, IntPtr.Zero))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "UpdateProcThreadAttribute (mitigation policy) failed");
+                token = WindowsSandbox.CreateLowToken();
+            }
 
             var si = new STARTUPINFOEX();
             si.StartupInfo.cb = Marshal.SizeOf<STARTUPINFOEX>();
@@ -604,9 +624,11 @@ internal sealed class WindowsJobProcess : ChildProcess
             var commandLine = new StringBuilder(QuoteArgument(start.FileName));
             foreach (var a in start.Arguments) commandLine.Append(' ').Append(QuoteArgument(a));
             var flags = CreateSuspended | CreateNoWindow | CreateUnicodeEnvironment | ExtendedStartupInfoPresent;
-            if (!CreateProcessW(start.FileName, commandLine.Append('\0').ToString().ToCharArray(), IntPtr.Zero, IntPtr.Zero, true, flags,
-                    BuildEnvironment(start.Environment), start.WorkingDirectory, ref si, out info))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), $"CreateProcess failed for {start.FileName}");
+            var line = commandLine.Append('\0').ToString().ToCharArray();
+            var created = token != null
+                ? WindowsSandbox.CreateProcessAsUserW(token, start.FileName, line, IntPtr.Zero, IntPtr.Zero, true, flags, BuildEnvironment(start.Environment), start.WorkingDirectory, ref si, out info)
+                : CreateProcessW(start.FileName, line, IntPtr.Zero, IntPtr.Zero, true, flags, BuildEnvironment(start.Environment), start.WorkingDirectory, ref si, out info);
+            if (!created) throw new Win32Exception(Marshal.GetLastWin32Error(), $"CreateProcess failed for {start.FileName}");
 
             var process = new SafeProcessHandle(info.hProcess, ownsHandle: true);
             using var thread = new SafeFileHandle(info.hThread, ownsHandle: true);
@@ -643,6 +665,8 @@ internal sealed class WindowsJobProcess : ChildProcess
             inRead?.Dispose(); outWrite?.Dispose(); errWrite?.Dispose();
             if (attributes != IntPtr.Zero) { DeleteProcThreadAttributeList(attributes); Marshal.FreeHGlobal(attributes); }
             if (handleList != IntPtr.Zero) Marshal.FreeHGlobal(handleList);
+            if (policy != IntPtr.Zero) Marshal.FreeHGlobal(policy);
+            token?.Dispose();
         }
     }
 
