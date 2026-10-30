@@ -35,8 +35,10 @@ public static partial class PackageReview
         var rootMarkdown = files.Paths.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && roots.Contains(Folder(p)) && AgentFiles.Kind(p) == null)
             .Order(StringComparer.Ordinal).Take(MaxAgentFiles);
         var review = new AgentReview([], [], []);
-        var editor = agent.Where(f => f.Kind == "editor settings").Select(f => Tree(files, f.Path, review.Notes)).ToList();
-        bool automaticTasks = editor.Any(s => s?["task.allowAutomaticTasks"]?.Text == "on");
+        var editor = agent.Where(f => f.Kind == "editor settings").Select(f => (f.Path, Tree: Tree(files, f.Path, review.Notes))).ToList();
+        bool automaticTasks = editor.Any(e => e.Tree?["task.allowAutomaticTasks"]?.Text == "on");
+        foreach (var (editorPath, tree) in editor)
+            if (tree != null) EditorAutoApprove(tree, editorPath, review);
         foreach (var (path, kind) in agent)
         {
             ct.ThrowIfCancellationRequested();
@@ -48,6 +50,16 @@ public static partial class PackageReview
                     break;
                 case "settings" when Tree(files, path, review.Notes) is { } s:
                     Hooks(s, path, review, ct);
+                    AgentSettings(s, path, review, ct);
+                    break;
+                case "plugin hooks" when Tree(files, path, review.Notes) is { } s:
+                    Hooks(s, path, review, ct);
+                    break;
+                case "plugin manifest" when Tree(files, path, review.Notes) is { } s:
+                    PluginManifest(s, path, review, ct);
+                    break;
+                case "plugin marketplace" when Tree(files, path, review.Notes) is { } s:
+                    PluginMarketplace(s, path, review);
                     break;
                 case "mcp" when Tree(files, path, review.Notes) is { } s:
                     McpServers(s, path, review, ct);

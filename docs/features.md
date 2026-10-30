@@ -420,6 +420,9 @@ Labels:
 - Code that evals text fetched from a JSON storage or chain RPC host is noteworthy.
 - A token read, a workflow or repository write on the GitHub API and a registry publish: three steps, or two at install, are noteworthy.
 - Variation-selector and private-use runs are decoded to bytes; terminal escapes and Markdown hidden from rendering in an instruction file are reported.
+- Agent settings (`.claude/settings.json`): `env` endpoint, proxy and loader overrides are noteworthy; helper commands, permission widening, plugins and marketplaces are reviewed.
+- Plugin manifests and hooks, command, agent, skill and prompt files, MCP files of other agents and `chat.tools.autoApprove` are read; `.codex` and `.gemini` folders count as agent files.
+- A program that runs `claude`, `codex`, `gemini` or `copilot` with confirmation off is noteworthy.
 
 ### YARA rules
 
