@@ -453,6 +453,12 @@ public static partial class PackageReview
     ];
 
     // The browser's location by its object, or a bare name opening a statement.
+    private static readonly Regex SoleIdentifier = R(@"^=?\s*([A-Za-z_$][\w$]*)\s*$");
+    private static readonly Regex LiteralOnly = R(@"^(?:'[^'\n]*'|""[^""\n]*""|`[^`$\n]*`)$");
+
+    /// <summary>The trimmed expression of the first var, let or const declaration of <paramref name="name"/>, else null.</summary>
+    private static string? Declared(string text, string name) =>
+        Regex.Match(text, $@"\b(?:var|let|const)\s+{Regex.Escape(name)}\s*=\s*(?<e>[^;\n]{{1,300}})", RegexOptions.NonBacktracking) is { Success: true } m ? m.Groups["e"].Value.Trim() : null;
     private static readonly Regex LocationAssign = R(@"(?:\b(?:window|document|top|self|parent)\.|(?:^|[;{}\n]\s*))location(?:\.href)?\s*=[^=>]");
     private static readonly Regex UrlLiteral = R(@"['""`]https?://[\w.-]+");
     private const string Address = @"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}";
@@ -473,6 +479,10 @@ public static partial class PackageReview
             var start = m.Index + m.Length - 1;
             var end = text.IndexOfAny([';', '\n'], start);
             var expression = text.Substring(start, Math.Min(end < 0 ? text.Length : end, start + 300) - start);
+            // One level of local variables: v = urlVar + '#' + emailVar reads
+            // through to the literals.
+            if (!UrlLiteral.IsMatch(expression) && SoleIdentifier.Match(expression) is { Success: true } sole && Declared(text, sole.Groups[1].Value) is { } value)
+                expression = Identifier.Replace(value, i => Declared(text, i.Value) is { } literal && LiteralOnly.IsMatch(literal) ? literal : i.Value);
             if (!UrlLiteral.IsMatch(expression)) continue;
             if (AddressInUrl.IsMatch(expression)) return true;
             var known = holders ??= AddressVariable.Matches(text).Select(v => v.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
@@ -866,6 +876,27 @@ public static partial class PackageReview
     private static readonly Regex ConstantName = R(@"^(?:'[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*'|""[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*""|`[\w-]+(?:\.[\w-]+)*\.[A-Za-z][\w-]*`)");
     private static readonly Regex LocalName = R(@"\.(?:local|localhost|localdomain|internal)['""`]");
     private static readonly Regex Encoder = R(@"\b(?:b32encode|b64encode|hexlify|Buffer\.from)\b|\.hex\(\)|toString\(\s*['""](?:hex|base64)");
+    private static readonly Regex LoginIdentity = R(@"\b(?:os\.getlogin|(?:socket\.)?gethostname|getpass\.getuser)\s*\(");
+
+    /// <summary>True when the assignments behind the names in <paramref name="expression"/>, followed through up to
+    /// 12 names, hold both a host identity call and an encoder.</summary>
+    private static bool EncodedIdentityChain(string text, string expression)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>(Identifier.Matches(expression).Select(m => m.Value));
+        var chain = new System.Text.StringBuilder(expression);
+        while (pending.Count > 0 && seen.Count < 12)
+        {
+            var name = pending.Dequeue();
+            if (!seen.Add(name)) continue;
+            var assign = Regex.Match(text, $@"(?:^|[^\w$.]){Regex.Escape(name)}\s*=\s*(?<e>[^=\n;][^\n;]{{0,199}})", RegexOptions.NonBacktracking);
+            if (!assign.Success) continue;
+            chain.Append('\n').Append(assign.Groups["e"].Value);
+            foreach (Match i in Identifier.Matches(assign.Groups["e"].Value)) pending.Enqueue(i.Value);
+        }
+        var all = chain.ToString();
+        return LoginIdentity.IsMatch(all) && Encoder.IsMatch(all);
+    }
     private static readonly Regex LeadingIdentifier = R(@"^[A-Za-z_$][\w$]*\s*[,)]");
 
     /// <summary>"encoded" or "built" when a DNS lookup takes a name built from values, "constant" for a constant non-local host name, else null.</summary>
@@ -890,7 +921,7 @@ public static partial class PackageReview
             if (BuiltName.IsMatch(arg))
             {
                 if (LocalName.IsMatch(arg)) continue;
-                if (Encoder.IsMatch(arg)) return "encoded";
+                if (Encoder.IsMatch(arg) || EncodedIdentityChain(text, arg)) return "encoded";
                 found = "built";
             }
             else if (found is null && ConstantName.Match(arg) is { Success: true } constant && !LocalName.IsMatch(constant.Value))
@@ -962,7 +993,13 @@ public static partial class PackageReview
 
     /// <summary>Whether one file loads an archive module, archives the working folder with dotfiles in one call and sends a request body.</summary>
     private static bool WorkspaceUpload(string text) =>
-        ArchiveModule.IsMatch(text) && WorkingFolderArchive.IsMatch(text) && RequestBody.IsMatch(text);
+        ArchiveModule.IsMatch(text) && RequestBody.IsMatch(text) && (WorkingFolderArchive.IsMatch(text) || DotGlobReadBack(text));
+
+    // Without a cwd option, archiver globs from process.cwd().
+    private static bool DotGlobReadBack(string text) =>
+        text.Contains("readFileSync(", StringComparison.Ordinal) && DotGlob.Matches(text).Any(m => DotTrue.IsMatch(m.Groups["o"].Value) && !m.Groups["o"].Value.Contains("cwd", StringComparison.Ordinal));
+    private static readonly Regex DotGlob = R(@"\.glob\s*\(\s*['""`]\*\*(?:/\*)?['""`]\s*,\s*(?<o>\{[^{}]{0,400}\})");
+    private static readonly Regex DotTrue = R(@"\bdot\s*:\s*(?:true|!0)\b");
 
     private static readonly Regex HexName = R(@"\b_0x[0-9a-f]{4,6}\b");
 

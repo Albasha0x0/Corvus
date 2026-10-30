@@ -64,7 +64,7 @@ public static class FindingRules
         N("package/install-bundled-program", AtInstall + ", running a program the package carries", "runs a program the package carries"),
         N("package/install-compiled-eval", AtInstall + ", evaluating code compiled from a string", "evaluates code compiled from a string"),
         N("package/collector-host", "exact list: request catchers and out-of-band test hosts", "contacts a collection endpoint"),
-        N("package/dns-send", "a host name whose leftmost label is built from values: encoded, at install, or beside host details or credentials; a constant host name at install beside them", "sends data in a DNS lookup"),
+        N("package/dns-send", "a host name whose leftmost label is built from values: encoded, at install, or beside host details or credentials; a constant host name at install beside them or from the package's only code file", "sends data in a DNS lookup"),
         N("package/install-network-collect", AtInstall + ", reaching the network with host details, secrets or decoded code", "install-time code reaches the network and collects"),
         N("package/install-network-launch", AtInstall + ", reaching the network and launching a shell or a background process", "install-time code reaches the network and launches"),
         N("package/socket-shell", "exact form: a socket piped into a spawned shell", "pipes a socket into a spawned shell"),

@@ -47,7 +47,11 @@ public static partial class PackageReview
                 if (files.Text(target) is { } code)
                 {
                     var (joined, chain) = InstallCode(files, root, target, code);
+                    // An install script that is the package's only code file has no other
+                    // work to explain a lookup.
+                    var only = files.Paths.Where(p => NodeCodeFile.IsMatch(p)).Take(2).SequenceEqual([target]);
                     findings.AddRange(Scan(target, joined, install: true, ct, notRead: files.NotRead)
+                        .Select(f => only && f is { Rule: "package/dns-send", Level: "review" } ? f with { Level = "noteworthy", Detail = f.Detail + " from the package's only code file" } : f)
                         .Select(f => chain == null ? f : f with { Detail = $"{f.Detail} (install code {chain})" }));
                 }
                 else if (files.Has(target) && files.Bytes(target) == null) notes.Add($"{script.Name} runs {run}, which was not read (see partial)");

