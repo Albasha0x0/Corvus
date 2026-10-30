@@ -160,6 +160,84 @@ public class FileBatchTests
     }
 
     [Fact]
+    public async Task A_sarif_log_holds_the_required_properties_and_one_result_per_finding()
+    {
+        using var dir = new TempDir();
+        var package = Package(Path.Combine(dir.Path, "pkg.tgz"));
+        var target = dir.File("out.sarif");
+        var (code, document, _) = await Batch("--file", package, "--sarif", target);
+        Assert.Equal(0, code);
+        var log = JsonNode.Parse(File.ReadAllText(target))!;
+        Assert.Equal("2.1.0", (string?)log["version"]);
+        var run = log["runs"]!.AsArray().Single()!;
+        Assert.Equal("Corvus", (string?)run["tool"]!["driver"]!["name"]);
+        var rules = run["tool"]!["driver"]!["rules"]!.AsArray();
+        var results = run["results"]!.AsArray();
+        Assert.Equal(document!["findings"]!.AsArray().Count, results.Count);
+        Assert.Contains(results, r => (string?)r!["ruleId"] == "package/collection-url" && (string?)r["level"] == "error");
+        Assert.All(results, r =>
+        {
+            Assert.Contains((string?)r!["level"], new[] { "error", "warning", "note" });
+            Assert.False(string.IsNullOrEmpty((string?)r["message"]!["text"]));
+            Assert.Equal((string?)r["ruleId"], (string?)rules[(int)r["ruleIndex"]!]!["id"]);
+            var location = r["locations"]![0]!["physicalLocation"]!["artifactLocation"]!;
+            Assert.Equal("pkg.tgz", (string?)location["uri"]);
+            Assert.StartsWith(document["file"]!["sha256"]!.ToString() + "|", (string?)r["partialFingerprints"]!["corvusFinding/v1"]);
+        });
+    }
+
+    [Fact]
+    public async Task A_plain_file_gives_a_sarif_log_with_no_results()
+    {
+        using var dir = new TempDir();
+        var plain = dir.File("notes.txt");
+        File.WriteAllText(plain, "plain text");
+        var target = dir.File("out.sarif");
+        var (code, _, _) = await Batch("--file", plain, "--sarif", target);
+        Assert.Equal(0, code);
+        Assert.Empty(JsonNode.Parse(File.ReadAllText(target))!["runs"]![0]!["results"]!.AsArray());
+    }
+
+    [Fact]
+    public void Results_past_the_limit_are_cut_weakest_first_and_the_cut_is_named()
+    {
+        var findings = new JsonArray();
+        foreach (var (level, rule) in new[] { ("info", "package/network"), ("review", "package/network"), ("noteworthy", "package/network") })
+            for (int i = 0; i < 2; i++)
+                findings.Add(new JsonObject { ["level"] = level, ["rule"] = rule, ["evidence"] = $"e{i}", ["location"] = null, ["key"] = $"k|{level}|{i}" });
+        var document = new JsonObject { ["file"] = new JsonObject { ["path"] = "run.ps1" }, ["complete"] = true, ["findings"] = findings };
+        var run = SarifLog.Build(document, Directory.GetCurrentDirectory(), maxResults: 3)["runs"]![0]!;
+        Assert.Equal(["error", "error", "warning"], run["results"]!.AsArray().Select(r => (string?)r!["level"]));
+        Assert.StartsWith("Results cut from 6 to 3, weakest levels first", (string?)run["properties"]!["cut"]);
+    }
+
+    [Fact]
+    public void A_log_over_the_gzip_limit_is_cut_until_it_fits()
+    {
+        var findings = new JsonArray();
+        var random = new Random(7);
+        byte[] Bytes(int n) { var b = new byte[n]; random.NextBytes(b); return b; }
+        for (int i = 0; i < 200; i++)
+            findings.Add(new JsonObject { ["level"] = "review", ["rule"] = "package/network", ["evidence"] = Convert.ToBase64String(Bytes(300)), ["location"] = null, ["key"] = $"k|{i}" });
+        var document = new JsonObject { ["file"] = new JsonObject { ["path"] = "run.ps1" }, ["complete"] = true, ["findings"] = findings };
+        var log = SarifLog.Build(document, Directory.GetCurrentDirectory(), maxGzipBytes: 20_000);
+        Assert.InRange(SarifLog.Gzip(log), 1, 20_000);
+        Assert.InRange(log["runs"]![0]!["results"]!.AsArray().Count, 1, 199);
+        Assert.NotNull(log["runs"]![0]!["properties"]!["cut"]);
+    }
+
+    [Fact]
+    public void A_member_finding_names_its_container_as_the_artifact()
+    {
+        var finding = new JsonObject { ["level"] = "info", ["rule"] = "package/network", ["evidence"] = "x", ["location"] = null, ["key"] = "k" };
+        var record = new JsonObject { ["file"] = new JsonObject { ["paths"] = new JsonArray("a b.zip!/d/e.txt") }, ["findings"] = new JsonArray(finding) };
+        var document = new JsonObject { ["file"] = new JsonObject { ["path"] = Path.GetFullPath("in") }, ["records"] = new JsonArray(record), ["complete"] = true };
+        var result = SarifLog.Build(document, Directory.GetCurrentDirectory())["runs"]![0]!["results"]![0]!;
+        Assert.Equal("in/a%20b.zip", (string?)result["locations"]![0]!["physicalLocation"]!["artifactLocation"]!["uri"]);
+        Assert.Equal("x (in d/e.txt)", (string?)result["message"]!["text"]);
+    }
+
+    [Fact]
     public async Task A_run_the_time_limit_ends_still_writes_its_document_and_exits_124()
     {
         using var dir = new TempDir();

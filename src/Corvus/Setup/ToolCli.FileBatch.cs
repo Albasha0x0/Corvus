@@ -91,6 +91,8 @@ internal static partial class ToolCli
             throw new UsageException($"--extract needs a new or empty folder: {a.Extract}.");
         var report = OutputPath("--report", a.Report);
         if (report != null && Directory.Exists(report)) throw new UsageException($"--report names a file, not a folder: {a.Report}.");
+        var sarif = OutputPath("--sarif", a.Sarif);
+        if (sarif != null && Directory.Exists(sarif)) throw new UsageException($"--sarif names a file, not a folder: {a.Sarif}.");
         if (a.Out != null && !a.JsonLines) throw new UsageException("--out goes with --jsonl.");
         var lines = OutputPath("--out", a.Out);
         if (lines != null && Directory.Exists(lines)) throw new UsageException($"--out names a file, not a folder: {a.Out}.");
@@ -127,6 +129,7 @@ internal static partial class ToolCli
             exit = failures.Count > 0 ? Exit.ToolError : Exit.Ok;
         }
         if (report != null) await File.WriteAllTextAsync(report, Report(document), CancellationToken.None);
+        if (sarif != null) await File.WriteAllTextAsync(sarif, SarifLog.Build(document, Directory.GetCurrentDirectory()).ToJsonString(Compact), CancellationToken.None);
         if (!a.JsonLines) io.Out.WriteLine(document.ToJsonString(Compact));
         else
         {
