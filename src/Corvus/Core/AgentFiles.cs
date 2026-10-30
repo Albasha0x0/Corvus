@@ -27,6 +27,7 @@ internal static class AgentFiles
         if (Is(dir, ".claude") && (Is(name, "settings.json") || Is(name, "settings.local.json"))) return "settings";
         if (Is(name, ".mcp.json") || (Is(dir, ".cursor") || Is(dir, ".vscode") || Is(dir, ".roo") || Is(dir, ".amazonq")) && Is(name, "mcp.json")
             || Is(dir, "settings") && slashed.EndsWith("/.kiro/settings/mcp.json", c) || Is(dir, ".gemini") && Is(name, "settings.json")) return "mcp";
+        if (Is(dir, ".codex") && Is(name, "config.toml")) return "codex settings";
         if (Is(dir, ".claude-plugin") && Is(name, "plugin.json")) return "plugin manifest";
         if (Is(dir, ".claude-plugin") && Is(name, "marketplace.json")) return "plugin marketplace";
         if (Is(dir, "hooks") && Is(name, "hooks.json")) return "plugin hooks";

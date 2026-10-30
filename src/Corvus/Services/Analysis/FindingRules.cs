@@ -143,6 +143,7 @@ public static class FindingRules
         N("package/markdown-hidden", "a comment in an instruction file that names a tool, path, URL or command", "text not shown when Markdown is rendered"),
         N("package/agent-hook", "a hook on an event that runs without a tool call", "an agent hook runs a command"),
         N("package/agent-cli-unconfirmed", "exact list: flags that skip the confirmation of claude, codex, gemini and copilot", "runs an AI command-line tool with confirmation off"),
+        N("package/agent-confirmation-off", "exact form: Codex approval_policy never", "agent settings run every command without confirmation"),
         N("package/agent-env-endpoint", "exact list: request endpoint, proxy and certificate variables with a non-loopback value in agent settings", "agent settings send requests or trust elsewhere"),
         N("package/agent-env-loader", "exact list: variables that load code into a process, set in agent settings", "agent settings load code into the agent's processes"),
         R("package/agent-helper-command", "an agent settings key that runs a command"),

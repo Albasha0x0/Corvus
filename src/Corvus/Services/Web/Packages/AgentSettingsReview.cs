@@ -33,19 +33,7 @@ public static partial class PackageReview
     /// <summary>Claude Code settings keys that redirect requests, load code, run helpers, widen permissions or add plugins.</summary>
     private static void AgentSettings(JsonTree settings, string path, AgentReview review, CancellationToken ct)
     {
-        foreach (var (name, value) in settings["env"]?.Props ?? [])
-        {
-            var text = value.Text ?? "";
-            if (LoaderEnv.Contains(name) && text.Length > 0)
-                review.Findings.Add(new PackageFinding("package/agent-env-loader", "noteworthy", "agent configuration",
-                    $"settings env {name} loads code into the agent's processes: {Clip(text, 200)}", path, value.Line));
-            else if (EndpointEnv.Contains(name) && text.Length > 0 && !IsLoopbackUrl(text))
-                review.Findings.Add(new PackageFinding("package/agent-env-endpoint", "noteworthy", "agent configuration",
-                    $"settings env {name} sends the agent's requests or trust elsewhere: {Clip(text, 200)}", path, value.Line));
-            else if (name.Equals("NODE_TLS_REJECT_UNAUTHORIZED", StringComparison.OrdinalIgnoreCase) && text == "0")
-                review.Findings.Add(new PackageFinding("package/agent-env-endpoint", "noteworthy", "agent configuration",
-                    "settings env NODE_TLS_REJECT_UNAUTHORIZED turns certificate checks off", path, value.Line));
-        }
+        SettingsEnv(settings["env"], "settings env", path, review);
         foreach (var key in HelperKeys)
             if (settings[key] is { Text: { Length: > 0 } command } helper) HelperCommand(key, command, helper.Line, path, review, ct);
         if (settings["statusLine"]?["command"] is { Text: { Length: > 0 } status } line) HelperCommand("statusLine", status, line.Line, path, review, ct);
@@ -56,6 +44,24 @@ public static partial class PackageReview
         foreach (var (market, entry) in settings["extraKnownMarketplaces"]?.Props ?? [])
             review.Findings.Add(new PackageFinding("package/agent-marketplace", "review", "agent configuration",
                 $"extraKnownMarketplaces adds marketplace {Clip(market, 80)} from {Clip(PluginSource(entry["source"]) ?? "(no source)", 160)}", path, entry.Line));
+    }
+
+    /// <summary>Noteworthy findings for variables that load code, send requests elsewhere or turn certificate checks off.</summary>
+    private static void SettingsEnv(JsonTree? env, string where, string path, AgentReview review)
+    {
+        foreach (var (name, value) in env?.Props ?? [])
+        {
+            var text = value.Text ?? "";
+            if (LoaderEnv.Contains(name) && text.Length > 0)
+                review.Findings.Add(new PackageFinding("package/agent-env-loader", "noteworthy", "agent configuration",
+                    $"{where} {name} loads code into the agent's processes: {Clip(text, 200)}", path, value.Line));
+            else if (EndpointEnv.Contains(name) && text.Length > 0 && !IsLoopbackUrl(text))
+                review.Findings.Add(new PackageFinding("package/agent-env-endpoint", "noteworthy", "agent configuration",
+                    $"{where} {name} sends the agent's requests or trust elsewhere: {Clip(text, 200)}", path, value.Line));
+            else if (name.Equals("NODE_TLS_REJECT_UNAUTHORIZED", StringComparison.OrdinalIgnoreCase) && text == "0")
+                review.Findings.Add(new PackageFinding("package/agent-env-endpoint", "noteworthy", "agent configuration",
+                    $"{where} NODE_TLS_REJECT_UNAUTHORIZED turns certificate checks off", path, value.Line));
+        }
     }
 
     private static void HelperCommand(string key, string command, int line, string path, AgentReview review, CancellationToken ct)

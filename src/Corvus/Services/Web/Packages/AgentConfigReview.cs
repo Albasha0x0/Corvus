@@ -52,6 +52,12 @@ public static partial class PackageReview
                     Hooks(s, path, review, ct);
                     AgentSettings(s, path, review, ct);
                     break;
+                case "codex settings" when files.Text(path) is { } toml:
+                    CodexSettings(toml, path, review, ct);
+                    break;
+                case "codex settings":
+                    review.Notes.Add($"{path}: not read ({files.Size(path):N0} bytes, over the limit or unreadable); agent configuration unknown");
+                    break;
                 case "plugin hooks" when Tree(files, path, review.Notes) is { } s:
                     Hooks(s, path, review, ct);
                     break;
@@ -340,6 +346,10 @@ public static partial class PackageReview
 
         /// <summary>The first property of that name, or null when absent or not an object.</summary>
         public JsonTree? this[string name] => Props?.FirstOrDefault(p => p.Name == name).Value;
+
+        /// <summary>A node built by another reader, such as the TOML reader.</summary>
+        internal static JsonTree Node(JsonTokenType kind, int line, string? text = null, List<(string Name, JsonTree Value)>? props = null, List<JsonTree>? items = null) =>
+            new() { Kind = kind, Line = line, Text = text, Props = props, Items = items };
 
         /// <summary>The tree of <paramref name="text"/>, or null when it is not valid JSON.</summary>
         public static JsonTree? Parse(string text)
