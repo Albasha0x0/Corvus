@@ -320,7 +320,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | PDF | embedded files, JavaScript, XFA forms; streams with `allFiles` |
 | `.lnk` | appended data |
 | Mail (`.eml`, `.msg`) | bodies, attachments, embedded messages; `.msg` streams |
-| OneNote `.one` | embedded files |
+| OneNote `.one` | embedded files under their stored names; scripts flagged |
 | ISO / UDF, VHD / VHDX (NTFS, FAT, ext) | every file of each partition |
 | Apple `.dmg`, HFS+, APFS | every file; encrypted APFS volumes named |
 | `Assets.car` | renditions; bitmaps as PNG with `allFiles` |

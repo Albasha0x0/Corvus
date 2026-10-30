@@ -198,12 +198,15 @@ public sealed class OfficeDocumentTests
     }
 
     /// <summary>A OneNote section: its header GUID, a UTF-16 file name property and FileDataStoreObject records.</summary>
-    internal static byte[] OneNoteSection(params byte[][] files)
+    internal static byte[] OneNoteSection(params byte[][] files) => OneNoteSectionNamed(["invoice.hta"], files);
+
+    /// <summary>A OneNote section whose UTF-16 file name properties are <paramref name="names"/>.</summary>
+    internal static byte[] OneNoteSectionNamed(string[] names, params byte[][] files)
     {
         var o = new MemoryStream();
         o.Write(new Guid("7B5C52E4-D88C-4DA7-AEB1-5378D02996D3").ToByteArray());
         o.Write(new byte[64]);
-        o.Write(Encoding.Unicode.GetBytes("\0invoice.hta\0"));
+        foreach (var name in names) o.Write(Encoding.Unicode.GetBytes($"\0{name}\0"));
         foreach (var f in files)
         {
             while (o.Length % 8 != 0) o.WriteByte(0);
@@ -229,6 +232,40 @@ public sealed class OfficeDocumentTests
         var f = View(one, "a.one")!;
         Assert.Equal(2, f.Objects.Count);
         Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "embedded_1.hta" });
+    }
+
+    [Fact]
+    public void A_onenote_embedded_file_takes_its_stored_name_and_a_script_is_flagged()
+    {
+        var cmd = "@echo off\r\nstart calc.exe\r\n"u8.ToArray();
+        var one = OneNoteSectionNamed(["Invoice 2024.cmd"], cmd);
+        var c = Containers.Open(one, "a.one", AnalysisLimits.Default, default);
+        Assert.Equal(cmd, c.Items.Single(i => i.Name == "Invoice 2024.cmd").Bytes);
+        var f = View(one, "a.one")!;
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "Invoice 2024.cmd" });
+    }
+
+    [Fact]
+    public void A_onenote_script_without_a_stored_name_is_typed_by_its_text()
+    {
+        var ps = "$u = 'x'\r\nWrite-Host $u\r\n"u8.ToArray();
+        var f = View(OneNoteSectionNamed([], ps), "a.one")!;
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "embedded_1.ps1" });
+    }
+
+    [Fact]
+    public void A_onenote_file_named_as_a_document_but_holding_a_script_is_flagged()
+    {
+        var vbs = "Dim s\r\nSet s = CreateObject(\"WScript.Shell\")\r\n"u8.ToArray();
+        var f = View(OneNoteSectionNamed(["notes.txt"], vbs), "a.one")!;
+        Assert.Contains(f.Findings, r => r is { Type: "Suspicious", Keyword: "notes.txt" } && r.Description.Contains(".vbs", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_onenote_text_note_is_not_flagged()
+    {
+        var f = View(OneNoteSectionNamed(["notes.txt"], "meeting at noon, bring the printed agenda"u8.ToArray()), "a.one");
+        Assert.Empty(f?.Findings ?? []);
     }
 
     [Fact]

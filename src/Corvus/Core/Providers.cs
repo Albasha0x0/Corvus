@@ -40,6 +40,13 @@ public static class Providers
             .Select(t => (T)Activator.CreateInstance(t)!)];
 }
 
+/// <summary>Names the script language of embedded text for readers below the services layer; null when the text does not read as a script.</summary>
+public interface IScriptSniffer
+{
+    /// <summary>The language of <paramref name="text"/> by its content: powershell, batch, vbscript or javascript; null for plain text.</summary>
+    string? Language(string text);
+}
+
 /// <summary>A container format beyond the built-in ones, asked only about data no built-in reader takes; bounded by <see cref="AnalysisLimits"/>, never runs what it reads.</summary>
 public interface IContainerReader
 {

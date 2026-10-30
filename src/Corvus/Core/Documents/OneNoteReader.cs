@@ -60,6 +60,19 @@ internal sealed class OneNoteReader : IContainerReader
         return names;
     }
 
+    /// <summary>
+    /// The name of each file: the stored name when the section names as many
+    /// files as it embeds, else the content name; stored names are paired in order.
+    /// </summary>
+    public static List<string> FileNames(IReadOnlyList<byte[]> files, IReadOnlyList<string> stored)
+    {
+        var names = new List<string>();
+        bool paired = stored.Count == files.Count;
+        for (int i = 0; i < files.Count; i++)
+            names.Add(paired && Path.GetFileName(stored[i]) is { Length: > 0 } stem ? stem : $"embedded_{i + 1}{Extension(files[i])}");
+        return names;
+    }
+
     /// <summary>An extension for embedded content from its first bytes.</summary>
     public static string Extension(byte[] b)
     {
@@ -70,7 +83,11 @@ internal sealed class OneNoteReader : IContainerReader
             var head = Encoding.UTF8.GetString(b, 0, Math.Min(b.Length, 512)).TrimStart().ToLowerInvariant();
             if (head.StartsWith("<hta", StringComparison.Ordinal) || head.Contains("<hta:", StringComparison.Ordinal) || head.StartsWith("<html", StringComparison.Ordinal)) return ".hta";
             if (head.StartsWith("@echo", StringComparison.Ordinal) || head.StartsWith("echo ", StringComparison.Ordinal)) return ".bat";
-            return ".txt";
+            var text = Encoding.UTF8.GetString(b, 0, Math.Min(b.Length, 8192));
+            return Providers.Of<IScriptSniffer>().Select(s => s.Language(text)).FirstOrDefault(l => l != null) switch
+            {
+                "powershell" => ".ps1", "batch" => ".cmd", "vbscript" => ".vbs", "javascript" => ".js", _ => ".txt",
+            };
         }
         return kind switch
         {
@@ -85,10 +102,12 @@ internal sealed class OneNoteReader : IContainerReader
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
         long total = 0;
-        int n = 0;
-        foreach (var (offset, bytes) in Files(data, limits.MaxItemBytes, notes, ct))
-            ArchiveItems.Take(items, entries, "OneNote embedded file", $"embedded_{++n}{Extension(bytes)}", bytes, true, limits, ref total);
+        var files = Files(data, limits.MaxItemBytes, notes, ct);
         var names = Names(data);
+        var fileNames = FileNames([.. files.Select(f => f.Data)], names);
+        for (int i = 0; i < files.Count; i++)
+            ArchiveItems.Take(items, entries, "OneNote embedded file", fileNames[i], files[i].Data, true, limits, ref total);
+        int n = files.Count;
         if (names.Count > 0) notes.Add($"file names in the section: {string.Join(", ", names.Take(20))}");
         if (n == 0) notes.Add("no embedded files");
         return new ContainerContents(new Guid(data.AsSpan(0, 16)) == TableOfContents ? "OneNote table of contents" : "OneNote section", items, notes) { Entries = entries };

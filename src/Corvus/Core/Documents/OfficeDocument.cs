@@ -46,10 +46,12 @@ internal sealed class OfficeDocument
         if (OneNoteReader.Looks(data))
         {
             var one = new OfficeDocument { Format = "OneNote section" };
-            int n = 0;
-            foreach (var (offset, bytes) in OneNoteReader.Files(data, MaxPart, one.Notes, ct))
-                one.Objects.Add(new EmbeddedObject($"0x{offset:X}", $"embedded_{++n}{OneNoteReader.Extension(bytes)}", null, bytes));
-            if (OneNoteReader.Names(data) is { Count: > 0 } names) one.Notes.Add($"file names in the section: {string.Join(", ", names.Take(20))}");
+            var files = OneNoteReader.Files(data, MaxPart, one.Notes, ct);
+            var names = OneNoteReader.Names(data);
+            var fileNames = OneNoteReader.FileNames([.. files.Select(f => f.Data)], names);
+            for (int i = 0; i < files.Count; i++)
+                one.Objects.Add(new EmbeddedObject($"0x{files[i].Offset:X}", fileNames[i], null, files[i].Data));
+            if (names.Count > 0) one.Notes.Add($"file names in the section: {string.Join(", ", names.Take(20))}");
             one.Scan();
             return one;
         }
@@ -305,8 +307,15 @@ internal sealed class OfficeDocument
             Findings.Add(new MacroFinding("Template", link.Target, $"a remote {link.Type} target, loaded when the document opens") { Location = link.Part });
         foreach (var link in Links.Where(l => l.Type is "attachedTemplate" or "oleObject" or "frame" or "subDocument"))
             Findings.Add(new MacroFinding("IOC", link.Target, $"external {link.Type} relationship, loaded when the document opens") { Location = link.Part });
-        foreach (var o in Objects.Where(o => Runnable.Contains(Path.GetExtension(o.Name).ToLowerInvariant())))
-            Findings.Add(new MacroFinding("Suspicious", o.Name, $"an embedded {Path.GetExtension(o.Name)} file, which opens or runs when double-clicked") { Location = o.Path });
+        foreach (var o in Objects)
+        {
+            var ext = Path.GetExtension(o.Name).ToLowerInvariant();
+            if (Runnable.Contains(ext))
+                Findings.Add(new MacroFinding("Suspicious", o.Name, $"an embedded {ext} file, which opens or runs when double-clicked") { Location = o.Path });
+            // A stored name can hide the content: a script or program named as a document.
+            else if (Format == "OneNote section" && OneNoteReader.Extension(o.Bytes) is var sniffed && Runnable.Contains(sniffed))
+                Findings.Add(new MacroFinding("Suspicious", o.Name, $"an embedded file named {ext} whose content reads as {sniffed}") { Location = o.Path });
+        }
         foreach (var m in Projects.SelectMany(p => p.Modules).Where(m => m.SourceMissing))
             Findings.Add(new MacroFinding("Suspicious", "VBA source missing", $"module {m.Name} has no readable source text at its offset (removed or damaged)") { Location = m.Stream });
     }
