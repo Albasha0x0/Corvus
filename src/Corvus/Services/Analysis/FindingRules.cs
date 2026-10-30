@@ -90,6 +90,7 @@ public static class FindingRules
         N("package/carrier", "the only code file, at most 200 bytes, loads nothing, beside runtime dependencies; or holds only a base64 literal decoding to JSON or a URL", "an entry file that only installs its dependencies"),
         N("package/dependency-source", AtInstall + ", with a dependency fetched from outside the registry, or, in an npm manifest, a dependency over http, git+http or git://, or a git dependency pinned to a commit that no shipped code names", "a dependency fetched from outside the registry"),
         N("package/dependency-alias", "exact form: an unscoped dependency installing npm:@scope/name of the package's own scope or at latest, * or no range", "installs another package under an unscoped dependency name"),
+        N("package/locked-source", "a lockfile entry resolved over plain HTTP; git and HTTPS sources are review", "a locked package resolves from outside the registry"),
         R("package/self-dependency", "a package that lists its own name as a dependency"),
         R("package/high-version", "a major version of 99 or higher on a name without a scope"),
         R("package/binary", "native or executable files"),

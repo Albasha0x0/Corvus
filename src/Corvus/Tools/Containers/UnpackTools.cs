@@ -35,8 +35,8 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
         });
 
     [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackService.ContainerSearch))]
-    [Description("Find types and members by name in the managed assemblies inside a container or an assembly, without extracting. " +
-                 "Other kinds search file paths, pcap packets, endpoints, capture requests, JS features or YARA rules.")]
+    [Description("Find managed types and members by name inside a container or assembly, without extracting. " +
+                 "Other kinds: file paths, pcap packets, endpoints, capture requests, JS features, YARA rules, locked packages.")]
     public async Task<string> SearchContainer(
         [Description("Container or assembly file (absolute).")] string path,
         [Description("Name, substring or * ? wildcards; packet: display filter; feature: JS text; yara: rule file, folder or text.")] string query,

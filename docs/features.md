@@ -378,6 +378,14 @@ Labels:
   - other streams under `streams/`;
   - `tls.json`: version, suite, ALPN, JA3, JA4, JA4S and decryption state per connection.
 
+### Lockfiles
+
+- `summarize_file view=lockfile` reads `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock` (v1 and berry), `poetry.lock`, `uv.lock` and hashed `requirements*.txt`.
+- Each resolved package shows its source: registry, git, url or path. A git or URL source is review; plain HTTP is noteworthy.
+- `compare_folders` on two lockfiles, or two folders with lockfiles at one path, lists packages added, removed or changed.
+- A git or URL source taken on, or an integrity changed for one version, is noteworthy; a newly flagged install script is listed.
+- `search_container kind=dependency query=name@version` on a folder names each lockfile that resolves it; `node_modules` and `.git` are skipped.
+
 ### YARA rules
 
 - `search_container kind=yara`. The query is a rule file, a folder, rule text, or `pack:<name>` from `corvus rules fetch` ([cli.md](cli.md)). Corvus ships no rules.

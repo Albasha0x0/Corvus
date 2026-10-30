@@ -33,9 +33,40 @@ public sealed class FolderTools(FolderCompare folders)
             : string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath)
                 ? throw new ToolError(ErrorCode.InvalidArgument, $"{(string.IsNullOrWhiteSpace(oldPath) ? "oldPath" : "newPath")} is missing: compare_folders takes both paths.",
                     "pass oldPath and newPath, or oldResult and newResult")
-            : Task.Run(() => WithPackageChanges(folders.Compare(oldPath, newPath, change, caseSensitive, exclude is { Length: > 0 } ? string.Join(";", exclude) : null, maxEntries,
+            : Task.Run(() => WithLockfileChanges(WithPackageChanges(folders.Compare(oldPath, newPath, change, caseSensitive, exclude is { Length: > 0 } ? string.Join(";", exclude) : null, maxEntries,
                 offset, limit, (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} files hashed" }),
-                cancellationToken, !noDiffs), oldPath, newPath, cancellationToken), cancellationToken));
+                cancellationToken, !noDiffs), oldPath, newPath, cancellationToken), oldPath, newPath, cancellationToken), cancellationToken));
+
+    /// <summary>Adds package changes for each lockfile both sides hold at one relative path (or two lockfiles of one format); returns the comparison unchanged when none are paired.</summary>
+    private static FolderCompare.Comparison WithLockfileChanges(FolderCompare.Comparison comparison, string oldPath, string newPath, CancellationToken ct)
+    {
+        var olds = Services.Web.Packages.Lockfiles.Find(oldPath, ct, out bool oldComplete);
+        var news = Services.Web.Packages.Lockfiles.Find(newPath, ct, out bool newComplete);
+        // Two lockfiles given as files pair by format, whatever their folders.
+        var pairs = File.Exists(oldPath) && File.Exists(newPath) && olds.Count == 1 && news.Count == 1
+                    && string.Equals(olds[0], news[0], StringComparison.OrdinalIgnoreCase)
+            ? [(olds[0], Old: oldPath, New: newPath)]
+            : olds.Intersect(news, StringComparer.Ordinal).Select(r => (r, Old: Path.Combine(oldPath, r), New: Path.Combine(newPath, r))).ToList();
+        if (pairs.Count == 0) return comparison;
+        var rows = new List<EvidenceChange>();
+        var notes = new List<string>();
+        if (!oldComplete || !newComplete) notes.Add($"lockfiles: the walk stopped at {Services.Web.Packages.Lockfiles.MaxFiles} lockfiles or an unreadable folder; others are unknown");
+        foreach (var (where, o, n) in pairs)
+        {
+            if (Services.Web.Packages.Lockfiles.Load(o) is not { } old || Services.Web.Packages.Lockfiles.Load(n) is not { } @new)
+            {
+                notes.Add($"lockfile {where}: not read on one side");
+                continue;
+            }
+            var changes = Services.Web.Packages.Lockfiles.Diff(old, @new, where);
+            rows.AddRange(changes);
+            notes.Add($"lockfile {where}: {changes.Count(c => c.Kind == "added")} package(s) added, {changes.Count(c => c.Kind == "removed")} removed, " +
+                $"{changes.Count(c => c.Kind == "changed")} changed, {changes.Count(c => c.New?.StartsWith("noteworthy", StringComparison.Ordinal) == true)} noteworthy");
+        }
+        notes.AddRange(rows.Where(r => r.New?.StartsWith("noteworthy", StringComparison.Ordinal) == true).Take(MaxPackageRows)
+            .Select(r => $"{r.Kind} {r.Key}: {r.New}" + (r.Fields is { Count: > 0 } f ? $" ({string.Join(", ", f)})" : "")));
+        return comparison with { Changes = [.. comparison.Changes ?? [], .. rows], Notes = [.. comparison.Notes, .. notes] };
+    }
 
     /// <summary>Finding changes repeated in the notes; Changes holds them all.</summary>
     private const int MaxPackageRows = 50;
