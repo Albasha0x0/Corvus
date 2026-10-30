@@ -32,6 +32,13 @@ internal static class ThreadPoolSnapshot
     {
         // Off Windows the snapshot is a dump written through the diagnostics port, which a changed TMPDIR cannot reach.
         if (!OperatingSystem.IsWindows()) return $", {what} unknown (read on Windows only)";
+        // A snapshot attach can fail once on a loaded machine; a second failure is named.
+        var first = ReadOnce(mode, frames, what, pid);
+        return first.Exited is null or 0 ? first.Text : ReadOnce(mode, frames, what, pid).Text;
+    }
+
+    private static (string Text, int? Exited) ReadOnce(string mode, int frames, string what, int? pid)
+    {
         try
         {
             var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
@@ -50,20 +57,21 @@ internal static class ThreadPoolSnapshot
             {
                 child.Kill(entireProcessTree: true);
                 child.WaitForExit();
-                return $", {what} unknown (the read ran past {ReadLimit.TotalSeconds:0} s)";
+                return ($", {what} unknown (the read ran past {ReadLimit.TotalSeconds:0} s)", null);
             }
-            return child.ExitCode == 0 ? output.Result.TrimEnd() : $", {what} unknown (the read exited with {child.ExitCode})";
+            return child.ExitCode == 0 ? (output.Result.TrimEnd(), 0)
+                : ($", {what} unknown (the read exited with {child.ExitCode}: {output.Result.Trim()})", child.ExitCode);
         }
         // A failed read never fails the test the snapshot describes.
         catch (Exception e)
         {
-            return $", {what} unknown ({e.GetType().Name})";
+            return ($", {what} unknown ({e.GetType().Name})", null);
         }
     }
 
     /// <summary>
     /// In the child: writes the <paramref name="args"/> read (mode, process id, frames) of that process to standard
-    /// output as the text after the counts; exit code 0, or 1 when the process could not be read.
+    /// output as the text after the counts; exit code 0, or 1 and the exception's type name when the process could not be read.
     /// </summary>
     public static int Main(string[] args)
     {
@@ -79,7 +87,7 @@ internal static class ThreadPoolSnapshot
         }
         catch (Exception e)
         {
-            Console.Out.Write($", unknown ({e.GetType().Name})");
+            Console.Out.Write(e.GetType().Name);
             return 1;
         }
     }
