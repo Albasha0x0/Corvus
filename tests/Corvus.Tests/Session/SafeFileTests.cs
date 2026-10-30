@@ -107,6 +107,24 @@ public class SafeFileTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("ZoneId=3", File.ReadAllText(path + ":" + Blob.ZoneStream));
     }
 
+    // Reproduces an unpack on c4742626 where 655 members of one import
+    // library took over 900 s to name.
+    [Fact]
+    public void Members_with_one_name_are_numbered_and_a_repeat_returns_its_file()
+    {
+        var root = Directory.CreateDirectory(_dir.File("root")).FullName;
+        var zone = new ZoneMark(_ => { });
+        var names = new UniqueNames();
+        var paths = Enumerable.Range(0, 300).Select(i => Blob.WriteUnique(root, "lib/jvm.dll", Bytes($"m{i}"), zone, names)).ToList();
+        Assert.Equal("jvm.dll", Path.GetFileName(paths[0]));
+        Assert.Equal("jvm_300.dll", Path.GetFileName(paths[^1]));
+        Assert.Equal(300, paths.Distinct().Count());
+        Assert.Equal(paths[150], Blob.WriteUnique(root, "lib/jvm.dll", Bytes("m150"), zone, names));
+        // Without the extraction's names, the probe finds the same files.
+        Assert.Equal(paths[150], Blob.WriteUnique(root, "lib/jvm.dll", Bytes("m150")));
+        Assert.Equal("jvm_301.dll", Path.GetFileName(Blob.WriteUnique(root, "lib/jvm.dll", Bytes("new"))));
+    }
+
     [Fact]
     public void A_refused_zone_mark_is_named_once_with_the_first_reason()
     {

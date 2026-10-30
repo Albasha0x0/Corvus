@@ -98,6 +98,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var notes = walked.Notes;
         var files = new List<UnpackedFile>();
         var zone = new ZoneMark();
+        var names = new UniqueNames();
         int index = 0;
         foreach (var item in walked.Items)
         {
@@ -105,7 +106,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             if (++index % 200 == 0) progress?.Invoke($"{index} of {walked.Items.Count} files written");
             string written;
             // An archive can hold both "a.dll" and "a.dll/b.dll".
-            try { written = Blob.WriteUnique(root, item.Relative, item.Bytes, zone); }
+            try { written = Blob.WriteUnique(root, item.Relative, item.Bytes, zone, names); }
             // A refused name (.git/, CLAUDE.md) skips that entry, not the extraction.
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException || ex is ToolError t && OutputGuard.IsRefusal(t))
             {

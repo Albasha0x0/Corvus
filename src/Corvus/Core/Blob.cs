@@ -310,27 +310,62 @@ public static class Blob
     /// <summary>
     /// Writes an extracted file to a unique path under root, not flushed to disk, marked as from the Internet zone on
     /// Windows through <paramref name="zone"/> (a mark of its own when null); never overwrites a different file.
+    /// <paramref name="names"/> keeps one extraction's numbering, so a repeated name costs one write; null: none kept.
     /// </summary>
-    public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes, ZoneMark? zone = null)
+    public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes, ZoneMark? zone = null, UniqueNames? names = null)
     {
         zone ??= new ZoneMark();
-        var path = UnderRoot(root, relative);
-        var dir = Path.GetDirectoryName(path)!;
-        var stem = Path.GetFileNameWithoutExtension(path);
-        var ext = Path.GetExtension(path);
-        for (int i = 2; ; i++)
+        var wanted = UnderRoot(root, relative);
+        var dir = Path.GetDirectoryName(wanted)!;
+        var stem = Path.GetFileNameWithoutExtension(wanted);
+        var ext = Path.GetExtension(wanted);
+        int k = 1;
+        List<(int Length, string Path)>? written = null;
+        if (names != null && names.ByName.TryGetValue(wanted, out var seen))
         {
-            try { return zone.Mark(SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false, flush: false)); }
-            catch (ToolError ex) when (ex.Code == ErrorCode.Conflict)
+            foreach (var (length, file) in seen.Written)
+                if (length == bytes.Length && SameContent(file, bytes)) return zone.Mark(file);
+            (k, written) = seen;
+        }
+        for (; ; k++)
+        {
+            var path = k == 1 ? wanted : Path.Combine(dir, $"{stem}_{k}{ext}");
+            string? done = null;
+            // A name a regular file holds costs a length check, not a guarded
+            // write; links and folders still meet the guard.
+            var taken = new FileInfo(path);
+            if (taken.Exists && taken.LinkTarget == null)
             {
-                if (SameContent(path, bytes)) return zone.Mark(path);
+                if (SameContent(path, bytes)) done = path;
             }
-            path = Path.Combine(dir, $"{stem}_{i}{ext}");
+            else
+            {
+                try { done = SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false, flush: false); }
+                catch (ToolError ex) when (ex.Code == ErrorCode.Conflict)
+                {
+                    if (SameContent(path, bytes)) done = path;
+                }
+            }
+            if (done == null) continue;
+            if (names != null)
+            {
+                written ??= [];
+                written.Add((bytes.Length, done));
+                names.ByName[wanted] = (k + 1, written);
+            }
+            return zone.Mark(done);
         }
     }
 
     /// <summary>The name of the alternate data stream Windows reads a file's security zone from.</summary>
     public const string ZoneStream = "Zone.Identifier";
+}
+
+/// <summary>One extraction's numbered names: the next number to try and the files written for each wanted path.</summary>
+public sealed class UniqueNames
+{
+    internal readonly Dictionary<string, (int Next, List<(int Length, string Path)> Written)> ByName =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 }
 
 /// <summary>Marks one extraction's files as from the Internet zone (ZoneId=3) on Windows and keeps the first failure.</summary>
