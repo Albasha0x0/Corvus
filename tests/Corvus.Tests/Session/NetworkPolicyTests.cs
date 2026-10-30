@@ -116,7 +116,8 @@ public sealed class NetworkPolicyTests
                 Assert.Contains(NetworkPolicy.HttpServersVariable, NetworkPolicy.Refusal(e)!.Message);
                 Assert.False(listener.Pending());
             }
-            using (var http = NetworkPolicy.Client(servers, TimeSpan.FromSeconds(5), offline: false, httpServers: $"other.example, localhost:{Port(listener)}"))
+            // The allowed request ran past 5 s on a macOS runner (release run 41002381249).
+            using (var http = NetworkPolicy.Client(servers, TimeSpan.FromSeconds(30), offline: false, httpServers: $"other.example, localhost:{Port(listener)}"))
             {
                 var accepted = listener.AcceptTcpClientAsync();
                 var request = http.GetAsync(server + "/x");
