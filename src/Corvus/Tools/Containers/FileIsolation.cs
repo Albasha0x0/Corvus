@@ -74,6 +74,7 @@ internal sealed class FileOps : IWorkerOps
         Entry(FileWork.Summarize), Entry(FileWork.List), Entry(FileWork.Search), Entry(FileWork.Extract),
         Entry(FileWork.DumpView), Entry(FileWork.DumpRead), Entry(FileWork.DumpHeap), Entry(FileWork.DumpObject),
         Entry(FileWork.DumpStack), Entry(FileWork.DumpBuckets), Entry(FileWork.Symbolize),
+        Entry(FileWork.Strings), Entry(FileWork.Embedded), Entry(FileWork.Survey), Entry(FileWork.ExportPackage),
     ];
 
     private static (string, string, WorkerOp) Entry<TArgs, TResult>(FileOp<TArgs, TResult> op) => (op.Name, op.Tool, Op(op));
@@ -190,6 +191,54 @@ public static class FileWork
     /// <summary>unpack_container's reading half: the files written, nothing loaded.</summary>
     public static readonly FileOp<ExtractArgs, UnpackService.Extraction> Extract = new("file_extract", "unpack_container",
         (services, a, ct) => services.GetRequiredService<UnpackService>().Extract(a.Path, a.OutputDirectory, AnalysisLimits.Default, ct, null, a.KeyLog));
+
+    public sealed record StringsArgs(string Path, string[]? Types, long MaxAssetBytes, double? TimeLimit);
+
+    public sealed record EmbeddedArgs(string Path, bool Save, string? OutputDirectory, bool XorText, bool IncludeMedia);
+
+    public sealed record SurveyArgs(string Path, string? Category);
+
+    public sealed record ExportPackageArgs(string Path, string OutputDirectory, bool Overwrite);
+
+    /// <summary>extract_strings over a file.</summary>
+    public static readonly FileOp<StringsArgs, InspectionService.ValueReport> Strings = new("file_strings", "extract_strings",
+        (services, a, ct) => StringsWith(services.GetRequiredService<InspectionService>(), a, ct));
+
+    /// <summary>extract_embedded over a file; loading what it finds stays in the server.</summary>
+    public static readonly FileOp<EmbeddedArgs, InspectionService.EmbeddedReport> Embedded = new("file_embedded", "extract_embedded",
+        (services, a, ct) => EmbeddedWith(services.GetRequiredService<InspectionService>(), a, ct));
+
+    /// <summary>survey_features over a file, as the record the tool answers.</summary>
+    public static readonly FileOp<SurveyArgs, SurveyRecord> Survey = new("file_survey", "survey_features",
+        (services, a, ct) => SurveyWith(services.GetRequiredService<InspectionService>(), a, ct));
+
+    /// <summary>The typed values of a file through <paramref name="inspection"/>.</summary>
+    public static InspectionService.ValueReport StringsWith(InspectionService inspection, StringsArgs a, CancellationToken ct) =>
+        inspection.ExtractStrings(null, a.Path, a.Types, ct, new InspectionService.AssetReadLimits(a.MaxAssetBytes, a.TimeLimit is { } seconds ? TimeSpan.FromSeconds(seconds) : null));
+
+    /// <summary>The embedded content of a file, written when <see cref="EmbeddedArgs.Save"/> asks, never loaded.</summary>
+    public static InspectionService.EmbeddedReport EmbeddedWith(InspectionService inspection, EmbeddedArgs a, CancellationToken ct) =>
+        inspection.ExtractEmbedded(null, a.Path, a.Save, a.OutputDirectory, false, ct, a.XorText, a.IncludeMedia);
+
+    /// <summary>The survey record of a file.</summary>
+    public static SurveyRecord SurveyWith(InspectionService inspection, SurveyArgs a, CancellationToken ct) =>
+        ContainerText.Survey(inspection.SurveyFeatures(null, a.Path, a.Category, ct), a.Category);
+
+    /// <summary>export_project of an Android package: the Gradle project written whole or not at all.</summary>
+    public static readonly FileOp<ExportPackageArgs, ExportOutcome> ExportPackage = new("package_export", "export_project",
+        (services, a, ct) => ExportPackageWith(services.GetRequiredService<Services.Mobile.AndroidProjectExport>(), a, null, ct).GetAwaiter().GetResult());
+
+    /// <summary>The Gradle project of a package written through <paramref name="android"/>; <paramref name="progress"/> counts units.</summary>
+    public static async Task<ExportOutcome> ExportPackageWith(Services.Mobile.AndroidProjectExport android, ExportPackageArgs a, Action<int, int, string>? progress, CancellationToken ct)
+    {
+        using var output = ExportDirectory.Begin(a.OutputDirectory, a.Overwrite);
+        var r = await android.Export(a.Path, output.Staging, progress, ct).ConfigureAwait(false);
+        var files = output.Commit();
+        var notes = new List<string> { $"{r.Classes} classes as {r.Sources}" + (r.SourceFailures > 0 ? $" ({r.SourceFailures} failed; their files hold the error)" : "") };
+        notes.AddRange(r.Notes.Take(20));
+        return new ExportOutcome(true, System.IO.Path.GetFileName(a.Path), output.Final, files.Count, files.FirstOrDefault(f => f.StartsWith("build.gradle", StringComparison.Ordinal)) is { } gradle
+            ? System.IO.Path.Combine(output.Final, gradle) : null, []) { Replaced = output.Replace, Notes = notes, RenamedFiles = output.Renamed.Count > 0 ? output.Renamed : null };
+    }
 
     /// <summary>A dump the server resolved: the id it gave the file and the image folders it is read with.</summary>
     public sealed record DumpTarget(string Id, string Path, string? ImageDirectories);

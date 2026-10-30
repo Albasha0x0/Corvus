@@ -73,14 +73,14 @@ public sealed partial record ToolContract
         ["find_call_paths"] = R.Server,
         ["list_resources"] = R.Server,
         ["get_resource"] = R.Server,
-        ["export_project"] = R.Server,
+        ["export_project"] = R.FileWorker | R.Server,
         ["get_r2r_code"] = R.Server,
         ["find_r2r_method"] = R.Server,
         // containers
         ["summarize_file"] = R.FileWorker | R.Helper,
-        ["survey_features"] = R.Server | R.Helper,
-        ["extract_strings"] = R.Server,
-        ["extract_embedded"] = R.Server,
+        ["survey_features"] = R.FileWorker | R.Server | R.Helper,
+        ["extract_strings"] = R.FileWorker | R.Server,
+        ["extract_embedded"] = R.FileWorker | R.Server,
         ["search_container"] = R.FileWorker | R.Helper,
         // Extraction reads in the worker; loading what it found reads in the server.
         ["unpack_container"] = R.FileWorker | R.Server,

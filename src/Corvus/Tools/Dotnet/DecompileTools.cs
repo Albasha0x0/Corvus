@@ -14,7 +14,8 @@ namespace Corvus.Tools;
 
 [McpServerToolType]
 public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerService decompiler, OutputPager pager, NotesService? notes = null,
-    Services.Mobile.AndroidProjectExport? android = null, ServerOptions? options = null)
+    Services.Mobile.AndroidProjectExport? android = null, ServerOptions? options = null,
+    Native.Providers.Worker.WorkerPool? workers = null)
 {
     private const int MaxMembersPerCall = 25;
 
@@ -195,15 +196,13 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         return new ExportOutcome(true, asm.Id, r.Directory, r.FileCount, r.ProjectFile, r.FailedTypes) { Replaced = r.Replaced, Notes = r.Renamed.Count > 0 ? r.Renamed : null, RenamedFiles = r.RenamedFiles.Count > 0 ? r.RenamedFiles : null };
     }
 
-    private async Task<ExportOutcome> ExportPackage(string path, string outputDirectory, bool overwrite, Action<int, int, string> progress, CancellationToken ct)
+    private Task<ExportOutcome> ExportPackage(string path, string outputDirectory, bool overwrite, Action<int, int, string> progress, CancellationToken ct)
     {
-        using var output = ExportDirectory.Begin(outputDirectory, overwrite);
-        var r = await android!.Export(path, output.Staging, progress, ct).ConfigureAwait(false);
-        var files = output.Commit();
-        var notes = new List<string> { $"{r.Classes} classes as {r.Sources}" + (r.SourceFailures > 0 ? $" ({r.SourceFailures} failed; their files hold the error)" : "") };
-        notes.AddRange(r.Notes.Take(20));
-        return new ExportOutcome(true, Path.GetFileName(path), output.Final, files.Count, files.FirstOrDefault(f => f.StartsWith("build.gradle", StringComparison.Ordinal)) is { } gradle
-            ? Path.Combine(output.Final, gradle) : null, []) { Replaced = output.Replace, Notes = notes, RenamedFiles = output.Renamed.Count > 0 ? output.Renamed : null };
+        var args = new FileWork.ExportPackageArgs(path, outputDirectory, overwrite);
+        // A sandboxed worker cannot write the named folder, so the export stays in the server.
+        if (FileIsolation.PoolFor(options, workers) is { Sandboxed: true }) return FileWork.ExportPackageWith(android!, args, progress, ct);
+        return FileIsolation.RunAsync(options, workers, FileWork.ExportPackage, args, path,
+            () => FileWork.ExportPackageWith(android!, args, progress, ct).GetAwaiter().GetResult(), ct);
     }
 
     private static string Render(ExportOutcome r)

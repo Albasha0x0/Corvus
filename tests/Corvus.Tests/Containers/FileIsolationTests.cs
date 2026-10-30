@@ -172,6 +172,45 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
     }
 
     [Fact]
+    public async Task An_extract_strings_read_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "extract_strings", new() { ["path"] = Fixture("strings.bin", Corvus.Tools.FileOps.FixtureMarker + "exit") }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("strings.bin", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
+    public async Task An_extract_embedded_read_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "extract_embedded", new() { ["path"] = Fixture("embedded.bin", Corvus.Tools.FileOps.FixtureMarker + "exit") }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("embedded.bin", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
+    public async Task A_survey_features_read_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "survey_features", new() { ["path"] = Fixture("survey.bin", Corvus.Tools.FileOps.FixtureMarker + "exit") }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("survey.bin", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
     public async Task A_relative_path_reads_in_the_worker_as_in_the_server()
     {
         // A file under the test's current folder, named by a path relative to it.
@@ -273,6 +312,15 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
                 ("dump_stack", _ => new() { ["dump"] = "synth.dmp", ["thread"] = "#0", ["limit"] = 2 }),
                 ("symbolize_stack_text", _ => new() { ["text"] = "   at Lib.C.U()\n   at Lib.C.V()" }),
                 ("symbolize_stack_text", _ => new() { ["path"] = Path.Combine(_dir.Path, "absent.log") }),
+                ("extract_strings", _ => new() { ["path"] = library }),
+                ("extract_strings", _ => new() { ["path"] = package, ["types"] = new[] { "url" } }),
+                ("extract_strings", _ => new() { ["path"] = bytes }),
+                ("extract_strings", _ => new() { ["path"] = Path.Combine(_dir.Path, "absent.bin") }),
+                ("extract_embedded", _ => new() { ["path"] = package }),
+                ("extract_embedded", _ => new() { ["path"] = bytes }),
+                ("survey_features", _ => new() { ["path"] = library }),
+                ("survey_features", _ => new() { ["path"] = library, ["category"] = "all" }),
+                ("survey_features", _ => new() { ["path"] = zip }),
                 ("dump_heap", _ => new() { ["dump"] = dump }),
                 ("dump_object", _ => new() { ["dump"] = dump, ["address"] = "0x1000" }),
                 ("summarize_file", _ => new() { ["path"] = zip }),

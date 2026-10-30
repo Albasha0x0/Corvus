@@ -124,8 +124,14 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         if (image != null && assembly != null)
             throw new ToolError(ErrorCode.InvalidArgument, "Pass assembly or image, not both: they name the same thing.");
         if (image != null && path == null && workspace?.Read(() => workspace.FindNative(image)) == null && File.Exists(image)) (path, image) = (image, null);
-        var report = await Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken);
-        var record = ContainerText.Survey(report, category);
+        SurveyRecord record;
+        if (assembly == null && image == null && path != null)
+        {
+            var args = new FileWork.SurveyArgs(path, category);
+            record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Survey, args, path,
+                () => FileWork.SurveyWith(inspection, args, cancellationToken), cancellationToken);
+        }
+        else record = ContainerText.Survey(await Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken), category);
         return ToolOutput.Report(ContainerText.Survey(record), record);
     }
 
@@ -147,7 +153,14 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         if (timeLimit is not null and (<= 0 or > 86_400)) throw new ToolError(ErrorCode.InvalidArgument, "timeLimit must be above 0 seconds, at most 86400.");
         var assets = new InspectionService.AssetReadLimits(Math.Min(maxAssetBytes ?? AssetFileStrings.MaxBytes, AssetFileStrings.MaxBytes),
             timeLimit is { } seconds ? TimeSpan.FromSeconds(seconds) : null);
-        var report = await Task.Run(() => inspection.ExtractStrings(assembly, path, types, cancellationToken, assets), cancellationToken);
+        InspectionService.ValueReport report;
+        if (assembly == null && path != null)
+        {
+            var args = new FileWork.StringsArgs(path, types, assets.MaxBytes, timeLimit);
+            report = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Strings, args, path,
+                () => FileWork.StringsWith(inspection, args, cancellationToken), cancellationToken);
+        }
+        else report = await Task.Run(() => inspection.ExtractStrings(assembly, path, types, cancellationToken, assets), cancellationToken);
         if (report.Partial is { } partial) ToolOutput.Coverage("partial", partial, [.. report.PartialIn]);
         string? kept = null;
         if (results != null && report.Total > 0)
@@ -172,7 +185,15 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default)
     {
-        var report = await Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);
+        InspectionService.EmbeddedReport report;
+        // A sandboxed worker cannot write the named folder, so a save stays in the server.
+        if (assembly == null && path != null && !load && !(save && FileIsolation.PoolFor(serverOptions, workers) is { Sandboxed: true }))
+        {
+            var args = new FileWork.EmbeddedArgs(path, save, outputDirectory, xorText, includeMedia);
+            report = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Embedded, args, path,
+                () => FileWork.EmbeddedWith(inspection, args, cancellationToken), cancellationToken);
+        }
+        else report = await Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);
         return ContainerText.Embedded(report, offset, ToolSupport.ClampLimit(limit));
     }
 }
