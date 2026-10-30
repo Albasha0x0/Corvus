@@ -106,11 +106,15 @@ public sealed class FolderTools(FolderCompare folders)
         if ((old.Partial ?? @new.Partial) is { } partial) ToolOutput.Coverage("partial", "package review: " + partial, Limitations.Id(Limitation.RowCap));
         var findings = CapabilityChanges.Of(old, @new);
         var (facts, summary) = CapabilityChanges.Policy(old, @new, findings);
-        var rows = findings.Concat(facts).ToList();
+        // Behaviours of each changed code file need the malcontent pack; without it there are none.
+        var (behaviours, behaviourNotes) = Package(oldPath) && Package(newPath)
+            ? Services.Web.Packages.PackageBehaviours.Between(Services.Web.Packages.PackageFiles.Open(oldPath, ct)!, Services.Web.Packages.PackageFiles.Open(newPath, ct)!, ct)
+            : ([], []);
+        var rows = findings.Concat(facts).Concat(behaviours).ToList();
         return comparison with
         {
             Changes = rows,
-            Notes = [summary, .. comparison.Notes, $"package review: {findings.Count(r => r.Kind == "added")} finding(s) added, {findings.Count(r => r.Kind == "removed")} removed, " +
+            Notes = [summary, .. behaviourNotes, .. comparison.Notes, $"package review: {findings.Count(r => r.Kind == "added")} finding(s) added, {findings.Count(r => r.Kind == "removed")} removed, " +
                 $"{facts.Count} policy fact(s) changed; Changes lists them", .. rows.Take(MaxPackageRows).Select(r => $"{r.Kind} {r.Key}" + ((r.New ?? r.Old) is { } at ? $": {at}" : ""))],
         };
     }

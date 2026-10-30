@@ -384,6 +384,7 @@ Labels:
 - Each resolved package shows its source: registry, git, url or path. A git or URL source is review; plain HTTP is noteworthy.
 - `compare_folders` on two lockfiles, or two folders with lockfiles at one path, lists packages added, removed or changed.
 - A git or URL source taken on, or an integrity changed for one version, is noteworthy; a newly flagged install script is listed.
+- `compare_folders` on two package versions lists malcontent behaviours added or removed in each changed code file, and build or install steps a `.nupkg` gains.
 - `search_container kind=dependency query=name@version` on a folder names each lockfile that resolves it; `node_modules` and `.git` are skipped.
 - `search_container kind=incident query=<list file or pack:name>` lists lockfile packages, files and archive members that an incident list names (`name@version` or SHA-256 per line); a listing is not a verdict.
 
