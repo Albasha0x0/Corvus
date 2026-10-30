@@ -633,7 +633,7 @@ public static partial class PackageReview
     // npm command that prints it.
     private static readonly Regex GlobalPrefix = R(@"\bprocess\.env(?:\.(?:npm_config_prefix|PREFIX)\b|\[\s*['""](?:npm_config_prefix|PREFIX)['""]\s*\])|\bnpm\s+(?:prefix|root|bin)\s+-g\b"
         + @"|\{[^{}]{0,80}\bnpm_config_prefix\b[^{}]{0,80}\}\s*=\s*process\.env");
-    private static readonly Regex PrefixRename = R(@"\bnpm_config_prefix\s*:\s*(?<v>[A-Za-z_$][\w$]*)");
+    private static readonly Regex LocalRoot = R(@"\b__dirname\b|\b__filename\b|\bimport\.meta\b|\bprocess\.cwd\(\)");
     private static readonly Regex CommandDeclaration = R(@"\b(?:const|let|var)\s+(?<v>[A-Za-z_$][\w$]*)\s*=\s*(?<e>[^;\n]{1,300})");
     private static readonly Regex CommandCall = R(@"(?:\b(?:fs|fsp|promises)\.(?:rm|unlink|symlink|link|rename|copyFile|cp|writeFile)|\b(?:rm|unlink|symlink|link|rename|copyFile|cp|writeFile)Sync)\s*\(\s*(?<a>[^;\n]{1,300})");
     private static readonly Regex CommandSegment = R(@"['""`](?:bin(?:[/\\][\w.-]+)?|[\w.-]+\.(?:cmd|ps1))['""`]");
@@ -641,24 +641,23 @@ public static partial class PackageReview
     /// <summary>True when an fs call deletes, links, copies or writes a path built from the global npm prefix with a bin segment or a .cmd or .ps1 name.</summary>
     private static bool ReplacesGlobalCommand(string text)
     {
+        // In a file that reads the global prefix, the prefix may reach a path
+        // through calls and parameters, so a command segment counts unless the
+        // path is rooted in the package's own or the working folder without a
+        // prefix read.
         if (!GlobalPrefix.IsMatch(text)) return false;
-        var prefixNames = new HashSet<string>(StringComparer.Ordinal) { "npm_config_prefix" };
-        foreach (Match m in PrefixRename.Matches(text)) prefixNames.Add(m.Groups["v"].Value);
-        bool Prefixed(string code) => GlobalPrefix.IsMatch(code) || Identifier.Matches(code).Any(m => prefixNames.Contains(m.Value));
-        // Declarations are read in source order, so a name holding the prefix
-        // is known before a later path join uses it.
+        // Declarations are read in source order, so a name holding a command
+        // path is known before a later join or call uses it.
         var pathNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (Match d in CommandDeclaration.Matches(text))
         {
             var e = d.Groups["e"].Value;
-            if (CommandSegment.IsMatch(e) && Prefixed(e)) pathNames.Add(d.Groups["v"].Value);
-            // Only a direct prefix read names the prefix, so a flag derived from it does not.
-            else if (GlobalPrefix.IsMatch(e)) prefixNames.Add(d.Groups["v"].Value);
+            if ((GlobalPrefix.IsMatch(e) || !LocalRoot.IsMatch(e)) && (CommandSegment.IsMatch(e) || Identifier.Matches(e).Any(m => pathNames.Contains(m.Value)))) pathNames.Add(d.Groups["v"].Value);
         }
         foreach (Match c in CommandCall.Matches(text))
         {
             var args = c.Groups["a"].Value;
-            if (Identifier.Matches(args).Any(m => pathNames.Contains(m.Value)) || CommandSegment.IsMatch(args) && Prefixed(args)) return true;
+            if (Identifier.Matches(args).Any(m => pathNames.Contains(m.Value)) || CommandSegment.IsMatch(args) && (GlobalPrefix.IsMatch(args) || !LocalRoot.IsMatch(args))) return true;
         }
         return false;
     }
@@ -927,6 +926,9 @@ public static partial class PackageReview
 
     // A shell startup file joined to the home folder: homedir(), expanduser('~') or Path.home().
     private static readonly Regex HomeShellStartup = R($@"\b(?:path\.(?:join|resolve)|os\.path\.join)\s*\(\s*(?:(?:os\.)?homedir\(\)|os\.path\.expanduser\(\s*['""]~['""]\s*\))\s*,\s*['""`]{ShellStartupName}['""`]\s*\)|\bPath\.home\(\)\s*/\s*['""]{ShellStartupName}['""]|\bexpanduser\(\s*['""]~/{ShellStartupName}['""]\s*\)");
+    private static readonly Regex HomeVariable = R(@"\b(?:const|let|var)\s+(?<v>[A-Za-z_$][\w$]*)\s*=\s*(?:os\.)?homedir\(\)");
+    private static readonly Regex HomeVariableShellStartup = R($@"\bpath\.(?:join|resolve)\s*\(\s*(?<h>[A-Za-z_$][\w$]*)\s*,\s*['""`]{ShellStartupName}['""`]\s*\)");
+    private static readonly Regex StartupFileWrite = R(@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream)\s*\(");
     private static readonly Regex HomeWriteBefore = R(@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream)\s*\(\s*$");
     private static readonly Regex HomeWriteAfter = R(@"^\s*,\s*(?:mode\s*=\s*)?['""][aw]|^\)?\s*\.(?:write_text\(|open\(\s*['""][aw])");
 
@@ -945,6 +947,12 @@ public static partial class PackageReview
             if (Regex.IsMatch(next, $@"\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream)\s*\(\s*{name}\b|\bopen\s*\(\s*{name}\s*,\s*(?:mode\s*=\s*)?['""][aw]|(?:^|[^\w$.]){name}\.(?:write_text\(|open\(\s*['""][aw])", RegexOptions.NonBacktracking))
                 return join.Value;
         }
+        // A join on a variable holding homedir() counts beside any file write
+        // in the file, helpers included.
+        var homes = HomeVariable.Matches(text).Select(m => m.Groups["v"].Value).ToHashSet(StringComparer.Ordinal);
+        if (homes.Count > 0 && StartupFileWrite.IsMatch(text))
+            foreach (Match join in HomeVariableShellStartup.Matches(text))
+                if (homes.Contains(join.Groups["h"].Value)) return join.Value;
         return null;
     }
     private static readonly Regex ArchiveModule = R(@"\brequire\(\s*['""](?:archiver|adm-zip)['""]\s*\)|\bfrom\s+['""](?:archiver|adm-zip)['""]");

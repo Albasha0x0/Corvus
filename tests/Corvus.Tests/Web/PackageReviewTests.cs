@@ -2236,6 +2236,35 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_startup_file_joined_to_a_home_variable_and_appended_through_a_helper_is_noteworthy_at_install()
+    {
+        var r = Review(Tgz("init-1.0.0.tgz",
+            ("package/package.json", """{"name":"shell-init","version":"1.0.0","scripts":{"postinstall":"node init.js"}}"""),
+            ("package/init.js", "import { homedir } from 'os';\nimport path from 'path';\nimport { appendFile } from 'fs';\n" +
+                "const home = homedir();\nconst rc = path.join(home, '.bashrc');\nfunction add(p, line) { appendFile(p, line, () => {}); }\nadd(rc, 'export SAMPLE=1\n');")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/shell-startup", Level: "noteworthy" });
+        var read = Review(Tgz("init-1.0.1.tgz",
+            ("package/package.json", """{"name":"shell-init","version":"1.0.1","scripts":{"postinstall":"node init.js"}}"""),
+            ("package/init.js", "const { homedir } = require('os');\nconst path = require('path');\nconst home = homedir();\nconsole.log(require('fs').readFileSync(path.join(home, '.bashrc'), 'utf8').length);")));
+        Assert.DoesNotContain(read.Findings, f => f.Rule == "package/shell-startup");
+    }
+
+    [Fact]
+    public void A_global_prefix_passed_through_a_function_to_a_link_under_bin_is_noteworthy_at_install()
+    {
+        var r = Review(Tgz("post-1.0.0.tgz",
+            ("package/package.json", """{"name":"tool-setup","version":"1.0.0","scripts":{"postinstall":"node scripts/post.mjs"}}"""),
+            ("package/scripts/post.mjs", "import path from 'path';\nimport { rmSync, symlinkSync } from 'fs';\nfunction resolvePrefix() { return process.env.npm_config_prefix; }\n" +
+                "function replace(prefix, target) {\n  const binDir = path.join(prefix, 'bin');\n  const link = path.join(binDir, 'tool');\n  rmSync(link, { force: true });\n  symlinkSync(target, link);\n}\n" +
+                "replace(resolvePrefix(), path.resolve('dist/cli.js'));")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/command-replace", Level: "noteworthy" });
+        var local = Review(Tgz("post-1.0.1.tgz",
+            ("package/package.json", """{"name":"tool-setup","version":"1.0.1","scripts":{"postinstall":"node scripts/post.mjs"}}"""),
+            ("package/scripts/post.mjs", "import { rmSync } from 'fs';\nrmSync('build/bin', { recursive: true, force: true });")));
+        Assert.DoesNotContain(local.Findings, f => f.Rule == "package/command-replace");
+    }
+
+    [Fact]
     public void A_response_split_into_lines_whose_last_line_reaches_a_helper_that_runs_it_is_noteworthy()
     {
         var r = Review(Tgz("poll-1.0.0.tgz",
