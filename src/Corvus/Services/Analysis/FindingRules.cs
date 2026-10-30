@@ -193,6 +193,7 @@ public static class FindingRules
         I("shortcut/ioc", "a URL in shortcut arguments"),
         R("installer/suspicious", "an installer action or keyword worth reviewing"),
         I("installer/ioc", "a URL, address or file name in installer script"),
+        N("page/blob-payload", "exact form: a standalone page's own script builds a Blob from a base64 literal over 4 KiB that decodes to an archive, program or document, and saves it", "a page builds a file in a Blob and saves it"),
         R("capture/pattern", "a request pattern worth reviewing in captured traffic"),
         N("malcontent/*", "pack risk critical", "a malcontent behaviour"),
     ];

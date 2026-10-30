@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
+using Corvus.Services.Web;
 using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Analysis;
@@ -19,7 +20,11 @@ internal sealed class ScriptFileView : IFileSummaryView
         int PlainChars, long Offset, long? Next,
         [property: Description("The plain text from offset: peeled layers in place, constants folded.")] string Plain,
         bool Complete, IReadOnlyList<string>? Notes,
-        [property: Description("Shell commands the script writes to the clipboard, with their plain text.")] IReadOnlyList<ClipboardCommand>? Copied = null);
+        [property: Description("Shell commands the script writes to the clipboard, with their plain text.")] IReadOnlyList<ClipboardCommand>? Copied = null,
+        [property: Description("Files a standalone page builds in a Blob and saves, carved from its base64 literal.")] IReadOnlyList<Payload>? Payloads = null);
+
+    /// <summary>A file a standalone page builds in a Blob: its member name, type, size and SHA-256.</summary>
+    public sealed record Payload(string Name, string Kind, long Size, string Sha256);
 
     public string Name => "script";
 
@@ -34,9 +39,11 @@ internal sealed class ScriptFileView : IFileSummaryView
         if (!ScriptText.Printable(text)) return null;
         var ext = Path.GetExtension(file.Path).ToLowerInvariant();
         ScriptReading reading;
-        if (ext is ".hta" or ".wsf" or ".html" or ".htm" or ".sct" or ".wsc" || ext == "" && Regex.IsMatch(text, @"<script\b[^>]*\blanguage\s*=", RegexOptions.IgnoreCase))
+        var payloads = new List<BlobPayload>();
+        if (ext is ".hta" or ".wsf" or ".html" or ".htm" or ".svg" or ".sct" or ".wsc" || ext == "" && Regex.IsMatch(text, @"<script\b[^>]*\blanguage\s*=", RegexOptions.IgnoreCase))
         {
-            if (Blocks(text) is not { Count: > 0 } blocks) return null;
+            if (Blocks(text, out _) is not { Count: > 0 } blocks) return null;
+            if (BlobPayloads.IsPage(file.Path)) payloads = BlobPayloads.Find(text, ct);
             reading = ReadBlocks(blocks, ct, asked);
         }
         else
@@ -49,7 +56,7 @@ internal sealed class ScriptFileView : IFileSummaryView
                 return null;
             reading = ScriptReader.Read(text, language, ct, milliseconds: asked ? ScriptBudget.DefaultMilliseconds : ScriptBudget.OverviewMilliseconds);
         }
-        if (!asked && reading.Layers.Count == 0 && reading.Recovered.Count == 0 && reading.Folded == 0 && reading.Language == "javascript") return null;
+        if (!asked && payloads.Count == 0 && reading.Layers.Count == 0 && reading.Recovered.Count == 0 && reading.Folded == 0 && reading.Language == "javascript") return null;
         long offset = Math.Clamp(file.Options.Offset, 0, reading.Plain.Length);
         var window = reading.Plain.Substring((int)offset, (int)Math.Min(Window, reading.Plain.Length - offset));
         long? next = offset + window.Length < reading.Plain.Length ? offset + window.Length : null;
@@ -60,8 +67,13 @@ internal sealed class ScriptFileView : IFileSummaryView
             reading.Layers.Select(l => new Layer(l.Depth, l.Language, l.Via, l.Text.Length, l.Text.Length > LayerText ? l.Text[..LayerText] : l.Text)).ToList(),
             reading.Recovered.Count > 0 ? reading.Recovered : null, reading.Folded, reading.Calls.Count > 0 ? reading.Calls : null,
             reading.Plain.Length, offset, next, window, reading.Complete, notes.Count > 0 ? notes : null,
-            reading.Copied.Count > 0 ? reading.Copied : null);
-        return new FileView(facts, Highlights(reading)) { Indicators = IndicatorList.FromText("script", [(reading.Plain, "peeled text")], ct) };
+            reading.Copied.Count > 0 ? reading.Copied : null,
+            payloads.Count > 0 ? [.. payloads.Select(p => new Payload(p.Name, p.Kind, p.Size, p.Sha256))] : null);
+        var findings = payloads.Select(p => new Finding(FindingLevel.Noteworthy, "page/blob-payload", "smuggling",
+            $"builds a {p.Kind} of {p.Size:N0} bytes in a Blob and saves it", p.Name, "page")).ToList();
+        var highlights = Highlights(reading);
+        highlights.AddRange(payloads.Take(3).Select(p => $"Builds a {p.Kind} of {p.Size:N0} bytes in a Blob and saves it; unpack_container carves it as {p.Name}."));
+        return new FileView(facts, highlights) { Findings = findings, Indicators = IndicatorList.FromText("script", [(reading.Plain, "peeled text")], ct) };
     }
 
     private static List<string> Highlights(ScriptReading r)
@@ -82,21 +94,23 @@ internal sealed class ScriptFileView : IFileSummaryView
 
     private static string Clip(string s) => s.Length <= 200 ? s : s[..197] + "...";
 
-    private sealed record Block(string Language, string Text);
+    internal sealed record Block(string Language, string Text);
 
     // NonBacktracking matches a whole page in linear time, so no match timeout.
     private static readonly Regex ScriptBlock = new(@"<script\b([^>]*)>(.*?)</script\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.NonBacktracking);
 
     /// <summary>The script blocks of an HTML application, Windows Script File or page, with their languages.</summary>
-    private static List<Block> Blocks(string text)
+    internal static List<Block> Blocks(string text, out bool external)
     {
         var list = new List<Block>();
+        external = false;
         foreach (Match m in ScriptBlock.Matches(text))
         {
             var attributes = m.Groups[1].Value;
             var body = m.Groups[2].Value;
-            if (Regex.IsMatch(attributes, @"\bsrc\s*=", RegexOptions.IgnoreCase) || body.Trim().Length == 0) continue;
-            var lang = Regex.Match(attributes, @"\b(?:language|type)\s*=\s*[""']?(?:text/)?([\w.]+)", RegexOptions.IgnoreCase).Groups[1].Value.ToLowerInvariant();
+            if (Regex.IsMatch(attributes, @"\bsrc\s*=", RegexOptions.IgnoreCase)) { external = true; continue; }
+            if (body.Trim().Length == 0) continue;
+            var lang = Regex.Match(attributes, @"\b(?:language|type)\s*=\s*[""']?(?:text/|application/)?([\w.]+)", RegexOptions.IgnoreCase).Groups[1].Value.ToLowerInvariant();
             var language = lang switch
             {
                 "vbscript" or "vbs" or "vbscript.encode" => "vbscript",
