@@ -80,7 +80,7 @@ Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
 **Add reference search directory** (edit, idempotent)
 
-Add a folder where referenced assemblies that are not loaded are resolved. Subfolders are not searched.
+Add a folder where unloaded referenced assemblies are resolved; subfolders excluded.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -630,13 +630,13 @@ Structured output: `assembly`, `items`, `offset`, `total`, `outputDirectory`, `n
 
 **Search inside a container** (read-only, idempotent)
 
-Find managed types and members by name inside a container or assembly. Other kinds: file paths, pcap packets, endpoints, capture requests, JS features, YARA rules, locked packages, incident lists.
+Find managed types and members by name in a container or assembly, without extracting. Other kinds: paths, pcap packets, endpoints, capture requests, JS features, YARA rules, locked packages, incident lists.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | Container or assembly file (absolute). |
 | `query` | string | yes |  | Name, substring or * ? wildcards; packet: display filter; feature: JS text; yara: rule file, folder or text. |
-| `kind` | string |  |  | Restrict to this kind; omit for all members. Values: type, method, field, property, dart, dependency, electron, endpoint, feature, file, hermes, incident, packet, request, yara. |
+| `kind` | string |  |  | Restrict to this kind; omit for all members (events included). Values: type, method, field, property, dart, dependency, electron, endpoint, feature, file, hermes, incident, packet, request, yara. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |

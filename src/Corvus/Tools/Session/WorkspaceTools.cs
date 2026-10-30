@@ -46,7 +46,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
     /// <summary>The record of load_assembly and reload_assembly: the ids and the images they loaded.</summary>
     public sealed record ImageChange(IReadOnlyList<string> Ids, IReadOnlyList<ChangedImage> Entries)
     {
-        [Description("Folder load: files that are not .NET assemblies or could not be read.")] public int? Skipped { get; init; }
+        [Description("Folder load: non-.NET or unreadable files.")] public int? Skipped { get; init; }
         [Description("Unsaved edits the reload discarded.")] public int? DiscardedEdits { get; init; }
     }
 
@@ -428,7 +428,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
     }
 
     [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory", UseStructuredContent = true, OutputSchemaType = typeof(SearchDirectoryChange))]
-    [Description("Add a folder where referenced assemblies that are not loaded are resolved. Subfolders are not searched.")]
+    [Description("Add a folder where unloaded referenced assemblies are resolved; subfolders excluded.")]
     public Task<string> AddSearchDirectory([Description("Directory path.")] string directory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {

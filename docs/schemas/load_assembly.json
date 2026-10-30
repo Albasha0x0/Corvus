@@ -43,7 +43,7 @@
       }
     },
     "skipped": {
-      "description": "Folder load: files that are not .NET assemblies or could not be read.",
+      "description": "Folder load: non-.NET or unreadable files.",
       "type": "integer"
     },
     "discardedEdits": {
