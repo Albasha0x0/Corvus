@@ -26,8 +26,9 @@ public static partial class PackageReview
     private static bool IsBroadHost(string pattern) =>
         pattern is "<all_urls>" or "*://*/*" or "http://*/*" or "https://*/*" or "*://*" or "file:///*" or "*://*/" || pattern.StartsWith("*://*/", StringComparison.Ordinal);
 
+    // An MCPB manifest names manifest_version as a string.
     private static bool IsExtensionManifest(PackageFiles files, string path) =>
-        Json(files, path) is { ValueKind: JsonValueKind.Object } m && m.TryGetProperty("manifest_version", out _);
+        Json(files, path) is { ValueKind: JsonValueKind.Object } m && m.TryGetProperty("manifest_version", out var v) && v.ValueKind == JsonValueKind.Number;
 
     private static PackageReport? Extension(PackageFiles files, CancellationToken ct)
     {

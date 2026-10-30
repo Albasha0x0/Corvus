@@ -392,6 +392,8 @@ Labels:
 - `compare_folders` on two attested packages reports a "provenance dropped" row when the new version has no verified provenance.
 - `summarize_file` on an npm package with provenance beside it flags a signed source repository other than the declared one.
 - `summarize_file` on a folder with `.github/workflows` lists each job with its trigger and what it runs; `compare_folders` on two package folders lists added workflow jobs.
+- `summarize_file` on a folder, `.mcp.json`, an MCPB `manifest.json`, a registry `server.json` or a saved `tools/list` response reviews MCP servers: unpinned launchers, plain-HTTP or raw-address remotes and credential-named `env` keys (names only) are review; a tool description with a comment or hidden characters is noteworthy.
+- `compare_folders` on two source trees lists MCP server and hook entries that were added, removed or whose command changed.
 - Noteworthy: `pull_request_target` or `workflow_run` checking out the change, `toJSON(secrets)`, and an author-controlled event field in a `run:` command.
 
 ### YARA rules

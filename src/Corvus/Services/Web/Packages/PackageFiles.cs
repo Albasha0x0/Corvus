@@ -120,7 +120,7 @@ internal sealed class PackageFiles
             return files;
         }
         var name = Path.GetFileName(path);
-        if (name is "package.json" or "composer.json" or "manifest.json" or "setup.py" or "setup.cfg" or "pyproject.toml" or "extension.vsixmanifest" or "PKG-INFO" or "METADATA")
+        if (name is "package.json" or "composer.json" or "manifest.json" or "setup.py" or "setup.cfg" or "pyproject.toml" or "extension.vsixmanifest" or "PKG-INFO" or "METADATA" or "server.json" or "tools-list.json" or "tools_list.json")
         {
             files.Container = "file";
             files.ReadFolder(Path.GetDirectoryName(Path.GetFullPath(path))!, ct, only: name);
@@ -133,6 +133,14 @@ internal sealed class PackageFiles
             return files;
         }
         return null;
+    }
+
+    /// <summary>The agent configuration of the folder <paramref name="root"/>, read as <see cref="ReadAgentFolder"/> does.</summary>
+    internal static PackageFiles OpenAgentFolder(string root, CancellationToken ct)
+    {
+        var files = new PackageFiles { Container = "folder" };
+        files.ReadAgentFolder(root, ct);
+        return files;
     }
 
     /// <summary>The repository folder of an agent configuration file, or null when <paramref name="path"/> is none.</summary>
@@ -150,7 +158,7 @@ internal sealed class PackageFiles
         var top = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
         var deep = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint, RecurseSubdirectories = true };
         var found = Directory.EnumerateFiles(root, "*", top).Select(f => (File: f, Rel: Path.GetFileName(f)))
-            .Where(f => f.Rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || AgentFiles.Kind(f.Rel) != null);
+            .Where(f => f.Rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || AgentFiles.Kind(f.Rel) != null || PackageReview.McpKind(f.Rel) != null);
         foreach (var dir in AgentFiles.Folders.Select(d => Path.Combine(root, d)).Where(Directory.Exists))
             found = found.Concat(Directory.EnumerateFiles(dir, "*", deep).Select(f => (File: f, Rel: Path.GetRelativePath(root, f).Replace('\\', '/')))
                 .Where(f => AgentFiles.Kind(f.Rel) != null));

@@ -86,9 +86,23 @@ public sealed class FolderTools(FolderCompare folders)
                                          || Directory.Exists(p) && (FolderManifests.Any(m => File.Exists(Path.Combine(p, m)))
                                                                     || FolderManifestPatterns.Any(m => Directory.EnumerateFiles(p, m).Any()));
         if (comparison.Old.Complete && comparison.New.Complete) ToolOutput.Complete();
-        if (!Package(oldPath) || !Package(newPath)) return comparison;
-        if (Services.Web.Packages.PackageReview.Review(oldPath, ct, hosts: true) is not { Ecosystem: not "repository" } old
-            || Services.Web.Packages.PackageReview.Review(newPath, ct, hosts: true) is not { Ecosystem: not "repository" } @new) return comparison;
+        Services.Web.Packages.PackageReport old, @new;
+        if (Package(oldPath) && Package(newPath))
+        {
+            if (Services.Web.Packages.PackageReview.Review(oldPath, ct, hosts: true) is not { Ecosystem: not "repository" } o
+                || Services.Web.Packages.PackageReview.Review(newPath, ct, hosts: true) is not { Ecosystem: not "repository" } n) return comparison;
+            (old, @new) = (o, n);
+        }
+        else if (Directory.Exists(oldPath) && Directory.Exists(newPath) && !Package(oldPath) && !Package(newPath))
+        {
+            // Two source trees: the agent configuration of each, so a changed MCP server entry or hook is listed.
+            var o = Services.Web.Packages.PackageReview.ReviewAgentFolder(oldPath, ct);
+            var n = Services.Web.Packages.PackageReview.ReviewAgentFolder(newPath, ct);
+            if (o == null && n == null) return comparison;
+            old = o ?? Services.Web.Packages.PackageReview.EmptyAgentReport;
+            @new = n ?? Services.Web.Packages.PackageReview.EmptyAgentReport;
+        }
+        else return comparison;
         if ((old.Partial ?? @new.Partial) is { } partial) ToolOutput.Coverage("partial", "package review: " + partial, Limitations.Id(Limitation.RowCap));
         var findings = CapabilityChanges.Of(old, @new);
         var (facts, summary) = CapabilityChanges.Policy(old, @new, findings);

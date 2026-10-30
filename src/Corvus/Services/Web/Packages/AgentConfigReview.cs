@@ -25,7 +25,7 @@ public static partial class PackageReview
     internal static AgentReview? AgentConfig(PackageFiles files, bool standalone, CancellationToken ct)
     {
         var agent = files.Paths.Where(p => !p.Contains("node_modules/", StringComparison.Ordinal))
-            .Select(p => (Path: p, Kind: AgentFiles.Kind(p))).Where(f => f.Kind != null)
+            .Select(p => (Path: p, Kind: AgentFiles.Kind(p) ?? McpKind(p))).Where(f => f.Kind != null)
             .OrderBy(f => f.Path.Count(c => c == '/')).ThenBy(f => f.Path, StringComparer.Ordinal).Take(MaxAgentFiles).ToList();
         if (standalone && agent.Count == 0) return null;
         var roots = new HashSet<string>(StringComparer.Ordinal) { "" };
@@ -52,6 +52,11 @@ public static partial class PackageReview
                 case "mcp" when Tree(files, path, review.Notes) is { } s:
                     McpServers(s, path, review, ct);
                     break;
+                case "mcp manifest" or "mcp registry" or "mcp tools" when Tree(files, path, review.Notes) is { } s:
+                    if (kind == "mcp manifest") McpManifest(s, path, review, ct);
+                    else if (kind == "mcp registry") McpRegistry(s, path, review, ct);
+                    else McpToolsList(s, path, review, ct);
+                    break;
                 case "workflow" when files.Text(path) is { } yaml:
                     Workflow(yaml, path, review, ct);
                     break;
@@ -61,6 +66,7 @@ public static partial class PackageReview
             }
         }
         foreach (var path in rootMarkdown) HiddenText(files, path, review, instructions: false, ct);
+        McpSource(files, review, ct);
         return review.Entries.Count > 0 || review.Findings.Count > 0 || review.Notes.Count > 0 ? review : null;
     }
 
@@ -276,13 +282,7 @@ public static partial class PackageReview
     {
         // .mcp.json and Cursor name the map mcpServers; VS Code names it servers.
         foreach (var (name, server) in (config["mcpServers"] ?? config["servers"])?.Props ?? [])
-        {
-            var command = server["command"]?.Text is { } exe
-                ? string.Join(" ", new[] { exe }.Concat((server["args"]?.Items ?? []).Select(a => a.Text ?? "")))
-                : server["url"]?.Text;
-            review.Entries.Add(new AgentEntry("mcp server", name, Clip(command), path, server.Line));
-            if (command != null) ScanCommand(command, $"MCP server {name}", path, server.Line, review, ct);
-        }
+            McpServer(name, server, path, review, ct);
     }
 
     private static void FolderOpenTasks(JsonTree tasks, string path, bool automatic, AgentReview review, CancellationToken ct)

@@ -12,7 +12,7 @@ internal sealed class PackageFileView : IFileSummaryView
 {
     private static readonly HashSet<string> RepositoryKinds = new(StringComparer.Ordinal) { "git hook", "git config", "dev container", "direnv", "build step" };
 
-    private static readonly string[] Manifests = ["package.json", "composer.json", "manifest.json", "setup.py", "pyproject.toml", "PKG-INFO", "extension.vsixmanifest"];
+    private static readonly string[] Manifests = ["package.json", "composer.json", "manifest.json", "setup.py", "pyproject.toml", "PKG-INFO", "extension.vsixmanifest", "server.json", "tools-list.json", "tools_list.json"];
 
     public string Name => "package";
 
