@@ -86,14 +86,14 @@ public sealed class PackageProvenanceTests : IDisposable
         return request.Create(issuer, _signed.AddMinutes(-1), _signed.AddMinutes(10), [1, 2, 3, 4]);
     }
 
-    private string Package(string version = "1.0.1")
+    private string Package(string version = "1.0.1", string? repository = null)
     {
         var path = _dir.File("helper-1.0.1.tgz");
         using (var fs = File.Create(path))
         using (var gz = new GZipStream(fs, CompressionLevel.Fastest))
         using (var tar = new TarWriter(gz, TarEntryFormat.Ustar))
             tar.WriteEntry(new UstarTarEntry(TarEntryType.RegularFile, "package/package.json")
-                { DataStream = new MemoryStream(Encoding.UTF8.GetBytes($$"""{"name":"example-helper","version":"{{version}}"}""")) });
+                { DataStream = new MemoryStream(Encoding.UTF8.GetBytes($$"""{"name":"example-helper","version":"{{version}}"{{(repository == null ? "" : ",\"repository\":\"" + repository + "\"")}}}""")) });
         return path;
     }
 
@@ -218,7 +218,7 @@ public sealed class PackageProvenanceTests : IDisposable
         var unsigned = PackageReview.Review(package, default)!;
         var (rows, summary) = Corvus.Services.Analysis.CapabilityChanges.Policy(signed, unsigned, []);
         var row = Assert.Single(rows);
-        Assert.Equal(("removed", "signed provenance: sigstore bundle by https://example.invalid/helper/.github/workflows/release.yml"), (row.Kind, row.Key));
+        Assert.Equal(("removed", "provenance dropped: sigstore bundle by https://example.invalid/helper/.github/workflows/release.yml"), (row.Kind, row.Key));
         Assert.Contains("removed: 1 signed provenance", summary, StringComparison.Ordinal);
     }
 
@@ -230,5 +230,34 @@ public sealed class PackageProvenanceTests : IDisposable
         var r = PackageReview.Review(package, default)!;
         Assert.Null(r.Provenance);
         Assert.Contains(r.Notes, n => n.StartsWith("provenance helper-1.0.1.tgz.sigstore.json: not read (", StringComparison.Ordinal) && n.EndsWith("its attestations are unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_signed_source_repository_other_than_the_declared_one_is_a_review_finding()
+    {
+        var package = Package(repository: "https://example.invalid/other/helper");
+        Bundle(package);
+        var r = PackageReview.Review(package, default)!;
+        Assert.Contains(r.Findings, f => f is { Rule: "package/provenance-repository", Level: "review", Category: "provenance" }
+            && f.Detail.Contains("https://example.invalid/helper differs from the declared repository https://example.invalid/other/helper", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("git+https://example.invalid/helper.git")]
+    [InlineData("https://EXAMPLE.invalid/Helper/")]
+    [InlineData("git@example.invalid:helper")]
+    public void A_declared_repository_written_another_way_raises_no_provenance_finding(string declared)
+    {
+        var package = Package(repository: declared);
+        Bundle(package);
+        Assert.DoesNotContain(PackageReview.Review(package, default)!.Findings, f => f.Category == "provenance");
+    }
+
+    [Fact]
+    public void A_manifest_without_a_repository_raises_no_provenance_finding()
+    {
+        var package = Package();
+        Bundle(package);
+        Assert.DoesNotContain(PackageReview.Review(package, default)!.Findings, f => f.Category == "provenance");
     }
 }

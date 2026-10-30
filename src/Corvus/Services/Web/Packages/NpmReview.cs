@@ -141,10 +141,14 @@ public static partial class PackageReview
             findings.Add(new PackageFinding("package/high-version", "review", "version", $"version {high} has a major version of 99 or higher", manifestPath));
         return new PackageReport("npm", name, Str(pkg, "version"))
         {
-            Publisher = Person(pkg, "author"), Description = Clip(Str(pkg, "description")), Scripts = scripts, EntryPoints = entries,
+            Publisher = Person(pkg, "author"), Repository = RepositoryField(pkg), Description = Clip(Str(pkg, "description")), Scripts = scripts, EntryPoints = entries,
             Dependencies = deps, Binaries = binaries.Count > 0 ? binaries : null, Findings = findings, Notes = notes,
         };
     }
+
+    // The repository field is a URL, a shorthand string, or an object holding the URL.
+    private static string? RepositoryField(JsonElement pkg) =>
+        Str(pkg, "repository") ?? (pkg.TryGetProperty("repository", out var r) && r.ValueKind == JsonValueKind.Object ? Str(r, "url") : null);
 
     /// <summary>The source kind and host of an npm dependency range fetched from outside the registry, else null.</summary>
     private static string? NpmSource(string range)

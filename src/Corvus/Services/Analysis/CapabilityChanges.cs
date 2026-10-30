@@ -59,8 +59,10 @@ public static class CapabilityChanges
             .Concat((r.Provenance ?? []).Where(a => a.Signature == "verified").Select(a => $"signed provenance: {a.Format} by {a.Signer?.Split('@')[0]}"));
         var before = Facts(old).ToHashSet(StringComparer.Ordinal);
         var after = Facts(@new).ToHashSet(StringComparer.Ordinal);
+        // With no verified provenance left, removed signer rows read as dropped.
+        bool dropped = before.Any(IsProvenance) && !after.Any(IsProvenance);
         var rows = before.Union(after, StringComparer.Ordinal).Where(k => before.Contains(k) != after.Contains(k)).Order(StringComparer.Ordinal)
-            .Select(k => new EvidenceChange(after.Contains(k) ? "added" : "removed", k, null, null, null)).ToList();
+            .Select(k => new EvidenceChange(after.Contains(k) ? "added" : "removed", dropped && IsProvenance(k) ? "provenance dropped: " + k["signed provenance: ".Length..] : k, null, null, null)).ToList();
 
         // Policy groups, in the order a reviewer reads them; findings rows count by their category.
         (string Group, Func<string, bool> Has)[] groups =
@@ -70,7 +72,7 @@ public static class CapabilityChanges
             ("native file(s)", k => k.StartsWith("native file: ", StringComparison.Ordinal)),
             ("permission(s)", k => k.StartsWith("permission granted: ", StringComparison.Ordinal)),
             ("run(s) on open, checkout or build", k => k.StartsWith("runs: ", StringComparison.Ordinal)),
-            ("signed provenance", k => k.StartsWith("signed provenance: ", StringComparison.Ordinal) || k.StartsWith("provenance: ", StringComparison.Ordinal)),
+            ("signed provenance", k => k.StartsWith("signed provenance: ", StringComparison.Ordinal) || k.StartsWith("provenance dropped: ", StringComparison.Ordinal) || k.StartsWith("provenance: ", StringComparison.Ordinal)),
             ("transformed or decoded code finding(s)", k => k.StartsWith("transformed code: ", StringComparison.Ordinal) || k.StartsWith("dynamic code: ", StringComparison.Ordinal)),
             ("network, process or credential finding(s)", k => k.StartsWith("network: ", StringComparison.Ordinal) || k.StartsWith("process: ", StringComparison.Ordinal)
                 || k.StartsWith("credentials: ", StringComparison.Ordinal) || k.StartsWith("exfiltration: ", StringComparison.Ordinal)),
@@ -84,6 +86,8 @@ public static class CapabilityChanges
                       (old.Hosts == null || @new.Hosts == null ? "; endpoints not compared" : "");
         return (rows, summary);
     }
+
+    private static bool IsProvenance(string key) => key.StartsWith("signed provenance: ", StringComparison.Ordinal);
 
     /// <summary>Time both surveys of a comparison may add to it; past it the capabilities are reported not compared.</summary>
     private static readonly TimeSpan SurveyBudget = TimeSpan.FromSeconds(2);

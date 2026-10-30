@@ -33,6 +33,25 @@ internal static class PackageProvenance
     /// <summary>npm's attestation keys (registry.npmjs.org/-/npm/v1/keys, read 2026-10-25); tests replace them.</summary>
     internal static Func<string> NpmKeys { get; set; } = () => Resource("npm-attestation-keys.json");
 
+    /// <summary>A repository URL or npm shorthand reduced to "host/owner/name" in lower case; null when empty or not a repository.</summary>
+    internal static string? RepositoryKey(string? repository)
+    {
+        var s = repository?.Trim();
+        if (string.IsNullOrEmpty(s)) return null;
+        if (s.StartsWith("git+", StringComparison.Ordinal)) s = s[4..];
+        if (s.StartsWith("github:", StringComparison.Ordinal)) s = "github.com/" + s[7..];
+        else if (s.StartsWith("gitlab:", StringComparison.Ordinal)) s = "gitlab.com/" + s[7..];
+        else if (s.StartsWith("bitbucket:", StringComparison.Ordinal)) s = "bitbucket.org/" + s[10..];
+        else if (s.StartsWith("git@", StringComparison.Ordinal)) s = s[4..].Replace(':', '/');
+        else if (s.Contains("://", StringComparison.Ordinal)) s = s[(s.IndexOf("://", StringComparison.Ordinal) + 3)..];
+        else if (s.Count(c => c == '/') == 1) s = "github.com/" + s;
+        s = s.Split('#', '?')[0].TrimEnd('/');
+        if (s.EndsWith(".git", StringComparison.Ordinal)) s = s[..^4];
+        if (s.Contains('@', StringComparison.Ordinal)) s = s[(s.IndexOf('@', StringComparison.Ordinal) + 1)..];
+        var parts = s.Split('/');
+        return parts.Length >= 2 && parts.All(p => p.Length > 0) ? string.Join('/', parts.Take(3)).ToLowerInvariant() : null;
+    }
+
     private static string Resource(string name)
     {
         using var s = typeof(PackageProvenance).Assembly.GetManifestResourceStream("Corvus.Services.Web.Packages.TrustRoots." + name)

@@ -63,6 +63,9 @@ public sealed record PackageReport(string Ecosystem, string? Name, string? Versi
     public IReadOnlyList<PackageFinding> Findings { get; init; } = [];
     public IReadOnlyList<string> Notes { get; init; } = [];
 
+    /// <summary>The repository the manifest declares, as written; null when none or not read.</summary>
+    internal string? Repository { get; init; }
+
     /// <summary>Hosts the package's code files name in URLs, for comparing two versions; null when not read.</summary>
     internal IReadOnlyList<string>? Hosts { get; init; }
 }
@@ -128,7 +131,7 @@ public static partial class PackageReview
                 report = report with
                 {
                     Provenance = attestations.Count > 0 ? attestations : null,
-                    Findings = [.. report.Findings, .. attestations.SelectMany(ProvenanceFindings)],
+                    Findings = [.. report.Findings, .. attestations.SelectMany(ProvenanceFindings), .. attestations.SelectMany(a => RepositoryMismatch(a, report.Repository))],
                     Notes = [.. report.Notes, .. provenanceNotes],
                 };
         }
@@ -1623,6 +1626,14 @@ public static partial class PackageReview
                 if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) d[i, j] = Math.Min(d[i, j], d[i - 2, j - 2] + 1);
             }
         return d[a.Length, b.Length];
+    }
+
+    // An attested source repository other than the declared one means the
+    // signed build is not from the declared source.
+    private static IEnumerable<PackageFinding> RepositoryMismatch(PackageAttestation a, string? declared)
+    {
+        if (PackageProvenance.RepositoryKey(declared) is not { } want || PackageProvenance.RepositoryKey(a.Repository) is not { } got || want == got) yield break;
+        yield return new PackageFinding("package/provenance-repository", "review", "provenance", $"{a.Format} source repository {a.Repository} differs from the declared repository {declared}", a.File);
     }
 
     // A check that failed is noteworthy: the file differs from what was signed, or the signature does not hold.

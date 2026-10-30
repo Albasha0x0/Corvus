@@ -84,6 +84,7 @@ public static class FindingRules
         N("package/nested-install", "a named package manager install after cd .., or of a package the file loads from outside its root", "installs another package outside its own folder"),
         N("package/workspace-upload", "in a file of at most 64 KiB, one call archiving the working folder with dotfiles and a request body", "uploads the working folder"),
         N("package/provenance-failed", "exact check: a digest, signature, chain or log entry check failed", "provenance does not hold"),
+        R("package/provenance-repository", "an attested source repository other than the one the manifest declares"),
         // Package manifests.
         R("package/install-script", "a script the package manager runs at install"),
         N("package/install-network-tool", AtInstall + ", running a network tool", "an install script runs a network tool"),

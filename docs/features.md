@@ -389,6 +389,8 @@ Labels:
 
 ### Workflows
 
+- `compare_folders` on two attested packages reports a "provenance dropped" row when the new version has no verified provenance.
+- `summarize_file` on an npm package with provenance beside it flags a signed source repository other than the declared one.
 - `summarize_file` on a folder with `.github/workflows` lists each job with its trigger and what it runs; `compare_folders` on two package folders lists added workflow jobs.
 - Noteworthy: `pull_request_target` or `workflow_run` checking out the change, `toJSON(secrets)`, and an author-controlled event field in a `run:` command.
 
