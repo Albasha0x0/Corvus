@@ -111,6 +111,26 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.EndsWith("Sleep(5)", rows[2]);
     }
 
+    // Reproduces the b36a849f full run, where analyze_native_function on the
+    // largest function of chrome.dll ran on 90 s after its cancel.
+    [Fact]
+    public void A_value_query_with_a_cancelled_token_stops()
+    {
+        var code = Assemble(64, a =>
+        {
+            a.mov(ecx, 7);
+            for (int i = 0; i < 600; i++) a.add(edx, i);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+        var analysis = CallAnalysis.For(index);
+        var fc = analysis.Code(index.FunctionByStart(Code)!, default);
+        int last = fc.Blocks[0].Length - 1;
+        Assert.Equal(VKind.Const, new ValueResolver(analysis, fc).ValueBefore(Loc.Of(Register.RCX), 0, last).Kind);
+        var resolver = new ValueResolver(analysis, fc) { Token = new CancellationToken(canceled: true) };
+        Assert.Throws<OperationCanceledException>(() => resolver.ValueBefore(Loc.Of(Register.RCX), 0, last));
+    }
+
     [Fact]
     public void X86_pushes_cross_calls_by_their_stack_effect()
     {

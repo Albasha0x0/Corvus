@@ -671,7 +671,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                     checkedReads++;
                     int disp = (int)(long)x.MemoryDisplacement64;
                     var loc = x.MemoryBase.GetFullRegister() == Register.RSP ? Loc.Stack(disp) : Loc.Frame(disp);
-                    var v = new ValueResolver(calls, fc) { Slice = true, Budget = 800 }.ValueBefore(loc, b, i);
+                    var v = new ValueResolver(calls, fc) { Slice = true, Budget = 800, Token = ct }.ValueBefore(loc, b, i);
                     if (v.Kind != VKind.Incoming) continue;
                     var entry = v.Site != 0 ? Loc.Of((Register)v.Site) : Loc.Stack((int)(long)v.Num);
                     if (calls.Slices.ParameterIndex(entry) is var p and >= 0) found.TryAdd(p, calls.Slices.LocationName(entry));

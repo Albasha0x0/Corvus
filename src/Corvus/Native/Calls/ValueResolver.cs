@@ -87,6 +87,9 @@ internal sealed class ValueResolver
     /// <summary>Instruction steps allowed per top-level query.</summary>
     public int Budget { get; set; } = 6000;
 
+    /// <summary>Cancels a query; checked every 256 steps.</summary>
+    public CancellationToken Token { get; init; }
+
     /// <summary>Slice mode: merges keep every path and loops, entry values and [reg+n] loads get their own kinds.</summary>
     public bool Slice { get; init; }
 
@@ -96,6 +99,7 @@ internal sealed class ValueResolver
     /// <summary>The value of <paramref name="loc"/> just before instruction <paramref name="index"/> of block <paramref name="block"/>.</summary>
     public Val ValueBefore(Loc loc, int block, int index)
     {
+        Token.ThrowIfCancellationRequested();
         _steps = 0;
         _depth = 0;
         _active.Clear();
@@ -106,6 +110,7 @@ internal sealed class ValueResolver
     /// <summary>The value the instruction at <paramref name="index"/> of <paramref name="block"/> stores into memory (a mov or push).</summary>
     public Val ValueStoredBy(int block, int index)
     {
+        Token.ThrowIfCancellationRequested();
         _steps = 0;
         _depth = 0;
         _active.Clear();
@@ -138,9 +143,13 @@ internal sealed class ValueResolver
         while (true)
         {
             var insns = _code.Blocks[block];
+            // A block entered with no instruction to read costs a step too, so
+            // merges of empty blocks stay within the budget.
+            if (Math.Min(index, insns.Length) <= 0 && ++_steps > Budget) return Val.Unknown("search budget exhausted");
             for (int i = Math.Min(index, insns.Length) - 1; i >= 0; i--)
             {
                 if (++_steps > Budget) return Val.Unknown("search budget exhausted");
+                if ((_steps & 255) == 0) Token.ThrowIfCancellationRequested();
                 ref readonly var d = ref insns[i];
                 ref readonly var x = ref d.I;
 

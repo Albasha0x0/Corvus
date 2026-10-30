@@ -33,15 +33,15 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
         var key = (f.Start, seed, forward, analysis.Index.Sourced.Version);
         if (_cache.TryGetValue(key, out var hit)) return hit;
         var code = analysis.Code(f, ct);
-        var slice = forward ? new ForwardSlicer(this, code).Run(seed, ct) : BackwardSlice(code, seed);
+        var slice = forward ? new ForwardSlicer(this, code).Run(seed, ct) : BackwardSlice(code, seed, ct);
         if (_cache.Count >= MaxCachedSlices) _cache.Clear();
         _cache[key] = slice;
         return slice;
     }
 
-    private ValueResolver Resolver(FunctionCode code) => new(analysis, code) { Slice = true, Budget = ResolverBudget };
+    private ValueResolver Resolver(FunctionCode code, CancellationToken ct) => new(analysis, code) { Slice = true, Budget = ResolverBudget, Token = ct };
 
-    private FunctionSlice BackwardSlice(FunctionCode code, SliceSeed seed)
+    private FunctionSlice BackwardSlice(FunctionCode code, SliceSeed seed, CancellationToken ct)
     {
         var b = new Builder(this, code);
         int steps = 0;
@@ -55,7 +55,7 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
                 if (block < 0 || loc == null) { b.Add(Val.Unknown(block < 0 ? "not an instruction of the function" : $"unknown location '{seed.Location}'")); break; }
                 if (seed.Kind == SliceSeedKind.Argument)
                     loc = EntryToCall(loc.Value, analysis.SiteKindOf(code, in code.Blocks[block][index]) == 2);
-                var r = Resolver(code);
+                var r = Resolver(code, ct);
                 b.Add(r.ValueBefore(loc.Value, block, index));
                 steps = r.Steps;
                 break;
@@ -64,7 +64,7 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
             {
                 var (block, index) = code.Position(seed.Address);
                 if (block < 0) { b.Add(Val.Unknown("not an instruction of the function")); break; }
-                var r = Resolver(code);
+                var r = Resolver(code, ct);
                 b.Add(r.ValueStoredBy(block, index));
                 steps = r.Steps;
                 break;
@@ -79,14 +79,14 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
                 break;
             }
             case SliceSeedKind.Returns:
-                steps = Returns(code, seed, b, out note);
+                steps = Returns(code, seed, b, ct, out note);
                 break;
         }
         return new FunctionSlice(code.Function, EngineName, 0, b.Nodes, b.Edges, steps, b.Truncated, note);
     }
 
     /// <summary>The returned values: the return register before each ret, and the results of tail calls; one merge node over them.</summary>
-    private int Returns(FunctionCode code, SliceSeed seed, Builder b, out string? note)
+    private int Returns(FunctionCode code, SliceSeed seed, Builder b, CancellationToken ct, out string? note)
     {
         note = null;
         var reg = ParseLocation(seed.Location ?? "rax", Is64) is { Kind: LocKind.Register } l ? l : Loc.Of(Register.RAX);
@@ -101,7 +101,7 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
             Val v;
             if (d.I.FlowControl == FlowControl.Return)
             {
-                var r = Resolver(code);
+                var r = Resolver(code, ct);
                 v = r.ValueBefore(reg, block, last);
                 steps += r.Steps;
             }
