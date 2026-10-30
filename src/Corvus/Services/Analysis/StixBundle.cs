@@ -24,6 +24,9 @@ public static class StixBundle
         ["url"] = "url", ["domain"] = "domain-name", ["ipv4"] = "ipv4-addr", ["ipv6"] = "ipv6-addr", ["email"] = "email-addr",
     };
 
+    // A custom observable: STIX 2.1 has no object for a TLS client fingerprint.
+    private const string Fingerprint = "x-tls-fingerprint";
+
     private sealed record Observable(string Id, string Type, Dictionary<string, object> Properties, SortedSet<string> Locations);
 
     /// <summary>The bundle as UTF-8 JSON; observable ids are stable UUIDv5, the analysis and bundle ids are the given UUIDv4 values.</summary>
@@ -62,8 +65,23 @@ public static class StixBundle
             if (a.NetworkValues == null && a.Values.Total > a.Values.Top.Count)
                 notes.Add($"{a.Path}: {a.Values.Top.Count} of {a.Values.Total} extracted values listed; extract_strings lists all.");
         }
+        foreach (var h in summary.Views.OrderBy(v => v.Key, StringComparer.Ordinal).SelectMany(v => v.Value.Indicators))
+        {
+            if (++networkValues > InspectionService.MaxNetworkValues) { cut = true; break; }
+            var where = h.Location == null ? h.Source : $"{h.Source}: {h.Location}";
+            if (h.Type is "ja3" or "ja4")
+            {
+                var print = new Dictionary<string, object> { ["algorithm"] = h.Type.ToUpperInvariant(), ["value"] = h.Value };
+                Add(observables, new Observable($"{Fingerprint}--{Uuid5(CorvusNamespace, Canonical(print))}", Fingerprint, print, new SortedSet<string>([where], StringComparer.Ordinal)));
+            }
+            else if (ValueTypes.TryGetValue(h.Type, out var type))
+            {
+                var value = new Dictionary<string, object> { ["value"] = h.Value };
+                Add(observables, new Observable(ObservableId(type, value), type, value, new SortedSet<string>([where], StringComparer.Ordinal)));
+            }
+        }
         if (cut) notes.Add($"Partial: URLs, domains and IP addresses past the first {InspectionService.MaxNetworkValues:N0} are not listed.");
-        if (summary.Assemblies.Count == 0)
+        if (summary.Assemblies.Count == 0 && !summary.Views.Values.Any(v => v.Indicators.Count > 0))
             notes.Add("URLs, domains and IP addresses not checked: summarize_file reads them from managed assemblies only.");
 
         var identity = $"identity--{Uuid5(CorvusNamespace, "corvus")}";

