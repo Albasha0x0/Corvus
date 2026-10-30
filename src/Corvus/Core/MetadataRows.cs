@@ -55,9 +55,9 @@ public static class MetadataRows
     /// <see cref="Check"/>; otherwise throws BadImageFormatException, as dnlib
     /// does for damaged metadata.
     /// </summary>
-    // Workaround: dnlib 4.4.0 to 4.5.0 size the type list by a declared
-    // TypeDef count up to 0xFFFFFF, about 60 bytes per row, before reading a
-    // row; upstream report pending.
+    // Workaround for 0xd4d/dnlib#593 (open, no fix commit yet): dnlib 4.4.0
+    // to 4.5.0 size the type list by a declared TypeDef count up to 0xFFFFFF,
+    // about 60 bytes per row, before reading a row.
     public static ModuleDefMD Load(byte[] image, ModuleContext? context = null)
     {
         if (MetadataSurvey.TablesStream(image) is { } stream && Check(image.AsSpan(stream.Offset, stream.Length)) is { } problem)
