@@ -128,6 +128,9 @@ public static partial class PackageReview
         if (CarrierEntry(files, loaded, pkg) is { } carrier)
             findings.Add(new PackageFinding("package/carrier", "noteworthy", "dependency",
                 $"{carrier} holds no require, import or export and is the only code file; its dependencies are installed but never loaded", carrier));
+        else if (EncodedSettingsEntry(files, loaded) is { } settings)
+            findings.Add(new PackageFinding("package/carrier", "noteworthy", "dependency",
+                $"{settings} is the only code file and holds only a base64 literal that decodes to settings or a URL", settings));
         if (aliases.Count > 0)
             findings.Add(new PackageFinding("package/dependency-alias", "noteworthy", "dependency",
                 $"installs another package under an unscoped name: {string.Join(", ", aliases.Take(5))}", manifestPath));
@@ -172,6 +175,20 @@ public static partial class PackageReview
     }
 
     private static readonly Regex NodeCodeFile = R(@"\.(?:c|m)?[jt]sx?$");
+    private static readonly Regex Base64Only = R(@"^['""`]?(?<b>[A-Za-z0-9+/]{80,}={0,2})['""`]?;?$");
+
+    /// <summary>The loaded entry when it is the only code file and holds one base64 literal of 80 or more characters
+    /// that decodes to JSON or text with a URL; else null.</summary>
+    private static string? EncodedSettingsEntry(PackageFiles files, List<string> loaded)
+    {
+        var code = files.Paths.Where(p => NodeCodeFile.IsMatch(p)).Take(2).ToList();
+        if (code.Count != 1 || !loaded.Contains(code[0]) || files.Size(code[0]) > 64 << 10) return null;
+        if (files.Text(code[0]) is not { } text || Base64Only.Match(text.Trim()) is not { Success: true } m) return null;
+        var bytes = new byte[m.Groups["b"].Length];
+        if (!Convert.TryFromBase64String(m.Groups["b"].Value, bytes, out var n)) return null;
+        var decoded = System.Text.Encoding.UTF8.GetString(bytes, 0, n).Trim();
+        return decoded.StartsWith('{') || decoded.Contains("http://", StringComparison.Ordinal) || decoded.Contains("https://", StringComparison.Ordinal) ? code[0] : null;
+    }
     private static readonly Regex CommitRef = R(@"#[0-9a-fA-F]{7,40}$");
 
     /// <summary>"name (npm:@scope/target@range)" when an unscoped dependency installs a scoped package of the

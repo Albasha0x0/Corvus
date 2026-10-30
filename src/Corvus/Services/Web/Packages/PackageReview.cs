@@ -1036,8 +1036,39 @@ public static partial class PackageReview
         if (PythonCharCodes.IsMatch(text)) return true;
         foreach (var m in ScriptCharCodes.EnumerateMatches(text))
             if (LeadingIntegers(text.AsSpan(m.Index + m.Length), 200) >= 200) return true;
+        return MappedCharCodes(text) && EvalCall.IsMatch(text);
+    }
+
+    /// <summary>Whether an array of 200 or more integers is mapped through String.fromCharCode; each occurrence
+    /// is read in a bounded window before it.</summary>
+    private static bool MappedCharCodes(string text)
+    {
+        for (int at = text.IndexOf("fromCharCode", StringComparison.Ordinal); at >= 0; at = text.IndexOf("fromCharCode", at + 12, StringComparison.Ordinal))
+        {
+            int window = Math.Max(0, at - 120);
+            int map = text.LastIndexOf("].map(", at, at - window, StringComparison.Ordinal);
+            if (map >= 0 && TrailingIntegers(text.AsSpan(Math.Max(0, map - 1400), map - Math.Max(0, map - 1400))) >= 200) return true;
+        }
         return false;
     }
+
+    /// <summary>The count of comma-separated integers that end <paramref name="s"/>, read backwards.</summary>
+    private static int TrailingIntegers(ReadOnlySpan<char> s)
+    {
+        int count = 0, i = s.Length - 1;
+        while (true)
+        {
+            while (i >= 0 && char.IsWhiteSpace(s[i])) i--;
+            int end = i;
+            while (i >= 0 && char.IsAsciiDigit(s[i])) i--;
+            if (i == end || end - i > 5) return count;
+            count++;
+            while (i >= 0 && char.IsWhiteSpace(s[i])) i--;
+            if (i < 0 || s[i] != ',') return count;
+            i--;
+        }
+    }
+    private static readonly Regex EvalCall = R(@"(?:^|[^\w$.])(?:eval|Function)\s*\(");
 
     /// <summary>The count of leading comma-separated integers (decimal up to five digits, hex up to four) in <paramref name="s"/>, stopping at <paramref name="limit"/>.</summary>
     private static int LeadingIntegers(ReadOnlySpan<char> s, int limit)
@@ -1066,10 +1097,36 @@ public static partial class PackageReview
 
     private static bool Peelable(string text) => Transformed.IsMatch(text) || Rotation.IsMatch(text);
 
-    /// <summary>Whether a rotation loop or nine obfuscator.io names (_0x1a2b), each within 400 characters on one line, appear.</summary>
+    /// <summary>Whether a Function call's body literal of 300 or more characters holds 40 or more \x or \u escapes
+    /// or 60 or more 0x constants.</summary>
+    private static bool EscapedFunctionBody(string text)
+    {
+        if (!text.Contains("Function", StringComparison.Ordinal)) return false;
+        foreach (Match call in FunctionBodyStart.Matches(text).Take(50))
+        {
+            char quote = text[call.Index + call.Length - 1];
+            int start = call.Index + call.Length, end = start, limit = Math.Min(text.Length, start + (1 << 20));
+            while (end < limit && text[end] != quote) end += text[end] == '\\' ? 2 : 1;
+            if (end - start < 300) continue;
+            var body = text.AsSpan(start, Math.Min(end, text.Length) - start);
+            int escapes = 0, constants = 0;
+            for (int i = 0; i + 1 < body.Length; i++)
+            {
+                if (body[i] == '\\' && body[i + 1] is 'x' or 'u') { escapes++; i++; }
+                else if (body[i] == '0' && body[i + 1] is 'x' or 'X' && (i == 0 || !char.IsLetterOrDigit(body[i - 1]))) constants++;
+            }
+            if (escapes >= 40 || constants >= 60) return true;
+        }
+        return false;
+    }
+    // The literal after any parameter-name literals: Function("a", "b", "<body>").
+    private static readonly Regex FunctionBodyStart = R(@"\bFunction\s*\(\s*(?:['""][\w$, ]{0,40}['""]\s*,\s*){0,8}['""]");
+
+    /// <summary>Whether a rotation loop, nine obfuscator.io names (_0x1a2b) each within 400 characters on one line,
+    /// or a Function body literal of escapes appears.</summary>
     private static bool StringArray(string text)
     {
-        if (Rotation.IsMatch(text)) return true;
+        if (Rotation.IsMatch(text) || EscapedFunctionBody(text)) return true;
         // Consecutive names are the closest pair, so a run of them decides it;
         // one regex of nested bounded gaps backtracks combinatorially instead.
         int run = 0, end = -1;
@@ -1146,7 +1203,7 @@ public static partial class PackageReview
     /// <summary>Whether a download is run, or a Python download written to a path variable is passed as that variable to an interpreter or an executable os.chmod within 3,000 characters.</summary>
     private static bool DownloadsAndRuns(string text)
     {
-        if (DownloadAndRun.IsMatch(text)) return true;
+        if (DownloadAndRun.IsMatch(text) || WritesExecutableAndRuns(text)) return true;
         // The interpreter must take the written variable itself: build scripts
         // download an archive and then run an unrelated script.
         foreach (Match open in WrittenFile.Matches(text))
@@ -1161,6 +1218,23 @@ public static partial class PackageReview
         return false;
     }
 
+    /// <summary>Whether one file makes a request, writes a file with an executable mode and passes that file's path
+    /// variable to exec, execFile or spawn.</summary>
+    private static bool WritesExecutableAndRuns(string text)
+    {
+        if (!JsRequest.IsMatch(text)) return false;
+        foreach (Match w in ExecutableWrite.Matches(text))
+        {
+            var file = w.Groups["p"].Value;
+            foreach (Match run in VariableRun.Matches(text))
+                if (Identifier.Matches(run.Groups["a"].Value).Any(i => i.Value == file)) return true;
+        }
+        return false;
+    }
+    private static readonly Regex JsRequest = R(@"\bhttps?\.(?:request|get)\s*\(|\bfetch\s*\(|\baxios\b");
+    // An owner-executable mode: octal 0o7xx, or 448-511 once a bundler prints it in decimal.
+    private static readonly Regex ExecutableWrite = R(@"\bwriteFile(?:Sync)?\s*\(\s*(?<p>[A-Za-z_$][\w$]*)\s*,[^;\n]{0,200}?\bmode\s*:\s*(?:0o7[0-7]{2}|4[4-9]\d|50\d|51[01])\b");
+    private static readonly Regex VariableRun = R(@"(?:^|[^\w$])(?:exec|execFile|spawn|execSync|execFileSync|spawnSync)\s*\(\s*(?<a>[^'""`\s)][^,)\n]{0,200})");
     private static readonly Regex Downloader = R(@"\b(?:curl|wget|Invoke-WebRequest|iwr)\b");
     private static readonly Regex DownloadSource = R(@"https?://|%\w*URL\w*%|\$\{?\w*URL");
     // A value must follow the key: a bare git config --global core.hooksPath reads it.

