@@ -17,6 +17,8 @@ public sealed record WorkerConnectionOptions
     public Func<IReadOnlyList<int>, string?>? StallReport { get; init; }
     /// <summary>The setting a memory-limit hit names in its error.</summary>
     public string MemoryLimitVariable { get; init; } = EngineMemoryLimit.Variable;
+    /// <summary>How long a dead worker's error waits for its exit code and stderr tail; the wait ends when both arrive.</summary>
+    public TimeSpan ExitGrace { get; init; } = TimeSpan.FromSeconds(2);
     /// <summary>Clock for start, request, quiet and cancel limits; process exit waits keep the system clock.</summary>
     public TimeProvider Time { get; init; } = TimeProvider.System;
 }
@@ -43,9 +45,6 @@ public sealed class WorkerConnection : IDisposable
     private readonly TextTail _stderr = new(32_000);
     private readonly TaskCompletionSource<JsonElement> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    /// <summary>How long a dead worker's error waits for its exit code and stderr tail.</summary>
-    private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(2);
-
     private readonly TaskCompletionSource _stdoutDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _stderrDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _sync = new();
@@ -428,7 +427,7 @@ public sealed class WorkerConnection : IDisposable
         OnClosed();
     }
 
-    /// <summary>The error for a worker that died during <paramref name="op"/>, built after up to <see cref="ExitGrace"/> for exit code and stderr.</summary>
+    /// <summary>The error for a worker that died during <paramref name="op"/>, built after up to <see cref="WorkerConnectionOptions.ExitGrace"/> for exit code and stderr.</summary>
     private async Task<ToolError> DiedAsync(string op)
     {
         string? reason;
@@ -439,7 +438,7 @@ public sealed class WorkerConnection : IDisposable
         }
         // A broken pipe or a closed stdout can be seen before the exit is reaped (macOS, Linux).
         if (reason == null)
-            await Task.WhenAny(Task.WhenAll(_process.Exited, _stderrDone.Task), Task.Delay(ExitGrace)).ConfigureAwait(false);
+            await Task.WhenAny(Task.WhenAll(_process.Exited, _stderrDone.Task), Task.Delay(_options.ExitGrace)).ConfigureAwait(false);
         var exit = _process.ExitCode is { } c ? $" with code {c} (0x{c:X8})" : "";
         var what = reason != null ? $"{_name} was stopped ({reason})" : $"{_name} exited{exit}";
         if (_process.MemoryLimitReached() is { } limit)

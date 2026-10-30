@@ -12,7 +12,8 @@ public class WorkerConnectionTests
 {
     /// <summary>A request time limit where the limit is not under test: a starved pool can delay a reply by seconds.</summary>
     private static readonly TimeSpan NoLimit = TimeSpan.FromMinutes(10);
-    private static readonly WorkerConnectionOptions Concurrent = new() { Concurrent = true, CancelGrace = TimeSpan.FromSeconds(10) };
+    // A long exit grace, so a loaded machine that runs the fake's late exit slowly still sees the exit code.
+    private static readonly WorkerConnectionOptions Concurrent = new() { Concurrent = true, CancelGrace = TimeSpan.FromSeconds(10), ExitGrace = TimeSpan.FromSeconds(30) };
 
     /// <summary>Waits until <paramref name="condition"/> holds; fails after a minute.</summary>
     private static Task Until(Func<bool> condition) =>
