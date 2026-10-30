@@ -803,4 +803,24 @@ public class FileBatchTests
     {
         Assert.Equal("unknown", (string?)ToolCli.Verdict(null)["level"]);
     }
+
+    [Fact]
+    public void The_report_names_each_matched_YARA_rule_once_per_path()
+    {
+        var document = JsonNode.Parse("""
+            {"file":{"path":"a.bin"},"summary":{"level":"info"},"complete":true,"findings":[],
+             "sections":[{"name":"yara","status":"complete","result":{"items":[
+               {"path":"a.bin","name":"MarkerRule","kind":"yara"},{"path":"a.bin","name":"MarkerRule","kind":"yara"},{"path":"b.bin","name":"MarkerRule","kind":"yara"}]}}]}
+            """)!.AsObject();
+        var report = ToolCli.Report(document);
+        Assert.Equal(1, report.Split("- YARA rule: MarkerRule in a").Length - 1);
+        Assert.Contains("- YARA rule: MarkerRule in b", report);
+    }
+
+    [Fact]
+    public void The_report_has_no_YARA_rule_line_when_the_step_matched_nothing()
+    {
+        var document = JsonNode.Parse("""{"file":{"path":"a.bin"},"summary":{"level":"info"},"complete":true,"findings":[],"sections":[{"name":"yara","status":"complete","result":{"items":[]}}]}""")!.AsObject();
+        Assert.DoesNotContain("YARA rule", ToolCli.Report(document));
+    }
 }

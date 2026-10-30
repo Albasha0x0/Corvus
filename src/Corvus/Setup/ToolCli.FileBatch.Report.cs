@@ -57,6 +57,7 @@ internal static partial class ToolCli
                 md.Append("- Indicators:\n");
                 foreach (var (type, value) in indicators) md.Append($"  - {T(type)}: {T(value)}\n");
             }
+            foreach (var (rule, where) in MatchedRules(record)) md.Append($"- YARA rule: {T(rule)} in {T(where)}\n");
             foreach (var entry in record["unread"] as JsonArray ?? []) md.Append("- Not read: ").Append(T(entry)).Append('\n');
         }
         return md.ToString();
@@ -74,6 +75,12 @@ internal static partial class ToolCli
             }
         }
     }
+
+    /// <summary>The rules the yara step matched, one row per rule and path; empty when the step did not run or matched nothing.</summary>
+    private static List<(string Rule, string Path)> MatchedRules(JsonObject record) =>
+        [.. ((record["sections"] as JsonArray ?? []).FirstOrDefault(s => (string?)s!["name"] == "yara")?["result"]?["items"] as JsonArray ?? [])
+            .Select(i => ((string?)i?["name"], (string?)i?["path"])).Where(r => r.Item1 != null)
+            .Select(r => (r.Item1!, r.Item2 ?? "unknown")).Distinct().OrderBy(r => r.Item1, StringComparer.Ordinal).ThenBy(r => r.Item2, StringComparer.Ordinal)];
 
     /// <summary>The views' indicator findings and network strings, then payload hashes; distinct, in order.</summary>
     private static List<(string Type, string Value)> Indicators(JsonObject record)

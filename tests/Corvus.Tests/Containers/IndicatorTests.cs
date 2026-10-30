@@ -86,4 +86,92 @@ public sealed class IndicatorTests : IDisposable
         var list = List("a.bin", [1, 2, 3, 4]);
         Assert.Equal(0, list.Total);
     }
+
+    private static IReadOnlyList<IndicatorHit> NativeHits(params string[] strings)
+    {
+        var bytes = AndroidDependencyTests.NativeLibrary(strings);
+        var input = new FileInput("a.so", bytes, Blob.Identify(bytes)) { Options = new FileViewOptions("indicators") };
+        return new NativeFileView().Inspect(input, default)?.Indicators ?? [];
+    }
+
+    [Fact]
+    public void A_native_image_string_gives_its_URL_and_host_with_the_offset()
+    {
+        var hits = NativeHits("beacon http://c2.example.org/gate ok");
+        Assert.Contains(hits, h => h is { Type: "url", Value: "http://c2.example.org/gate", Source: "native" } && h.Location!.StartsWith("ASCII string at 0x", StringComparison.Ordinal));
+        Assert.Contains(hits, h => h is { Type: "domain", Value: "c2.example.org" });
+    }
+
+    [Fact]
+    public void A_native_image_UTF16_string_gives_its_URL()
+    {
+        var bytes = AndroidDependencyTests.NativeLibrary();
+        bytes = [.. bytes, .. Encoding.Unicode.GetBytes("https://wide.example.net/x"), 0, 0];
+        var input = new FileInput("a.so", bytes, Blob.Identify(bytes)) { Options = new FileViewOptions("indicators") };
+        var hits = new NativeFileView().Inspect(input, default)!.Indicators;
+        Assert.Contains(hits, h => h is { Type: "url", Value: "https://wide.example.net/x" } && h.Location!.StartsWith("UTF-16", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_native_image_with_version_and_file_names_gives_no_indicators()
+    {
+        Assert.Empty(NativeHits("libssl.so.3", "version 1.2.3", "lib/x86_64-linux-gnu/libc.so.6", "OpenSSL 3.0.13 30 Jan 2024", "config.json"));
+    }
+
+    [Fact]
+    public void A_native_image_is_read_for_indicators_only_when_asked()
+    {
+        var bytes = AndroidDependencyTests.NativeLibrary("http://c2.example.org/gate");
+        Assert.DoesNotContain(new NativeFileView().Inspect(new FileInput("a.so", bytes, Blob.Identify(bytes)), default)?.Indicators ?? [], h => h.Type == "url");
+    }
+
+    [Fact]
+    public void Random_bytes_give_no_string_indicators_and_no_exception()
+    {
+        var bytes = new byte[100_000];
+        new Random(7).NextBytes(bytes);
+        Assert.All(IndicatorList.FromImageStrings("native", bytes, default), h => Assert.Equal("native", h.Source));
+    }
+
+    [Fact]
+    public void An_Office_external_link_gives_its_URL_and_host()
+    {
+        var rels = "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate\" Target=\"http://tpl.example.net/t.dotm\" TargetMode=\"External\"/></Relationships>";
+        var docx = DocumentFixtures.Ooxml(("word/document.xml", "<w:document/>"u8.ToArray()), ("word/_rels/settings.xml.rels", Encoding.UTF8.GetBytes(rels)));
+        var view = Inspect(new OfficeFileView(), "a.docx", docx)!;
+        Assert.Contains(view.Indicators, h => h is { Type: "url", Value: "http://tpl.example.net/t.dotm", Source: "office" } && h.Location!.Contains("attachedTemplate link", StringComparison.Ordinal));
+        Assert.Contains(view.Indicators, h => h is { Type: "domain", Value: "tpl.example.net" });
+    }
+
+    private static CertificateEntry Certificate(string subject, string issuer, bool? ca, bool selfIssued, params string[] urls) =>
+        new(0, "a.pem", subject, issuer, "01", DateTime.UnixEpoch, DateTime.UnixEpoch, "RSA 2048", "sha256RSA", "", "", "", [], ca, null, [], [], null, null, urls, selfIssued);
+
+    [Fact]
+    public void A_certificate_gives_its_signer_issuer_and_revocation_URLs()
+    {
+        var hits = IndicatorList.FromCertificates("certificate",
+            [Certificate("CN=api.example.com", "CN=Example Issuing CA", false, false, "OCSP http://ocsp.example.com", "CRL http://crl.example.com/ca.crl", "caIssuers http://ca.example.com/ca.cer")], default);
+        Assert.Contains(hits, h => h is { Type: "signer", Value: "CN=api.example.com" });
+        Assert.Contains(hits, h => h is { Type: "issuer", Value: "CN=Example Issuing CA" });
+        Assert.Contains(hits, h => h is { Type: "url", Value: "http://ocsp.example.com", Location: "OCSP URL of certificate #0" });
+        Assert.Contains(hits, h => h is { Type: "url", Value: "http://crl.example.com/ca.crl" });
+        Assert.Contains(hits, h => h is { Type: "domain", Value: "ca.example.com" });
+    }
+
+    [Fact]
+    public void A_self_issued_authority_gives_no_signer_and_no_issuer()
+    {
+        Assert.Empty(IndicatorList.FromCertificates("certificate", [Certificate("CN=Example Root", "CN=Example Root", true, true)], default));
+    }
+
+    [Fact]
+    public void A_certificate_file_view_lists_the_names_of_its_certificates()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=build.example.com", key, System.Security.Cryptography.HashAlgorithmName.SHA256);
+        using var cert = request.CreateSelfSigned(DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddYears(100));
+        var view = Inspect(new CertificateFileView(), "a.pem", Encoding.ASCII.GetBytes(cert.ExportCertificatePem()))!;
+        Assert.Contains(view.Indicators, h => h is { Type: "signer", Value: "CN=build.example.com", Source: "certificate" });
+        Assert.DoesNotContain(view.Indicators, h => h.Type == "issuer");
+    }
 }

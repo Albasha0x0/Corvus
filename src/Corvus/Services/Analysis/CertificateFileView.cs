@@ -32,7 +32,7 @@ internal sealed class CertificateFileView : IFileSummaryView
         if (f.Chains.Count > MaxRows) notes.Add($"chains: the first {MaxRows} of {f.Chains.Count:N0}");
         if (f.Items.Count > MaxRows) notes.Add($"other blocks: the first {MaxRows} of {f.Items.Count:N0}");
         return new FileView(new Facts(f.Format, f.Certificates.Count, offset, next, page, f.Chains.Take(MaxRows).ToList(), f.Items.Take(MaxRows).ToList(), notes),
-            Highlights(f));
+            Highlights(f)) { Indicators = IndicatorList.FromCertificates("certificate", f.Certificates, ct) };
     }
 
     private static List<string> Highlights(CertificateFile f)

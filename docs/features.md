@@ -448,7 +448,8 @@ Labels:
 - `summarize_file` reads up to 25 assemblies inside a container.
 - `summarize_file` counts a script's modules and map sources in their first 8 MB; a script over 64 MB is not named as a container.
 - `stixPath=` writes a STIX 2.1 bundle of the file, its members and the indicators of every view.
-- `view=indicators` lists URLs, domains, addresses and TLS fingerprints from every view, one row per value with its sources.
+- `view=indicators` lists URLs, domains, addresses, TLS fingerprints, strings of native images and certificate names and revocation URLs from every view, one row per value with its sources.
+- `batch --file --report` names each rule the YARA step matched.
 - `summarize_file` reports the import hash of a PE image beside its file hashes.
 - Features describe API use, not whether the code runs.
 - `extract_embedded xorText=true` recovers repeating XOR keys of 1-16 bytes over text. Off by default.

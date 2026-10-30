@@ -51,11 +51,12 @@ internal sealed class NativeFileView : IFileSummaryView
         var image = NativeImageFacts.Of(file.Path, file.Image);
         var packers = Native.PackerDetection.OfFile(file.Path, file.Image);
         var aot = NativeAot(file.Kind, file.Image, ct);
-        if (image == null && packers.Count == 0 && aot == null) return null;
+        var hits = file.Options.AllNetworkValues && file.Kind is "native PE" or "NativeAOT executable" or "elf" or "mach-o" ? IndicatorList.FromImageStrings("native", file.Image, ct) : [];
+        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0) return null;
         var highlights = new List<string>(image?.Highlights ?? []);
         foreach (var p in packers)
             highlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
-        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding)] };
+        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding)], Indicators = hits };
     }
 
     private static NativeAotSummary? NativeAot(string kind, byte[] bytes, CancellationToken ct)
