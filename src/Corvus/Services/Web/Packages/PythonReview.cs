@@ -455,8 +455,6 @@ public static partial class PackageReview
         return $"{match} match, {differ} differ, {unlisted.Count} not listed";
     }
 
-    private static readonly Regex ModelFile = R(@"\.(?:pt|pth|pkl|ckpt)$");
-
     // An import at module level, in a top-level try block included.
     private static readonly Regex SetupModuleImport = R(@"(?m)^(?:try:[ \t]*\r?\n)?[ \t]{0,4}(?:import[ \t]+(?<m>[A-Za-z_][\w.]*)|from[ \t]+(?<m>[A-Za-z_][\w.]*)[ \t]+import\b)");
 
@@ -470,15 +468,6 @@ public static partial class PackageReview
 
     private static readonly Regex ModelLiteral = R(@"['""]([^'""\r\n]*\.(?:pt|pth|pkl|ckpt))['""]");
 
-    /// <summary>True for a pickle global that runs code or a command when loaded.</summary>
-    private static bool RunsCode(string name) =>
-        name is "builtins.exec" or "builtins.eval" or "builtins.compile" or "builtins.__import__"
-            or "__builtin__.exec" or "__builtin__.eval" or "__builtin__.compile" or "__builtin__.__import__" or "os.system" or "os.popen"
-        || name.StartsWith("os.exec", StringComparison.Ordinal) || name.StartsWith("os.spawn", StringComparison.Ordinal)
-        || name.StartsWith("os.posix_spawn", StringComparison.Ordinal)
-        || name.StartsWith("posix.", StringComparison.Ordinal) || name.StartsWith("nt.", StringComparison.Ordinal)
-        || name.StartsWith("subprocess.", StringComparison.Ordinal) || name.StartsWith("runpy.", StringComparison.Ordinal);
-
     private static string BaseName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
 
     /// <summary>Model pickles that import code-running globals, and unsafe loads in setup.py or import-time code; empty when none.</summary>
@@ -486,7 +475,7 @@ public static partial class PackageReview
     {
         var findings = new List<PackageFinding>();
         var models = new List<(string Path, List<string> Code)>();
-        foreach (var path in files.Paths.Where(p => ModelFile.IsMatch(p)).Order(StringComparer.Ordinal))
+        foreach (var path in files.Paths.Where(ModelRisk.IsModelFile).Order(StringComparer.Ordinal))
         {
             ct.ThrowIfCancellationRequested();
             if (files.Bytes(path) is not { } bytes)
@@ -494,20 +483,14 @@ public static partial class PackageReview
                 notes.Add($"{path}: model file not read; its pickle is not checked");
                 continue;
             }
-            PickleScan? scan = null;
-            try
-            {
-                using var s = new MemoryStream(bytes, writable: false);
-                if (bytes.AsSpan().StartsWith("PK\x03\x04"u8)) scan = TorchCheckpoint.ReadZip(s, ct, PackageFiles.MaxFile).Pickle;
-                else if (TorchCheckpoint.IsLegacy(bytes)) scan = TorchCheckpoint.ReadLegacy(s, bytes.Length, ct).Pickle;
-                // Protocol 0 and 1 pickles have no PROTO header; they start with an opcode.
-                else if (PickleScan.Looks(bytes) || bytes.Length > 0 && "ci(]})SVINKJ"u8.IndexOf(bytes[0]) >= 0) scan = PickleScan.Read(s, bytes.Length, ct);
-            }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-            {
-                notes.Add($"{path}: {ex.Message}; its pickle is not checked");
-            }
-            if (scan?.Imports.Select(i => i.Name).Where(RunsCode).Distinct().ToList() is { Count: > 0 } code) models.Add((path, code));
+            var scan = ModelRisk.Scan(path, bytes, ct);
+            if (scan.NotRead != null) notes.Add($"{path}: {scan.NotRead}; not checked");
+            if (scan.Code.Count > 0) models.Add((path, [.. scan.Code]));
+            else if (scan.Other.Count > 0)
+                findings.Add(new PackageFinding("package/pickle-code", "review", "binary",
+                    $"{path}: the pickle imports {string.Join(", ", scan.Other.Take(5))}, outside torch.load(weights_only=True)'s allowlist", path));
+            foreach (var hit in scan.Hits)
+                findings.Add(new PackageFinding("package/model-code", hit.Level, "binary", $"{path}: {hit.Detail}", path));
         }
         var loads = new List<(string Path, bool Install, HashSet<string> Names)>();
         // Setup.py first, then the import-time scan's sources in its order; that

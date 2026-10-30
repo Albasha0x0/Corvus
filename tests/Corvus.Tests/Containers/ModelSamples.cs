@@ -68,9 +68,9 @@ internal static class ModelSamples
 
     /// <summary>
     /// IR 9 from "writer" 2.0 at opset 18: input x FLOAT[N,3], output y FLOAT[N,3]; nodes Add, Relu and an If with two
-    /// one-node branches; an inline initializer b FLOAT[3] and an external one w INT64[4,4] in "w.bin" at 128; metadata.
+    /// one-node branches; an inline initializer b FLOAT[3] and an external one w INT64[4,4] in <paramref name="externalPath"/> at 128; metadata.
     /// </summary>
-    public static byte[] Onnx()
+    public static byte[] Onnx(string externalPath = "w.bin")
     {
         byte[] TensorType(int elem, params object[] dims) =>
             L(1, V(1, (ulong)elem), L(2, [.. dims.SelectMany(d => L(1, d is string p ? S(2, p) : V(1, (ulong)(int)d)))]));
@@ -81,7 +81,7 @@ internal static class ModelSamples
             L(1, S(1, "c"), S(2, "y"), S(4, "If"), L(5, S(1, "then_branch"), Branch("Identity")), L(5, S(1, "else_branch"), Branch("Neg"))),
             S(2, "main"),
             L(5, V(1, 3), V(2, 1), S(8, "b"), L(9, new byte[12])),
-            L(5, L(1, [.. Varint(4), .. Varint(4)]), V(2, 7), S(8, "w"), L(13, S(1, "location"), S(2, "w.bin")), L(13, S(1, "offset"), S(2, "128")),
+            L(5, L(1, [.. Varint(4), .. Varint(4)]), V(2, 7), S(8, "w"), L(13, S(1, "location"), S(2, externalPath)), L(13, S(1, "offset"), S(2, "128")),
                 L(13, S(1, "length"), S(2, "128")), V(14, 1)),
             L(11, S(1, "x"), L(2, TensorType(1, "N", 3))),
             L(12, S(1, "y"), L(2, TensorType(1, "N", 3))));

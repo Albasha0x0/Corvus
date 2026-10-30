@@ -162,11 +162,11 @@ public sealed class ModelFileTests
     }
 
     [Fact]
-    [FuzzEntry(typeof(Safetensors), typeof(Gguf), typeof(OnnxModel), typeof(PickleScan), typeof(TorchCheckpoint), typeof(ModelFileView))]
+    [FuzzEntry(typeof(Safetensors), typeof(Gguf), typeof(OnnxModel), typeof(PickleScan), typeof(TorchCheckpoint), typeof(ModelFileView), typeof(ModelRisk))]
     public void Fuzzed_model_files_never_throw_unexpectedly()
     {
         byte[][] seeds = [ModelSamples.Safetensors("""{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}""", 8), GgufSample(), ModelSamples.Onnx(),
-            ModelSamples.StateDict(), ModelSamples.TorchZip()];
+            ModelSamples.StateDict(), ModelSamples.TorchZip(), ModelRiskTests.Npy("'|O'", ModelRiskTests.Call("os", "system")), ModelRiskTests.Keras("Lambda")];
         var failures = seeds.SelectMany(seed => FormatFuzz.Run(seed, b =>
         {
             try { Safetensors.Read(new MemoryStream(b), b.Length); } catch (InvalidDataException) { } catch (EndOfStreamException) { }
@@ -174,6 +174,9 @@ public sealed class ModelFileTests
             try { OnnxModel.Read(new MemoryStream(b), b.Length); } catch (InvalidDataException) { } catch (EndOfStreamException) { }
             PickleScan.Read(new MemoryStream(b), b.Length).TorchTensors(100);
             try { TorchCheckpoint.ReadZip(new MemoryStream(b)); } catch (InvalidDataException) { }
+            ModelRisk.Scan("x.keras", b);
+            ModelRisk.Scan("x.npy", b);
+            ModelRisk.Scan("x.onnx", b);
             try { new ModelFileView().Inspect(new FileInput("x", b, Blob.Identify(b)), default); } catch (InvalidDataException) { } catch (EndOfStreamException) { }
         }, 200)).ToList();
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));

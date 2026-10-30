@@ -40,6 +40,9 @@ public sealed class Gguf
     public long DataOffset { get; private set; }
     public uint Alignment { get; private set; } = 32;
     public List<string> Issues { get; } = [];
+    /// <summary>The tokenizer.chat_template string in full, up to 1 MiB; null when absent.</summary>
+    public string? ChatTemplate { get; private set; }
+    private string? _lastString;
 
     private readonly Stream _s;
     private readonly long _length;
@@ -85,6 +88,7 @@ public sealed class Gguf
             var key = String();
             uint type = U32();
             var (text, count, typeName) = Value(type, 0);
+            if (key == "tokenizer.chat_template" && type == 8 && _lastString is { Length: <= 1 << 20 }) ChatTemplate = _lastString;
             Metadata.Add(new Entry(key, typeName, text, count));
             if (key == "general.alignment" && type == 4 && uint.TryParse(text, CultureInfo.InvariantCulture, out var a))
             {
@@ -131,7 +135,8 @@ public sealed class Gguf
         switch (type)
         {
             case 8:
-                return (Clip(String()), null, "string");
+                _lastString = String();
+                return (Clip(_lastString), null, "string");
             case 9:
                 if (depth >= MaxDepth) throw new InvalidDataException($"arrays nested deeper than {MaxDepth} levels");
                 uint item = U32();

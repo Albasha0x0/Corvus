@@ -571,6 +571,10 @@ ret
 
 - A zip member or mail attachment name with a bidirectional control, a runnable extension after a document extension or long padding is named.
 - A package name close to a popular npm, PyPI, NuGet or RubyGems name, or one with filler words or look-alike letters added, is review.
+- A model file in a package (pickle, PyTorch, `.npy`, `.npz`, joblib, `.keras`, GGUF, ONNX) is read without loading it.
+  - A pickle importing `os`, `subprocess`, `runpy`, `importlib` or `builtins.exec` is noteworthy; other globals outside the weights-only allowlist are review.
+  - joblib is read through zlib, gzip, xz, lz4 and bzip2; HDF5 is named as not read.
+  - A Keras `Lambda` layer, a GGUF `chat_template` walking `__class__` or `__globals__`, and an ONNX data path with `..` or an absolute path are noteworthy.
 
 ### Package code
 
