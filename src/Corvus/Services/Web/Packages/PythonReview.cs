@@ -76,7 +76,7 @@ public static partial class PackageReview
             moduleRoot = root;
             if (files.Text(root + "PKG-INFO") is { } pkgInfo) (name, version, summary, author, deps) = Metadata(pkgInfo);
             manifests.Add((root + "PKG-INFO", RequiresDist(files.Text(root + "PKG-INFO"))));
-            foreach (var file in new[] { "setup.py", "setup.cfg", "pyproject.toml" }) manifests.Add((root + file, files.Text(root + file)));
+            foreach (var file in new[] { "setup.py", "setup.cfg", "pyproject.toml", "requirements.txt" }) manifests.Add((root + file, files.Text(root + file)));
             foreach (var eggInfo in files.Paths.Where(p => p.StartsWith(root, StringComparison.Ordinal) && Regex.IsMatch(p[root.Length..], @"^[^/]+\.egg-info/requires\.txt$", RegexOptions.NonBacktracking)).Take(4))
                 manifests.Add((eggInfo, files.Text(eggInfo)));
             if (files.Text(root + "setup.py") is { } setup)

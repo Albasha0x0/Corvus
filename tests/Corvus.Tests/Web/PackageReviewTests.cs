@@ -1908,6 +1908,24 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_direct_reference_in_requirements_or_pyproject_is_review_and_a_registry_range_is_not_reported()
+    {
+        var req = Review(Tgz("tool-1.0.tar.gz",
+            ("tool-1.0/setup.py", "from setuptools import setup\nsetup(name='tool')\n"),
+            ("tool-1.0/requirements.txt", "click>=8\nblob @ http://files.example.net/blob-1.0.tar.gz\n")));
+        var source = Assert.Single(req.Findings, f => f.Rule == "package/dependency-source");
+        Assert.Equal(("noteworthy", "tool-1.0/requirements.txt"), (source.Level, source.Path));
+        Assert.Contains("blob (url, files.example.net)", source.Detail, StringComparison.Ordinal);
+        var toml = Review(Tgz("tool-1.1.tar.gz",
+            ("tool-1.1/pyproject.toml", "[project]\nname = \"tool\"\nversion = \"1.1\"\ndependencies = [\"helper @ git+https://git.example.org/team/helper.git\"]\n")));
+        Assert.Contains(toml.Findings, f => f is { Rule: "package/dependency-source", Level: "review" });
+        var registry = Review(Tgz("tool-1.2.tar.gz",
+            ("tool-1.2/setup.py", "from setuptools import setup\nsetup(name='tool')\n"),
+            ("tool-1.2/requirements.txt", "click>=8\nrequests==2.31.0\n")));
+        Assert.DoesNotContain(registry.Findings, f => f.Rule == "package/dependency-source");
+    }
+
+    [Fact]
     public void A_direct_reference_is_review_in_a_wheel_and_noteworthy_in_an_sdist_setup_py()
     {
         var r = Review(Zip("tool-100.0-py3-none-any.whl",
