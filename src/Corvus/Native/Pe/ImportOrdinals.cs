@@ -3,37 +3,10 @@ namespace Corvus.Native.Pe;
 /// <summary>Names of the ordinal imports of three system libraries, as the import hash resolves them.</summary>
 internal static class ImportOrdinals
 {
-    // Source: the ordlookup tables of pefile 2023.2.7 (ws2_32, wsock32, oleaut32), names lower-cased.
+    // Source: the ordlookup tables of pefile 2023.2.7, names lower-cased; wsock32 uses the ws2_32 table there.
     private static readonly Dictionary<string, string> Tables = new(StringComparer.Ordinal)
     {
         ["ws2_32.dll"] =
-            "1:accept,2:bind,3:closesocket,4:connect,5:getpeername,6:getsockname,7:getsockopt,8:htonl," +
-            "9:htons,10:ioctlsocket,11:inet_addr,12:inet_ntoa,13:listen,14:ntohl,15:ntohs,16:recv," +
-            "17:recvfrom,18:select,19:send,20:sendto,21:setsockopt,22:shutdown,23:socket,24:getaddrinfow," +
-            "25:getnameinfow,26:wsapsetpostroutine,27:freeaddrinfow,28:wpucompleteoverlappedrequest," +
-            "29:wsaaccept,30:wsaaddresstostringa,31:wsaaddresstostringw,32:wsacloseevent,33:wsaconnect," +
-            "34:wsacreateevent,35:wsaduplicatesocketa,36:wsaduplicatesocketw,37:wsaenumnamespaceprovidersa," +
-            "38:wsaenumnamespaceprovidersw,39:wsaenumnetworkevents,40:wsaenumprotocolsa,41:wsaenumprotocolsw," +
-            "42:wsaeventselect,43:wsagetoverlappedresult,44:wsagetqosbyname,45:wsagetserviceclassinfoa," +
-            "46:wsagetserviceclassinfow,47:wsagetserviceclassnamebyclassida," +
-            "48:wsagetserviceclassnamebyclassidw,49:wsahtonl,50:wsahtons,51:gethostbyaddr,52:gethostbyname," +
-            "53:getprotobyname,54:getprotobynumber,55:getservbyname,56:getservbyport,57:gethostname," +
-            "58:wsainstallserviceclassa,59:wsainstallserviceclassw,60:wsaioctl,61:wsajoinleaf," +
-            "62:wsalookupservicebegina,63:wsalookupservicebeginw,64:wsalookupserviceend," +
-            "65:wsalookupservicenexta,66:wsalookupservicenextw,67:wsanspioctl,68:wsantohl,69:wsantohs," +
-            "70:wsaproviderconfigchange,71:wsarecv,72:wsarecvdisconnect,73:wsarecvfrom," +
-            "74:wsaremoveserviceclass,75:wsaresetevent,76:wsasend,77:wsasenddisconnect,78:wsasendto," +
-            "79:wsasetevent,80:wsasetservicea,81:wsasetservicew,82:wsasocketa,83:wsasocketw," +
-            "84:wsastringtoaddressa,85:wsastringtoaddressw,86:wsawaitformultipleevents," +
-            "87:wscdeinstallprovider,88:wscenablensprovider,89:wscenumprotocols,90:wscgetproviderpath," +
-            "91:wscinstallnamespace,92:wscinstallprovider,93:wscuninstallnamespace,94:wscupdateprovider," +
-            "95:wscwritenamespaceorder,96:wscwriteproviderorder,97:freeaddrinfo,98:getaddrinfo," +
-            "99:getnameinfo,101:wsaasyncselect,102:wsaasyncgethostbyaddr,103:wsaasyncgethostbyname," +
-            "104:wsaasyncgetprotobynumber,105:wsaasyncgetprotobyname,106:wsaasyncgetservbyport," +
-            "107:wsaasyncgetservbyname,108:wsacancelasyncrequest,109:wsasetblockinghook," +
-            "110:wsaunhookblockinghook,111:wsagetlasterror,112:wsasetlasterror,113:wsacancelblockingcall," +
-            "114:wsaisblocking,115:wsastartup,116:wsacleanup,151:__wsafdisset,500:wep",
-        ["wsock32.dll"] =
             "1:accept,2:bind,3:closesocket,4:connect,5:getpeername,6:getsockname,7:getsockopt,8:htonl," +
             "9:htons,10:ioctlsocket,11:inet_addr,12:inet_ntoa,13:listen,14:ntohl,15:ntohs,16:recv," +
             "17:recvfrom,18:select,19:send,20:sendto,21:setsockopt,22:shutdown,23:socket,24:getaddrinfow," +
@@ -153,6 +126,7 @@ internal static class ImportOrdinals
     public static string Name(string library, int ordinal)
     {
         var key = library.ToLowerInvariant();
+        if (key == "wsock32.dll") key = "ws2_32.dll";
         if (!Tables.TryGetValue(key, out var table)) return $"ord{ordinal}";
         Dictionary<int, string>? names;
         lock (Parsed)

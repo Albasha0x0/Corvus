@@ -58,6 +58,13 @@ public sealed class ImportHashTests : IDisposable
     }
 
     [Fact]
+    public void A_wsock32_ordinal_takes_its_name_from_the_ws2_32_table()
+    {
+        var pe = PeFile.FromBytes(Image(("WSOCK32.dll", [115, 1])));
+        Assert.Equal(Md5("wsock32.wsastartup,wsock32.accept"), ImportHash.Of(pe));
+    }
+
+    [Fact]
     public void An_ordinal_outside_the_tables_and_of_other_libraries_is_ord_and_its_number()
     {
         var pe = PeFile.FromBytes(Image(("ws2_32.dll", [9999]), ("custom.ocx", [7]), ("driver.sys", ["Entry"])));
