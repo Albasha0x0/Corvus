@@ -239,7 +239,10 @@ internal sealed class NtfsReader : IContainerReader
                 if (path == null) { orphans++; continue; }
                 if (path.StartsWith('$')) continue;
                 var streams = rec.Attributes.Where(a => a.Type == 0x80).GroupBy(a => a.Name).ToList();
-                if (streams.Count == 0) { _tree.File(path, 0, _ => []); continue; }
+                // The file attribute flags of $STANDARD_INFORMATION: 0x02 is hidden.
+                bool hidden = rec.Attributes.FirstOrDefault(a => a.Type == 0x10 && a.Resident) is { Value.Length: >= 36 } info
+                    && (BinaryPrimitives.ReadUInt32LittleEndian(info.Value.AsSpan(32)) & 0x02) != 0;
+                if (streams.Count == 0) { _tree.File(path, 0, _ => [], hidden: hidden); continue; }
                 foreach (var g in streams)
                 {
                     // An attribute list splits large data over records: pieces ordered by their first cluster.
@@ -250,7 +253,8 @@ internal sealed class NtfsReader : IContainerReader
                     try
                     {
                         _tree.File(streamPath, a.Size, n => a.Encrypted ? throw new InvalidDataException("encrypted (EFS)") : Data(a, n),
-                            a.Encrypted ? "encrypted" : a.Compressed ? "compressed" : g.Key.Length > 0 ? "alternate data stream" : null);
+                            a.Encrypted ? "encrypted" : a.Compressed ? "compressed" : g.Key.Length > 0 ? "alternate data stream" : null,
+                            hidden: hidden && g.Key.Length == 0);
                     }
                     catch (Exception ex) when (FsTree.Damaged(ex)) { _tree.Unreadable(streamPath, ex); }
                 }

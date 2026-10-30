@@ -40,6 +40,9 @@ internal sealed class ArchiveReader : IContainerReader
         var notes = new List<string>();
         long total = 0;
         string kind = format;
+        // Read before SharpCompress takes the stream; its entry list omits service records.
+        var streamRecords = format == "rar" && stream.CanSeek ? Rar5Streams.Names(stream) : [];
+        stream.Position = 0;
 
         void Take(string path, long size, Func<Stream> open)
         {
@@ -106,6 +109,7 @@ internal sealed class ArchiveReader : IContainerReader
                 throw new ToolError(ErrorCode.MalformedInput, $"{name} is not a readable {kind} archive: {ex.Message}", $"summarize_file path={name} says what it holds");
             notes.Add($"{kind}: stopped reading at entry {entries.Count + 1}: {ex.Message}");
         }
+        notes.AddRange(MemberNames.Notes([.. entries.Select(e => e.Path), .. streamRecords]));
         if (entries.Count > items.Count && !allFiles) notes.Add($"{entries.Count - items.Count} of {entries.Count} files not extracted (not binaries or packages; allFiles extracts every file).");
         return new ContainerContents(kind, items, notes) { Entries = entries };
     }

@@ -147,7 +147,7 @@ internal sealed class FatReader : IContainerReader
                 try
                 {
                     if ((attr & 0x10) != 0) { if (_dirs.Add(cluster)) Directory(full, Chain(cluster, 16L << 20, exact: false), depth + 1); }
-                    else _tree.File(full, size, n => n == 0 ? [] : Chain(cluster, n, exact: true));
+                    else _tree.File(full, size, n => n == 0 ? [] : Chain(cluster, n, exact: true), hidden: (attr & 0x02) != 0);
                 }
                 catch (Exception ex) when (FsTree.Damaged(ex)) { _tree.Unreadable(full, ex); }
             }

@@ -9,6 +9,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 - C# patching: Roslyn.
 - .NET crash dumps: [ClrMD](https://github.com/microsoft/clrmd), with the dumped runtime's DAC, signature-checked first.
 - Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz).
+- Archive and disk image entries with `..`, rooted, drive or stream names, a trailing blank or dot, a file and folder of one name, or the hidden attribute are named in the notes; RAR 5 stream records are listed.
 - JavaScript: [Acornima](https://github.com/adams85/acornima); source maps decoded by built-in code.
 - Mail: [MimeKit](https://github.com/jstedfast/MimeKit) (`.eml`); `.msg` read by built-in code.
 - Transport: stdio, through the [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).

@@ -162,7 +162,7 @@ internal static class UdfReader
                     else
                     {
                         var fe = Entry(child);
-                        Tree.File(path, fe.Size, n => Data(fe, n));
+                        Tree.File(path, fe.Size, n => Data(fe, n), hidden: (chars & 0x01) != 0);
                     }
                 }
                 catch (Exception ex) when (FsTree.Damaged(ex)) { Tree.Unreadable(path, ex); }

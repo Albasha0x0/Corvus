@@ -52,6 +52,7 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
     private readonly List<ContainerEntry> _entries = [];
     private long _total;
     private int _unread;
+    private readonly List<string> _hidden = [];
 
     public List<string> Notes { get; } = [];
     public string Kind => kind;
@@ -73,9 +74,10 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
     private const int Head = 1 << 20;
 
     /// <summary>A regular file; <paramref name="read"/> gives its first n bytes (n at most <paramref name="size"/>).</summary>
-    public void File(string path, long size, Func<long, byte[]> read, string? detail = null, long? mode = null)
+    public void File(string path, long size, Func<long, byte[]> read, string? detail = null, long? mode = null, bool hidden = false)
     {
         ct.ThrowIfCancellationRequested();
+        if (hidden) _hidden.Add(path);
         _entries.Add(new ContainerEntry(path, size, detail) { Mode = Octal(mode) });
         if (_items.Count >= limits.MaxItems) return;
         if (size < 0 || size > limits.MaxItemBytes) { Notes.Add($"{path}: {size:N0} bytes, over the item limit; listed, not extracted"); return; }
@@ -126,6 +128,10 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
     public ContainerContents Done()
     {
         if (_unread > 20) Notes.Add($"{_unread - 20} more files unreadable");
+        foreach (var h in _hidden.Take(20)) Notes.Add($"Hidden entry: '{MemberNames.Show(h)}' carries the hidden attribute.");
+        if (_hidden.Count > 20) Notes.Add($"{_hidden.Count - 20} more hidden entries.");
+        // NTFS names a stream as file:stream.
+        Notes.AddRange(MemberNames.Notes(_entries.Select(e => e.Path).ToList(), streams: kind != "NTFS"));
         if (_entries.Count == 0) Notes.Add($"no files were recovered from this {kind} image: nothing extracted");
         int files = _entries.Count(e => e.Detail == null || !(e.Detail.StartsWith("symbolic link", StringComparison.Ordinal) || SpecialKinds.Contains(e.Detail)));
         if (!allFiles && files > _items.Count)

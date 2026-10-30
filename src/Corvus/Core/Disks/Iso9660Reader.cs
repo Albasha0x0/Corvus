@@ -95,7 +95,7 @@ internal sealed class Iso9660Reader : IContainerReader
             if (!_dirs.Add(extent)) return;
             if (size > 64u << 20) { _tree.Notes.Add($"{prefix}: a {size:N0}-byte directory; not read"); return; }
             var data = _src.ReadUpTo((long)extent * _blockSize, (int)size);
-            var pending = new List<(string Name, uint Extent, long Size, bool Dir)>();
+            var pending = new List<(string Name, uint Extent, long Size, bool Dir, bool Hidden)>();
             var links = new List<(string Name, string Target)>();
             int pos = 0;
             while (pos < data.Length)
@@ -128,15 +128,15 @@ internal sealed class Iso9660Reader : IContainerReader
                 // A file of several extents: records with the multi-extent flag, then the last.
                 if (pending.Count > 0 && pending[^1].Name == name && !dir && (r[25] & 0x80) == 0 && pending[^1].Size < 0)
                 {
-                    pending[^1] = (name, pending[^1].Extent, -pending[^1].Size + fileSize, false);
+                    pending[^1] = (name, pending[^1].Extent, -pending[^1].Size + fileSize, false, pending[^1].Hidden);
                     continue;
                 }
                 if (link != null) { links.Add((name, link)); continue; }
-                pending.Add((name, ext, (r[25] & 0x80) != 0 ? -fileSize : fileSize, dir));
+                pending.Add((name, ext, (r[25] & 0x80) != 0 ? -fileSize : fileSize, dir, (r[25] & 0x01) != 0));
             }
             foreach (var (name, target) in links)
                 if (FsTree.UsableName(name)) _tree.Link(prefix.Length == 0 ? name : prefix + "/" + name, target);
-            foreach (var (name, ext, length, dir) in pending)
+            foreach (var (name, ext, length, dir, hidden) in pending)
             {
                 if (!FsTree.UsableName(name)) continue;
                 var path = prefix.Length == 0 ? name : prefix + "/" + name;
@@ -144,7 +144,7 @@ internal sealed class Iso9660Reader : IContainerReader
                 else
                 {
                     long at = (long)ext * _blockSize, n = Math.Abs(length);
-                    _tree.File(path, n, k => _src.Read(at, (int)Math.Min(k, n)));
+                    _tree.File(path, n, k => _src.Read(at, (int)Math.Min(k, n)), hidden: hidden);
                 }
             }
         }

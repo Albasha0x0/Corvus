@@ -40,8 +40,54 @@ public static class MemberNames
         return string.Join("; ", found.Take(3).Select(x => $"'{Show(x.Name)}' ({x.Why})")) + (found.Count > 3 ? "; ..." : "");
     }
 
+    /// <summary>Why the path <paramref name="name"/> escapes or hides its place in an extraction folder, or null when it does not; a drive or stream part is ignored when <paramref name="streams"/> is false.</summary>
+    public static string? PathConcern(string name, bool streams = true)
+    {
+        var path = name.Replace('\\', '/');
+        if (path.StartsWith('/')) return "a rooted path";
+        if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0])) return "a drive letter";
+        foreach (var part in path.Split('/'))
+        {
+            if (part == "..") return "a '..' part";
+            if (part is "" or ".") continue;
+            if (streams && part.Contains(':')) return "a ':' part naming a stream";
+            if (part[^1] is ' ' or '.') return "a part ending in a blank or a dot";
+        }
+        return null;
+    }
+
+    /// <summary>The names in <paramref name="names"/> that are both a file and a folder, as the file's name.</summary>
+    public static IEnumerable<string> Collisions(IEnumerable<string> names)
+    {
+        var files = new List<string>();
+        var folders = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in names)
+        {
+            var path = raw.Replace('\\', '/').Trim('/');
+            if (path.Length == 0) continue;
+            if (raw.EndsWith('/') || raw.EndsWith('\\')) folders.Add(path); else files.Add(path);
+            for (int i = path.IndexOf('/'); i >= 0; i = path.IndexOf('/', i + 1)) folders.Add(path[..i]);
+        }
+        return files.Where(folders.Contains).Distinct();
+    }
+
+    /// <summary>One note per name that disguises its type, escapes its folder or is both a file and a folder; capped at <paramref name="max"/> with a count of the rest.</summary>
+    public static List<string> Notes(IEnumerable<string> names, bool streams = true, int max = 20)
+    {
+        var list = names as IList<string> ?? [.. names];
+        var found = new List<string>();
+        foreach (var n in list)
+        {
+            if (Concern(n) is { } disguise) found.Add($"Member name that disguises its type: '{Show(n)}' ({disguise}).");
+            if (PathConcern(n, streams) is { } path) found.Add($"Member name with an unsafe path: '{Show(n)}' ({path}).");
+        }
+        foreach (var n in Collisions(list)) found.Add($"Member name used for a file and a folder: '{Show(n)}'.");
+        if (found.Count > max) { var rest = found.Count - max; found = [.. found.Take(max)]; found.Add($"{rest} more member names reported."); }
+        return found;
+    }
+
     /// <summary>The name with control and format characters as U+XXXX, clipped to 80 characters.</summary>
-    private static string Show(string name)
+    internal static string Show(string name)
     {
         var sb = new StringBuilder();
         foreach (var c in name)
