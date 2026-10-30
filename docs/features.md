@@ -571,3 +571,8 @@ ret
 
 - A zip member or mail attachment name with a bidirectional control, a runnable extension after a document extension or long padding is named.
 - A package name close to a popular npm, PyPI, NuGet or RubyGems name, or one with filler words or look-alike letters added, is review.
+
+### Package code
+
+- A dev-time config (`*.config.js`, `.eslintrc.js`) is read as entry code.
+- Code that evals text fetched from a JSON storage or chain RPC host is noteworthy.

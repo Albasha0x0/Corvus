@@ -123,6 +123,7 @@ public static class FindingRules
         R("package/external-update", "updates from outside the store"),
         R("package/externally-connectable", "any site can message the extension"),
         N("package/fetched-eval", RunsRemote, "evaluates code it fetches"),
+        N("package/code-store-eval", "exact list: JSON storage and chain RPC hosts, with fetched text reaching eval or Function", "evaluates code fetched from a JSON storage or chain RPC host"),
         N("package/cookie-send", "every cookie read combined with sending to a fixed address", "reads every cookie and sends data"),
         N("package/crx-proof-failed", "exact check: a CRX key proof does not verify", "CRX key proofs do not verify"),
         R("package/startup-activation", "activates when the editor starts"),

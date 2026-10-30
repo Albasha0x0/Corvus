@@ -200,6 +200,12 @@ public static partial class PackageReview
         return false;
     };
 
+    // Hosts from the services' own documentation: JSONBin, npoint and JSON Blob
+    // APIs; BNB Chain, TRON and Aptos public node endpoints.
+    private const string CodeStoreHost = @"(?:api\.jsonbin\.io|api\.npoint\.io|jsonblob\.com/api|bsc-dataseed[\w.-]*\.binance\.org|api\.trongrid\.io|fullnode\.mainnet\.aptoslabs\.com)";
+    // Fetched text or data reaching eval or Function within three statements.
+    private const string CodeStoreEval = @"(?:(?:\.text\(\)|\.json\(\)|responseText|\.data\b|\.body\b)[^;]{0,200}?(?:;[^;]{0,200}?){0,2}\b(?:eval|new\s+Function)\s*\(|\b(?:eval|Function)\s*\(\s*(?:await\s+)?[\w.]*\.(?:text|json)\(\))";
+
     /// <summary>What code reaches, by pattern: each rule names what it found. Levels are raised by the install-time context.</summary>
     private static readonly Rule[] CodeRules =
     [
@@ -214,6 +220,7 @@ public static partial class PackageReview
         new("package/eval-response", "dynamic code", "noteworthy", R(@"(?:^|[^.\w$])eval\s*\(\s*\w+\.(?:data|body|responseText)\b[\w.]*\s*\)|(?:\bnew\s+)?\(?\s*(?:\bFunction(?:\.constructor)?|\.constructor(?:\.constructor)?)\s*\)?\s*\(\s*['""]require['""](?:\s*,\s*['""]\w+['""])*\s*,\s*[\w.]+\s*\)|"
             + ResponseCallback + "(?:" + DecodedRunInBlock + "|" + DecodedRunInExpression + ")"),
             "runs code from a response (eval of response data or its base64 decode, a Function given require)"),
+        new("package/code-store-eval", "remote code", "noteworthy", R(CodeStoreHost + @"[\s\S]*?" + CodeStoreEval), "evaluates code fetched from a JSON storage or chain RPC host"),
         new("package/file-host-program", "process", "noteworthy", R(@"https?://(?:dl\.dropbox(?:usercontent)?\.com|cdn\.discordapp\.com/attachments|files\.catbox\.moe|transfer\.sh|github\.com/[\w.-]+/[\w.-]+/raw)/[^\s'""]*?\.(?:exe|sh|bat|cmd|ps1|vbs|scr|msi)\b"), "downloads a program from a file-sharing host"),
         new("package/download-and-run", "process", "noteworthy", DownloadsAndRuns, "downloads a program or script and runs it"),
         new("package/download-and-start", "process", "noteworthy", DownloadsAndStarts, "downloads a program to a file and starts it"),
@@ -1437,7 +1444,8 @@ public static partial class PackageReview
     /// <paramref name="extension"/> adds the editor extension checks to every file read.</summary>
     internal static IEnumerable<PackageFinding> ScanLoaded(PackageFiles files, string root, IEnumerable<string> entries, CancellationToken ct, bool extension = false)
     {
-        var entryFiles = entries.Distinct().ToList();
+        // Dev-time config files run when the package's tools do, so they are entry code.
+        var entryFiles = entries.Concat(files.Paths.Where(p => Folder(p) == root && DevConfig.IsMatch(p))).Distinct().ToList();
         foreach (var entry in entryFiles)
             if (files.Text(entry) is { } code)
             {
@@ -1481,6 +1489,8 @@ public static partial class PackageReview
                     }
         return reached;
     }
+
+    private static readonly Regex DevConfig = R(@"(?:^|/)(?:[\w.-]+\.config\.(?:c|m)?js|\.(?:eslint|babel|prettier|stylelint)rc\.(?:c|m)?js)$");
 
     private static readonly Regex LoadedSource =R(@"\.(?:c|m)?js$|\.(?:bat|cmd|ps1|sh)$");
 

