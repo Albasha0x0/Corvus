@@ -73,6 +73,7 @@ internal sealed class FileOps : IWorkerOps
     [
         Entry(FileWork.Summarize), Entry(FileWork.List), Entry(FileWork.Search), Entry(FileWork.Extract),
         Entry(FileWork.DumpView), Entry(FileWork.DumpRead), Entry(FileWork.DumpHeap), Entry(FileWork.DumpObject),
+        Entry(FileWork.DumpStack), Entry(FileWork.DumpBuckets), Entry(FileWork.Symbolize),
     ];
 
     private static (string, string, WorkerOp) Entry<TArgs, TResult>(FileOp<TArgs, TResult> op) => (op.Name, op.Tool, Op(op));
@@ -93,6 +94,8 @@ internal sealed class FileOps : IWorkerOps
     private static WorkerOp Op<TArgs, TResult>(FileOp<TArgs, TResult> op) => (args, cancellationToken) => Task.Run<JsonNode?>(() =>
     {
         if (Fixtures && ((string?)args["path"] ?? (string?)args["dump"]?["path"]) is { } path) Fault(path);
+        if (Fixtures && (string?)args["folder"] is { } folder && Directory.Exists(folder))
+            foreach (var file in Directory.EnumerateFiles(folder)) Fault(file);
         try
         {
             var result = op.Run(Services.Value, args.Deserialize<TArgs>(FileIsolation.Json)!, cancellationToken);
@@ -223,6 +226,43 @@ public static class FileWork
     /// <summary>dump_object on a dump file.</summary>
     public static readonly FileOp<DumpObjectArgs, MinidumpService.ObjectReport> DumpObject = new("dump_object", "dump_object",
         (services, a, ct) => Pinned(services, a.Dump).Object(a.Dump.Id, a.Address, a.Depth, a.MaxFields, a.MaxArrayItems, ct).GetAwaiter().GetResult());
+
+    public sealed record StackArgs(DumpTarget Dump, string? Thread, bool ExceptionContext, int MaxFrames, int Offset, int Limit, bool Managed);
+
+    public sealed record BucketArgs(string Folder, bool Recursive, string? Pattern, int TopFrames, string? SkipModules, bool SplitByVersion, bool Managed,
+        int MaxDumps, string? ImageDirectories, int Offset, int Limit);
+
+    public sealed record SymbolizeArgs(string? Text, string? Path, string? Format, string? Images, string? ModuleBases, int Offset, int Limit, bool Compact);
+
+    /// <summary>The buckets of a folder and the path behind each dump id they name.</summary>
+    public sealed record BucketResult(MinidumpService.DumpBuckets Buckets, IReadOnlyDictionary<string, string> Paths);
+
+    /// <summary>dump_stack on a dump file.</summary>
+    public static readonly FileOp<StackArgs, MinidumpService.StackReport> DumpStack = new("dump_stack", "dump_stack",
+        (services, a, ct) => Pinned(services, a.Dump).Stack(a.Dump.Id, a.Thread, a.ExceptionContext, a.MaxFrames, a.Offset, a.Limit, a.Dump.ImageDirectories, a.Managed, ct)
+            .GetAwaiter().GetResult());
+
+    /// <summary>bucket_minidumps over a folder; the ids are the worker's, with their paths.</summary>
+    public static readonly FileOp<BucketArgs, BucketResult> DumpBuckets = new("dump_buckets", "bucket_minidumps",
+        (services, a, ct) => BucketsOf(services.GetRequiredService<MinidumpService>(), a, null, ct));
+
+    /// <summary>symbolize_stack_text over crash text or a log file.</summary>
+    public static readonly FileOp<SymbolizeArgs, StackTextService.SymbolizedStack> Symbolize = new("stack_symbolize", "symbolize_stack_text",
+        (services, a, ct) => SymbolizeWith(services.GetRequiredService<StackTextService>(), a, ct));
+
+    /// <summary>The buckets of a folder with the path of every id they name; <paramref name="progress"/> counts dumps.</summary>
+    public static BucketResult BucketsOf(MinidumpService dumps, BucketArgs a, Action<int, int>? progress, CancellationToken ct)
+    {
+        var buckets = dumps.Bucket(a.Folder, a.Recursive, a.Pattern, a.TopFrames, a.SkipModules, a.SplitByVersion, a.Managed, a.MaxDumps, a.ImageDirectories, a.Offset, a.Limit,
+            progress, ct).GetAwaiter().GetResult();
+        var paths = buckets.Items.SelectMany(b => b.Sample.Append(b.Representative)).Distinct()
+            .Select(id => (id, path: dumps.PathOf(id))).Where(e => e.path != null).ToDictionary(e => e.id, e => e.path!);
+        return new BucketResult(buckets, paths);
+    }
+
+    /// <summary>The symbolized rows of crash text through <paramref name="stacks"/>.</summary>
+    public static StackTextService.SymbolizedStack SymbolizeWith(StackTextService stacks, SymbolizeArgs a, CancellationToken ct) =>
+        stacks.Symbolize(a.Text, a.Path, a.Format, a.Images, a.ModuleBases, a.Offset, a.Limit, a.Compact, ct).GetAwaiter().GetResult();
 
     private static MinidumpService Pinned(IServiceProvider services, DumpTarget dump)
     {

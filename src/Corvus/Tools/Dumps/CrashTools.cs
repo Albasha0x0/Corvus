@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Services;
 
@@ -9,8 +10,12 @@ namespace Corvus.Tools;
 
 /// <summary>Crash analysis beyond one dump: crash text without a dump, and folders of dumps grouped by signature.</summary>
 [McpServerToolType]
-public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
+public sealed class CrashTools(StackTextService stacks, MinidumpService dumps, ServerOptions? options = null, AssemblyWorkspace? workspace = null,
+    Native.Providers.Worker.WorkerPool? workers = null)
 {
+    /// <summary>Options for <see cref="FileIsolation"/>; null while images are loaded, since names and signatures come from this process's indexes.</summary>
+    private ServerOptions? Isolation => workspace != null && workspace.Read(() => workspace.Natives.Count > 0 || workspace.Assemblies.Count > 0) ? null : options;
+
     [McpServerTool(Name = "symbolize_stack_text", Title = "Symbolize crash text", UseStructuredContent = true, OutputSchemaType = typeof(StackTextService.SymbolizedStack))]
     [Description("Resolve crash text (logs, .NET exceptions, WER reports, Event Log entries, debugger stacks, Android tombstones) against " +
                  "the loaded builds. Each frame gets a name, a build check and the C# statement at an IL offset.")]
@@ -26,7 +31,9 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var r = await stacks.Symbolize(text, path, format, images, moduleBases, offset, limit, !allFrames, cancellationToken);
+        var args = new FileWork.SymbolizeArgs(text, path, format, images, moduleBases, offset, limit, !allFrames);
+        var r = await FileIsolation.RunAsync(Isolation, workers, FileWork.Symbolize, args, path ?? "the crash text",
+            () => FileWork.SymbolizeWith(stacks, args, cancellationToken), cancellationToken);
         var header = $"format {r.Format}, {ToolSupport.Plural(r.Frames, "frame")}" + (r.UnrecognizedLines > 0 ? $", {r.UnrecognizedLines} unrecognized lines" : "") + "\n";
         if (r.Exception is { } e)
             header += $"exception: {e.Code}{(e.Name != null ? $" ({e.Name})" : "")} {e.Type} {e.Message}".Replace("  ", " ").TrimEnd() + "\n" +
@@ -57,10 +64,19 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress =>
         Task.Run(async () =>
         {
-            var r = await dumps.Bucket(folder, recursive, pattern, topFrames, skipModules, splitByVersion,
-                !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), maxDumps, imageDirectories, offset, limit,
-                (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} dumps" }),
-                cancellationToken);
+            var args = new FileWork.BucketArgs(folder, recursive, pattern, topFrames, skipModules, splitByVersion,
+                !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), maxDumps, imageDirectories, offset, limit);
+            var bucketed = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpBuckets, args, folder ?? "",
+                () => FileWork.BucketsOf(dumps, args,
+                    (done, total) => progress.Report(new ProgressNotificationValue { Progress = done, Total = total, Message = $"{done} of {total} dumps" }),
+                    cancellationToken), cancellationToken);
+            var r = bucketed.Buckets;
+            // A worker numbered the ids itself; the server registers the same files under its own.
+            if (bucketed.Paths.Count > 0 && FileIsolation.PoolFor(Isolation, workers) != null)
+            {
+                string Own(string id) => bucketed.Paths.TryGetValue(id, out var file) ? dumps.Resolve(file, null).Id : id;
+                r = r with { Items = [.. r.Items.Select(b => b with { Sample = [.. b.Sample.Select(Own)], Representative = Own(b.Representative) })] };
+            }
             var c = r.Dumps;
             var header = $"{r.Folder}: {ToolSupport.Plural(c.Seen, "dump")} ({c.Parsed} parsed, {c.Cached} cached, {c.Failed} failed{(c.LimitReached ? ", maxDumps reached: the newest bucketed" : "")})\n" +
                          string.Concat(r.Failed.Select(f => $"failed: {f.Path}: {f.Reason}\n")) + string.Concat(r.Notes.Select(n => $"note: {n}\n"));

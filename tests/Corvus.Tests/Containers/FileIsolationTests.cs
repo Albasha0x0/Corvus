@@ -114,6 +114,64 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
     }
 
     [Fact]
+    public async Task A_dump_stack_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "dump_stack", new() { ["dump"] = Fixture("stack.dmp", Corvus.Tools.FileOps.FixtureMarker + "exit") }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("stack.dmp", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
+    public async Task A_dump_folder_with_a_reader_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        var folder = Path.Combine(_dir.Path, "dumps");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "bad.dmp"), Corvus.Tools.FileOps.FixtureMarker + "exit");
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "bucket_minidumps", new() { ["folder"] = folder }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
+    public async Task A_crash_log_that_ends_the_worker_is_named_and_the_next_read_succeeds()
+    {
+        var (zip, _, _, _) = Inputs();
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, "symbolize_stack_text", new() { ["path"] = Fixture("crash.log", Corvus.Tools.FileOps.FixtureMarker + "exit") }));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains("crash.log", failed);
+        await ReadsAsync(session, zip);
+    }
+
+    [Fact]
+    public async Task Bucketed_dump_ids_from_the_worker_open_in_the_server()
+    {
+        var dump = SyntheticCrash.Write(_dir);
+        var folder = Path.Combine(_dir.Path, "bucketed");
+        Directory.CreateDirectory(folder);
+        File.Copy(dump, Path.Combine(folder, "a.dmp"));
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var bucketed = await Call(session, "bucket_minidumps", new() { ["folder"] = folder });
+        Assert.True(bucketed.IsError != true, Whole(bucketed));
+        Assert.Contains("a.dmp", Whole(bucketed));
+        var stack = await Call(session, "dump_stack", new() { ["dump"] = "a.dmp" });
+        Assert.True(stack.IsError != true, Noted(Whole(stack)));
+    }
+
+    [Fact]
     public async Task A_relative_path_reads_in_the_worker_as_in_the_server()
     {
         // A file under the test's current folder, named by a path relative to it.
@@ -211,6 +269,10 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
                 ("open_minidump", _ => new() { ["path"] = Path.Combine(_dir.Path, "absent.dmp") }),
                 ("read_dump_memory", _ => new() { ["dump"] = "synth.dmp", ["address"] = $"0x{SyntheticCrash.Base:X}", ["length"] = 96 }),
                 ("read_dump_memory", _ => new() { ["dump"] = dump, ["address"] = $"0x{SyntheticCrash.Stack:X}", ["length"] = 64, ["dumpOnly"] = true }),
+                ("dump_stack", _ => new() { ["dump"] = dump }),
+                ("dump_stack", _ => new() { ["dump"] = "synth.dmp", ["thread"] = "#0", ["limit"] = 2 }),
+                ("symbolize_stack_text", _ => new() { ["text"] = "   at Lib.C.U()\n   at Lib.C.V()" }),
+                ("symbolize_stack_text", _ => new() { ["path"] = Path.Combine(_dir.Path, "absent.log") }),
                 ("dump_heap", _ => new() { ["dump"] = dump }),
                 ("dump_object", _ => new() { ["dump"] = dump, ["address"] = "0x1000" }),
                 ("summarize_file", _ => new() { ["path"] = zip }),

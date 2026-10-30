@@ -205,12 +205,12 @@ public sealed partial record ToolContract
         ["uninstall_android_package"] = R.None,
         // dumps; a read in the worker moves to the server while images are loaded.
         ["open_minidump"] = R.FileWorker | R.Server,
-        ["dump_stack"] = R.Server,
+        ["dump_stack"] = R.FileWorker | R.Server,
         ["dump_heap"] = R.FileWorker | R.Server,
         ["dump_object"] = R.FileWorker | R.Server,
         ["read_dump_memory"] = R.FileWorker | R.Server,
-        ["symbolize_stack_text"] = R.Server,
-        ["bucket_minidumps"] = R.Server,
+        ["symbolize_stack_text"] = R.FileWorker | R.Server,
+        ["bucket_minidumps"] = R.FileWorker | R.Server,
         // live; a session reads its program through Frida in its worker.
         ["inspect_process"] = R.None,
         ["live_session"] = R.SessionWorker,

@@ -71,8 +71,11 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var r = await dumps.Stack(dump, thread, !dumpTimeContext, maxFrames, offset, limit, imageDirectories,
-            !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), cancellationToken);
+        var args = new FileWork.StackArgs(Target(dump, imageDirectories), thread, !dumpTimeContext, maxFrames, offset, limit,
+            !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase));
+        var r = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpStack, args, args.Dump.Path,
+            () => dumps.Stack(dump, thread, args.ExceptionContext, maxFrames, offset, limit, imageDirectories, args.Managed, cancellationToken).GetAwaiter().GetResult(),
+            cancellationToken);
         var header = $"{r.Dump} thread {r.ThreadId}{(r.ThreadName != null ? $" \"{r.ThreadName}\"" : "")}, {r.Architecture}, from the {r.Context} context; walk ended: {r.Stop}" +
                      (r.ScannedFrames > 0 ? $"; {r.ScannedFrames} scanned" : "") + (r.Managed != null ? $"; managed frames: {r.Managed}" : "") + "\n" +
                      (r.Registers != null ? $"registers: {r.Registers}\n" : "") + string.Concat(r.Notes.Select(n => $"note: {n}\n"));
