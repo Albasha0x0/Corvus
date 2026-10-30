@@ -359,6 +359,9 @@ public static partial class PackageReview
             yield return new PackageFinding("package/redirect-entry", "noteworthy", "redirect", "entry code sends the browser to a fixed URL that carries an email address", path);
         if (SelfPublish.IsMatch(plain) && plain.Contains("package.json", StringComparison.Ordinal))
             yield return new PackageFinding("package/self-publish", "noteworthy", "publishing", "rewrites package.json and runs npm publish from its own code", path);
+        if (SpreadKinds(plain) is { Count: > 0 } spread && (spread.Count >= 2 || spread.Overlaps(["scanner", "repository"])))
+            yield return new PackageFinding("package/self-spreading", spread.Count >= 3 && spread.Contains("token") || install && spread.Count >= 2 ? "noteworthy" : "review", "credentials",
+                $"{(install ? "at install: " : "")}combines {string.Join(", ", spread.Order(StringComparer.Ordinal))} (cloud metadata, token read, scanner download, repository or workflow write, registry publish)", path);
         if (CiConfigWritten(plain) is { } ci)
             yield return new PackageFinding("package/ci-config-write", install ? "noteworthy" : "review", "build step",
                 $"{(install ? "at install: " : "")}opens a CI pipeline file for writing: {Clip(ci, 160)}", path);
@@ -942,6 +945,25 @@ public static partial class PackageReview
         if (text.LastIndexOf("/*", index, StringComparison.Ordinal) > text.LastIndexOf("*/", index, StringComparison.Ordinal)) return true;
         var before = text.AsSpan(0, index);
         return before.Count("\"\"\"".AsSpan()) % 2 == 1 || before.Count("'''".AsSpan()) % 2 == 1;
+    }
+
+    private static readonly Regex SpreadToken = R(@"(?:process\.env|os\.environ|os\.getenv)[^\n]{0,24}?\b(?:NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN)\b|\$\{?(?:NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN)\b");
+    // Cloud SDKs name the metadata endpoint; it counts only beside another step.
+    private static readonly Regex SpreadMetadata = R(@"169\.254\.169\.254|metadata\.google\.internal");
+    private static readonly Regex SpreadScanner = R(@"github\.com/(?:trufflesecurity/trufflehog|gitleaks/gitleaks)/releases/download");
+    private static readonly Regex SpreadRepository = R(@"api\.github\.com/(?:user/repos|orgs/[^/'""`\s]+/repos|repos/[^'""`\s]+/(?:contents/\.github/workflows|actions/secrets))");
+    private static readonly Regex SpreadPublish = R(@"\bnpm\s+publish\b|registry\.npmjs\.org/-/|\bnpm\.publish\(");
+
+    /// <summary>The self-spreading steps a file names (token, metadata, scanner, repository, publish); empty when none.</summary>
+    private static HashSet<string> SpreadKinds(string text)
+    {
+        var kinds = new HashSet<string>(StringComparer.Ordinal);
+        if (SpreadToken.IsMatch(text)) kinds.Add("token");
+        if (SpreadMetadata.IsMatch(text)) kinds.Add("metadata");
+        if (SpreadScanner.IsMatch(text)) kinds.Add("scanner");
+        if (SpreadRepository.IsMatch(text)) kinds.Add("repository");
+        if (SpreadPublish.IsMatch(text)) kinds.Add("publish");
+        return kinds;
     }
 
     private static readonly Regex SelfPublish = R(@"\bexec(?:Sync)?\s*\(\s*['""`]npm\s+publish\b");

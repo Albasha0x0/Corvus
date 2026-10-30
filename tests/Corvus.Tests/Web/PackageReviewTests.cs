@@ -901,6 +901,50 @@ public sealed class PackageReviewTests : IDisposable
         Assert.DoesNotContain(py.Findings, f => f.Rule == "package/redirect-entry");
     }
 
+    private string[] SpreadLevels(string version, string script, string manifestExtra = "")
+    {
+        var r = Review(Tgz($"sp-{version}.tgz", ("package/package.json", $$"""{"name":"sp","version":"{{version}}","main":"index.js"{{manifestExtra}}}"""), ("package/index.js", script)));
+        return r.Findings.Where(f => f.Rule == "package/self-spreading").Select(f => f.Level).ToArray();
+    }
+
+    // Endpoints and variables appear only as strings; nothing runs.
+    [Fact]
+    public void A_token_read_with_a_workflow_write_and_a_publish_call_is_noteworthy()
+    {
+        const string script = "const t = process.env.NPM_TOKEN;\nconst u = 'https://api.github.com/repos/o/r/contents/.github/workflows/x.yml';\nconst c = 'npm publish';\n";
+        Assert.Equal(["noteworthy"], SpreadLevels("1.0.0", script));
+    }
+
+    [Fact]
+    public void Two_self_spreading_steps_are_noteworthy_at_install_and_a_lone_publish_is_not_reported()
+    {
+        const string pair = "const m = 'http://169.254.169.254/latest/meta-data/';\nconst t = process.env.GITHUB_TOKEN;\n";
+        Assert.Equal(["review"], SpreadLevels("1.0.1", pair));
+        Assert.Contains("noteworthy", SpreadLevels("1.0.2", pair, ""","scripts":{"postinstall":"node index.js"}"""));
+        Assert.Empty(SpreadLevels("1.0.3", "const c = 'npm publish';\n"));
+    }
+
+    [Fact]
+    public void A_release_tool_that_only_publishes_with_a_token_is_review()
+    {
+        const string script = "const t = process.env.NODE_AUTH_TOKEN;\nrequire('child_process').execSync('npm publish');\n";
+        Assert.Equal(["review"], SpreadLevels("1.0.4", script));
+        const string tagging = "const t = process.env.GITHUB_TOKEN;\nconst u = 'https://api.github.com/repos/o/r/git/refs';\nrequire('child_process').execSync('npm publish');\n";
+        Assert.Equal(["review"], SpreadLevels("1.0.6", tagging));
+    }
+
+    [Fact]
+    public void A_cloud_client_naming_the_metadata_endpoint_alone_is_not_reported()
+    {
+        Assert.Empty(SpreadLevels("1.0.7", "const host = 'http://169.254.169.254/latest/api/token';\nmodule.exports = { host };\n"));
+    }
+
+    [Fact]
+    public void A_secret_scanner_download_alone_is_review()
+    {
+        Assert.Equal(["review"], SpreadLevels("1.0.5", "const u = 'https://github.com/trufflesecurity/trufflehog/releases/download/v3/x.tar.gz';\n"));
+    }
+
     private bool Redirects(string script) =>
         Review(Tgz($"r-{Guid.NewGuid():N}.tgz", ("package/package.json", """{"name":"r","version":"1.0.0","main":"index.js"}"""), ("package/index.js", script)))
             .Findings.Any(f => f.Rule == "package/redirect-entry");

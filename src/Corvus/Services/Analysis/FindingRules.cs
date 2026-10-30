@@ -79,6 +79,7 @@ public static class FindingRules
         N("package/redirect-entry", "entry JavaScript assigning the browser's location a URL literal that carries an email address", "redirects the browser with an email address"),
         N("package/load-beacon", "entry code that runs when loaded, sending host identity or the environment; or a small source file outside test folders POSTing two kinds of host identity near a literal URL", "sends host identity when loaded"),
         N("package/self-publish", "exact form: rewrites package.json and runs npm publish", "publishes itself"),
+        N("package/self-spreading", "a token variable read, a workflow or repository write through the GitHub API and a registry publish in one file, or two of the steps at install; a scanner download or repository write alone is review", "reads publish tokens, writes repositories or workflows and publishes"),
         N("package/ci-config-write", AtInstall + ", opening a CI pipeline file for writing", "writes a CI pipeline file"),
         N("package/nested-install", "a named package manager install after cd .., or of a package the file loads from outside its root", "installs another package outside its own folder"),
         N("package/workspace-upload", "in a file of at most 64 KiB, one call archiving the working folder with dotfiles and a request body", "uploads the working folder"),
