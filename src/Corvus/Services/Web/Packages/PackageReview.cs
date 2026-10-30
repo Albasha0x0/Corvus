@@ -250,6 +250,9 @@ public static partial class PackageReview
         List<string>? notRead = null)
     {
         var plain = text;
+        // Hidden byte runs are decoded once; their decoded text is scanned without peeling, so it does not decode again.
+        if (peel)
+            foreach (var f in HiddenBytes(text, ct)) yield return f with { Path = path };
         var language = ScriptReader.Detect(path, text);
         bool transformedSigns = peel && language != null && Peelable(text);
         // Split strings ('ht' + 'tp://', templates) are folded before matching.

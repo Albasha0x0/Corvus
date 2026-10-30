@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Corvus.Core;
 
 namespace Corvus.Services.Web.Packages;
@@ -43,7 +44,7 @@ public static partial class PackageReview
             {
                 case "instructions":
                     review.Entries.Add(new AgentEntry("instruction file", path[(path.LastIndexOf('/') + 1)..], null, path));
-                    HiddenText(files, path, review, instructions: true);
+                    HiddenText(files, path, review, instructions: true, ct);
                     break;
                 case "settings" when Tree(files, path, review.Notes) is { } s:
                     Hooks(s, path, review, ct);
@@ -56,7 +57,7 @@ public static partial class PackageReview
                     break;
             }
         }
-        foreach (var path in rootMarkdown) HiddenText(files, path, review, instructions: false);
+        foreach (var path in rootMarkdown) HiddenText(files, path, review, instructions: false, ct);
         return review.Entries.Count > 0 || review.Findings.Count > 0 || review.Notes.Count > 0 ? review : null;
     }
 
@@ -75,7 +76,7 @@ public static partial class PackageReview
     // --- hidden characters in instruction files ---
 
     // READMEs use bidirectional controls for right-to-left text, so outside instruction files they rank review.
-    private static void HiddenText(PackageFiles files, string path, AgentReview review, bool instructions)
+    private static void HiddenText(PackageFiles files, string path, AgentReview review, bool instructions, CancellationToken ct)
     {
         if (files.Text(path) is not { } text)
         {
@@ -86,19 +87,55 @@ public static partial class PackageReview
         foreach (var raw in text.Split('\n'))
         {
             line++;
-            var found = HiddenOnLine(line == 1 && raw.StartsWith('﻿') ? raw[1..] : raw);
-            if (!instructions) found = [.. found.Select(f => f.Level == "noteworthy" && !f.Detail.Contains("tag character", StringComparison.Ordinal) ? f with { Level = "review" } : f)];
+            var found = HiddenOnLine(line == 1 && raw.StartsWith('﻿') ? raw[1..] : raw, ct);
+            if (!instructions) found = [.. found.Select(f => f.Level == "noteworthy" && f.Rule is not ("package/tag-characters" or "package/hidden-bytes") ? f with { Level = "review" } : f)];
             if (found.Count == 0) continue;
             if (reported++ >= MaxHiddenLines) { more++; continue; }
             review.Findings.AddRange(found.Select(f => f with { Path = path, Line = line }));
         }
         if (more > 0) review.Notes.Add($"{path}: {more} more line(s) with hidden characters, not listed");
+        if (instructions) MarkdownComments(text, path, review);
     }
 
-    /// <summary>Bidirectional controls, zero-width characters and Unicode tag runs on one line, each as a finding.</summary>
-    private static List<PackageFinding> HiddenOnLine(string line)
+    // Comments and reference definitions are not rendered.
+    [GeneratedRegex(@"<!--(.*?)-->|^[ \t]{0,3}\[(?://|comment)\]:[ \t]*(?:<>|#)[ \t]*[(""']([^\n]*)[)""']", RegexOptions.Singleline | RegexOptions.Multiline | RegexOptions.NonBacktracking)]
+    private static partial Regex RenderedHidden();
+
+    // Linter and generator directives are ordinary comments.
+    [GeneratedRegex(@"^\s*(?:markdownlint|prettier|toc|/toc|tocstop|vale|cspell|begin|end|start|stop|auto-?generated|generated|all-contributors|lint|eslint|spell|docusaurus|truncate|more|readme)\b", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)]
+    private static partial Regex MarkupDirective();
+
+    [GeneratedRegex(@"\s+", RegexOptions.NonBacktracking)]
+    private static partial Regex Blanks();
+
+    // A URL, a path, a secret or script file, a command line or an agent tool call; plain words such as git or node do not count.
+    [GeneratedRegex(@"https?://|~/|\.\.?/|/[\w.-]+/[\w.-]|\\\w+\\|\b[\w-]+\.(?:env|pem|key|sh|ps1|py)\b|\b(?:curl|wget|powershell|pwsh|sudo|chmod|ssh|scp|npx)\b|\brm\s+-|\|\s*(?:ba)?sh\b|\b(?:npm|pip3?)\s+install\b|\bmcp__|\b(?:Bash|WebFetch|WebSearch|Read|Write|Edit)\(", RegexOptions.NonBacktracking)]
+    private static partial Regex NamesAction();
+
+    /// <summary>Text a Markdown renderer drops, in an instruction file: review, noteworthy when it names a tool, path, URL or command.</summary>
+    private static void MarkdownComments(string text, string path, AgentReview review)
+    {
+        int reported = 0, more = 0;
+        foreach (Match m in RenderedHidden().Matches(text))
+        {
+            var body = (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value).Trim();
+            if (body.Length == 0 || MarkupDirective().IsMatch(body)) continue;
+            if (reported++ >= MaxHiddenLines) { more++; continue; }
+            int line = 1 + text.AsSpan(0, m.Index).Count('\n');
+            bool acts = NamesAction().IsMatch(body);
+            review.Findings.Add(new PackageFinding("package/markdown-hidden", acts ? "noteworthy" : "review", "hidden text",
+                $"{(m.Groups[1].Success ? "comment" : "link reference definition")} not shown when rendered" + (acts ? " names a tool, path, URL or command" : "")
+                + $": \"{Corvus.Core.Format.EscapeInvisible(Clip(Blanks().Replace(body, " "), 200)!)}\"", path, line));
+        }
+        if (more > 0) review.Notes.Add($"{path}: {more} more hidden Markdown block(s), not listed");
+    }
+
+    /// <summary>Bidirectional controls, zero-width characters, Unicode tag runs, byte-encoding runs and terminal escapes on one line, each as a finding.</summary>
+    private static List<PackageFinding> HiddenOnLine(string line, CancellationToken ct = default)
     {
         var findings = new List<PackageFinding>();
+        findings.AddRange(HiddenBytes(line, ct));
+        findings.AddRange(TerminalEscapes(line));
         var bidi = new SortedSet<int>();
         var zeroWidth = new SortedSet<int>();
         int zeroCount = 0;
@@ -134,6 +171,69 @@ public static partial class PackageReview
             findings.Add(new PackageFinding("package/zero-width", zeroCount >= 8 ? "noteworthy" : "review", "hidden text",
                 $"{zeroCount} zero-width character(s) ({Codes(zeroWidth)})" + (zeroCount >= 8 ? ", enough to encode hidden text" : "")));
         return findings;
+    }
+
+    private const int MinHiddenRun = 8;
+
+    /// <summary>The byte a variation selector (0..15, then 16..255) or private-use code point (low byte) carries; group 1 or 2, else 0.</summary>
+    private static int CarriedByte(int cp, out int group)
+    {
+        group = 1;
+        if (cp is >= 0xFE00 and <= 0xFE0F) return cp - 0xFE00;
+        if (cp is >= 0xE0100 and <= 0xE01EF) return cp - 0xE0100 + 16;
+        group = 2;
+        if (cp is >= 0xE000 and <= 0xF8FF or >= 0xF0000 and <= 0xFFFFD or >= 0x100000 and <= 0x10FFFD) return cp & 0xFF;
+        group = 0;
+        return 0;
+    }
+
+    /// <summary>Runs of 8 or more variation selectors or private-use code points, read as bytes; the decoded text is also scanned for code rules.</summary>
+    internal static List<PackageFinding> HiddenBytes(string line, CancellationToken ct = default)
+    {
+        var findings = new List<PackageFinding>();
+        var run = new List<byte>();
+        int group = 0;
+        void Flush()
+        {
+            if (run.Count >= MinHiddenRun)
+            {
+                var decoded = Encoding.UTF8.GetString([.. run]);
+                var what = group == 1 ? "variation selector(s)" : "private-use character(s)";
+                findings.Add(new PackageFinding("package/hidden-bytes", "noteworthy", "hidden text",
+                    $"{run.Count} {what} in a row, invisible in an editor, decode to bytes: \"{Corvus.Core.Format.EscapeInvisible(Clip(decoded, 200)!)}\""));
+                foreach (var f in Scan("hidden-bytes.txt", decoded, install: false, ct, peel: false))
+                    if (f.Level == "noteworthy") findings.Add(f with { Detail = $"hidden bytes: {f.Detail}" });
+            }
+            run.Clear();
+            group = 0;
+        }
+        for (int i = 0; i < line.Length; i++)
+        {
+            int cp = char.IsHighSurrogate(line[i]) && i + 1 < line.Length && char.IsLowSurrogate(line[i + 1]) ? char.ConvertToUtf32(line[i], line[i + 1]) : line[i];
+            int b = CarriedByte(cp, out int g);
+            if (cp > 0xFFFF) i++;
+            if (g == 0 || g != group && group != 0) Flush();
+            if (g == 0) continue;
+            group = g;
+            run.Add((byte)b);
+        }
+        Flush();
+        return findings;
+    }
+
+    /// <summary>Escape sequences that style, hide or retitle text when printed: CSI (ESC [) and OSC (ESC ]).</summary>
+    private static List<PackageFinding> TerminalEscapes(string line)
+    {
+        int csi = 0, osc = 0;
+        for (int i = 0; i + 1 < line.Length; i++)
+        {
+            if (line[i] != '\u001B') continue;
+            if (line[i + 1] == '[') csi++;
+            else if (line[i + 1] == ']') osc++;
+        }
+        if (csi + osc == 0) return [];
+        return [new PackageFinding("package/ansi-escape", "noteworthy", "hidden text",
+            $"{csi + osc} terminal escape sequence(s) ({(csi > 0 ? $"{csi} CSI" : "")}{(csi > 0 && osc > 0 ? ", " : "")}{(osc > 0 ? $"{osc} OSC" : "")}) can restyle, hide or replace text when the line is printed")];
     }
 
     private static bool IsTag(int cp) => cp is >= 0xE0000 and <= 0xE007F;
