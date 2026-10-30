@@ -18,7 +18,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
                  "and address uses, type uses. A native export gives P/Invoke callers and native call sites.")]
     public async Task<string> FindReferences(
         [Description(SymbolOrNativeDescription)] string symbol,
-        [Description("Assembly defining the symbol, to disambiguate; all loaded are searched.")] string? assembly = null,
+        [Description("Assembly defining the symbol; default: all loaded.")] string? assembly = null,
         [Description("Symbol kind; overrides: overrides and implementations of the method.")] string? kind = null,
         [Description("Methods: no calls through base / interface declarations.")] bool directOnly = false,
         [Description(LimitDescription)] int limit = 150,

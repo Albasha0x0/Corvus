@@ -60,7 +60,7 @@ internal sealed class ScriptFileView : IFileSummaryView
             reading.Recovered.Count > 0 ? reading.Recovered : null, reading.Folded, reading.Calls.Count > 0 ? reading.Calls : null,
             reading.Plain.Length, offset, next, window, reading.Complete, notes.Count > 0 ? notes : null,
             reading.Copied.Count > 0 ? reading.Copied : null);
-        return new FileView(facts, Highlights(reading));
+        return new FileView(facts, Highlights(reading)) { Indicators = IndicatorList.FromText("script", [(reading.Plain, "peeled text")], ct) };
     }
 
     private static List<string> Highlights(ScriptReading r)

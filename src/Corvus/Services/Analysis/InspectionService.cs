@@ -870,7 +870,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             {
                 var asm = workspace.Get(assembly);
                 var file = Facts(asm.FilePath, asm.OriginalBytes);
-                var one = Guard(asm.Id, () => SummarizeAssembly(Path.GetFileName(asm.FilePath), asm.Module, ModuleScan.Of(asm, Limits, ct), asm.OriginalBytes, ct, options?.Stix == true));
+                var one = Guard(asm.Id, () => SummarizeAssembly(Path.GetFileName(asm.FilePath), asm.Module, ModuleScan.Of(asm, Limits, ct), asm.OriginalBytes, ct, options?.AllNetworkValues == true));
                 var notes = asm.IsDirty ? new List<string> { "The assembly has unsaved edits: the code scanned is the edited module; hashes and signature are the file's." } : [];
                 notes.AddRange(MappingNotes(asm.OriginalBytes));
                 return new FileSummary(file, "none (loaded assembly)", [one], one.Highlights, notes);
@@ -893,7 +893,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         FileSummary WithViews(FileSummary s)
         {
             var native = views.GetValueOrDefault("native")?.Detail as NativeFileView.Facts;
-            return s with
+            s = s with
             {
                 NativeImage = native?.Image, Packers = native?.Packers, NativeAot = native?.NativeAot,
                 Android = views.GetValueOrDefault("android")?.Detail as Mobile.AndroidPackageFacts,
@@ -901,6 +901,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 Go = views.GetValueOrDefault("go")?.Detail as GoBuildFacts,
                 Views = views,
             };
+            if (input.Options.View != "indicators") return s;
+            var indicators = IndicatorList.Of(s);
+            views["indicators"] = new FileView(indicators, [$"{indicators.Total:N0} indicators ({string.Join(", ", indicators.ByType.Select(t => $"{t.Value:N0} {t.Key}"))})."]);
+            return s;
         }
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
             List<UnpackService.ManagedAssembly> Manifests) managed;
@@ -938,7 +942,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 var identity = module.Assembly?.FullName ?? module.Name.String;
                 if (copies.TryGetValue(identity, out var paths)) { paths.Add(a.Path); continue; }
                 copies[identity] = [];
-                var one = Guard(a.Path, () => SummarizeAssembly(a.Path, module, ModuleScan.Of(module, Limits, ct), a.Bytes, ct, input.Options.Stix));
+                var one = Guard(a.Path, () => SummarizeAssembly(a.Path, module, ModuleScan.Of(module, Limits, ct), a.Bytes, ct, input.Options.AllNetworkValues));
                 // Framework capabilities are not findings.
                 if (rank == AssemblyRank.Framework)
                     one = one with { Highlights = one.Highlights.Where(IsProblem).ToList() };

@@ -54,7 +54,22 @@ internal sealed class PcapFileView : IFileSummaryView
         return new FileView(facts, highlights)
         {
             Findings = [.. facts.Noteworthy.Select(n => new Finding(FindingLevel.Review, "capture/pattern", "capture", n, null, "capture"))],
+            Indicators = Indicators(dns, tls),
         };
+    }
+
+    private static List<IndicatorHit> Indicators(List<CaptureDnsName> dns, List<CaptureTlsName> tls)
+    {
+        var hits = new List<IndicatorHit>();
+        foreach (var d in dns.Take(IndicatorList.MaxPerReader))
+            if (IndicatorList.Domain(d.Name) is { Length: > 0 } name) hits.Add(new IndicatorHit(IndicatorList.HostType(name), name, "pcap", "DNS query"));
+        foreach (var t in tls.Take(IndicatorList.MaxPerReader))
+        {
+            if (IndicatorList.Domain(t.ServerName) is { Length: > 0 } name) hits.Add(new IndicatorHit(IndicatorList.HostType(name), name, "pcap", "TLS server name"));
+            hits.AddRange(t.Ja3.Select(j => new IndicatorHit("ja3", j, "pcap", $"ClientHello to {t.ServerName}")));
+            hits.AddRange(t.Ja4.Select(j => new IndicatorHit("ja4", j, "pcap", $"ClientHello to {t.ServerName}")));
+        }
+        return hits;
     }
 
     /// <summary>Requests grouped by endpoint template, as search_container kind=endpoint shows them.</summary>

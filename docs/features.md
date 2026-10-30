@@ -447,6 +447,7 @@ Labels:
 - `summarize_file` reads up to 25 assemblies inside a container.
 - `summarize_file` counts a script's modules and map sources in their first 8 MB; a script over 64 MB is not named as a container.
 - `stixPath=` writes a STIX 2.1 bundle of the file, its members and network indicators.
+- `view=indicators` lists URLs, domains, addresses and TLS fingerprints from every view, one row per value with its sources.
 - Features describe API use, not whether the code runs.
 - `extract_embedded xorText=true` recovers repeating XOR keys of 1-16 bytes over text. Off by default.
 - Authenticode digest and signature checks are exact. Chain trust uses the machine's root store. Revocation is not checked.

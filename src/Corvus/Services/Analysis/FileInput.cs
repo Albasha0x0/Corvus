@@ -185,6 +185,9 @@ public sealed record FileViewOptions(string View = "overview", string? Table = n
     /// <summary>A STIX bundle is to be written, which needs every network value, not the summary's first ten.</summary>
     public bool Stix { get; init; }
 
+    /// <summary>Every network value of an assembly is needed, not the summary's first ten.</summary>
+    public bool AllNetworkValues => Stix || View == "indicators";
+
     /// <summary>view=assets: only the assets bound to this class (short or namespace-qualified name).</summary>
     public string? Script { get; init; }
 

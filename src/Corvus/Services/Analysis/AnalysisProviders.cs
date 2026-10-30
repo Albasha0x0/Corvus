@@ -10,6 +10,9 @@ public sealed record FileView(object Detail, IReadOnlyList<string> Highlights)
 {
     /// <summary>The view's findings as shared records; empty when the view reviews nothing.</summary>
     public IReadOnlyList<Finding> Findings { get; init; } = [];
+
+    /// <summary>The observables the view read (URLs, domains, addresses, fingerprints); empty when it reads none.</summary>
+    public IReadOnlyList<IndicatorHit> Indicators { get; init; } = [];
 }
 
 /// <summary>A summarize_file view (view=&lt;Name&gt;); the overview lists the views that apply and gathers their highlights.</summary>
