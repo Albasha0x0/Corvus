@@ -2373,6 +2373,17 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void An_extension_naming_a_popular_extensions_repository_under_another_publisher_is_noteworthy()
+    {
+        var copy = """{"name":"rainbowcsv-demo","publisher":"demo","version":"0.0.1","main":"./extension.js","activationEvents":["*"],"repository":{"type":"git","url":"https://github.com/mechatroner/vscode_rainbow_csv"}}""";
+        var r = Review(Zip("demo.rainbowcsv-demo-0.0.1.vsix", ("extension/package.json", U(copy)), ("extension/extension.js", U("")), ("extension/README.md", U("# CSV"))));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/extension-clone", Level: "noteworthy" } && f.Detail.Contains("mechatroner/vscode_rainbow_csv", StringComparison.Ordinal));
+        var original = copy.Replace("\"publisher\":\"demo\"", "\"publisher\":\"mechatroner\"", StringComparison.Ordinal);
+        Assert.DoesNotContain(Review(Zip("mechatroner.rainbow-csv-0.0.1.vsix", ("extension/package.json", U(original)), ("extension/extension.js", U("")))).Findings,
+            f => f.Rule == "package/extension-clone");
+    }
+
+    [Fact]
     public void A_response_split_into_lines_whose_last_line_reaches_a_helper_that_runs_it_is_noteworthy()
     {
         var r = Review(Tgz("poll-1.0.0.tgz",

@@ -95,6 +95,7 @@ public static class FindingRules
         R("package/binary", "native or executable files"),
         N("package/disguised-binary", "package code that XORs file bytes and writes the result", "a .py file that is an executable under a one-byte XOR key"),
         N("package/asset-trailing-data", AtInstall + ", in an asset that install-time code names", "an image, sound or font with data after its format's end, named by the package's code"),
+        N("package/extension-clone", "exact list: the source repository of a popular editor extension named under another publisher", "names a popular extension's repository under another publisher"),
         N("package/close-name", AtInstall + ", under a name close to a popular package", "a name close to a popular package"),
         N("package/dependency-lookalike", AtInstall + ", or the unused dependency is from outside the registry", "an unused dependency named like a popular package"),
         N("package/command-name", AtInstall + ", installing a command named like a system command", "a package command named like a system or toolchain command"),

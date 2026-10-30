@@ -255,6 +255,9 @@ public static partial class PackageReview
         // Zero-width characters let a display name imitate another extension's.
         if (display != null && Corvus.Core.Format.EscapeCodePoints(display) != display)
             findings.Add(new PackageFinding("package/invisible-name", "noteworthy", "name", $"the display name '{Corvus.Core.Format.EscapeInvisible(display)}' carries invisible characters", pkgPath));
+        if (pkg is { ValueKind: JsonValueKind.Object } m && Str(m, "publisher") is { } author && CopiedRepository(m, author) is { } copied)
+            findings.Add(new PackageFinding("package/extension-clone", "noteworthy", "name",
+                $"names the source repository of a popular extension, {copied.Repository}, which publisher{(copied.Publishers.Length == 1 ? "" : "s")} {string.Join(", ", copied.Publishers)} ship{(copied.Publishers.Length == 1 ? "s" : "")}, under the publisher '{author}'", pkgPath));
         var loaded = entries.Where(e => e.Kind is "main" or "browser").Select(e => Resolve(root, e.Target!))
             .Select(t => !files.Has(t) && files.Has(t + ".js") ? t + ".js" : t).ToList();
         if (pkg is { ValueKind: JsonValueKind.Object } q && Str(q, "publisher") is { } own && Str(q, "name") is { } name)
@@ -268,6 +271,17 @@ public static partial class PackageReview
             Publisher = publisher, Description = Clip(display), Scripts = scripts, EntryPoints = entries,
             Binaries = binaries.Count > 0 ? binaries : null, Findings = findings, Notes = notes,
         };
+    }
+
+    /// <summary>The popular repository the manifest names and its publishers when <paramref name="publisher"/> is not
+    /// one of them; null otherwise.</summary>
+    private static (string Repository, string[] Publishers)? CopiedRepository(JsonElement pkg, string publisher)
+    {
+        var repo = Str(pkg, "repository") ?? (pkg.TryGetProperty("repository", out var r) && r.ValueKind == JsonValueKind.Object ? Str(r, "url") : null);
+        if (repo == null || RepositoryOwner.Match(repo) is not { Success: true } m || !repo.Contains("github.com", StringComparison.OrdinalIgnoreCase)) return null;
+        var key = $"{m.Groups[1].Value}/{m.Groups[2].Value}";
+        return PopularNames.EditorExtensionRepositories.TryGetValue(key, out var publishers) && !publishers.Contains(publisher, StringComparer.OrdinalIgnoreCase)
+            ? (key.ToLowerInvariant(), publishers) : null;
     }
 
     // Copied code still reads the original extension's install data by its id.
