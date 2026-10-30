@@ -186,9 +186,13 @@ public class ReleaseSigningTests
     private static string? Sh()
     {
         if (!OperatingSystem.IsWindows()) return BundleTests.FindOnPath("sh");
-        if (BundleTests.FindOnPath("sh.exe") is { } sh) return sh;
-        return BundleTests.FindOnPath("git.exe") is { } git && Path.GetFullPath(Path.Combine(Path.GetDirectoryName(git)!, "..", "usr", "bin", "sh.exe")) is var found
-            && File.Exists(found) ? found : null;
+        // Git's bin\sh.exe puts /usr/bin ahead of PATH, past the stubs, so the
+        // usr\bin\sh.exe of git's install comes first (Windows runners list bin).
+        if (BundleTests.FindOnPath("git.exe") is { } git)
+            foreach (var up in new[] { "..", Path.Combine("..", "..") })
+                if (Path.GetFullPath(Path.Combine(Path.GetDirectoryName(git)!, up, "usr", "bin", "sh.exe")) is var found && File.Exists(found))
+                    return found;
+        return BundleTests.FindOnPath("sh.exe");
     }
 
     private static string Unix(string path) => path.Replace('\\', '/');
