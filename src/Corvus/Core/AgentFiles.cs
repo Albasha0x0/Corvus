@@ -25,6 +25,7 @@ internal static class AgentFiles
             return "instructions";
         if (Is(dir, ".claude") && (Is(name, "settings.json") || Is(name, "settings.local.json"))) return "settings";
         if (Is(name, ".mcp.json") || (Is(dir, ".cursor") || Is(dir, ".vscode")) && Is(name, "mcp.json")) return "mcp";
+        if (Is(dir, "workflows") && slashed.Contains("/.github/workflows/", c) && (name.EndsWith(".yml", c) || name.EndsWith(".yaml", c))) return "workflow";
         if (Is(dir, ".vscode") && Is(name, "tasks.json")) return "tasks";
         if (Is(dir, ".vscode") && Is(name, "settings.json")) return "editor settings";
         return null;

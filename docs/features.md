@@ -387,6 +387,11 @@ Labels:
 - `search_container kind=dependency query=name@version` on a folder names each lockfile that resolves it; `node_modules` and `.git` are skipped.
 - `search_container kind=incident query=<list file or pack:name>` lists lockfile packages, files and archive members that an incident list names (`name@version` or SHA-256 per line); a listing is not a verdict.
 
+### Workflows
+
+- `summarize_file` on a folder with `.github/workflows` lists each job with its trigger and what it runs; `compare_folders` on two package folders lists added workflow jobs.
+- Noteworthy: `pull_request_target` or `workflow_run` checking out the change, `toJSON(secrets)`, and an author-controlled event field in a `run:` command.
+
 ### YARA rules
 
 - `search_container kind=yara`. The query is a rule file, a folder, rule text, or `pack:<name>` from `corvus rules fetch` ([cli.md](cli.md)). Corvus ships no rules.

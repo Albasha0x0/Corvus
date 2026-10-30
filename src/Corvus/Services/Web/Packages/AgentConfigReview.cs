@@ -6,7 +6,7 @@ using Corvus.Core;
 namespace Corvus.Services.Web.Packages;
 
 /// <summary>Configuration that runs or steers code, at its file and line (null: the whole file).</summary>
-/// <param name="Kind">instruction file, hook, mcp server, folder-open task, git hook, git config, dev container, direnv, or build step.</param>
+/// <param name="Kind">instruction file, hook, mcp server, folder-open task, workflow job, git hook, git config, dev container, direnv, or build step.</param>
 public sealed record AgentEntry(string Kind, string Name, string? Command, string Path, int? Line = null);
 
 public static partial class PackageReview
@@ -51,6 +51,9 @@ public static partial class PackageReview
                     break;
                 case "mcp" when Tree(files, path, review.Notes) is { } s:
                     McpServers(s, path, review, ct);
+                    break;
+                case "workflow" when files.Text(path) is { } yaml:
+                    Workflow(yaml, path, review, ct);
                     break;
                 case "tasks" when Tree(files, path, review.Notes) is { } s:
                     FolderOpenTasks(s, path, automaticTasks, review, ct);
