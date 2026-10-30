@@ -104,6 +104,11 @@ public sealed class FileViewFuzzTests : IDisposable
         Encoding.UTF8.GetBytes("& ( $PSHomE[4]+$pShome[34]+'x') (('1wb'+'u = 7Xkhttp://'+'ex'+'ample.com/cor'+'vus7Xk').REPLAce(([ChAR]49+[ChAR]119+[ChAR]98),'$').REPLAce('7Xk',[String][ChAR]39))"));
 
     [Fact]
+    [FuzzEntry(typeof(Corvus.Services.Web.Scripts.ScriptEncoding))]
+    public void Fuzzed_encoded_scripts_never_throw_past_a_tool_error() => Fuzz(new ScriptFileView(), "drop.vbe", 200,
+        Encoding.UTF8.GetBytes(ScriptEncodingTests.Encode("x = Chr(72) & Chr(105)\r\nIf a < b Then y = \"me@host\"\r\n")));
+
+    [Fact]
     [FuzzEntry(typeof(PackageFileView), typeof(Corvus.Services.Web.Packages.CrxHeader))]
     public void Fuzzed_browser_and_editor_extensions_never_throw_past_a_tool_error()
     {

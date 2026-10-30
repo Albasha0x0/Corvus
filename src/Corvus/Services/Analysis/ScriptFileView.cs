@@ -30,7 +30,7 @@ internal sealed class ScriptFileView : IFileSummaryView
         if (file.Kind is not ("text" or "data")) return null;
         var bytes = file.Bytes;
         if (bytes.Length == 0 || bytes.AsSpan(0, Math.Min(bytes.Length, 4096)).IndexOf((byte)0) >= 0 && !(bytes.Length > 1 && bytes[1] == 0)) return null;
-        var text = ScriptText.Decode(bytes, out _);
+        var text = ScriptEncoding.Decode(ScriptText.Decode(bytes, out _), out int encoded);
         if (!ScriptText.Printable(text)) return null;
         var ext = Path.GetExtension(file.Path).ToLowerInvariant();
         ScriptReading reading;
@@ -54,6 +54,7 @@ internal sealed class ScriptFileView : IFileSummaryView
         var window = reading.Plain.Substring((int)offset, (int)Math.Min(Window, reading.Plain.Length - offset));
         long? next = offset + window.Length < reading.Plain.Length ? offset + window.Length : null;
         var notes = reading.Notes.ToList();
+        if (encoded > 0) notes.Insert(0, $"{encoded} Script Encoder block(s) decoded before reading.");
         if (next != null) notes.Add($"{reading.Plain.Length:N0} characters of plain text; offset={next} reads on");
         var facts = new Facts(reading.Language,
             reading.Layers.Select(l => new Layer(l.Depth, l.Language, l.Via, l.Text.Length, l.Text.Length > LayerText ? l.Text[..LayerText] : l.Text)).ToList(),
