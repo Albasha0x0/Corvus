@@ -5,7 +5,7 @@ using Corvus.Core.Models;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>view=model: a safetensors, GGUF, ONNX, PyTorch or pickle file's metadata, tensors (offset=, limit=) and parameter count; nothing is unpickled or run.</summary>
+/// <summary>view=model: a safetensors, GGUF, ONNX, PyTorch or pickle file's metadata, tensors (offset=, limit=) and parameter count, plus the code a pickle, .npy, .npz, joblib, .keras, GGUF or ONNX file runs or reaches when loaded; nothing is unpickled or run.</summary>
 // ONNX adds graph inputs, outputs and operators; a pickle adds its imports and calls, checked against
 // torch.load(weights_only=True).
 internal sealed class ModelFileView : IFileSummaryView
@@ -27,9 +27,15 @@ internal sealed class ModelFileView : IFileSummaryView
         IReadOnlyDictionary<string, int> Calls, int PersistentIds, IReadOnlyList<string> OutsideWeightsOnly,
         IReadOnlyList<string> OpcodesOutsideWeightsOnly, string? Version, string? ByteOrder);
 
+    /// <summary>What <see cref="ModelRisk"/> read: code-running pickle globals, other findings, and why a part was not read (null when all was).</summary>
+    public sealed record RiskFacts(IReadOnlyList<string> Code, IReadOnlyList<ModelRisk.Hit> Hits, string? NotRead);
+
     public sealed record Facts(string Format, int Tensors, string Parameters, IReadOnlyDictionary<string, int> TensorTypes,
         IReadOnlyList<MetadataRow> Metadata, int MetadataCount, IReadOnlyList<TensorRow> TensorPage, long Offset, long? Next,
-        OnnxFacts? Onnx, PickleFacts? Pickle, IReadOnlyList<string> Issues);
+        OnnxFacts? Onnx, PickleFacts? Pickle, IReadOnlyList<string> Issues, RiskFacts? Risk = null);
+
+    // Files over this size are not read whole for the risk scan.
+    private const long MaxScanned = 256L << 20;
 
     public string Name => "model";
 
@@ -116,6 +122,7 @@ internal sealed class ModelFileView : IFileSummaryView
                 line = $"ONNX model (IR {m.IrVersion}" + (onnx.Producer is { } pr ? $", {pr}" : "") + $", {string.Join(", ", onnx.Opsets)}): " +
                        $"{m.Nodes:N0} nodes, {m.Operators.Count} operator types, {m.Inputs.Count} input(s), {m.Outputs.Count} output(s)";
             }
+            else if (ModelRisk.IsModelFile(file.Path)) (format, line) = (System.IO.Path.GetExtension(file.Path).TrimStart('.').ToLowerInvariant(), "Model file");
             else return null;
         }
         // The pickle and ONNX checks are loose; a file that only resembles one is not this view's.
@@ -124,6 +131,8 @@ internal sealed class ModelFileView : IFileSummaryView
             return null;
         }
 
+        var risk = Risk(file, pickle != null, ct);
+        if (risk == null && line == "Model file") return null;
         int limit = Math.Clamp(file.Options.Limit ?? DefaultLimit, 1, MaxLimit);
         long offset = Math.Max(0, file.Options.Offset);
         var page = tensors.Skip((int)Math.Min(offset, int.MaxValue)).Take(limit).ToList();
@@ -139,9 +148,31 @@ internal sealed class ModelFileView : IFileSummaryView
                 ? $"; {pickle.Imports.Count} import(s), all in torch.load(weights_only=True)'s allowlist"
                 : $"; {pickle.Imports.Count} import(s)" + (pickle.OutsideWeightsOnly.Count > 0 ? $", outside torch.load(weights_only=True)'s allowlist: {string.Join(", ", pickle.OutsideWeightsOnly.Take(6))}" : "") +
                   (pickle.OpcodesOutsideWeightsOnly.Count > 0 ? $"; opcodes weights_only does not read: {string.Join(", ", pickle.OpcodesOutsideWeightsOnly)}" : ""));
+        if (risk != null)
+        {
+            if (risk.Code.Count > 0) line += $"; runs code when loaded: {string.Join(", ", risk.Code.Take(6))}";
+            foreach (var h in risk.Hits.Take(4)) line += $"; {h.Level}: {h.Detail}";
+            if (risk.NotRead != null) line += $"; not checked: {risk.NotRead}";
+        }
         if (issues.Count > 0 && !issues[0].StartsWith("offset=", StringComparison.Ordinal)) line += $"; {issues.Count} issue(s), first: {issues[0]}";
         return new FileView(new Facts(format, tensors.Count, parameters.ToString(CultureInfo.InvariantCulture), types, metadata.Take(MaxMetadata).ToList(),
-            metadata.Count, page, offset, next, onnx, pickle, issues), [line + "."]);
+            metadata.Count, page, offset, next, onnx, pickle, issues, risk), [line + "."]);
+    }
+
+    // Null when the scan found nothing and read everything; a pickle view already lists globals outside the allowlist.
+    private static RiskFacts? Risk(FileInput file, bool globalsShown, CancellationToken ct)
+    {
+        if (!ModelRisk.IsModelFile(file.Path)) return null;
+        var notRead = file.Length > MaxScanned ? $"file over {MaxScanned >> 20} MiB" : null;
+        var scan = notRead == null ? ModelRisk.Scan(file.Path, file.Bytes, ct) : null;
+        var code = scan?.Code ?? [];
+        var hits = scan?.Hits ?? [];
+        var other = scan?.Other ?? [];
+        notRead ??= scan?.NotRead;
+        if (code.Count + hits.Count + (globalsShown ? 0 : other.Count) == 0 && notRead == null) return null;
+        if (!globalsShown && other.Count > 0 && code.Count == 0)
+            hits = [.. hits, new ModelRisk.Hit("review", $"the pickle imports {string.Join(", ", other.Take(5))}, outside torch.load(weights_only=True)'s allowlist")];
+        return new RiskFacts(code, hits, notRead);
     }
 
     private static PickleFacts Pickle(PickleScan p, string? container, string? version, string? byteOrder, List<TensorRow> tensors, ref BigInteger parameters)

@@ -212,6 +212,73 @@ public sealed class ModelRiskTests : IDisposable
         Assert.Equal(noteworthy, hits.Any(h => h.Level == "noteworthy"));
     }
 
+    private Corvus.Services.Analysis.FileView? View(string name, byte[] bytes)
+    {
+        var path = _dir.File(name);
+        File.WriteAllBytes(path, bytes);
+        var input = Corvus.Services.Analysis.FileInput.Open(path);
+        input.Options = new Corvus.Services.Analysis.FileViewOptions { View = "model" };
+        return new Corvus.Services.Analysis.ModelFileView().Inspect(input, default);
+    }
+
+    [Fact]
+    public void The_model_view_of_a_pickle_names_the_code_it_runs_when_loaded()
+    {
+        Assert.Contains("runs code when loaded: os.system", View("m.pkl", Call("os", "system"))!.Highlights[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_model_view_of_an_npy_object_array_names_its_pickle()
+    {
+        var view = View("a.npy", Npy("'|O'", Call("os", "system")))!;
+        Assert.Contains("os.system", view.Highlights[0], StringComparison.Ordinal);
+        Assert.Contains("review: an .npy object array", view.Highlights[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_model_view_of_a_compressed_joblib_names_the_code_it_runs()
+    {
+        Assert.Contains("os.system", View("m.joblib", Zlib(Call("os", "system")))!.Highlights[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_model_view_of_a_keras_lambda_layer_is_noteworthy()
+    {
+        Assert.Contains("noteworthy: a Keras Lambda layer", View("m.keras", Keras("Lambda"))!.Highlights[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_model_view_of_a_gguf_template_attribute_walk_is_noteworthy()
+    {
+        var view = View("m.gguf", ChatTemplate("{{ ''.__class__.__mro__ }}"))!;
+        Assert.Contains("noteworthy: the chat_template reaches", view.Highlights[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_model_view_of_an_onnx_path_leaving_the_folder_is_noteworthy()
+    {
+        Assert.Contains("noteworthy: the ONNX external data path ../w.bin", View("m.onnx", ModelSamples.Onnx("../w.bin"))!.Highlights[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_model_view_of_an_hdf5_model_names_what_it_did_not_read()
+    {
+        Assert.Contains("not checked: HDF5 not read", View("m.h5", Hdf5Magic)!.Highlights[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_model_view_of_harmless_look_alikes_has_no_findings()
+    {
+        Assert.Null(View("a.npy", Npy("'<f4'", new byte[4])));
+        Assert.Null(View("d.keras", Keras("Dense")));
+        var weights = View("m.pt", ModelSamples.TorchZip())!;
+        Assert.DoesNotContain("noteworthy", weights.Highlights[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("runs code", weights.Highlights[0], StringComparison.Ordinal);
+        var gguf = View("m.gguf", ChatTemplate("{% for m in messages %}{{ m.role }}{% endfor %}"))!;
+        Assert.DoesNotContain("noteworthy", gguf.Highlights[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("review:", gguf.Highlights[0], StringComparison.Ordinal);
+    }
+
     private PackageReport Review(params (string Path, byte[] Data)[] files)
     {
         var path = _dir.File("tool-1.0-py3-none-any.whl");
