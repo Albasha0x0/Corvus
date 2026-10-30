@@ -1,5 +1,54 @@
 # Release notes
 
+## 2.8.0
+
+### Highlights
+
+- Review a folder of files with `corvus batch --recurse`, a baseline, a finding level gate and a Markdown or JSON Lines report.
+- Read mail files (.eml, .msg) with their attachments and embedded messages.
+- See why a file is noteworthy: every finding names its rule and level, in overviews, batch records and package reviews.
+- Run with tighter defaults: outputs stay in the output roots, children get a minimal environment, downloads go through one policy.
+
+### Breaking changes
+
+- **Live start:** Before: `--allow-live-spawn`. After: `--allow-live-spawn --live-allow <program or folder>`; `--live-allow *` restores the old behaviour. [3abbc196](https://github.com/Albasha0x0/Corvus/commit/3abbc196)
+- **Window view:** Before: `inspect_process view=windows` with no switch. After: `--allow-window-capture` (`CORVUS_ALLOW_WINDOW_CAPTURE=1`). [3abbc196](https://github.com/Albasha0x0/Corvus/commit/3abbc196)
+- **Child environment:** Before: children inherit the server's environment. After: the minimal set and each backend's variables; `CORVUS_CHILD_ENV=NAME,PREFIX*` passes more. [f4804371](https://github.com/Albasha0x0/Corvus/commit/f4804371)
+- **Output roots:** Before: any explicit output path. After: paths under the output roots only; add folders with `CORVUS_OUTPUT_DIRS`. [5698f299](https://github.com/Albasha0x0/Corvus/commit/5698f299)
+- **Expansion:** Before: any extraction ratio. After: past 256 MiB, more than 2,000 times the input is refused; `CORVUS_MAX_EXPANSION=0` restores it. [62cdc904](https://github.com/Albasha0x0/Corvus/commit/62cdc904)
+- **Downloads:** Before: http symbol servers and `corvus update` under `CORVUS_OFFLINE=1`. After: https only, or the server named in `CORVUS_HTTP_SERVERS`. [834d3aeb](https://github.com/Albasha0x0/Corvus/commit/834d3aeb)
+
+### Changes
+
+- **Batch:** `--recurse`, `--fail-on`, `--extract`, `--baseline`, `--report` and `--jsonl`. [4cd711b1](https://github.com/Albasha0x0/Corvus/commit/4cd711b1)
+- **Findings:** one rule table names each finding's rule and level; `summarize_file` reports the file's level. [2afe0979](https://github.com/Albasha0x0/Corvus/commit/2afe0979)
+- **Packages:** NuGet, Composer and gem install scripts are reviewed. [e5320faa](https://github.com/Albasha0x0/Corvus/commit/e5320faa)
+- **Packages:** install-time, load-time, dependency-source and editor extension rules, each with its rule id. [8e7a5a38](https://github.com/Albasha0x0/Corvus/commit/8e7a5a38)
+- **Packages:** code a package loads under `node_modules`, install load chains and split strings are read. [0a46539d](https://github.com/Albasha0x0/Corvus/commit/0a46539d)
+- **Python:** compiled-only modules, Cython string tables and model pickles that run code are reported. [d19c90a5](https://github.com/Albasha0x0/Corvus/commit/d19c90a5)
+- **Mail:** `.eml` and `.msg` files, their attachments and embedded messages. [d6dee314](https://github.com/Albasha0x0/Corvus/commit/d6dee314)
+- **Rule packs:** `corvus rules import` installs a pinned pack from a local archive, with its as-of date. [a14c9064](https://github.com/Albasha0x0/Corvus/commit/a14c9064)
+- **Audit:** `CORVUS_AUDIT` records each tool call to a log. [8b3cad81](https://github.com/Albasha0x0/Corvus/commit/8b3cad81)
+- **Limits:** `CORVUS_MAX_CALL_MINUTES` bounds an in-process call; deeply nested input ends at a limit. [b41103b5](https://github.com/Albasha0x0/Corvus/commit/b41103b5)
+- **Notes:** each note records who wrote it. [225f4077](https://github.com/Albasha0x0/Corvus/commit/225f4077)
+- **Extracts:** extracted files carry the internet zone mark; shell-parsed extracts get a `.bin` suffix. [cfbe27ce](https://github.com/Albasha0x0/Corvus/commit/cfbe27ce)
+- **Release:** `SHA256SUMS` is signed, install scripts are attested and attached, and the install scripts check the signature. [f3cd28da](https://github.com/Albasha0x0/Corvus/commit/f3cd28da)
+- **Catalog:** every tool declares where it reads the analyzed file and the item type of each output array. [a742bf54](https://github.com/Albasha0x0/Corvus/commit/a742bf54)
+
+### Fixes
+
+- **Containers:** a damaged zip, bundle or compound file entry is listed as damaged and reading goes on. [10f86e38](https://github.com/Albasha0x0/Corvus/commit/10f86e38)
+- **Containers:** reader loops that crafted records could make endless stop. [6027d938](https://github.com/Albasha0x0/Corvus/commit/6027d938)
+- **.NET:** type names with angle brackets resolve as written. [831b0429](https://github.com/Albasha0x0/Corvus/commit/831b0429)
+- **Native:** platform imports load from safe directories only; each child runs in a private working folder. [2ac37780](https://github.com/Albasha0x0/Corvus/commit/2ac37780)
+- **Session:** a note's origin comes from the server, not the client name. [f5aa69c5](https://github.com/Albasha0x0/Corvus/commit/f5aa69c5)
+- **Packages:** a vendor's documented installer piped to a shell is review; prose naming `curl | bash` is not a finding. [9edacfb1](https://github.com/Albasha0x0/Corvus/commit/9edacfb1)
+- **Native:** a cancelled `analyze_native_function` call stops its value walk. [55e443f0](https://github.com/Albasha0x0/Corvus/commit/55e443f0)
+
+### In progress
+
+- Package review rules for more package formats.
+
 ## 2.7.3
 
 ### Highlights
