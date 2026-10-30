@@ -245,6 +245,17 @@ public sealed class ScriptReaderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Many_small_expressions_fold_within_the_default_budget()
+    {
+        // Regression: each folding check read every node of the file, so 40,000
+        // expressions ran for minutes past the time limit.
+        var text = string.Concat(Enumerable.Repeat("f(x + 1);\n", 40_000)) + "var t = 'a' + 'b';\n";
+        var r = ScriptReader.Read(text, "javascript");
+        Assert.True(r.Complete, string.Join(" | ", r.Notes));
+        Assert.Contains("var t = 'ab'", r.Plain, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Damaged_scripts_read_without_failing()
     {
         (string Language, string Name)[] scripts =

@@ -15,12 +15,7 @@ internal static class JsLayers
         var current = text;
         for (int pass = 0; pass < MaxPasses; pass++)
         {
-            if (ctx.Budget.Exhausted)
-            {
-                if (!ctx.Incomplete) ctx.Note("The evaluation budget ran out: later passes are not shown.");
-                ctx.Incomplete = true;
-                break;
-            }
+            if (ctx.Budget.Exhausted) break;
             if (current.Length > MaxChars) { ctx.Note($"Over {MaxChars:N0} characters: read as written."); break; }
             var program = Parse(current);
             if (program == null)
@@ -37,6 +32,12 @@ internal static class JsLayers
             }
             current = next;
             if (pass == MaxPasses - 1) ctx.Note($"Stopped after {MaxPasses} passes.");
+        }
+        // A pass that ran out of steps can leave the text unchanged, so the note follows the loop.
+        if (ctx.Budget.Exhausted)
+        {
+            if (!ctx.Incomplete) ctx.Note("The evaluation budget ran out: later passes are not shown.");
+            ctx.Incomplete = true;
         }
         return Layout(current);
     }
@@ -360,8 +361,19 @@ internal sealed class JsPass
         return false;
     }
 
-    private IEnumerable<(Node Node, Node? Parent)> Inside(Node outer) =>
-        _nodes.Where(n => n.Node.Start >= outer.Start && n.Node.End <= outer.End && n.Node != outer);
+    /// <summary>The nodes within <paramref name="outer"/>'s span, in source order, without <paramref name="outer"/>.</summary>
+    private IEnumerable<(Node Node, Node? Parent)> Inside(Node outer)
+    {
+        // The index is sorted by start, so only nodes starting in the span are read.
+        int lo = 0, hi = _nodes.Count;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (_nodes[mid].Node.Start < outer.Start) lo = mid + 1; else hi = mid;
+        }
+        for (int i = lo; i < _nodes.Count && _nodes[i].Node.Start <= outer.End; i++)
+            if (_nodes[i].Node.End <= outer.End && _nodes[i].Node != outer) yield return _nodes[i];
+    }
 
     /// <summary>The rotation call: push(shift) until the checksum expression equals its target, or a fixed count (older releases).</summary>
     /// <returns>True when the checksum was reached, false when it was not, null when there is no checksum.</returns>
@@ -919,6 +931,7 @@ internal sealed class JsPass
     {
         foreach (var (node, parent) in _nodes)
         {
+            if (!_ctx.Budget.Step()) break;
             switch (node)
             {
                 case StringLiteral s when s.Raw is { } raw && raw.Length > 2 && (raw.Contains("\\x", StringComparison.Ordinal) || raw.Contains("\\u", StringComparison.Ordinal)):
@@ -953,6 +966,7 @@ internal sealed class JsPass
     {
         foreach (var (n, _) in Inside(node))
         {
+            if (!_ctx.Budget.Step()) return false;
             switch (n)
             {
                 case Literal or BinaryExpression or UnaryExpression or ParenthesizedExpression or ArrayExpression or TemplateLiteral or TemplateElement or CallExpression or MemberExpression:
