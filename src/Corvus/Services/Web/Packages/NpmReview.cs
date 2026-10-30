@@ -85,6 +85,8 @@ public static partial class PackageReview
         var builtinElsewhere = false;
         var plain = false;
         bool self = false;
+        var pinned = new List<string>();
+        var aliases = new List<string>();
         foreach (var key in new[] { "dependencies", "optionalDependencies", "peerDependencies" })
             if (pkg.TryGetProperty(key, out var d) && d.ValueKind == JsonValueKind.Object)
                 foreach (var dep in d.EnumerateObject())
@@ -103,10 +105,16 @@ public static partial class PackageReview
                     {
                         outside.Add($"{dep.Name} ({from})");
                         plain |= PlainTransport(dep.Value.GetString()!);
+                        if (key != "peerDependencies" && from.StartsWith("git", StringComparison.Ordinal) && CommitRef.IsMatch(dep.Value.GetString()!)) pinned.Add(dep.Name);
                     }
+                    if (key != "peerDependencies" && dep.Value.ValueKind == JsonValueKind.String && SubstitutedAlias(dep.Name, dep.Value.GetString()!, name) is { } alias)
+                        aliases.Add(alias);
                 }
+        // A fork pinned to one commit that no shipped code loads runs only
+        // through npm's install of it.
+        var unusedPin = pinned.Count > 0 && pinned.Any(p => !NamedByCode(files, root, manifestPath, p));
         if (outside.Count > 0)
-            findings.Add(new PackageFinding("package/dependency-source", scripts.Any(x => x.AtInstall) || plain ? "noteworthy" : "review", "dependency",
+            findings.Add(new PackageFinding("package/dependency-source", scripts.Any(x => x.AtInstall) || plain || unusedPin ? "noteworthy" : "review", "dependency",
                 $"{outside.Count} dependenc{(outside.Count == 1 ? "y" : "ies")} from outside the registry: {string.Join(", ", outside.Take(5))}", manifestPath));
         // A bundler resolves a dependency of a built-in name in place of the built-in;
         // registry placeholders of these names are inert, so only other code is noteworthy.
@@ -116,6 +124,9 @@ public static partial class PackageReview
         if (CarrierEntry(files, loaded, pkg) is { } carrier)
             findings.Add(new PackageFinding("package/carrier", "noteworthy", "dependency",
                 $"{carrier} holds no require, import or export and is the only code file; its dependencies are installed but never loaded", carrier));
+        if (aliases.Count > 0)
+            findings.Add(new PackageFinding("package/dependency-alias", "noteworthy", "dependency",
+                $"installs another package under an unscoped name: {string.Join(", ", aliases.Take(5))}", manifestPath));
         findings.AddRange(LookalikeDependencies(files, root, pkg, name, scripts, entries, manifestPath));
         if (self) findings.Add(new PackageFinding("package/self-dependency", "review", "dependency", $"lists its own name '{name}' as a dependency", manifestPath));
         // A scope is owned by its publisher, so only an unscoped name can shadow a private one.
@@ -157,6 +168,36 @@ public static partial class PackageReview
     }
 
     private static readonly Regex NodeCodeFile = R(@"\.(?:c|m)?[jt]sx?$");
+    private static readonly Regex CommitRef = R(@"#[0-9a-fA-F]{7,40}$");
+
+    /// <summary>"name (npm:@scope/target@range)" when an unscoped dependency installs a scoped package of the
+    /// package's own scope or at a floating range (latest, *, none); else null.</summary>
+    private static string? SubstitutedAlias(string dependency, string range, string? name)
+    {
+        range = range.Trim();
+        if (dependency.StartsWith('@') || !range.StartsWith("npm:@", StringComparison.OrdinalIgnoreCase)) return null;
+        var target = range[4..];
+        var at = target.IndexOf('@', 1);
+        var (module, version) = at < 0 ? (target, "") : (target[..at], target[(at + 1)..]);
+        var slash = module.IndexOf('/');
+        if (slash < 2) return null;
+        var own = name is { } n && n.StartsWith('@') && n.IndexOf('/') is > 1 and var i && string.Equals(n[..i], module[..slash], StringComparison.OrdinalIgnoreCase);
+        return own || version is "" or "latest" or "*" ? $"{dependency} ({range})" : null;
+    }
+
+    /// <summary>True when a shipped source file under <paramref name="root"/> names <paramref name="module"/> in quotes,
+    /// when one was not read, or when none ships; false when every read file leaves it unnamed.</summary>
+    private static bool NamedByCode(PackageFiles files, string root, string manifestPath, string module)
+    {
+        var read = 0;
+        foreach (var path in files.Paths.Where(p => p != manifestPath && p.StartsWith(root, StringComparison.Ordinal)
+            && ScannedSources.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase))))
+        {
+            if (files.Text(path) is not { } text || NamesModule(text, module)) return true;
+            read++;
+        }
+        return read == 0;
+    }
     private static readonly Regex ModuleKeyword = R(@"\b(?:require|import|exports?)\b");
     /// <summary>True for a range fetched over http, git+http or git://, whose code is not protected in transit; false for any other range.</summary>
     private static bool PlainTransport(string range) =>
@@ -165,9 +206,9 @@ public static partial class PackageReview
     private const int MaxDependencies = 1000;
 
     /// <summary>One finding naming the unscoped runtime dependencies that hold a popular name as whole tokens and that
-    /// no shipped file or script names: noteworthy when one is from outside the registry or the package runs at install,
-    /// else review; empty when none, when the package ships no code file, when a shipped code file was not read, or
-    /// when one is bundler output.</summary>
+    /// no shipped file or script names: noteworthy when one is from outside the registry, spells the popular name once
+    /// filler words are removed, or the package runs at install, else review; empty when none, when the package ships
+    /// no code file, or when a shipped code file was not read. Bundler output clears only the names it holds.</summary>
     private static IEnumerable<PackageFinding> LookalikeDependencies(PackageFiles files, string root, JsonElement pkg, string? name,
         List<PackageScript> scripts, List<PackageEntryPoint> entries, string manifestPath)
     {
@@ -176,10 +217,12 @@ public static partial class PackageReview
         var own = name == null ? "" : Normalize(name[(name.IndexOf('/') + 1)..]);
         var named = new Dictionary<string, string>(StringComparer.Ordinal);
         var outside = new HashSet<string>(StringComparer.Ordinal);
+        var filler = new HashSet<string>(StringComparer.Ordinal);
         foreach (var dep in d.EnumerateObject().Take(MaxDependencies))
         {
             if (dep.Name.StartsWith('@') || PopularNames.Npm.Contains(dep.Name) || PopularRun(dep.Name, own) is not { } popular) continue;
             named.TryAdd(dep.Name, popular);
+            if (FillerSpelling(dep.Name) is { } spelled && spelled == popular) filler.Add(dep.Name);
             if (dep.Value.ValueKind == JsonValueKind.String && NpmSource(dep.Value.GetString()!) != null) outside.Add(dep.Name);
         }
         foreach (var script in scripts) named.Keys.Where(k => script.Command.Contains(k, StringComparison.Ordinal)).ToList().ForEach(k => named.Remove(k));
@@ -189,14 +232,25 @@ public static partial class PackageReview
         if (named.Count == 0 || code.Count == 0) yield break;
         foreach (var path in code)
         {
-            if (files.Text(path) is not { } text || BundlerMarkers.Any(m => text.Contains(m, StringComparison.Ordinal))) yield break;
+            if (files.Text(path) is not { } text) yield break;
             named.Keys.Where(k => NamesModule(text, k)).ToList().ForEach(k => named.Remove(k));
             if (named.Count == 0) yield break;
         }
-        var level = scripts.Any(x => x.AtInstall) || named.Keys.Any(outside.Contains) ? "noteworthy" : "review";
+        var level = scripts.Any(x => x.AtInstall) || named.Keys.Any(k => outside.Contains(k) || filler.Contains(k)) ? "noteworthy" : "review";
         yield return new PackageFinding("package/dependency-lookalike", level, "dependency",
             $"{named.Count} dependenc{(named.Count == 1 ? "y" : "ies")} that no shipped code names, under a popular name with affixes: {string.Join(", ", named.Take(5).Select(n => $"{n.Key} ({n.Value})"))}", manifestPath);
     }
+
+    /// <summary>The popular name that the tokens of <paramref name="name"/> spell once one or more filler words are
+    /// removed; null when no filler word is present or the rest spells no popular name.</summary>
+    private static string? FillerSpelling(string name)
+    {
+        var t = name.ToLowerInvariant().Split(['-', '_', '.'], StringSplitOptions.RemoveEmptyEntries);
+        var rest = t.Where(x => !FillerWords.Contains(x)).ToArray();
+        return rest.Length < t.Length && rest.Length > 0 && PopularBare.TryGetValue(string.Concat(rest), out var p) ? p : null;
+    }
+
+    private static readonly HashSet<string> FillerWords = new(["easy", "simple", "lite", "fast", "my", "the", "new", "pro", "plus", "better", "smart"], StringComparer.Ordinal);
 
     /// <summary>The popular name that a run of whole tokens of <paramref name="name"/> spells, outside
     /// <paramref name="own"/>; null when none.</summary>
@@ -218,9 +272,6 @@ public static partial class PackageReview
 
     private static readonly string[] ScannedSources =
         [".js", ".cjs", ".mjs", ".jsx", ".ts", ".tsx", ".cts", ".mts", ".vue", ".svelte", ".json", ".css", ".scss", ".less", ".gyp"];
-
-    // A bundler inlines its dependencies, so their names are not left in the output.
-    private static readonly string[] BundlerMarkers = ["__webpack_require__", "__commonJS(", "__toESM(", "/******/"];
 
     /// <summary>True when <paramref name="text"/> holds <paramref name="module"/> in quotes, alone or before a subpath.</summary>
     private static bool NamesModule(string text, string module)

