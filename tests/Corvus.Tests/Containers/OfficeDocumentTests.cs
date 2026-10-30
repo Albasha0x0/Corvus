@@ -72,6 +72,21 @@ public sealed class OfficeDocumentTests
     }
 
     [Fact]
+    public void A_module_with_a_chr_chain_shows_the_folded_string()
+    {
+        var data = Compound([("WordDocument", new byte[600]), .. VbaStreams("Macros/", ("Module1", "standard", "Sub AutoOpen()\r\n  s = Chr(104) & Chr(105) & \"-corvus\"\r\n  MsgBox s\r\nEnd Sub\r\n"))]);
+        var module = Assert.Single(View(data)!.Projects.Single().Modules);
+        Assert.Contains("\"hi-corvus\"", module.Plain);
+    }
+
+    [Fact]
+    public void A_module_without_constants_to_fold_has_no_peeled_text()
+    {
+        var data = Compound([("WordDocument", new byte[600]), .. VbaStreams("Macros/", ("Module1", "standard", "Sub AutoOpen()\r\n  MsgBox Now\r\nEnd Sub\r\n"))]);
+        Assert.Null(Assert.Single(View(data)!.Projects.Single().Modules).Plain);
+    }
+
+    [Fact]
     public void A_macro_enabled_ooxml_document_is_read_through_its_vba_project_part()
     {
         var bin = Compound(VbaStreams("", ("ThisDocument", "document", "Private Sub Document_Open()\r\n  CreateObject(\"WScript.Shell\").Run \"calc\"\r\nEnd Sub\r\n")));

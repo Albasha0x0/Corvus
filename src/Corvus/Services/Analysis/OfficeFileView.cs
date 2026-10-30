@@ -6,7 +6,8 @@ namespace Corvus.Services.Analysis;
 /// <summary>view=office: active content of an OLE, OOXML, SYLK or OneNote document: VBA, Excel 4.0 macros, OLE objects, links, findings.</summary>
 internal sealed class OfficeFileView : IFileSummaryView
 {
-    public sealed record Module(string Name, string Type, string Stream, int Lines, bool SourceMissing);
+    public sealed record Module(string Name, string Type, string Stream, int Lines, bool SourceMissing,
+        [property: System.ComponentModel.Description("The module source with constants folded and layers peeled; absent when the reader changed nothing.")] string? Plain = null);
 
     public sealed record Project(string Storage, string? Name, int CodePage, IReadOnlyList<Module> Modules, IReadOnlyList<string> References);
 
@@ -31,14 +32,30 @@ internal sealed class OfficeFileView : IFileSummaryView
         bool active = doc.Projects.Count > 0 || doc.Xlm != null || doc.Objects.Count > 0 || doc.Links.Count > 0 || doc.Encrypted;
         // A document without active content is listed only when asked for.
         if (!active && file.Options.View != Name) return null;
+        var budget = System.Diagnostics.Stopwatch.StartNew();
+        var kept = new System.Runtime.CompilerServices.StrongBox<int>();
         var facts = new Facts(doc.Format, doc.Encrypted,
             [.. doc.Projects.Select(p => new Project(p.Storage, p.ProjectName, p.CodePage,
-                [.. p.Modules.Select(m => new Module(m.Name, m.Type, m.Stream, m.Source.Length == 0 ? 0 : m.Source.Count(c => c == '\n') + 1, m.SourceMissing))], p.References))],
+                [.. p.Modules.Select(m => new Module(m.Name, m.Type, m.Stream, m.Source.Length == 0 ? 0 : m.Source.Count(c => c == '\n') + 1, m.SourceMissing, Peel(m.Source, budget, kept, ct)))], p.References))],
             doc.Findings, doc.Xlm?.Sheets, doc.Xlm?.Names, doc.Xlm?.Cells.Count,
             [.. doc.Objects.Select(o => new EmbeddedFile(o.Path, o.Name, o.SourcePath, o.Bytes.Length, Blob.Identify(o.Bytes), Blob.Sha256(o.Bytes)))],
             doc.Links, doc.Notes);
         var links = doc.Links.Select(l => (l.Target, $"{l.Type} link in {l.Part}"));
         return new FileView(facts, Highlights(doc)) { Findings = FindingRules.FromMacros(doc.Findings, "office"), Indicators = IndicatorList.FromText("office", links, ct) };
+    }
+
+    private const int MaxPeeledSource = 1 << 20, MaxPeeledChars = 8000, MaxPeeledTotal = 64_000;
+
+    // The overview budget is shared by all modules, so many modules cannot multiply it.
+    private static string? Peel(string source, System.Diagnostics.Stopwatch budget, System.Runtime.CompilerServices.StrongBox<int> kept, CancellationToken ct)
+    {
+        int left = Services.Web.Scripts.ScriptBudget.OverviewMilliseconds - (int)budget.ElapsedMilliseconds;
+        if (source.Length == 0 || source.Length > MaxPeeledSource || left <= 0 || kept.Value >= MaxPeeledTotal) return null;
+        var r = Services.Web.Scripts.ScriptReader.Read(source, "vbscript", ct, milliseconds: left);
+        if (r.Folded == 0 && r.Layers.Count == 0 && r.Recovered.Count == 0) return null;
+        var text = r.Plain.Length > MaxPeeledChars ? r.Plain[..MaxPeeledChars] : r.Plain;
+        kept.Value += text.Length;
+        return text;
     }
 
     private static List<string> Highlights(OfficeDocument doc)

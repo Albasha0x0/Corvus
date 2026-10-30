@@ -485,7 +485,7 @@ Pass the name as `view=`.
 | `installer` | MSI custom actions, services, autostart entries |
 | `lnk` | a shortcut's target, arguments and noteworthy traits |
 | `mail` | headers, received chain, recorded authentication results, links, attachments |
-| `office` | VBA, Excel 4.0 macros, OLE packages, findings by line |
+| `office` | VBA with folded strings, Excel 4.0 macros, OLE packages, findings by line |
 | `pdf` | keywords, actions, scripts, embedded files |
 | `firmware` | formats found at offsets in an opaque image |
 | `raw` | likely instruction sets and load bases of headerless code |
