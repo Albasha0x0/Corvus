@@ -327,6 +327,9 @@ public static partial class PackageReview
             yield return new PackageFinding("package/loaded-detached",
                 entry && hits.Overlaps(["network", "credentials", "host details", "transformed code"]) ? "noteworthy" : "review",
                 "process", "starts node or a file in its own folder as a background process that outlives the caller", path);
+        if (!install && path.EndsWith(".py", StringComparison.OrdinalIgnoreCase) && StartsOwnProgramDetached(plain))
+            yield return new PackageFinding("package/loaded-detached", "noteworthy", "process",
+                "starts a program from its own folder in a new session with its output discarded", path);
         if (install && XorDecode.IsMatch(plain))
             yield return new PackageFinding("package/install-xor", "noteworthy", "transformed code", "at install: decodes its strings with XOR", path);
         // The package manager links a package's own commands; install code that
@@ -1235,6 +1238,27 @@ public static partial class PackageReview
     // An owner-executable mode: octal 0o7xx, or 448-511 once a bundler prints it in decimal.
     private static readonly Regex ExecutableWrite = R(@"\bwriteFile(?:Sync)?\s*\(\s*(?<p>[A-Za-z_$][\w$]*)\s*,[^;\n]{0,200}?\bmode\s*:\s*(?:0o7[0-7]{2}|4[4-9]\d|50\d|51[01])\b");
     private static readonly Regex VariableRun = R(@"(?:^|[^\w$])(?:exec|execFile|spawn|execSync|execFileSync|spawnSync)\s*\(\s*(?<a>[^'""`\s)][^,)\n]{0,200})");
+    /// <summary>Whether Python code calls Popen with a path built from __file__, in a new session or detached, with
+    /// DEVNULL streams.</summary>
+    private static bool StartsOwnProgramDetached(string text)
+    {
+        if (!text.Contains("Popen", StringComparison.Ordinal) || !text.Contains("DEVNULL", StringComparison.Ordinal)) return false;
+        foreach (Match call in PopenList.Matches(text))
+        {
+            var options = text.AsSpan(call.Index, Math.Min(500, text.Length - call.Index)).ToString();
+            if (!NewSession.IsMatch(options) || !options.Contains("DEVNULL", StringComparison.Ordinal)) continue;
+            var program = call.Groups["p"].Value;
+            if (OwnFolder.IsMatch(program)) return true;
+            var assign = Regex.Match(text, $@"(?m)^[ \t]*{Regex.Escape(program)}\s*=\s*(?<e>[^\n]{{1,300}})", RegexOptions.NonBacktracking);
+            if (assign.Success && (OwnFolder.IsMatch(assign.Groups["e"].Value)
+                || Identifier.Matches(assign.Groups["e"].Value).Any(i => Regex.IsMatch(text, $@"(?m)^[ \t]*{Regex.Escape(i.Value)}\s*=\s*[^\n]{{0,300}}__file__", RegexOptions.NonBacktracking))))
+                return true;
+        }
+        return false;
+    }
+    private static readonly Regex PopenList = R(@"\bsubprocess\.Popen\s*\(\s*\[\s*(?<p>[A-Za-z_][\w.]*|[^,\]\n]{1,200}__file__[^,\]\n]{0,200})\s*[,\]]");
+    private static readonly Regex NewSession = R(@"\bstart_new_session\s*=\s*True\b|\bDETACHED_PROCESS\b");
+    private static readonly Regex OwnFolder = R(@"\b__file__\b");
     private static readonly Regex Downloader = R(@"\b(?:curl|wget|Invoke-WebRequest|iwr)\b");
     private static readonly Regex DownloadSource = R(@"https?://|%\w*URL\w*%|\$\{?\w*URL");
     // A value must follow the key: a bare git config --global core.hooksPath reads it.

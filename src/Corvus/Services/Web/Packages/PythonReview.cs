@@ -457,6 +457,15 @@ public static partial class PackageReview
 
     private static readonly Regex ModelFile = R(@"\.(?:pt|pth|pkl|ckpt)$");
 
+    // An import at module level, in a top-level try block included.
+    private static readonly Regex SetupModuleImport = R(@"(?m)^(?:try:[ \t]*\r?\n)?[ \t]{0,4}(?:import[ \t]+(?<m>[A-Za-z_][\w.]*)|from[ \t]+(?<m>[A-Za-z_][\w.]*)[ \t]+import\b)");
+
+    /// <summary>True when the line holding <paramref name="index"/> starts without indentation.</summary>
+    private static bool TopLevel(string text, int index)
+    {
+        var start = text.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
+        return start < text.Length && text[start] is not (' ' or '\t');
+    }
     private static readonly Regex UnsafeLoad = R(@"\btorch\.load\([^\r\n]*\bweights_only\s*=\s*False|\bpickle\.load\(\s*open\([^)\r\n]*(?:__file__|\.(?:pt|pth|pkl|ckpt)['""])");
 
     private static readonly Regex ModelLiteral = R(@"['""]([^'""\r\n]*\.(?:pt|pth|pkl|ckpt))['""]");
@@ -505,6 +514,9 @@ public static partial class PackageReview
         // scan names the sources past the cap in the not-read list.
         var sources = ImportTimeSources(files).Take(MaxScannedSources);
         if (setup != null) sources = sources.Prepend(setup);
+        // Packages setup.py imports at module level run their __init__ during the install.
+        var setupImports = setup != null && files.Text(setup) is { } setupCode
+            ? SetupModuleImport.Matches(setupCode).Select(i => "/" + i.Groups["m"].Value.Replace('.', '/') + "/__init__.py").ToList() : [];
         foreach (var source in sources)
         {
             if (files.Text(source) is not { } code || UnsafeLoad.Match(code) is not { Success: true } m) continue;
@@ -515,9 +527,11 @@ public static partial class PackageReview
             // A load alone is review; setup.py naming a model that runs code or
             // that the package does not ship is noteworthy.
             bool noteworthy = install && (unshipped.Count > 0 || models.Any(x => named.Contains(BaseName(x.Path))));
+            bool imported = !install && setupImports.Any(i => source.EndsWith(i, StringComparison.Ordinal))
+                && UnsafeLoad.Matches(code).Any(u => TopLevel(code, u.Index) && !InComment(code, u.Index));
             loads.Add((source, install, named));
-            findings.Add(new PackageFinding("package/pickle-load", noteworthy ? "noteworthy" : "review", "binary",
-                $"{source} loads a pickle with code allowed: {Clip(m.Value, 160)}" + (install ? ", while installing" : ""), source));
+            findings.Add(new PackageFinding("package/pickle-load", noteworthy || imported ? "noteworthy" : "review", "binary",
+                $"{source} loads a pickle with code allowed: {Clip(m.Value, 160)}" + (install ? ", while installing" : imported ? ", at module level of a package setup.py imports" : ""), source));
         }
         foreach (var (path, code) in models)
         {

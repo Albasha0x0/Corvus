@@ -2329,6 +2329,19 @@ public sealed class PackageReviewTests : IDisposable
     }
 
     [Fact]
+    public void A_pickle_load_at_module_level_of_a_package_setup_py_imports_is_noteworthy()
+    {
+        var r = Review(Tgz("demo-1.0.tar.gz", ("demo-1.0/PKG-INFO", "Metadata-Version: 2.1\nName: demo\nVersion: 1.0\n"),
+            ("demo-1.0/setup.py", "from setuptools import setup\nsetup(name='demo')\ntry:\n    import demo_pkg\nexcept Exception:\n    pass\n"),
+            ("demo-1.0/demo_pkg/__init__.py", "import os, torch\npath = os.path.join(os.path.dirname(__file__), 'w.pt')\nmodel = torch.load(path, weights_only=False)\n")));
+        Assert.Contains(r.Findings, f => f is { Rule: "package/pickle-load", Level: "noteworthy", Path: "demo-1.0/demo_pkg/__init__.py" });
+        var inside = Review(Tgz("demo-1.1.tar.gz", ("demo-1.1/PKG-INFO", "Metadata-Version: 2.1\nName: demo\nVersion: 1.1\n"),
+            ("demo-1.1/setup.py", "from setuptools import setup\nimport demo_pkg\nsetup(name='demo')\n"),
+            ("demo-1.1/demo_pkg/__init__.py", "import torch\ndef load(path):\n    return torch.load(path, weights_only=False)\n")));
+        Assert.Contains(inside.Findings, f => f is { Rule: "package/pickle-load", Level: "review" });
+    }
+
+    [Fact]
     public void A_function_body_literal_of_escapes_is_transformed_code_and_a_short_one_is_not()
     {
         var body = string.Concat(Enumerable.Repeat("\\x76\\x61\\x72\\x20\\x61\\x3d\\x31\\x3b", 10));
@@ -2337,6 +2350,16 @@ public sealed class PackageReviewTests : IDisposable
         Assert.Contains(r.Findings, f => f is { Rule: "package/string-array", Level: "noteworthy", Path: "package/dist/load.cjs" });
         Assert.DoesNotContain(PackageReview.Scan("load.cjs", "module.exports = Function(\"a\", \"\x76\x61\x72 a = 1; return a;\");", install: false, default, peel: false),
             f => f.Rule == "package/string-array");
+    }
+
+    [Fact]
+    public void Python_starting_its_own_program_in_a_new_session_with_discarded_output_is_noteworthy()
+    {
+        const string code = "import os, subprocess\nHERE = os.path.dirname(os.path.abspath(__file__))\ndef start():\n    tool = os.path.join(HERE, '.bin', 'linux-amd64', 'tool')\n" +
+            "    subprocess.Popen([tool, '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)\n";
+        Assert.Contains(PackageReview.Scan("pkg/_helper.py", code, install: false, default, peel: false), f => f is { Rule: "package/loaded-detached", Level: "noteworthy" });
+        const string system = "import subprocess\nsubprocess.Popen(['git', 'fetch'], stdout=subprocess.DEVNULL, start_new_session=True)\n";
+        Assert.DoesNotContain(PackageReview.Scan("pkg/_helper.py", system, install: false, default, peel: false), f => f.Rule == "package/loaded-detached");
     }
 
     [Fact]
