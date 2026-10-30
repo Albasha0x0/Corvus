@@ -1,5 +1,39 @@
 # Release notes
 
+## 2.8.1
+
+### Highlights
+
+- Review a package whose bundle holds tens of thousands of expressions in seconds, not hours.
+- See npm dependencies pinned to one commit, installed under an alias or named with filler words.
+- See a VS Code extension that names a popular extension's repository under another publisher.
+- Keep the data, cache and temporary folders writable by your account only.
+
+### Breaking changes
+
+None.
+
+### Changes
+
+- **Session:** data, result, annotation and analysis folders are checked or created private; temporary and tool run folders sit under `TEMP/corvus-<id>`. [e4707cdd](https://github.com/Albasha0x0/Corvus/commit/e4707cdd)
+- **Session:** unpack and export markers carry the data folder's id; a folder an earlier build marked is refused once and needs a new or empty folder. [7ff36ecd](https://github.com/Albasha0x0/Corvus/commit/7ff36ecd)
+- **Web:** `package/dependency-source` is noteworthy for a commit-pinned git dependency no shipped code names; new rule `package/dependency-alias`; `package/dependency-lookalike` reads bundled output. [2b5f649c](https://github.com/Albasha0x0/Corvus/commit/2b5f649c)
+- **Web:** `package/shell-startup` and `package/command-replace` follow the home folder and the npm prefix through variables and helpers. [e7fc5646](https://github.com/Albasha0x0/Corvus/commit/e7fc5646)
+- **Web:** `package/dns-send`, `package/redirect-entry` and `package/workspace-upload` follow values built in variables one step earlier. [e87d9075](https://github.com/Albasha0x0/Corvus/commit/e87d9075)
+- **Web:** `package/string-array`, `package/exec-char-codes`, `package/carrier` and `package/download-and-run` cover escaped Function bodies, mapped character codes, base64 entry files and written executables. [d61cae42](https://github.com/Albasha0x0/Corvus/commit/d61cae42)
+- **Web:** `package/pickle-load` and `package/loaded-detached` cover a package `setup.py` imports and a Python program started detached from its own folder. [ccdfa384](https://github.com/Albasha0x0/Corvus/commit/ccdfa384)
+- **Web:** new rule `package/extension-clone` for an extension manifest naming a popular extension's repository under another publisher. [4e6cad78](https://github.com/Albasha0x0/Corvus/commit/4e6cad78)
+
+### Fixes
+
+- **Web:** JavaScript constant folding reads only each node's span, so a large bundle no longer runs past the time limit. [df283e25](https://github.com/Albasha0x0/Corvus/commit/df283e25)
+- **Web:** `package/response-command` follows a response split into lines to the helper that runs the last one. [d8e0d01d](https://github.com/Albasha0x0/Corvus/commit/d8e0d01d)
+- **Native:** an ELF note size near 2^31 ends the note read, and note sections are read up to 1 MiB in all. [a23fc639](https://github.com/Albasha0x0/Corvus/commit/a23fc639)
+
+### In progress
+
+- Package review rules for more package formats.
+
 ## 2.8.0
 
 ### Highlights
