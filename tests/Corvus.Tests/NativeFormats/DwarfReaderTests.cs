@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Dwarf;
@@ -94,6 +95,58 @@ public class DwarfReaderTests
             x?.File == y?.File && x?.Line == y?.Line && (x?.Frames ?? []).SequenceEqual(y?.Frames ?? []);
 
         public int GetHashCode(DebugSourceInfo? obj) => obj?.Line ?? 0;
+    }
+
+    [Fact]
+    public void Many_note_sections_are_read_to_one_bound_and_the_rest_is_named()
+    {
+        // Regression: fuzz iteration 911 named one 64 KiB note region from
+        // every section header, so each header scanned it again.
+        const int sections = 60_000, region = 1 << 16, shoff = 64 + region;
+        var elf = new byte[shoff + sections * 64];
+        "ELF"u8.CopyTo(elf);
+        elf[4] = 2;
+        elf[5] = 1;
+        BinaryPrimitives.WriteUInt64LittleEndian(elf.AsSpan(0x28), shoff);
+        BinaryPrimitives.WriteUInt16LittleEndian(elf.AsSpan(0x3A), 64);
+        BinaryPrimitives.WriteUInt16LittleEndian(elf.AsSpan(0x3C), sections);
+        for (int i = 1; i < sections; i++)
+        {
+            var header = elf.AsSpan(shoff + i * 64);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[4..], 7);
+            BinaryPrimitives.WriteUInt64LittleEndian(header[0x18..], 64);
+            BinaryPrimitives.WriteUInt64LittleEndian(header[0x20..], region);
+        }
+        using var container = DebugContainer.FromMemory("notes.dbg", elf);
+        Assert.Null(container.BuildId);
+        Assert.Contains(container.Notes, n => n.Contains("note sections past the first 1 MiB are not read", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_note_name_size_near_the_int_maximum_ends_the_note_read()
+    {
+        // Regression: fuzz iteration 911 set a note's name size to 0x7FFFFFFE;
+        // its aligned size overflowed and the read walked up from -2^31.
+        const int sections = 8, shoff = 64 + 16;
+        var elf = new byte[shoff + sections * 64];
+        "ELF"u8.CopyTo(elf);
+        elf[4] = 2;
+        elf[5] = 1;
+        BinaryPrimitives.WriteUInt32LittleEndian(elf.AsSpan(64), 0x7FFFFFFE);
+        BinaryPrimitives.WriteUInt64LittleEndian(elf.AsSpan(0x28), shoff);
+        BinaryPrimitives.WriteUInt16LittleEndian(elf.AsSpan(0x3A), 64);
+        BinaryPrimitives.WriteUInt16LittleEndian(elf.AsSpan(0x3C), sections);
+        for (int i = 1; i < sections; i++)
+        {
+            var header = elf.AsSpan(shoff + i * 64);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[4..], 7);
+            BinaryPrimitives.WriteUInt64LittleEndian(header[0x18..], 64);
+            BinaryPrimitives.WriteUInt64LittleEndian(header[0x20..], 16);
+        }
+        var cpu = ThreadCpuClock.Now();
+        using var container = DebugContainer.FromMemory("notes.dbg", elf);
+        Assert.Null(container.BuildId);
+        Assert.True(ThreadCpuClock.Now() - cpu < TimeSpan.FromSeconds(1), $"took {ThreadCpuClock.Now() - cpu} of CPU");
     }
 
     [Fact]

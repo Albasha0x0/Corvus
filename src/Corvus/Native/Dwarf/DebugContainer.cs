@@ -295,15 +295,31 @@ internal sealed class DebugContainer : IDisposable
 
     private DebugRelocations? _relocations;
 
+    // Note sections are read up to 64 KiB each and 1 MiB in all, so a table
+    // of many note sections does not scan the file once per entry.
+    private const int MaxNoteBytes = 1 << 20;
+    private long _noteBytes;
+
     private void ReadNotes(long offset, long size)
     {
-        var d = Head(offset, (int)Math.Min(size, 1 << 16)).ToArray();
+        if (size <= 0) return;
+        int take = (int)Math.Min(Math.Min(size, 1 << 16), MaxNoteBytes - _noteBytes);
+        if (take <= 0)
+        {
+            if (_noteBytes == MaxNoteBytes) Notes.Add($"note sections past the first {MaxNoteBytes >> 20} MiB are not read: the build id may be unknown");
+            _noteBytes = MaxNoteBytes + 1;
+            return;
+        }
+        _noteBytes += take;
+        var d = Head(offset, take).ToArray();
         for (int at = 0; at + 12 <= d.Length;)
         {
             int nameSize = (int)U(d, at, 4), descSize = (int)U(d, at + 4, 4);
             uint type = (uint)U(d, at + 8, 4);
+            // Sizes are checked before alignment, which overflows near int.MaxValue.
+            if (nameSize < 0 || descSize < 0 || nameSize > d.Length || descSize > d.Length) return;
             int name = at + 12, desc = name + ((nameSize + 3) & ~3);
-            if (nameSize < 0 || descSize < 0 || desc + descSize > d.Length) return;
+            if (desc + descSize > d.Length) return;
             if (type == 3 && nameSize == 4 && d[name] == 'G' && d[name + 1] == 'N' && d[name + 2] == 'U')
             {
                 BuildId = Convert.ToHexStringLower(d, desc, descSize);
