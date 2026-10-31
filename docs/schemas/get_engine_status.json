@@ -65,6 +65,10 @@
               "outcome": {
                 "description": "The result once ended; null while running.",
                 "type": "string"
+              },
+              "result": {
+                "description": "complete, partial, failed or cancelled; null while running.",
+                "type": "string"
               }
             },
             "required": [

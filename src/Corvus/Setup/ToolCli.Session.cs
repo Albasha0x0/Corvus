@@ -145,6 +145,7 @@ internal static partial class ToolCli
                         ["step"] = i + 1,
                         ["tool"] = step.Tool,
                         ["isError"] = result.IsError == true,
+                        ["state"] = StepState(code),
                         ["text"] = output,
                         ["structured"] = result.StructuredContent is { } s ? JsonNode.Parse(s.GetRawText()) : null,
                         ["error"] = error,
@@ -154,7 +155,7 @@ internal static partial class ToolCli
                 }
                 else
                 {
-                    io.Out.WriteLine($"=== [{i + 1}/{steps.Count}] {step.Tool}{(result.IsError == true ? " (error)" : "")}");
+                    io.Out.WriteLine($"=== [{i + 1}/{steps.Count}] {step.Tool}{(code == Exit.Running ? " (running)" : result.IsError == true ? " (error)" : "")}");
                     io.Out.WriteLine(output);
                 }
             }

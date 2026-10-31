@@ -103,7 +103,8 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
             {
                 var done = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, CancellationToken.None);
                 EngineControl.Advance(session);
-                return $"{(done.Complete ? "complete" : "partial, the budget ran out")}; functions {done.FunctionsBefore:N0} before, {done.FunctionsAfter:N0} after";
+                return (done.Complete ? "complete" : "partial",
+                    $"{(done.Complete ? "complete" : "partial, the budget ran out")}; functions {done.FunctionsBefore:N0} before, {done.FunctionsAfter:N0} after");
             }, (image, result) =>
             {
                 // The notice reaches the model on its next reply; Announce

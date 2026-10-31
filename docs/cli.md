@@ -29,7 +29,9 @@ agent's call. Tool reference: [tools.md](tools.md). Setup commands (`install`, `
   `rules/<pack>/<version>/` in the data folder.
 - `ida-script` writes to `<IDA user directory>/corvus` by default. Run the script in IDA (File > Script file), then start
   Corvus with `CORVUS_IDA_CONNECT=1`.
-- `analyze --wait` starts the run as a background job, polls `get_engine_status` and prints the outcome on stderr when it ends; a failed job exits 1 and a run past its budget exits 124.
+- `analyze --wait` blocks until the first analysis of the image ends, or, for an image with a saved analysis, until one reanalysis ends; it prints the outcome on stderr and exits by it ([exit codes](#exit-codes)).
+- `analyze` takes `--session NAME` or `CORVUS_SESSION` and shares the analysis with that session.
+- A one-shot `call` whose early answer leaves work running adds a Next line (`corvus serve --session NAME`, `corvus analyze <image> --wait`); with `--json` it is appended to `error.next`.
 
 ## Arguments
 
@@ -89,7 +91,7 @@ Every server option applies ([configuration.md](configuration.md#server-options)
 - `batch steps.jsonl --sarif <file>` writes the findings new in each `compare_folders` step as one SARIF run, located on the new side.
 - The file is a JSON array or JSON Lines of `{"tool": "...", "args": {...}}` (`arguments` also accepted).
   `#` starts a comment line. Every tool name is checked before the first step runs.
-- With `--json`, one line per step: `{step, tool, isError, text, structured, error}`.
+- With `--json`, one line per step: `{step, tool, isError, state, text, structured, error}`; `state` is `ok`, `failed` or `running`.
 - Later steps run after a failed one unless `--stop-on-error` is given. The exit code is the first failed step's.
 - `--keep-going` runs the valid steps and names each invalid line on stderr (not in `--json` output); exit 2 if no step failed.
   A malformed JSON array still fails the batch.
@@ -170,9 +172,13 @@ without an agent. Nothing in the file runs; no network calls are made.
 | Code | Meaning |
 |---|---|
 | 0 | success; a partial result shows `error.partial` with `--json` |
-| 1 | tool error: `not_found`, `ambiguous`, `conflict`, `not_loaded`, `limit_exceeded`, `internal`, ... |
+| 1 | tool error: `not_found`, `ambiguous`, `conflict`, `not_loaded`, `limit_exceeded`, `internal`, ...; also a failed analysis (`analyze --wait`) |
 | 2 | usage error (unknown command, tool or option, malformed `name=value`), or the server's `invalid_argument` |
 | 3 | environment: `provider_unavailable` or `unsupported` (no IDA, `inspect_process` off Windows) |
+| 4 | analysis ended `partial` (`analyze --wait`) |
+| 5 | `timeout` with `details.stillRunning` (`call`, `batch`): the work goes on in the engine; a batch step records `running` |
+| 6 | analysis `cancelled` (`analyze --wait`) |
+| 7 | analysis outcome unknown: no result reported, or `running` unchanged for 300 s (`analyze --wait`) |
 | 124 | `timeout`, as `timeout(1)` |
 | 130 | Ctrl+C: the first cancels the call and waits; a second ends the process |
 

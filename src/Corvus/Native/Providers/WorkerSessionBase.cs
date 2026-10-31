@@ -553,6 +553,12 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     internal string? BackgroundResult { get; private set; }
 
+    /// <summary>
+    /// How the last background job ended: complete, partial or failed; null
+    /// while it runs.
+    /// </summary>
+    internal string? BackgroundKind { get; private set; }
+
     // The background job's own requests pass; other callers get conflict until it ends.
     private static readonly AsyncLocal<bool> InBackground = new();
 
@@ -560,20 +566,31 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     /// <summary>
     /// Starts <paramref name="run"/> with no caller; conflict when one is already running.
+    /// <paramref name="run"/> returns the outcome kind (complete or partial) with its text.
     /// <paramref name="ended"/> receives the image file name and the outcome text once the job ended; null keeps none.
     /// </summary>
-    internal BackgroundJob StartBackground(string what, TimeSpan budget, Func<Task<string>> run, Action<string, string>? ended = null)
+    internal BackgroundJob StartBackground(string what, TimeSpan budget, Func<Task<(string Kind, string Text)>> run, Action<string, string>? ended = null)
     {
         lock (_backgroundLock)
         {
             if (BackgroundRunning) throw Busy();
             BackgroundResult = null;
+            BackgroundKind = null;
             var started = DateTime.UtcNow;
             var task = Task.Run(async () =>
             {
                 InBackground.Value = true;
-                try { BackgroundResult = $"{what} ended in {(DateTime.UtcNow - started).TotalSeconds:0} s: {await run().ConfigureAwait(false)}"; }
-                catch (Exception e) { BackgroundResult = $"{what} failed after {(DateTime.UtcNow - started).TotalSeconds:0} s: {e.Message}"; }
+                try
+                {
+                    var (kind, text) = await run().ConfigureAwait(false);
+                    BackgroundResult = $"{what} ended in {(DateTime.UtcNow - started).TotalSeconds:0} s: {text}";
+                    BackgroundKind = kind;
+                }
+                catch (Exception e)
+                {
+                    BackgroundResult = $"{what} failed after {(DateTime.UtcNow - started).TotalSeconds:0} s: {e.Message}";
+                    BackgroundKind = "failed";
+                }
             });
             // Raised once the task is complete, so a client told of the end sees the engine free.
             if (ended != null)

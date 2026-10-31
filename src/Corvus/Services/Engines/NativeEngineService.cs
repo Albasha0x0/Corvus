@@ -749,6 +749,8 @@ public sealed class NativeEngineService : IDisposable
         public double ExpectedSeconds { get; init; }
         /// <summary>When the open started.</summary>
         public DateTime OpenStarted { get; init; }
+        /// <summary>True when a failed open was cancelled rather than failed.</summary>
+        public bool Cancelled { get; init; }
         /// <summary>The open's stages with their seconds (see <see cref="EngineOpenProfile"/>).</summary>
         public IReadOnlyList<EngineOpenStage> OpenStages { get; init; } = [];
     }
@@ -770,7 +772,8 @@ public sealed class NativeEngineService : IDisposable
                 list.Add(new(id, served.IsOpen ? "open" : "closed", null, seconds, served, null) { OpenStages = stages });
             }
             else list.Add(new(id, "failed", h.Stage, seconds, null,
-                opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled") { OpenStages = stages, OpenStarted = h.OpenStarted });
+                opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled")
+                { OpenStages = stages, OpenStarted = h.OpenStarted, Cancelled = opening.IsCanceled || opening.Exception?.InnerException is OperationCanceledException });
         }
         return list;
     }

@@ -68,7 +68,10 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         [property: Description("running or ended.")] string State,
         string StartedAt,
         [property: Description("Seconds the job may run (an open: the open limit or stall window).")] double BudgetSeconds,
-        [property: Description("The result once ended; null while running.")] string? Outcome);
+        [property: Description("The result once ended; null while running.")] string? Outcome)
+    {
+        [Description("complete, partial, failed or cancelled; null while running.")] public string? Result { get; init; }
+    }
 
     public sealed record EngineStatusReport(string Image, IReadOnlyList<EngineStatus> Engines);
 
@@ -130,7 +133,8 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                 Job = state.State switch
                 {
                     "opening" => new EngineJob("open", "running", state.OpenStarted.ToString("o"), engines.OpenLimit.TotalSeconds, null),
-                    "failed" => new EngineJob("open", "ended", state.OpenStarted.ToString("o"), engines.OpenLimit.TotalSeconds, state.Error),
+                    "failed" => new EngineJob("open", "ended", state.OpenStarted.ToString("o"), engines.OpenLimit.TotalSeconds, state.Error)
+                        { Result = state.Cancelled ? "cancelled" : "failed" },
                     _ => null,
                 },
             };
@@ -169,7 +173,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             if (worker.Background is { } job)
                 status = status with
                 {
-                    Job = new EngineJob(job.What, worker.BackgroundRunning ? "running" : "ended", job.Started.ToString("o"), job.Budget.TotalSeconds, worker.BackgroundResult),
+                    Job = new EngineJob(job.What, worker.BackgroundRunning ? "running" : "ended", job.Started.ToString("o"), job.Budget.TotalSeconds, worker.BackgroundResult) { Result = worker.BackgroundKind },
                     RemainingSeconds = worker.BackgroundRunning ? Math.Round(job.Remaining(DateTime.UtcNow).TotalSeconds) : null,
                     Stage = worker.BackgroundRunning
                         ? $"background {job.What}: running {(DateTime.UtcNow - job.Started).TotalSeconds:0} of {job.Budget.TotalSeconds:0} s, " +

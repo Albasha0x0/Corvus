@@ -26,6 +26,10 @@ internal static partial class ToolCli
         public const int ToolError = 1;
         public const int Usage = 2;
         public const int Environment = 3;
+        public const int Partial = 4;
+        public const int Running = 5;
+        public const int JobCancelled = 6;
+        public const int Unknown = 7;
         public const int Timeout = 124;
         public const int Cancelled = 130;
     }
@@ -164,7 +168,7 @@ internal static partial class ToolCli
         var options = a.Server(oneShot: true);
         await using var session = await ToolSession.StartAsync(options, cancellationToken);
         var result = await Invoke(session, name, arguments, io, cancellationToken);
-        return result is null ? Exit.Usage : Print(name, result, a, io);
+        return result is null ? Exit.Usage : Print(name, result, a, io, oneShot: true);
     }
 
     /// <summary>The session a call or batch routes to, or null; server options are a usage error with --session, ignored otherwise.</summary>
@@ -229,10 +233,16 @@ internal static partial class ToolCli
     }
 
     /// <summary>Writes a result and returns its exit code: text to stdout (errors to stderr), notices to stderr.</summary>
-    private static int Print(string tool, CallToolResult result, CliArgs a, CliIo io)
+    private static int Print(string tool, CallToolResult result, CliArgs a, CliIo io, bool oneShot = false)
     {
         var (text, notices, error) = Split(result);
         bool isError = result.IsError == true;
+        if (oneShot && StillRunning(error) is { } next)
+        {
+            text += "\n" + next;
+            var existing = (string?)error!["next"];
+            error["next"] = string.IsNullOrEmpty(existing) ? next : existing + "; " + next;
+        }
         foreach (var notice in notices) io.Error.WriteLine(notice);
         if (a.Json)
         {
@@ -277,14 +287,40 @@ internal static partial class ToolCli
         return (text.ToString().TrimEnd('\n', '\r'), notices, error);
     }
 
-    /// <summary>The exit code of an error result by its code: 2 usage, 3 environment, 124 timeout, else 1.</summary>
+    /// <summary>
+    /// The exit code of an error result by its code: 2 usage, 3 environment,
+    /// 5 work still running (a timeout with details.stillRunning), 124 timeout, else 1.
+    /// </summary>
     public static int ExitCode(JsonNode? error) => (string?)error?["code"] switch
     {
         "invalid_argument" => Exit.Usage,
         "provider_unavailable" or "unsupported" => Exit.Environment,
-        "timeout" => Exit.Timeout,
+        "timeout" => IsStillRunning(error) ? Exit.Running : Exit.Timeout,
         _ => Exit.ToolError,
     };
+
+    /// <summary>
+    /// A batch step's state by its exit code: ok, running (work goes on in the
+    /// server) or failed.
+    /// </summary>
+    internal static string StepState(int code) => code == Exit.Ok ? "ok" : code == Exit.Running ? "running" : "failed";
+
+    /// <summary>
+    /// True for an error whose work goes on in the server (details.stillRunning).
+    /// </summary>
+    internal static bool IsStillRunning(JsonNode? error) => (bool?)error?["details"]?["stillRunning"] == true;
+
+    /// <summary>
+    /// The line for a one-shot process whose early answer left work running,
+    /// since its exit ends the engine; null for any other error.
+    /// </summary>
+    internal static string? StillRunning(JsonNode? error)
+    {
+        if (!IsStillRunning(error)) return null;
+        var image = (string?)error!["details"]?["image"];
+        var wait = image == null ? "" : $", or `{Program} analyze {image} --wait`";
+        return $"Next: run `{Program} serve --session NAME` and route calls with `--session NAME`{wait}; a one-shot process ends the engine on exit.";
+    }
 
     private static JsonSerializerOptions JsonOptions(CliIo io) => io.OutTty ? Indented : Compact;
 

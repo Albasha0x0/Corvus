@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using ModelContextProtocol.Protocol;
 
 namespace Corvus.Setup;
@@ -8,13 +7,19 @@ internal static partial class ToolCli
 {
     private const string AnalyzeTool = "reanalyze_native";
 
-    private static readonly TimeSpan AnalyzePoll = TimeSpan.FromSeconds(2);
+    private const int StatusWaitSeconds = 30;
 
-    private static readonly TimeSpan AnalyzeGrace = TimeSpan.FromSeconds(60);
+    // Polls of an unchanged running analysis, 2 s apart, before the outcome is unknown.
+    private const int StallPolls = 150;
 
-    private static readonly TimeSpan AnalyzeDefaultBudget = TimeSpan.FromHours(1);
+    /// <summary>
+    /// One tool call against the in-process server or a routed session; null
+    /// after a protocol error.
+    /// </summary>
+    internal delegate Task<CallToolResult?> ToolCall(string tool, Dictionary<string, object?> arguments, CancellationToken cancellationToken);
 
-    // Runs reanalyze_native; --wait runs it as a background job and waits.
+    // Runs reanalyze_native; --wait blocks until the first analysis or
+    // reanalysis ends.
     private static async Task<int> AnalyzeAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.Positionals.Count != 1) throw new UsageException("analyze takes one image.");
@@ -29,73 +34,130 @@ internal static partial class ToolCli
                 throw new UsageException("--wait runs the job in the background; remove background=.");
             arguments["background"] = true;
         }
-        await using var session = await ToolSession.StartAsync(a.Server(oneShot: true), cancellationToken);
-        var result = await Invoke(session, AnalyzeTool, arguments, io, cancellationToken);
-        if (result is null) return Exit.Usage;
-        var code = Print(AnalyzeTool, result, a, io);
-        if (code != Exit.Ok || !a.Wait) return code;
+        var routed = RoutedSession(a, io);
+        await using var session = routed == null ? await ToolSession.StartAsync(a.Server(oneShot: true), cancellationToken) : null;
+        ToolCall call = (name, args, ct) => routed == null ? Invoke(session!, name, args, io, ct) : InvokeRemote(routed, name, args, io, ct);
+        if (!a.Wait)
+        {
+            var result = await call(AnalyzeTool, arguments, cancellationToken);
+            return result is null ? Exit.Usage : Print(AnalyzeTool, result, a, io, oneShot: routed == null);
+        }
+        return await AnalyzeWaitAsync(call, image, arguments, a, io, cancellationToken);
+    }
 
+    /// <summary>
+    /// Waits for an image's analysis to end and returns its exit code. An open
+    /// that ran the analysis is the outcome; an open that loaded a saved
+    /// database is followed by one background reanalysis.
+    /// </summary>
+    internal static async Task<int> AnalyzeWaitAsync(ToolCall call, string image, Dictionary<string, object?> arguments, CliArgs a, CliIo io,
+        CancellationToken cancellationToken, TimeSpan? pollEvery = null, int stallPolls = StallPolls)
+    {
+        var poll = pollEvery ?? TimeSpan.FromSeconds(2);
+        var stalled = 0;
         var engine = arguments.TryGetValue("engine", out var e) ? e?.ToString() : null;
-        var started = DateTime.UtcNow;
-        var budget = AnalyzeDefaultBudget;
+        // Open the engine; its early answer is not an end.
+        var open = new Dictionary<string, object?> { ["image"] = image, ["analyzers"] = true };
+        if (engine != null) open["engine"] = engine;
+        var started = await call(AnalyzeTool, open, cancellationToken);
+        if (started is null) return Exit.Usage;
+        if (started.IsError == true && !IsStillRunning(Split(started).Error)) return Print(AnalyzeTool, started, a, io);
+
+        var reanalyzing = false;
         while (true)
         {
-            await Task.Delay(AnalyzePoll, cancellationToken);
-            var status = new Dictionary<string, object?> { ["image"] = image };
-            if (engine != null) status["engine"] = engine;
-            var reply = await Invoke(session, "get_engine_status", status, io, cancellationToken);
-            if (reply is null || reply.IsError == true) return Exit.ToolError;
-            var state = BackgroundState(reply.StructuredContent, engine);
-            if (state.Outcome is { } outcome)
+            var query = new Dictionary<string, object?> { ["image"] = image, ["waitSeconds"] = StatusWaitSeconds };
+            if (engine != null) query["engine"] = engine;
+            var reply = await call("get_engine_status", query, cancellationToken);
+            if (reply is null || reply.IsError == true) return reply is null ? Exit.Usage : Print("get_engine_status", reply, a, io);
+            var state = EngineJobState(reply.StructuredContent, engine);
+            if (state is null)
             {
-                io.Error.WriteLine($"Analysis of {image}: {outcome}");
-                return OutcomeExit(outcome);
-            }
-            if (!state.Running)
-            {
-                io.Error.WriteLine($"Analysis of {image}: the background job is no longer reported.");
+                io.Error.WriteLine($"Analysis of {image}: no engine session is reported.");
                 return Exit.ToolError;
             }
-            if (state.Budget is { } seconds) budget = TimeSpan.FromSeconds(seconds) + AnalyzeGrace;
-            if (DateTime.UtcNow - started > budget)
+            if (state.State == "opening" || state.JobRunning) continue;
+            if (state.State == "open" && !reanalyzing && !state.Reused && state.Analysis == "running")
             {
-                io.Error.WriteLine($"Analysis of {image}: still running after {budget.TotalSeconds:0} s.");
-                return Exit.Timeout;
+                // The analysis reports no progress unit; an unchanged state for stallPolls polls ends the wait.
+                if (++stalled >= stallPolls)
+                {
+                    io.Error.WriteLine($"Analysis of {image}: {state.Engine} still reports analysis running after {stalled} polls; the outcome is unknown. Next: get_engine_status image={image} waitSeconds={StatusWaitSeconds}.");
+                    return Exit.Unknown;
+                }
+                await Task.Delay(poll, cancellationToken);
+                continue;
             }
+            if (state.State == "open" && !reanalyzing && state.Reused)
+            {
+                var run = await call(AnalyzeTool, arguments, cancellationToken);
+                if (run is null) return Exit.Usage;
+                if (run.IsError == true) return Print(AnalyzeTool, run, a, io);
+                reanalyzing = true;
+                continue;
+            }
+            var result = state.State switch
+            {
+                "open" when reanalyzing => state.JobResult,
+                "open" => state.Analysis,
+                "failed" => state.JobResult ?? "failed",
+                _ => "failed",
+            };
+            if (result is null or "running")
+            {
+                io.Error.WriteLine($"Analysis of {image}: {state.Engine} reports no result (state {state.State}); the outcome is unknown. Next: get_engine_status image={image}.");
+                return Exit.Unknown;
+            }
+            io.Error.WriteLine($"Analysis of {image}: {state.Engine} {state.JobOutcome ?? result}");
+            return ResultExit(result);
         }
     }
 
     /// <summary>
-    /// Maps a background outcome to an exit code: a failed job is
-    /// <see cref="Exit.ToolError"/>, any other outcome is <see cref="Exit.Ok"/>.
+    /// Maps an analysis result to an exit code: complete 0, partial 4, cancelled
+    /// 6, anything else (failed) 1. Unknown (7) is decided by the caller.
     /// </summary>
-    internal static int OutcomeExit(string outcome) =>
-        outcome.Contains(" failed after ", StringComparison.Ordinal) ? Exit.ToolError : Exit.Ok;
+    internal static int ResultExit(string? result) => result switch
+    {
+        "complete" => Exit.Ok,
+        "partial" => Exit.Partial,
+        "cancelled" => Exit.JobCancelled,
+        _ => Exit.ToolError,
+    };
 
     /// <summary>
-    /// Reads the background job of an engine status report, for the named
-    /// engine or any engine when null. Outcome is the ended job's text; Running
-    /// is true while it runs, with its budget in seconds when stated. All are
-    /// empty when no background stage is reported.
+    /// What an engine entry of get_engine_status says about the analysis: the
+    /// session state, whether an open loaded a saved database, its analysis
+    /// (complete or partial), and the job's state, result and outcome text.
     /// </summary>
-    internal static (string? Outcome, bool Running, int? Budget) BackgroundState(JsonElement? structured, string? engineName)
+    internal sealed record EngineJobView(string Engine, string State, bool Reused, string? Analysis, bool JobRunning, string? JobResult, string? JobOutcome);
+
+    /// <summary>
+    /// Reads the entry of the named engine, or the first engine with a session
+    /// when null; null when the report holds none.
+    /// </summary>
+    internal static EngineJobView? EngineJobState(JsonElement? structured, string? engineName)
     {
         if (structured is not { ValueKind: JsonValueKind.Object } root
             || !root.TryGetProperty("engines", out var engines)
-            || engines.ValueKind != JsonValueKind.Array) return (null, false, null);
-        foreach (var engine in engines.EnumerateArray())
+            || engines.ValueKind != JsonValueKind.Array) return null;
+        foreach (var entry in engines.EnumerateArray())
         {
-            if (engineName != null
-                && !(engine.TryGetProperty("engine", out var name)
-                    && string.Equals(name.GetString(), engineName, StringComparison.OrdinalIgnoreCase)))
-                continue;
-            if (!engine.TryGetProperty("stage", out var stage) || stage.GetString() is not { } text) continue;
-            if (!text.StartsWith("background ", StringComparison.Ordinal)) continue;
-            if (!text.Contains(": running ", StringComparison.Ordinal))
-                return (text["background ".Length..], false, null);
-            var match = Regex.Match(text, @" of (\d+) s");
-            return (null, true, match.Success ? int.Parse(match.Groups[1].Value) : null);
+            var name = Text(entry, "engine") ?? "";
+            var state = Text(entry, "state") ?? "";
+            if (engineName != null ? !string.Equals(name, engineName, StringComparison.OrdinalIgnoreCase) : state == "not_started") continue;
+            entry.TryGetProperty("job", out var job);
+            var hasJob = job.ValueKind == JsonValueKind.Object;
+            return new EngineJobView(name, state,
+                entry.TryGetProperty("reusedDatabase", out var reused) && reused.ValueKind == JsonValueKind.True,
+                Text(entry, "analysis"),
+                hasJob && Text(job, "state") == "running",
+                hasJob ? Text(job, "result") : null,
+                hasJob ? Text(job, "outcome") : null);
         }
-        return (null, false, null);
+        return null;
     }
+
+    private static string? Text(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }

@@ -225,7 +225,7 @@ public sealed class WorkerSessionBaseTests : IDisposable
         await using var s = await Open();
         var ended = new TaskCompletionSource<(string Result, bool Running)>();
         var raised = 0;
-        s.StartBackground("job-ok", TimeSpan.FromSeconds(5), () => Task.FromResult("done"), (_, result) =>
+        s.StartBackground("job-ok", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")), (_, result) =>
         {
             Interlocked.Increment(ref raised);
             ended.TrySetResult((result, s.BackgroundRunning));
@@ -234,6 +234,18 @@ public sealed class WorkerSessionBaseTests : IDisposable
         Assert.Contains("done", result);
         Assert.False(running);
         Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public async Task A_background_job_keeps_the_kind_it_returns_whatever_its_text()
+    {
+        await using var s = await Open();
+        var job = s.StartBackground("job-kind", TimeSpan.FromSeconds(5), () => Task.FromResult(("partial", "the budget ran out")));
+        await job.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("partial", s.BackgroundKind);
+        var other = s.StartBackground("job-kind2", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "partial words first")));
+        await other.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("complete", s.BackgroundKind);
     }
 
     [Fact]
@@ -251,7 +263,7 @@ public sealed class WorkerSessionBaseTests : IDisposable
     {
         await using var s = await Open();
         var threw = new TaskCompletionSource();
-        var job = s.StartBackground("job-throw", TimeSpan.FromSeconds(5), () => Task.FromResult("done"),
+        var job = s.StartBackground("job-throw", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")),
             (_, _) =>
             {
                 threw.TrySetResult();
@@ -271,12 +283,12 @@ public sealed class WorkerSessionBaseTests : IDisposable
         var heardByFirst = 0;
         var firstEnded = new TaskCompletionSource();
         var secondEnded = new TaskCompletionSource();
-        first.StartBackground("job-one", TimeSpan.FromSeconds(5), () => Task.FromResult("done"), (_, _) =>
+        first.StartBackground("job-one", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")), (_, _) =>
         {
             Interlocked.Increment(ref heardByFirst);
             firstEnded.TrySetResult();
         });
-        second.StartBackground("job-two", TimeSpan.FromSeconds(5), () => Task.FromResult("done"), (_, _) => secondEnded.TrySetResult());
+        second.StartBackground("job-two", TimeSpan.FromSeconds(5), () => Task.FromResult(("complete", "done")), (_, _) => secondEnded.TrySetResult());
         await Task.WhenAll(firstEnded.Task, secondEnded.Task).WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(1, heardByFirst);
     }
