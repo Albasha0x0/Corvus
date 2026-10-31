@@ -43,6 +43,8 @@ internal sealed class ToolSession : IAsyncDisposable
         try
         {
             await host.StartAsync(cancellationToken);
+            // One call follows, so --load paths are in the workspace before it runs.
+            await host.Services.GetRequiredService<ServerHost.PreloadRun>().Completed.WaitAsync(cancellationToken);
             var client = await SdkClient.CreateAsync(new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream()),
                 new McpClientOptions { ClientInfo = new Implementation { Name = ClientName, Version = Installation.Version } },
                 cancellationToken: cancellationToken);

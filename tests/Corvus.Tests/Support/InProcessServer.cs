@@ -25,6 +25,7 @@ internal sealed class InProcessServer : IAsyncDisposable
         if (options.Preload.Count == 0) options.Preload.Add(Env.FixturePath);
         var server = new InProcessServer(options);
         await server._host.StartAsync();
+        await server._host.Services.GetRequiredService<ServerHost.PreloadRun>().Completed;
         server.Client = await McpClient.CreateAsync(new StreamClientTransport(server._toServer.Writer.AsStream(), server._toClient.Reader.AsStream()),
             new McpClientOptions
             {

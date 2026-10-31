@@ -50,6 +50,134 @@ public class ServerHostTests
     }
 
     [Fact]
+    public async Task A_missing_preload_path_reaches_the_first_tool_result()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
+        options.Preload.Add(Path.Combine(Path.GetTempPath(), $"absent-{Guid.NewGuid():N}.dll"));
+        Pipe toServer = new(), toClient = new();
+        using var host = ServerHost.Build(options, "test", server => server.WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream()));
+        await host.StartAsync();
+        await host.Services.GetRequiredService<ServerHost.PreloadRun>().Completed;
+        try
+        {
+            await using var client = await McpClient.CreateAsync(new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream()));
+            var listed = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?>());
+            var text = string.Concat(listed.Content.OfType<TextContentBlock>().Select(c => c.Text));
+            Assert.Contains("[workspace]", text);
+            Assert.Contains("Next: load_assembly path=", text);
+        }
+        finally
+        {
+            toServer.Writer.Complete();
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public void A_partial_preload_queues_one_notice_per_failed_path_in_order()
+    {
+        var first = Path.Combine(Path.GetTempPath(), $"absent-a-{Guid.NewGuid():N}.dll");
+        var second = Path.Combine(Path.GetTempPath(), $"absent-b-{Guid.NewGuid():N}.dll");
+        var options = new ServerOptions();
+        options.Preload.Add(first);
+        options.Preload.Add(Env.FixturePath);
+        options.Preload.Add(second);
+        using var workspace = new AssemblyWorkspace();
+        ServerHost.Preload(workspace, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, options);
+        Assert.Single(workspace.Assemblies);
+        var notices = workspace.DrainNotices();
+        Assert.Equal(2, notices.Count);
+        Assert.Contains(first, notices[0]);
+        Assert.Contains(second, notices[1]);
+    }
+
+    [Fact]
+    public void A_cancelled_preload_names_the_cancellation()
+    {
+        var options = new ServerOptions();
+        options.Preload.Add(Env.FixturePath);
+        using var workspace = new AssemblyWorkspace();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        ServerHost.Preload(workspace, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, options, cts.Token);
+        var notice = Assert.Single(workspace.DrainNotices());
+        Assert.Contains("was cancelled", notice);
+        Assert.Empty(workspace.Assemblies);
+    }
+
+    // Regression: fix(session) load --load paths after the transport is up.
+    [Fact]
+    public async Task A_stalled_preload_does_not_delay_initialize()
+    {
+        using var dir = new TempDir();
+        var held = dir.File("held.dll");
+        File.WriteAllBytes(held, File.ReadAllBytes(Env.FixturePath));
+        var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
+        options.Preload.Add(held);
+        Pipe toServer = new(), toClient = new();
+        using var host = ServerHost.Build(options, "test", server => server.WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream()));
+        var workspace = host.Services.GetRequiredService<AssemblyWorkspace>();
+        // The workspace write lock is held, so the preload cannot finish until it is released.
+        var gate = new ManualResetEventSlim();
+        var locked = new ManualResetEventSlim();
+        var holder = Task.Run(() => workspace.Write(() => { locked.Set(); gate.Wait(); return 0; }));
+        locked.Wait(TimeSpan.FromSeconds(30));
+        await host.StartAsync();
+        try
+        {
+            await using var client = await McpClient.CreateAsync(new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream()))
+                .WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.False(host.Services.GetRequiredService<ServerHost.PreloadRun>().Completed.IsCompleted);
+        }
+        finally
+        {
+            gate.Set();
+            await holder;
+            await host.Services.GetRequiredService<ServerHost.PreloadRun>().Completed;
+            Assert.Single(workspace.Assemblies);
+            Assert.Empty(workspace.DrainNotices());
+            toServer.Writer.Complete();
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_call_during_the_preload_waits_for_it_and_sees_the_loaded_image()
+    {
+        using var dir = new TempDir();
+        var held = dir.File("held.dll");
+        File.WriteAllBytes(held, File.ReadAllBytes(Env.FixturePath));
+        var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
+        options.Preload.Add(held);
+        Pipe toServer = new(), toClient = new();
+        using var host = ServerHost.Build(options, "test", server => server.WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream()));
+        var workspace = host.Services.GetRequiredService<AssemblyWorkspace>();
+        // The workspace write lock is held, so the preload cannot finish until it is released.
+        var gate = new ManualResetEventSlim();
+        var locked = new ManualResetEventSlim();
+        var holder = Task.Run(() => workspace.Write(() => { locked.Set(); gate.Wait(); return 0; }));
+        locked.Wait(TimeSpan.FromSeconds(30));
+        await host.StartAsync();
+        try
+        {
+            await using var client = await McpClient.CreateAsync(new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream()))
+                .WaitAsync(TimeSpan.FromSeconds(30));
+            var call = client.CallToolAsync("list_assemblies").AsTask();
+            Assert.NotSame(call, await Task.WhenAny(call, Task.Delay(500)));
+            gate.Set();
+            var result = await call.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Contains("TestFixture", string.Concat(result.Content.OfType<TextContentBlock>().Select(c => c.Text)));
+        }
+        finally
+        {
+            gate.Set();
+            await holder;
+            toServer.Writer.Complete();
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
     public async Task The_handshake_name_selects_the_client_profile()
     {
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
@@ -84,6 +212,7 @@ public class ServerHostTests
         using var host = ServerHost.Build(options, "test instructions",
             server => server.WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream()));
         await host.StartAsync();
+        await host.Services.GetRequiredService<ServerHost.PreloadRun>().Completed;
         try
         {
             await using var client = await McpClient.CreateAsync(new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream()));

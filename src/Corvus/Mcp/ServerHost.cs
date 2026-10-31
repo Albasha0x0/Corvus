@@ -58,10 +58,19 @@ public static class ServerHost
                 context.Services!.GetRequiredService<ResourceSubscriptions>().Unsubscribe(context.Params!.Uri);
                 return ValueTask.FromResult(new EmptyResult());
             })
-            .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap).AddReadResourceFilter(ProtocolFilter.ReadResource)
-                .AddGetPromptFilter(ProtocolFilter.GetPrompt).AddCompleteFilter(ProtocolFilter.Complete))
+            // Requests that read the workspace wait for the --load paths, so a call right after initialize sees them;
+            // the wait is inside the call filters, so it is traced, bounded and cancelled like the call.
+            .WithRequestFilters(filters => filters
+                .AddCallToolFilter(CallFilter.Wrap).AddReadResourceFilter(ProtocolFilter.ReadResource)
+                .AddGetPromptFilter(ProtocolFilter.GetPrompt).AddCompleteFilter(ProtocolFilter.Complete)
+                .AddCallToolFilter(AfterPreload).AddReadResourceFilter(AfterPreload).AddGetPromptFilter(AfterPreload).AddCompleteFilter(AfterPreload))
             .WithMessageFilters(filters => filters.AddIncomingFilter(next => async (context, ct) =>
                 await context.Services!.GetRequiredService<ResourceSubscriptions>().ListenFilter(next)(context, ct)));
+
+        // Registered after the server: the transport is up first.
+        builder.Services.AddSingleton<PreloadRun>();
+        builder.Services.AddHostedService(sp => new PreloadStarter(sp.GetRequiredService<PreloadRun>(), sp.GetRequiredService<AssemblyWorkspace>(),
+            sp.GetRequiredService<ILogger<AssemblyWorkspace>>(), options));
 
         var host = builder.Build();
         // The tools and the full tools/list are made while the rest starts; the transport's first request waits for them.
@@ -83,7 +92,6 @@ public static class ServerHost
         host.Services.GetRequiredService<EditJournal>();
         var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
         host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();
-        Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
         return host;
     }
 
@@ -159,16 +167,56 @@ public static class ServerHost
         return file.Read(head) == 4 && head.SequenceEqual("PK\x03\x04"u8);
     }
 
-    internal static void Preload(AssemblyWorkspace workspace, ILogger log, ServerOptions options)
+    // A failed or cancelled preload has already left its notices; the request runs on what loaded.
+    private static McpRequestHandler<TParams, TResult> AfterPreload<TParams, TResult>(McpRequestHandler<TParams, TResult> next) => async (context, ct) =>
+    {
+        try { await context.Services!.GetRequiredService<PreloadRun>().Completed.WaitAsync(ct); }
+        catch (Exception) when (!ct.IsCancellationRequested) { }
+        return await next(context, ct);
+    };
+
+    /// <summary>The background load of --load paths; <see cref="Completed"/> ends when every path has been tried.</summary>
+    internal sealed class PreloadRun
+    {
+        /// <summary>The running load; already complete when nothing is preloaded.</summary>
+        public Task Completed { get; internal set; } = Task.CompletedTask;
+    }
+
+    private sealed class PreloadStarter(PreloadRun run, AssemblyWorkspace workspace, ILogger log, ServerOptions options) : IHostedService
+    {
+        private readonly CancellationTokenSource _stop = new();
+
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            run.Completed = Task.Run(() => Preload(workspace, log, options, _stop.Token), CancellationToken.None);
+            return Task.CompletedTask;
+        }
+
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            _stop.Cancel();
+            try { await run.Completed.WaitAsync(cancellationToken); }
+            catch (OperationCanceledException) { /* the host is not waiting longer */ }
+        }
+    }
+
+    /// <summary>
+    /// Loads each --load path and logs the result; a failed, partial or cancelled load queues a notice
+    /// for the next tool result, a complete one stays silent.
+    /// </summary>
+    internal static void Preload(AssemblyWorkspace workspace, ILogger log, ServerOptions options, CancellationToken ct = default)
     {
         foreach (var path in options.Preload)
         {
             try
             {
+                ct.ThrowIfCancellationRequested();
                 if (Directory.Exists(path))
                 {
-                    var report = workspace.LoadDirectory(path, recursive: false);
+                    var report = workspace.LoadDirectory(path, recursive: false, (_, _, _) => ct.ThrowIfCancellationRequested());
                     log.LogInformation("Preloaded {Count} assemblies from {Dir} ({Skipped} skipped)", report.Loaded.Count, path, report.Skipped.Count);
+                    if (report.Skipped.Count > 0)
+                        workspace.Notify($"Preloaded {report.Loaded.Count} assemblies from {path}, skipped {report.Skipped.Count}. Next: load_assembly path=\"{path}\" to see why.");
                 }
                 else
                 {
@@ -176,14 +224,20 @@ public static class ServerHost
                     catch (ToolError) when (IsZip(path))
                     {
                         // A zip-family container (.vsix, .nupkg, .zip): its assemblies, as unpack_container loads them.
-                        var report = new UnpackService(workspace).Unpack(path, null, load: true, AnalysisLimits.Default, CancellationToken.None);
+                        var report = new UnpackService(workspace).Unpack(path, null, load: true, AnalysisLimits.Default, ct);
                         log.LogInformation("Preloaded {Count} assemblies from {Container} ({Kind})", report.Files.Count(f => f.LoadedAs != null), path, report.Container);
                     }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                log.LogWarning("Preload of {Path} was cancelled", path);
+                workspace.Notify($"Preload of {path} was cancelled. Next: load_assembly path=\"{path}\".");
+            }
             catch (Exception ex)
             {
                 log.LogWarning("Could not preload {Path}: {Message}", path, ex.Message);
+                workspace.Notify($"Could not preload {path}: {ex.Message.TrimEnd('.')}. Next: load_assembly path=\"{path}\" after checking the path.");
             }
         }
     }

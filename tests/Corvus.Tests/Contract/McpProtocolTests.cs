@@ -868,6 +868,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 updated.Enqueue(n.Params.Deserialize<ResourceUpdatedNotificationParams>(McpJsonUtilities.DefaultOptions)!.Uri);
                 return ValueTask.CompletedTask;
             });
+            // A tool call waits for the --load paths, so their load sends no update to the subscription.
+            await client.CallToolAsync("list_assemblies");
             await client.SubscribeToResourceAsync("corvus://assemblies");
 
             await client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Account" }); // reads change nothing
@@ -900,6 +902,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 updated.Enqueue(n.Params?.DeepClone());
                 return ValueTask.CompletedTask;
             });
+            // A tool call waits for the --load paths, so their load sends no update to the stream.
+            await client.CallToolAsync("list_assemblies");
             using var listenEnd = new CancellationTokenSource();
             var listen = new JsonRpcRequest
             {
