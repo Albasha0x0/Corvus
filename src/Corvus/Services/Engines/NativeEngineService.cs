@@ -590,6 +590,24 @@ public sealed class NativeEngineService : IDisposable
                     : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(native, id, progress, holder.OpenedPdb), native.Released);
             }
             finally { holder.Starting = false; }
+            var estimate = new OpenEstimate(_cacheRoot ?? AnalysisCache.DefaultRoot);
+            var code = 0L;
+            // The history is advisory, so a failure here never fails the open.
+            try
+            {
+                code = OpenEstimate.CodeBytes(native.Image);
+                holder.ExpectedSeconds = estimate.Seconds(id, code);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { holder.ExpectedSeconds = 0; }
+            var profile = holder.Profile;
+            // Only an open that ran the analysis measures its rate.
+            // A saved database opens in seconds.
+            _ = holder.Opening.ContinueWith(opened =>
+            {
+                if (!opened.IsCompletedSuccessfully) return;
+                var analysis = profile.Stages(0).Where(st => st.Stage == "analysis").Sum(st => st.Seconds);
+                estimate.RecordOpen(id, code, analysis, (DateTime.UtcNow - started).TotalSeconds);
+            }, TaskScheduler.Default);
             // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
             if (id is IdaProvider.ProviderId or GhidraProvider.ProviderId)
                 holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
@@ -648,7 +666,7 @@ public sealed class NativeEngineService : IDisposable
             throw new ToolError(ErrorCode.Timeout,
                 $"the engine is still opening {native.Id} ({stage}, {seconds:0} s; a first analysis can take minutes); the open goes on in the background.",
                 "call again after details.retryAfterMs to pick up the same open; server_status shows its stage")
-                { Details = new { stillRunning = true, stage, seconds }, RetryAfter = OpenRetryAfter };
+                { Details = new { stillRunning = true, stage, seconds, expectedSeconds = holder.ExpectedSeconds }, RetryAfter = OpenRetryAfter };
         }
     }
 
@@ -749,6 +767,8 @@ public sealed class NativeEngineService : IDisposable
         /// <summary>The last open's stage timings, and whether the PDB type load after it was timed.</summary>
         public EngineOpenProfile Profile = new();
         public int PdbTimed;
+        /// <summary>Seconds a first analysis of the image is expected to take (see <see cref="OpenEstimate"/>).</summary>
+        public double ExpectedSeconds;
 
         public void DisposePatched()
         {
