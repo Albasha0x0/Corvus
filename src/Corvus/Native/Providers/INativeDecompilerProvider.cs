@@ -272,10 +272,19 @@ public sealed record NativeOpenOptions
     public string? PdbPath { get; init; }
     /// <summary>Limit for engine start plus loading or auto-analysis.</summary>
     public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromMinutes(20);
-    /// <summary>Ghidra's auto-analysis limit on a first open; by default what <see cref="OpenTimeout"/> leaves after start and import, less time to save.</summary>
+    /// <summary>A first analysis's time limit; by default what <see cref="OpenTimeout"/> leaves after start and import, less time to save.</summary>
     internal TimeSpan? AnalysisBudget { get; init; }
-    /// <summary>IDA's first analysis has no time limit and stops after this long with neither progress nor CPU use; null or non-positive keeps <see cref="OpenTimeout"/>.</summary>
+    /// <summary>A first analysis has no time limit and stops after this long with neither progress nor CPU use; null or non-positive keeps <see cref="OpenTimeout"/>.</summary>
     public TimeSpan? AnalysisStall { get; init; }
+    /// <summary>The open request's limit and analysis budget after <paramref name="elapsed"/>; a stall limit lifts both and is returned.</summary>
+    internal (TimeSpan Limit, TimeSpan Budget, TimeSpan? Stall) OpenWindow(TimeSpan elapsed)
+    {
+        var remaining = OpenTimeout - elapsed;
+        if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
+        if (AnalysisStall > TimeSpan.Zero) return (Timeout.InfiniteTimeSpan, AnalysisBudget ?? TimeSpan.FromDays(7), AnalysisStall);
+        // Without a stall limit, the analysis stops early enough to save inside the open's limit.
+        return (remaining, AnalysisBudget ?? remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2)), null);
+    }
     /// <summary>Limit for each request after the open.</summary>
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromMinutes(2);
     /// <summary>Receives start and analysis progress (elapsed time and stage).</summary>

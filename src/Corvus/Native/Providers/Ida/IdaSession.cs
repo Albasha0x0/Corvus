@@ -194,13 +194,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
             overrideArgs = IdaProvider.Args(("processor", ov.Processor), ("compiler", ov.IdaCompiler),
                 ("seeds", new JsonArray(ov.Seeds.Select(s => (JsonNode)new JsonArray(s.Kind.ToString().ToLowerInvariant(), s.Rva, s.Name)).ToArray())),
                 ("disable", new JsonArray(ov.DisabledAnalyzers.Select(a => (JsonNode)a).ToArray())));
-        var remaining = Options.OpenTimeout - clock.Elapsed;
-        if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-        // A stall limit replaces the time limit and the analysis budget.
-        var stalling = Options.AnalysisStall > TimeSpan.Zero;
-        // Without it, the analysis stops early enough to save inside the open's limit.
-        var budget = Options.AnalysisBudget ?? (stalling ? TimeSpan.FromDays(7) : remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2)));
-        if (stalling) remaining = Timeout.InfiniteTimeSpan;
+        var (remaining, budget, stall) = Options.OpenWindow(clock.Elapsed);
         var adopting = reuse ? _adopting : null;
         _adopting = null;
         JsonElement info;
@@ -208,7 +202,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         {
             info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
                 ("auto", Options.Analysis != EngineAnalysis.None), ("sha256", Entry.Sha256), ("adopted", adopting != null),
-                ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw), ("overrides", overrideArgs), ("budget_seconds", Math.Max(1, budget.TotalSeconds))), remaining, cancellationToken, stallLimit: stalling ? Options.AnalysisStall : null).ConfigureAwait(false);
+                ("md5", adopting != null ? Md5(Entry.InputCopy) : null), ("raw", raw), ("overrides", overrideArgs), ("budget_seconds", Math.Max(1, budget.TotalSeconds))), remaining, cancellationToken, stallLimit: stall).ConfigureAwait(false);
         }
         catch (ToolError e) when (adopting != null)
         {

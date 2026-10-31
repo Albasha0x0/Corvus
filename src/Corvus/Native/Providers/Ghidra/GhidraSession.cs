@@ -249,10 +249,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         System.Text.Json.JsonElement info;
         try
         {
-            var remaining = Options.OpenTimeout - clock.Elapsed;
-            if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-            // The analysis stops early enough to save what it has inside the open's limit.
-            var budget = Options.AnalysisBudget ?? remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2));
+            var (remaining, budget, stall) = Options.OpenWindow(clock.Elapsed);
             var args = WorkerRows.Args(
                 ("input", Entry.InputCopy),
                 ("project_dir", _projectDirectory),
@@ -293,7 +290,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 foreach (var offset in Code.RealModeDispatch.Handlers(image))
                     seeds.Add(new JsonArray("function", real.Isa.GhidraLoader != null ? GhidraOptions.MzLoadModule + offset : offset, null));
             if (seeds.Count > 0) args["seeds"] = seeds;
-            info = await worker.RequestAsync("open", args, remaining, cancellationToken).ConfigureAwait(false);
+            info = await worker.RequestAsync("open", args, remaining, cancellationToken, stallLimit: stall).ConfigureAwait(false);
         }
         finally
         {
