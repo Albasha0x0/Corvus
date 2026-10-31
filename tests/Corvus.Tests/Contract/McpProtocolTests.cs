@@ -1227,6 +1227,85 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.True(exited, "the server kept running after its input closed");
             Assert.Equal(0, process.ExitCode);
         }
+
+        /// <summary>Closing the input during a call ends the server and leaves no child process.</summary>
+        [Fact]
+        public async Task The_server_exits_when_its_input_closes_during_a_call()
+        {
+            // The process table is read through Windows management instrumentation.
+            if (!OperatingSystem.IsWindows()) return;
+            var library = RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll");
+            var psi = new System.Diagnostics.ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var arg in new[] { ServerDll, "--load", Env.FixturePath, "--load", library }) psi.ArgumentList.Add(arg);
+            using var process = System.Diagnostics.Process.Start(psi)!;
+            process.ErrorDataReceived += (_, _) => { };
+            process.BeginErrorReadLine();
+            var output = _dir.File("export-input-closed");
+            try
+            {
+                process.StandardInput.WriteLine("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}""");
+                process.StandardInput.Flush();
+                using var start = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                Assert.Contains("\"id\":1", await process.StandardOutput.ReadLineAsync(start.Token) ?? "");
+                _ = process.StandardOutput.ReadToEndAsync();
+                process.StandardInput.WriteLine("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+                process.StandardInput.WriteLine(JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = "export_project", arguments = new { assembly = "Newtonsoft.Json", outputDirectory = output } } }));
+                process.StandardInput.Flush();
+                // The call is in flight once the export has written its first file.
+                var deadline = DateTime.UtcNow.AddMinutes(2);
+                while (DateTime.UtcNow < deadline && !(Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output, "*", SearchOption.AllDirectories).Any()))
+                    await Task.Delay(20);
+                Assert.True(Directory.Exists(output), "the export never started");
+                Assert.False(process.HasExited, "the call ended before the input closed");
+                var tree = TreeIds(process.Id);
+                process.StandardInput.Close();
+                bool exited = process.WaitForExit(30_000);
+                if (!exited) process.Kill(entireProcessTree: true);
+                Assert.True(exited, "the server kept running after its input closed during a call");
+                Assert.Equal(0, process.ExitCode);
+                await Task.Delay(1000);
+                Assert.All(tree, child => Assert.False(IsRunning(child), $"child process {child.Id} outlived the server"));
+            }
+            finally
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+            }
+        }
+
+        // Parent-linked descendants of a process, read from the process table.
+        private static List<(int Id, DateTime Started)> TreeIds(int root)
+        {
+            var parents = new Dictionary<int, int>();
+            foreach (var line in ReadProcessTable()) { var f = line.Split(','); if (f.Length == 2 && int.TryParse(f[0], out var pid) && int.TryParse(f[1], out var ppid)) parents[pid] = ppid; }
+            var found = new List<int>();
+            for (var grew = true; grew;)
+            {
+                grew = false;
+                foreach (var (pid, ppid) in parents)
+                    if ((ppid == root || found.Contains(ppid)) && !found.Contains(pid)) { found.Add(pid); grew = true; }
+            }
+            var result = new List<(int, DateTime)>();
+            foreach (var id in found)
+                try { using var p = System.Diagnostics.Process.GetProcessById(id); result.Add((id, p.StartTime)); }
+                catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            return result;
+        }
+
+        private static IEnumerable<string> ReadProcessTable()
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("powershell", "-NoProfile -Command \"Get-CimInstance Win32_Process | ForEach-Object { \\\"$($_.ProcessId),$($_.ParentProcessId)\\\" }\"") { RedirectStandardOutput = true };
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var text = p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            return text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+
+        // Matches the start time too, so a reused process id is not taken for the child.
+        private static bool IsRunning((int Id, DateTime Started) child)
+        {
+            try { using var p = System.Diagnostics.Process.GetProcessById(child.Id); return !p.HasExited && p.StartTime == child.Started; }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException) { return false; }
+        }
     }
 
     /// <summary>Snake-case words in <paramref name="text"/> shaped like tool names (a tool verb prefix) that are not tools.</summary>
