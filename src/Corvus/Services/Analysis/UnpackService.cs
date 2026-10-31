@@ -61,17 +61,19 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     /// <param name="progress">Phase messages: reading, entries found, files written, assemblies loaded.</param>
     /// <param name="keyLog">A packet capture's TLS key log (SSLKEYLOGFILE format).</param>
+    /// <param name="password">The password of an encrypted archive or document; the only one tried.</param>
     public UnpackReport Unpack(string path, string? outputDirectory, bool load, AnalysisLimits limits, CancellationToken ct, Action<string>? progress = null,
-        string? keyLog = null) =>
-        Finish(Extract(path, outputDirectory, limits, ct, progress, keyLog), load, progress);
+        string? keyLog = null, string? password = null) =>
+        Finish(Extract(path, outputDirectory, limits, ct, progress, keyLog, password), load, progress);
 
     /// <summary>A container's files written to disk and not loaded: in walk order, with the input's kind for the next call.</summary>
     public sealed record Extraction(string Source, string Container, string Kind, string OutputDirectory, List<UnpackedFile> Files, List<string> Notes);
 
     /// <summary>Writes a container's files (the reading half of <see cref="Unpack"/>); nothing is loaded.</summary>
     public Extraction Extract(string path, string? outputDirectory, AnalysisLimits limits, CancellationToken ct, Action<string>? progress = null,
-        string? keyLog = null)
+        string? keyLog = null, string? password = null)
     {
+        using var _ = ContainerPassword.Enter(password);
         string source, sha;
         byte[]? data = null;
         Walked walked;

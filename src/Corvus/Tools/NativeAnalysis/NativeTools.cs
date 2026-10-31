@@ -55,7 +55,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     public const string AddressDescription =
-        "Hex VA/RVA (rva:/va:/off:), export, module!import or function.";
+        "Hex VA/RVA (rva:/va:/off:), export, module!import, function.";
 
     [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
     [Description("Overview of a native image: headers, sections, mitigations, imports and exports, PDB, version, signature and anomalies; " +

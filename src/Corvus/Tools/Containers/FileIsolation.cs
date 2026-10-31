@@ -174,7 +174,7 @@ public static class FileWork
 
     public sealed record SearchArgs(string Path, string Query, string? Kind, int Limit, int Offset, string? Capture, bool Values);
 
-    public sealed record ExtractArgs(string Path, string? OutputDirectory, string? KeyLog);
+    public sealed record ExtractArgs(string Path, string? OutputDirectory, string? KeyLog, string? Password = null);
 
     /// <summary>summarize_file over a path: the overview or view record, layers with the app graph's facts.</summary>
     public static readonly FileOp<SummarizeArgs, FileSummaryRecord> Summarize = new("file_summarize", "summarize_file",
@@ -190,7 +190,7 @@ public static class FileWork
 
     /// <summary>unpack_container's reading half: the files written, nothing loaded.</summary>
     public static readonly FileOp<ExtractArgs, UnpackService.Extraction> Extract = new("file_extract", "unpack_container",
-        (services, a, ct) => services.GetRequiredService<UnpackService>().Extract(a.Path, a.OutputDirectory, AnalysisLimits.Default, ct, null, a.KeyLog));
+        (services, a, ct) => services.GetRequiredService<UnpackService>().Extract(a.Path, a.OutputDirectory, AnalysisLimits.Default, ct, null, a.KeyLog, a.Password));
 
     public sealed record StringsArgs(string Path, string[]? Types, long MaxAssetBytes, double? TimeLimit);
 

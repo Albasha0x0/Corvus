@@ -28,6 +28,7 @@ internal sealed partial class CliArgs
     public string? FailOn { get; private set; }
     public bool AllowIncomplete { get; private set; }
     public string? Extract { get; private set; }
+    public string? PasswordFile { get; private set; }
     public string? Baseline { get; private set; }
     public string? Report { get; private set; }
     public string? Sarif { get; private set; }
@@ -58,6 +59,7 @@ internal sealed partial class CliArgs
                 case "--fail-on": a.FailOn = Next(); continue;
                 case "--allow-incomplete": a.AllowIncomplete = true; continue;
                 case "--extract": a.Extract = Next(); continue;
+                case "--password-file": a.PasswordFile = Next(); continue;
                 case "--baseline": a.Baseline = Next(); continue;
                 case "--report": a.Report = Next(); continue;
                 case "--sarif": a.Sarif = Next(); continue;

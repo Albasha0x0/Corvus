@@ -350,7 +350,7 @@ public static class Containers
                 entries = zip.Entries;
             }
             catch (InvalidDataException) { s.Dispose(); return null; }
-            using (zip) return ReadZipEntries(ZipReaders(entries, limits), limits, ct);
+            using (zip) return ReadZipEntries(ZipReaders(entries, null, limits), limits, ct);
         }
         if (ReaderFor(head, name) is { } reader)
         {
@@ -456,12 +456,57 @@ public static class Containers
         return b;
     }
 
-    private static List<(string FullName, Func<byte[]?> Read)> ZipReaders(IEnumerable<ZipArchiveEntry> entries, AnalysisLimits limits) =>
-        [.. entries.Select(e => (e.FullName, (Func<byte[]?>)(() =>
+    private static List<(string FullName, Func<byte[]?> Read)> ZipReaders(IEnumerable<ZipArchiveEntry> entries, byte[]? data, AnalysisLimits limits)
+    {
+        var locked = data == null ? [] : EncryptedZipEntries(data);
+        var password = ContainerPassword.Current;
+        SharpCompress.Archives.IArchive? archive = null;
+        byte[]? Unlock(string name)
         {
+            if (password == null) throw new EntryLockedException(false);
+            try
+            {
+                archive ??= SharpCompress.Archives.ArchiveFactory.OpenArchive(new MemoryStream(data!, writable: false), new SharpCompress.Readers.ReaderOptions { Password = password });
+                var entry = archive.Entries.First(e => !e.IsDirectory && e.Key?.Replace('\\', '/') == name);
+                using var s = entry.OpenEntryStream();
+                return Blob.ReadBounded(s, limits.MaxItemBytes);
+            }
+            // A wrong password surfaces as a cipher, checksum or format fault depending on the scheme.
+            catch (Exception ex) when (ex is not (OperationCanceledException or ToolError or OutOfMemoryException))
+            {
+                throw new EntryLockedException(true);
+            }
+        }
+        return [.. entries.Select(e => (e.FullName, (Func<byte[]?>)(() =>
+        {
+            if (locked.Contains(e.FullName)) return Unlock(e.FullName);
             using var s = e.Open();
             return Blob.ReadBounded(s, limits.MaxItemBytes);
         })))];
+    }
+
+    /// <summary>The names whose central directory record sets the encryption flag (ZipCrypto and AES); empty when the directory is unreadable.</summary>
+    private static HashSet<string> EncryptedZipEntries(byte[] data)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        int end = -1;
+        for (int p = data.Length - 22; p >= Math.Max(0, data.Length - 22 - 65_535); p--)
+            if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(p)) == 0x06054B50) { end = p; break; }
+        if (end < 0) return names;
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(end + 10));
+        long at = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(end + 16));
+        for (int i = 0; i < count && at + 46 <= data.Length; i++)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan((int)at)) != 0x02014B50) break;
+            ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan((int)at + 8));
+            int name = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan((int)at + 28)), extra = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan((int)at + 30)),
+                comment = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan((int)at + 32));
+            if (at + 46 + name > data.Length) break;
+            if ((flags & 1) != 0) names.Add(Encoding.UTF8.GetString(data, (int)at + 46, name));
+            at += 46 + name + extra + comment;
+        }
+        return names;
+    }
 
     private static ContainerContents OpenZip(byte[] data, string name, AnalysisLimits limits, CancellationToken ct, bool allFiles = false)
     {
@@ -485,7 +530,7 @@ public static class Containers
             return contents;
         }
         using (zip)
-            return ReadZipEntries(ZipReaders(entries, limits), limits, ct, allFiles);
+            return ReadZipEntries(ZipReaders(entries, data, limits), limits, ct, allFiles);
     }
 
     private static ContainerContents ReadZipEntries(List<(string FullName, Func<byte[]?> Read)> entries, AnalysisLimits limits, CancellationToken ct, bool allFiles = false)
@@ -519,6 +564,11 @@ public static class Containers
             catch (InvalidDataException ex)
             {
                 notes.Add(EntryDamage.Note(e.FullName, ex.Message));
+                continue;
+            }
+            catch (EntryLockedException ex)
+            {
+                notes.Add(ContainerPassword.NotRead(e.FullName, ex.Given));
                 continue;
             }
             catch (Exception ex) when (ex is IOException or NotSupportedException)

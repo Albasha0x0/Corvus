@@ -70,15 +70,15 @@ public sealed record FileSummaryRecord(string Path, long Size, string Type, stri
     public JsonObject? Detail { get; init; }
     public IReadOnlyList<string>? Notes { get; init; }
 
-    [System.ComponentModel.Description("Overview: the strongest finding level (noteworthy, review, info), or none when no view found anything.")]
+    [System.ComponentModel.Description("Overview: strongest finding level (noteworthy, review, info); none when no view found anything.")]
     public string? Level { get; init; }
 
-    [System.ComponentModel.Description("Overview: findings of every view, strongest first, at most 50; each with level, rule id, category, evidence, location and source.")]
+    [System.ComponentModel.Description("Overview: findings of all views, strongest first, at most 50: level, rule id, category, evidence, location, source.")]
     public IReadOnlyList<Finding>? Findings { get; init; }
 
     public int? FindingTotal { get; init; }
 
-    [System.ComponentModel.Description("Overview: the version digest of the rule table the levels come from; read_result format=verify names a change.")]
+    [System.ComponentModel.Description("Overview: version digest of the rule table behind the levels; read_result format=verify names a change.")]
     public string? RuleTable { get; init; }
 }
 

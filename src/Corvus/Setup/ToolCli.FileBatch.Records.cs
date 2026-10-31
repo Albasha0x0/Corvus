@@ -125,6 +125,7 @@ internal static partial class ToolCli
         {
             ["path"] = path, ["outputDirectory"] = output, ["extractOnly"] = true, ["limit"] = (int)run.Limits["containerFiles"],
         };
+        if (run.Password != null) arguments["password"] = run.Password;
         JsonObject section;
         try
         {

@@ -86,6 +86,14 @@ internal static partial class ToolCli
         if (rules != null && !File.Exists(rules) && !Directory.Exists(rules)) throw new UsageException($"No such rule file or folder: {a.Rules}.");
         if (a.FailOn is not (null or BatchLevel.Noteworthy or BatchLevel.Review)) throw new UsageException("--fail-on takes noteworthy or review.");
         if (a.AllowIncomplete && a.FailOn == null) throw new UsageException("--allow-incomplete goes with --fail-on.");
+        string? password = null;
+        if (a.PasswordFile != null)
+        {
+            if (!a.Recurse) throw new UsageException("--password-file goes with --recurse.");
+            if (!File.Exists(a.PasswordFile)) throw new UsageException($"No such password file: {a.PasswordFile}.");
+            password = File.ReadAllText(a.PasswordFile).Split('\n', 2)[0].TrimEnd('\r');
+            if (password.Length == 0) throw new UsageException("--password-file is empty.");
+        }
         var extract = OutputPath("--extract", a.Extract);
         if (extract != null && (File.Exists(extract) || Directory.Exists(extract) && Directory.EnumerateFileSystemEntries(extract).Any()))
             throw new UsageException($"--extract needs a new or empty folder: {a.Extract}.");
@@ -100,7 +108,7 @@ internal static partial class ToolCli
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(limits["timeSeconds"]));
         var baseline = a.Baseline == null ? null : ReadBaseline(Path.GetFullPath(a.Baseline), DateOnly.FromDateTime(DateTime.UtcNow));
-        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract, Baseline = baseline };
+        var run = new FileBatchRun(limits, rules, io, deadline.Token, cancellationToken) { Extract = extract, Baseline = baseline, Password = password };
         if (extract != null) Directory.CreateDirectory(extract);
         JsonObject document;
         try
@@ -194,6 +202,7 @@ internal static partial class ToolCli
         public ToolSession? Session { get; set; }
         public bool TimedOut { get; set; }
         public string? Extract { get; init; }
+        public string? Password { get; init; }
         public Baseline? Baseline { get; init; }
         public JsonArray Index { get; } = [];
     }

@@ -111,6 +111,7 @@ without an agent. Nothing in the file runs; no network calls are made.
   - `embedded`: `extract_embedded save=true` on .NET code; each item keeps its encoding chain (`base64`, `gzip`, ...).
   - `script`: the `script` view's plain text, layers peeled and constants folded, as `script.txt`; the chain names each layer.
   - `extracted` lists each file written with `path`, `kind`, `source` and `chain`; `index.json` holds the same per SHA-256.
+- `--password-file <file>` with `--recurse` reads the password of encrypted members from the first line of `<file>`.
 - `--baseline <file>` drops known findings by `key` before the levels, counts and gate are set.
   - The file: `{"schema": "corvus.baseline/1", "entries": [{"key", "reason", "owner", "expires": "yyyy-MM-dd"}]}`.
   - An earlier `corvus.batch/1` result works too: each finding is an entry with reason `from <file name>`, no owner, no expiry.

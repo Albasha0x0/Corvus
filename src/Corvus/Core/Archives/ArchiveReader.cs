@@ -44,7 +44,9 @@ internal sealed class ArchiveReader : IContainerReader
         var streamRecords = format == "rar" && stream.CanSeek ? Rar5Streams.Names(stream) : [];
         stream.Position = 0;
 
-        void Take(string path, long size, Func<Stream> open)
+        var password = ContainerPassword.Current;
+
+        void Take(string path, long size, Func<Stream> open, bool encrypted = false)
         {
             ct.ThrowIfCancellationRequested();
             entries.Add(new ContainerEntry(path, size));
@@ -61,6 +63,13 @@ internal sealed class ArchiveReader : IContainerReader
                 notes.Add(EntryDamage.Note(path, ex));
                 return;
             }
+            // A wrong or missing password surfaces as a cipher, checksum or format fault depending on the scheme.
+            catch (Exception ex) when (encrypted && ex is not (OperationCanceledException or ToolError or OutOfMemoryException))
+            {
+                entries[^1] = entries[^1] with { Detail = "encrypted; not read" };
+                notes.Add(ContainerPassword.NotRead(path, password != null));
+                return;
+            }
             total += bytes.Length;
             if (total > limits.MaxTotalBytes)
                 throw new ToolError(ErrorCode.LimitExceeded, $"{name}: extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
@@ -71,9 +80,9 @@ internal sealed class ArchiveReader : IContainerReader
         {
             if (format is "7z" or "rar")
             {
-                using var archive = ArchiveFactory.OpenArchive(stream);
+                using var archive = ArchiveFactory.OpenArchive(stream, password == null ? null : new ReaderOptions { Password = password });
                 foreach (var e in archive.Entries)
-                    if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream);
+                    if (!e.IsDirectory && e.Key is { } key) Take(key.Replace('\\', '/'), e.Size, e.OpenEntryStream, e.IsEncrypted);
             }
             else if (format == "tar" && stream.CanSeek && TarParts(stream, ct) is { } parts)
             {
@@ -105,6 +114,8 @@ internal sealed class ArchiveReader : IContainerReader
         catch (Exception ex) when (ex is SharpCompressException or InvalidDataException or EndOfStreamException
                                        or NotSupportedException or IOException or OverflowException)
         {
+            if (entries.Count == 0 && password != null && format is "7z" or "rar")
+                throw new ToolError(ErrorCode.MalformedInput, $"{name}: the {kind} archive did not open with the password; its entries are not read.", "check the password, or omit it to list what is readable");
             if (entries.Count == 0)
                 throw new ToolError(ErrorCode.MalformedInput, $"{name} is not a readable {kind} archive: {ex.Message}", $"summarize_file path={name} says what it holds");
             notes.Add($"{kind}: stopped reading at entry {entries.Count + 1}: {ex.Message}");

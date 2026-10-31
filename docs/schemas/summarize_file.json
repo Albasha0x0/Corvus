@@ -110,11 +110,11 @@
       }
     },
     "level": {
-      "description": "Overview: the strongest finding level (noteworthy, review, info), or none when no view found anything.",
+      "description": "Overview: strongest finding level (noteworthy, review, info); none when no view found anything.",
       "type": "string"
     },
     "findings": {
-      "description": "Overview: findings of every view, strongest first, at most 50; each with level, rule id, category, evidence, location and source.",
+      "description": "Overview: findings of all views, strongest first, at most 50: level, rule id, category, evidence, location, source.",
       "type": "array",
       "items": {
         "type": "object",
@@ -151,7 +151,7 @@
       "type": "integer"
     },
     "ruleTable": {
-      "description": "Overview: the version digest of the rule table the levels come from; read_result format=verify names a change.",
+      "description": "Overview: version digest of the rule table behind the levels; read_result format=verify names a change.",
       "type": "string"
     },
     "notices": {

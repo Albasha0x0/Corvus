@@ -6,7 +6,7 @@ namespace Corvus.Tools;
 /// <summary>showDecompile on the native edit tools: the pseudocode of the edited function before and after the edit.</summary>
 internal static class DecompileDiff
 {
-    public const string Description = "after: the pseudocode after the edit; diff: its unified diff.";
+    public const string Description = "after: pseudocode after the edit; diff: its unified diff.";
 
     public static readonly string[] Modes = ["none", "after", "diff"];
 

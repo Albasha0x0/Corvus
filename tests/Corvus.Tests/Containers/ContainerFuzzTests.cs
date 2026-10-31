@@ -14,6 +14,7 @@ public sealed class ContainerFuzzTests
 
     private static void Open(byte[] b, string name)
     {
+        using var _ = ContainerPassword.Enter("fuzz");
         try { Containers.Open(b, name, AnalysisLimits.Default, default, allFiles: true); }
         catch (ToolError) { }
     }
@@ -29,6 +30,8 @@ public sealed class ContainerFuzzTests
         var seeds = new (string Name, byte[] Bytes)[]
         {
             ("app.zip", ContainerFixtures.Zip(("lib/app.dll", Fixture), ("readme.txt", "hello"u8.ToArray()))),
+            ("locked.zip", ArchivePasswordTests.Zip("fuzz", aes: true, ("lib/app.dll", Fixture))),
+            ("crypto.zip", ArchivePasswordTests.Zip("fuzz", aes: false, ("lib/app.dll", Fixture))),
             ("host.dll", ContainerFixtures.Module("Host", ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(Fixture)))),
             ("app.dll", ContainerFixtures.Xalz(Fixture)),
             ("app.wasm", Webcil.FromPe(Fixture)),

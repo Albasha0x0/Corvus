@@ -12,15 +12,16 @@ namespace Corvus.Tools;
 public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options = null, Native.Providers.Worker.WorkerPool? workers = null)
 {
     [McpServerTool(Name = "unpack_container", Title = "Extract container", UseStructuredContent = true, OutputSchemaType = typeof(UnpackPage))]
-    [Description("Extract a container and load the .NET assemblies inside: single-file bundles, Costura, .nupkg, .apk / .aab, zips, " +
+    [Description("Extract a container and load its .NET assemblies: single-file bundles, Costura, .nupkg, .apk / .aab, zips, " +
                  ".asar, captures (HAR, pcap), JS bundles with source maps. Nothing runs; runnable and shell-parsed names get .bin.")]
     public Task<string> UnpackContainer(
         [Description("Container file, Blazor or ClickOnce folder.")] string path,
-        [Description("New or empty directory, or an earlier extract of this file; default under temp.")] string? outputDirectory = null,
+        [Description("New or empty directory, or an earlier extract of this file; default: temp.")] string? outputDirectory = null,
         [Description("Extract without loading the assemblies; default: loaded, ids in loadedAs.")] bool extractOnly = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 100,
         [Description("TLS key log of a pcap (SSLKEYLOGFILE) to decrypt with.")] string? keyLog = null,
+        [Description("Password of encrypted zip, 7z, RAR or Office document; only it is tried.")] string? password = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
@@ -29,8 +30,8 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
             // The worker writes the files; loading them stays here, where the workspace is.
             // A sandboxed worker writes only under labelled folders: it extracts to a staging folder and the server fills the named one.
             var staging = outputDirectory != null && FileIsolation.PoolFor(options, workers) is { Sandboxed: true } ? StagedExtraction.NewStaging() : null;
-            var args = new FileWork.ExtractArgs(path, staging ?? outputDirectory, keyLog);
-            Func<UnpackService.Extraction> extract = () => unpacker.Extract(path, outputDirectory, AnalysisLimits.Default, cancellationToken, Report, keyLog);
+            var args = new FileWork.ExtractArgs(path, staging ?? outputDirectory, keyLog, password);
+            Func<UnpackService.Extraction> extract = () => unpacker.Extract(path, outputDirectory, AnalysisLimits.Default, cancellationToken, Report, keyLog, password);
             var extraction = await FileIsolation.RunAsync(options, workers, FileWork.Extract, args, path, extract, cancellationToken);
             if (staging != null) extraction = StagedExtraction.Place(extraction, staging, outputDirectory!);
             var report = await Task.Run(() => unpacker.Finish(extraction, !extractOnly, Report), cancellationToken);

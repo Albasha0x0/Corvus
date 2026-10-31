@@ -684,6 +684,32 @@ public class FileBatchTests
     }
 
     [Fact]
+    public async Task A_password_file_opens_the_encrypted_members_of_a_recursed_zip()
+    {
+        using var dir = new TempDir();
+        var input = Directory.CreateDirectory(Path.Combine(dir.Path, "in")).FullName;
+        File.WriteAllBytes(Path.Combine(input, "locked.zip"), ArchivePasswordTests.Zip("batch secret", aes: true, ("notes/readme.txt", "member text for the batch"u8.ToArray())));
+        File.WriteAllText(dir.File("password.txt"), "batch secret");
+        var (code, locked, _) = await Batch("--file", input, "--recurse");
+        Assert.Equal(0, code);
+        Assert.DoesNotContain(locked!["records"]!.AsArray(), r => r!["file"]!["paths"]!.AsArray().Any(p => ((string)p!).EndsWith("readme.txt", StringComparison.Ordinal)));
+        var (opened, document, output) = await Batch("--file", input, "--recurse", "--password-file", dir.File("password.txt"));
+        Assert.Equal(0, opened);
+        Assert.Contains(document!["records"]!.AsArray(), r => r!["file"]!["paths"]!.AsArray().Any(p => ((string)p!).EndsWith("readme.txt", StringComparison.Ordinal)));
+        Assert.DoesNotContain("batch secret", output);
+    }
+
+    [Fact]
+    public async Task A_password_file_without_recurse_is_a_usage_error()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("password.txt"), "secret");
+        var (code, _, output) = await Batch("--file", dir.Path, "--password-file", dir.File("password.txt"));
+        Assert.Equal(2, code);
+        Assert.Empty(output);
+    }
+
+    [Fact]
     public async Task Extract_refuses_a_folder_that_is_not_empty()
     {
         using var dir = new TempDir();
