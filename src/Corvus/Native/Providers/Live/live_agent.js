@@ -84,9 +84,14 @@ const registryMissesDelayLoads = (() => {
   return major < 17 || (major === 17 && minor < 25);
 })();
 
-function loadedModules() {
-  const rows = Process.enumerateModules().map(moduleRow);
-  if (Process.platform !== 'windows' || !registryMissesDelayLoads) return rows;
+// Workaround for frida/frida-gum#1199 (tested on 17.25.0, no fix release yet):
+// IL-only images the .NET runtime loads are in the loader's list but missing
+// from the registry and its observer; each LoadLibrary that returns adds them.
+const registryMissesIlImages = Process.platform === 'windows' && !registryMissesDelayLoads;
+
+// The loader's modules not in known, as rows; empty when the walk fails.
+function unlistedModules(known) {
+  const rows = [];
   try {
     const k32 = Process.getModuleByName('kernel32.dll');
     const abi = Process.arch === 'ia32' ? 'stdcall' : 'default';
@@ -95,7 +100,6 @@ function loadedModules() {
     const self = ptr(Process.pointerSize === 8 ? '0xffffffffffffffff' : '0xffffffff'); // GetCurrentProcess()
     const capacity = 2048, handles = Memory.alloc(capacity * Process.pointerSize), needed = Memory.alloc(4);
     if (!enumModules(self, handles, capacity * Process.pointerSize, needed)) return rows;
-    const known = new Set(rows.map(r => r.base));
     const name = Memory.alloc(2 * 32768);
     const count = Math.min(needed.readU32() / Process.pointerSize, capacity);
     for (let i = 0; i < count; i++) {
@@ -108,9 +112,15 @@ function loadedModules() {
       rows.push({ name: path.substring(path.lastIndexOf('\\') + 1), base: base.toString(), size, path });
     }
   } catch (e) {
-    // The observer's list stands.
+    // The registry's list stands.
   }
   return rows;
+}
+
+function loadedModules() {
+  const rows = Process.enumerateModules().map(moduleRow);
+  if (Process.platform !== 'windows' || !(registryMissesDelayLoads || registryMissesIlImages)) return rows;
+  return rows.concat(unlistedModules(new Set(rows.map(r => r.base))));
 }
 
 // Modules with deferred points (lower-case name, or without extension): the loading thread waits for load-<tid>
@@ -267,48 +277,76 @@ const emulated = (() => {
 })();
 
 let moduleObserver = null;
+// Module bases the observer or the load hook reported.
+const reported = new Set();
 if (typeof Process.attachModuleObserver === 'function') {
   moduleObserver = Process.attachModuleObserver({
     onAdded(m) {
-      // The module event goes out before the JIT is hooked, so a stall while
-      // hooking still shows the JIT loaded.
-      const running = !observing;
-      try {
-        if (!observing) return;
-        const held = deferredModules.size > 0 && isDeferred(m);
-        // Start-up code overwrites earlier points: hold once it returns. The registry may report the DLL late (frida/frida-gum#1190).
-        const start = held ? codeWrittenAtStart(m) : null;
-        if (start === null) {
-          moduleLoaded(m, held, false);
-          return;
-        }
-        // Under emulation hooks in start-up-written code do not run and the loader's frames are native, so no return hook.
-        if (emulated) {
-          moduleLoaded(m, false, false, 'its entry point writes its code, and a stop point there is not seen in a program emulated on an ARM64 machine');
-          return;
-        }
-        const inside = returnFrom(m), tid = Process.getCurrentThreadId();
-        if (inside !== null) {
-          const returned = Interceptor.attach(inside.at, function () {
-            // Past the slot once returned (stdcall pops its arguments); a nested load's return stays below it.
-            if (this.threadId !== tid || this.context.sp.compare(inside.slot) <= 0) return;
-            returned.detach();
-            moduleLoaded(m, true, true);
-          });
-        } else if (start.empty.every(r => new Uint8Array(r.at.readByteArray(r.size)).every(b => b === 0))) { // the entry point has not run yet
-          const started = Interceptor.attach(start.entry, { onLeave() { started.detach(); moduleLoaded(m, true, true); } });
-        } else { // it has returned already
-          moduleLoaded(m, true, true);
-          return;
-        }
-        // Attached inside the observer: in place before the loader goes on.
-        Interceptor.flush();
-      } finally {
-        if (JIT_LIBRARY.test(m.name)) hookJit(m, running);
-      }
+      reported.add(m.base.toString());
+      moduleAdded(m);
     },
-    onRemoved(m) { if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) }); },
+    onRemoved(m) {
+      reported.delete(m.base.toString());
+      if (observing) send({ type: 'module', action: 'unloaded', module: moduleRow(m) });
+    },
   });
+}
+
+function moduleAdded(m) {
+  // The module event goes out before the JIT is hooked, so a stall while
+  // hooking still shows the JIT loaded.
+  const running = !observing;
+  try {
+    if (!observing) return;
+    const held = deferredModules.size > 0 && isDeferred(m);
+    // Start-up code overwrites earlier points: hold once it returns. The registry may report the DLL late (frida/frida-gum#1190).
+    const start = held ? codeWrittenAtStart(m) : null;
+    if (start === null) {
+      moduleLoaded(m, held, false);
+      return;
+    }
+    // Under emulation hooks in start-up-written code do not run and the loader's frames are native, so no return hook.
+    if (emulated) {
+      moduleLoaded(m, false, false, 'its entry point writes its code, and a stop point there is not seen in a program emulated on an ARM64 machine');
+      return;
+    }
+    const inside = returnFrom(m), tid = Process.getCurrentThreadId();
+    if (inside !== null) {
+      const returned = Interceptor.attach(inside.at, function () {
+        // Past the slot once returned (stdcall pops its arguments); a nested load's return stays below it.
+        if (this.threadId !== tid || this.context.sp.compare(inside.slot) <= 0) return;
+        returned.detach();
+        moduleLoaded(m, true, true);
+      });
+    } else if (start.empty.every(r => new Uint8Array(r.at.readByteArray(r.size)).every(b => b === 0))) { // the entry point has not run yet
+      const started = Interceptor.attach(start.entry, { onLeave() { started.detach(); moduleLoaded(m, true, true); } });
+    } else { // it has returned already
+      moduleLoaded(m, true, true);
+      return;
+    }
+    // Attached inside the observer: in place before the loader goes on.
+    Interceptor.flush();
+  } finally {
+    if (JIT_LIBRARY.test(m.name)) hookJit(m, running);
+  }
+}
+
+if (moduleObserver !== null && registryMissesIlImages) {
+  const loadDll = Process.getModuleByName('ntdll.dll').findExportByName('LdrLoadDll');
+  if (loadDll !== null) {
+    Interceptor.attach(loadDll, {
+      onLeave(r) {
+        // STATUS_SUCCESS only: a failed load added nothing.
+        if (r.toInt32() !== 0) return;
+        for (const row of unlistedModules(reported)) {
+          const m = Process.findModuleByAddress(ptr(row.base));
+          if (m === null || reported.has(m.base.toString())) continue;
+          reported.add(m.base.toString());
+          moduleAdded(m);
+        }
+      },
+    });
+  }
 }
 // The program's thread ids, without Frida's. Workaround for frida/frida-gum#1196 (tested 17.24.3, no fix yet): Linux
 // enumeration ptrace-attaches each thread and can hang, so /proc lists the ids.

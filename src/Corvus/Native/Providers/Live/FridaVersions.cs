@@ -9,8 +9,8 @@ public static class FridaVersions
     public static readonly Version Required = new(17, 0, 0);
     /// <summary>The oldest release the live tests passed on.</summary>
     public static readonly Version TestedFrom = new(17, 24, 3);
-    /// <summary>The first release outside the range: on 17.25.0 a program that starts a child process ends with an
-    /// access violation and a managed program's assembly load is not reported (Windows x64).</summary>
+    /// <summary>The first release outside the range: on 17.25.0 an attached program that loads the compatibility
+    /// shim engine ends with an access violation at exit (frida/frida-gum#1200, Windows x64).</summary>
     public static readonly Version TestedBefore = new(17, 25, 0);
 
     public static string TestedRange => $"{TestedFrom} to {TestedBefore.Major}.{TestedBefore.Minor - 1}.x";

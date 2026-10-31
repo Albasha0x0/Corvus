@@ -283,9 +283,11 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
             ["session"] = "live-1", ["action"] = "load",
             ["source"] = """
                 const d = Process.enumerateModules().find(m => m.name.toLowerCase() === 'dbghelp.dll' && m.path.toLowerCase().includes('frida-'));
-                const get = new NativeFunction(d.getExportByName('SymGetSearchPathW'), 'int', ['pointer', 'pointer', 'uint32'], Process.arch === 'ia32' ? 'stdcall' : 'default');
-                const b = Memory.alloc(4096);
-                send({ search: get(ptr(Process.pointerSize === 8 ? '0xffffffffffffffff' : '0xffffffff'), b, 2048) ? b.readUtf16String() : null, dbghelp: d.path });
+                if (d) {
+                  const get = new NativeFunction(d.getExportByName('SymGetSearchPathW'), 'int', ['pointer', 'pointer', 'uint32'], Process.arch === 'ia32' ? 'stdcall' : 'default');
+                  const b = Memory.alloc(4096);
+                  send({ search: get(ptr(Process.pointerSize === 8 ? '0xffffffffffffffff' : '0xffffffff'), b, 2048) ? b.readUtf16String() : null, dbghelp: d.path });
+                } else send({ search: null, frida: Frida.version });
                 """,
         });
         Assert.False(failed, loaded);
@@ -294,6 +296,14 @@ public sealed class LiveFridaRealTests(ITestOutputHelper output) : IDisposable
         {
             (events, _) = await Call(server, "live_events", new() { ["session"] = "live-1", ["kind"] = "script" });
             await Task.Delay(100);
+        }
+        // From 17.25.0 the agent carries no dbghelp of its own: there is no search to narrow.
+        var bare = Regex.Match(events, @"""search"":null,""frida"":""([^""]*)""");
+        if (bare.Success)
+        {
+            Assert.True(FridaVersions.Parse(bare.Groups[1].Value) >= new Version(17, 25, 0), events);
+            await Call(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
+            return;
         }
         var m = Regex.Match(events, @"""search"":""([^""]*)"",""dbghelp"":""([^""]*)""");
         Assert.True(m.Success, events);
