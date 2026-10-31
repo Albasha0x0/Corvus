@@ -133,8 +133,7 @@ public sealed class CryptoConstantTests : IDisposable
         Assert.DoesNotContain(Aes, text);
     }
 
-    // F-CRYPTO-1: the current rules match little-endian words only.
-    [Fact(Skip = "F-CRYPTO-1")]
+    [Fact]
     public async Task A_Blowfish_big_endian_P_array_is_named_at_its_offset()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -142,8 +141,7 @@ public sealed class CryptoConstantTests : IDisposable
         AssertAt(Pa, 0x140, text);
     }
 
-    // F-CRYPTO-1: no rule reads the first S-box words 0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7.
-    [Fact(Skip = "F-CRYPTO-1")]
+    [Fact]
     public async Task A_Blowfish_S_box_is_named_at_its_offset()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -151,13 +149,107 @@ public sealed class CryptoConstantTests : IDisposable
         AssertAt("Blowfish S-box", 0x300, text);
     }
 
-    // F-CRYPTO-1: a P-array without an S-box should report weak evidence; no strength is reported today.
-    [Fact(Skip = "F-CRYPTO-1")]
+    [Fact]
     public async Task A_Blowfish_P_array_without_an_S_box_is_reported_as_weak_evidence()
     {
         await using var server = await InProcessServer.StartAsync();
         var text = await SurveyBytes(server, [.. Pad(0x140), .. Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(0x80)]);
         Assert.Contains("weak", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_Blowfish_P_array_followed_by_S_box_0_is_not_weak_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(56), .. Le(0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7), .. Pad(0x80)]);
+        AssertAt(Pa, 0x40, text);
+        Assert.Contains("followed by S-box 0", text);
+    }
+
+    [Fact]
+    public async Task A_big_endian_Blowfish_P_array_followed_by_S_box_0_is_graded_as_followed()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Be(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(56), .. Be(0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7), .. Pad(0x80)]);
+        Assert.Contains("followed by S-box 0", text);
+    }
+
+    [Fact]
+    public async Task A_Blowfish_P_array_followed_by_a_different_head_is_weak_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(56), .. Le(0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB8), .. Pad(0x80)]);
+        Assert.Contains("weak", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_Blowfish_P_array_followed_by_an_S_box_in_the_other_byte_order_is_weak_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344), .. Pad(56), .. Be(0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7), .. Pad(0x80)]);
+        Assert.Contains("weak", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_lone_Blowfish_S_box_is_named_as_partial_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x300), .. Le(0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7), .. Pad(0x80)]);
+        Assert.Contains("S-box 0 only, partial", text);
+        Assert.Contains("not at 1024-byte strides", text);
+    }
+
+    private static byte[] FourBlowfishBoxes(Func<uint[], byte[]> order, Func<uint[], byte[]>? orderLast = null)
+    {
+        byte[] Box(Func<uint[], byte[]> f, params uint[] head) => [.. f(head), .. Pad(1024 - 16)];
+        orderLast ??= order;
+        return [.. Pad(0x200), .. Box(order, 0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7), .. Box(order, 0x4B7A70E9, 0xB5B32944, 0xDB75092E, 0xC4192623),
+            .. Box(order, 0xE93D5A68, 0x948140F7, 0xF64C261C, 0x94692934), .. Box(orderLast, 0x3A39CE37, 0xD3FAF5CF, 0xABC27737, 0x5AC52D1B)];
+    }
+
+    [Fact]
+    public async Task Four_big_endian_Blowfish_S_boxes_a_kilobyte_apart_are_named_as_full_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, FourBlowfishBoxes(h => Be(h)));
+        AssertAt("Blowfish S-box", 0x200, text);
+        Assert.Contains("4 S-boxes of 256 dwords", text);
+    }
+
+    [Fact]
+    public async Task Four_little_endian_Blowfish_S_boxes_a_kilobyte_apart_are_named_as_full_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, FourBlowfishBoxes(h => Le(h)));
+        AssertAt("Blowfish S-box", 0x200, text);
+        Assert.Contains("4 S-boxes of 256 dwords", text);
+    }
+
+    [Fact]
+    public async Task Blowfish_S_boxes_in_mixed_byte_orders_are_partial_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, FourBlowfishBoxes(h => Le(h), h => Be(h)));
+        Assert.DoesNotContain("4 S-boxes of 256 dwords", text);
+        Assert.Contains("S-box 0 only, partial", text);
+    }
+
+    [Fact]
+    public async Task A_lone_CAST_S_box_is_named_as_partial_evidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x30FB40D4, 0x9FA0FF0B, 0x6BECCD2F, 0x3F258C7A), .. Pad(0x80)]);
+        AssertAt("CAST-128 S-box", 0x100, text);
+        Assert.Contains("partial", text);
+    }
+
+    [Fact]
+    public async Task Two_CAST_S_boxes_a_kilobyte_apart_are_named_with_block_and_key_size()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x30FB40D4, 0x9FA0FF0B, 0x6BECCD2F, 0x3F258C7A), .. Pad(1024 - 16), .. Le(0x1E213F2F, 0x9C004DD3, 0x6003E540, 0xCF9FC949), .. Pad(0x40)]);
+        AssertAt("CAST-128 S-box", 0x100, text);
+        Assert.Contains("64-bit block, key 40 to 128 bits", text);
     }
 
     /// <summary>

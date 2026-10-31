@@ -11,8 +11,49 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private const int MaxLocations = 5;
     private const long MaxScanBytes = 256L << 20;
 
-    /// <summary>A constant set: its byte patterns and whether they count only in code (an immediate).</summary>
-    private sealed record Constant(string Algorithm, bool CodeOnly, byte[][] Patterns);
+    /// <summary>Describes one hit from the section bytes, the offset and the matched pattern; null adds no detail.</summary>
+    private delegate string? DetailFn(ReadOnlySpan<byte> bytes, int at, byte[] pattern);
+
+    /// <summary>A constant set: its byte patterns, whether they count only in code (an immediate) and an optional per-hit detail.</summary>
+    private sealed record Constant(string Algorithm, bool CodeOnly, byte[][] Patterns, DetailFn? Detail = null);
+
+    // Whether a table head in the given byte order sits at the offset.
+    private static bool HeadAt(ReadOnlySpan<byte> bytes, int at, uint[] head, bool big)
+    {
+        if (at < 0 || at > bytes.Length) return false;
+        var s = bytes[at..];
+        return s.StartsWith(big ? Be(head) : Le(head));
+    }
+
+    // Whether the matched pattern is the big-endian form of the head.
+    private static bool IsBig(byte[] pattern, uint[] head) => pattern.AsSpan().SequenceEqual(Be(head));
+
+    private static readonly uint[] BlowfishP = [0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344];
+    private static readonly uint[] BlowfishS0 = [0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7];
+    private static readonly uint[][] BlowfishS1To3 =
+    [
+        [0x4B7A70E9, 0xB5B32944, 0xDB75092E, 0xC4192623],
+        [0xE93D5A68, 0x948140F7, 0xF64C261C, 0x94692934],
+        [0x3A39CE37, 0xD3FAF5CF, 0xABC27737, 0x5AC52D1B],
+    ];
+    private static readonly uint[] CastS1 = [0x30FB40D4, 0x9FA0FF0B, 0x6BECCD2F, 0x3F258C7A];
+    private static readonly uint[] CastS2 = [0x1E213F2F, 0x9C004DD3, 0x6003E540, 0xCF9FC949];
+
+    // The P-array is 72 bytes; each S-box is 1024 bytes. One byte order holds throughout a table.
+    private static string? BlowfishPDetail(ReadOnlySpan<byte> bytes, int at, byte[] pattern) =>
+        HeadAt(bytes, at + 72, BlowfishS0, IsBig(pattern, BlowfishP)) ? "followed by S-box 0" : "P-array only, weak evidence";
+
+    private static string? BlowfishSBoxDetail(ReadOnlySpan<byte> bytes, int at, byte[] pattern)
+    {
+        bool big = IsBig(pattern, BlowfishS0);
+        for (int i = 0; i < BlowfishS1To3.Length; i++)
+            if (!HeadAt(bytes, at + 1024 * (i + 1), BlowfishS1To3[i], big))
+                return "S-box 0 only, partial; S-boxes 1 to 3 not at 1024-byte strides";
+        return "4 S-boxes of 256 dwords, 64-bit block, key up to 448 bits";
+    }
+
+    private static string? CastDetail(ReadOnlySpan<byte> bytes, int at, byte[] pattern) =>
+        HeadAt(bytes, at + 1024, CastS2, IsBig(pattern, CastS1)) ? "S-boxes 1 and 2 of 256 dwords, 64-bit block, key 40 to 128 bits" : "S-box 1 only, partial";
 
     private static byte[] Le(params uint[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
     private static byte[] Be(params uint[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
@@ -38,7 +79,9 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["sha1-md5"] = new("MD5 / SHA-1 initial values", false, [Le(0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476)]),
         ["md5"] = new("MD5 round constants", false, [Le(0xD76AA478, 0xE8C7B756, 0x242070DB, 0xC1BDCEEE)]),
         ["crc32"] = new("CRC-32 table", false, [Le(0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA)]),
-        ["blowfish"] = new("Blowfish P-array", false, [Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344)]),
+        ["blowfish"] = new("Blowfish P-array", false, [Le(BlowfishP), Be(BlowfishP)], BlowfishPDetail),
+        ["blowfish-sbox"] = new("Blowfish S-box", false, [Le(BlowfishS0), Be(BlowfishS0)], BlowfishSBoxDetail),
+        ["cast"] = new("CAST-128 S-box", false, [Le(CastS1), Be(CastS1)], CastDetail),
         ["chacha"] = new("ChaCha20 / Salsa20 constant", false, ["expand 32-byte k"u8.ToArray(), "expand 16-byte k"u8.ToArray()]),
         // x86 code writes initial values word by word as immediates, never as one table.
         ["sha256-code"] = new("SHA-256 initial values as immediates", true, [Le(0x6A09E667), Le(0xBB67AE85)]),
@@ -53,7 +96,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:chacha", "const:tea"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:chacha", "const:tea"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3"]]),
     ];
 
@@ -82,7 +125,10 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                     uint rva = section.Rva + (uint)(from + at);
                     count++;
                     if (locations.Count < MaxLocations)
-                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}"));
+                    {
+                        var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), from + at, pattern);
+                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})"));
+                    }
                     from += at + pattern.Length;
                 }
         }
