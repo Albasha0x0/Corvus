@@ -4,8 +4,8 @@ using System.Text.Json;
 
 namespace Corvus.Core;
 
-/// <summary>A WebSocket message of a captured exchange: direction, text (binary as base64) and whether it was binary.</summary>
-public sealed record CapturedMessage(bool Sent, string Data, bool Binary);
+/// <summary>A WebSocket message of a captured exchange: direction, text (binary as base64), whether it was binary and whether its data was clipped.</summary>
+public sealed record CapturedMessage(bool Sent, string Data, bool Binary, bool Clipped = false);
 
 /// <summary>The request side of one captured exchange; callers show header and cookie values only when asked; texts are kept up to <see cref="CaptureRequests.MaxText"/> characters.</summary>
 public sealed record CapturedRequest(int Index, string Method, string Url, int Status)
@@ -20,6 +20,8 @@ public sealed record CapturedRequest(int Index, string Method, string Url, int S
     public long ResponseSize { get; init; }
     /// <summary>The response body as text when it is JSON, an event stream or NDJSON; null otherwise.</summary>
     public string? ResponseText { get; init; }
+    /// <summary>True when <see cref="ResponseText"/> was cut at <see cref="CaptureRequests.MaxText"/>.</summary>
+    public bool ResponseClipped { get; init; }
     public double? TimeMs { get; init; }
     public string? Started { get; init; }
     public IReadOnlyList<CapturedMessage>? Messages { get; init; }
@@ -31,8 +33,8 @@ public static class CaptureRequests
     /// <summary>Longest body or response text kept per exchange.</summary>
     public const int MaxText = 1 << 20;
 
-    /// <summary>Longest WebSocket message text kept, and messages kept per exchange.</summary>
-    private const int MaxMessageText = 64 * 1024, MaxMessages = 10_000;
+    /// <summary>Longest WebSocket message data kept (characters for HAR, bytes for flows), and messages kept per exchange.</summary>
+    internal const int MaxMessageText = 64 * 1024, MaxMessages = 10_000;
 
     /// <summary>Streams the requests of a HAR, mitmproxy flow or .saz file; returns the kind, or null for other files; without <paramref name="texts"/> no bodies or messages are kept.</summary>
     public static string? Read(Stream s, Action<CapturedRequest> request, List<string> notes, bool texts, CancellationToken ct)
@@ -85,6 +87,7 @@ public static class CaptureRequests
         var content = Member(rs, "content");
         string? bodyText = texts ? Str(post, "text") : null;
         string? responseType = Str(content, "mimeType");
+        string? responseText = texts && Texty(responseType) ? HarText(content) : null;
         return new CapturedRequest(index, Str(rq, "method") ?? "?", Str(rq, "url") ?? "", Int(rs, "status"))
         {
             HttpVersion = Str(rq, "httpVersion"),
@@ -95,7 +98,8 @@ public static class CaptureRequests
             BodyText = Clip(bodyText),
             ResponseType = responseType,
             ResponseSize = Long(content, "size") is > 0 and var size ? size : Math.Max(0, Long(rs, "bodySize")),
-            ResponseText = texts && Texty(responseType) ? Clip(HarText(content)) : null,
+            ResponseText = Clip(responseText),
+            ResponseClipped = responseText is { Length: > MaxText },
             TimeMs = e.ValueKind == JsonValueKind.Object && e.TryGetProperty("time", out var t) && t.TryGetDouble(out var ms) && ms >= 0 ? ms : null,
             Started = Str(e, "startedDateTime"),
             Messages = HarMessages(e, texts),
@@ -120,7 +124,7 @@ public static class CaptureRequests
         {
             if (messages.Count >= MaxMessages) break;
             var data = texts ? Str(m, "data") ?? "" : "";
-            messages.Add(new CapturedMessage(Str(m, "type") == "send", data.Length > MaxMessageText ? data[..MaxMessageText] : data, Long(m, "opcode") == 2));
+            messages.Add(new CapturedMessage(Str(m, "type") == "send", data.Length > MaxMessageText ? data[..MaxMessageText] : data, Long(m, "opcode") == 2, data.Length > MaxMessageText));
         }
         return messages;
     }
@@ -145,7 +149,7 @@ public static class CaptureRequests
                     bool binary = fields[0] is long op && op == 2;
                     var data = Bytes(fields[2]) ?? [];
                     var text = binary ? Convert.ToBase64String(data.AsSpan(0, Math.Min(data.Length, MaxMessageText))) : Encoding.UTF8.GetString(data.AsSpan(0, Math.Min(data.Length, MaxMessageText)));
-                    messages.Add(new CapturedMessage(fields[1] is true, text, binary));
+                    messages.Add(new CapturedMessage(fields[1] is true, text, binary, data.Length > MaxMessageText));
                 }
         }
         return new CapturedRequest(index, r.Method, r.Url, r.Status)
@@ -159,6 +163,7 @@ public static class CaptureRequests
             ResponseType = responseType,
             ResponseSize = response?.Length ?? 0,
             ResponseText = texts && response is { Length: > 0 } && Texty(responseType) ? Encoding.UTF8.GetString(response.AsSpan(0, Math.Min(response.Length, MaxText))) : null,
+            ResponseClipped = texts && response is { Length: > MaxText } && Texty(responseType),
             TimeMs = start != null && end != null && end >= start ? (end - start) * 1000 : null,
             Started = start != null ? DateTimeOffset.FromUnixTimeMilliseconds((long)(start.Value * 1000)).UtcDateTime.ToString("o", CultureInfo.InvariantCulture) : null,
             Messages = messages,

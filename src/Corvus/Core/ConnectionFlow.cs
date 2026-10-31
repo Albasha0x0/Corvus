@@ -29,6 +29,9 @@ public static class ConnectionFlow
     /// <summary>The destination field that receives the joined port.</summary>
     public const string DestinationPortField = "Network.Connect.port";
 
+    /// <summary>The reason given to a response whose JSON holds no host and port pair.</summary>
+    public const string NoPairReason = "no host and port field pair";
+
     private const int MaxDepth = 64;
 
     private static readonly string[] HostNames = ["host", "hostname", "address", "ip", "server"];
@@ -117,7 +120,7 @@ public static class ConnectionFlow
             notes.Add($"body is not JSON or is nested deeper than {MaxDepth} levels");
             return list;
         }
-        if (list.Count == 0 && notes.Count == 0) notes.Add("no host and port field pair");
+        if (list.Count == 0 && notes.Count == 0) notes.Add(NoPairReason);
         return list;
     }
 

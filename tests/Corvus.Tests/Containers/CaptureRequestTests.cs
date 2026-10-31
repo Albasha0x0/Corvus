@@ -72,6 +72,148 @@ public sealed class CaptureRequestTests(ITestOutputHelper output) : IDisposable
     private UnpackService.ContainerSearch Requests(string path, string query = "*", bool values = false, int offset = 0, int limit = 100) =>
         new UnpackService(_ws).Search(path, query, "request", limit, AnalysisLimits.Default, default, offset, values: values);
 
+    // A 4-byte length prefix with 2 trailing bytes, a 2-byte prefix, and an unframed sent message.
+    private string Gateway() => WriteHar("gateway.har",
+        Entry("GET", "https://gateway.example/session", 200, mime: "application/json", text: """{"server":{"host":"relay.example","port":7000}}"""),
+        Entry("GET", "wss://relay.example:7000/socket", 101, messages:
+        [
+            new { type = "receive", time = 1.0, opcode = 2, data = Convert.ToBase64String([0, 0, 0, 3, 0x61, 0x62, 0x63, 0, 0]) },
+            new { type = "receive", time = 1.1, opcode = 2, data = Convert.ToBase64String([0, 2, 0x78, 0x79]) },
+            new { type = "send", time = 1.2, opcode = 2, data = Convert.ToBase64String([0xFF, 0xFF, 0xFF]) },
+        ]));
+
+    private static GatewayResponse Reply(int sequence, string json) => new(sequence, "https://g.example/s", Encoding.UTF8.GetBytes(json));
+
+    [Fact]
+    public void A_clipped_binary_message_leaves_the_framing_unknown()
+    {
+        var clipped = new CapturedMessage(false, new string('A', CaptureRequests.MaxMessageText), true, Clipped: true);
+        Assert.Equal($"; framing received: unknown, a message is clipped at {CaptureRequests.MaxMessageText:N0}", RequestSearchKind.Framing([clipped], sent: false));
+    }
+
+    [Fact]
+    public void An_unclipped_flow_message_of_48_KB_is_not_reported_clipped()
+    {
+        var data = Convert.ToBase64String(new byte[48 * 1024]);
+        Assert.DoesNotContain("clipped", RequestSearchKind.Framing([new CapturedMessage(false, data, true)], sent: false));
+    }
+
+    [Fact]
+    public void A_binary_message_that_is_not_base64_leaves_the_framing_unknown()
+    {
+        Assert.Equal("; framing sent: unknown, a message is not base64", RequestSearchKind.Framing([new CapturedMessage(true, "not*base64!", true)], sent: true));
+    }
+
+    [Fact]
+    public void A_capture_without_binary_messages_has_no_framing_clause()
+    {
+        Assert.Equal("", RequestSearchKind.Framing([new CapturedMessage(false, "hi", false)], sent: false));
+        Assert.Equal("", RequestSearchKind.Framing([], sent: true));
+    }
+
+    [Fact]
+    public void A_message_count_at_the_bound_marks_the_framing_partial()
+    {
+        var m = new CapturedMessage(false, Convert.ToBase64String([0, 0, 0, 1, 0x61]), true);
+        var clause = RequestSearchKind.Framing(Enumerable.Repeat(m, CaptureRequests.MaxMessages).ToList(), sent: false);
+        Assert.Contains($"partial: {CaptureRequests.MaxMessages:N0} of {CaptureRequests.MaxMessages:N0} messages read", clause);
+    }
+
+    [Fact]
+    public void A_response_with_no_later_matching_request_is_named_not_joined()
+    {
+        var notes = RequestSearchKind.Flow([Reply(1, """{"host":"a.example","port":1}""")], [new(2, "b.example", 2)], 1);
+        Assert.Contains("#1 not joined: no later connect names a.example:1", notes);
+        Assert.StartsWith("connection flow: 0 join(s) from 1 of 1 JSON response(s)", notes[0]);
+    }
+
+    [Fact]
+    public void Unjoined_lines_stop_at_ten_and_count_the_remainder()
+    {
+        var responses = Enumerable.Range(1, 12).Select(i => Reply(i, $$"""{"host":"h{{i}}.example","port":{{i}}}""")).ToList();
+        var notes = RequestSearchKind.Flow(responses, [], 12);
+        Assert.Equal(10, notes.Count(n => n.Contains("not joined: ")));
+        Assert.Contains("+2 more not joined", notes);
+    }
+
+    [Fact]
+    public void Joins_stop_at_ten_and_count_the_remainder_apart_from_unjoined_lines()
+    {
+        var responses = Enumerable.Range(1, 12).Select(i => Reply(i, $$"""{"host":"h{{i}}.example","port":{{i}}}""")).Append(Reply(13, """{"host":"x.example","port":99}""")).ToList();
+        var connects = Enumerable.Range(1, 12).Select(i => new ConnectCall(100 + i, $"h{i}.example", i)).ToList();
+        var notes = RequestSearchKind.Flow(responses, connects, 13);
+        Assert.Contains("+2 more join(s)", notes);
+        Assert.Contains("#13 not joined: no later connect names x.example:99", notes);
+    }
+
+    [Fact]
+    public void A_response_without_a_host_and_port_pair_adds_no_line()
+    {
+        var notes = RequestSearchKind.Flow([Reply(1, """{"id":1}""")], [], 1);
+        Assert.Equal(["connection flow: 0 join(s) from 1 of 1 JSON response(s), 0 request URL(s) indexed; no response names a host and port."], notes);
+    }
+
+    [Fact]
+    public void Responses_past_the_read_bound_report_a_partial_count()
+    {
+        var notes = RequestSearchKind.Flow([Reply(1, """{"id":1}""")], [], 1001);
+        Assert.Contains("1 of 1,001 JSON response(s)", notes[0]);
+        Assert.Contains("partial: the first 1,000 were read", notes[0]);
+    }
+
+    [Fact]
+    public void Clipped_and_untyped_responses_are_reported_unknown_not_absent()
+    {
+        var notes = RequestSearchKind.Flow([], [], 0, clipped: 2, otherText: 3);
+        Assert.Contains($"2 JSON response(s) clipped at {CaptureRequests.MaxText:N0} were not read (unknown)", notes[1]);
+        Assert.Contains("3 response(s) not typed as JSON were not scanned (unknown)", notes[2]);
+    }
+
+    [Fact]
+    public void A_flow_message_is_clipped_by_bytes_and_marked_clipped()
+    {
+        var flow = new Dictionary<string, object?>
+        {
+            ["version"] = 19, ["type"] = "http",
+            ["request"] = new Dictionary<string, object?> { ["host"] = "h.example", ["port"] = 80, ["method"] = new byte[] { 71, 69, 84 }, ["scheme"] = "http"u8.ToArray(), ["path"] = "/"u8.ToArray(), ["headers"] = new List<object?>() },
+            ["websocket"] = new Dictionary<string, object?>
+            {
+                ["messages"] = new List<object?>
+                {
+                    new List<object?> { 2L, false, new byte[CaptureRequests.MaxMessageText], 1.0 },
+                    new List<object?> { 2L, false, new byte[CaptureRequests.MaxMessageText + 1], 1.0 },
+                },
+            },
+        };
+        var messages = CaptureRequests.FromFlow(flow, 0)!.Messages!;
+        Assert.False(messages[0].Clipped);
+        Assert.True(messages[1].Clipped);
+    }
+
+    [Fact]
+    public void A_cancelled_search_throws_before_reading_the_capture()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() => new UnpackService(_ws).Search(Gateway(), "*", "request", 10, AnalysisLimits.Default, cts.Token));
+    }
+
+    [Fact]
+    public void A_gateway_response_is_joined_to_the_later_request_that_connects_to_its_host_and_port()
+    {
+        var found = Requests(Gateway());
+        Assert.Contains(found.Notes, n => n.Contains("1 join(s) from 1 of 1 JSON response(s)"));
+        Assert.Contains(found.Notes, n => n == "#1 $.server.host, $.server.port -> request #2 relay.example:7000");
+    }
+
+    [Fact]
+    public void A_WebSocket_row_names_the_inferred_length_prefix_and_byte_order()
+    {
+        var detail = Requests(Gateway()).Items.Single(i => i.Detail!.Contains("WebSocket")).Detail;
+        Assert.Contains("framing received: [u32 big-endian payload length][payload], 2 frame(s) in 2 message(s)", detail);
+        Assert.Contains("framing sent: no length prefix explains 1 binary message(s)", detail);
+    }
+
     [Fact]
     public void Har_requests_show_names_and_never_values_by_default()
     {
