@@ -36,18 +36,59 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         var header = offset == 0 ? NotesHeader(all) : "";
         if (all.Count == 1 && all[0].Member is TypeDef)
         {
-            var source = (provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken);
+            var banner = PlaceholderBanner(all[0].Assembly, [all[0].Member]);
+            var source = banner + (provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken);
             return header + ToolOutput.Text(pager, source, offset, Page("csharp", all), maxTokens);
         }
         RequireFew(all, member);
 
         var text = pager.GetOrCreate(CacheKey((simplified ? "member-simplified" : "member") + (provenance ? "-provenance" : ""), all), () =>
             string.Join("\n", all.GroupBy(a => a.Assembly).Select(g =>
-                $"// [{g.Key.Id}]\n" + (provenance ? Provenance(g.Key, g.Select(s => s.Member)) : "") + (simplified
+                $"// [{g.Key.Id}]\n" + PlaceholderBanner(g.Key, g.Select(s => s.Member)) + (provenance ? Provenance(g.Key, g.Select(s => s.Member)) : "") + (simplified
                     ? decompiler.DecompileSimplified(g.Key, g.Select(s => s.Member).ToList(), new SimplifyOptions(), cancellationToken)
                     : decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken)))));
         return header + ToolOutput.Text(pager, text, offset, Page("csharp", all), maxTokens);
     }, cancellationToken);
+
+    /// <summary>
+    /// Comment lines naming methods whose bodies are generated placeholders and the
+    /// native address to read instead; empty when every method has a recovered body.
+    /// </summary>
+    private static string PlaceholderBanner(LoadedAssembly asm, IEnumerable<IMemberDef> members)
+    {
+        var rows = new List<string>();
+        var total = 0;
+        foreach (var m in members)
+        {
+            var methods = m switch
+            {
+                MethodDef md => [md],
+                TypeDef t => t.Methods.ToList(),
+                PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods).ToList(),
+                EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.OfType<MethodDef>().ToList(),
+                _ => new List<MethodDef>(),
+            };
+            foreach (var method in methods)
+            {
+                var address = AotMetadataService.GetAttributes(method)
+                    .FirstOrDefault(a => a.Name == "AddressAttribute" && !a.InvalidAddress);
+                if (address == null) continue;
+                total++;
+                if (rows.Count >= 20) continue;
+                // Address values are kept as written; an attribute with no location is reported as unknown.
+                var location = new[] { "RVA", "VA", "Offset" }
+                    .Select(k => (Key: k, Value: address.Values.GetValueOrDefault(k)))
+                    .FirstOrDefault(x => AotMetadataService.ParseNumber(x.Value) != null);
+                rows.Add(location.Value == null
+                    ? $"//   {Format.MemberLabel(method)}  address unknown"
+                    : $"//   {Format.MemberLabel(method)}  {location.Key} {location.Value}");
+            }
+        }
+        if (total == 0) return "";
+        return $"// Placeholder bodies in [{asm.Id}]: {total} methods, not recovered code. " +
+               "Next: decompile_native at each address in the native image.\n" + string.Join("\n", rows) +
+               (total > rows.Count ? $"\n//   ... {total - rows.Count} more" : "") + "\n";
+    }
 
     /// <summary>The record of a code page; the call filter fills in the page.</summary>
     private static CodePage Page(string language, IReadOnlyList<ResolvedSymbol> symbols, IReadOnlyList<IlMethodHash>? methods = null) =>

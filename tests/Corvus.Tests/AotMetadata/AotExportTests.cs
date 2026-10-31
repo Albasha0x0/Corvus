@@ -15,6 +15,32 @@ public class AotExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_placeholder_body_is_labeled_with_its_native_next_step()
+    {
+        var tools = new Corvus.Tools.DecompileTools(_env.Workspace, _env.Decompiler, _env.Pager);
+        var placeholder = await tools.DecompileMember("Fixture.Native.NativeThing::First");
+        Assert.True(placeholder.Contains("// Placeholder bodies in"), placeholder);
+        Assert.Contains("decompile_native", placeholder);
+        Assert.Contains("RVA 0x1000", placeholder);
+        var type = await tools.DecompileMember("Fixture.Native.NativeThing");
+        Assert.Contains("// Placeholder bodies in", type);
+        Assert.Contains("RVA 0x1100", type);
+    }
+
+    [Fact]
+    public async Task A_managed_body_and_an_invalid_address_get_no_placeholder_banner()
+    {
+        // One method carries an invalid address; the other assembly has no address attributes.
+        var tools = new Corvus.Tools.DecompileTools(_env.Workspace, _env.Decompiler, _env.Pager);
+        Assert.DoesNotContain("Placeholder bodies", await tools.DecompileMember("Fixture.Native.NativeThing::Shared"));
+        using var dir = new TempDir();
+        var managed = dir.File("Plain.dll");
+        File.WriteAllBytes(managed, ContainerFixtures.Module("Plain", m => m.Types.Add(new dnlib.DotNet.TypeDefUser("Plain", "Thing", m.CorLibTypes.Object.TypeDefOrRef))));
+        _env.Workspace.Load(managed);
+        Assert.DoesNotContain("Placeholder bodies", await tools.DecompileMember("Plain.Thing"));
+    }
+
+    [Fact]
     public void Export_writes_scripts_a_header_and_JSON()
     {
         var exporter = new AotExporter(_env.AotMetadata);
