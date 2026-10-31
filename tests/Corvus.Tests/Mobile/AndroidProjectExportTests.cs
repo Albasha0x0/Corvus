@@ -25,6 +25,17 @@ public sealed class AndroidProjectExportTests : IDisposable
 
     private string Read(string root, string relative) => File.ReadAllText(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
 
+    // Regression for 93a5e739: the files worker passes no progress callback, and the class count moved only inside it.
+    [Fact]
+    public async Task Without_JADX_and_without_a_progress_callback_export_writes_smali()
+    {
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
+        using var java = new JavaDecompilerService(new DexService());
+        var r = await new AndroidProjectExport(new DexService(), java).Export(Apk(), _dir.File("out"), null, default);
+        Assert.Equal("smali", r.Sources);
+        Assert.Equal(0, r.SourceFailures);
+    }
+
     [Fact]
     public async Task Without_JADX_export_decodes_resources_and_writes_smali_per_class()
     {

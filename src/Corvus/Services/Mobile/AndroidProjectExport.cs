@@ -121,7 +121,9 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
         foreach (var cls in topLevel)
         {
             ct.ThrowIfCancellationRequested();
-            progress?.Invoke(done++, topLevel.Count, cls);
+            // The fallback check below reads the count, so it moves even without a progress callback.
+            progress?.Invoke(done, topLevel.Count, cls);
+            done++;
             string text;
             try { text = await java.Decompile(path, cls, smaliFallback: true, ct).ConfigureAwait(false); }
             catch (ToolError ex) when (ex.Code == ErrorCode.ProviderUnavailable && done == 1)
@@ -149,7 +151,8 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
         foreach (var cls in all)
         {
             ct.ThrowIfCancellationRequested();
-            progress?.Invoke(done++, all.Count, cls);
+            progress?.Invoke(done, all.Count, cls);
+            done++;
             string smali;
             try { smali = dex.Disassemble(path, cls, annotated: false, ct); }
             catch (ToolError ex)
