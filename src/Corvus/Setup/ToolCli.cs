@@ -81,6 +81,9 @@ internal static partial class ToolCli
                 command = "call";
                 rest = [.. args];
             }
+            // A leading --help or -h prints usage; call forwards it to the tool.
+            if (command != "call" && rest.Count > 0 && rest[0] is "--help" or "-h")
+                return SetupCli.TryRun(["help"], io.Out) ?? Exit.Ok;
             var a = CliArgs.Parse(rest);
             return command switch
             {

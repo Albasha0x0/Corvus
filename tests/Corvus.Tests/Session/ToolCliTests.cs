@@ -16,6 +16,44 @@ public class ToolCliTests
 
     internal static Task<(int Code, string Out, string Error)> Run(params string[] args) => RunWithInput("", args);
 
+    // Reproduces 48c3167d: batch --help failed as a usage error.
+    [Theory]
+    [InlineData("batch", "--help")]
+    [InlineData("batch", "-h")]
+    [InlineData("tools", "--help")]
+    public async Task A_leading_help_flag_prints_usage_and_exits_zero(string command, string flag)
+    {
+        var (code, output, error) = await Run(command, flag);
+        Assert.Equal(0, code);
+        Assert.Contains("batch <file|->", output);
+        Assert.Equal("", error);
+    }
+
+    [Fact]
+    public async Task A_help_flag_after_the_first_token_is_not_usage()
+    {
+        var (_, output, _) = await Run("batch", "a.json", "-h");
+        Assert.DoesNotContain("batch <file|->", output);
+    }
+
+    [Fact]
+    public async Task Call_keeps_h_for_tool_arguments()
+    {
+        var (_, output, _) = await Run("call", "-h");
+        Assert.DoesNotContain("batch <file|->", output);
+    }
+
+    [Fact]
+    public async Task Batch_without_a_file_and_with_two_files_remain_usage_errors()
+    {
+        foreach (var args in new[] { new[] { "batch" }, ["batch", "a.json", "b.json"] })
+        {
+            var (code, _, error) = await Run(args);
+            Assert.Equal(2, code);
+            Assert.Contains("batch takes one file", error);
+        }
+    }
+
     [Fact]
     public void Every_tool_resolves_and_describes()
     {
