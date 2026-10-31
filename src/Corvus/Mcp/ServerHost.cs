@@ -83,6 +83,10 @@ public static class ServerHost
         host.Services.GetRequiredService<EditJournal>();
         var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
         host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();
+        Action<string, string> announce = (image, result) => subscriptions.Announce($"{image}: {result}");
+        Corvus.Native.Providers.WorkerSessionBase.BackgroundEnded += announce;
+        host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopped.Register(
+            () => Corvus.Native.Providers.WorkerSessionBase.BackgroundEnded -= announce);
         Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
         return host;
     }

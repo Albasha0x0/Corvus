@@ -529,7 +529,24 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     protected virtual ToolError Explain(ToolError error) => error;
 
     /// <summary>A job that runs with no caller waiting (reanalyze_native wait=false): its start and budget.</summary>
-    internal sealed record BackgroundJob(string What, DateTime Started, TimeSpan Budget, Task Task);
+    internal sealed record BackgroundJob(string What, DateTime Started, TimeSpan Budget, Task Task)
+    {
+        /// <summary>Elapsed share of the budget, 0 to 99 while running; the job reports no finer progress.</summary>
+        // A zero budget counts as one second; 100 is left for an ended job.
+        internal int Percent(DateTime now)
+        {
+            var share = (now - Started).TotalSeconds / Math.Max(1, Budget.TotalSeconds) * 100;
+            return (int)Math.Clamp(share, 0, 99);
+        }
+
+        /// <summary>Budget left, an upper bound on the wait; zero once it has passed.</summary>
+        internal TimeSpan Remaining(DateTime now) =>
+            Budget > now - Started ? Budget - (now - Started) : TimeSpan.Zero;
+    }
+
+    /// <summary>Raised once when a background job ends, with the image file name and the outcome text.</summary>
+    // A subscriber removes its handler when its host stops; the event outlives every session.
+    internal static event Action<string, string>? BackgroundEnded;
 
     /// <summary>The running or last background job; <see cref="BackgroundResult"/> is its outcome once it ended.</summary>
     internal BackgroundJob? Background { get; private set; }
@@ -555,6 +572,13 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
                 try { BackgroundResult = $"{what} ended in {(DateTime.UtcNow - started).TotalSeconds:0} s: {await run().ConfigureAwait(false)}"; }
                 catch (Exception e) { BackgroundResult = $"{what} failed after {(DateTime.UtcNow - started).TotalSeconds:0} s: {e.Message}"; }
             });
+            // Raised once the task is complete, so a client told of the end sees the engine free.
+            _ = task.ContinueWith(_ =>
+            {
+                // A failing subscriber must not fault the job.
+                try { BackgroundEnded?.Invoke(Path.GetFileName(ImagePath), BackgroundResult!); }
+                catch (Exception) { }
+            }, TaskScheduler.Default);
             return Background = new BackgroundJob(what, started, budget, task);
         }
     }

@@ -119,7 +119,11 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             if (worker.Background is { } job)
                 status = status with
                 {
-                    Stage = worker.BackgroundRunning ? $"background {job.What}: running {(DateTime.UtcNow - job.Started).TotalSeconds:0} of {job.Budget.TotalSeconds:0} s" : $"background {worker.BackgroundResult}",
+                    Stage = worker.BackgroundRunning
+                        ? $"background {job.What}: running {(DateTime.UtcNow - job.Started).TotalSeconds:0} of {job.Budget.TotalSeconds:0} s, " +
+                          $"{job.Percent(DateTime.UtcNow)}% of the budget, " +
+                          $"at most {job.Remaining(DateTime.UtcNow).TotalSeconds:0} s left"
+                        : $"background {worker.BackgroundResult}",
                 };
             // A running job holds the engine; ask it nothing more.
             if (worker.BackgroundRunning) return status;

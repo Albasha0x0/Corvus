@@ -80,6 +80,40 @@ public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceP
         });
     }
 
+    /// <summary>
+    /// Sends <paramref name="message"/> as a logging notification to the
+    /// connected client and to each open listen stream; an empty message
+    /// is sent as is, and nothing is sent when no client is connected.
+    /// </summary>
+    // MCP9005: logging is obsolete in the 2026-07-28 revision; earlier clients still read it.
+#pragma warning disable MCP9005
+    public void Announce(string message)
+    {
+        var streams = _streams.Keys.ToList();
+        var server = services.GetService<McpServer>();
+        if (server == null && streams.Count == 0) return;
+        var data = JsonSerializer.SerializeToElement(message);
+        _ = Task.Run(async () =>
+        {
+            if (server != null)
+                await Send(() => server.SendNotificationAsync(NotificationMethods.LoggingMessageNotification,
+                    new LoggingMessageNotificationParams { Level = LoggingLevel.Info, Logger = "corvus", Data = data }));
+            foreach (var stream in streams)
+                await Send(() => stream.Server.SendMessageAsync(new JsonRpcNotification
+                {
+                    Method = NotificationMethods.LoggingMessageNotification,
+                    Params = new JsonObject
+                    {
+                        ["level"] = "info",
+                        ["logger"] = "corvus",
+                        ["data"] = message,
+                        ["_meta"] = new JsonObject { [SubscriptionKey] = stream.Id?.DeepClone() },
+                    },
+                }));
+        });
+    }
+#pragma warning restore MCP9005
+
     private static async Task<bool> Send(Func<Task> send)
     {
         try

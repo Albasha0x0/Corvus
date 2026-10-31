@@ -219,6 +219,62 @@ public sealed class WorkerSessionBaseTests : IDisposable
         finally { release.Set(); }
     }
 
+    [Fact]
+    public async Task A_background_job_raises_its_end_once_after_the_engine_is_free()
+    {
+        await using var s = await Open();
+        var ended = new TaskCompletionSource<(string Result, bool Running)>();
+        void On(string image, string result)
+        {
+            if (result.Contains("job-ok", StringComparison.Ordinal)) ended.TrySetResult((result, s.BackgroundRunning));
+        }
+        WorkerSessionBase.BackgroundEnded += On;
+        try
+        {
+            s.StartBackground("job-ok", TimeSpan.FromSeconds(5), () => Task.FromResult("done"));
+            var (result, running) = await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Contains("done", result);
+            Assert.False(running);
+        }
+        finally { WorkerSessionBase.BackgroundEnded -= On; }
+    }
+
+    [Fact]
+    public async Task A_failed_background_job_raises_its_end_with_the_failure()
+    {
+        await using var s = await Open();
+        var ended = new TaskCompletionSource<string>();
+        void On(string image, string result)
+        {
+            if (result.Contains("job-bad", StringComparison.Ordinal)) ended.TrySetResult(result);
+        }
+        WorkerSessionBase.BackgroundEnded += On;
+        try
+        {
+            s.StartBackground("job-bad", TimeSpan.FromSeconds(5), () => throw new InvalidOperationException("broke"));
+            Assert.Contains("failed", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+        finally { WorkerSessionBase.BackgroundEnded -= On; }
+    }
+
+    [Fact]
+    public async Task A_throwing_end_subscriber_does_not_fault_the_background_job()
+    {
+        await using var s = await Open();
+        static void Throw(string image, string result)
+        {
+            if (result.Contains("job-throw", StringComparison.Ordinal)) throw new InvalidOperationException("subscriber");
+        }
+        WorkerSessionBase.BackgroundEnded += Throw;
+        try
+        {
+            var job = s.StartBackground("job-throw", TimeSpan.FromSeconds(5), () => Task.FromResult("done"));
+            await job.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Contains("done", s.BackgroundResult);
+        }
+        finally { WorkerSessionBase.BackgroundEnded -= Throw; }
+    }
+
     private sealed class TestSession(AnalysisCache cache, bool concurrent, int maxRestarts) : WorkerSessionBase(new NativeOpenOptions())
     {
         public bool HasDatabase;
