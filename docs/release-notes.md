@@ -1,5 +1,53 @@
 # Release notes
 
+## 2.9.0
+
+### Highlights
+
+- Review a dependency update: lockfiles, workflows, agent and MCP settings, provenance and malcontent behaviours per changed file.
+- Open encrypted zip, 7z, RAR and OOXML files with a password you give.
+- Read untrusted files in a low-integrity worker process on Windows.
+- Write batch findings and update diffs as SARIF 2.1.0 for code scanning.
+
+### Breaking changes
+
+None.
+
+### Changes
+
+- **Web:** lockfiles are read and the packages they resolve compared. [46805f5c](https://github.com/Albasha0x0/Corvus/commit/46805f5c)
+- **Web:** workflow jobs listed, with three privileged patterns flagged. [5c494881](https://github.com/Albasha0x0/Corvus/commit/5c494881)
+- **Web:** MCP server entries, tool descriptions, agent settings and Codex `config.toml` reviewed. [b064959a](https://github.com/Albasha0x0/Corvus/commit/b064959a)
+- **Web:** dropped provenance and a mismatched source repository flagged. [aca57fcc](https://github.com/Albasha0x0/Corvus/commit/aca57fcc)
+- **Web:** malcontent behaviours compared per changed file. [bf71e1ed](https://github.com/Albasha0x0/Corvus/commit/bf71e1ed)
+- **Web:** standalone pages report cross-origin forms, meta refresh and script redirects. [1728d3c3](https://github.com/Albasha0x0/Corvus/commit/1728d3c3)
+- **Session:** `corvus batch --sarif` writes SARIF 2.1.0; update diffs become results with fingerprints. [728e4369](https://github.com/Albasha0x0/Corvus/commit/728e4369)
+- **Containers:** `password=` opens encrypted zip, 7z, RAR and OOXML files. [2463bc49](https://github.com/Albasha0x0/Corvus/commit/2463bc49)
+- **Containers:** the files worker runs at low integrity on Windows and reads packages, DEX, dumps, strings and folder comparisons. [d5189c2b](https://github.com/Albasha0x0/Corvus/commit/d5189c2b)
+- **Containers:** RTF OLE objects, OneNote embedded files, `.mht`, `.ics`, Script Encoder text and model files read. [dfd24fa8](https://github.com/Albasha0x0/Corvus/commit/dfd24fa8)
+- **Containers:** unsafe, colliding and hidden archive entries, and executables two archives deep, reported as findings. [b2f4e4df](https://github.com/Albasha0x0/Corvus/commit/b2f4e4df)
+- **Containers:** an unsigned DLL beside a signed program that imports it is reported. [1b559ecd](https://github.com/Albasha0x0/Corvus/commit/1b559ecd)
+- **Containers:** local-handler links (`search-ms:`, `ms-msdt:`, Office schemes, UNC) reported; `.url`, `.library-ms` and `.searchConnector-ms` read. [99e0977f](https://github.com/Albasha0x0/Corvus/commit/99e0977f)
+- **Files:** `summarize_file` shows a file's Zone.Identifier, import hash and TLSH digest. [e9e2747f](https://github.com/Albasha0x0/Corvus/commit/e9e2747f)
+- **Files:** `view=indicators` lists every view's indicators, written to the STIX bundle; certificate infrastructure hosts skipped. [6470cf9c](https://github.com/Albasha0x0/Corvus/commit/6470cf9c)
+- **Native:** exports a host calls by name (`xlAutoOpen`, `CPlApplet`, `DllRegisterServer`) named as entry points. [9e5ce3ce](https://github.com/Albasha0x0/Corvus/commit/9e5ce3ce)
+- **Live:** `program=cdp:PORT` attaches to a browser page. [daabe4ec](https://github.com/Albasha0x0/Corvus/commit/daabe4ec)
+
+### Fixes
+
+- **Live:** delay-loaded DLLs listed before Frida 17.25; the tested range ends before 17.25.0. [eece1727](https://github.com/Albasha0x0/Corvus/commit/eece1727)
+- **Native:** a cancelled PDB type model read is refused. [a30309ee](https://github.com/Albasha0x0/Corvus/commit/a30309ee)
+- **Native:** wsock32 ordinals resolve through the ws2_32 table. [be23be4e](https://github.com/Albasha0x0/Corvus/commit/be23be4e)
+- **Mobile:** Android export falls back to smali without progress reports. [747e67ec](https://github.com/Albasha0x0/Corvus/commit/747e67ec)
+- **Containers:** protocol 0 and 1 model pickles list their imports. [c3c11d20](https://github.com/Albasha0x0/Corvus/commit/c3c11d20)
+- **Web:** direct references in an sdist `requirements.txt` reported. [06e59942](https://github.com/Albasha0x0/Corvus/commit/06e59942)
+
+### In progress
+
+- Frida 17.25 support on Windows.
+- Office lures beyond macros: p-code, DDE, data connections.
+- Installer script commands and dump module review.
+
 ## 2.8.1
 
 ### Highlights
