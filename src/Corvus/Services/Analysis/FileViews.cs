@@ -53,11 +53,40 @@ internal sealed class NativeFileView : IFileSummaryView
         var aot = NativeAot(file.Kind, file.Image, ct);
         var hits = file.Options.AllNetworkValues && file.Kind is "native PE" or "NativeAOT executable" or "elf" or "mach-o" ? IndicatorList.FromImageStrings("native", file.Image, ct) : [];
         var hosted = HostEntries(file);
-        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0) return null;
+        // A PE too damaged to identify still gets the unavailable note.
+        var isPe = file.Kind is "native PE" or "NativeAOT executable" || (file.Kind == "data" && Native.NativeImageLoader.Detect(file.Head) == Native.NativeFileKind.Pe);
+        var pe = isPe ? PeHighlights(file.Image, ct) : [];
+        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0 && pe.Count == 0) return null;
         var highlights = new List<string>(image?.Highlights ?? []);
+        highlights.AddRange(pe);
         foreach (var p in packers)
             highlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
         return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding), .. hosted], Indicators = hits };
+    }
+
+    /// <summary>PE sections, mitigations, PDB path, TLS callbacks, import capabilities; one note when unreadable.</summary>
+    private static List<string> PeHighlights(byte[] bytes, CancellationToken ct)
+    {
+        try
+        {
+            var pe = Native.Pe.PeFile.FromBytes(bytes);
+            if (pe.Sections.Count == 0) return [$"PE highlights unavailable: the image has no readable section table ({pe.Issues.Count} issues)."];
+            var (on, off) = Native.Pe.PeDescribe.Mitigations(pe);
+            var lines = new List<string>
+            {
+                $"Sections ({pe.Sections.Count}): {string.Join(", ", pe.Sections.Take(12).Select(s => $"{s.Name} {Native.Pe.PeDescribe.Access(s.Access)}"))}" + (pe.Sections.Count > 12 ? $", ... ({pe.Sections.Count - 12} more)" : "") + ". get_pe_info lists sizes and entropy.",
+                $"Mitigations on: {(on.Count > 0 ? string.Join(", ", on) : "none")}; off: {(off.Count > 0 ? string.Join(", ", off) : "none")}.",
+            };
+            if (pe.CodeView is { } cv) lines.Add($"PDB path: {cv.PdbPath}.");
+            if (pe.TlsCallbackRvas.Count > 0)
+                lines.Add($"TLS callbacks run before the entry point: {string.Join(", ", pe.TlsCallbackRvas.Take(8).Select(r => Native.NativeAddress.Va(pe, r)))}" + (pe.TlsCallbackRvas.Count > 8 ? $", ... ({pe.TlsCallbackRvas.Count - 8} more)" : "") + ".");
+            ct.ThrowIfCancellationRequested();
+            var capabilities = Native.Calls.ApiCapabilities.ForImports(pe);
+            if (capabilities.Count > 0)
+                lines.Add($"Import capabilities: {string.Join(", ", capabilities.Select(c => $"{c.Group} ({c.Count})"))}. list_imports shows the functions.");
+            return lines;
+        }
+        catch (ToolError ex) { return [$"PE highlights unavailable: {ex.Message}"]; }
     }
 
     /// <summary>One review finding per PE export a host calls by name; empty for other images.</summary>

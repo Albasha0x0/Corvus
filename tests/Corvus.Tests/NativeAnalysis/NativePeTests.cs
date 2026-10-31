@@ -40,6 +40,8 @@ public sealed class NativePeTests
     private static bool HasIssue(PeFile pe, string area, string fragment) =>
         pe.Issues.Any(i => i.Area == area && i.Message.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
+    internal static byte[] BasicImage() => Basic().Build();
+
     private static PeBuilder Basic(bool is64 = true)
     {
         var b = new PeBuilder { Is64 = is64, Machine = is64 ? (ushort)0x8664 : (ushort)0x14c, ImageBase = is64 ? 0x140000000UL : 0x400000UL };

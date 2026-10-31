@@ -213,16 +213,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                       (h.AuxiliaryIatRva is { } aux ? $", auxiliary IAT at {NativeAddress.Va(pe, aux)}" : ""));
     }
 
-    private static (List<string> On, List<string> Off) Mitigations(PeFile pe)
-    {
-        var m = pe.Mitigations;
-        var on = new List<string>();
-        var off = new List<string>();
-        void M(string name, bool value) => (value ? on : off).Add(name);
-        M("ASLR", m.Aslr); M("high-entropy VA", m.HighEntropyVa); M("DEP", m.Dep); M("CFG", m.ControlFlowGuard); M("SafeSEH", m.SafeSeh);
-        M("GS cookie", m.GsCookie); M("CET", m.CetCompatible); M("XFG", m.Xfg); M("EH continuation", m.EhContinuation); M("force integrity", m.ForceIntegrity);
-        return (on, off);
-    }
+    internal static (List<string> On, List<string> Off) Mitigations(PeFile pe) => PeDescribe.Mitigations(pe);
 
     /// <summary>get_pe_info's record, computed once per loaded image (section entropy reads every byte of the file).</summary>
     private static PeSummary Summary(LoadedNative native) => native.GetAnalysis(n => new SummaryCache(ComputeSummary(n))).Value;
@@ -245,8 +236,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             ck.Stored == 0 ? null : ck.Matches, pe.Overlay?.Size, pe.Issues.Count);
     }
 
-    private static string Access(SectionAccess a) =>
-        $"{((a & SectionAccess.Read) != 0 ? 'r' : '-')}{((a & SectionAccess.Write) != 0 ? 'w' : '-')}{((a & SectionAccess.Execute) != 0 ? 'x' : '-')}";
+    internal static string Access(SectionAccess a) => PeDescribe.Access(a);
 
     /// <summary>Shannon entropy of the section's file bytes in bits per byte (near 8: compressed or encrypted).</summary>
     private static double Entropy(PeFile pe, PeSectionLayout layout)

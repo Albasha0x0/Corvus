@@ -43,7 +43,7 @@ public sealed partial class NativeTools
 {
     /// <summary>Capability groups from the static and delay-load imports. The code index is not consulted, so the answer never depends on whether it is built.</summary>
     internal static IReadOnlyList<ApiCapability> Capabilities(INativeImage image) =>
-        ApiCapabilities.Classify(image.Imports.Where(i => i.Name != null).Select(i => (i.Module, i.Name!)).ToList());
+        ApiCapabilities.ForImports(image);
 
     /// <summary>Capability groups from the static and late-bound imports (view=code).</summary>
     private static IReadOnlyList<ApiCapability> Capabilities(INativeImage image, NativeCodeIndex index, CancellationToken ct)

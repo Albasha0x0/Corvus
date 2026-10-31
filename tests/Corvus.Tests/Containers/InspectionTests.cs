@@ -972,6 +972,38 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
+    public void Summarizing_a_native_image_shows_sections_mitigations_pdb_tls_and_import_capabilities()
+    {
+        var bytes = NativePeTests.KitchenSink(is64: true);
+        var pe = Corvus.Native.Pe.PeFile.FromBytes(bytes);
+        var (on, off) = Corvus.Tools.NativeTools.Mitigations(pe);
+        var summary = Inspection.Summarize(null, Save("Native.dll", bytes), default);
+        Assert.Contains(summary.Highlights, h => h.StartsWith("Sections (") && h.Contains(".rdata"));
+        Assert.Contains($"Mitigations on: {(on.Count > 0 ? string.Join(", ", on) : "none")}; off: {(off.Count > 0 ? string.Join(", ", off) : "none")}.", summary.Highlights);
+        Assert.Contains("PDB path: seed.pdb.", summary.Highlights);
+        Assert.Contains(summary.Highlights, h => h.StartsWith("TLS callbacks run before the entry point: 0x"));
+        Assert.Contains(summary.Highlights, h => h.StartsWith("Import capabilities:"));
+        Assert.DoesNotContain(summary.Notes, n => n.Contains("nothing to summarize"));
+    }
+
+    [Fact]
+    public void Summarizing_a_native_image_without_pdb_tls_or_imports_omits_those_lines()
+    {
+        var summary = Inspection.Summarize(null, Save("Bare.dll", NativePeTests.BasicImage()), default);
+        Assert.Contains(summary.Highlights, h => h.StartsWith("Sections ("));
+        Assert.Contains(summary.Highlights, h => h.StartsWith("Mitigations on:") && h.Contains("off:"));
+        Assert.DoesNotContain(summary.Highlights, h => h.StartsWith("PDB path") || h.StartsWith("TLS callbacks") || h.StartsWith("Import capabilities"));
+    }
+
+    [Fact]
+    public void Summarizing_a_truncated_native_image_reports_the_highlights_as_unavailable()
+    {
+        var bytes = NativePeTests.KitchenSink(is64: true);
+        var summary = Inspection.Summarize(null, Save("Cut.dll", bytes[..0x90]), default);
+        Assert.Contains(summary.Highlights, h => h.StartsWith("PE highlights unavailable:"));
+    }
+
+    [Fact]
     public void Summary_notes_name_the_cap_an_empty_input_and_embedded_counts()
     {
         var many = Save("many.zip", ContainerFixtures.Zip([.. Enumerable.Range(0, 26).Select(i => ($"lib/A{i}.dll", ContainerFixtures.Module($"A{i}")))]));

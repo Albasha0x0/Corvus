@@ -39,6 +39,10 @@ public static class ApiCapabilities
         new("dynamic_loading", [], ["LoadLibrary", "GetProcAddress", "GetModuleHandle", "LdrLoadDll", "LdrGetProcedureAddress", "FreeLibrary"], ["dlopen", "dlsym", "dlclose"]),
     ];
 
+    /// <summary>Capability groups from the static and delay-load imports alone.</summary>
+    public static IReadOnlyList<ApiCapability> ForImports(INativeImage image) =>
+        Classify(image.Imports.Where(i => i.Name != null).Select(i => (i.Module, i.Name!)).ToList());
+
     /// <summary>The groups the APIs fall into, largest first; each with up to <paramref name="examples"/> distinct API names.</summary>
     public static IReadOnlyList<ApiCapability> Classify(IEnumerable<(string Module, string Name)> apis, int examples = 6)
     {

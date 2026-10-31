@@ -1042,7 +1042,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         if (satellites > 0)
             reportNotes.Add($"{satellites} satellite resource assembly(ies) (translations) not summarized.");
         if (managed.Assemblies.Count == 0)
-            reportNotes.Add("No managed assemblies inside: nothing to summarize beyond the file facts.");
+            reportNotes.Add(fileHighlights.Count > 0 ? "No managed assemblies inside." : "No managed assemblies inside: nothing to summarize beyond the file facts.");
 
         var highlights = new List<string>(fileHighlights);
         foreach (var (assemblyPath, list) in found)
