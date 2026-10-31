@@ -133,6 +133,33 @@ public static class IntegerEmulation
 
         int Purge(NativeImport? import) => ptr == 4 && image.Format == ImageFormat.Pe && import != null ? X86ImportArity.Pops(import, image.Path) ?? 0 : 0;
 
+        // Order: named stub, then heap model, then library model, then the
+        // any-call stub.
+        // A fault or limit in a model sets stop.
+        bool TryModel(string? name, ulong site, ulong target, NativeImport? import)
+        {
+            if (LibraryModels.Find(name) is not { } model) return false;
+            try
+            {
+                ulong v = LibraryModels.Run(model, cpu, mem);
+                Record(site, target, name, "model", v);
+                cpu.ReturnFromCall(mem, v, Purge(import));
+            }
+            catch (EmulatorFaultException f)
+            {
+                stop = "memory_fault";
+                stoppedAt = site;
+                detail = $"{model}: {f.Message}";
+            }
+            catch (EmulatorUnsupportedException u)
+            {
+                stop = "error";
+                stoppedAt = site;
+                detail = u.Message;
+            }
+            return true;
+        }
+
         while (true)
         {
             ulong pc = cpu.Pc;
@@ -155,6 +182,7 @@ public static class IntegerEmulation
                     cpu.ReturnFromCall(mem, modelled, Purge(reached));
                     continue;
                 }
+                if (named == null && TryModel(name, lastSite, pc, reached)) { if (stop != null) break; continue; }
                 value ??= anyStub;
                 if (value == null)
                 {
@@ -222,6 +250,7 @@ public static class IntegerEmulation
                 cpu.ReturnFromCall(mem, thunkValue, Purge(thunk));
                 continue;
             }
+            if (stubValue == null && TryModel(calleeName, step.Site, target, thunk)) { if (stop != null) break; continue; }
             // A call to the next instruction reads its own address and is never skipped.
             string? anyValue = stubValue == null && target != step.FallThrough ? anyStub : null;
             if (stubValue != null || anyValue != null)
