@@ -190,13 +190,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(EngineDescription)] string? engine = null,
+        [Description("runtime: show lazy-initialization blocks, write-barrier loops and static-base calls as one comment line. Function listings of x86 and x64 images on the built-in engine only; other requests are refused. Default none.")] string? collapse = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var mode = Mode(engine);
+        bool fold = RuntimeCollapse.Parse(collapse);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         int max = Math.Clamp(maxInstructions, 1, 200_000);
         var choice = Choose(mode, native, index);
+        if (fold) RuntimeCollapse.RequireEngine(choice.External, native.Image is WasmImage, index.Image.Arch);
         if (choice.External)
         {
             var at = Address(index, address);
@@ -223,7 +226,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
         var fn = fromAddress ? null : index.FunctionAt(rva);
-        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r")}{rva}|{max}|{index.Sourced.Version}", () =>
+        if (fold) RuntimeCollapse.RequireFunction(fn != null);
+        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r")}{rva}|{max}|{fold}|{index.Sourced.Version}", () =>
         {
             var sb = new StringBuilder();
             var classifier = new AddressClassifier(index);
@@ -246,7 +250,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                 }
                 Merge(NativeAotCode.Comments(native, index, fn, cancellationToken));
                 Merge(AotFieldNotes.Comments(native, index, fn, cancellationToken));
-                AppendFunction(sb, index, classifier, fn, max, calls, warnings, cancellationToken);
+                AppendFunction(sb, index, classifier, fn, max, calls, warnings, cancellationToken, fold);
             }
             else
             {

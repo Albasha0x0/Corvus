@@ -133,15 +133,37 @@ public sealed partial class NativeCodeTools
 
     /// <summary>A function's blocks in address order with their labels, and a comment line for each gap between blocks.</summary>
     internal static void AppendFunction(StringBuilder sb, NativeCodeIndex index, AddressClassifier classifier, NativeFunction fn, int max,
-        IReadOnlyDictionary<uint, string> calls, List<string> warnings, CancellationToken ct)
+        IReadOnlyDictionary<uint, string> calls, List<string> warnings, CancellationToken ct, bool collapse = false)
     {
         string? pending = null;
         uint end = 0;
         var listing = index.DisassembleFunction(fn, max, out bool truncated, ct);
+        var runs = collapse
+            ? RuntimeCollapse.Find(listing.Where(e => e.Line != null).Select(e => e.Line!).ToList(), r => NativeAddress.Va(index.Image, r))
+            : new Dictionary<uint, RuntimeCollapse.Run>();
+        uint skipTo = 0;
+        int before = 0, after = 0;
         foreach (var (label, line) in listing)
         {
+            if (line != null && line.Rva < skipTo)
+            {
+                // Keep a label inside the run, so branches into it still resolve.
+                before++;
+                if (pending != null) { sb.AppendLine(pending); pending = null; }
+                continue;
+            }
             if (label != null) pending = label.EndsWith(':') ? label : label + ":";
             if (line == null) continue;
+            before++;
+            after++;
+            if (runs.TryGetValue(line.Rva, out var run))
+            {
+                if (pending != null) { sb.AppendLine(pending); pending = null; }
+                sb.AppendLine("; " + run.Note);
+                skipTo = run.End;
+                end = run.End;
+                continue;
+            }
             if (end != 0 && line.Rva > end)
             {
                 var gap = $"gap {NativeAddress.Va(index.Image, end)}-{NativeAddress.Va(index.Image, line.Rva)} ({line.Rva - end} bytes): {Gap(index, classifier, fn, end, line.Rva, ct)}";
@@ -152,6 +174,7 @@ public sealed partial class NativeCodeTools
             sb.AppendLine(Line(line, calls));
             end = line.Rva + (uint)line.Facts.Length;
         }
+        if (runs.Count > 0) sb.AppendLine($"; collapse=runtime: {Plural(before, "instruction")} listed as {Plural(after, "line")}");
         if (truncated) sb.AppendLine($"; truncated at {Plural(max, "instruction")}");
     }
 

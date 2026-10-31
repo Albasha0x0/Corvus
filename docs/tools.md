@@ -1172,6 +1172,7 @@ MASM-syntax disassembly of the native function containing an address, with refer
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 | `engine` | string |  |  | auto (default): IDA or Ghidra if analyzed, else ours. Values: auto, ours, ida, ghidra. |
+| `collapse` | string |  |  | runtime: show lazy-initialization blocks, write-barrier loops and static-base calls as one comment line. Function listings of x86 and x64 images on the built-in engine only; other requests are refused. Default none. |
 
 Structured output: `code`, `offset`, `nextOffset`, `totalChars`, `image`, `function`, `address`, `engine`.
 
