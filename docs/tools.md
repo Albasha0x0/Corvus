@@ -60,7 +60,7 @@ Remove an assembly (unsaved edits are discarded) or close a dump id.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 
 Structured output: `ids`, `discardedEdits`.
 
@@ -72,7 +72,7 @@ Re-read an assembly from disk (after an update or an overwriting save), discardi
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 
 Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
@@ -180,7 +180,7 @@ List namespaces with their type counts (nested types under the namespace of thei
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `filter` | string |  |  | Substring (case-insensitive). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -196,7 +196,7 @@ List types, optionally by namespace, name filter and kind.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `namespace` | string |  |  | Exact namespace ("" or <global> for the global one). |
 | `filter` | string |  |  | Name substring or wildcard (*, ?), or regex with regex=true. |
 | `regex` | boolean |  |  | filter is a regex. |
@@ -217,7 +217,7 @@ Outline of a type without decompiling: declaration, attributes, member counts, t
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `section` | string |  | `summary` | A kind to page, or all. Values: summary, nested, fields, properties, events, methods, all. |
 | `includeCompilerGenerated` | boolean |  |  | Include compiler-generated members. |
 | `offset` | integer |  |  |  |
@@ -234,7 +234,7 @@ Assembly overview: identity, framework, entry point, counts, invalid IL, transfo
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `view` | string |  | `summary` | What to show. Values: summary, references, metadata, all, transforms. |
 
 Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `addressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `transformers`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
@@ -248,7 +248,7 @@ Custom attributes with arguments on a type or member (parameters and return valu
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string |  |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. Omit for assembly-level attributes. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. Required without symbol. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. Required without symbol. |
 | `filter` | string |  |  | Only attributes whose type name contains this. |
 | `format` | string |  | `rows` | csharp only without symbol. Values: rows, csharp. |
 | `offset` | integer |  |  | Rows to skip (characters with format=csharp). |
@@ -266,7 +266,7 @@ Base chain, interfaces and directly derived or implementing loaded types of a ty
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -282,7 +282,7 @@ Every match of a symbol string or token, with kind, assembly, token and signatur
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
@@ -299,7 +299,7 @@ Decompile a member or a whole type to C#; every overload unless a parameter list
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `member` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `kind` | string |  |  | Restrict to this kind (default any). Values: any, method, field, property, event. |
 | `simplified` | boolean |  |  | Show the code as simplify_methods would leave it, assembly unchanged. |
 | `provenance` | boolean |  |  | Start with build-pinning comments: SHA-256, MVID, tokens, IL hashes. |
@@ -317,7 +317,7 @@ IL disassembly of a member or type (tokens, offsets, try blocks); each method st
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `source` | boolean |  |  | Portable PDB source lines at IL offsets, local names, SourceLink URLs. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -334,7 +334,7 @@ Find types and members by name across loaded assemblies: case-insensitive substr
 |---|---|---|---|---|
 | `query` | string | yes |  | Name, substring, wildcard or regex. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `namespace` | string |  |  | Only namespaces starting with this. |
 | `regex` | boolean |  |  | query is a regex. |
 | `limit` | integer |  | `100` |  |
@@ -352,7 +352,7 @@ Find string literals (ldstr, string constants) by substring, wildcard or regex, 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | string | yes |  | Substring, wildcard or regex. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `regex` | boolean |  |  | query is a regex. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
@@ -370,7 +370,7 @@ Find a number (magic, opcode id, flag, crypto constant) in IL literals, const an
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `value` | string | yes |  | Decimal, 0x hex, negative or floating-point. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
@@ -386,7 +386,7 @@ Find methods containing an IL instruction sequence: ;-separated opcode [operand]
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pattern` | string | yes |  | Instruction pattern. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
@@ -402,7 +402,7 @@ Every use of a symbol across loaded assemblies: method call sites (also via base
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `symbol` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `assembly` | string |  |  | Assembly defining the symbol; default: all loaded. |
 | `kind` | string |  |  | Symbol kind; overrides: overrides and implementations of the method. Values: type, method, field, property, event, overrides. |
 | `directOnly` | boolean |  |  | Methods: no calls through base / interface declarations. |
@@ -420,8 +420,8 @@ What a method uses, in IL order with offsets: calls, field reads and writes, typ
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `distinct` | boolean |  |  | One row per target, with a count. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -437,11 +437,11 @@ Callers or callees of a method across loaded assemblies, several levels deep, on
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `direction` | string |  | `callers` | callers or callees. Values: callers, callees. |
 | `depth` | integer |  | `3` | Levels to expand (1-8). |
 | `includeExternal` | boolean |  |  | Callees: also calls into assemblies not loaded (framework). |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -456,14 +456,14 @@ Call chains that reach a method, from from= or from entry points, shortest first
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `to` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `to` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `from` | string |  |  | Start method, same forms as to (native only when to is native). |
 | `maxDepth` | integer |  | `8` | Max chain length (max 30). |
 | `limit` | integer |  | `10` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
 | `directOnly` | boolean |  |  | No hops through virtual dispatch (native: RTTI virtual calls, pointers). |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 
 Structured output: `target`, `items`, `offset`, `total`, `from`, `totalExact`, `engine`, `limit`, `hasMore`, `nextOffset`.
 
@@ -475,7 +475,7 @@ Manifest resources (embedded, .resources, linked) with SHA-256 and file offsets;
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -490,7 +490,7 @@ Read a resource: text, a hex preview, or a .resources entry list (entry reads on
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `name` | string | yes |  | Name from list_resources. |
 | `entry` | string |  |  | Entry inside a .resources container. |
 | `outputPath` | string |  |  | Write the raw bytes to this file. |
@@ -508,7 +508,7 @@ Decompile an assembly into a C# project on disk (.cs per type, .csproj, resource
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `outputDirectory` | string | yes |  | Empty or new output directory. |
 | `overwrite` | boolean |  |  | Replace a previous export in outputDirectory. |
 
@@ -523,7 +523,7 @@ Precompiled native code of a method in a ReadyToRun assembly: entry, code ranges
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `instantiation` | string |  |  | Only bodies whose name contains this text (Int32, __Canon). |
 | `maxBodies` | integer |  | `4` | Max bodies disassembled; the rest listed with addresses. |
 | `maxInstructions` | integer |  | `1500` | Max instructions per body. |
@@ -540,7 +540,7 @@ Managed method whose ReadyToRun code holds a native address: name, token, range,
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `address` | string | yes |  | A VA or RVA in the code image (rva:/va:/off: prefix). |
 
 Structured output: `address`, `file`, `kind`, `begin`, `end`, `offset`, `methods`, `instruction`, `importCell`.
@@ -568,6 +568,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | `sbomPath` | string |  |  | Write dependencies here, CycloneDX 1.6. |
 | `stixPath` | string |  |  | Write findings here, STIX 2.1. |
 | `overwrite` | boolean |  |  | Overwrite either file. |
+| `password` | string |  |  | Password of an encrypted document or archive; only it is tried. |
 
 Structured output: `path`, `size`, `type`, `sha256`, `container`, `view`, `views`, `md5`, `sha1`, `entropy`, `signature`, `assemblies`, `highlights`, `highlightTotal`, `entryPoints`, `values`, `detail`, `notes`, `level`, `findings`, `findingTotal`, `ruleTable`.
 
@@ -659,7 +660,7 @@ Extract a container and load its .NET assemblies: single-file bundles, Costura, 
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
 | `keyLog` | string |  |  | TLS key log of a pcap (SSLKEYLOGFILE) to decrypt with. |
-| `password` | string |  |  | Password of encrypted zip, 7z, RAR or Office document; only it is tried. |
+| `password` | string |  |  | Password of encrypted zip, 7z, RAR, PDF or Office document; only it is tried. |
 
 Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -690,7 +691,7 @@ Rename a type, method, field, property (and accessors) or event in memory; other
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `newName` | string | yes |  | New name (a type: simple name without namespace). |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `kind` | string |  |  | Only resolve symbols of this kind. Values: type, method, field, property, event. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
@@ -704,7 +705,7 @@ Move every type of a namespace (optionally its sub-namespaces) to a new namespac
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `oldNamespace` | string | yes |  | Existing namespace ("" for the global one). |
 | `newNamespace` | string | yes |  | New namespace. |
 | `includeSubNamespaces` | boolean |  |  | Also rewrite the namespaces under oldNamespace. |
@@ -722,7 +723,7 @@ Replace a method body with "return <value>;" ("return;" for void) in memory: for
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `value` | string |  |  | true/false, integer (decimal or 0x), float, "string" or null; omit for void or default(T). |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -737,7 +738,7 @@ Replace a method, constructor or accessor body with C# compiled against the asse
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `code` | string | yes |  | Statements of the new body only. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `dryRun` | boolean |  | `true` | true previews the IL to be written; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -753,7 +754,7 @@ Rewrite a method body from IL text, stack-validated: edit the get_il lines and p
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `il` | string | yes |  | IL instructions, one per line. |
 | `mode` | string |  | `replace` | replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels. Values: replace, prepend. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -768,7 +769,7 @@ Add C# members to a class or struct; private members are accessible. No field or
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `code` | string | yes |  | C# member declarations. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -781,7 +782,7 @@ Add C# types (with namespace) to an assembly; they see its internal types and pa
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `code` | string | yes |  | C# source declaring the new types. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
@@ -796,7 +797,7 @@ Clean transformed method bodies: fold (string decoders run in a safe IL interpre
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string |  |  | Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. Required without symbol. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. Required without symbol. |
 | `passes` | string[] |  |  | Passes to run; omit for all three. |
 | `maxDepth` | integer |  | `8` | Max evaluation call depth. |
 | `budget` | integer |  | `100000` | Max IL instructions per evaluated call, nested calls included. |
@@ -813,7 +814,7 @@ Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -828,7 +829,7 @@ Unified diff of the decompiled C# of each member the edits (or one edit) touched
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `number` | integer |  |  | Only this edit (list_edits number). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -843,7 +844,7 @@ Undo the last edit or one by number: the others are replayed on the original ima
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `number` | integer |  |  | Edit number from list_edits (#n of its editId); omit for the last. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -856,7 +857,7 @@ Discard every unsaved edit of an assembly; resultId keeps them as a script (read
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
@@ -868,7 +869,7 @@ Save an assembly's edits as a JSON script bound to its build (SHA-256, MVID) for
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `outputPath` | string | yes |  | Output .json path. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
 
@@ -898,7 +899,7 @@ Write an assembly and its edits to a new file, atomically; a file changed since 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default ORIGINAL.patched.dll. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save, list them). |
@@ -920,7 +921,7 @@ Native addresses, field offsets and tokens of an AOT method or type. script.json
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member (Ns.Type::M(int), short name, token) or script.json name (List`1<int>::Add). |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `slot` | string |  |  | With a type: a vtable slot number to resolve to its method, or all. |
 | `offset` | integer |  |  | First entry of each long list. |
 | `limit` | integer |  | `20` | Max entries of each long list. |
@@ -937,7 +938,7 @@ Map a native address in AOT code to the methods whose function holds it, or the 
 |---|---|---|---|---|
 | `address` | string | yes |  | Hex as IDA / Ghidra show it (0x1A2B3C, 1A2B3Ch, 00000001`8001A2B3); d: prefix for decimal. |
 | `kind` | string |  | `auto` | auto: a VA at or above the image base, else an RVA, else a file offset. Values: auto, rva, va, offset. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `20` | Max methods listed. |
 | `maxTokens` | integer |  |  |  |
@@ -955,7 +956,7 @@ Export dummy-assembly metadata as IDA Python and Ghidra scripts that create, nam
 | `outputDirectory` | string | yes |  | Output directory. |
 | `formats` | string |  | `all` | Comma-separated: ida, ghidra, header, json or all. |
 | `baseName` | string |  | `symbols` | Base name of the generated files. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `overwrite` | boolean |  |  | Replace same-named files. |
 
 Structured output: `functions`, `structs`, `files`.
@@ -969,7 +970,7 @@ Generate C++ binding code for a managed type of a Mono or AOT app: a struct that
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `members` | string |  |  | Comma-separated member names; default all but compiler-generated. |
 | `includeInherited` | boolean |  |  | Also bind inherited property getters. |
 | `style` | string |  |  | mono: embedding API; aot: runtime exports; hostapi: host function table. Default detected, else mono. Values: mono, aot, hostapi. |
@@ -1572,7 +1573,7 @@ Check P/Invoke declarations (or Mach-O load commands) against library exports, a
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name, path. |
+| `assembly` | string | yes |  | Assembly id, name or path. |
 | `status` | string |  |  | Only this verdict or reason (contradicted, missing_export...). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max rows (max 5000). |

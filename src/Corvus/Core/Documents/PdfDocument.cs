@@ -34,16 +34,19 @@ internal sealed class PdfDocument
 
     private const long MaxStream = 256L << 20;
 
-    /// <summary>The last documents read, by their bytes: summarize_file's view and its container walk read the same array.</summary>
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], PdfDocument> Recent = [];
+    /// <summary>The last documents read, by their bytes and the password they were read with: summarize_file's view and its container walk read the same array.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], Cached> Recent = [];
+
+    private sealed record Cached(string? Password, PdfDocument Document);
 
     public static PdfDocument Read(byte[] data, string name, CancellationToken ct)
     {
-        if (Recent.TryGetValue(data, out var known)) return known;
+        var password = ContainerPassword.Current;
+        if (Recent.TryGetValue(data, out var known) && known.Password == password) return known.Document;
         var doc = new PdfDocument { File = PdfFile.Read(data, name, ct) };
         doc.Keywords = Pdfid(data);
         doc.Analyze(ct);
-        Recent.AddOrUpdate(data, doc);
+        Recent.AddOrUpdate(data, new Cached(password, doc));
         return doc;
     }
 

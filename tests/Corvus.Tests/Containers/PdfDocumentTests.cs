@@ -116,6 +116,71 @@ public sealed class PdfDocumentTests
         Assert.Equal(".NET assembly", Assert.Single(f.EmbeddedFiles).Kind);
     }
 
+    private static PdfFileView.Facts ViewWith(byte[] pdf, string? password)
+    {
+        using var _ = ContainerPassword.Enter(password);
+        return View(pdf);
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void An_aes_256_pdf_opens_with_the_given_user_password(int revision)
+    {
+        var f = ViewWith(Base().EncryptAes256(9, "open sesame", revision).Build(), "open sesame");
+        Assert.Equal($"AES-256, revision {revision}", f.Encryption);
+        Assert.Contains(f.Actions, a => a is { Type: "Launch", Target: "notepad.exe readme.txt" });
+        Assert.Equal(Script.Length, Assert.Single(f.Scripts).Length);
+        Assert.Contains("encrypted (AES-256, revision " + revision + ") with the given user password: decrypted", f.Notes);
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void A_wrong_password_names_an_aes_256_pdf_as_not_decrypted(int revision)
+    {
+        var f = ViewWith(Base().EncryptAes256(9, "open sesame", revision).Build(), "another password");
+        Assert.Equal("user password (not decrypted)", f.Encryption);
+        Assert.DoesNotContain(f.Actions, a => a.Target == "notepad.exe readme.txt");
+        Assert.Contains(f.Notes, n => n.Contains("the password did not decrypt it"));
+        Assert.DoesNotContain(f.Notes, n => n.Contains("another password") || n.Contains("open sesame"));
+    }
+
+    [Fact]
+    public void An_encrypted_pdf_without_a_password_keeps_the_user_password_note()
+    {
+        var f = ViewWith(Base().EncryptAes256(9, "open sesame", 6).Build(), null);
+        Assert.Equal("user password (not decrypted)", f.Encryption);
+        Assert.Contains(f.Notes, n => n.Contains("pass password to read them"));
+    }
+
+    [Fact]
+    public void An_rc4_pdf_opens_with_the_given_user_password_and_names_a_wrong_one()
+    {
+        var pdf = Base().EncryptRc4(9, userPassword: "open sesame").Build();
+        Assert.Equal("RC4 128-bit, revision 3", ViewWith(pdf, "open sesame").Encryption);
+        Assert.Equal("user password (not decrypted)", ViewWith(pdf, "another password").Encryption);
+    }
+
+    [Fact]
+    public void A_password_leaves_an_empty_user_password_pdf_readable()
+    {
+        var f = ViewWith(Base().EncryptRc4(9).Build(), "unused");
+        Assert.Equal("RC4 128-bit, revision 3", f.Encryption);
+        Assert.Contains("encrypted (RC4 128-bit, revision 3) with the empty user password: decrypted", f.Notes);
+    }
+
+    [Fact]
+    public void Summarize_file_passes_its_password_to_the_pdf_reader()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Path, "locked.pdf");
+        File.WriteAllBytes(path, Base().EncryptAes256(9, "open sesame", 6).Build());
+        var inspection = new InspectionService(new AssemblyWorkspace(new ServerOptions()));
+        var opened = global::Corvus.Tools.FileWork.SummarizeWith(inspection, null, new global::Corvus.Tools.FileWork.SummarizeArgs(path, "pdf", null, null, 0, null, Password: "open sesame"), default);
+        Assert.Equal("AES-256, revision 6", (string?)opened.Detail!["encryption"]);
+    }
+
     [Fact]
     public void Filters_decode_the_spec_examples()
     {
@@ -134,7 +199,7 @@ public sealed class PdfDocumentTests
         var plain = Base().Build();
         var encrypted = Base();
         encrypted.EncryptRc4(9);
-        foreach (var seed in new[] { plain, encrypted.Build() })
+        foreach (var seed in new[] { plain, encrypted.Build(), Base().EncryptAes256(9, "", 6).Build() })
         {
             var failures = FormatFuzz.Run(seed, b =>
             {

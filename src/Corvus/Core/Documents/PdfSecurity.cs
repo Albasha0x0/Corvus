@@ -1,8 +1,9 @@
 using System.Security.Cryptography;
+using System.Text;
 
 namespace Corvus.Core.Documents;
 
-/// <summary>The PDF standard security handler (RC4, AESV2, AESV3) opened with the empty user password; a file that needs a password stays encrypted, with a note.</summary>
+/// <summary>The PDF standard security handler (RC4, AESV2, AESV3) opened with the caller's user password or the empty one; a file that needs another password stays encrypted, with a note.</summary>
 internal sealed class PdfSecurity
 {
     private static readonly byte[] Pad =
@@ -23,7 +24,7 @@ internal sealed class PdfSecurity
         Description = description;
     }
 
-    /// <summary>The handler of an encrypted file opened with the empty password; null when the file is not encrypted or the password is not empty (noted).</summary>
+    /// <summary>The handler of an encrypted file opened with the caller's password, else the empty one; null when the file is not encrypted or neither opens it (noted).</summary>
     public static PdfSecurity? Open(PdfFile pdf)
     {
         var trailer = pdf.Trailer;
@@ -31,8 +32,15 @@ internal sealed class PdfSecurity
         if (pdf.Resolve(trailer["Encrypt"]) is not PdfDict e) { pdf.Notes.Add("the /Encrypt dictionary is missing"); return null; }
         try
         {
-            var s = Standard(pdf, e, trailer);
-            pdf.Notes.Add(s == null ? "encrypted with a user password: strings and streams are not decrypted" : $"encrypted ({s.Description}) with the empty user password: decrypted");
+            // Only the caller's password and the empty one are tried.
+            var given = ContainerPassword.Current;
+            PdfSecurity? s = null;
+            if (given != null) s = Standard(pdf, e, trailer, given);
+            bool usedGiven = s != null;
+            s ??= Standard(pdf, e, trailer, "");
+            pdf.Notes.Add(s == null
+                ? given != null ? "encrypted with a user password: the password did not decrypt it; strings and streams are not decrypted" : "encrypted with a user password: strings and streams are not decrypted; pass password to read them"
+                : $"encrypted ({s.Description}) with {(usedGiven ? "the given" : "the empty")} user password: decrypted");
             return s;
         }
         catch (Exception ex) when (ex is CryptographicException or ArgumentException or IndexOutOfRangeException or InvalidCastException)
@@ -42,7 +50,7 @@ internal sealed class PdfSecurity
         }
     }
 
-    private static PdfSecurity? Standard(PdfFile pdf, PdfDict e, PdfDict trailer)
+    private static PdfSecurity? Standard(PdfFile pdf, PdfDict e, PdfDict trailer, string given)
     {
         if (e.Name("Filter") != "Standard") { pdf.Notes.Add($"security handler /{e.Name("Filter")} is not read"); return null; }
         int v = Int(pdf.Resolve(e["V"]), 0), r = Int(pdf.Resolve(e["R"]), 2);
@@ -64,9 +72,12 @@ internal sealed class PdfSecurity
         if (r >= 5)
         {
             if (u.Length < 48 || Bytes(pdf.Resolve(e["UE"])) is not { Length: >= 32 } ue) return null;
-            var check = r == 5 ? SHA256.HashData(u.AsSpan(32, 8)) : Hash2B([], u.AsSpan(32, 8).ToArray(), []);
+            // ISO 32000-2 7.6.4.3.3: the password is UTF-8, at most 127 bytes.
+            var password = Encoding.UTF8.GetBytes(given);
+            if (password.Length > 127) password = password[..127];
+            var check = r == 5 ? SHA256.HashData([.. password, .. u.AsSpan(32, 8)]) : Hash2B(password, u.AsSpan(32, 8).ToArray(), []);
             if (!check.AsSpan(0, 32).SequenceEqual(u.AsSpan(0, 32))) return null;
-            var intermediate = r == 5 ? SHA256.HashData(u.AsSpan(40, 8)) : Hash2B([], u.AsSpan(40, 8).ToArray(), []);
+            var intermediate = r == 5 ? SHA256.HashData([.. password, .. u.AsSpan(40, 8)]) : Hash2B(password, u.AsSpan(40, 8).ToArray(), []);
             using var aes = Aes.Create();
             aes.Key = intermediate[..32];
             var key = aes.DecryptCbc(ue.AsSpan(0, 32), new byte[16], PaddingMode.None);
@@ -77,7 +88,7 @@ internal sealed class PdfSecurity
         // /P is a signed 32-bit value; some writers store its unsigned form.
         int p = pdf.Resolve(e["P"]) is PdfNumber pn ? unchecked((int)(long)pn.Value) : 0;
         bool metadata = pdf.Resolve(e["EncryptMetadata"]) is not PdfKeyword { Value: "false" };
-        var input = new List<byte>(Pad);
+        var input = new List<byte>(Padded(Encoding.Latin1.GetBytes(given)));
         input.AddRange(o.Take(32));
         input.AddRange(BitConverter.GetBytes(p));
         input.AddRange(id);
@@ -85,7 +96,7 @@ internal sealed class PdfSecurity
         var hash = MD5.HashData([.. input]);
         if (r >= 3) for (int i = 0; i < 50; i++) hash = MD5.HashData(hash.AsSpan(0, length));
         var fileKey = hash[..length];
-        // The empty user password checks against /U.
+        // The password checks against /U.
         bool ok;
         if (r == 2) ok = Rc4(fileKey, Pad).AsSpan().SequenceEqual(u.AsSpan(0, Math.Min(32, u.Length)));
         else
@@ -97,8 +108,10 @@ internal sealed class PdfSecurity
         return ok ? new PdfSecurity(fileKey, streams, strings, $"{(streams == "AES" ? "AES-128" : $"RC4 {length * 8}-bit")}, revision {r}") : null;
     }
 
+    private static byte[] Padded(byte[] password) => [.. password.Take(32), .. Pad.Take(32 - Math.Min(32, password.Length))];
+
     /// <summary>ISO 32000-2 algorithm 2.B (revision 6).</summary>
-    private static byte[] Hash2B(byte[] password, byte[] salt, byte[] userKey)
+    internal static byte[] Hash2B(byte[] password, byte[] salt, byte[] userKey)
     {
         var k = SHA256.HashData([.. password, .. salt, .. userKey]);
         using var aes = Aes.Create();

@@ -140,6 +140,21 @@ public sealed class OfficeDocumentTests
     }
 
     [Fact]
+    public void A_given_password_decrypts_an_agile_package_and_a_wrong_one_is_named_not_decrypted()
+    {
+        var xlsx = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()), ("xl/data.bin", new byte[9000]));
+        var locked = AgileEncrypted(xlsx, "caller secret");
+        using (ContainerPassword.Enter("caller secret"))
+        {
+            var item = Containers.Open(locked, "a.xlsx", AnalysisLimits.Default, default).Items.Single(i => i.Name == "EncryptedPackage.zip");
+            Assert.Equal(xlsx, item.Bytes);
+            Assert.Contains(View(locked, "a.xlsx")!.Notes, n => n.Contains("agile encryption", StringComparison.Ordinal));
+        }
+        using (ContainerPassword.Enter("another secret"))
+            Assert.Contains(View(locked, "a.xlsx")!.Notes, n => n.Contains("not decrypted (the password did not decrypt it)", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_given_password_replaces_the_built_in_ones()
     {
         var xlsm = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()));

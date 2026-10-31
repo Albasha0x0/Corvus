@@ -46,6 +46,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
         [Description("Write dependencies here, CycloneDX 1.6.")] string? sbomPath = null,
         [Description("Write findings here, STIX 2.1.")] string? stixPath = null,
         [Description("Overwrite either file.")] bool overwrite = false,
+        [Description("Password of an encrypted document or archive; only it is tried.")] string? password = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {
@@ -61,7 +62,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
             // A file the workspace has not loaded is read where a crashing reader cannot end the server.
             if (assembly == null && path != null && native == null)
             {
-                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath);
+                var args = new FileWork.SummarizeArgs(path, name, table, columns, offset, limit, sbomPath, overwrite, script, stixPath, password);
                 record = await FileIsolation.RunAsync(serverOptions, workers, FileWork.Summarize, args, path, () => FileWork.SummarizeWith(inspection, graph, args, cancellationToken), cancellationToken);
                 Coverage(record);
                 return ToolOutput.Report(ContainerText.Summary(record), record);

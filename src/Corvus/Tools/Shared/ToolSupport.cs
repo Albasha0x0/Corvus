@@ -10,12 +10,12 @@ internal static class ToolSupport
         "Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token.";
 
     public const string SymbolOrNativeDescription =
-        "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME|#ORD|ADDR).";
+        "Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME|#ORD|ADDR).";
 
     public const string AssemblyFilterDescription =
-        "Assembly id, name, path; omit: all loaded.";
+        "Assembly id, name or path; omit: all.";
 
-    public const string AssemblyDescription = "Assembly id, name, path.";
+    public const string AssemblyDescription = "Assembly id, name or path.";
 
     /// <summary>Offset of a list tool, in rows; the agent passes the previous page's nextOffset.</summary>
     public const string RowOffsetDescription = "Rows to skip.";

@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using Corvus.Core.Documents;
 
 namespace Corvus.Tests;
 
@@ -42,8 +43,8 @@ internal sealed class PdfFixtures
 
     private static readonly byte[] Id = Enumerable.Range(0, 16).Select(i => (byte)(i * 11)).ToArray();
 
-    /// <summary>Encrypts strings in parentheses and streams with RC4 128-bit, revision 3, the empty user password; object <paramref name="number"/> holds the /Encrypt dictionary.</summary>
-    public PdfFixtures EncryptRc4(int number, string ownerPassword = "owner")
+    /// <summary>Encrypts strings in parentheses and streams with RC4 128-bit, revision 3, the given user password (empty by default); object <paramref name="number"/> holds the /Encrypt dictionary.</summary>
+    public PdfFixtures EncryptRc4(int number, string ownerPassword = "owner", string userPassword = "")
     {
         // Algorithm 3: O from the owner password; algorithm 2: the file key; algorithm 5: U.
         var ownerKey = MD5.HashData(Padded(ownerPassword));
@@ -51,7 +52,7 @@ internal sealed class PdfFixtures
         var o = Rc4(ownerKey, Pad);
         for (int i = 1; i <= 19; i++) o = Rc4(ownerKey.Select(k => (byte)(k ^ i)).ToArray(), o);
         int p = -4;
-        var key = MD5.HashData([.. Pad, .. o, .. BitConverter.GetBytes(p), .. Id]);
+        var key = MD5.HashData([.. Padded(userPassword), .. o, .. BitConverter.GetBytes(p), .. Id]);
         for (int i = 0; i < 50; i++) key = MD5.HashData(key);
         var u = Rc4(key, MD5.HashData([.. Pad, .. Id]));
         for (int i = 1; i <= 19; i++) u = Rc4(key.Select(k => (byte)(k ^ i)).ToArray(), u);
@@ -63,6 +64,37 @@ internal sealed class PdfFixtures
     }
 
     private int _encryptObject = -1;
+    private bool _aes256;
+
+    /// <summary>Encrypts strings in parentheses and streams with AES-256 in CBC mode, revision 5 or 6 (ISO 32000-2 7.6.4.4), the given user password.</summary>
+    public PdfFixtures EncryptAes256(int number, string userPassword, int revision)
+    {
+        var password = Encoding.UTF8.GetBytes(userPassword);
+        var fileKey = RandomNumberGenerator.GetBytes(32);
+        var validation = RandomNumberGenerator.GetBytes(8);
+        var keySalt = RandomNumberGenerator.GetBytes(8);
+        byte[] Hash(byte[] salt) => revision == 5 ? SHA256.HashData([.. password, .. salt]) : PdfSecurity.Hash2B(password, salt, []);
+        var u = Hash(validation).Concat(validation).Concat(keySalt).ToArray();
+        using var aes = Aes.Create();
+        aes.Key = Hash(keySalt);
+        var ue = aes.EncryptCbc(fileKey, new byte[16], PaddingMode.None);
+        EncryptionKey = fileKey;
+        _aes256 = true;
+        Add(number, $"<< /Filter /Standard /V 5 /R {revision} /Length 256 /P -4 /O <{new string('0', 96)}> /U <{Convert.ToHexString(u)}> /OE <{new string('0', 64)}> /UE <{Convert.ToHexString(ue)}> " +
+            "/Perms <" + new string('0', 32) + "> /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >> /StmF /StdCF /StrF /StdCF >>");
+        TrailerExtra += $" /Encrypt {number} 0 R";
+        _encryptObject = number;
+        return this;
+    }
+
+    private byte[] Encipher(int number, byte[] data)
+    {
+        if (!_aes256) return Rc4(ObjectKey(number), data);
+        var iv = RandomNumberGenerator.GetBytes(16);
+        using var aes = Aes.Create();
+        aes.Key = EncryptionKey!;
+        return [.. iv, .. aes.EncryptCbc(data, iv, PaddingMode.PKCS7)];
+    }
 
     private static byte[] Padded(string password) => [.. Encoding.Latin1.GetBytes(password).Take(32), .. Pad.Take(32 - Math.Min(32, password.Length))];
 
@@ -84,7 +116,7 @@ internal sealed class PdfFixtures
 
     /// <summary>Literal strings "(...)" without escapes rewritten as encrypted hex strings.</summary>
     private string EncryptStrings(int number, string body) =>
-        System.Text.RegularExpressions.Regex.Replace(body, @"\(([^()\\]*)\)", m => "<" + Convert.ToHexString(Rc4(ObjectKey(number), Encoding.Latin1.GetBytes(m.Groups[1].Value))) + ">");
+        System.Text.RegularExpressions.Regex.Replace(body, @"\(([^()\\]*)\)", m => "<" + Convert.ToHexString(Encipher(number, Encoding.Latin1.GetBytes(m.Groups[1].Value))) + ">");
 
     public byte[] Build(string version = "1.7")
     {
@@ -100,7 +132,7 @@ internal sealed class PdfFixtures
                 offsets[number] = output.Position;
                 var encrypt = EncryptionKey != null && number != _encryptObject;
                 var body = encrypt ? EncryptStrings(number, body0) : body0;
-                var stream = stream0 != null && encrypt ? Rc4(ObjectKey(number), stream0) : stream0;
+                var stream = stream0 != null && encrypt ? Encipher(number, stream0) : stream0;
                 if (stream != null && !body.Contains("/Length", StringComparison.Ordinal)) body = body.TrimEnd().TrimEnd('>').TrimEnd('>') + $" /Length {stream.Length} >>";
                 Text($"{number} 0 obj\n{body}\n");
                 if (stream != null) { Text("stream\n"); output.Write(stream); Text("\nendstream\n"); }

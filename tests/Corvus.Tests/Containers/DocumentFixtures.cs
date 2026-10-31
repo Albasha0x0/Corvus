@@ -317,6 +317,52 @@ internal static class DocumentFixtures
         return Compound([("EncryptionInfo", info.ToArray()), ("EncryptedPackage", encrypted)]);
     }
 
+    /// <summary>An OOXML package encrypted with agile encryption (AES-256, SHA-512, 100 spins, MS-OFFCRYPTO 2.3.4.10) under <paramref name="password"/>.</summary>
+    public static byte[] AgileEncrypted(byte[] package, string password)
+    {
+        byte[] Sha(params byte[][] parts) => System.Security.Cryptography.SHA512.HashData([.. parts.SelectMany(p => p)]);
+        byte[] Fit(byte[] b, int n) { var r = new byte[n]; for (int i = 0; i < n; i++) r[i] = i < b.Length ? b[i] : (byte)0x36; return r; }
+        byte[] Cbc(byte[] key, byte[] iv, byte[] data)
+        {
+            using var c = System.Security.Cryptography.Aes.Create();
+            c.Key = key;
+            return c.EncryptCbc(data, iv, System.Security.Cryptography.PaddingMode.None);
+        }
+        var keySalt = Enumerable.Range(1, 16).Select(i => (byte)(i * 5)).ToArray();
+        var dataSalt = Enumerable.Range(1, 16).Select(i => (byte)(i * 9)).ToArray();
+        var secret = Enumerable.Range(0, 32).Select(i => (byte)(i * 3 + 1)).ToArray();
+        var verifierInput = Enumerable.Range(0, 16).Select(i => (byte)(100 + i)).ToArray();
+        const int spin = 100;
+        var h = Sha(keySalt, Encoding.Unicode.GetBytes(password));
+        for (int i = 0; i < spin; i++) h = Sha(BitConverter.GetBytes(i), h);
+        byte[] Derive(byte[] block) => Fit(Sha(h, block), 32);
+        var inputBlock = new byte[] { 0xFE, 0xA7, 0xD2, 0x76, 0x3B, 0x4B, 0x9E, 0x79 };
+        var hashBlock = new byte[] { 0xD7, 0xAA, 0x0F, 0x6D, 0x30, 0x61, 0x34, 0x4E };
+        var keyBlock = new byte[] { 0x14, 0x6E, 0x0B, 0xE7, 0xAB, 0xAC, 0xD0, 0xD6 };
+        string B64(byte[] b) => Convert.ToBase64String(b);
+        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+            "<encryption xmlns=\"http://schemas.microsoft.com/office/2006/encryption\" xmlns:p=\"http://schemas.microsoft.com/office/2006/keyEncryptor/password\">" +
+            $"<keyData saltSize=\"16\" blockSize=\"16\" keyBits=\"256\" hashSize=\"64\" cipherAlgorithm=\"AES\" cipherChaining=\"ChainingModeCBC\" hashAlgorithm=\"SHA512\" saltValue=\"{B64(dataSalt)}\"/>" +
+            "<keyEncryptors><keyEncryptor uri=\"http://schemas.microsoft.com/office/2006/keyEncryptor/password\">" +
+            $"<p:encryptedKey spinCount=\"{spin}\" saltSize=\"16\" blockSize=\"16\" keyBits=\"256\" hashSize=\"64\" cipherAlgorithm=\"AES\" cipherChaining=\"ChainingModeCBC\" hashAlgorithm=\"SHA512\" saltValue=\"{B64(keySalt)}\" " +
+            $"encryptedVerifierHashInput=\"{B64(Cbc(Derive(inputBlock), keySalt, verifierInput))}\" " +
+            $"encryptedVerifierHashValue=\"{B64(Cbc(Derive(hashBlock), keySalt, Sha(verifierInput)))}\" " +
+            $"encryptedKeyValue=\"{B64(Cbc(Derive(keyBlock), keySalt, secret))}\"/>" +
+            "</keyEncryptor></keyEncryptors></encryption>";
+        var info = new MemoryStream();
+        info.Write([4, 0, 4, 0, 0x40, 0, 0, 0]);
+        info.Write(Encoding.UTF8.GetBytes(xml));
+        var encrypted = new MemoryStream();
+        encrypted.Write(BitConverter.GetBytes((long)package.Length));
+        for (int at = 0, segment = 0; at < package.Length; at += 4096, segment++)
+        {
+            var chunk = new byte[(Math.Min(4096, package.Length - at) + 15) / 16 * 16];
+            Array.Copy(package, at, chunk, 0, Math.Min(4096, package.Length - at));
+            encrypted.Write(Cbc(secret, Fit(Sha(dataSalt, BitConverter.GetBytes(segment)), 16), chunk));
+        }
+        return Compound([("EncryptionInfo", info.ToArray()), ("EncryptedPackage", encrypted.ToArray())]);
+    }
+
     /// <summary>An OOXML package of these parts.</summary>
     public static byte[] Ooxml(params (string Name, byte[] Data)[] parts)
     {

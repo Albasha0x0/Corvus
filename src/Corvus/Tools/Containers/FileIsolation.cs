@@ -178,7 +178,7 @@ internal sealed class FileOps : IWorkerOps
 public static class FileWork
 {
     public sealed record SummarizeArgs(string Path, string View, string? Table, string[]? Columns, long Offset, int? Limit, string? SbomPath = null,
-        bool Overwrite = false, string? Script = null, string? StixPath = null);
+        bool Overwrite = false, string? Script = null, string? StixPath = null, string? Password = null);
 
     public sealed record ListArgs(string Path, string? Filter, int Offset, int Limit);
 
@@ -430,6 +430,7 @@ public static class FileWork
     /// <summary>The summary record of a path, as summarize_file shows it.</summary>
     public static FileSummaryRecord SummarizeWith(InspectionService inspection, Services.Mobile.AppGraph? graph, SummarizeArgs a, CancellationToken ct)
     {
+        using var _ = ContainerPassword.Enter(a.Password);
         var summary = inspection.Summarize(null, a.Path, ct, new FileViewOptions(a.View, a.Table, a.Columns, a.Offset, a.Limit) { Sbom = a.SbomPath != null, Stix = a.StixPath != null, Script = a.Script });
         var record = ContainerText.Summary(summary, a.View);
         if (a.SbomPath != null) record = record with { Notes = [.. record.Notes ?? [], WriteSbom(summary, a.SbomPath, a.Overwrite)] };
