@@ -76,6 +76,8 @@ Every server option applies ([configuration.md](configuration.md#server-options)
   `#` starts a comment line. Every tool name is checked before the first step runs.
 - With `--json`, one line per step: `{step, tool, isError, text, structured, error}`.
 - Later steps run after a failed one unless `--stop-on-error` is given. The exit code is the first failed step's.
+- `--keep-going` runs the valid steps and names each invalid line on stderr (not in `--json` output); exit 2 if no step failed.
+  A malformed JSON array still fails the batch.
 - `--step-timeout <seconds>`: ends a step that runs longer (above 0, at most 86400); it counts as failed with exit code 124, and `--json` writes `error.code` `timeout` for it.
 
 ### File batch

@@ -278,6 +278,53 @@ public class ToolCliTests
     }
 
     [Fact]
+    public void Keep_going_skips_invalid_batch_lines_and_names_them_in_file_order()
+    {
+        var text = "{\"tool\":\"list_assemblies\"}\n{\"tool\":\"no_such_tool\"}\n{\"tool\": }\n[1]\n";
+        var invalid = new List<string>();
+        var steps = ToolCli.ParseBatch(text, invalid);
+        Assert.Single(steps);
+        Assert.Equal(3, invalid.Count);
+        Assert.StartsWith("line 2:", invalid[0]);
+        Assert.StartsWith("line 3:", invalid[1]);
+        Assert.StartsWith("line 4: expected", invalid[2]);
+        Assert.DoesNotContain("Batch step", string.Join(" ", invalid));
+    }
+
+    [Fact]
+    public void Keep_going_names_bad_array_entries_and_refuses_a_batch_with_no_valid_step()
+    {
+        var invalid = new List<string>();
+        var steps = ToolCli.ParseBatch("[{\"tool\":\"list_assemblies\"},{\"tool\":\"no_such_tool\"},{\"tool\":\"list_assemblies\",\"args\":3}]", invalid);
+        Assert.Single(steps);
+        Assert.StartsWith("entry 2:", invalid[0]);
+        Assert.Equal("entry 3: args must be an object.", invalid[1]);
+        Assert.Throws<UsageException>(() => ToolCli.ParseBatch("{\"tool\": }", []));
+    }
+
+    [Fact]
+    public void Without_keep_going_a_bad_line_beside_a_valid_one_fails_the_batch()
+    {
+        Assert.Throws<UsageException>(() => ToolCli.ParseBatch("{\"tool\":\"list_assemblies\"}\n{\"tool\": }"));
+    }
+
+    [Fact]
+    public async Task Keep_going_runs_valid_steps_names_skips_on_stderr_and_exits_two()
+    {
+        var steps = "{\"tool\":\"list_assemblies\"}\n{\"tool\": }\n";
+        var (code, output, error) = await RunWithInput(steps, "batch", "-", "--no-index", "--keep-going");
+        Assert.Equal(2, code);
+        Assert.Contains("=== [1/1] list_assemblies", output);
+        Assert.Contains("Skipped line 2:", error);
+
+        // A failed step's own exit code wins over the skip.
+        steps = "{\"tool\":\"decompile_member\",\"args\":{\"member\":\"Nope.Nope\"}}\n{\"tool\": }\n";
+        (code, _, error) = await RunWithInput(steps, "batch", "-", "--no-index", "--keep-going");
+        Assert.Equal(1, code);
+        Assert.Contains("Skipped line 2:", error);
+    }
+
+    [Fact]
     public void A_bad_batch_line_is_named_by_file_line_and_column()
     {
         // Regression: a bad JSON Lines step was reported at line 0.

@@ -17,13 +17,21 @@ internal static partial class ToolCli
             ? $"The batch is not valid JSON at line {line}, byte column {col + indent + 1}: {ex.Message}"
             : $"The batch is not valid JSON: {ex.Message}";
 
-    /// <summary>Steps from a JSON array or JSON Lines ({"tool", "args"}; # lines are comments); every tool is checked before any runs.</summary>
-    public static List<BatchStep> ParseBatch(string text)
+    /// <summary>
+    /// Steps from a JSON array or JSON Lines; with <paramref name="invalid"/>,
+    /// names and skips bad lines or entries instead of failing.
+    /// </summary>
+    public static List<BatchStep> ParseBatch(string text, List<string>? invalid = null)
     {
-        var nodes = new List<JsonNode?>();
+        var nodes = new List<(JsonNode? Node, string Label, int Order)>();
+        var skipped = new List<(int Order, string Message)>();
         if (text.TrimStart().StartsWith('['))
         {
-            try { nodes.AddRange(JsonNode.Parse(text)!.AsArray()); }
+            try
+            {
+                int n = 0;
+                foreach (var node in JsonNode.Parse(text)!.AsArray()) nodes.Add((node, $"entry {++n}", n));
+            }
             catch (JsonException ex) { throw new UsageException(BatchJsonError(ex, (ex.LineNumber ?? 0) + 1, 0)); }
         }
         else
@@ -34,36 +42,50 @@ internal static partial class ToolCli
                 var line = fileLines[i].TrimEnd();
                 var trimmed = line.TrimStart();
                 if (trimmed.Length == 0 || trimmed.StartsWith('#')) continue;
-                try { nodes.Add(JsonNode.Parse(trimmed)); }
+                try { nodes.Add((JsonNode.Parse(trimmed), $"line {i + 1}", i + 1)); }
                 catch (JsonException ex)
                 {
                     // The reader's column is relative to the trimmed line.
                     var indent = Encoding.UTF8.GetByteCount(line.AsSpan(0, line.Length - trimmed.Length));
-                    throw new UsageException(BatchJsonError(ex, i + 1, indent));
+                    var message = BatchJsonError(ex, i + 1, indent);
+                    if (invalid == null) throw new UsageException(message);
+                    skipped.Add((i + 1, $"line {i + 1}: {message}"));
                 }
             }
         }
         var steps = new List<BatchStep>();
-        foreach (var node in nodes)
+        foreach (var (node, label, order) in nodes)
         {
-            if (node is not JsonObject o || o["tool"]?.GetValueKind() != JsonValueKind.String)
-                throw new UsageException($"Batch step {steps.Count + 1}: expected {{\"tool\": \"name\", \"args\": {{...}}}}.");
-            var tool = RequireTool((string)o["tool"]!);
-            var args = new Dictionary<string, object?>(StringComparer.Ordinal);
-            switch (o["args"] ?? o["arguments"])
-            {
-                case null: break;
-                case JsonObject obj:
-                    foreach (var (key, value) in obj) args[key] = value is null ? null : JsonSerializer.SerializeToElement(value);
-                    break;
-                default: throw new UsageException($"Batch step {steps.Count + 1}: args must be an object.");
-            }
-            steps.Add(new BatchStep(NameOf(tool), args));
+            try { steps.Add(ParseStep(node, invalid == null ? $"Batch step {steps.Count + 1}: " : "")); }
+            catch (UsageException ex) when (invalid != null) { skipped.Add((order, $"{label}: {ex.Message}")); }
         }
-        return steps.Count > 0 ? steps : throw new UsageException("The batch has no steps.");
+        // Report skips in file order, whichever pass found them.
+        if (invalid != null) invalid.AddRange(skipped.OrderBy(x => x.Order).Select(x => x.Message));
+        return steps.Count > 0 ? steps : throw new UsageException(invalid is { Count: > 0 }
+            ? "The batch has no valid steps. " + string.Join(" ", invalid) : "The batch has no steps.");
     }
 
-    /// <summary>Runs the steps in one session; returns the first failed step's exit code, or 0; --stop-on-error stops there.</summary>
+    static BatchStep ParseStep(JsonNode? node, string prefix)
+    {
+        if (node is not JsonObject o || o["tool"]?.GetValueKind() != JsonValueKind.String)
+            throw new UsageException($"{prefix}expected {{\"tool\": \"name\", \"args\": {{...}}}}.");
+        var tool = RequireTool((string)o["tool"]!);
+        var args = new Dictionary<string, object?>(StringComparer.Ordinal);
+        switch (o["args"] ?? o["arguments"])
+        {
+            case null: break;
+            case JsonObject obj:
+                foreach (var (key, value) in obj) args[key] = value is null ? null : JsonSerializer.SerializeToElement(value);
+                break;
+            default: throw new UsageException($"{prefix}args must be an object.");
+        }
+        return new BatchStep(NameOf(tool), args);
+    }
+
+    /// <summary>
+    /// Runs the steps in one session; returns the first failed step's exit
+    /// code, or 2 if only --keep-going skipped lines, else 0.
+    /// </summary>
     private static async Task<int> BatchAsync(CliArgs a, CliIo io, CancellationToken cancellationToken)
     {
         if (a.BatchFile != null)
@@ -78,7 +100,9 @@ internal static partial class ToolCli
         string text;
         try { text = source == "-" ? io.In.ReadToEnd() : File.ReadAllText(source); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { throw new UsageException($"Cannot read {source}: {ex.Message}"); }
-        var steps = ParseBatch(text);
+        var invalid = new List<string>();
+        var steps = ParseBatch(text, a.KeepGoing ? invalid : null);
+        foreach (var message in invalid) io.Error.WriteLine($"Skipped {message}");
         var stepSeconds = StepSeconds(a.StepTimeout);
         var sarif = OutputPath("--sarif", a.Sarif);
         if (sarif != null && Directory.Exists(sarif)) throw new UsageException($"--sarif names a file, not a folder: {a.Sarif}.");
@@ -132,7 +156,7 @@ internal static partial class ToolCli
         }
         // The findings new in each compare_folders step, as one run.
         if (sarif != null) await File.WriteAllTextAsync(sarif, SarifLog.BuildDiff(comparisons, Directory.GetCurrentDirectory()).ToJsonString(Compact), CancellationToken.None);
-        return exit;
+        return exit == Exit.Ok && invalid.Count > 0 ? Exit.Usage : exit;
     }
 
     private static int Prompts(CliArgs a, CliIo io)

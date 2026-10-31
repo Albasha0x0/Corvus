@@ -20,6 +20,7 @@ internal sealed partial class CliArgs
     public bool Json { get; private set; }
     public bool Structured { get; private set; }
     public bool StopOnError { get; private set; }
+    public bool KeepGoing { get; private set; }
     public string? BatchFile { get; private set; }
     public string? TimeLimit { get; private set; }
     public string? StepTimeout { get; private set; }
@@ -54,6 +55,7 @@ internal sealed partial class CliArgs
                 case "--args-file": a.ArgsFile = Next(); continue;
                 case "--structured": a.Structured = true; continue;
                 case "--stop-on-error": a.StopOnError = true; continue;
+                case "--keep-going": a.KeepGoing = true; continue;
                 case "--file": a.BatchFile = Next(); continue;
                 case "--time-limit": a.TimeLimit = Next(); continue;
                 case "--step-timeout": a.StepTimeout = Next(); continue;
