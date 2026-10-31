@@ -56,9 +56,11 @@ internal sealed class NativeFileView : IFileSummaryView
         // A PE too damaged to identify still gets the unavailable note.
         var isPe = file.Kind is "native PE" or "NativeAOT executable" || (file.Kind == "data" && Native.NativeImageLoader.Detect(file.Head) == Native.NativeFileKind.Pe);
         var pe = isPe ? PeHighlights(file.Image, ct) : [];
-        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0 && pe.Count == 0) return null;
+        var content = NativeEmbeddedContent.Highlights(file.Image, ct);
+        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0 && pe.Count == 0 && content.Count == 0) return null;
         var highlights = new List<string>(image?.Highlights ?? []);
         highlights.AddRange(pe);
+        highlights.AddRange(content);
         foreach (var p in packers)
             highlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
         return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding), .. hosted], Indicators = hits };
