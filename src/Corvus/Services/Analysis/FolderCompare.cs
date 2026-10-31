@@ -37,7 +37,7 @@ public sealed class FolderCompare
 
     public sealed record Side(
         string Path,
-        [property: Description("folder, zip (central directory: CRC-32 and size, entries not read), asar (Electron archive header; declared SHA-256 or hashed data) or file.")] string Kind,
+        [property: Description("folder, zip (central directory: CRC-32 and size, entries not read), asar (Electron archive header; declared SHA-256 or hashed data), firmware image (files of its filesystem) or file.")] string Kind,
         int Entries, long Bytes,
         [property: Description("False when the walk stopped (maxEntries, a folder not listed): absent paths are then unmatched, not added or removed.")] bool Complete,
         [property: Description("Files hashed in this call; Reused: hashes kept from an earlier call (same path, size and write time).")] int Hashed, int Reused,

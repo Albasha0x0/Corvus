@@ -387,6 +387,7 @@ Labels:
 - `summarize_file view=lockfile` reads `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock` (v1 and berry), `poetry.lock`, `uv.lock` and hashed `requirements*.txt`.
 - Each resolved package shows its source: registry, git, url or path. A git or URL source is review; plain HTTP is noteworthy.
 - `compare_folders` on two lockfiles, or two folders with lockfiles at one path, lists packages added, removed or changed.
+- `compare_folders` on two firmware filesystem images, or two folders, lists changed files and counts the functions matched, identical, changed, removed and added of up to 50 changed ELF and PE files.
 - A git or URL source taken on, or an integrity changed for one version, is noteworthy; a newly flagged install script is listed.
 - `compare_folders` on two package versions lists malcontent behaviours added or removed in each changed code file, and build or install steps a `.nupkg` gains.
 - `search_container kind=dependency query=name@version` on a folder names each lockfile that resolves it; `node_modules` and `.git` are skipped.

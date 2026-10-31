@@ -50,9 +50,10 @@ public sealed class FolderTools(FolderCompare folders, ServerOptions? serverOpti
     /// <summary>The comparison of two paths with the package and lockfile changes of both sides; <paramref name="progress"/> counts hashed files.</summary>
     public static FolderComparison CompareWith(FolderCompare folders, FileWork.CompareFoldersArgs a, Action<int, int>? progress, CancellationToken ct)
     {
+        if (FirmwareImageCompare.Compare(a.OldPath, a.NewPath, a.Change, a.Offset, a.Limit, ct) is { } image) return new FolderComparison(image, null);
         var (comparison, partial) = WithPackageChanges(folders.Compare(a.OldPath, a.NewPath, a.Change, a.CaseSensitive, a.Exclude, a.MaxEntries, a.Offset, a.Limit, progress, ct, a.Diffs),
             a.OldPath, a.NewPath, ct);
-        return new FolderComparison(WithLockfileChanges(comparison, a.OldPath, a.NewPath, ct), partial);
+        return new FolderComparison(FirmwareImageCompare.WithBinaries(WithLockfileChanges(comparison, a.OldPath, a.NewPath, ct), a.OldPath, a.NewPath, a.Limit, ct), partial);
     }
 
     /// <summary>Adds package changes for each lockfile both sides hold at one relative path (or two lockfiles of one format); returns the comparison unchanged when none are paired.</summary>
