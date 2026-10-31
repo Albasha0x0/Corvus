@@ -117,7 +117,7 @@ internal static partial class ToolCli
     {
         if (run.TimedOut)
         {
-            sections.Add(Section(MembersStep, SectionStatus.Timeout, "The time limit ended the run before this step."));
+            sections.Add(Stamp(Section(MembersStep, SectionStatus.Timeout, "The time limit ended the run before this step."), null));
             notRead.Add("The members were not read: the time limit ended the run.");
             return [];
         }
@@ -127,6 +127,7 @@ internal static partial class ToolCli
         };
         if (run.Password != null) arguments["password"] = run.Password;
         JsonObject section;
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             (section, var timedOut) = await Step(run.Session!, MembersStep, arguments, run.Io, run.Deadline, run.Cancellation, run.StepSeconds);
@@ -137,6 +138,7 @@ internal static partial class ToolCli
             run.TimedOut = true;
             section = Section(MembersStep, SectionStatus.Timeout, "The time limit ended this step.");
         }
+        Stamp(section, started);
         var result = section["result"];
         var members = new List<(string?, string, string)>();
         foreach (var item in result?["items"] as JsonArray ?? [])

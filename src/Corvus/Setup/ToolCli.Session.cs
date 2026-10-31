@@ -67,12 +67,14 @@ internal static partial class ToolCli
         for (int i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var (result, expired) = await WithStepLimit(stepSeconds, cancellationToken, ct => Invoke(session, step.Tool, step.Arguments, io, ct));
             if (expired)
             {
                 if (ReportStepTimeout(io, a.Json, i + 1, steps.Count, step.Tool, stepSeconds, a.StopOnError, ref exit)) break;
                 continue;
             }
+            var elapsedMs = Math.Max(1, (long)Math.Ceiling(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds));
             int code = result is null ? Exit.Usage : result.IsError == true ? ExitCode(Split(result).Error) : Exit.Ok;
             if (result != null && step.Tool == "compare_folders" && result.IsError != true && Structured(result) is JsonObject comparison) comparisons.Add(comparison);
             if (result != null)
@@ -89,6 +91,7 @@ internal static partial class ToolCli
                         ["text"] = output,
                         ["structured"] = result.StructuredContent is { } s ? JsonNode.Parse(s.GetRawText()) : null,
                         ["error"] = error,
+                        ["elapsedMs"] = elapsedMs,
                     };
                     io.Out.WriteLine(record.ToJsonString(Compact));
                 }

@@ -19,24 +19,25 @@ internal static partial class ToolCli
         {
             if (run.TimedOut)
             {
-                sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."));
+                sections.Add(Stamp(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."), null));
                 continue;
             }
             if (summary == null)
             {
-                sections.Add(Section(step, SectionStatus.Error, "The summary failed, so whether this step applies is unknown."));
+                sections.Add(Stamp(Section(step, SectionStatus.Error, "The summary failed, so whether this step applies is unknown."), null));
                 continue;
             }
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-                sections.Add(step == EmbeddedStep
+                sections.Add(Stamp(step == EmbeddedStep
                     ? await ExtractEmbedded(run, path, summary, folder, extracted)
-                    : await ExtractScript(run, path, summary, folder, extracted));
+                    : await ExtractScript(run, path, summary, folder, extracted), started));
             }
             catch (OperationCanceledException) when (!run.Cancellation.IsCancellationRequested)
             {
                 run.TimedOut = true;
-                sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended this step."));
+                sections.Add(Stamp(Section(step, SectionStatus.Timeout, "The time limit ended this step."), started));
             }
         }
         run.Index.Add(new JsonObject

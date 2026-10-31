@@ -256,6 +256,18 @@ internal static partial class ToolCli
         ["rulePacks"] = new JsonArray([.. RulePacks.Installed(RulePacks.Root).Select(p => new JsonObject { ["name"] = p.Name, ["version"] = p.Version, ["digest"] = p.Digest ?? "unknown" })]),
     };
 
+    /// <summary>Sets a section's elapsedMs from a monotonic start timestamp to now.</summary>
+    private static JsonObject Stamp(JsonObject section, long? started) => Stamp(section, started, System.Diagnostics.Stopwatch.GetTimestamp());
+
+    /// <summary>Sets elapsedMs between two timestamps, rounded up to 1 ms.</summary>
+    /// <remarks>A null start marks a step that did not run and reports 0.</remarks>
+    internal static JsonObject Stamp(JsonObject section, long? started, long ended)
+    {
+        section["elapsedMs"] = started is not { } s ? 0
+            : Math.Max(1, (long)Math.Ceiling(System.Diagnostics.Stopwatch.GetElapsedTime(s, ended).TotalMilliseconds));
+        return section;
+    }
+
     private static bool Complete(JsonArray sections) => sections.All(s => (string?)s!["status"] is SectionStatus.Complete or SectionStatus.NotApplicable);
 
     /// <summary>Runs every step over one path; after the deadline the steps left are timeout sections.</summary>
@@ -267,21 +279,22 @@ internal static partial class ToolCli
         {
             if (step.Name == "yara" && run.Rules == null)
             {
-                sections.Add(Section(step, SectionStatus.NotApplicable, "No rules were given; --rules names a rule file or folder."));
+                sections.Add(Stamp(Section(step, SectionStatus.NotApplicable, "No rules were given; --rules names a rule file or folder."), null));
                 continue;
             }
             if (run.TimedOut)
             {
-                sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."));
+                sections.Add(Stamp(Section(step, SectionStatus.Timeout, "The time limit ended the run before this step."), null));
                 continue;
             }
             var (arguments, skip) = Arguments(step, path, run.Rules, summary, run.Limits, run.Limits["timeSeconds"] - run.Clock.Elapsed.TotalSeconds);
             if (skip != null)
             {
-                sections.Add(skip);
+                sections.Add(Stamp(skip, null));
                 continue;
             }
             JsonObject section;
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 (section, var timedOut) = await Step(run.Session!, step, arguments!, run.Io, run.Deadline, run.Cancellation, run.StepSeconds);
@@ -290,11 +303,11 @@ internal static partial class ToolCli
             catch (OperationCanceledException) when (!run.Cancellation.IsCancellationRequested)
             {
                 run.TimedOut = true;
-                sections.Add(Section(step, SectionStatus.Timeout, "The time limit ended this step."));
+                sections.Add(Stamp(Section(step, SectionStatus.Timeout, "The time limit ended this step."), started));
                 continue;
             }
             if (step.Name == "summary") summary = section["result"];
-            sections.Add(section);
+            sections.Add(Stamp(section, started));
         }
         return (sections, summary);
     }

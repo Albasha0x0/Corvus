@@ -20,6 +20,82 @@ public class FileBatchTests
     private static JsonNode Section(JsonNode document, string name) => document["sections"]!.AsArray().Single(s => (string?)s!["name"] == name)!;
 
     [Fact]
+    public void A_step_that_ran_reports_the_monotonic_milliseconds_between_its_timestamps()
+    {
+        var start = System.Diagnostics.Stopwatch.Frequency;
+        var section = ToolCli.Stamp(new JsonObject(), start, start + 3 * System.Diagnostics.Stopwatch.Frequency / 2);
+        Assert.Equal(1500, (long)section["elapsedMs"]!);
+    }
+
+    [Fact]
+    public void A_skipped_step_reports_zero_elapsed_milliseconds()
+    {
+        var section = ToolCli.Stamp(new JsonObject { ["status"] = ToolCli.SectionStatus.Timeout }, null, 99);
+        Assert.Equal(0, (long)section["elapsedMs"]!);
+    }
+
+    [Fact]
+    public void A_step_that_ran_under_a_millisecond_reports_one()
+    {
+        var section = ToolCli.Stamp(new JsonObject(), 5, 6);
+        Assert.Equal(1, (long)section["elapsedMs"]!);
+    }
+
+    [Fact]
+    public async Task A_json_batch_step_record_has_elapsed_milliseconds_for_success_and_failure()
+    {
+        var steps = """
+            {"tool": "list_assemblies"}
+            {"tool": "decompile_member", "args": {"member": "Nope.Nope"}}
+            """;
+        var (_, output, _) = await ToolCliTests.RunWithInput(steps, "batch", "-", "--no-index", "--json");
+        var records = output.Split("\n", StringSplitOptions.RemoveEmptyEntries).Select(l => JsonNode.Parse(l)!).ToList();
+        Assert.Equal([false, true], records.Select(r => (bool)r["isError"]!));
+        Assert.All(records, r => Assert.True((long)r["elapsedMs"]! >= 1));
+    }
+
+    [Fact]
+    public async Task A_document_ended_by_the_time_limit_has_elapsed_milliseconds_in_every_section()
+    {
+        using var dir = new TempDir();
+        var file = Path.Combine(dir.Path, "plain.txt");
+        File.WriteAllText(file, "plain text");
+        var (_, document, _) = await Batch("--file", file, "--time-limit", "0.001");
+        var sections = document!["sections"]!.AsArray();
+        Assert.All(sections, s => Assert.True((long)s!["elapsedMs"]! >= 0));
+        Assert.All(sections.Where(s => (string?)s!["status"] is "timeout" or "not_applicable"), s => Assert.True((long)s!["elapsedMs"]! >= 0));
+    }
+
+    [Fact]
+    public async Task A_step_that_failed_reports_elapsed_milliseconds_of_at_least_one()
+    {
+        using var dir = new TempDir();
+        var file = Path.Combine(dir.Path, "broken.dll");
+        File.WriteAllBytes(file, [0x4D, 0x5A, 0, 0, 0, 0, 0, 0]);
+        var (_, document, _) = await Batch("--file", file);
+        var failed = document!["sections"]!.AsArray().Where(s => (string?)s!["status"] is "error" or "unavailable").ToList();
+        Assert.All(failed, s => Assert.True((long)s!["elapsedMs"]! >= 1));
+        Assert.All(document["sections"]!.AsArray().Where(s => (string?)s!["status"] == "complete"), s => Assert.True((long)s!["elapsedMs"]! >= 1));
+    }
+
+    [Fact]
+    public async Task Every_section_of_a_file_batch_document_has_elapsed_milliseconds()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"corvus-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(file, "plain text");
+        try
+        {
+            var extract = Path.Combine(Path.GetTempPath(), $"corvus-{Guid.NewGuid():N}");
+            var (_, document, _) = await Batch("--file", file, "--extract", extract);
+            var sections = document!["sections"]!.AsArray().Concat(document["records"]?.AsArray().SelectMany(r => r!["sections"]?.AsArray() ?? []) ?? []).ToList();
+            Assert.Contains(sections, s => (string?)s!["name"] == "embedded");
+            Assert.All(sections, s => Assert.True((long?)s!["elapsedMs"] >= 0));
+            if (Directory.Exists(extract)) Directory.Delete(extract, true);
+        }
+        finally { File.Delete(file); }
+    }
+
+    [Fact]
     public async Task A_container_over_its_file_limit_is_partial_and_keeps_the_files_read()
     {
         using var dir = new TempDir();
