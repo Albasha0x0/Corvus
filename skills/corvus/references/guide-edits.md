@@ -23,7 +23,7 @@ Editing and saving: edits stay in memory until saved; edit tools preview by defa
 - list_functions view=candidates finds code outside functions for define_native.
 - ida_python runs IDAPython (off unless --ida-scripting); ghidra_script runs a Java GhidraScript in one transaction (off unless --ghidra-scripting).
 - export_engine_database writes the IDA .i64 or Ghidra .gzf for the engine's GUI.
-- record_note anchors a finding to '<image>@<address>', '<assembly>:<symbol>', a file or a dump; notes persist per user by file SHA-256 or module MVID.
+- record_note anchors a finding to '<image>@<address>', '<image>!<address>', '<assembly>:<symbol>', a file or a dump; notes persist per user by file SHA-256 or module MVID.
 - update_note changes a note in part (expectedRevision; a conflict returns the current note); list_notes filters by status, kind, anchor, tag and text.
 - decompile_member and decompile_native start with "// notes: N open" when the target has open notes.
 - save_session writes loaded files, edits, patches, names and notes to one JSON file.

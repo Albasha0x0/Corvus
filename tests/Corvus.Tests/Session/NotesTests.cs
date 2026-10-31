@@ -115,6 +115,28 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
+    public async Task A_bang_anchor_resolves_to_the_same_identity_as_an_at_anchor()
+    {
+        var (tools, workspace, _) = Tools();
+        workspace.LoadAny(McpProtocolTests.NativeSample(_dir));
+        var at = await tools.RecordNote("a", anchor: "native.dll@First");
+        var bang = await tools.RecordNote("b", anchor: "native.dll!First");
+        Assert.Equal((at.Anchor.Sha256, at.Anchor.Rva, at.Anchor.Label), (bang.Anchor.Sha256, bang.Anchor.Rva, bang.Anchor.Label));
+        var hex = await tools.RecordNote("c", anchor: "native.dll!" + at.Anchor.Label![(at.Anchor.Label!.IndexOf('@') + 1)..]);
+        Assert.Equal(at.Anchor.Rva, hex.Anchor.Rva);
+        var error = await Assert.ThrowsAsync<ToolError>(() => tools.RecordNote("d", anchor: "nosuch.dll!0x10"));
+        Assert.Contains("<image>!<address>", error.Remediation);
+        var atBad = await Assert.ThrowsAsync<ToolError>(() => tools.RecordNote("e", anchor: "native.dll@zzz"));
+        var bangBad = await Assert.ThrowsAsync<ToolError>(() => tools.RecordNote("f", anchor: "native.dll!zzz"));
+        Assert.Equal(atBad.Code, bangBad.Code);
+        Assert.Equal(atBad.Message, bangBad.Message);
+        var decorated = await Assert.ThrowsAsync<ToolError>(() => tools.RecordNote("h", anchor: "native.dll!First@8"));
+        Assert.DoesNotContain("names no loaded image", decorated.Message);
+        var empty = await Assert.ThrowsAsync<ToolError>(() => tools.RecordNote("g", anchor: "native.dll!"));
+        Assert.DoesNotContain("names no loaded image", empty.Message);
+    }
+
+    [Fact]
     public async Task Anchors_resolve_and_filter()
     {
         var (tools, workspace, notes) = Tools();

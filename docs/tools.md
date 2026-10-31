@@ -2050,7 +2050,7 @@ Record a finding, question, hypothesis or todo on a native address, .NET member,
 | `text` | string | yes |  | At most 4,000 characters. |
 | `kind` | string |  |  | Default finding. Values: finding, question, hypothesis, todo. |
 | `status` | string |  |  | Default open. Values: open, confirmed, refuted, answered, dropped. |
-| `anchor` | string |  |  | <image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
+| `anchor` | string |  |  | <image>@<address> or <image>!<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
 | `tags` | string[] |  |  | At most 10. |
 | `evidence` | object[] |  |  | At most 10: {result: r-... or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
 
@@ -2087,7 +2087,7 @@ Notes, newest first, filtered by status, kind, anchor, tag and text. A file anch
 |---|---|---|---|---|
 | `status` | string |  |  | Default open; all for every status. Values: open, confirmed, refuted, answered, dropped, all. |
 | `kind` | string |  |  | Only this kind. Values: finding, question, hypothesis, todo. |
-| `anchor` | string |  |  | <image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
+| `anchor` | string |  |  | <image>@<address> or <image>!<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
 | `tag` | string |  |  | Only notes with this tag. |
 | `text` | string |  |  | Text substring (case-insensitive). |
 | `offset` | integer |  |  |  |

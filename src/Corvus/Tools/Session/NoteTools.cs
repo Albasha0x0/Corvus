@@ -15,7 +15,7 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     ServerOptions? options = null)
 {
     public const string AnchorDescription =
-        "<image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide).";
+        "<image>@<address> or <image>!<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide).";
 
     public sealed record NoteList(
         [property: Description("Notes, newest first.")] IReadOnlyList<Note> Items,
@@ -127,9 +127,12 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
         }
         return workspace.Read(() =>
         {
-            int at = a.LastIndexOf('@');
-            if (at > 0 && workspace.FindNative(a[..at].Trim()) is { } native)
+            // '!' is the debugger spelling of '@'. The last '@' is tried before the
+            // first '!' so a decorated name such as 'f@8' keeps its suffix; a miss
+            // falls through to the later lookups.
+            foreach (int at in new[] { a.LastIndexOf('@'), a.IndexOf('!') })
             {
+                if (at <= 0 || workspace.FindNative(a[..at].Trim()) is not { } native) continue;
                 var image = native.Image;
                 uint rva = NativeAddress.Parse(image, a[(at + 1)..], code.Ready(native) is { } index ? index.AddressesOfName : null);
                 return new NoteAnchor(NoteAnchor.Native, Sha256: native.OriginalSha256, Rva: rva, Label: $"{native.Id}@{NativeAddress.Va(image, rva)}");
@@ -140,7 +143,7 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
             if (workspace.FindNative(a) is { } file) return new NoteAnchor(NoteAnchor.File, Sha256: file.OriginalSha256, Label: file.Id);
             if (TryAssembly(a) is { } asm) return new NoteAnchor(NoteAnchor.File, Sha256: asm.OriginalSha256, Label: asm.Id);
             throw new ToolError(ErrorCode.NotFound, $"The anchor '{a}' names no loaded image, assembly, member or dump.",
-                "use '<image>@<address>', '<assembly>:<symbol>', an id from list_assemblies, 'dump:<id>', or leave it empty");
+                "use '<image>@<address>', '<image>!<address>', '<assembly>:<symbol>', an id from list_assemblies, 'dump:<id>', or leave it empty");
         });
     }
 
