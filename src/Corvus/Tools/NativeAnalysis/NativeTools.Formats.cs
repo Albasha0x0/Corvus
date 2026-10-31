@@ -73,6 +73,7 @@ public sealed partial class NativeTools
             sb.AppendLine($"  {s.Name,-20} rva 0x{s.Rva:X8} size 0x{s.VirtualSize:X8} file 0x{s.RawOffset:X8}+0x{s.RawSize:X} {Access(s.Access)} " +
                           $"entropy {FileEntropy(file, s):0.00}" + (SectionFlags(image, s) is { Count: > 0 } f ? $"  [{string.Join(", ", f)}]" : ""));
         PackerLines(sb, image, file);
+        ScriptRuntimeLines(sb, image, file);
         if (image.Dependencies.Count > 0)
             sb.AppendLine($"Dependencies ({image.Dependencies.Count}): {string.Join(", ", image.Dependencies.Take(64))}" + (image.Dependencies.Count > 64 ? ", …" : ""));
         sb.AppendLine($"Imports: {Plural(image.Imports.Count, "symbol")} from {Plural(image.Imports.Select(i => i.Module).Distinct().Count(), "module")}" +
@@ -101,6 +102,14 @@ public sealed partial class NativeTools
     {
         foreach (var p in PackerDetection.Detect(image, file))
             sb.AppendLine(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}" : $"Packed: {p.Name} ({p.Kind}): {p.Evidence}");
+    }
+
+    /// <summary>Script runtimes the image embeds, with the calls that register native functions for scripts.</summary>
+    internal static void ScriptRuntimeLines(StringBuilder sb, INativeImage image, ReadOnlySpan<byte> file)
+    {
+        foreach (var r in ScriptRuntimeDetection.Detect(image, file))
+            sb.AppendLine($"Script runtime: {r.Name}{(r.Version != null ? " " + r.Version : "")}: {r.Evidence}" +
+                          (r.Binding.Count > 0 ? $"; binding layer: {string.Join(", ", r.Binding)}" : ""));
     }
 
     private static void GoLine(StringBuilder sb, INativeImage image)
