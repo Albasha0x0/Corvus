@@ -171,15 +171,21 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         if (!File.Exists(full)) throw Targets.FileNotFound(path!);
         try
         {
-            var info = new FileInfo(full);
-            if (info.Length <= MaxFileBytes) return File.ReadAllText(full);
+            // Share read, write and delete so a log its writer holds open still reads.
             using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            // Length is read from the open stream so a growing log is bounded.
+            long length = stream.Length;
+            if (length <= MaxFileBytes)
+            {
+                using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                return reader.ReadToEnd();
+            }
             stream.Seek(-MaxFileBytes, SeekOrigin.End);
             var buffer = new byte[MaxFileBytes];
             stream.ReadExactly(buffer);
             var tail = Encoding.UTF8.GetString(buffer);
             int firstLine = tail.IndexOf('\n');
-            notes.Add($"The file is {info.Length} bytes: only its last {MaxFileBytes >> 20} MiB were read.");
+            notes.Add($"The file is {length} bytes: only its last {MaxFileBytes >> 20} MiB were read.");
             return firstLine >= 0 ? tail[(firstLine + 1)..] : tail;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

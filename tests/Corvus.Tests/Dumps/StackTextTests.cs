@@ -383,4 +383,20 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal("Crash+0x5", Assert.Single(r.Items).Resolved);
         Assert.Contains(r.Notes, n => n.Contains("last 8 MiB", StringComparison.Ordinal));
     }
+
+    // Regression: a small log held open for writing (FileShare.Read) failed with an I/O error.
+    [Fact]
+    public async Task A_small_log_held_open_by_its_writer_is_read()
+    {
+        var log = _dir.File("held.log");
+        using var writer = new FileStream(log, FileMode.Create, FileAccess.Write, FileShare.Read);
+        writer.Write(System.Text.Encoding.UTF8.GetBytes(
+            "0x00007FF610001005 (synth) Crash\n" +
+            @"C:\App\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0)" + "\n"));
+        writer.Flush();
+        var r = await _service.Symbolize(null, log, null, null, null, 0, 10, default);
+        Assert.Equal("Crash+0x5", Assert.Single(r.Items).Resolved);
+        writer.Write(System.Text.Encoding.UTF8.GetBytes("more\n"));
+        writer.Flush();
+    }
 }
