@@ -83,7 +83,7 @@ public sealed partial class NativeAnalysisTools
     }
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of a native function from IDA or Ghidra, with the names, comments and types made here. The first call " +
+    [Description("C pseudocode of a native function from IDA or Ghidra, with the names, comments and types made here, and, with address= on x64, the method behind slot-indexed virtual calls. The first call " +
                  "analyzes the image (seconds to minutes); functions= decompiles several per request.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
@@ -144,7 +144,7 @@ public sealed partial class NativeAnalysisTools
         }
         var session = await DecompilerSession(native!, choice.Engine, progress, cancellationToken);
         EngineReport.Answered(choice, engines, session);
-        var pushed = await Push(native!, session, cancellationToken);
+        var pushed = await Push(native!, session, batch ? null : rva, cancellationToken);
         if (pcode)
         {
             if (session is not Native.Providers.Ghidra.GhidraSession ghidra)
@@ -232,7 +232,7 @@ public sealed partial class NativeAnalysisTools
             try
             {
                 var session = await DecompilerSession(native, id, progress, ct);
-                var pushed = await Push(native, session, ct);
+                var pushed = await Push(native, session, null, ct);
                 var (text, start, name) = await Single(native, session, rva, addresses, limit, progress, ct);
                 sb.Append(pushed).Append(text).Append('\n');
                 items.Add(SingleItem(native, address, rva, start, name, text));
@@ -278,7 +278,7 @@ public sealed partial class NativeAnalysisTools
     }
 
     private string SetupDigest(LoadedNative native) =>
-        EngineReport.SetupDigest(native, code, notes != null ? NoteMarks.Digest(native, notes) : "", types != null, userTypes != null, names != null);
+        EngineReport.SetupDigest(native, code, (notes != null ? NoteMarks.Digest(native, notes) : "") + "|call-marks", types != null, userTypes != null, names != null);
 
     /// <summary>Most objects the refs footer lists.</summary>
     private const int MaxRefs = 200;
@@ -347,12 +347,15 @@ public sealed partial class NativeAnalysisTools
         "\"" + Format.Clip(text.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t"), 120) + "\"";
 
     /// <summary>Pushes names and types into the session; returns the stable header lines, with each push's details in _meta.</summary>
-    private async Task<string> Push(LoadedNative native, INativeDecompilerSession session, CancellationToken ct)
+    private async Task<string> Push(LoadedNative native, INativeDecompilerSession session, uint? function, CancellationToken ct)
     {
         var pdb = NativePdbTypes.Report(session);
         EngineReport.Pushed(NativePdbTypes.Describe(pdb));
         if (names != null) EngineReport.Pushed(NativeNamePush.Describe(await names.EnsureAsync(native, session, ct)));
-        if (notes != null) EngineReport.Pushed(NoteMarks.Describe(await NoteMarks.EnsureAsync(native, session, notes, ct), session.ProviderId));
+        // Derived marks accumulate per session; an unmarked batch call must not clear them.
+        var derived = function is { } at && code?.Ready(native) is { } index ? NoteMarks.SlotMarks(native, index, at, ct) : [];
+        if (notes != null || derived.Count > 0)
+            EngineReport.Pushed(NoteMarks.Describe(await NoteMarks.EnsureAsync(native, session, notes, derived, ct), session.ProviderId));
         if (types != null) EngineReport.Pushed(NativeTypePush.Describe(await types.EnsureAsync(native, session, ct)));
         if (userTypes != null) EngineReport.Pushed(NativeUserTypePush.Describe(await userTypes.EnsureAsync(native, session, ct)));
         var sb = new StringBuilder();

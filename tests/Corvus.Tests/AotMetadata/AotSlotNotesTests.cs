@@ -1,3 +1,4 @@
+using Corvus.Native.Providers;
 using Corvus.Services;
 using Corvus.Tools;
 using Iced.Intel;
@@ -230,5 +231,52 @@ public sealed partial class AotFieldNotesTests
         }), 0x8664, source: SlotSource);
         var listing = await new NativeCodeTools(env.Workspace, service, env.Pager).Disassemble(native.Id, "Fixture_Native_StreamHost__Read");
         Assert.Contains("BinaryReader::ReadBytes (slot 25)", listing);
+    }
+
+    [Fact]
+    public void The_slot_note_becomes_an_engine_mark_at_the_helper_call()
+    {
+        var (_, _, native, index) = Open(SlotCode(a =>
+        {
+            a.sub(rsp, 0x28);
+            a.mov(rdx, __qword_ptr[rcx + 0x48]);
+            a.mov(ecx, 25);
+            a.call(Helper);
+            a.add(rsp, 0x28); a.ret();
+        }), 0x8664, source: SlotSource);
+        var mark = Assert.Single(NoteMarks.SlotMarks(native, index, 0x1000, default));
+        Assert.Equal("BinaryReader::ReadBytes (slot 25)", mark.Text);
+        Assert.Equal(0x100Du, mark.Rva);
+    }
+
+    [Fact]
+    public void An_address_outside_any_function_gets_no_slot_marks()
+    {
+        var (_, _, native, index) = Open(SlotCode(a => a.ret()), 0x8664, source: SlotSource);
+        Assert.Empty(NoteMarks.SlotMarks(native, index, 0x70, default));
+    }
+
+    [Fact]
+    public async Task Slot_marks_accumulate_per_session_and_join_the_notes_at_one_address()
+    {
+        var (_, _, native, _) = Open(SlotCode(a => a.ret()), 0x8664, source: SlotSource);
+        var engine = new ScriptedEngine();
+        var session = await engine.OpenAsync("");
+        var first = new[] { new NativeMark(0x20, "slot A") };
+        var second = new[] { new NativeMark(0x10, "slot B"), new NativeMark(0x20, "slot A") };
+        var note = new[] { new NativeMark(0x20, "[note] n") };
+
+        NoteMarks.Combine([], session, first);
+        var both = NoteMarks.Combine([], session, second);
+        Assert.Equal([(0x10u, "slot B"), (0x20u, "slot A")], both.Select(m => (m.Rva, m.Text)));
+        var joined = NoteMarks.Combine(note, session, []);
+        Assert.Equal("slot A; [note] n", joined.Single(m => m.Rva == 0x20).Text);
+        Assert.Equal(2, joined.Count);
+
+        var one = await NoteMarks.EnsureAsync(native, session, null, first, default);
+        Assert.NotNull(one);
+        Assert.Null(await NoteMarks.EnsureAsync(native, session, null, first, default));
+        Assert.Single(engine.MarkPushes);
+        Assert.Equal(2, engine.MarkPushes[0].Marks.Count);
     }
 }

@@ -1502,7 +1502,7 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of a native function from IDA or Ghidra, with the names, comments and types made here. The first call analyzes the image (seconds to minutes); functions= decompiles several per request.
+C pseudocode of a native function from IDA or Ghidra, with the names, comments and types made here, and, with address= on x64, the method behind slot-indexed virtual calls. The first call analyzes the image (seconds to minutes); functions= decompiles several per request.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

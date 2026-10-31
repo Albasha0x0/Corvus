@@ -17,6 +17,16 @@ internal static class NoteMarks
 
     private static readonly ConditionalWeakTable<INativeDecompilerSession, StrongBox<string?>> Pushed = new();
 
+    // Keep call-site marks per session, so a later push does not remove them.
+    // A restarted process starts empty and re-creates them per decompile.
+    private static readonly ConditionalWeakTable<INativeDecompilerSession, Dictionary<uint, string>> Derived = new();
+
+    /// <summary>The marks for the slot-indexed calls of the function at <paramref name="rva"/>; empty when <paramref name="index"/> is null or no function starts there.</summary>
+    public static IReadOnlyList<NativeMark> SlotMarks(LoadedNative native, NativeCodeIndex? index, uint rva, CancellationToken ct) =>
+        index?.FunctionAt(rva) is { } fn
+            ? [.. AotSlotNotes.Comments(native, index, fn, ct).OrderBy(n => n.Key).Select(n => new NativeMark(n.Key, n.Value))]
+            : [];
+
     /// <summary>The marks for the image's native notes (dropped and refuted ones left out), in address order.</summary>
     public static IReadOnlyList<NativeMark> Marks(LoadedNative native, NotesService notes) =>
         notes.Read(native.OriginalSha256.ToLowerInvariant())
@@ -25,11 +35,12 @@ internal static class NoteMarks
             .Select(n => new NativeMark(n.Anchor.Rva!.Value, $"[{n.Kind}/{n.Status}] {Format.Clip(n.Text.ReplaceLineEndings(" "), MarkText)} ({n.Id})"))
             .ToList();
 
-    /// <summary>Pushes the marks when they changed since the database last took them; the number pushed, or null when nothing changed or the engine has no marks.</summary>
-    public static async Task<NativeMarkResult?> EnsureAsync(LoadedNative native, INativeDecompilerSession session, NotesService notes, CancellationToken ct)
+    /// <summary>Pushes the marks when they changed since the database last took them; the number pushed, or null when nothing changed or the engine has no marks. <paramref name="notes"/> may be null; <paramref name="derived"/> marks join the notes' marks and stay for the session.</summary>
+    public static async Task<NativeMarkResult?> EnsureAsync(LoadedNative native, INativeDecompilerSession session, NotesService? notes,
+        IReadOnlyList<NativeMark> derived, CancellationToken ct)
     {
         if (EngineControl.Of(session) is not { } control) return null;
-        var marks = Marks(native, notes);
+        var marks = Combine(notes == null ? [] : Marks(native, notes), session, derived);
         var stamp = Stamp(marks);
         var box = Pushed.GetOrCreateValue(session);
         if (box.Value == stamp) return null;
@@ -49,7 +60,20 @@ internal static class NoteMarks
         return result;
     }
 
-    /// <summary>The stamp of the marks the image's notes make (what a push would record), without an engine.</summary>
+    internal static IReadOnlyList<NativeMark> Combine(IReadOnlyList<NativeMark> marks, INativeDecompilerSession session, IReadOnlyList<NativeMark> derived)
+    {
+        var known = Derived.GetOrCreateValue(session);
+        lock (known)
+        {
+            foreach (var m in derived) known[m.Rva] = m.Text;
+            if (known.Count == 0) return marks;
+            var byRva = marks.GroupBy(m => m.Rva).ToDictionary(g => g.Key, g => string.Join("; ", g.Select(m => m.Text)));
+            foreach (var (rva, text) in known) byRva[rva] = byRva.TryGetValue(rva, out var own) ? $"{text}; {own}" : text;
+            return [.. byRva.OrderBy(e => e.Key).Select(e => new NativeMark(e.Key, e.Value))];
+        }
+    }
+
+    /// <summary>The stamp of the marks the image's notes make, without an engine; call-site marks are not in it.</summary>
     public static string Digest(LoadedNative native, NotesService notes) => Stamp(Marks(native, notes));
 
     /// <summary>"notes: 3 marks in ida" for a decompile header, or null.</summary>
