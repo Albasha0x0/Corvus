@@ -1,6 +1,7 @@
 using System.Reflection.PortableExecutable;
 using Corvus.Native.Providers;
 using Corvus.Native.Providers.Ida;
+using Corvus.Relay;
 
 namespace Corvus.Setup;
 
@@ -55,7 +56,7 @@ internal static class Doctor
         else if (entry.Disabled)
             Set(row, Disabled, "registered (disabled: the client does not start it)", $"corvus install --client {client.Id} --enable");
         else if (relay != null)
-            Set(row, Relay, $"registered as the development relay for {relay} (build {Corvus.Relay.RelayBuilds.IdOf(Corvus.Relay.RelayBuilds.ReadMarker(relay))}; {server.Detail})",
+            Set(row, Relay, $"registered as the development relay for {relay} (build {RelayBuilds.IdOf(RelayBuilds.ReadMarker(relay))}; {server.Detail}){StaleBuild(relay)}",
                 null);
         else if (!own)
             Set(row, OtherCopy, $"registered with another copy: {entry.Command} (version {server.Version})", $"corvus install --client {client.Id} to use this copy.");
@@ -67,6 +68,10 @@ internal static class Doctor
             row.Remediation ??= $"corvus install --client {client.Id} --enable";
         }
     }
+
+    /// <summary>"; warning: ..." when the relay's published build is older than its source tree, else empty.</summary>
+    internal static string StaleBuild(string publishDirectory) =>
+        RelayBuilds.StaleSourceNote(publishDirectory, RelayBuilds.ReadMarker(publishDirectory)) is { } note ? $"; warning: {note}" : "";
 
     /// <summary>Marks a registration under the old name: a working one is legacy_name, a failing one keeps its state.</summary>
     public static void MarkLegacy(ClientReport row)

@@ -99,6 +99,8 @@ public sealed partial class DevRelay : IAsyncDisposable
             _log.WriteLine($"corvus relay: cannot start the server from {_options.Target}: {ex.Message}");
             return 1;
         }
+        if (RelayBuilds.StaleSourceNote(_options.Target, _active.Build.Marker) is { } stale)
+            _log.WriteLine($"corvus relay: warning: {stale}.");
         var watch = WatchAsync(_stop.Token);
         var dispatch = DispatchAsync(_stop.Token);
         try { await ReadClientAsync(_stop.Token); }

@@ -62,6 +62,55 @@ public static class RelayBuilds
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(marker)))[..12];
     }
 
+    /// <summary>The UTC time in a marker's buildId (yyyyMMddTHHmmssZ-...), or null when the marker has none.</summary>
+    public static DateTime? BuiltAt(string? marker)
+    {
+        var id = IdOf(marker);
+        return id.Length >= 16 && DateTime.TryParseExact(id[..16], "yyyyMMdd'T'HHmmss'Z'", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var at) ? at : null;
+    }
+
+    /// <summary>The source tree above <paramref name="publishDirectory"/> (the folder holding publish.ps1 and src), or null when none is found.</summary>
+    public static string? SourceRootOf(string publishDirectory)
+    {
+        for (var dir = new DirectoryInfo(Path.GetFullPath(publishDirectory)).Parent; dir != null; dir = dir.Parent)
+            if (File.Exists(Path.Combine(dir.FullName, "publish.ps1")) && Directory.Exists(Path.Combine(dir.FullName, "src"))) return dir.FullName;
+        return null;
+    }
+
+    /// <summary>A warning when the build is older than a source file, or its time is unknown; null when current or when no source tree is found.</summary>
+    public static string? StaleSourceNote(string publishDirectory, string? marker)
+    {
+        if (SourceRootOf(publishDirectory) is not { } root || NewestSource(root) is not { } source) return null;
+        if (BuiltAt(marker) is not { } built) return "the build time is unknown, so it cannot be compared with the source tree; publish again";
+        return source > built
+            ? $"the build is from {built:yyyy-MM-dd HH:mm} UTC, older than the source tree ({source:yyyy-MM-dd HH:mm} UTC); publish again"
+            : null;
+    }
+
+    /// <summary>The newest write time of a source file under <paramref name="sourceRoot"/>/src, UTC; null when there is none or the tree cannot be read.</summary>
+    public static DateTime? NewestSource(string sourceRoot)
+    {
+        var src = Path.Combine(sourceRoot, "src");
+        try { return Newest(new DirectoryInfo(src)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    // Skips build output folders so a large tree is not walked twice.
+    private static DateTime? Newest(DirectoryInfo directory)
+    {
+        DateTime? newest = null;
+        var options = new EnumerationOptions { IgnoreInaccessible = true };
+        foreach (var file in directory.EnumerateFiles("*.cs", options))
+            if (newest == null || file.LastWriteTimeUtc > newest) newest = file.LastWriteTimeUtc;
+        foreach (var sub in directory.EnumerateDirectories("*", options))
+        {
+            if (sub.Name is "obj" or "bin") continue;
+            if (Newest(sub) is { } at && (newest == null || at > newest)) newest = at;
+        }
+        return newest;
+    }
+
     /// <summary>Copies <paramref name="target"/> to a new folder under <paramref name="state"/>, so the server never runs files a republish replaces; IOException when a publish changed it meanwhile.</summary>
     public static string Stage(string target, string state, string? marker)
     {
