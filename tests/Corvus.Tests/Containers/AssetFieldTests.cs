@@ -348,6 +348,19 @@ public sealed class AssetFieldTests : IDisposable
         Assert.True(summary.Views.ContainsKey("assets"));
     }
 
+    // A bundle holding one SerializedFile with type trees; the overview reads no blocks.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void The_overview_of_a_bundle_names_its_version_and_points_to_the_assets_view(int codec)
+    {
+        var path = Folder("sensor.bundle", AssetFileWriter.Bundle(codec, ("CAB-0a1b2c", SensorFile(typeTrees: true))));
+        var summary = new InspectionService(new AssemblyWorkspace()).Summarize(null, path, default);
+        Assert.Contains(summary.Highlights, h => h.StartsWith("Asset bundle (2021.3.5f1); view=assets", StringComparison.Ordinal));
+        Assert.True(summary.Views.ContainsKey("assets"));
+        Assert.Equal("bundle", Assert.IsType<AssetFileView.Facts>(summary.Views["assets"].Detail).Container);
+    }
+
     [Fact]
     [FuzzEntry(typeof(SerializedFile), typeof(AssetBundle), typeof(AssetFileView))]
     public void Fuzzed_serialized_asset_files_never_throw_unexpectedly()
