@@ -5,7 +5,7 @@
       "type": "string"
     },
     "declarations": {
-      "description": "P/Invoke declarations checked.",
+      "description": "P/Invoke declarations, PE imports or Mach-O load commands checked.",
       "type": "integer"
     },
     "counts": {

@@ -210,7 +210,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
 
     public sealed record NativeImportReport(
         string Assembly,
-        [property: Description("P/Invoke declarations checked.")] int Declarations,
+        [property: Description("P/Invoke declarations, PE imports or Mach-O load commands checked.")] int Declarations,
         [property: Description("Declarations per verdict and reason.")] IReadOnlyList<VerdictCount> Counts,
         [property: Description("The status or reason filter applied, or null.")] string? Filter,
         int Offset,
@@ -222,9 +222,9 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         [property: Description("Malformed metadata found while reading the declarations, with locations.")] IReadOnlyList<MetadataIssue> MetadataIssues,
         IReadOnlyList<string> Notes);
 
-    [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
-    [Description("Check P/Invoke declarations (or Mach-O load commands) against library exports, as the loader resolves them. " +
-                 "Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.")]
+    [McpServerTool(Name = "verify_native_imports", Title = "Verify native imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
+    [Description("Check P/Invoke declarations, native PE imports (rows module!entry) or Mach-O load commands against library exports, as the loader resolves them. " +
+                 "Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked. PE reasons: exact, ordinal, forwarded, missing_export, missing_ordinal, forwarder_broken, dll_not_found, api_set_unmapped, system_dll_not_on_host.")]
     public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only this verdict or reason (contradicted, missing_export...).")] string? status = null,
@@ -235,14 +235,16 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
-        // A loaded Mach-O image with no managed assembly of that name.
-        var macho = workspace.Read(() =>
+        // A loaded Mach-O or native PE image; a managed assembly of that name takes precedence, so a mixed-mode PE is checked as P/Invoke.
+        var native = workspace.Read(() =>
         {
-            if (workspace.FindNative(assembly) is not { Image: Native.MachO.MachOFile } n) return null;
+            if (workspace.FindNative(assembly) is not { Image: Native.MachO.MachOFile or Native.Pe.PeFile } n) return null;
             try { workspace.Get(assembly); return null; }
             catch (ToolError) { return n; }
         }, cancellationToken);
-        if (macho != null) return MachOImports(macho, status, offset, limit, cancellationToken);
+        if (native != null)
+            return native.Image is Native.Pe.PeFile pe ? PeImports(native, pe, status, offset, limit, cancellationToken)
+                : MachOImports(native, (Native.MachO.MachOFile)native.Image, status, offset, limit, cancellationToken);
         var asm = workspace.Read(() => workspace.Get(assembly), cancellationToken);
         // Outside the lock: the verifier takes it in short sections.
         var result = new NativeImportVerifier(path => NativeImageLoader.Open(path)).Verify(asm, cancellationToken, platform, workspace,
@@ -286,24 +288,49 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
                 rows, loads, result.DynamicLoads.Count, result.MetadataIssues.Take(10).ToList(), notes), "declaration", head.ToString());
     }, cancellationToken));
 
-    private static string MachOImports(LoadedNative native, string? status, int offset, int limit, CancellationToken ct)
+    private static string PeImports(LoadedNative native, Native.Pe.PeFile image, string? status, int offset, int limit, CancellationToken ct)
     {
-        var checks = MachOLinkCheck.Check((Native.MachO.MachOFile)native.Image, native.FilePath, ct);
+        var checks = PeLinkCheck.Check(image, native.FilePath, path => NativeImageLoader.Open(path), ct);
+        var ordered = checks.OrderBy(c => VerdictRank(c.Status)).ThenBy(c => c.Module, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.EntryPoint, StringComparer.Ordinal);
+        string[] notes =
+        [
+            "Imports, delay-load included, bound as the Windows loader searches: the image folder, loaded images, then the system folders.",
+            .. OperatingSystem.IsWindows() ? (string[])[] : ["No Windows system DLLs on this host: imports bound to them are unresolved (system_dll_not_on_host)."],
+        ];
+        return ImagePage(native, checks, ordered, checks.Count, "import", notes, status, offset, limit,
+            c => $"{c.Status} ({c.Reason})  {c.Module}!{c.EntryPoint}");
+    }
+
+    private static string MachOImports(LoadedNative native, Native.MachO.MachOFile image, string? status, int offset, int limit, CancellationToken ct)
+    {
+        var checks = MachOLinkCheck.Check(image, native.FilePath, ct);
+        var ordered = checks.OrderBy(c => VerdictRank(c.Status));
+        string[] notes = ["Load commands resolved as dyld does; libraries in the dyld shared cache are not checked."];
+        return ImagePage(native, checks, ordered,
+            checks.Count(c => c.EntryPoint.Length == 0), "load", notes, status, offset, limit, c => $"{c.Status} ({c.Reason})  {c.Module}" + (c.EntryPoint.Length > 0 ? $"!{c.EntryPoint}" : ""));
+    }
+
+    private static int VerdictRank(string status) => status switch
+    {
+        NativeImportVerifier.Contradicted => 0, NativeImportVerifier.Unresolved => 1, NativeImportVerifier.NotChecked => 3, _ => 4,
+    };
+
+    private static string ImagePage(LoadedNative native, List<NativeImportVerifier.Check> checks, IEnumerable<NativeImportVerifier.Check> ordered, int total,
+        string noun, string[] notes, string? status, int offset, int limit, Func<NativeImportVerifier.Check, string> label)
+    {
         var filter = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
         offset = Math.Max(0, offset);
         limit = ClampLimit(limit);
-        var selected = checks.Where(c => filter == null || c.Status == filter || c.Reason == filter)
-            .OrderBy(c => c.Status switch { NativeImportVerifier.Contradicted => 0, NativeImportVerifier.Unresolved => 1, NativeImportVerifier.NotChecked => 3, _ => 4 }).ToList();
-        var counts = checks.Where(c => c.EntryPoint.Length == 0).GroupBy(c => (c.Status, c.Reason)).OrderBy(g => Array.IndexOf(NativeImportVerifier.Statuses, g.Key.Status))
-            .Select(g => new VerdictCount(g.Key.Status, g.Key.Reason, g.Count())).ToList();
-        int libraries = checks.Count(c => c.EntryPoint.Length == 0);
-        List<string> notes = ["Load commands resolved as dyld does; libraries in the dyld shared cache are not checked."];
-        var head = $"{native.Id}: {Plural(libraries, "load command")}" + (counts.Count > 0 ? ": " + string.Join(", ", counts.Select(c => $"{c.Count} {c.Status} ({c.Reason})")) : "") + "\n";
+        var selected = ordered.Where(c => filter == null || c.Status == filter || c.Reason == filter).ToList();
+        var counts = checks.Where(c => noun == "import" || c.EntryPoint.Length == 0).GroupBy(c => (c.Status, c.Reason))
+            .OrderBy(g => Array.IndexOf(NativeImportVerifier.Statuses, g.Key.Status)).Select(g => new VerdictCount(g.Key.Status, g.Key.Reason, g.Count())).ToList();
+        var head = $"{native.Id}: {Plural(total, noun == "import" ? "import" : "load command")}" +
+                   (counts.Count > 0 ? ": " + string.Join(", ", counts.Select(c => $"{c.Count} {c.Status} ({c.Reason})")) : "") + "\n" +
+                   string.Concat(notes.Select(n => $"Note: {n}\n"));
         var page = selected.Skip(offset).Take(limit).ToList();
         return ToolOutput.List(page, offset, limit, selected.Count,
-            c => $"{c.Status} ({c.Reason})  {c.Module}" + (c.EntryPoint.Length > 0 ? $"!{c.EntryPoint}" : "") + (c.ResolvedFile != null ? $"  -> {c.ResolvedFile}" : "") +
-                 (c.Detail.Length > 0 ? $": {Format.EscapeMarkers(c.Detail)}" : ""),
-            rows => new NativeImportReport(native.Id, libraries, counts, filter, offset, selected.Count, offset + rows.Count < selected.Count, rows, [], 0, [], notes),
-            "load", head + $"Note: {notes[0]}\n");
+            c => label(c) + (c.ResolvedFile != null ? $"  -> {c.ResolvedFile}" : "") + (c.Detail.Length > 0 ? $": {Format.EscapeMarkers(c.Detail)}" : ""),
+            rows => new NativeImportReport(native.Id, total, counts, filter, offset, selected.Count, offset + rows.Count < selected.Count, rows, [], 0, [], notes),
+            noun, head);
     }
 }

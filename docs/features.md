@@ -176,7 +176,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 | | `migrate_native_names`: copy names to a new build, or from a static library |
 | | `make_code_pattern`: a rebuild-stable byte pattern for an address |
 | | `search_code_pattern`: find a byte pattern in loaded images |
-| .NET and native | `verify_native_imports`: check P/Invoke imports against library exports |
+| .NET and native | `verify_native_imports`: check P/Invoke, native PE and Mach-O imports against library exports |
 | | `get_r2r_code`: ReadyToRun precompiled code of a method |
 | | `find_r2r_method`: the managed method at a ReadyToRun address |
 | Crash dumps | `open_minidump`: open a minidump, core dump or region set; DAC fetched only with `downloadDac=true` |

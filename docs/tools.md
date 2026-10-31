@@ -1567,9 +1567,9 @@ Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `retu
 
 ### verify_native_imports
 
-**Verify P/Invoke imports** (read-only, idempotent, long-running)
+**Verify native imports** (read-only, idempotent, long-running)
 
-Check P/Invoke declarations (or Mach-O load commands) against library exports, as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.
+Check P/Invoke declarations, native PE imports (rows module!entry) or Mach-O load commands against library exports, as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked. PE reasons: exact, ordinal, forwarded, missing_export, missing_ordinal, forwarder_broken, dll_not_found, api_set_unmapped, system_dll_not_on_host.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
