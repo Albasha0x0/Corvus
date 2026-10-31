@@ -253,11 +253,149 @@ public sealed class MailMessageTests : IDisposable
         Assert.Null(new MailFileView().Inspect(new FileInput("a.txt", "plain words\n"u8.ToArray(), "text"), default));
     }
 
+    private static byte[] Crlf(string text) => Encoding.UTF8.GetBytes(text.Replace("\r\n", "\n").Replace("\n", "\r\n"));
+
+    /// <summary>A saved page: an HTML part and a PNG part, each with a Content-Location.</summary>
+    private static byte[] Mht() => Crlf("""
+        From: <Saved by Blink>
+        Subject: Saved page
+        Date: Tue, 6 Oct 2026 09:59:58 +0000
+        MIME-Version: 1.0
+        Content-Type: multipart/related; type="text/html"; boundary="b"
+
+        --b
+        Content-Type: text/html; charset=utf-8
+        Content-Location: https://www.example.org/index.html
+
+        <p><img src="logo.png"><a href="https://www.example.org/next">next</a></p>
+        --b
+        Content-Type: image/png
+        Content-Transfer-Encoding: base64
+        Content-Location: https://www.example.org/logo.png
+
+        iVBORw0KGgo=
+        --b--
+
+        """);
+
+    private static byte[] Ics(string extra = "") => Crlf($"""
+        BEGIN:VCALENDAR
+        VERSION:2.0
+        PRODID:-//Example//Sample//EN
+        BEGIN:VEVENT
+        UID:event-1@example.org
+        SUMMARY:Planning
+        ORGANIZER;CN=Bob:mailto:bob@example.org
+        URL:https://meet.example.org/room/7
+        DESCRIPTION:Agenda at https://docs.example.org/agenda
+        {extra}END:VEVENT
+        END:VCALENDAR
+
+        """);
+
+    private static byte[] Mismatched(string from, string replyTo, string returnPath) => Crlf($"""
+        Return-Path: <{returnPath}>
+        From: {from}
+        Reply-To: {replyTo}
+        To: alice@example.com
+        Subject: Hello
+        Date: Tue, 6 Oct 2026 09:59:58 +0000
+        MIME-Version: 1.0
+        Content-Type: text/plain
+
+        Hello.
+        """);
+
+    [Fact]
+    public void An_mht_lists_its_parts_with_their_locations()
+    {
+        var f = View(Mht(), "page.mht");
+        Assert.Equal("MHTML page", f.Format);
+        Assert.Contains(f.Parts, p => p.Name == "body.html" && p.Location == "https://www.example.org/index.html");
+        Assert.Contains(f.Parts, p => p.Name == "logo.png" && p.ContentType == "image/png" && p.Size == 8);
+        var c = Containers.Open(Mht(), "page.mht", AnalysisLimits.Default, default);
+        Assert.Contains(c.Items, i => i.Name == "body.html");
+        Assert.Contains(c.Items, i => i.Name == "attachments/logo.png");
+    }
+
+    [Fact]
+    public void An_ics_lists_its_url_organizer_and_inline_attachment()
+    {
+        var payload = Convert.ToBase64String("note"u8);
+        var f = View(Ics($"ATTACH;ENCODING=BASE64;VALUE=BINARY;FILENAME=note.txt:{payload}\nATTACH:https://files.example.org/a.pdf\n"), "plan.ics");
+        Assert.Equal("iCalendar", f.Format);
+        Assert.Equal("Planning", f.Subject);
+        Assert.Contains("https://meet.example.org/room/7", f.Links);
+        Assert.Contains("https://files.example.org/a.pdf", f.Links);
+        Assert.Contains("https://docs.example.org/agenda", f.Links);
+        Assert.Equal("note.txt", f.Attachments.Single().Name);
+        Assert.Empty(new MailFileView().Inspect(new FileInput("plan.ics", Ics(), "text"), default)!.Findings);
+        var c = Containers.Open(Ics($"ATTACH;ENCODING=BASE64;FILENAME=note.txt:{payload}\n"), "plan.ics", AnalysisLimits.Default, default);
+        Assert.Equal("note"u8.ToArray(), c.Items.Single(i => i.Name == "attachments/note.txt").Bytes);
+    }
+
+    [Fact]
+    public void A_reply_to_and_return_path_that_differ_from_from_are_shown_as_facts()
+    {
+        var data = Mismatched("Bob Sender <bob@example.org>", "desk@example.net", "bounce@mail.example.org");
+        var view = new MailFileView().Inspect(new FileInput("a.eml", data, Blob.Identify(data)), default)!;
+        var id = ((MailFileView.Facts)view.Detail).Identity!;
+        Assert.Equal("Bob Sender", id.FromName);
+        Assert.Equal("bob@example.org", id.FromAddress);
+        Assert.Equal(["desk@example.net"], id.ReplyToAddresses);
+        Assert.Equal("bounce@mail.example.org", id.ReturnPathAddress);
+        Assert.True(id.ReplyToDiffers);
+        Assert.True(id.ReturnPathDiffers);
+        Assert.Contains(view.Highlights, h => h.Contains("Reply-To desk@example.net differs from From bob@example.org", StringComparison.Ordinal));
+        Assert.Empty(view.Findings);
+    }
+
+    [Fact]
+    public void A_display_name_that_holds_another_address_is_shown_next_to_the_real_one()
+    {
+        var f = View(Mismatched("\"billing@example.com\" <bob@example.org>", "bob@example.org", "bob@example.org"), "a.eml");
+        Assert.Equal("billing@example.com", f.Identity!.NameAddress);
+        Assert.True(f.Identity.NameAddressDiffers);
+        Assert.False(f.Identity.ReplyToDiffers);
+        Assert.False(f.Identity.ReturnPathDiffers);
+    }
+
+    [Fact]
+    public void Matching_sender_fields_report_no_difference()
+    {
+        var f = View(Mismatched("Bob <bob@example.org>", "Bob <BOB@example.org>", "bob@example.org"), "a.eml");
+        Assert.False(f.Identity!.ReplyToDiffers);
+        Assert.False(f.Identity.ReturnPathDiffers);
+        Assert.False(f.Identity.NameAddressDiffers is true);
+    }
+
+    [Fact]
+    public void An_html_body_that_builds_a_zip_in_a_blob_yields_the_zip_as_a_member()
+    {
+        var zip = new byte[8000];
+        new Random(7).NextBytes(zip);
+        zip = ContainerFixtures.Zip(("report.bin", zip));
+        var script = $"var data = '{Convert.ToBase64String(zip)}'; var bin = atob(data); var bytes = new Uint8Array(bin.length); " +
+            "for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); var blob = new Blob([bytes]); " +
+            "var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'x.zip'; a.click();";
+        var data = Crlf("From: a@example.org\nSubject: s\nMIME-Version: 1.0\nContent-Type: text/html; charset=utf-8\n\n<html><script>" + script + "</script></html>");
+        var c = Containers.Open(data, "a.eml", AnalysisLimits.Default, default);
+        Assert.Equal(zip, c.Items.Single(i => i.Name == "body-payloads/payload_1.zip").Bytes);
+        Assert.Contains(View(data, "a.eml").Payloads, p => p.Kind == "zip");
+    }
+
+    [Fact]
+    public void A_plain_html_body_yields_no_payload()
+    {
+        var f = View(Eml(), "a.eml");
+        Assert.Empty(f.Payloads);
+    }
+
     [Fact]
     [FuzzEntry(typeof(MailReader), typeof(MailFileView))]
     public void Fuzzed_mail_files_never_throw_past_a_tool_error()
     {
-        foreach (var (seed, name) in new[] { (Eml(), "a.eml"), (Msg(headers: true, embedded: true), "a.msg") })
+        foreach (var (seed, name) in new[] { (Eml(), "a.eml"), (Msg(headers: true, embedded: true), "a.msg"), (Mht(), "a.mht"), (Ics("ATTACH;ENCODING=BASE64;FILENAME=n.txt:bm90ZQ==\n"), "a.ics") })
         {
             var failures = FormatFuzz.Run(seed, b =>
             {

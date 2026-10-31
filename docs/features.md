@@ -11,7 +11,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 - Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz).
 - Archive and disk image entries with `..`, rooted, drive or stream names, a trailing blank or dot, a file and folder of one name, or the hidden attribute are named in the notes; RAR 5 stream records are listed.
 - JavaScript: [Acornima](https://github.com/adams85/acornima); source maps decoded by built-in code.
-- Mail: [MimeKit](https://github.com/jstedfast/MimeKit) (`.eml`); `.msg` read by built-in code.
+- Mail: [MimeKit](https://github.com/jstedfast/MimeKit) (`.eml`, `.mht`); `.msg` and `.ics` read by built-in code.
 - Transport: stdio, through the [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 - Native code: built-in engine (x86, x64, ARM32, ARM64); IDA or Ghidra optional.
 
@@ -320,7 +320,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Office OLE documents | streams, VBA source, Excel 4.0 macros, OLE packages |
 | PDF | embedded files, JavaScript, XFA forms; streams with `allFiles` |
 | `.lnk` | appended data |
-| Mail (`.eml`, `.msg`) | bodies, attachments, embedded messages; `.msg` streams |
+| Mail (`.eml`, `.mht`, `.ics`, `.msg`) | bodies, attachments, embedded messages, files an HTML body builds in a Blob; `.msg` streams |
 | OneNote `.one` | embedded files under their stored names; scripts flagged |
 | ISO / UDF, VHD / VHDX (NTFS, FAT, ext) | every file of each partition |
 | Apple `.dmg`, HFS+, APFS | every file; encrypted APFS volumes named |
@@ -486,7 +486,7 @@ Pass the name as `view=`.
 | `installer` | MSI custom actions, services, autostart entries |
 | `lnk` | a shortcut's target, arguments and noteworthy traits |
 | `installer`, `lnk`, `script`, `procmon` | command lines that download, decode or hide through a system tool: one `launcher/command-line` finding |
-| `mail` | headers, received chain, recorded authentication results, links, attachments |
+| `mail` | headers, received chain, recorded authentication results, From, Reply-To and Return-Path side by side, links, parts, attachments |
 | `office` | VBA with folded strings, Excel 4.0 macros, OLE packages and classes, RTF objects and templates, findings by line |
 | `pdf` | keywords, actions, scripts, embedded files |
 | `firmware` | formats found at offsets in an opaque image |

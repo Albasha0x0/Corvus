@@ -27,7 +27,10 @@ internal sealed record MailAttachment(string Name, string? ContentType, string? 
     public string? Stream { get; init; }
 }
 
-/// <summary>A mail message read from a MIME (.eml) or Outlook (.msg) file: headers, received chain, recorded authentication results, links and attachments.</summary>
+/// <summary>One body or attachment part as stored: Location is its Content-Location or null; null Size means the content was not decoded.</summary>
+internal sealed record MailPart(string Name, string? ContentType, string? Location, long? Size);
+
+/// <summary>A mail message read from a MIME (.eml, .mht), calendar (.ics) or Outlook (.msg) file: headers, received chain, recorded authentication results, links and attachments.</summary>
 internal sealed class MailMessage
 {
     /// <summary>Headers, links and attachments kept per message; more are counted in a note.</summary>
@@ -59,6 +62,7 @@ internal sealed class MailMessage
     public List<(string Name, string Text)> Bodies { get; } = [];
     public List<string> Links { get; } = [];
     public List<MailAttachment> Attachments { get; } = [];
+    public List<MailPart> Parts { get; } = [];
     public List<string> Notes { get; } = [];
 
     /// <summary>Whether <paramref name="b"/> starts with an RFC 5322 header block that names at least two message headers.</summary>
@@ -91,7 +95,8 @@ internal sealed class MailMessage
         MimeMessage message;
         try { message = MimeMessage.Load(new ParserOptions { MaxMimeDepth = 64 }, new MemoryStream(data, writable: false), ct); }
         catch (FormatException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{name}: not a MIME message: {ex.Message}"); }
-        var m = new MailMessage { Format = "MIME message" };
+        var web = Path.GetExtension(name).ToLowerInvariant() is ".mht" or ".mhtml";
+        var m = new MailMessage { Format = web ? "MHTML page" : "MIME message" };
         m.ReadHeaders(message.Headers);
         m.From = Join(message.From) ?? m.From;
         m.Sender = message.Sender?.ToString() ?? m.Sender;
@@ -110,6 +115,95 @@ internal sealed class MailMessage
         }
         m.FindLinks();
         return m;
+    }
+
+    /// <summary>Whether <paramref name="b"/> starts with an iCalendar object.</summary>
+    public static bool LooksLikeCalendar(ReadOnlySpan<byte> b)
+    {
+        if (b.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF])) b = b[3..];
+        while (b.Length > 0 && b[0] is (byte)' ' or (byte)'\r' or (byte)'\n' or (byte)'\t') b = b[1..];
+        return b.Length >= 15 && Encoding.ASCII.GetString(b[..15]).Equals("BEGIN:VCALENDAR", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Reads an iCalendar file: organizer, summary, description, URL and ATTACH properties; inline ATTACH values are decoded as attachments.</summary>
+    public static MailMessage ReadCalendar(byte[] data, AnalysisLimits limits, CancellationToken ct)
+    {
+        var m = new MailMessage { Format = "iCalendar", HeadersRecorded = false };
+        var folded = new List<StringBuilder>();
+        foreach (var raw in Encoding.UTF8.GetString(data).Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            // Continuation lines append to a builder, so a long fold stays linear.
+            if (line.Length > 0 && line[0] is ' ' or '\t' && folded.Count > 0) folded[^1].Append(line, 1, line.Length - 1);
+            else if (line.Length > 0) folded.Add(new StringBuilder(line));
+        }
+        var lines = folded.ConvertAll(b => b.ToString());
+        var description = new StringBuilder();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        const int MaxLines = 20_000;
+        if (lines.Count > MaxLines) { m.Notes.Add($"more than {MaxLines:N0} lines; the rest are not read"); lines.RemoveRange(MaxLines, lines.Count - MaxLines); }
+        foreach (var line in lines)
+        {
+            ct.ThrowIfCancellationRequested();
+            int colon = FirstUnquoted(line, ':');
+            if (colon <= 0) continue;
+            var head = line[..colon].Split(';');
+            var value = line[(colon + 1)..];
+            string? Param(string key) => head.Skip(1).Select(p => p.Split('=', 2)).Where(p => p.Length == 2 && p[0].Equals(key, StringComparison.OrdinalIgnoreCase))
+                .Select(p => p[1].Trim('"')).FirstOrDefault();
+            switch (head[0].ToUpperInvariant())
+            {
+                case "SUMMARY": m.Subject ??= Unescape(value); break;
+                case "ORGANIZER": m.From ??= Mailto(value, Param("CN")); break;
+                case "ATTENDEE" when m.To.Count < MaxLinks: m.To.Add(Mailto(value, Param("CN"))); break;
+                case "UID": m.MessageId ??= value; break;
+                case "PRODID": m.Mailer ??= value; break;
+                case "DESCRIPTION" or "LOCATION": description.AppendLine(Unescape(value)); break;
+                case "URL" when Url.IsMatch(value) && seen.Add(value) && m.Links.Count < MaxLinks: m.Links.Add(value); break;
+                case "ATTACH":
+                    if (Param("ENCODING")?.Equals("BASE64", StringComparison.OrdinalIgnoreCase) == true) m.TakeInline(Param("FILENAME") ?? Param("X-FILENAME"), Param("FMTTYPE"), value, limits);
+                    else if (Url.IsMatch(value) && seen.Add(value) && m.Links.Count < MaxLinks) m.Links.Add(value);
+                    break;
+            }
+        }
+        if (description.Length > 0) m.Bodies.Add(("txt", description.ToString()));
+        m.FindLinks();
+        return m;
+    }
+
+    private void TakeInline(string? file, string? type, string base64, AnalysisLimits limits)
+    {
+        var label = Name(file, "attachment", Extension(type));
+        try
+        {
+            var bytes = Convert.FromBase64String(base64.Trim());
+            if (bytes.Length > limits.MaxItemBytes) Attachments.Add(new MailAttachment(label, type, "attachment", null, null, $"a part passes the {limits.MaxItemBytes:N0}-byte item limit; it is not decoded."));
+            else
+            {
+                Attachments.Add(new MailAttachment(label, type, "attachment", null, bytes, null));
+                Parts.Add(new MailPart(label, type, null, bytes.Length));
+            }
+        }
+        catch (FormatException) { Attachments.Add(new MailAttachment(label, type, "attachment", null, null, "the base64 value is not valid")); }
+    }
+
+    private static int FirstUnquoted(string line, char c)
+    {
+        bool quoted = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '"') quoted = !quoted;
+            else if (!quoted && line[i] == c) return i;
+        }
+        return -1;
+    }
+
+    private static string Unescape(string v) => v.Replace("\\n", "\n", StringComparison.OrdinalIgnoreCase).Replace("\\,", ",").Replace("\\;", ";").Replace("\\\\", "\\");
+
+    private static string Mailto(string value, string? name)
+    {
+        var address = value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ? value[7..] : value;
+        return name is { Length: > 0 } ? $"{name} <{address}>" : address;
     }
 
     private static string? Join(InternetAddressList list) => list.Count == 0 ? null : string.Join(", ", list.Select(a => a.ToString()));
@@ -242,10 +336,12 @@ internal sealed class MailMessage
         if (part is TextPart text && !part.IsAttachment && file == null)
         {
             var body = text.Text ?? "";
-            Bodies.Add((text.IsHtml ? "html" : text.IsPlain ? "txt" : text.ContentType.MediaSubtype.ToLowerInvariant(), body));
+            var kind = text.IsHtml ? "html" : text.IsPlain ? "txt" : text.ContentType.MediaSubtype.ToLowerInvariant();
+            Bodies.Add((kind, body));
+            Parts.Add(new MailPart($"body.{kind}", type, Location(part), Encoding.UTF8.GetByteCount(body)));
             return;
         }
-        var label = Name(file ?? part.ContentType?.Name, "attachment", Extension(type));
+        var label = Name(file ?? part.ContentType?.Name ?? LocationName(part), "attachment", Extension(type));
         var encoding = part.Headers[HeaderId.ContentTransferEncoding]?.Trim().ToLowerInvariant();
         string? problem = encoding is { Length: > 0 } && !KnownTransferEncodings.Contains(encoding)
             ? $"transfer encoding '{Clip(encoding)}' is unknown; the bytes are kept as stored" : null;
@@ -255,14 +351,24 @@ internal sealed class MailMessage
         {
             part.Content.DecodeTo(output, ct);
             Attachments.Add(new MailAttachment(label, type, disposition, contentId, output.ToArray(), problem));
+            Parts.Add(new MailPart(label, type, Location(part), output.Length));
         }
         catch (ToolError ex) when (ex.Code == ErrorCode.LimitExceeded) { Attachments.Add(new MailAttachment(label, type, disposition, contentId, null, ex.Message)); }
+    }
+
+    private static string? Location(MimePart part) => part.ContentLocation?.ToString() is { Length: > 0 } l ? Clip(l) : null;
+
+    private static string? LocationName(MimePart part)
+    {
+        var path = part.ContentLocation?.ToString() ?? "";
+        int cut = path.IndexOfAny(['?', '#']);
+        return cut >= 0 ? path[..cut] : path;
     }
 
     private int _unnamed;
 
     /// <summary>A file name without directories or control characters; unnamed parts are numbered.</summary>
-    private string Name(string? given, string stem, string extension)
+    internal string Name(string? given, string stem, string extension)
     {
         var name = Path.GetFileName((given ?? "").Replace('\\', '/'));
         name = string.Concat(name.Where(c => c >= 32 && c != 127)).Trim();
@@ -270,12 +376,13 @@ internal sealed class MailMessage
         return name;
     }
 
-    private static string Extension(string? mimeType) => (mimeType ?? "").ToLowerInvariant() switch
+    internal static string Extension(string? mimeType) => (mimeType ?? "").ToLowerInvariant() switch
     {
         "application/zip" or "application/x-zip-compressed" => ".zip",
         "application/pdf" => ".pdf",
         "message/rfc822" => ".eml",
         "text/calendar" => ".ics",
+        "text/css" => ".css",
         "image/png" => ".png",
         "image/jpeg" => ".jpg",
         "image/gif" => ".gif",

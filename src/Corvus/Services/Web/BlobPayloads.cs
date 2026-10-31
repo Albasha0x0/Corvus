@@ -69,6 +69,13 @@ internal static class BlobPayloads
     }
 }
 
+/// <summary>Lets the mail reader carve the payloads an HTML body builds in a Blob.</summary>
+internal sealed class HtmlBodyPayloads : Core.Documents.IHtmlPayloadSource
+{
+    public IReadOnlyList<(string Name, string Kind, long Size, string Sha256, byte[] Bytes)> Find(string html, CancellationToken ct) =>
+        [.. BlobPayloads.Find(html, ct).Select(p => (p.Name, p.Kind, p.Size, p.Sha256, p.Bytes))];
+}
+
 /// <summary>The payloads a standalone HTML or SVG page builds in a Blob, as members.</summary>
 internal sealed class BlobPayloadReader : IContainerReader
 {
