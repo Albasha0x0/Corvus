@@ -3,17 +3,17 @@ using Corvus.Mcp;
 
 namespace Corvus.Tests;
 
-/// <summary>Outside the engine toolset no text sends an agent to get_engine_status; server_status carries the engine sessions.</summary>
+/// <summary>Outside the engine toolset only the early answer of a running open and the native topic send an agent to get_engine_status.</summary>
 public sealed class EngineStatusPointerTests
 {
-    /// <summary>The only sources that may name get_engine_status: the tool itself, its contract rows, its toolset and the analyze command that calls it.</summary>
-    private static readonly string[] Allowed = ["NativeEngineStatusTools.cs", "Engine.cs", "FileReads.cs", "Toolsets.cs", "IdaPython.cs", "ToolCli.Analyze.cs"];
+    /// <summary>The only sources that may name get_engine_status: the tool itself, its contract rows, its toolset, the analyze command that calls it and the early answer of a running open.</summary>
+    private static readonly string[] Allowed = ["NativeEngineStatusTools.cs", "Engine.cs", "FileReads.cs", "Toolsets.cs", "IdaPython.cs", "ToolCli.Analyze.cs", "NativeEngineService.cs", "Native.cs"];
 
     [Fact]
     public void Nothing_outside_the_engine_toolset_points_to_get_engine_status()
     {
-        // The idapython topic is the engine toolset's own.
-        foreach (var (topic, text) in Guide.Topics.Where(t => t.Key != "idapython")) Assert.DoesNotContain("get_engine_status", text);
+        // The idapython topic is the engine toolset's own; the native topic names the wait.
+        foreach (var (topic, text) in Guide.Topics.Where(t => t.Key is not ("idapython" or "native"))) Assert.DoesNotContain("get_engine_status", text);
         Assert.DoesNotContain("get_engine_status", ServerInstructions.Text);
         var src = Path.Combine(RepoRoot(), "src", "Corvus");
         var offenders = Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories)

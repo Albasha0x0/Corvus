@@ -29,5 +29,23 @@ public static class Deadlines
     /// <summary>The server's own deadline for a tool that is not long-running.</summary>
     public static TimeSpan Server(ServerOptions options) => TimeSpan.FromSeconds((double)options.TimeoutSeconds * ServerFactor);
 
+    private static readonly AsyncLocal<DateTime?> StopsAt = new();
+
+    /// <summary>Time left before the current call is told to stop; null outside a call or when it has no deadline.</summary>
+    public static TimeSpan? Left => StopsAt.Value is { } at ? at - DateTime.UtcNow : null;
+
+    /// <summary>Marks the current call as told to stop in <paramref name="stopsIn"/> (null: no deadline) until the scope is disposed.</summary>
+    public static IDisposable Enter(TimeSpan? stopsIn)
+    {
+        var previous = StopsAt.Value;
+        StopsAt.Value = stopsIn is { } left ? DateTime.UtcNow + left : null;
+        return new Scope(previous);
+    }
+
+    private sealed class Scope(DateTime? previous) : IDisposable
+    {
+        public void Dispose() => StopsAt.Value = previous;
+    }
+
     private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
 }

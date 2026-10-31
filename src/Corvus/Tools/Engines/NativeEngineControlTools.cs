@@ -32,17 +32,20 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
         [Description("Seconds the run took (moved to _meta).")] public double? ElapsedSeconds { get; init; }
     }
 
+    /// <summary>The workspace notice for a background reanalysis that ended, naming the next call.</summary>
+    internal static string BackgroundEndNotice(string file, string imageId, string engine, string result) =>
+        $"{file}: {engine} {result}; next: list_functions image={imageId} engine={engine}";
+
     [McpServerTool(Name = "reanalyze_native", Title = "Re-run native auto-analysis", UseStructuredContent = true, OutputSchemaType = typeof(ReanalysisReport))]
-    [Description("Re-run IDA or Ghidra auto-analysis over an image or a range and save; completes an analysis cut short when opened. " +
-                 "analyzers=true lists the analyzer options.")]
+    [Description("Re-run IDA or Ghidra auto-analysis over an image or range and save; completes a cut-short analysis. analyzers=true lists the options.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(EngineChoice.EngineOnlyDescription)] string? engine = null,
-        [Description("List analyzer options and values instead of running.")] bool analyzers = false,
+        [Description("List analyzer options instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
         [Description("name=value per analyzer option for this run (AF_FLIRT=false).")] string[]? options = null,
         [Description("full (Ghidra defaults) or a preset in analysis-presets.json.")] string? preset = null,
-        [Description("Run with no caller waiting; other engine calls conflict until done.")] bool background = false,
+        [Description("Run in the background; other engine calls conflict until done.")] bool background = false,
         [Description("Range start (default: whole image).")] string? from = null,
         [Description("Range end (exclusive).")] string? to = null,
         [Description("Seconds (1-3600); the rest runs on the next run.")] int timeoutSeconds = 600,
@@ -101,7 +104,13 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
                 var done = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, CancellationToken.None);
                 EngineControl.Advance(session);
                 return $"{(done.Complete ? "complete" : "partial, the budget ran out")}; functions {done.FunctionsBefore:N0} before, {done.FunctionsAfter:N0} after";
-            }, subscriptions == null ? null : (image, result) => subscriptions.Announce($"{image}: {result}"));
+            }, (image, result) =>
+            {
+                // The notice reaches the model on its next reply; Announce
+                // reaches subscribed clients only.
+                workspace.Notify(BackgroundEndNotice(image, native.Id, session.ProviderId, result));
+                subscriptions?.Announce($"{image}: {result}");
+            });
             return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"} started in the background ({timeoutSeconds} s budget)\n" +
                                      (pairs.Count > 0 ? $"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n" : "") +
                                      "server_status shows the session busy, then the result; other engine calls on this image get conflict with retryAfterMs until it ends.\n",

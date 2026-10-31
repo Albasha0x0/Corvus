@@ -14,6 +14,7 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>The engines in order of preference (IDA, then Ghidra).</summary>
     private readonly IReadOnlyList<(string Id, Lazy<INativeDecompilerProvider> Provider)> _providers;
     private readonly NativeCodeService? _code;
+    private readonly AssemblyWorkspace? _workspace;
     private readonly ConditionalWeakTable<LoadedNative, HolderSet> _holders = new();
 
     /// <param name="idaOptions">IDA provider settings (install, Python, cache root); null: the defaults.</param>
@@ -52,6 +53,7 @@ public sealed class NativeEngineService : IDisposable
         _outputCache = new(() => Environment.GetEnvironmentVariable(EngineOutputCache.MaxMegabytesVariable) == "0" ? null
             : new EngineOutputCache(cacheRoot ?? AnalysisCache.DefaultRoot));
         _code = code;
+        _workspace = workspace;
         DefaultMode = options?.Engine ?? EngineMode.Auto;
         RequestTimeout = TimeSpan.FromSeconds(options?.EngineRequestTimeoutSeconds ?? 120);
         OpenTimeout = TimeSpan.FromSeconds(options?.EngineOpenTimeoutSeconds ?? 1200);
@@ -529,7 +531,7 @@ public sealed class NativeEngineService : IDisposable
         {
             var patches = OrderedPatches(native);
             var key = PatchKey(patches);
-            if (holder.SyncedKey == key) return holder.PatchedState == key && holder.Patched is { } same ? await Wait(native, holder, same, ct).ConfigureAwait(false) : session;
+            if (holder.SyncedKey == key) return holder.PatchedState == key && holder.Patched is { } same ? await Wait(native, id, holder, same, ct).ConfigureAwait(false) : session;
             if (PatchInDatabase || patches.Count == 0)
             {
                 // Relocation entry rewrites are not sent: the engine loads the image at its header base and does not read .reloc for code.
@@ -550,7 +552,7 @@ public sealed class NativeEngineService : IDisposable
                 holder.PatchedPdb = PdbService.PathForEngines(native);
                 holder.Patched = OpenPatched(native, id, progress, holder.PatchedPdb);
             }
-            return await Wait(native, holder, holder.Patched, ct).ConfigureAwait(false);
+            return await Wait(native, id, holder, holder.Patched, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -566,7 +568,7 @@ public sealed class NativeEngineService : IDisposable
         lock (holder)
         {
             if (holder.Opening is { } existing && !(existing.IsCompleted && (existing.IsFaulted || existing.IsCanceled || !existing.Result.IsOpen)))
-                return Wait(native, holder, existing, ct);
+                return Wait(native, id, holder, existing, ct);
             var provider = Provider(id);
             holder.SyncedKey = null;
             holder.OpenedPdb = PdbService.PathForEngines(native);
@@ -621,7 +623,7 @@ public sealed class NativeEngineService : IDisposable
                     }
                     catch (Exception ex) when (ex is ToolError or OperationCanceledException) { return -1; }
                 }, TaskScheduler.Default).Unwrap();
-            return Wait(native, holder, holder.Opening, ct);
+            return Wait(native, id, holder, holder.Opening, ct);
         }
     }
 
@@ -654,7 +656,7 @@ public sealed class NativeEngineService : IDisposable
         }, native.Released);
     }
 
-    private static async Task<INativeDecompilerSession> Wait(LoadedNative native, SessionHolder holder, Task<INativeDecompilerSession> opening, CancellationToken ct)
+    private async Task<INativeDecompilerSession> Wait(LoadedNative native, string id, SessionHolder holder, Task<INativeDecompilerSession> opening, CancellationToken ct)
     {
         try { return await opening.WaitAsync(EstimateAfter, ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested) { throw native.Gone(); }
@@ -666,13 +668,46 @@ public sealed class NativeEngineService : IDisposable
             var seconds = Math.Round((DateTime.UtcNow - holder.OpenStarted).TotalSeconds);
             // Measured history wins; the executable section size is the fallback.
             var measured = holder.ExpectedSeconds > 0;
-            var minutes = measured ? Math.Max(1, (int)Math.Ceiling(holder.ExpectedSeconds / 60)) : EstimateMinutes(native.Image.Sections.Select(s => (s.IsExecutable, (long)s.MappedSize)));
+            var expected = ExpectedOpen(native, holder);
+            var minutes = Math.Max(1, (int)Math.Ceiling(expected / 60));
             var basis = measured ? "from earlier opens" : "from executable section size";
+            var remaining = Math.Max(0, Math.Round(expected - seconds));
+            var retry = RetryFor(remaining);
+            // Once per task, so the end reaches a call that returned early; a later call finds it on the next reply.
+            if (!ReferenceEquals(Interlocked.Exchange(ref holder.Announced, opening), opening))
+                _ = opening.ContinueWith(done => NotifyEnd(native, id, holder, done), TaskScheduler.Default);
             throw new ToolError(ErrorCode.Timeout,
-                $"analysis running, about {minutes} min ({basis}); the engine is still opening {native.Id} ({stage}, {seconds:0} s); the open goes on in the background.",
-                $"call again after details.retryAfterMs to pick up the same open, or use engine={FallbackEngine} for an answer now; server_status shows its stage")
-                { Details = new { stillRunning = true, stage, seconds, expectedSeconds = holder.ExpectedSeconds, estimatedMinutes = minutes, image = native.Id, fallbackEngine = FallbackEngine }, RetryAfter = OpenRetryAfter };
+                $"analysis running, about {minutes} min ({basis}); the engine is still opening {native.Id} ({stage}, {seconds:0} s); the open goes on in the background and {OpenLimitText}.",
+                $"get_engine_status image={native.Id} waitSeconds={(int)retry.TotalSeconds} waits for the end, or use engine={FallbackEngine} for an answer now")
+                { Details = new { stillRunning = true, stage, seconds, expectedSeconds = holder.ExpectedSeconds, remainingSeconds = remaining, estimatedMinutes = minutes, image = native.Id, fallbackEngine = FallbackEngine }, RetryAfter = retry };
         }
+    }
+
+    /// <summary>When to ask again: a quarter of the estimate left, between 30 s and 5 min.</summary>
+    internal static TimeSpan RetryFor(double remainingSeconds) => TimeSpan.FromSeconds(Math.Clamp(remainingSeconds / 4, 30, 300));
+
+    /// <summary>Seconds a first analysis is expected to take: earlier opens, else the executable section size.</summary>
+    private double ExpectedOpen(LoadedNative native, SessionHolder holder) =>
+        holder.ExpectedSeconds > 0 ? holder.ExpectedSeconds
+            : EstimateMinutes(native.Image.Sections.Select(s => (s.IsExecutable, (long)s.MappedSize))) * 60.0;
+
+    /// <summary>The time an open may run: the stall check's window when it is set, else the open limit.</summary>
+    public TimeSpan OpenLimit => _analysisStall is { } stall && stall > TimeSpan.Zero ? stall : OpenTimeout;
+
+    /// <summary>What ends a running open, in words.</summary>
+    public string OpenLimitText => _analysisStall is { } stall && stall > TimeSpan.Zero
+        ? $"ends after {stall.TotalSeconds:0} s without progress"
+        : $"ends at the open limit of {OpenTimeout.TotalSeconds:0} s";
+
+    /// <summary>Queues the workspace notice for an open whose early answer was given.</summary>
+    private void NotifyEnd(LoadedNative native, string id, SessionHolder holder, Task<INativeDecompilerSession> opening)
+    {
+        if (_workspace == null) return;
+        var seconds = Math.Round((DateTime.UtcNow - holder.OpenStarted).TotalSeconds);
+        var name = $"{native.Id}: {id} analysis";
+        _workspace.Notify(opening.IsCompletedSuccessfully
+            ? $"{name} {(opening.Result.AnalysisComplete ? "complete" : "partial")} in {seconds:0} s; next: list_functions image={native.Id} engine={id}"
+            : $"{name} {(opening.IsCanceled ? "cancelled" : "failed")} in {seconds:0} s; next: get_engine_status image={native.Id} shows the state, engine={FallbackEngine} answers now");
     }
 
     /// <summary>The engine value that answers without waiting for an external engine.</summary>
@@ -710,6 +745,10 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>One engine session's status: opening (Stage, Seconds), open (Session), failed (Error) or closed.</summary>
     public sealed record ImageEngineStatus(string Engine, string State, string? Stage, double Seconds, INativeDecompilerSession? Session, string? Error)
     {
+        /// <summary>Seconds the first analysis is expected to take (earlier opens, else section size).</summary>
+        public double ExpectedSeconds { get; init; }
+        /// <summary>When the open started.</summary>
+        public DateTime OpenStarted { get; init; }
         /// <summary>The open's stages with their seconds (see <see cref="EngineOpenProfile"/>).</summary>
         public IReadOnlyList<EngineOpenStage> OpenStages { get; init; } = [];
     }
@@ -723,7 +762,7 @@ public sealed class NativeEngineService : IDisposable
             if (Existing(native, id) is not { Opening: { } opening } h) continue;
             double seconds = Math.Round((DateTime.UtcNow - h.OpenStarted).TotalSeconds, 1);
             var stages = h.Profile.Stages((DateTime.UtcNow - h.OpenStarted).TotalSeconds);
-            if (!opening.IsCompleted) list.Add(new(id, "opening", h.Stage, seconds, null, null) { OpenStages = stages });
+            if (!opening.IsCompleted) list.Add(new(id, "opening", h.Stage, seconds, null, null) { OpenStages = stages, ExpectedSeconds = ExpectedOpen(native, h), OpenStarted = h.OpenStarted });
             else if (opening.IsCompletedSuccessfully)
             {
                 // A patched copy serves the current patch set when the database could not take it.
@@ -731,7 +770,7 @@ public sealed class NativeEngineService : IDisposable
                 list.Add(new(id, served.IsOpen ? "open" : "closed", null, seconds, served, null) { OpenStages = stages });
             }
             else list.Add(new(id, "failed", h.Stage, seconds, null,
-                opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled") { OpenStages = stages });
+                opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled") { OpenStages = stages, OpenStarted = h.OpenStarted });
         }
         return list;
     }
@@ -790,6 +829,8 @@ public sealed class NativeEngineService : IDisposable
         public int PdbTimed;
         /// <summary>Seconds a first analysis of the image is expected to take (see <see cref="OpenEstimate"/>).</summary>
         public double ExpectedSeconds;
+        /// <summary>The open task whose end is announced to the next reply.</summary>
+        public Task? Announced;
 
         public void DisposePatched()
         {

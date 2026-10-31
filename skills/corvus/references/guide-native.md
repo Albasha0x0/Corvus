@@ -31,6 +31,7 @@ Native files: PE without .NET metadata, ELF, Mach-O; x86, x64, ARM64, 32-bit ARM
 - 32-bit ARM: an odd address is Thumb code one byte lower; list_functions flags A32 functions "arm".
 - Name priority: user > pdb > nativeaot > metadata > objc > swift > dart > napi > ida > ghidra > discovered.
 - decompile_native pushes names, patches, prototypes and types into the engine's database; --prewarm ida|ghidra|auto analyzes images as they load.
+- The first engine call on a large image returns early; get_engine_status waitSeconds= waits for the end; engine=ours answers now.
 - server_status shows each engine session; code indexes are saved by file SHA-256 (--index-cache off disables it).
 - An IDA database beside the input (x.i64) made from the same bytes seeds the engine database; a copy is used.
 - Other instruction sets (MIPS, PowerPC, RISC-V, ...): format tools answer; code tools need IDA or Ghidra, else refuse with unsupported (details.reason instructions-not-decoded).

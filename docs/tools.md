@@ -1502,7 +1502,7 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of a native function from IDA or Ghidra, with the names, comments and types made here, and, with address= on x64, the method behind slot-indexed virtual calls. The first call analyzes the image (seconds to minutes); functions= decompiles several per request.
+C pseudocode of a native function from IDA or Ghidra, with the names, comments and types made here; address= on x64 adds the method behind slot-indexed virtual calls. The first call analyzes the image; functions= decompiles several per request.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1512,12 +1512,12 @@ C pseudocode of a native function from IDA or Ghidra, with the names, comments a
 | `addresses` | boolean |  |  | Prefix lines with their source address. |
 | `offset` | integer |  |  | Character offset; with functions/callersOf the first input (nextInput). |
 | `maxTokens` | integer |  |  |  |
-| `functions` | string[] |  |  | Several functions instead of address: addresses or names, in order. |
+| `functions` | string[] |  |  | Instead of address: several addresses or names. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: most decompiled (1-200); the rest follow. |
 | `refs` | boolean |  |  | With address: a footer of the globals, functions, strings and imports used. |
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600); Ghidra retries once with 4x. |
-| `callersOf` | string |  |  | Instead of address: decompile the callers of this function (engine references). |
+| `callersOf` | string |  |  | Instead of address: decompile this function's callers (engine references). |
 | `view` | string |  | `c` | c, or pcode (Ghidra high p-code per block). |
 
 Structured output: `image`, `engine`, `items`, `inputs`, `succeeded`, `failed`, `skipped`, `nextInput`, `offset`, `engineNote`, `code`, `nextOffset`, `totalChars`.
@@ -2105,13 +2105,14 @@ Edits inside the decompiler engine's database: types, locals, frames, declaratio
 
 **Engine status of a native image** (read-only, idempotent, open-world)
 
-IDA and Ghidra sessions of a native image: state, and for an open one the engine view (language, analysis state, counts, database). Starts no engine.
+IDA and Ghidra sessions of a native image: state, running job, engine view. Starts no engine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
-| `bookmarks` | boolean |  |  | Ghidra: every Error and Warning bookmark (default: the first 5). |
+| `bookmarks` | boolean |  |  | Ghidra: all Error and Warning bookmarks (default 5). |
+| `waitSeconds` | integer |  | `0` | Seconds to wait, 0-600; returns at the first state change, at once if settled. |
 
 Structured output: `image`, `engines`.
 
@@ -2259,17 +2260,17 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Re-run native auto-analysis** (destructive, open-world, long-running)
 
-Re-run IDA or Ghidra auto-analysis over an image or a range and save; completes an analysis cut short when opened. analyzers=true lists the analyzer options.
+Re-run IDA or Ghidra auto-analysis over an image or range and save; completes a cut-short analysis. analyzers=true lists the options.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
-| `analyzers` | boolean |  |  | List analyzer options and values instead of running. |
+| `analyzers` | boolean |  |  | List analyzer options instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
 | `options` | string[] |  |  | name=value per analyzer option for this run (AF_FLIRT=false). |
 | `preset` | string |  |  | full (Ghidra defaults) or a preset in analysis-presets.json. |
-| `background` | boolean |  |  | Run with no caller waiting; other engine calls conflict until done. |
+| `background` | boolean |  |  | Run in the background; other engine calls conflict until done. |
 | `from` | string |  |  | Range start (default: whole image). |
 | `to` | string |  |  | Range end (exclusive). |
 | `timeoutSeconds` | integer |  | `600` | Seconds (1-3600); the rest runs on the next run. |

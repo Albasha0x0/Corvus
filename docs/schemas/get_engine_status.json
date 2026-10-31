@@ -35,6 +35,45 @@
           "version": {
             "type": "string"
           },
+          "expectedSeconds": {
+            "description": "Expected open seconds (earlier opens, else section size).",
+            "type": "number"
+          },
+          "remainingSeconds": {
+            "description": "Expected seconds left.",
+            "type": "number"
+          },
+          "job": {
+            "description": "The running or ended job: an open, or a background run such as reanalyze_native.",
+            "type": "object",
+            "properties": {
+              "what": {
+                "description": "open or the background run's name.",
+                "type": "string"
+              },
+              "state": {
+                "description": "running or ended.",
+                "type": "string"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "budgetSeconds": {
+                "description": "Seconds the job may run (an open: the open limit or stall window).",
+                "type": "number"
+              },
+              "outcome": {
+                "description": "The result once ended; null while running.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "what",
+              "state",
+              "startedAt",
+              "budgetSeconds"
+            ]
+          },
           "profile": {
             "description": "The analysis profile: full or none (IDA); standard, full, minimal or none (Ghidra).",
             "type": "string"
@@ -170,7 +209,7 @@
             "type": "boolean"
           },
           "openStages": {
-            "description": "Seconds per stage of the open (prepare, start, load or import, analysis and its sub-stages, save; then pdb types).",
+            "description": "Seconds per open stage.",
             "type": "array",
             "items": {
               "type": "object",

@@ -77,6 +77,9 @@ public static class OutputSchemas
         {
             // A change row's rule id is declared in docs/schemas only; rows allow further properties.
             if (strip && properties.ContainsKey("kind") && properties.ContainsKey("key") && properties.ContainsKey("fields")) properties.Remove("rule");
+            // Engine status rows declare md5, externalFunctions and changed in docs/schemas only.
+            if (strip && properties.ContainsKey("savedAnalysis") && properties.ContainsKey("md5"))
+                foreach (var name in (string[])["md5", "externalFunctions", "changed"]) properties.Remove(name);
             var required = o["required"] as JsonArray;
             foreach (var (name, child) in properties.ToList())
             {

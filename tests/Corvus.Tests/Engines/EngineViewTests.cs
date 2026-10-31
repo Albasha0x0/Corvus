@@ -86,7 +86,7 @@ public sealed class EngineViewTests : IDisposable
         var e = await Assert.ThrowsAsync<ToolError>(() => rig.Engines.Session(native, "ghidra", null, deadline.Token));
         Assert.Equal(ErrorCode.Timeout, e.Code);
         Assert.Contains("goes on in the background", e.Message);
-        Assert.Contains("server_status", e.Remediation);
+        Assert.Contains("get_engine_status", e.Remediation);
         Assert.Equal(TimeSpan.FromSeconds(30), e.RetryAfter);
         var retry = rig.Engines.Session(native, "ghidra", null, default);
         rig.Provider.Gate.SetResult();

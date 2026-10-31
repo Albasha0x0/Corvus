@@ -46,6 +46,8 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     public TaskCompletionSource? TypeGate { get; set; }
     /// <summary>When set, the open fails with it.</summary>
     public Exception? OpenFailure { get; set; }
+    /// <summary>When set, the open fails with it after its stages.</summary>
+    public Exception? LateOpenFailure { get; set; }
 
     public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -58,6 +60,7 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
             if (StageGates.TryGetValue(stage, out var gate)) await gate.Task.WaitAsync(cancellationToken);
             else await Task.Delay(ms, cancellationToken);
         }
+        if (LateOpenFailure != null) throw LateOpenFailure;
         return new Session(this);
     }
 

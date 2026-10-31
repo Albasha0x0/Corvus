@@ -220,6 +220,183 @@ public sealed class EngineOpenProfileTests : IDisposable
     }
 
     [Fact]
+    public async Task An_open_that_ends_after_the_early_answer_leaves_a_workspace_notice()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        var engine = new ScriptedEngine();
+        engine.OpenStages.AddRange([("start", 0), ("analysis", 0), ("ready", 0)]);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.StageGates["analysis"] = gate;
+        var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
+        _owned.Add(engines);
+        _owned.Add(workspace);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        var previous = NativeEngineService.EstimateAfter;
+        NativeEngineService.EstimateAfter = TimeSpan.FromMilliseconds(200);
+        try
+        {
+            var error = await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default));
+            Assert.Contains($"get_engine_status image={native.Id} waitSeconds=", error.Remediation);
+            Assert.Contains("engine=ours", error.Remediation);
+            Assert.Contains("open limit of", error.Message);
+            Assert.Equal(TimeSpan.FromSeconds(30), error.RetryAfter);
+            Assert.Empty(workspace.DrainNotices());
+        }
+        finally { NativeEngineService.EstimateAfter = previous; }
+        gate.SetResult();
+        var notices = new List<string>();
+        for (int i = 0; i < 100 && notices.Count == 0; i++)
+        {
+            await Task.Delay(50);
+            notices.AddRange(workspace.DrainNotices());
+        }
+        var notice = Assert.Single(notices);
+        Assert.Matches($@"^{System.Text.RegularExpressions.Regex.Escape(native.Id)}: \w+ analysis (complete|partial) in \d+ s; next: list_functions image=", notice);
+    }
+
+    [Fact]
+    public async Task Engine_status_waits_until_the_open_ends_not_for_the_whole_bound()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        var engine = new ScriptedEngine();
+        engine.OpenStages.AddRange([("start", 0), ("analysis", 0), ("ready", 0)]);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.StageGates["analysis"] = gate;
+        var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
+        _owned.Add(engines);
+        _owned.Add(workspace);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        _ = engines.Session(native, null, null, default);
+        for (int i = 0; i < 100 && engines.ImageSessions(native).Count == 0; i++) await Task.Delay(20);
+        var tools = new NativeEngineStatusTools(workspace, engines);
+        var release = Task.Run(async () => { await Task.Delay(500); gate.SetResult(); });
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var status = await tools.GetEngineStatus(native.Id, waitSeconds: 60);
+        await release;
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"waited {watch.Elapsed} of a 60 s bound");
+        Assert.DoesNotContain("opening (", status);
+    }
+
+    private (NativeEngineService Engines, LoadedNative Native, TaskCompletionSource Gate, AssemblyWorkspace Workspace) Rig(Exception? lateFailure = null)
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        var engine = new ScriptedEngine { LateOpenFailure = lateFailure };
+        engine.OpenStages.AddRange([("start", 0), ("analysis", 0), ("ready", 0)]);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.StageGates["analysis"] = gate;
+        var engines = new NativeEngineService([engine], _dir.File("cache"), null, workspace, options);
+        _owned.Add(engines);
+        _owned.Add(workspace);
+        var native = workspace.LoadAny(McpProtocolTests.NativeSample(_dir)).Native!;
+        return (engines, native, gate, workspace);
+    }
+
+    private static async Task Settled(NativeEngineService engines, LoadedNative native)
+    {
+        for (int i = 0; i < 200 && engines.ImageSessions(native).Any(e => e.State == "opening"); i++) await Task.Delay(20);
+    }
+
+    [Fact]
+    public async Task Engine_status_names_an_opening_run_as_a_job_with_its_expected_time()
+    {
+        var (engines, native, gate, workspace) = Rig();
+        _ = engines.Session(native, null, null, default);
+        for (int i = 0; i < 100 && engines.ImageSessions(native).Count == 0; i++) await Task.Delay(20);
+        var tools = new NativeEngineStatusTools(workspace, engines);
+        string text = "";
+        var report = await NativeQuerySurfaceTests.Structured<NativeEngineStatusTools.EngineStatusReport>(async () => text = await tools.GetEngineStatus(native.Id));
+        gate.SetResult();
+        await Settled(engines, native);
+        var row = Assert.Single(report.Engines, e => e.State == "opening");
+        Assert.Contains("next: get_engine_status image=", text);
+        Assert.True(row.ExpectedSeconds > 0, "the section-size estimate stands in without earlier opens");
+        Assert.True(row.RemainingSeconds > 0);
+        var job = Assert.IsType<NativeEngineStatusTools.EngineJob>(row.Job);
+        Assert.Equal(("open", "running"), (job.What, job.State));
+        Assert.Equal(engines.OpenLimit.TotalSeconds, job.BudgetSeconds);
+        Assert.Null(job.Outcome);
+        Assert.True(DateTime.Parse(job.StartedAt).ToUniversalTime() > DateTime.UtcNow.AddMinutes(-5));
+    }
+
+    [Theory]
+    [InlineData(0, 30)]
+    [InlineData(400, 100)]
+    [InlineData(100000, 300)]
+    public void The_retry_is_a_quarter_of_the_remaining_estimate_between_30_s_and_5_min(double remaining, int seconds) =>
+        Assert.Equal(TimeSpan.FromSeconds(seconds), NativeEngineService.RetryFor(remaining));
+
+    [Fact]
+    public async Task An_open_that_fails_after_the_early_answer_leaves_a_failed_notice_with_the_next_call()
+    {
+        var (engines, native, gate, workspace) = Rig(new ToolError(ErrorCode.Failed, "scripted open failure"));
+        var previous = NativeEngineService.EstimateAfter;
+        NativeEngineService.EstimateAfter = TimeSpan.FromMilliseconds(200);
+        try { await Assert.ThrowsAsync<ToolError>(() => engines.Session(native, null, null, default)); }
+        finally { NativeEngineService.EstimateAfter = previous; }
+        gate.SetResult();
+        var notices = new List<string>();
+        for (int i = 0; i < 100 && notices.Count == 0; i++)
+        {
+            await Task.Delay(50);
+            notices.AddRange(workspace.DrainNotices());
+        }
+        var notice = Assert.Single(notices);
+        Assert.Contains("analysis failed in", notice);
+        Assert.Contains($"next: get_engine_status image={native.Id}", notice);
+        var failed = Assert.Single(engines.ImageSessions(native), e => e.State == "failed");
+        Assert.Equal("scripted open failure", failed.Error);
+    }
+
+    [Fact]
+    public void A_background_reanalysis_notice_names_the_engine_result_and_next_call() =>
+        Assert.Equal("a.exe: ida reanalysis ended in 4 s: complete; next: list_functions image=img engine=ida",
+            NativeEngineControlTools.BackgroundEndNotice("a.exe", "img", "ida", "reanalysis ended in 4 s: complete"));
+
+    [Fact]
+    public async Task Engine_status_wait_ends_before_the_call_deadline_and_says_so()
+    {
+        var (engines, native, gate, workspace) = Rig();
+        _ = engines.Session(native, null, null, default);
+        for (int i = 0; i < 100 && engines.ImageSessions(native).Count == 0; i++) await Task.Delay(20);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        string text;
+        using (Deadlines.Enter(TimeSpan.FromSeconds(3)))
+            text = await new NativeEngineStatusTools(workspace, engines).GetEngineStatus(native.Id, waitSeconds: 600);
+        var waited = watch.Elapsed;
+        gate.SetResult();
+        await Settled(engines, native);
+        Assert.True(waited < TimeSpan.FromSeconds(6), $"waited {waited} of a 600 s bound");
+        Assert.Contains("the call's deadline ended the wait", text);
+        Assert.Contains("opening (", text);
+    }
+
+    [Fact]
+    public async Task Engine_status_wait_on_a_settled_image_returns_at_once()
+    {
+        var (engines, native, gate, workspace) = Rig();
+        gate.SetResult();
+        await engines.Session(native, null, null, default);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var text = await new NativeEngineStatusTools(workspace, engines).GetEngineStatus(native.Id, waitSeconds: 600);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"waited {watch.Elapsed}");
+        Assert.DoesNotContain("no change in", text);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(601)]
+    public async Task Engine_status_refuses_a_wait_outside_0_to_600_seconds(int seconds)
+    {
+        var (engines, native, gate, workspace) = Rig();
+        gate.SetResult();
+        var error = await Assert.ThrowsAsync<ToolError>(() => new NativeEngineStatusTools(workspace, engines).GetEngineStatus(native.Id, waitSeconds: seconds));
+        Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+    }
+
+    [Fact]
     public void The_estimate_is_one_minute_per_started_mebibyte_of_executable_sections()
     {
         const long mib = 1 << 20;

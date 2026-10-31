@@ -204,6 +204,7 @@ internal static partial class CallFilter
         }
         using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token, tool);
         using var spent = Spent.Enter(new Spent(call.Token));
+        using var stops = Deadlines.Enter(deadline is { } stopAfter ? Remaining(Early(stopAfter), time.GetElapsedTime(received)) : null);
         var joinStopped = CancellationToken.None;
         string? phase = null;
         try
