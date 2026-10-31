@@ -389,6 +389,16 @@ public sealed class ClientCatalogTests : IDisposable
     }
 
     [Fact]
+    public void Launch_args_select_lean_only_for_capped_clients()
+    {
+        var args = (string id) => ClientCatalog.LaunchFor(Client(id), SetupHome.Launch).Args;
+        Assert.Equal(["--client", "claude-code"], args("claude-code"));
+        Assert.Equal(["--client", "cursor"], args("cursor"));
+        Assert.Equal(["--client", "vscode", "--toolsets", "lean"], args("vscode"));
+        Assert.Equal(["--client", "copilot-cli", "--toolsets", "lean"], args("copilot-cli"));
+    }
+
+    [Fact]
     public void Client_options_replace_stale_ones_and_the_users_toolsets_win()
     {
         _home.Write("""{ "servers": { "corvus": { "type": "stdio", "command": "old", "args": ["--client", "cursor", "--toolsets", "core", "--load", "x"] } } }""",
