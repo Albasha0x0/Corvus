@@ -161,6 +161,28 @@ public static class EntryPoints
         ("System.AppDomainManager", "AppDomainManager (runs inside any host configured to use it)"),
     ];
 
+    // Callbacks a host looks up by export name. Excel: Microsoft Learn, "Add-in
+    // Manager and XLL Interface Functions". Control Panel: Microsoft Learn,
+    // "CPlApplet function". COM: Microsoft Learn, "DllRegisterServer", "DllInstall",
+    // "DllGetClassObject" and "DllCanUnloadNow".
+    private static readonly Dictionary<string, string> HostExports = new(StringComparer.Ordinal)
+    {
+        ["xlAutoOpen"] = "Excel calls it when the add-in is loaded",
+        ["xlAutoClose"] = "Excel calls it when the add-in is unloaded",
+        ["xlAutoAdd"] = "Excel calls it when the add-in is activated in the Add-In Manager",
+        ["xlAutoRemove"] = "Excel calls it when the add-in is removed in the Add-In Manager",
+        ["xlAddInManagerInfo"] = "Excel calls it to get the add-in's name for the Add-In Manager",
+        ["CPlApplet"] = "Control Panel calls it for an item",
+        ["DllRegisterServer"] = "regsvr32 calls it to register a COM server",
+        ["DllUnregisterServer"] = "regsvr32 calls it to unregister a COM server",
+        ["DllInstall"] = "regsvr32 calls it to install a COM server for a user or machine",
+        ["DllGetClassObject"] = "COM calls it to get a class factory",
+        ["DllCanUnloadNow"] = "COM calls it to ask whether the DLL can unload",
+    };
+
+    /// <summary>What calls the export <paramref name="name"/> and when; null when no host looks it up by that name.</summary>
+    public static string? HostCallback(string? name) => name != null && HostExports.TryGetValue(name, out var what) ? what : null;
+
     public static List<EntryPoint> Find(ModuleDef module, byte[]? image)
     {
         var list = new List<EntryPoint>();

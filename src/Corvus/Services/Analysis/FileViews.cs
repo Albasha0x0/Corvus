@@ -52,11 +52,25 @@ internal sealed class NativeFileView : IFileSummaryView
         var packers = Native.PackerDetection.OfFile(file.Path, file.Image);
         var aot = NativeAot(file.Kind, file.Image, ct);
         var hits = file.Options.AllNetworkValues && file.Kind is "native PE" or "NativeAOT executable" or "elf" or "mach-o" ? IndicatorList.FromImageStrings("native", file.Image, ct) : [];
-        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0) return null;
+        var hosted = HostEntries(file);
+        if (image == null && packers.Count == 0 && aot == null && hits.Count == 0 && hosted.Count == 0) return null;
         var highlights = new List<string>(image?.Highlights ?? []);
         foreach (var p in packers)
             highlights.Add(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}." : $"Packed with {p.Name} ({p.Kind}): {p.Evidence}.");
-        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding)], Indicators = hits };
+        return new FileView(new Facts(image?.Facts, packers.Count > 0 ? packers : null, aot), highlights) { Findings = [.. packers.Select(FindingRules.ToFinding), .. hosted], Indicators = hits };
+    }
+
+    /// <summary>One review finding per PE export a host calls by name; empty for other images.</summary>
+    private static List<Finding> HostEntries(FileInput file)
+    {
+        try
+        {
+            var image = Native.NativeImageLoader.FromBytes(file.Image);
+            if (image.Format != Native.ImageFormat.Pe) return [];
+            return [.. image.Exports.Where(e => e.ForwardedTo == null && EntryPoints.HostCallback(e.Name) != null)
+                .Select(e => new Finding(FindingRules.Check("native/host-entry", FindingLevel.Review), "native/host-entry", "entry point", $"{e.Name}: {EntryPoints.HostCallback(e.Name)}", null, "native"))];
+        }
+        catch (ToolError) { return []; }
     }
 
     private static NativeAotSummary? NativeAot(string kind, byte[] bytes, CancellationToken ct)

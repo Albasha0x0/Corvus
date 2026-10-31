@@ -185,6 +185,7 @@ public static class FindingRules
         R("packer/empty-code-section", "a code section empty on disk and filled at run time"),
         R("packer/high-entropy-code", "a code section of high entropy"),
         R("packer/writable-entry", "the entry point in a writable and executable section"),
+        R("native/host-entry", "an export a host program calls by name"),
         // Documents, shortcuts and installers (olevba vocabulary).
         I("office/autoexec", "a macro that runs when the document opens, closes or changes"),
         N("office/suspicious", "a decoded keyword in a document whose macros run on open", "a keyword worth reviewing in macro text"),
