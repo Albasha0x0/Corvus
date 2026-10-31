@@ -106,6 +106,16 @@ public class Arm64InspectTests
     }
 
     [Fact]
+    public void A_got_slot_load_is_a_read_and_the_branch_through_it_is_an_import_call()
+    {
+        var s = Build();
+        var refs = s.Index.RefsTo(Data + 0x10).ToList();
+        Assert.Contains(refs, x => x.From == s.At["got"] && x.Kind == XrefKind.Read);
+        Assert.Contains(refs, x => x.From == s.At["blr"] && x.Kind == XrefKind.ImportCall);
+        Assert.DoesNotContain(refs, x => x.From == s.At["blr"] && x.Kind == XrefKind.Read);
+    }
+
+    [Fact]
     public void Indexed_loads_carry_the_extend_and_scale()
     {
         var s = Build();

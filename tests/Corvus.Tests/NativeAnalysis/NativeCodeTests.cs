@@ -89,6 +89,28 @@ public class NativeCodeTests
     }
 
     [Fact]
+    public void A_call_through_an_import_slot_is_not_a_read_and_a_slot_load_is()
+    {
+        var (code, rva) = Assemble(64, a =>
+        {
+            a.AddInstruction(RipMem(Iced.Intel.Code.Call_rm64, Data));
+            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r64_rm64, Register.RAX, Data));
+            a.AddInstruction(RipMem(Iced.Intel.Code.Jmp_rm64, Data));
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code, imports: [Import("KERNEL32.dll", "Sleep", Data)]));
+        var call = Code;
+        var load = Code + (uint)index.Decode(Code)!.Length;
+        var refs = index.RefsTo(Data).ToList();
+        Assert.Contains(refs, x => x.From == call && x.Kind == XrefKind.ImportCall);
+        Assert.DoesNotContain(refs, x => x.From == call && x.Kind == XrefKind.Read);
+        Assert.Contains(refs, x => x.From == load && x.Kind == XrefKind.Read);
+        Assert.DoesNotContain(refs, x => x.From == load && x.Kind == XrefKind.ImportCall);
+        var jump = load + (uint)index.Decode(load)!.Length;
+        Assert.Contains(refs, x => x.From == jump && x.Kind == XrefKind.ImportJump);
+        Assert.DoesNotContain(refs, x => x.From == jump && x.Kind == XrefKind.Read);
+    }
+
+    [Fact]
     public void Instruction_facts_report_flow_targets_and_rip_relative_operands()
     {
         var (code, _) = Assemble(64, a =>
