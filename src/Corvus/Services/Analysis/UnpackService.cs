@@ -589,6 +589,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return null;
     }
 
+    private static readonly string[] PackageExtensions = [".nupkg", ".whl", ".vsix", ".crx", ".xpi", ".gem", ".tgz", ".tar.gz"];
+
     private static (string Source, byte[] Data, string Sha) ReadSource(string path, AnalysisLimits limits)
     {
         if (Directory.Exists(Path.GetFullPath(path)) && BootManifestWithoutAssemblies(Path.GetFullPath(path)) is { } boot)
@@ -602,7 +604,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         if (length > Math.Min(limits.MaxTotalBytes, Array.MaxLength))
         {
             var raise = length <= Array.MaxLength ? $"set {AnalysisLimits.RaiseVariable} to raise the cap, or " : "";
-            throw new ToolError(ErrorCode.LimitExceeded, $"{source} is too large to unpack ({length:N0} bytes).", $"{raise}call summarize_file path={source}, which reads larger files as a stream");
+            var package = PackageExtensions.Any(x => source.EndsWith(x, StringComparison.OrdinalIgnoreCase)) ? $", or summarize_file path={source} view=package to review the package" : "";
+            throw new ToolError(ErrorCode.LimitExceeded, $"{source} is too large to unpack ({length:N0} bytes).", $"{raise}call summarize_file path={source} to list the container as a stream{package}");
         }
         var data = File.ReadAllBytes(source);
         return (source, data, Blob.Sha256(data));

@@ -273,8 +273,8 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         return path;
     }
 
-    private UnpackService.UnpackReport Unpack(string path, bool load = false, string? output = null) =>
-        Unpacker.Unpack(path, output ?? _dir.File("out-" + Guid.NewGuid().ToString("N")[..8]), load, AnalysisLimits.Default, default);
+    private UnpackService.UnpackReport Unpack(string path, bool load = false, string? output = null, AnalysisLimits? limits = null) =>
+        Unpacker.Unpack(path, output ?? _dir.File("out-" + Guid.NewGuid().ToString("N")[..8]), load, limits ?? AnalysisLimits.Default, default);
 
     private static UnpackService.UnpackedFile Entry(UnpackService.UnpackReport r, string name) =>
         Assert.Single(r.Files, f => Path.GetFileName(f.Path).Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -496,6 +496,44 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
 
         var tooMany = ContainerFixtures.WithManifest(System.IO.File.ReadAllBytes(fx.Bundle), [new("x.dll", [1, 2, 3])], count: 50);
         Assert.Contains("truncated", Assert.Throws<ToolError>(() => Unpack(Save("c.exe", tooMany))).Message);
+    }
+
+    [Fact]
+    public void A_file_over_the_array_limit_names_the_streamed_summary()
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"over-{Guid.NewGuid():N}.bin");
+        try
+        {
+            using (var f = new FileStream(path, FileMode.CreateNew)) f.SetLength((long)Array.MaxLength + 1);
+            var error = Assert.Throws<ToolError>(() => Unpack(path));
+            Assert.Equal(ErrorCode.LimitExceeded, error.Code);
+            Assert.Contains($"call summarize_file path={path} to list the container as a stream", error.Remediation);
+            Assert.DoesNotContain("view=package", error.Remediation);
+            Assert.DoesNotContain(AnalysisLimits.RaiseVariable, error.Remediation);
+        }
+        finally { System.IO.File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_package_over_the_array_limit_also_names_the_package_view()
+    {
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"over-{Guid.NewGuid():N}.nupkg");
+        try
+        {
+            using (var f = new FileStream(path, FileMode.CreateNew)) f.SetLength((long)Array.MaxLength + 1);
+            var error = Assert.Throws<ToolError>(() => Unpack(path));
+            Assert.Contains($"summarize_file path={path} view=package", error.Remediation);
+        }
+        finally { System.IO.File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_file_over_the_byte_cap_names_the_raise_variable_and_the_summary()
+    {
+        var path = Save("capped.bin", new byte[4096]);
+        var error = Assert.Throws<ToolError>(() => Unpack(path, limits: AnalysisLimits.Default with { MaxTotalBytes = 1024 }));
+        Assert.Contains(AnalysisLimits.RaiseVariable, error.Remediation);
+        Assert.Contains($"call summarize_file path={path} to list the container as a stream", error.Remediation);
     }
 
     [Fact]
