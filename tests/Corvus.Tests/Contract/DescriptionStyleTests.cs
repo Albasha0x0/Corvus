@@ -69,4 +69,19 @@ public partial class DescriptionStyleTests
             .ToDictionary(t => t.Where, _ => "no description");
         Ratchet.Check("parameter-described", "every parameter has a description (S7)", violations);
     }
+
+    private static string Paged(
+        [System.ComponentModel.Description(Corvus.Tools.ToolSupport.RowOffsetDescription)] int offset,
+        [System.ComponentModel.Description("Row to start at; rows are counted after the filter.")] int limit) => "";
+
+    // The fixture carries a generic text on offset and a longer text on limit.
+    [Fact]
+    public void A_paging_parameter_drops_a_generic_description_and_keeps_a_longer_one()
+    {
+        var tool = ModelContextProtocol.Server.McpServerTool.Create(Paged);
+        Catalog.DropPagingDescriptions([tool]);
+        var properties = (JsonObject)JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())!["properties"]!;
+        Assert.Null(properties["offset"]!["description"]);
+        Assert.NotNull(properties["limit"]!["description"]);
+    }
 }

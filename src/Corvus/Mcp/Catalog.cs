@@ -225,7 +225,7 @@ public static partial class Catalog
 
     /// <summary>Removes the generic descriptions of offset, limit and maxTokens; a parameter whose text says more keeps it.</summary>
     // The server instructions explain them once, saving about 6.6 KB of catalog.
-    private static void DropPagingDescriptions(IEnumerable<McpServerTool> tools)
+    internal static void DropPagingDescriptions(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
         {
