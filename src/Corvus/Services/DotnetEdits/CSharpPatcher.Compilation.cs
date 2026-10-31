@@ -463,11 +463,14 @@ public sealed partial class CSharpPatcher
         return new ToolError(error.Code, error.Message, string.Join("; ", steps)) { Details = error.Details, Partial = error.Partial };
     }
 
-    private static string FormatErrors(IEnumerable<Diagnostic> diagnostics, SyntaxTree tree, List<string> missing)
+    internal static string FormatErrors(IEnumerable<Diagnostic> diagnostics, SyntaxTree tree, List<string> missing)
     {
         var userNodes = tree.GetRoot().GetAnnotatedNodes(UserCode).ToList();
         var lines = tree.GetText().Lines;
-        var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        // Identical id, message and location collapse; distinct locations stay.
+        var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+            .DistinctBy(d => (d.Id, d.GetMessage(), d.Location.SourceTree, d.Location.SourceSpan))
+            .ToList();
 
         SyntaxNode? UserNodeAt(Diagnostic d) =>
             d.Location.SourceTree == tree ? userNodes.FirstOrDefault(n => n.Span.Contains(d.Location.SourceSpan.Start)) : null;
