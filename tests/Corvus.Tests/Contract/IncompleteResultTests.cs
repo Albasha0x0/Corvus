@@ -68,6 +68,46 @@ public class IncompleteResultTests
         Assert.Contains($"'{Catastrophic}' ran out of time on an input (50 ms limit)", e.Message);
     }
 
+    // Fixture NativeWithSlowString: one string, 60 'a' then 'Z'.
+    [Fact]
+    public async Task A_query_written_between_slashes_is_a_regex()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("slow.dll");
+        File.WriteAllBytes(path, NativeWithSlowString());
+        using var h = new NativeToolHarness();
+
+        var slashed = await h.CodeTools.SearchNativeStrings(path, "/a{3}Z/");
+        Assert.Contains(Slow, slashed);
+        Assert.Equal(await h.CodeTools.SearchNativeStrings(path, "a{3}Z", regex: true), slashed);
+        Assert.DoesNotContain(Slow, await h.CodeTools.SearchNativeStrings(path, "/a{3}Z/", regex: true));
+    }
+
+    [Theory]
+    [InlineData("//")]
+    [InlineData("/")]
+    public async Task A_query_without_text_between_slashes_stays_literal(string query)
+    {
+        using var dir = new TempDir();
+        var path = dir.File("slow.dll");
+        File.WriteAllBytes(path, NativeWithSlowString());
+        using var h = new NativeToolHarness();
+
+        Assert.DoesNotContain(Slow, await h.CodeTools.SearchNativeStrings(path, query));
+    }
+
+    [Fact]
+    public async Task An_invalid_regex_between_slashes_is_rejected()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("slow.dll");
+        File.WriteAllBytes(path, NativeWithSlowString());
+        using var h = new NativeToolHarness();
+
+        var e = await Assert.ThrowsAsync<ToolError>(() => h.CodeTools.SearchNativeStrings(path, "/(/"));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+    }
+
     [Fact]
     public async Task Search_native_strings_reports_strings_the_regex_timed_out_on()
     {

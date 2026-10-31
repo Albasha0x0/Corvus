@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Corvus.Core;
 using Corvus.Native.Calls;
+using Corvus.Services;
 
 namespace Corvus.Native.Code;
 
@@ -80,6 +81,7 @@ public sealed class FeatureTrace
     public static FeatureTraceResult Run(NativeCodeIndex index, string query, bool regex, FeatureKinds kinds, int maxSeeds, int callerDepth, IReadOnlyList<FeatureClass> classes,
         CancellationToken ct, FeatureEngine? engine = null)
     {
+        Corvus.Core.SlashedQuery.Read(ref query, ref regex);
         var key = $"{query}|{regex}|{kinds}|{maxSeeds}|{callerDepth}|{classes.Count}|{index.Sourced.Version}|{engine?.Id}";
         var cache = Cache.GetValue(index, _ => []);
         lock (cache) if (cache.TryGetValue(key, out var hit)) return hit;

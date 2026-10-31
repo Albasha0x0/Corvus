@@ -43,7 +43,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     public Task<string> ListTypes(
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Exact namespace (\"\" or <global> for the global one).")] string? @namespace = null,
-        [Description("Name substring or wildcard (*, ?), or regex with regex=true.")] string? filter = null,
+        [Description("Name substring or wildcard (*, ?), regex with regex=true, or /pattern/.")] string? filter = null,
         [Description("filter is a regex.")] bool regex = false,
         [Description("Only this kind.")] string? kind = null,
         [Description("Leave out nested types.")] bool topLevelOnly = false,

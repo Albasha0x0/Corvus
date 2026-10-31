@@ -403,9 +403,10 @@ public sealed class SearchService(ServerOptions? options = null)
         return $"{convention}{(sig.HasThis ? "instance " : "")}{Format.Type(sig.RetType)}({Format.ParameterTypes(sig)})";
     }
 
-    /// <summary>Builds a predicate: substring (case-insensitive), wildcard (* ?) or regex; regex timeouts are counted in <paramref name="timeouts"/>.</summary>
+    /// <summary>Builds a predicate: substring (case-insensitive), wildcard (* ?), /regex/ or regex; regex timeouts are counted in <paramref name="timeouts"/>.</summary>
     public static Func<string, bool> CreateMatcher(string query, bool regex, RegexTimeouts? timeouts = null)
     {
+        SlashedQuery.Read(ref query, ref regex);
         if (string.IsNullOrEmpty(query))
             throw new ToolError(ErrorCode.InvalidArgument, "Query is empty.");
         if (!regex && (query.Contains('*') || query.Contains('?')))

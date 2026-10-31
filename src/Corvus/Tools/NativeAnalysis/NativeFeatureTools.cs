@@ -45,7 +45,7 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
                  "lead to their references, ranked by function, with the callers that reach several.")]
     public Task<string> TraceNativeFeature(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Case-insensitive substring (\"quoted\": exact), or a regex with regex=true.")] string query,
+        [Description("Case-insensitive substring (\"quoted\": exact), or a regex with regex=true or written /pattern/.")] string query,
         [Description("query is a regex.")] bool regex = false,
         [Description("Comma-separated: strings, names, imports, exports, classes, constants (default all).")] string? kinds = null,
         [Description("Matches followed (1-500); the rest are counted.")] int maxSeeds = 50,

@@ -198,7 +198,7 @@ List types, optionally by namespace, name filter and kind.
 |---|---|---|---|---|
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `namespace` | string |  |  | Exact namespace ("" or <global> for the global one). |
-| `filter` | string |  |  | Name substring or wildcard (*, ?), or regex with regex=true. |
+| `filter` | string |  |  | Name substring or wildcard (*, ?), regex with regex=true, or /pattern/. |
 | `regex` | boolean |  |  | filter is a regex. |
 | `kind` | string |  |  | Only this kind. Values: class, struct, interface, enum, delegate. |
 | `topLevelOnly` | boolean |  |  | Leave out nested types. |
@@ -332,7 +332,7 @@ Find types and members by name across loaded assemblies: case-insensitive substr
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query` | string | yes |  | Name, substring, wildcard or regex. |
+| `query` | string | yes |  | Name, substring, wildcard, regex or /pattern/. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `namespace` | string |  |  | Only namespaces starting with this. |
@@ -351,7 +351,7 @@ Find string literals (ldstr, string constants) by substring, wildcard or regex, 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `query` | string | yes |  | Substring, wildcard or regex. |
+| `query` | string | yes |  | Substring, wildcard, regex or /pattern/. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `regex` | boolean |  |  | query is a regex. |
 | `limit` | integer |  | `100` |  |
@@ -1305,7 +1305,7 @@ Strings referenced by code or data of a native image, with address, reference co
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
-| `query` | string |  |  | Case-insensitive substring, or regex with regex=true; omit for all. |
+| `query` | string |  |  | Case-insensitive substring, or regex with regex=true or written /pattern/ (always a regex; regex=true keeps the slashes); omit for all. |
 | `regex` | boolean |  |  | query is a regex. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
@@ -1408,7 +1408,7 @@ Find the native functions behind a behaviour: strings, names, imports, exports, 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
-| `query` | string | yes |  | Case-insensitive substring ("quoted": exact), or a regex with regex=true. |
+| `query` | string | yes |  | Case-insensitive substring ("quoted": exact), or a regex with regex=true or written /pattern/. |
 | `regex` | boolean |  |  | query is a regex. |
 | `kinds` | string |  |  | Comma-separated: strings, names, imports, exports, classes, constants (default all). |
 | `maxSeeds` | integer |  | `50` | Matches followed (1-500); the rest are counted. |

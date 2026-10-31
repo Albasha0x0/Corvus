@@ -15,7 +15,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     [Description("Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . " +
                  "or :: match full names. Exact matches first, then by name length, assembly and token.")]
     public Task<string> SearchSymbols(
-        [Description("Name, substring, wildcard or regex.")] string query,
+        [Description("Name, substring, wildcard, regex or /pattern/.")] string query,
         [Description("Restrict to this kind.")] string? kind = null,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Only namespaces starting with this.")] string? @namespace = null,
@@ -39,7 +39,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     [Description("Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. " +
                  "Dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.")]
     public Task<string> SearchStrings(
-        [Description("Substring, wildcard or regex.")] string query,
+        [Description("Substring, wildcard, regex or /pattern/.")] string query,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("query is a regex.")] bool regex = false,
         [Description(LimitDescription)] int limit = 100,
