@@ -132,6 +132,7 @@ without an agent. Nothing in the file runs; no network calls are made.
   - `extracted` lists each file written with `path`, `kind`, `source` and `chain`; `index.json` holds the same per SHA-256.
 - `--dump-modules <folder>` (new or empty) with a minidump as `--file` writes each module image to `<folder>`.
   - `dumpModules` lists `written` (`file`, `base`, `size`, `sha256`, `capturedPercent`) and `skipped` with the reason.
+  - A .NET image adds `metadata` (`readable`, `partial` or `unreadable`) and, unless readable, `metadataReason`; a native image carries neither.
   - An image is rebuilt from the memory the dump holds, at most 128 MB each and 1 GB in all.
 - `--password-file <file>` with `--recurse` reads the password of encrypted members from the first line of `<file>`.
 - `--baseline <file>` drops known findings by `key` before the levels, counts and gate are set.

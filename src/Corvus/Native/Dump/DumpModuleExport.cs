@@ -4,7 +4,11 @@ using Corvus.Core;
 namespace Corvus.Native.Dump;
 
 /// <summary>A module image written from a dump: its file name, address, size, SHA-256 and the share of its pages the dump held.</summary>
-public sealed record ExportedModule(string File, string Base, uint Size, string Sha256, int CapturedPercent);
+/// <param name="Metadata">The metadata state of a .NET image (readable, partial or unreadable); omitted for a native image.</param>
+/// <param name="MetadataReason">Why the metadata is not readable; omitted when it is readable.</param>
+public sealed record ExportedModule(string File, string Base, uint Size, string Sha256, int CapturedPercent,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Metadata = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? MetadataReason = null);
 
 /// <summary>A module left out of the export, with the reason.</summary>
 public sealed record SkippedModule(string Name, string Base, string Reason);
@@ -53,7 +57,9 @@ public static class DumpModuleExport
             var name = NameFor(module, used);
             SafeFile.WriteUnderRoot(root, name, bytes.Span, overwrite: false);
             total += bytes.Length;
-            written.Add(new ExportedModule(name, at, module.Size, Convert.ToHexStringLower(SHA256.HashData(bytes.Span)), (int)(captured * 100 / Math.Max(1u, module.Size))));
+            var metadata = DumpManagedMetadata.Inspect(image);
+            written.Add(new ExportedModule(name, at, module.Size, Convert.ToHexStringLower(SHA256.HashData(bytes.Span)), (int)(captured * 100 / Math.Max(1u, module.Size)),
+                metadata?.State, metadata?.Reason));
         }
         return new ModuleExport(root, written, skipped);
     }
