@@ -10,6 +10,7 @@ What each of the 165 tools and 15 prompts reads or shows. Parameters: [tools.md]
 - .NET crash dumps: [ClrMD](https://github.com/microsoft/clrmd), with the dumped runtime's DAC, signature-checked first.
 - Archives: [SharpCompress](https://github.com/adamhathcock/sharpcompress) (tar, 7z, RAR, gzip, bzip2, xz).
 - Archive and disk image entries with `..`, rooted, drive or stream names, a trailing blank or dot, a file and folder of one name, or the hidden attribute are named in the notes and reported as review findings by `summarize_file`; RAR 5 stream records are listed.
+- An executable two or more containers deep (an archive inside an archive) is a review finding in `summarize_file`.
 - JavaScript: [Acornima](https://github.com/adams85/acornima); source maps decoded by built-in code.
 - Mail: [MimeKit](https://github.com/jstedfast/MimeKit) (`.eml`, `.mht`); `.msg` and `.ics` read by built-in code.
 - Transport: stdio, through the [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).

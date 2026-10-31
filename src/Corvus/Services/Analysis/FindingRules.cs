@@ -177,6 +177,7 @@ public static class FindingRules
         // Archive and disk image entries.
         R("archive/unsafe-path", "an entry path with a '..', rooted, drive or stream part, or a part ending in a blank or a dot"),
         R("archive/name-collision", "one name used for a file and a folder"),
+        R("archive/nested-executable", "an executable inside an archive that is inside another archive"),
         R("archive/hidden-entry", "an entry with the hidden attribute in an ISO, UDF, FAT or NTFS image"),
         // Native images.
         I("packer/packing-tool", "a packing tool's section names or header"),

@@ -620,11 +620,11 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
         notes.AddRange(top.Notes);
         var names = new List<NameIssue>(top.Names ?? []);
-        var queue = new Queue<(ExtractedItem Item, string Prefix, int Depth, bool Archived)>(top.Items.Select(i => (i, "", 1, top.Entries != null)));
+        var queue = new Queue<(ExtractedItem Item, string Prefix, int Depth, bool Archived, int Archives)>(top.Items.Select(i => (i, "", 1, top.Entries != null, IsArchive(top.Kind) ? 1 : 0)));
         while (queue.Count > 0)
         {
             ct.ThrowIfCancellationRequested();
-            var (item, prefix, depth, archived) = queue.Dequeue();
+            var (item, prefix, depth, archived, archives) = queue.Dequeue();
             var itemSha = Blob.Sha256(item.Bytes);
             bool repeat = !seen.Add(itemSha);
             // Skips identical decoded content such as per-ABI assembly stores.
@@ -642,6 +642,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             if (kind == DotNet && !relative.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !relative.EndsWith(".exe.bin", StringComparison.OrdinalIgnoreCase))
                 relative += ".dll";
             var recorded = (prefix + "/" + item.Name).Replace('\\', '/').TrimStart('/');
+            if (archives >= NestedExecutableDepth && IsExecutable(kind, item.Name))
+                names.Add(new NameIssue("nested-executable", recorded, $"an executable {archives} archives deep"));
             found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin)
             {
                 Original = recorded == relative.Replace(System.IO.Path.DirectorySeparatorChar, '/') ? null : recorded,
@@ -666,7 +668,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 names.AddRange((inner.Names ?? []).Select(n => n with { Name = $"{item.Name}: {n.Name}" }));
                 // Sanitized when used.
                 var innerPrefix = prefix + "/" + item.Name + "_unpacked";
-                foreach (var i in inner.Items) queue.Enqueue((i, innerPrefix, depth + 1, inner.Entries != null));
+                foreach (var i in inner.Items) queue.Enqueue((i, innerPrefix, depth + 1, inner.Entries != null, archives + (IsArchive(inner.Kind) ? 1 : 0)));
             }
             catch (ToolError ex)
             {
@@ -678,6 +680,15 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     /// <summary>Path components kept for an archive file (node_modules trees run deep).</summary>
     private const int MaxArchiveDepth = 48;
+
+    /// <summary>The archive depth (an archive inside an archive) from which an executable is reviewed; files carved from a program do not count.</summary>
+    private const int NestedExecutableDepth = 2;
+
+    // A compressed file (gzip, xz, bzip2) wraps one archive: a .tar.gz is one level.
+    private static bool IsArchive(string kind) => kind is "zip archive" or "7z" or "rar" or "tar";
+
+    private static bool IsExecutable(string kind, string name) =>
+        kind is DotNet or "native PE" or "NativeAOT executable" or "elf" or "mach-o" || Blob.IsRunnableExtension(System.IO.Path.GetExtension(name));
 
     private static bool MayContainMore(string kind) =>
         kind is "zip" or ".NET assembly" or "native PE" or "data" or "asar" || kind.StartsWith("xa", StringComparison.Ordinal);
