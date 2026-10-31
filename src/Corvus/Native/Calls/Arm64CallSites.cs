@@ -12,6 +12,8 @@ internal interface ICallSites
     CallSiteInfo? CallAt(uint rva, CancellationToken ct = default);
     IReadOnlyList<CallSiteInfo> CallsIn(NativeFunction f, CancellationToken ct = default);
     IEnumerable<CallSiteInfo> CallsTo(NativeImport import, int max, CancellationToken ct = default);
+    /// <summary>The call decoded again under a signature; null when the instruction set does not take one.</summary>
+    CallSiteInfo? Retyped(CallSiteInfo site, ApiSignature signature, CancellationToken ct = default) => null;
 }
 
 /// <summary>AAPCS64 call-site arguments (x0-x7, v0-v7, then the stack) and late-bound import targets, recovered backward; thread-safe.</summary>

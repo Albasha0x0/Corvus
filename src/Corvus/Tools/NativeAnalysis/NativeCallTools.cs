@@ -7,13 +7,14 @@ using Corvus.Mcp;
 using Corvus.Native;
 using Corvus.Native.Calls;
 using Corvus.Native.Code;
+using Corvus.Native.Providers;
 using Corvus.Services;
 
 namespace Corvus.Tools;
 
 /// <summary>Call sites of native code with their recovered argument values.</summary>
 [McpServerToolType]
-public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeService code)
+public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null)
 {
     [Description("One argument of a call.")]
     public sealed record CallArgumentRecord(
@@ -60,7 +61,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true, OutputSchemaType = typeof(CallArgumentsReport))]
     [Description("Call sites with recovered argument values: constants, strings, addresses, earlier call results. Known Win32, CRT and " +
-                 "libc APIs name parameters and decode flags. Pass address, callee or both.")]
+                 "libc APIs name parameters and decode flags; other functions use the prototype of an open engine session. Pass address, callee or both.")]
     public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call, or an address in a function (all its calls): " + NativeTools.AddressDescription)] string? address = null,
@@ -74,7 +75,10 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         if (string.IsNullOrWhiteSpace(address) && string.IsNullOrWhiteSpace(callee))
             throw new ToolError(ErrorCode.InvalidArgument, "Pass address (a call or a function) or callee (an API or function name).");
         var index = await Open(image, progress, cancellationToken);
-        return await Task.Run(() => Report(index, address, callee, offset, limit, cancellationToken), cancellationToken);
+        var native = Targets.Native(workspace, image);
+        var session = engines?.OpenSession(native);
+        Func<uint, ApiSignature?>? prototype = session == null ? null : start => EnginePrototype(session, index, start, cancellationToken);
+        return await Task.Run(() => Report(index, address, callee, offset, limit, cancellationToken, prototype), cancellationToken);
     });
 
     /// <summary>The call sites of an index (x86, x64, ARM64, ARM32); null for other instruction sets.</summary>
@@ -87,9 +91,24 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         public CallSiteInfo? CallAt(uint rva, CancellationToken ct = default) => analysis.CallAt(rva, ct);
         public IReadOnlyList<CallSiteInfo> CallsIn(NativeFunction f, CancellationToken ct = default) => analysis.CallsIn(f, ct);
         public IEnumerable<CallSiteInfo> CallsTo(NativeImport import, int max, CancellationToken ct = default) => analysis.CallsTo(import, max, ct);
+        public CallSiteInfo? Retyped(CallSiteInfo site, ApiSignature signature, CancellationToken ct = default) => analysis.Retyped(site, signature, ct);
     }
 
-    internal static string Report(NativeCodeIndex index, string? address, string? callee, int offset, int limit, CancellationToken ct)
+    /// <summary>The signature of the engine's typed function at <paramref name="start"/>; null when the record has none. Throws when the record cannot be read.</summary>
+    private static ApiSignature? EnginePrototype(INativeDecompilerSession session, NativeCodeIndex index, uint start, CancellationToken ct)
+    {
+        var record = session.GetFunctionRecordAsync(start, ct).GetAwaiter().GetResult();
+        return record.Start == start ? EngineSignatures.From(record, index.Image.Arch) : null;
+    }
+
+    /// <summary>
+    /// Lists the call sites as text. <paramref name="prototype"/> gives the
+    /// engine's signature for a function start; calls to a function without a
+    /// built-in signature are decoded under it; otherwise they keep the slots
+    /// set before the call.
+    /// </summary>
+    internal static string Report(NativeCodeIndex index, string? address, string? callee, int offset, int limit, CancellationToken ct,
+        Func<uint, ApiSignature?>? prototype = null)
     {
         var analysis = Sites(index)!;
         var notes = new List<string>();
@@ -133,7 +152,30 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         int max = Math.Clamp(limit, 1, 1000);
         int start = Math.Clamp(offset, 0, sites.Count);
-        var page = sites.Skip(start).Take(max).Select(s => (Record: Record(index, s), s.Display)).ToList();
+        var typed = new Dictionary<uint, ApiSignature?>();
+        var failed = new HashSet<uint>();
+        int unknown = 0, unavailable = 0, noSession = 0;
+        CallSiteInfo Prototyped(CallSiteInfo s)
+        {
+            if (!s.Guessed || s.Target is not { } target || s.Kind != CalleeKind.Function) return s;
+            if (prototype == null) { noSession++; return s; }
+            if (!typed.TryGetValue(target, out var sig))
+            {
+                try { typed[target] = sig = prototype(target); }
+                catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    typed[target] = null;
+                    failed.Add(target);
+                }
+            }
+            if (failed.Contains(target)) { unavailable++; return s; }
+            if (sig == null) { unknown++; return s; }
+            return analysis.Retyped(s, sig, ct) ?? s;
+        }
+        var page = sites.Skip(start).Take(max).Select(Prototyped).Select(s => (Record: Record(index, s), s.Display)).ToList();
+        if (noSession > 0) notes.Add($"{noSession} call(s) to functions without a built-in signature show the slots set before the call; no engine session is open");
+        if (unavailable > 0) notes.Add($"{unavailable} call(s) to functions whose engine record could not be read show the slots set before the call");
+        if (unknown > 0) notes.Add($"{unknown} call(s) to functions without an engine prototype show the slots set before the call");
         if (index.Truncations.Count > 0) notes.AddRange(index.Truncations);
         var image = Path.GetFileName(index.Image.Path);
         var header = $"{image}: {scope}\n" + string.Concat(notes.Select(n => $"Note: {n}\n"));

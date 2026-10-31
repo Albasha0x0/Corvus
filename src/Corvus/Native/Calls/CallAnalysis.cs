@@ -448,14 +448,23 @@ public sealed partial class CallAnalysis : ITraceHost
         return 0;
     }
 
-    private CallSiteInfo Site(FunctionCode code, int block, int index)
+    /// <summary>The call of <paramref name="site"/> decoded again under <paramref name="signature"/>; null when the call is not found.</summary>
+    public CallSiteInfo? Retyped(CallSiteInfo site, ApiSignature signature, CancellationToken ct = default)
+    {
+        var code = Code(site.Caller, ct);
+        var (b, i) = code.Position(site.Rva);
+        return b < 0 ? null : Site(code, b, i, signature);
+    }
+
+    private CallSiteInfo Site(FunctionCode code, int block, int index, ApiSignature? over = null)
     {
         ref readonly var d = ref code.Blocks[block][index];
         bool tail = SiteKind(code, in d) == 2;
         var resolver = new ValueResolver(this, code);
         var callee = ResolveCallee(code, block, index, resolver);
         var apiName = callee.Import?.Name ?? callee.Dynamic?.Name ?? (callee.Kind == CalleeKind.Function ? callee.Name : null);
-        var sig = ApiSignatures.Find(apiName, Image);
+        // An engine prototype outranks a built-in name match for a local function.
+        var sig = callee.Kind == CalleeKind.Function && over != null ? over : ApiSignatures.Find(apiName, Image) ?? over;
         var args = new List<CallArgument>();
         bool guessed = sig == null;
         // System V: a local callee that returns its rdi, given a local buffer there, returns a struct through it.

@@ -5,6 +5,7 @@ using Corvus.Native;
 using Corvus.Native.Calls;
 using Corvus.Native.Code;
 using Corvus.Native.Pe;
+using Corvus.Native.Providers;
 using Xunit.Abstractions;
 using static Iced.Intel.AssemblerRegisters;
 
@@ -162,6 +163,108 @@ public class CallArgumentTests(ITestOutputHelper output)
         var starts = probe.Functions.Where(f => f.Start != Code).OrderBy(f => f.Start).Select(f => f.Start).ToArray();
         var exports = new[] { new NativeExport(firstName, 1, starts[0], null), new NativeExport(secondName, 2, starts[1], null) };
         return NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code, exports: exports));
+    }
+
+    private static NativeCodeIndex LocalCalleeIndex()
+    {
+        var code = Assemble(64, a =>
+        {
+            var callee = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.mov(ecx, 5);
+            a.call(callee);
+            a.add(rsp, 0x28);
+            a.ret();
+            a.Label(ref callee);
+            a.mov(eax, ecx);
+            a.ret();
+        });
+        return NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+    }
+
+    private static EngineFunctionRecord Record(uint start, string? source, string convention = "__fastcall") =>
+        new(start, "f", null, "int f(int count)", convention, source, [], null, null, false, false, false, null,
+            [new EngineParameter("count", "int", "RCX")], "int", "RAX", false);
+
+    [Fact]
+    public void An_engine_prototype_names_and_types_the_arguments_of_a_local_callee()
+    {
+        var index = LocalCalleeIndex();
+        var target = index.Functions.Where(f => f.Start != Code).Min(f => f.Start);
+        var text = Corvus.Tools.NativeCallTools.Report(index, null, $"0x{target:X}", 0, 50, default,
+            start => EngineSignatures.From(Record(start, "user"), NativeArch.X64));
+        Assert.DoesNotContain("no signature", text);
+        Assert.Contains("(5)", text);
+    }
+
+    [Fact]
+    public void A_local_callee_without_an_engine_prototype_keeps_the_slots_set_before_the_call()
+    {
+        var index = LocalCalleeIndex();
+        var target = index.Functions.Where(f => f.Start != Code).Min(f => f.Start);
+        var text = Corvus.Tools.NativeCallTools.Report(index, null, $"0x{target:X}", 0, 50, default, _ => null);
+        Assert.Contains("no signature", text);
+        Assert.Contains("without an engine prototype", text);
+    }
+
+    [Fact]
+    public void A_default_engine_signature_is_not_used_as_a_prototype()
+    {
+        Assert.Null(EngineSignatures.From(Record(0x1000, "default"), NativeArch.X64));
+        Assert.Null(EngineSignatures.From(Record(0x1000, "user", "__fastcall"), NativeArch.X86));
+        Assert.NotNull(EngineSignatures.From(Record(0x1000, "analysis", "__stdcall"), NativeArch.X86));
+    }
+
+    private static string Local(Func<uint, ApiSignature?>? prototype)
+    {
+        var index = LocalCalleeIndex();
+        var target = index.Functions.Where(f => f.Start != Code).Min(f => f.Start);
+        return Corvus.Tools.NativeCallTools.Report(index, null, $"0x{target:X}", 0, 50, default, prototype);
+    }
+
+    [Theory]
+    [InlineData("char *", ApiParamType.AnsiString)]
+    [InlineData("const char*", ApiParamType.AnsiString)]
+    [InlineData("wchar_t *", ApiParamType.WideString)]
+    [InlineData("char **", ApiParamType.Pointer)]
+    [InlineData("wchar_t **", ApiParamType.Pointer)]
+    [InlineData("__int64", ApiParamType.Int64)]
+    [InlineData("float", ApiParamType.Float)]
+    [InlineData("unsigned int", ApiParamType.UInt)]
+    public void An_engine_parameter_type_maps_to_its_decoding_kind(string type, ApiParamType kind)
+    {
+        var record = Record(0x1000, "user") with { Parameters = [new EngineParameter("p", type, "RCX")] };
+        Assert.Equal(kind, EngineSignatures.From(record, NativeArch.X64)!.Params[0].Type);
+    }
+
+    [Theory]
+    [InlineData("__usercall")]
+    [InlineData("__vectorcall")]
+    public void An_engine_record_with_a_register_convention_is_not_used(string convention) =>
+        Assert.Null(EngineSignatures.From(Record(0x1000, "user", convention), NativeArch.X64));
+
+    [Fact]
+    public void A_guessed_engine_signature_is_not_used_as_a_prototype() =>
+        Assert.Null(EngineSignatures.From(Record(0x1000, "guessed"), NativeArch.X64));
+
+    [Fact]
+    public void An_unnamed_engine_parameter_is_named_by_position()
+    {
+        var record = Record(0x1000, "user") with { Parameters = [new EngineParameter("", "int", "RCX")] };
+        Assert.Equal("arg1", EngineSignatures.From(record, NativeArch.X64)!.Params[0].Name);
+    }
+
+    [Fact]
+    public void A_local_callee_is_noted_when_no_engine_session_is_open() =>
+        Assert.Contains("no engine session is open", Local(null));
+
+    [Fact]
+    public void An_unreadable_engine_record_is_reported_as_unavailable_and_keeps_the_slots()
+    {
+        var text = Local(_ => throw new IOException("worker exited"));
+        Assert.Contains("could not be read", text);
+        Assert.DoesNotContain("without an engine prototype", text);
+        Assert.Contains("no signature", text);
     }
 
     [Fact]
