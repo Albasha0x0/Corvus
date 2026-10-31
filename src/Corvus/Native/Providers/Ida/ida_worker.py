@@ -153,12 +153,40 @@ def partial(result, cursor):
     return result
 
 
+# Auto-analyzer queues shown in progress, by their ida_auto constant.
+_AUTO_QUEUES = (
+    ("AU_CODE", "code"), ("AU_PROC", "procedures"), ("AU_USED", "operands"), ("AU_TYPE", "types"),
+    ("AU_LIBF", "library functions"), ("AU_FINAL", "final pass"),
+)
+# The queue the request thread last saw; the heartbeat thread only reads it, as idalib is single-threaded.
+_stage = None
+
+
+def analysis_stage(auto):
+    # The queue the auto-analyzer works on, such as "analysis: code"; None when idle, unknown or unreadable.
+    try:
+        state = auto.get_auto_state()
+        for const, label in _AUTO_QUEUES:
+            if getattr(auto, const, None) == state:
+                return "analysis: " + label
+    except Exception:
+        pass
+    return None
+
+
+def heartbeat_event(r, stage):
+    ev = {"event": "progress", "id": r.id, "op": r.op, "elapsed": round(time.time() - r.start, 1)}
+    if stage and r.op in ("open", "analyze", "reanalyze_native"):
+        ev["stage"] = stage
+    return ev
+
+
 def heartbeat():
     while True:
         time.sleep(2.0)
         r = _current
         if r is not None and r.start is not None:
-            send({"event": "progress", "id": r.id, "op": r.op, "elapsed": round(time.time() - r.start, 1)})
+            send(heartbeat_event(r, _stage))
 
 
 # idalib is loaded on the first request so that load and license failures come back as responses.
@@ -387,17 +415,22 @@ def op_open(args):
 
 def analyze_within(m, seconds):
     # Runs auto_wait in steps within the budget; the rest stays queued for reanalyze_native. True: the queue ran empty.
+    global _stage
     end = time.time() + float(seconds) if seconds else None
     m.ida_auto.enable_auto(True)
-    while True:
-        if not auto_steps(m):
-            m.ida_auto.auto_wait()
-            return True
-        if (end is not None and time.time() >= end) or cancelled():
-            if not m.ida_auto.auto_is_ok():
-                bound_auto_wait(m)
-                return False
-            return True
+    try:
+        while True:
+            if not auto_steps(m):
+                m.ida_auto.auto_wait()
+                return True
+            _stage = analysis_stage(m.ida_auto)
+            if (end is not None and time.time() >= end) or cancelled():
+                if not m.ida_auto.auto_is_ok():
+                    bound_auto_wait(m)
+                    return False
+                return True
+    finally:
+        _stage = None
 
 
 def auto_steps(m, count=500):

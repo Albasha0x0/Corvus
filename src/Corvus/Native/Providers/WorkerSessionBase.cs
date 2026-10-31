@@ -157,6 +157,13 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         };
     }
 
+    /// <summary>The stage a progress event names, else <paramref name="fallback"/> when it names none or an empty one.</summary>
+    internal static string EventStage(JsonElement body, string fallback)
+    {
+        if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty("stage", out var value)) return fallback;
+        return value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : fallback;
+    }
+
     /// <summary>Notes the worker's progress stage while the session starts (open, load, analysis).</summary>
     protected void StartStage(string stage) => _startStage = stage;
 

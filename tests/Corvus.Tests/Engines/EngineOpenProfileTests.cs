@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Native.Providers;
@@ -16,6 +17,54 @@ public sealed class EngineOpenProfileTests : IDisposable
     {
         foreach (var d in _owned) d.Dispose();
         _dir.Dispose();
+    }
+
+    [Fact]
+    public void A_progress_event_names_its_stage_or_keeps_the_open_stage()
+    {
+        using var named = JsonDocument.Parse("{\"stage\":\"analysis: code\"}");
+        using var empty = JsonDocument.Parse("{\"stage\":\"\"}");
+        using var none = JsonDocument.Parse("{\"elapsed\":2}");
+        using var nul = JsonDocument.Parse("null");
+        Assert.Equal("analysis: code", WorkerSessionBase.EventStage(named.RootElement, "analysis"));
+        Assert.Equal("analysis", WorkerSessionBase.EventStage(empty.RootElement, "analysis"));
+        Assert.Equal("analysis", WorkerSessionBase.EventStage(none.RootElement, "analysis"));
+        Assert.Equal("analysis", WorkerSessionBase.EventStage(nul.RootElement, "analysis"));
+        Assert.Equal("analysis", WorkerSessionBase.EventStage(default, "analysis"));
+    }
+
+    [Fact]
+    public void The_ida_worker_shows_a_named_queue_for_open_heartbeats_only()
+    {
+        var script = Corvus.Setup.ToolCli.WriteIdaScripts(Path.Combine(_dir.Path, "scripts"));
+        var code = """
+            import sys, types
+            sys.path.insert(0, sys.argv[1])
+            import ida_worker as w
+            class Auto:
+                AU_NONE = 0; AU_CODE = 10; AU_PROC = 20
+                def __init__(self, s): self.s = s
+                def get_auto_state(self):
+                    if self.s == "boom": raise RuntimeError("x")
+                    return self.s
+            assert w.analysis_stage(Auto(10)) == "analysis: code"
+            assert w.analysis_stage(Auto(0)) is None
+            assert w.analysis_stage(Auto(57)) is None
+            assert w.analysis_stage(Auto("boom")) is None
+            assert w.analysis_stage(object()) is None
+            r = types.SimpleNamespace(id=1, op="open", start=__import__("time").time())
+            assert w.heartbeat_event(r, "analysis: code")["stage"] == "analysis: code"
+            assert "stage" not in w.heartbeat_event(r, None)
+            r.op = "decompile"
+            assert "stage" not in w.heartbeat_event(r, "analysis: code")
+            for op in ("analyze", "reanalyze_native"):
+                r.op = op
+                assert w.heartbeat_event(r, "analysis: code")["stage"] == "analysis: code"
+            """;
+        var file = _dir.File("worker_stage.py");
+        File.WriteAllText(file, code);
+        var result = Tools.Run("python", $"\"{file}\" \"{Path.GetDirectoryName(script)}\"");
+        Assert.True(result.ExitCode == 0, result.Output);
     }
 
     [Fact]

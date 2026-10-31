@@ -165,7 +165,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation? ida, Pyt
         string stage = "start";
         worker.EventReceived += e =>
         {
-            if (e.Name == "progress") Options.Progress?.Report(new NativeProviderProgress(Volatile.Read(ref stage), clock.Elapsed));
+            if (e.Name == "progress") Options.Progress?.Report(new NativeProviderProgress(EventStage(e.Body, Volatile.Read(ref stage)), clock.Elapsed));
         };
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
 
