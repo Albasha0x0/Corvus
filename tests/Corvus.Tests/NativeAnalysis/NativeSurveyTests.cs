@@ -76,6 +76,70 @@ public class NativeSurveyTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Startup_callbacks_timing_reads_and_breakpoint_state_are_listed()
+    {
+        const uint Tick = Data, Context = Data + 8, Break = Data + 16;
+        var a = new Assembler(64);
+        a.sub(rsp, 0x28);
+        a.AddInstruction(CallSlot(Tick));
+        a.AddInstruction(CallSlot(Context));
+        a.AddInstruction(CallSlot(Break));
+        a.add(rsp, 0x28);
+        a.ret();
+        var stream = new MemoryStream();
+        a.Assemble(new StreamCodeWriter(stream), Base64 + Code);
+        NativeImport Import(string module, string name, uint slot) => new(module, name, null, 0, slot, false);
+        var image = CodeTestImage.Synthetic(NativeArch.X64, stream.ToArray(), null,
+            [Import("KERNEL32.dll", "GetTickCount64", Tick), Import("KERNEL32.dll", "GetThreadContext", Context), Import("KERNEL32.dll", "DebugBreak", Break)],
+            entry: Code, tlsCallbacks: [Code]);
+        var found = Features.Detect(new NativeFeatureScan(NativeCodeIndex.Build(image), default), default);
+
+        var tls = Assert.Single(found, f => f.Name == "run initialization callbacks before the entry point");
+        Assert.Contains("TLS callback", tls.Evidence[0].Locations[0]);
+        Assert.Contains($"@0x{Base64 + Code:x}", tls.Evidence[0].Locations[0]);
+        Assert.Contains(found, f => f.Name == "read timing sources and debugger state");
+        Assert.Contains(found, f => f.Name == "read or set thread context");
+        Assert.Contains(found, f => f.Name == "raise breakpoint exceptions or write debug output");
+    }
+
+    [Theory]
+    [InlineData("KERNEL32.dll", "QueryPerformanceCounter", "read timing sources and debugger state")]
+    [InlineData("winmm.dll", "timeGetTime", "read timing sources and debugger state")]
+    [InlineData("ntdll.dll", "NtQuerySystemTime", "read timing sources and debugger state")]
+    [InlineData("ntdll.dll", "NtSetContextThread", "read or set thread context")]
+    [InlineData("ntdll.dll", "NtGetContextThread", "read or set thread context")]
+    [InlineData("KERNEL32.dll", "OutputDebugStringW", "raise breakpoint exceptions or write debug output")]
+    [InlineData("KERNEL32.dll", "OutputDebugStringA", "raise breakpoint exceptions or write debug output")]
+    [InlineData("ntdll.dll", "DbgBreakPoint", "raise breakpoint exceptions or write debug output")]
+    public void Each_timing_context_and_debug_output_import_is_matched(string module, string name, string feature)
+    {
+        var imports = new List<NativeImport> { new(module, name, null, 0, Data, false) };
+        if (feature.StartsWith("read timing", StringComparison.Ordinal))
+            imports.Add(new("KERNEL32.dll", "IsDebuggerPresent", null, 0, Data + 8, false));
+        var image = CodeTestImage.Synthetic(NativeArch.X64, [0xC3], null, imports, entry: Code);
+        var found = Features.Detect(new NativeFeatureScan(NativeCodeIndex.Build(image), default), default);
+
+        Assert.Contains(found, f => f.Name == feature);
+    }
+
+    [Fact]
+    public void Timing_reads_alone_and_images_without_callbacks_report_none_of_the_four()
+    {
+        var image = CodeTestImage.Synthetic(NativeArch.X64, [0xC3], null,
+            [new("KERNEL32.dll", "GetTickCount64", null, 0, Data, false)], entry: Code);
+        var found = Features.Detect(new NativeFeatureScan(NativeCodeIndex.Build(image), default), default);
+
+        Assert.DoesNotContain(found, f => f.Name is "read timing sources and debugger state" or "read or set thread context"
+            or "raise breakpoint exceptions or write debug output" or "run initialization callbacks before the entry point");
+    }
+
+    [Fact]
+    public void Every_rule_pattern_is_prepared_without_error()
+    {
+        Assert.True(Features.Prepare() > 0);
+    }
+
+    [Fact]
     public void Survey_takes_a_loaded_native_image_or_a_native_path()
     {
         using var env = new Env();

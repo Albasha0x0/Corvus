@@ -22,7 +22,9 @@ public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> L
 
 /// <summary>Capability rules over managed assemblies and native images; a rule matches when every group has a matching feature.</summary>
 // Kinds: api:Ns.Type::Name (wildcards, optional signature); native:module!Entry (A/W suffix accepted); str:regex.
-// Native images only: arg:module!Api#i=CONSTANT; section:entropy>x, section:name=regex, section:wx; rtti:regex (MSVC RTTI class names).
+// Native images only: arg:module!Api#i=CONSTANT; section:entropy>x;
+// section:name=regex; section:wx; rtti:regex (MSVC RTTI class names);
+// image:tls-callbacks (one hit per TLS callback).
 public static class Features
 {
     /// <summary>All groups must match; within a group, any feature.</summary>
@@ -137,6 +139,25 @@ public static class Features
             "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugFlags"),
         Any("exclude threads from debugger notification", "environment checks",
             "arg:ntdll!NtSetInformationThread#1=ThreadHideFromDebugger"),
+        Any("run initialization callbacks before the entry point", "environment checks",
+            "image:tls-callbacks"),
+        // Timing reads alone are ubiquitous; the rule needs a debugger or context read too.
+        All("read timing sources and debugger state", "environment checks",
+            [
+                "api:System.Diagnostics.Stopwatch::GetTimestamp", "api:System.Diagnostics.Stopwatch::get_Elapsed*",
+                "api:System.Environment::get_TickCount*", "native:kernel32!GetTickCount*", "native:kernel32!QueryPerformanceCounter",
+                "native:ntdll!NtQuerySystemTime", "native:ntdll!NtQueryPerformanceCounter", "native:winmm!timeGetTime",
+            ],
+            [
+                "api:System.Diagnostics.Debugger::get_IsAttached", "native:kernel32!IsDebuggerPresent",
+                "native:kernel32!CheckRemoteDebuggerPresent", "native:ntdll!NtQueryInformationProcess",
+                "native:kernel32!GetThreadContext", "native:ntdll!NtGetContextThread",
+            ]),
+        Any("read or set thread context", "environment checks",
+            "native:kernel32!GetThreadContext", "native:kernel32!SetThreadContext", "native:ntdll!NtGetContextThread", "native:ntdll!NtSetContextThread"),
+        Any("raise breakpoint exceptions or write debug output", "environment checks",
+            "api:System.Diagnostics.Debugger::Break", "api:System.Diagnostics.Debugger::Launch", "native:kernel32!DebugBreak",
+            "native:ntdll!DbgBreakPoint", "native:kernel32!OutputDebugString*"),
         Any("contain high-entropy sections", "environment checks",
             "section:entropy>7.2"),
         Any("use a known executable packing tool", "environment checks",
@@ -228,8 +249,8 @@ public static class Features
 
     private const int MaxLocations = 5;
 
-    /// <summary>Feature kinds; managed modules evaluate api / native / str, native images native / str / arg / section / rtti.</summary>
-    private static readonly HashSet<string> Kinds = ["api", "native", "str", "arg", "section", "rtti"];
+    /// <summary>Feature kinds; managed modules evaluate api / native / str, native images native / str / arg / section / rtti / image.</summary>
+    private static readonly HashSet<string> Kinds = ["api", "native", "str", "arg", "section", "rtti", "image"];
 
     public static List<Feature> Detect(ModuleScan scan, CancellationToken ct) => Detect(feature => Evaluate(scan, feature), new SurveySubject(scan, null), ct);
 
@@ -359,6 +380,7 @@ public static class Features
             var (kind, pattern) = colon < 0 ? (feature, "") : (feature[..colon], feature[(colon + 1)..]);
             if (kind is "str" or "rtti" or "sym") RulePattern(pattern);
             else if (kind == "section" && pattern.StartsWith("name=", StringComparison.Ordinal)) RulePattern(pattern[5..]);
+            else if (kind == "image" && pattern != "tls-callbacks") throw new InvalidOperationException($"Unknown image feature '{pattern}' in a rule.");
         }
         return RulePatterns.Count;
     });

@@ -76,7 +76,7 @@ public sealed class CodeTestImage : INativeImage
     /// </summary>
     public static CodeTestImage Synthetic(NativeArch arch, byte[] code, byte[]? data = null, IEnumerable<NativeImport>? imports = null,
         IEnumerable<RuntimeFunction>? pdata = null, IEnumerable<uint>? relocations = null, uint entry = 0, IEnumerable<NativeExport>? exports = null,
-        uint dataVirtualSize = 0, ImageFormat format = ImageFormat.Pe)
+        uint dataVirtualSize = 0, ImageFormat format = ImageFormat.Pe, IEnumerable<uint>? tlsCallbacks = null)
     {
         var image = new CodeTestImage(new byte[0x400])
         {
@@ -99,6 +99,7 @@ public sealed class CodeTestImage : INativeImage
         image.Exports = exports?.ToList() ?? [];
         image.RuntimeFunctions = pdata?.OrderBy(r => r.BeginRva).ToList() ?? [];
         image.RelocationRvas = relocations?.Order().ToList() ?? [];
+        image.TlsCallbackRvas = tlsCallbacks?.ToList() ?? [];
         return image;
     }
 

@@ -60,6 +60,9 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
             case "section":
                 Sections(pattern, Hit);
                 break;
+            case "image" when pattern == "tls-callbacks":
+                foreach (var rva in index.Image.TlsCallbackRvas) Hit($"TLS callback {Where(rva)}");
+                break;
             case "rtti":
             {
                 var regex = Features.RulePattern(pattern);
