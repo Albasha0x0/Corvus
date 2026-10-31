@@ -9,6 +9,9 @@ namespace Corvus.Native.Dump.Managed;
 /// <summary>DAC outcome: loaded, not_found, bitness_mismatch, host_unsupported, signature_invalid, download_refused_offline, download_failed, load_failed or unsupported_runtime.</summary>
 public sealed record DacState(string Status, string? Path, string Detail);
 
+/// <summary>An address range the runtime owns for generated code, with the kind its heap reports.</summary>
+public sealed record RuntimeCodeHeap(ulong Start, ulong End, string Kind);
+
 /// <summary>A decoded CLR: in this process, or in the 32-bit decoder process for a 32-bit dump.</summary>
 internal interface IClrBackend : IDisposable
 {
@@ -250,6 +253,25 @@ public sealed class ClrDecoder : IDisposable
 
     /// <summary>The runtime as ClrMD reads it, when it is decoded in this process; calls go under <see cref="Gate"/>.</summary>
     internal ClrRuntime? Runtime => _disposed ? null : (_backend as InProcessClr)?.Runtime;
+
+    private static readonly HashSet<NativeHeapKind> CodeKinds =
+    [
+        NativeHeapKind.LoaderCodeHeap, NativeHeapKind.HostCodeHeap, NativeHeapKind.StubHeap, NativeHeapKind.ExecutableHeap, NativeHeapKind.FixupPrecodeHeap,
+        NativeHeapKind.NewStubPrecodeHeap, NativeHeapKind.ThunkHeap, NativeHeapKind.LookupHeap, NativeHeapKind.ResolveHeap, NativeHeapKind.DispatchHeap,
+    ];
+
+    /// <summary>The runtime's code heaps (JIT-compiled code, stubs, thunks) sorted by address; null when the runtime is decoded out of process or not loaded.</summary>
+    public IReadOnlyList<RuntimeCodeHeap>? CodeHeaps()
+    {
+        lock (Gate)
+        {
+            if (Runtime is not { } runtime) return null;
+            var heaps = new List<RuntimeCodeHeap>();
+            foreach (var h in runtime.EnumerateClrNativeHeaps())
+                if (CodeKinds.Contains(h.Kind) && h.MemoryRange.Length > 0) heaps.Add(new RuntimeCodeHeap(h.MemoryRange.Start, h.MemoryRange.End, h.Kind.ToString()));
+            return [.. heaps.OrderBy(h => h.Start)];
+        }
+    }
 
     /// <summary>The reads of a running program's runtime, when one is decoded; calls go under <see cref="Gate"/>.</summary>
     internal ILiveClrReads? Live => _disposed ? null : _backend switch { InProcessClr p => p.Live, ILiveClrReads helper => helper, _ => null };

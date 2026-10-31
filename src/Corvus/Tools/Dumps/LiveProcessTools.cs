@@ -25,6 +25,7 @@ public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService
         [Description("Time limit in seconds (up to 120).")] int timeoutSeconds = LiveProcessService.DefaultTimeoutSeconds,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description("windows: PNG of the first window.")] string? imagePath = null,
+        [Description("unbacked: YARA rules (text, file, folder, pack:<name>).")] string? yara = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         if (view.Trim().Equals("windows", StringComparison.OrdinalIgnoreCase) && !options.AllowWindowCapture)
@@ -32,7 +33,7 @@ public sealed class LiveProcessTools(LiveProcessService live, LiveSessionService
                 $"ask the user to start the server with {ServerOptions.AllowWindowCaptureOption} (or {ServerOptions.AllowWindowCaptureVariable}=1)");
         if (LiveSessionService.IsSessionId(process))
             process = sessions.Running(process).ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var r = await live.Inspect(process, view, thread, offset, limit, regionFilter, maxFrames, imageDirectories, timeoutSeconds, cancellationToken, imagePath);
+        var r = await live.Inspect(process, view, thread, offset, limit, regionFilter, maxFrames, imageDirectories, timeoutSeconds, cancellationToken, imagePath, yara);
         var header = DumpText.LiveHeader(r);
         return r.View switch
         {

@@ -24,7 +24,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>A tool's timeoutSeconds as an engine request limit; null when not given.</summary>
     public static TimeSpan? EngineTimeout(int? seconds) => seconds is { } s ? TimeSpan.FromSeconds(Math.Clamp(s, 1, 3600)) : null;
 
-    public const string ImageDescription = "Image id, name or path.";
+    public const string ImageDescription = "Image id, name, path.";
 
     /// <summary>Runs work on a loaded native image under the read lock; a path that is not loaded yet is loaded first.</summary>
     private Task<string> OnImage(string image, Func<LoadedNative, string> work, CancellationToken ct) => Task.Run(() =>

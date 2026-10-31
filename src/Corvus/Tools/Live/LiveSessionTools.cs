@@ -15,7 +15,7 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
 {
     private readonly Services.Mobile.DexService _dex = dex ?? new();
 
-    private const string SessionDescription = "Session id from live_session.";
+    private const string SessionDescription = "Id from live_session.";
 
     /// <summary>A module of the observed program and the loaded image it matched (null when none did).</summary>
     public sealed record LiveModule(string Name, string Base, string? Image, string? Sha256);

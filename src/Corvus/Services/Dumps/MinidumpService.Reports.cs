@@ -84,12 +84,26 @@ public sealed partial class MinidumpService
     public sealed record UnloadedModuleSummary(string Name, string Base, string Size, string TimeDateStamp);
 
     /// <summary>A region of the address space (VirtualQuery view), or a captured range when the dump has no region list.</summary>
-    public sealed record MemoryRow(string Base, string End, string Size,
+    public record MemoryRow(string Base, string End, string Size,
         [property: Description("commit, reserve or free; null for a captured range without region information.")] string? State,
         string? Protection,
         [property: Description("image, mapped or private.")] string? Type,
         [property: Description("The module whose image holds it.")] string? Module,
         [property: Description("Bytes of it the dump holds; null for a live process or a missing region file.")] ulong? Captured);
+
+    /// <summary>A region row of regionFilter=unbacked: an executable region with no image, and what was found in it.</summary>
+    public sealed record UnbackedRegion(string Base, string End, string Size, string? State, string? Protection, string? Type, string? Module, ulong? Captured)
+        : MemoryRow(Base, End, Size, State, Protection, Type, Module, Captured)
+    {
+        [Description("jit (inside runtime code heaps) or unbacked.")] public string? Backing { get; init; }
+        [Description("pe (PE header at the start), none, or unknown (bytes not held).")] public string? Header { get; init; }
+        [Description("YARA rules that matched.")] public IReadOnlyList<string>? Yara { get; init; }
+        [Description("Unbacked with a PE header or a YARA hit.")] public bool? Noteworthy { get; init; }
+        [Description("Runtime code heap kinds the region lies in, wholly or partly.")] public string? Detail { get; init; }
+
+        /// <summary>The unbacked row of <paramref name="r"/>, its findings unset.</summary>
+        public static UnbackedRegion Of(MemoryRow r) => new(r.Base, r.End, r.Size, r.State, r.Protection, r.Type, r.Module, r.Captured);
+    }
 
     public sealed record DumpTotals(int Modules, int Threads, int UnloadedModules,
         [property: Description("Captured memory ranges.")] int MemoryRanges,

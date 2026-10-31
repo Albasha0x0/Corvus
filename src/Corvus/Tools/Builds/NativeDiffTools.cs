@@ -22,8 +22,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 {
     private readonly NativeEditJournal journal = edits?.Journal ?? new NativeEditJournal(workspace, code, engines);
 
-    private const string OldDescription = "Older build: image id or path.";
-    private const string NewDescription = "Newer build: image id or path.";
+    private const string OldDescription = "Old build: image id or path.";
+    private const string NewDescription = "New build: image id or path.";
     internal const string CodeOnlyDescription = "Match by code, not names.";
 
     /// <summary>One compare_native_images row: a matched pair, an unmatched function or an ambiguous one with candidates.</summary>

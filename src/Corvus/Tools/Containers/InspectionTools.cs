@@ -14,7 +14,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     Services.Mobile.AppGraph? graph = null, ServerOptions? serverOptions = null,
     Native.Providers.Worker.WorkerPool? workers = null)
 {
-    private const string AssemblyParam = "A loaded assembly; pass this or path.";
+    private const string AssemblyParam = "A loaded assembly; this or path.";
     private const string PathParam = "An assembly, container, build folder, package, or serialized asset file or bundle; pass this or assembly.";
 
     // The views that read each paging parameter; any other view refuses it.

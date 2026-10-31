@@ -144,5 +144,9 @@ internal static class DumpText
 
     public static string Memory(MinidumpService.MemoryRow m) =>
         $"{m.Base}-{m.End} {m.Size}" + (m.State != null ? $" {m.State}" : "") + (m.Protection != null ? $" {m.Protection}" : "") + (m.Type != null ? $" {m.Type}" : "") +
-        (m.Module != null ? $" {m.Module}" : "") + (m.Captured is { } cap && m.State != "free" ? $" captured {cap:N0}" : "");
+        (m.Module != null ? $" {m.Module}" : "") + (m.Captured is { } cap && m.State != "free" ? $" captured {cap:N0}" : "") + (m is MinidumpService.UnbackedRegion u ? Backing(u) : "");
+
+    private static string Backing(MinidumpService.UnbackedRegion m) =>
+        m.Backing == null ? "" : $" [{(m.Noteworthy == true ? "noteworthy " : "")}{m.Backing}" + (m.Header is "pe" ? ", PE header" : m.Header is "unknown" ? ", header unknown" : "") +
+        (m.Yara is { Count: > 0 } y ? $", YARA {string.Join(" ", y)}" : "") + (m.Detail != null ? $", {m.Detail}" : "") + "]";
 }

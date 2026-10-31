@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Corvus.Core;
 using Corvus.Native;
 using Corvus.Native.Dump;
+using Corvus.Native.Dump.Managed;
 using Corvus.Native.Live;
 
 namespace Corvus.Services;
@@ -18,7 +19,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
 
     /// <summary>inspect_process views: the summary report, then the paged lists (stacks: the frames of one thread).</summary>
     public static readonly string[] Views = ["summary", "modules", "regions", "threads", "stacks", "windows"];
-    private static readonly string[] RegionFilters = ["committed", "all", "executable", "writable", "image", "private", "mapped"];
+    private static readonly string[] RegionFilters = ["committed", "all", "executable", "writable", "image", "private", "mapped", "unbacked"];
     private const int LargestRegions = 10;
 
     public sealed record ThreadRow(
@@ -71,7 +72,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
     }
 
     public async Task<LiveReport> Inspect(string process, string? view, string? thread, int offset, int limit, string? regionFilter, int maxFrames,
-        string? imageDirectories, int timeoutSeconds, CancellationToken ct, string? imagePath = null)
+        string? imageDirectories, int timeoutSeconds, CancellationToken ct, string? imagePath = null, string? yara = null)
     {
         // Check arguments first so a bad call is answered alike on every platform.
         var v = (view ?? "summary").Trim().ToLowerInvariant();
@@ -80,6 +81,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         if (!RegionFilters.Contains(filter))
             throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", RegionFilters)}.");
         if (imagePath != null && v != "windows") throw new ToolError(ErrorCode.InvalidArgument, "imagePath goes with view=windows.");
+        if (!string.IsNullOrWhiteSpace(yara) && (filter != "unbacked" || v != "regions")) throw new ToolError(ErrorCode.InvalidArgument, "yara goes with view=regions regionFilter=unbacked.");
         if (timeoutSeconds < 1 || timeoutSeconds > MaxTimeoutSeconds)
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-{MaxTimeoutSeconds}.");
         if (!OperatingSystem.IsWindows())
@@ -91,7 +93,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         try
         {
             return await Task.Run(() => Run(pid, name, v, thread, Math.Max(0, offset), Math.Clamp(limit, 1, MaxListLimit), filter, Math.Clamp(maxFrames, 1, MaxFrames),
-                imageDirectories, timeout.Token, imagePath), timeout.Token);
+                imageDirectories, timeout.Token, imagePath, string.IsNullOrWhiteSpace(yara) ? null : yara), timeout.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -101,10 +103,11 @@ public sealed class LiveProcessService(MinidumpService dumps)
     }
 
     private async Task<LiveReport> Run(int pid, string name, string view, string? threadFilter, int offset, int limit, string filter, int maxFrames,
-        string? imageDirectories, CancellationToken ct, string? imagePath)
+        string? imageDirectories, CancellationToken ct, string? imagePath, string? yara)
     {
         var clock = Stopwatch.StartNew();
         var notes = new List<string>();
+        var extraHandles = new HandleTally();
         ct.ThrowIfCancellationRequested();
         var live = LiveProcess.Attach(pid, ct);
         MinidumpService.Session? session = null;
@@ -143,6 +146,15 @@ public sealed class LiveProcessService(MinidumpService dumps)
                 case "regions":
                 {
                     var regions = live.Regions(ct);
+                    if (filter == "unbacked")
+                    {
+                        var (heaps, heapNote) = await CodeHeaps(live, pid, ct, extraHandles);
+                        var page = await dumps.Unbacked(session, regions, _ => null, heaps, heapNote, yara, offset, limit, ct);
+                        report = report with { Items = page.Rows.Cast<object>().ToList(), Offset = offset, Total = page.Total };
+                        notes.AddRange(page.Notes);
+                        if (regions.Count >= MinidumpLimits.MaxMemoryRegions) notes.Add($"only the first {MinidumpLimits.MaxMemoryRegions} regions were read");
+                        break;
+                    }
                     var matching = regions.Where(r => Matches(r, filter)).ToList();
                     report = report with { Items = matching.Skip(offset).Take(limit).Select(r => (object)MinidumpService.RegionRow(live, r, null)).ToList(), Offset = offset, Total = matching.Count };
                     if (regions.Count >= MinidumpLimits.MaxMemoryRegions) notes.Add($"only the first {MinidumpLimits.MaxMemoryRegions} regions were read");
@@ -198,9 +210,9 @@ public sealed class LiveProcessService(MinidumpService dumps)
         }
         return report with
         {
-            Detached = live.HandlesOpened == live.HandlesClosed,
-            HandlesOpened = live.HandlesOpened,
-            HandlesClosed = live.HandlesClosed,
+            Detached = live.HandlesOpened + extraHandles.Opened == live.HandlesClosed + extraHandles.Closed,
+            HandlesOpened = live.HandlesOpened + extraHandles.Opened,
+            HandlesClosed = live.HandlesClosed + extraHandles.Closed,
             ElapsedMs = clock.ElapsedMilliseconds,
         };
     }
@@ -345,6 +357,33 @@ public sealed class LiveProcessService(MinidumpService dumps)
         return report;
     }
 
+    /// <summary>Handles the runtime reader opened beyond the inspection's own, counted once it closed them.</summary>
+    private sealed class HandleTally
+    {
+        public int Opened, Closed;
+    }
+
+    // The runtime's reader attaches to the process again, read-only and without suspending it.
+    private async Task<(IReadOnlyList<RuntimeCodeHeap>? Heaps, string? Note)> CodeHeaps(LiveProcess live, int pid, CancellationToken ct, HandleTally tally)
+    {
+        if (!MinidumpService.HostsClr(live, out var runtime)) return (null, null);
+        if (runtime == "Mono") return MinidumpService.HeapsOf(null, runtime);
+        var second = LiveProcess.Attach(pid, ct);
+        ClrDecoder? decoder = null;
+        try
+        {
+            decoder = await ClrDecoder.OpenLive(new LiveDataReader(second), new DacRequest(), ct);
+            return MinidumpService.HeapsOf(decoder, runtime!);
+        }
+        finally
+        {
+            if (decoder != null) decoder.Dispose();
+            else second.Dispose();
+            tally.Opened += second.HandlesOpened;
+            tally.Closed += second.HandlesClosed;
+        }
+    }
+
     private static bool Matches(DumpMemoryRegion r, string filter) => filter switch
     {
         "all" => true,
@@ -354,6 +393,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
         "image" => r.State == 0x1000 && r.Type == 0x1000000,
         "private" => r.State == 0x1000 && r.Type == 0x20000,
         "mapped" => r.State == 0x1000 && r.Type == 0x40000,
+        "unbacked" => MinidumpService.IsUnbacked(r),
         _ => false,
     };
 

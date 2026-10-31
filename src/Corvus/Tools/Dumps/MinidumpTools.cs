@@ -12,7 +12,7 @@ namespace Corvus.Tools;
 public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? sessions = null, ServerOptions? options = null, AssemblyWorkspace? workspace = null,
     Native.Providers.Worker.WorkerPool? workers = null)
 {
-    private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
+    private const string DumpDescription = "A .dmp path or open_minidump's id.";
     private const string HeapSourceDescription = "A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs.";
     private const string ImageDirectoriesDescription =
         "Program binary folders (';'-separated), kept for the dump, plus its own folder.";
@@ -28,17 +28,26 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
         [Description("DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed.")] string? dacPath = null,
         [Description("Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
+        [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
+        [Description("unbacked: YARA rules (text, file, folder, pack:<name>).")] string? yara = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         var v = (view ?? "summary").Trim().ToLowerInvariant();
         if (!MinidumpService.Views.Contains(v))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "pass view as one of " + string.Join(", ", MinidumpService.Views));
-        var args = new FileWork.DumpViewArgs(Target(path, imageDirectories), v, offset, limit, dacPath, downloadDac);
+        var filter = (regionFilter ?? "all").Trim().ToLowerInvariant();
+        if (!MinidumpService.MemoryFilters.Contains(filter))
+            throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", MinidumpService.MemoryFilters)}.");
+        if (filter != "all" && v != "memory") throw new ToolError(ErrorCode.InvalidArgument, "regionFilter goes with view=memory.");
+        if (!string.IsNullOrWhiteSpace(yara) && filter != "unbacked") throw new ToolError(ErrorCode.InvalidArgument, "yara goes with regionFilter=unbacked.");
+        var args = new FileWork.DumpViewArgs(Target(path, imageDirectories), v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
+            string.IsNullOrWhiteSpace(yara) ? null : yara);
         var r = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpView, args, args.Dump.Path, () => FileWork.ViewOf(dumps, args, cancellationToken), cancellationToken);
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
         if (r.Modules is { } modules) return Rows(r.Id!, v, modules, offset, limit, r.Total, DumpText.Module, "module");
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
+        if (r.Unbacked is { } unbacked) return Rows(r.Id!, v, unbacked, offset, limit, r.Total, DumpText.Memory, "region", r.Notes);
         if (r.Memory is { } memory) return Rows(r.Id!, v, memory, offset, limit, r.Total, DumpText.Memory, "region");
         return Rows(r.Id!, v, r.Unloaded ?? [], offset, limit, r.Total, u => $"{u.Base}  {u.Name}  size {u.Size}  stamp {u.TimeDateStamp}", "unloaded module");
     }, cancellationToken);
@@ -52,9 +61,11 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         return new FileWork.DumpTarget(id, path, directories);
     }
 
-    private static string Rows<T>(string id, string view, IReadOnlyList<T> rows, int offset, int limit, int total, Func<T, string> render, string noun) where T : notnull =>
+    private static string Rows<T>(string id, string view, IReadOnlyList<T> rows, int offset, int limit, int total, Func<T, string> render, string noun,
+        IReadOnlyList<string>? notes = null) where T : notnull =>
         ToolOutput.List(rows, offset, limit, total, render,
-            page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total }, noun);
+            page => new MinidumpService.DumpReport(id, view) { Items = page.Cast<object>().ToList(), Offset = offset, Total = total, Notes = notes }, noun,
+            notes is { Count: > 0 } ? string.Concat(notes.Select(n => $"note: {n}\n")) : null);
 
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.StackReport))]
     [Description("Walk the call stack of a dump thread, naming frames from loaded images, PDBs or exports. .NET frames add token, IL " +

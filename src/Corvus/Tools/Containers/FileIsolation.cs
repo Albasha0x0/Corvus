@@ -313,7 +313,7 @@ public static class FileWork
     /// <summary>A dump the server resolved: the id it gave the file and the image folders it is read with.</summary>
     public sealed record DumpTarget(string Id, string Path, string? ImageDirectories);
 
-    public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac);
+    public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null);
 
     public sealed record DumpReadArgs(DumpTarget Dump, string Address, int Length, bool ImageFallback);
 
@@ -324,10 +324,14 @@ public static class FileWork
     /// <summary>One open_minidump view: the summary, or the id, one page of rows and the total of a list view.</summary>
     public sealed record DumpViewResult(MinidumpService.DumpReport? Summary, string? Id, int Total)
     {
-        public IReadOnlyList<MinidumpService.ModuleSummary>? Modules { get; init; }
+        public IReadOnlyList<MinidumpService.CheckedModule>? Modules { get; init; }
         public IReadOnlyList<MinidumpService.ThreadSummary>? Threads { get; init; }
         public IReadOnlyList<MinidumpService.MemoryRow>? Memory { get; init; }
         public IReadOnlyList<MinidumpService.UnloadedModuleSummary>? Unloaded { get; init; }
+        /// <summary>regionFilter=unbacked: the executable regions with no image.</summary>
+        public IReadOnlyList<MinidumpService.UnbackedRegion>? Unbacked { get; init; }
+        /// <summary>regionFilter=unbacked: the count of regions found and what was not checked.</summary>
+        public IReadOnlyList<string>? Notes { get; init; }
     }
 
     /// <summary>open_minidump: one view of a dump.</summary>
@@ -407,6 +411,12 @@ public static class FileWork
                 var (tId, threads, tTotal) = dumps.Threads(id, directories, a.Offset, a.Limit, ct).GetAwaiter().GetResult();
                 return new DumpViewResult(null, tId, tTotal) { Threads = threads };
             case "memory":
+                if (a.RegionFilter == "unbacked")
+                {
+                    var (uId2, page) = dumps.UnbackedMemory(id, a.Offset, a.Limit, a.Yara, new DacRequest(string.IsNullOrWhiteSpace(a.DacPath) ? null : a.DacPath, a.DownloadDac), ct)
+                        .GetAwaiter().GetResult();
+                    return new DumpViewResult(null, uId2, page.Total) { Unbacked = page.Rows, Notes = page.Notes };
+                }
                 var (rId, memory, rTotal) = dumps.Memory(id, a.Offset, a.Limit);
                 return new DumpViewResult(null, rId, rTotal) { Memory = memory };
             case "unloaded":

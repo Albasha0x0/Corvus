@@ -49,6 +49,7 @@ public class LayeringTests
         ["Services/AotMetadata/AotCapa.cs"] = (1, "the feature file capa reads, in a private temporary folder"),
         ["Services/Dotnet/DecompilerService.cs"] = (10, "project files in the export's staging folder, checked by ExportDirectory before the commit"),
         ["Services/Dotnet/ExportDirectory.cs"] = (2, "the export marker and the .bin renames in the staging folder"),
+        ["Services/Dumps/MinidumpService.Unbacked.cs"] = (2, "the region capture and its index in a private temporary folder"),
         ["Services/Engines/NativeEngineService.cs"] = (1, "the patched bytes an engine opens, in a private temporary folder"),
         ["Services/Engines/PackedDatabaseInput.cs"] = (5, "a copy of a packed engine database in the engine's cache folder"),
         ["Services/Live/LiveYara.cs"] = (1, "the memory capture index in a private temporary folder"),

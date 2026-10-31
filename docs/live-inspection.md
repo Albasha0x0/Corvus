@@ -39,6 +39,10 @@
 - `view=modules` (also `open_minidump view=modules`) adds `loadPath`: network, temp, user_writable, system, program_files or other.
 - It adds the local file's `signer` and `signatureState` (signed, catalog, unsigned, digest_mismatch, invalid, unreadable or unknown).
 - `codeState` compares the `.text` section in memory with the matching local file, relocations applied: same, differs, partial (the dump lacks pages) or unknown.
+- `regionFilter=unbacked` (`inspect_process view=regions`, `open_minidump view=memory`) lists executable regions with no image.
+- A region inside the .NET runtime's code heaps, read through the DAC, is labelled `jit`.
+- An unbacked region is `noteworthy` only with a PE header at its start or a YARA hit (`yara`: rule text, a file, a folder or `pack:<name>`).
+- A missing region list, DAC or first bytes is reported as unknown.
 
 ## Sessions
 

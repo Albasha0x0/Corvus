@@ -60,7 +60,7 @@ Remove an assembly (unsaved edits are discarded) or close a dump id.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 
 Structured output: `ids`, `discardedEdits`.
 
@@ -72,7 +72,7 @@ Re-read an assembly from disk (after an update or an overwriting save), discardi
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 
 Structured output: `ids`, `entries`, `skipped`, `discardedEdits`.
 
@@ -180,7 +180,7 @@ List namespaces with their type counts (nested types under the namespace of thei
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `filter` | string |  |  | Substring (case-insensitive). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -196,7 +196,7 @@ List types, optionally by namespace, name filter and kind.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `namespace` | string |  |  | Exact namespace ("" or <global> for the global one). |
 | `filter` | string |  |  | Name substring or wildcard (*, ?), or regex with regex=true. |
 | `regex` | boolean |  |  | filter is a regex. |
@@ -217,7 +217,7 @@ Outline of a type without decompiling: declaration, attributes, member counts, t
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `section` | string |  | `summary` | A kind to page, or all. Values: summary, nested, fields, properties, events, methods, all. |
 | `includeCompilerGenerated` | boolean |  |  | Include compiler-generated members. |
 | `offset` | integer |  |  |  |
@@ -234,7 +234,7 @@ Assembly overview: identity, framework, entry point, counts, invalid IL, transfo
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `view` | string |  | `summary` | What to show. Values: summary, references, metadata, all, transforms. |
 
 Structured output: `id`, `fullName`, `file`, `sha256`, `mvid`, `runtime`, `kind`, `machine`, `targetFramework`, `entryPoint`, `types`, `nestedTypes`, `namespaces`, `methods`, `fields`, `resources`, `referenceAssembly`, `addressedMethods`, `invalidBodies`, `invalidExceptionClauses`, `unsavedEdits`, `referenceCount`, `unresolvedReferences`, `metadataIssueCount`, `transformers`, `references`, `attributes`, `tables`, `heaps`, `metadataIssues`.
@@ -248,7 +248,7 @@ Custom attributes with arguments on a type or member (parameters and return valu
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string |  |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. Omit for assembly-level attributes. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. Required without symbol. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. Required without symbol. |
 | `filter` | string |  |  | Only attributes whose type name contains this. |
 | `format` | string |  | `rows` | csharp only without symbol. Values: rows, csharp. |
 | `offset` | integer |  |  | Rows to skip (characters with format=csharp). |
@@ -266,7 +266,7 @@ Base chain, interfaces and directly derived or implementing loaded types of a ty
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -282,7 +282,7 @@ Every match of a symbol string or token, with kind, assembly, token and signatur
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
@@ -299,7 +299,7 @@ Decompile a member or a whole type to C#; every overload unless a parameter list
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `member` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `kind` | string |  |  | Restrict to this kind (default any). Values: any, method, field, property, event. |
 | `simplified` | boolean |  |  | Show the code as simplify_methods would leave it, assembly unchanged. |
 | `provenance` | boolean |  |  | Start with build-pinning comments: SHA-256, MVID, tokens, IL hashes. |
@@ -317,7 +317,7 @@ IL disassembly of a member or type (tokens, offsets, try blocks); each method st
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `source` | boolean |  |  | Portable PDB source lines at IL offsets, local names, SourceLink URLs. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -334,7 +334,7 @@ Find types and members by name across loaded assemblies: case-insensitive substr
 |---|---|---|---|---|
 | `query` | string | yes |  | Name, substring, wildcard or regex. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `namespace` | string |  |  | Only namespaces starting with this. |
 | `regex` | boolean |  |  | query is a regex. |
 | `limit` | integer |  | `100` |  |
@@ -352,7 +352,7 @@ Find string literals (ldstr, string constants) by substring, wildcard or regex, 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | string | yes |  | Substring, wildcard or regex. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `regex` | boolean |  |  | query is a regex. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
@@ -370,7 +370,7 @@ Find a number (magic, opcode id, flag, crypto constant) in IL literals, const an
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `value` | string | yes |  | Decimal, 0x hex, negative or floating-point. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
@@ -386,7 +386,7 @@ Find methods containing an IL instruction sequence: ;-separated opcode [operand]
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pattern` | string | yes |  | Instruction pattern. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `limit` | integer |  | `100` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
@@ -402,7 +402,7 @@ Every use of a symbol across loaded assemblies: method call sites (also via base
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `symbol` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `assembly` | string |  |  | Assembly defining the symbol; default: all loaded. |
 | `kind` | string |  |  | Symbol kind; overrides: overrides and implementations of the method. Values: type, method, field, property, event, overrides. |
 | `directOnly` | boolean |  |  | Methods: no calls through base / interface declarations. |
@@ -420,8 +420,8 @@ What a method uses, in IL order with offsets: calls, field reads and writes, typ
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `distinct` | boolean |  |  | One row per target, with a count. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -437,11 +437,11 @@ Callers or callees of a method across loaded assemblies, several levels deep, on
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `method` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `direction` | string |  | `callers` | callers or callees. Values: callers, callees. |
 | `depth` | integer |  | `3` | Levels to expand (1-8). |
 | `includeExternal` | boolean |  |  | Callees: also calls into assemblies not loaded (framework). |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -456,14 +456,14 @@ Call chains that reach a method, from from= or from entry points, shortest first
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `to` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32.dll!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
+| `to` | string | yes |  | Type or member (Ns.Type::Method(int), short name, token) or native export (kernel32!CreateFileW, native:IMAGE!NAME\|#ORD\|ADDR). |
 | `from` | string |  |  | Start method, same forms as to (native only when to is native). |
 | `maxDepth` | integer |  | `8` | Max chain length (max 30). |
 | `limit` | integer |  | `10` |  |
 | `maxTokens` | integer |  |  |  |
 | `offset` | integer |  |  |  |
 | `directOnly` | boolean |  |  | No hops through virtual dispatch (native: RTTI virtual calls, pointers). |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 
 Structured output: `target`, `items`, `offset`, `total`, `from`, `totalExact`, `engine`, `limit`, `hasMore`, `nextOffset`.
 
@@ -475,7 +475,7 @@ Manifest resources (embedded, .resources, linked) with SHA-256 and file offsets;
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -490,7 +490,7 @@ Read a resource: text, a hex preview, or a .resources entry list (entry reads on
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `name` | string | yes |  | Name from list_resources. |
 | `entry` | string |  |  | Entry inside a .resources container. |
 | `outputPath` | string |  |  | Write the raw bytes to this file. |
@@ -508,7 +508,7 @@ Decompile an assembly into a C# project on disk (.cs per type, .csproj, resource
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `outputDirectory` | string | yes |  | Empty or new output directory. |
 | `overwrite` | boolean |  |  | Replace a previous export in outputDirectory. |
 
@@ -523,7 +523,7 @@ Precompiled native code of a method in a ReadyToRun assembly: entry, code ranges
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `instantiation` | string |  |  | Only bodies whose name contains this text (Int32, __Canon). |
 | `maxBodies` | integer |  | `4` | Max bodies disassembled; the rest listed with addresses. |
 | `maxInstructions` | integer |  | `1500` | Max instructions per body. |
@@ -540,7 +540,7 @@ Managed method whose ReadyToRun code holds a native address: name, token, range,
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `address` | string | yes |  | A VA or RVA in the code image (rva:/va:/off: prefix). |
 
 Structured output: `address`, `file`, `kind`, `begin`, `end`, `offset`, `methods`, `instruction`, `importCell`.
@@ -558,7 +558,7 @@ Summarize a file, folder or assembly, never run: type, hashes, signature, contai
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | File (assembly, executable, package, archive) or folder. |
-| `assembly` | string |  |  | A loaded assembly; pass this or path. |
+| `assembly` | string |  |  | A loaded assembly; this or path. |
 | `view` | string |  | `overview` | A view the overview lists. Values: overview, managed, dependencies, indicators, android, apple, assets, berkeleydb, certificate, electron, ese, esp32, evtx, firmware, flight, flutter, go, harmony, hermes, installer, layers, leveldb, lmdb, lnk, lockfile, mail, model, native, nib, office, package, page, pcap, pdf, plist, pri, procmon, protobuf, python, qlog, raw, realm, registry, rust, script, shell, sideload, sqlite, sqlite-recover, wasm, xbf, all. |
 | `table` | string |  |  | Table; lmdb, berkeleydb: database; evtx: provider/id; procmon: process/PID/operation/result; registry: key; pri: name; esp32: namespace. |
 | `columns` | string[] |  |  | With table=: these columns and rowid. |
@@ -579,7 +579,7 @@ Capabilities found by rules over API calls, imports and strings (network, execut
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | A loaded assembly; pass this or path. |
+| `assembly` | string |  |  | A loaded assembly; this or path. |
 | `path` | string |  |  | A .NET, native or app file, read without loading. |
 | `category` | string |  |  | Category or MASVS prefix: with evidence; all: everything. |
 | `image` | string |  |  | A native image, loaded or a path (instead of assembly). |
@@ -594,7 +594,7 @@ Typed values (URLs, IPs, paths, registry keys, crypto keys, base64) from literal
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | A loaded assembly; pass this or path. |
+| `assembly` | string |  |  | A loaded assembly; this or path. |
 | `path` | string |  |  | An assembly, container, build folder, package, or serialized asset file or bundle; pass this or assembly. |
 | `types` | string[] |  |  | Only these types. |
 | `offset` | integer |  |  |  |
@@ -613,7 +613,7 @@ Embedded content of an assembly or container (resources, byte arrays, long liter
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | A loaded assembly; pass this or path. |
+| `assembly` | string |  |  | A loaded assembly; this or path. |
 | `path` | string |  |  | An assembly or container file, read without loading; pass this or assembly. |
 | `save` | boolean |  |  | Write the items to disk. |
 | `outputDirectory` | string |  |  | New or empty directory, or an earlier extraction of this file; default under temp. |
@@ -690,7 +690,7 @@ Rename a type, method, field, property (and accessors) or event in memory; other
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `newName` | string | yes |  | New name (a type: simple name without namespace). |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `kind` | string |  |  | Only resolve symbols of this kind. Values: type, method, field, property, event. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
@@ -704,7 +704,7 @@ Move every type of a namespace (optionally its sub-namespaces) to a new namespac
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `oldNamespace` | string | yes |  | Existing namespace ("" for the global one). |
 | `newNamespace` | string | yes |  | New namespace. |
 | `includeSubNamespaces` | boolean |  |  | Also rewrite the namespaces under oldNamespace. |
@@ -722,7 +722,7 @@ Replace a method body with "return <value>;" ("return;" for void) in memory: for
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `value` | string |  |  | true/false, integer (decimal or 0x), float, "string" or null; omit for void or default(T). |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -737,7 +737,7 @@ Replace a method, constructor or accessor body with C# compiled against the asse
 |---|---|---|---|---|
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `code` | string | yes |  | Statements of the new body only. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `dryRun` | boolean |  | `true` | true previews the IL to be written; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -753,7 +753,7 @@ Rewrite a method body from IL text, stack-validated: edit the get_il lines and p
 | `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `il` | string | yes |  | IL instructions, one per line. |
 | `mode` | string |  | `replace` | replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels. Values: replace, prepend. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -768,7 +768,7 @@ Add C# members to a class or struct; private members are accessible. No field or
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
 | `code` | string | yes |  | C# member declarations. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -781,7 +781,7 @@ Add C# types (with namespace) to an assembly; they see its internal types and pa
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `code` | string | yes |  | C# source declaring the new types. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 
@@ -796,7 +796,7 @@ Clean transformed method bodies: fold (string decoders run in a safe IL interpre
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string |  |  | Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. Required without symbol. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. Required without symbol. |
 | `passes` | string[] |  |  | Passes to run; omit for all three. |
 | `maxDepth` | integer |  | `8` | Max evaluation call depth. |
 | `budget` | integer |  | `100000` | Max IL instructions per evaluated call, nested calls included. |
@@ -813,7 +813,7 @@ Unsaved edits of an assembly in order; each number (editId <assembly>#<n>) stays
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `maxTokens` | integer |  |  |  |
@@ -828,7 +828,7 @@ Unified diff of the decompiled C# of each member the edits (or one edit) touched
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `number` | integer |  |  | Only this edit (list_edits number). |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -843,7 +843,7 @@ Undo the last edit or one by number: the others are replayed on the original ima
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `number` | integer |  |  | Edit number from list_edits (#n of its editId); omit for the last. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
@@ -856,7 +856,7 @@ Discard every unsaved edit of an assembly; resultId keeps them as a script (read
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`.
 
@@ -868,7 +868,7 @@ Save an assembly's edits as a JSON script bound to its build (SHA-256, MVID) for
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `outputPath` | string | yes |  | Output .json path. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
 
@@ -898,7 +898,7 @@ Write an assembly and its edits to a new file, atomically; a file changed since 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default ORIGINAL.patched.dll. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save, list them). |
@@ -920,7 +920,7 @@ Native addresses, field offsets and tokens of an AOT method or type. script.json
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `symbol` | string | yes |  | Type or member (Ns.Type::M(int), short name, token) or script.json name (List`1<int>::Add). |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `slot` | string |  |  | With a type: a vtable slot number to resolve to its method, or all. |
 | `offset` | integer |  |  | First entry of each long list. |
 | `limit` | integer |  | `20` | Max entries of each long list. |
@@ -937,7 +937,7 @@ Map a native address in AOT code to the methods whose function holds it, or the 
 |---|---|---|---|---|
 | `address` | string | yes |  | Hex as IDA / Ghidra show it (0x1A2B3C, 1A2B3Ch, 00000001`8001A2B3); d: prefix for decimal. |
 | `kind` | string |  | `auto` | auto: a VA at or above the image base, else an RVA, else a file offset. Values: auto, rva, va, offset. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `20` | Max methods listed. |
 | `maxTokens` | integer |  |  |  |
@@ -955,7 +955,7 @@ Export dummy-assembly metadata as IDA Python and Ghidra scripts that create, nam
 | `outputDirectory` | string | yes |  | Output directory. |
 | `formats` | string |  | `all` | Comma-separated: ida, ghidra, header, json or all. |
 | `baseName` | string |  | `symbols` | Base name of the generated files. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `overwrite` | boolean |  |  | Replace same-named files. |
 
 Structured output: `functions`, `structs`, `files`.
@@ -969,7 +969,7 @@ Generate C++ binding code for a managed type of a Mono or AOT app: a struct that
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
-| `assembly` | string |  |  | Assembly id, name or path; omit: all loaded. |
+| `assembly` | string |  |  | Assembly id, name, path; omit: all loaded. |
 | `members` | string |  |  | Comma-separated member names; default all but compiler-generated. |
 | `includeInherited` | boolean |  |  | Also bind inherited property getters. |
 | `style` | string |  |  | mono: embedding API; aot: runtime exports; hostapi: host function table. Default detected, else mono. Values: mono, aot, hostapi. |
@@ -988,7 +988,7 @@ Name the functions and data of an AOT binary (GameAssembly.dll, libil2cpp.so) as
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `assembly` | string |  |  | Dummy assemblies to use; omit for every loaded one with metadata. |
 | `clear` | boolean |  |  | Remove the metadata names and saved copy instead. |
 
@@ -1006,7 +1006,7 @@ Overview of a native image: headers, sections, mitigations, imports and exports,
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
 | `view` | string |  |  | code: code index statistics and late-bound imports; waits for the index. Values: summary, code. |
@@ -1021,7 +1021,7 @@ Imports of a native image per library, with the IAT slot code calls through; del
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `library` | string |  |  | Only this library (.dll optional). |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `bind` | boolean |  |  | Bind each import to its export, or say why not (load_assembly loadProviders=true loads the targets). |
@@ -1040,7 +1040,7 @@ Exported functions and data of a native image: ordinal, VA, demangled name, symb
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `filter` | string |  |  | Name substring (case-insensitive; demangled form too). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `300` |  |
@@ -1056,7 +1056,7 @@ What a native address is: RVA, VA, file offset, section, nearest symbol, source 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 
@@ -1070,7 +1070,7 @@ Find a hex or text pattern in the mapped sections of a native image: VA, section
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `pattern` | string |  |  | Hex (48 8B 05 ?? ?? ?? ??): ?? any byte, 4? a nibble, 40&F8 masked bits. |
 | `text` | boolean |  |  | pattern is text (ASCII and UTF-16LE). |
 | `section` | string |  |  | Only this section, e.g. .text. |
@@ -1091,7 +1091,7 @@ Hex dump of native image bytes at an address as the loader maps them; uninitiali
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `length` | integer |  |  | Bytes (default 256, max 65536); with type: values (default 1, max 4096). |
 | `offset` | integer |  |  | Bytes from address (a page's nextOffset). |
@@ -1121,7 +1121,7 @@ Functions of a native image: address, size, name, flags, how found and caller co
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `filter` | string |  |  | Name filter: substring (case-insensitive), * ? glob, or /regex/ (flags i, m, s). |
 | `sort` | string |  |  | Default address; size and callers: largest first. Values: address, name, size, callers. |
 | `offset` | integer |  |  |  |
@@ -1146,7 +1146,7 @@ Named data of a native image outside code, from every name source, with type and
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `section` | string |  |  | Only this section, e.g. .data. |
 | `offset` | integer |  |  |  |
@@ -1164,7 +1164,7 @@ MASM-syntax disassembly of the native function containing an address, with refer
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `fromAddress` | boolean |  |  | maxInstructions from the address, not the containing function. |
 | `maxInstructions` | integer |  | `2000` | Max instructions. |
@@ -1182,7 +1182,7 @@ Instruction details at an address of a native image: encoding, operands, registe
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `limit` | integer |  | `1` | Positions (1-64). |
 | `offset` | integer |  |  |  |
@@ -1199,7 +1199,7 @@ Find instructions by mnemonic, operand or line regex (case-insensitive), or by o
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `mnemonic` | string |  |  | Mnemonic regex, e.g. ^(call\|jmp)$ |
 | `operands` | string |  |  | Operand text regex, e.g. rsp\+\|fs: |
 | `text` | string |  |  | Regex over the whole instruction text. |
@@ -1223,7 +1223,7 @@ Basic blocks of the native function at an address, paged: range, successors, swi
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `150` | Blocks per page. |
@@ -1240,7 +1240,7 @@ What references a native address: calls, jumps, data reads and writes, pointers 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. Or Type::member, Type.member, Type+0xOFFSET. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -1261,7 +1261,7 @@ Callers or callees of a native function, several levels deep across loaded image
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `function` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `direction` | string |  | `callees` | both: depth 1, by call site. Values: callers, callees, both. |
 | `depth` | integer |  | `3` | Levels (1-8). |
@@ -1282,7 +1282,7 @@ Resolve virtual call sites through RTTI or NativeAOT MethodTables: receiver clas
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `function` | string |  |  | Only sites in this function: Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `status` | string |  |  | Only sites with this status. Values: exact, possible, unresolved. |
 | `offset` | integer |  |  |  |
@@ -1302,7 +1302,7 @@ Strings referenced by code or data of a native image, with address, reference co
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `query` | string |  |  | Case-insensitive substring, or regex with regex=true; omit for all. |
 | `regex` | boolean |  |  | query is a regex. |
 | `offset` | integer |  |  |  |
@@ -1321,7 +1321,7 @@ Call sites with recovered argument values: constants, strings, addresses, earlie
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | A call, or an address in a function (all its calls): Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `callee` | string |  |  | Only calls to this API, module!name or function; without address, image-wide. |
 | `offset` | integer |  |  |  |
@@ -1338,7 +1338,7 @@ Trace a value through native code across functions and images: backward to the c
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | An instruction, call, function start (with argument) or writable global: Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `location` | string |  |  | The value at address: a register (rdx, xmm1, x1, w2, r1), a stack slot ([rsp+28h], [ebp-8], [x29-8]), op1 / op2 (an operand) or result (the call return). |
 | `argument` | string |  |  | Argument of the call or parameter of the function at address: 1-based or API name. |
@@ -1364,7 +1364,7 @@ Resolve the targets of call and tail-jump sites, indirect ones included, with ba
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | A call, or an address in a function (its sites): Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `scope` | string |  |  | image: all indirect sites. Default: site at a call, else function. Values: site, function, image. |
 | `status` | string |  |  | Default all; indirect: all but direct branches. Values: all, resolved, possible, ambiguous, unresolved, indirect. |
@@ -1385,7 +1385,7 @@ Everything known about one native function, in sections: identity, signature, fr
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | In the function; up to 16 comma-separated (a dossier each): Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `sections` | string |  |  | Comma-separated sections (default all but constants, params, pseudocode). |
 | `maxItems` | integer |  | `40` | Facts per section (1-500). |
@@ -1405,7 +1405,7 @@ Find the native functions behind a behaviour: strings, names, imports, exports, 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `query` | string | yes |  | Case-insensitive substring ("quoted": exact), or a regex with regex=true. |
 | `regex` | boolean |  |  | query is a regex. |
 | `kinds` | string |  |  | Comma-separated: strings, names, imports, exports, classes, constants (default all). |
@@ -1426,7 +1426,7 @@ Find functions like a given one, ranked by code shape, control flow and shared s
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | view=similar: an address in the function. |
 | `view` | string |  |  | Default: similar with address, else clusters. Values: similar, duplicates, clusters. |
 | `scope` | string |  |  | all: every loaded image of the same architecture (view=similar; default image). Values: image, all. |
@@ -1446,7 +1446,7 @@ Exception handling of a native function: handlers, try blocks or call sites, lan
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. Omit for an image summary. |
 | `offset` | integer |  |  |  |
 | `maxTokens` | integer |  |  |  |
@@ -1461,7 +1461,7 @@ C++ classes from RTTI with bases and vftables; also Delphi / Free Pascal VMT cla
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `filter` | string |  |  | Name substring (case-insensitive). |
 | `slots` | boolean |  |  | Slot addresses (Pascal: methods, fields). |
 | `offset` | integer |  |  |  |
@@ -1480,7 +1480,7 @@ Layout of a native type (fields, bases, enum values) from PDB, RTTI, metadata, O
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `name` | string |  |  | Type name (ns::Widget, Ns.Type), case-insensitive; a glob (*Widget*) lists matches. |
 | `id` | string |  |  | Type id from a result (pdb:0x1A2B, rtti:0x140012000, metadata:Ns.Type). |
 | `address` | string |  |  | A typed address: Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
@@ -1504,7 +1504,7 @@ C pseudocode of a native function from IDA or Ghidra, with the names, comments a
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `engine` | string |  |  | Default auto; all: each installed engine in turn. Values: auto, ida, ghidra, all. |
 | `addresses` | boolean |  |  | Prefix lines with their source address. |
@@ -1528,7 +1528,7 @@ Search the IDA or Ghidra pseudocode of every function, line by line, in address 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `pattern` | string | yes |  | Regex, case-insensitive; (?-i) for exact case. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
 | `filter` | string |  |  | substring (case-insensitive), * ? glob, or /regex/ (flags i, m, s). |
@@ -1548,7 +1548,7 @@ Emulate native code from an address (a string decoder, a hash): return value, re
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `args` | string |  |  | Per calling convention: integer, address, or pointer to 'text', u'text', buf:N (zeros) or hex:41A0. |
 | `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
@@ -1572,7 +1572,7 @@ Check P/Invoke declarations (or Mach-O load commands) against library exports, a
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string | yes |  | Assembly id, name or path. |
+| `assembly` | string | yes |  | Assembly id, name, path. |
 | `status` | string |  |  | Only this verdict or reason (contradicted, missing_export...). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Max rows (max 5000). |
@@ -1589,7 +1589,7 @@ Load PDB (GUID and age checked) or DWARF debug symbols for a native image: names
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `path` | string |  |  | PDB or debug file, dSYM, or a folder or symbol store to look in first. |
 | `download` | boolean |  |  | If nothing local matches: symbol server (PDB), debuginfod (ELF). |
 | `server` | string |  |  | Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF). Others are refused. |
@@ -1608,7 +1608,7 @@ Search the PDB or DWARF symbols loaded for a native image: address, kind, size, 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `query` | string |  |  | Name or decorated name substring (case-insensitive); empty for all. |
 | `kind` | string |  |  | Only this kind (default all). Values: function, data, public, all. |
 | `offset` | integer |  |  |  |
@@ -1625,7 +1625,7 @@ Metadata of a NativeAOT image (.NET 7-10; PE, ELF, Mach-O): MethodTables, method
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `view` | string |  |  | What to show (default summary); type: one MethodTable's bases, interfaces and slots. Values: summary, sections, types, type, methods, strings, statics. |
 | `query` | string |  |  | view=type: a type name or MethodTable address; list views: substring. |
 | `offset` | integer |  |  |  |
@@ -1646,7 +1646,7 @@ Name a native address for every native tool and the engines; kept per file and u
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `name` | string |  |  | New name; empty clears the name here. |
 | `allowDuplicate` | boolean |  |  | Allow a name already used at another address. |
@@ -1666,7 +1666,7 @@ Comment a native address; undoable and pushed to the engines. append adds a line
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `text` | string |  |  | Comment text; empty clears. |
 | `scope` | string |  |  | line: repeatable, shown where referenced; auto (default): function at its start, else line and pseudocode. Values: auto, line, eol, pre, plate, pseudocode, function. |
@@ -1687,7 +1687,7 @@ Write the image's names, comments and user types as IDAPython, a Ghidra script, 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `outputPath` | string | yes |  | Output file path. |
 | `format` | string |  |  | Default json. Values: ida, ghidra, json, header, objc-header. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
@@ -1702,7 +1702,7 @@ Replace bytes at a native address in memory as an undoable edit. Unsafe sites ne
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `hex` | string |  |  | Replacement bytes as hex (90 90, 9090 or 0x90,0x90). |
 | `value` | string |  |  | Instead of hex: a number of type (range-checked); ptr: or a name. |
@@ -1724,7 +1724,7 @@ Assemble x86/x64 instructions and write them at a native address in memory. Safe
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `assembly` | string | yes |  | Instructions, one per line; labels and db <hex> allowed. |
 | `allowUnsafe` | boolean |  |  | Allow mid-instruction, past-function-end, header or loader-written bytes. |
@@ -1744,7 +1744,7 @@ Native edits of an image in order, each with its editId, then the name layers wi
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `search` | string |  |  | Instead: matching names and comments: substring (case-insensitive), * ? glob, or /regex/ (flags i, m, s). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
@@ -1760,7 +1760,7 @@ Undo native edits by editId, the last by default, and push the previous values t
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `editId` | string |  |  | image#n or #n; comma-separated for several, undone in order; default the last. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
@@ -1773,7 +1773,7 @@ Write the patched native image to a new file; the PE checksum is recomputed and 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `outputPath` | string | yes |  | Output file path. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
 | `stripSignature` | boolean |  |  | Remove the Authenticode certificate table from the output. |
@@ -1790,7 +1790,7 @@ Write the image's byte patches as an IDAPython script, an IDA .dif, IPS or a JSO
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `outputPath` | string | yes |  | Output file path. |
 | `format` | string |  |  | Default json; ips takes offsets below 16 MB. Values: ida, dif, ips, ips32, json. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
@@ -1874,8 +1874,8 @@ Match the functions of two native builds (x86, x64, ARM64): pairs, changed, unma
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string |  |  | Older build: image id or path. |
-| `newImage` | string |  |  | Newer build: image id or path. |
+| `oldImage` | string |  |  | Old build: image id or path. |
+| `newImage` | string |  |  | New build: image id or path. |
 | `view` | string |  | `pairs` | changed: code differs; ambiguous: with candidates; wasm: interface. Values: pairs, changed, unmatched, ambiguous. |
 | `tier` | integer |  | `0` | Only pairs of this tier: 1 name or bytes .. 5 fuzzy; 0 for all. |
 | `codeOnly` | boolean |  |  | Match by code, not names. |
@@ -1897,8 +1897,8 @@ Diff one function between two builds: aligned instruction rows, or a unified pse
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string |  |  | Older build: image id or path. |
-| `newImage` | string |  |  | Newer build: image id or path. |
+| `oldImage` | string |  |  | Old build: image id or path. |
+| `newImage` | string |  |  | New build: image id or path. |
 | `address` | string |  |  | In the function: Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `addresses` | string[] |  |  | Instead of address: up to 20 functions, one summary each. |
 | `side` | string |  | `old` | Which build the address is in. Values: old, new. |
@@ -1922,8 +1922,8 @@ Map old-build addresses (functions, instructions, strings, referenced data) to t
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `oldImage` | string | yes |  | Older build: image id or path. |
-| `newImage` | string | yes |  | Newer build: image id or path. |
+| `oldImage` | string | yes |  | Old build: image id or path. |
+| `newImage` | string | yes |  | New build: image id or path. |
 | `address` | string |  |  | Old build: Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `addresses` | string[] |  |  | Instead of address: up to 100 addresses. |
 | `codeOnly` | boolean |  |  | Match by code, not names. |
@@ -1938,7 +1938,7 @@ Make a byte pattern for an address that survives a rebuild: displacements and re
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `addresses` | string[] |  |  | Instead of address: up to 50. |
 | `anchor` | string |  | `auto` | auto: at the address, else at a referencing instruction; xrefs: one per reference; range: [address, end). Values: auto, address, reference, xrefs, range. |
@@ -1976,7 +1976,7 @@ Copy names, comments and engine types from the old build to the new one through 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `oldImage` | string | yes |  | Older build (image id or path), or a static library (.lib, .a) or object file (COFF, ELF): its functions name the starts holding their bytes. |
-| `newImage` | string | yes |  | Newer build: image id or path. |
+| `newImage` | string | yes |  | New build: image id or path. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `minTier` | integer |  | `5` | Weakest match tier accepted: 1 (names, identical bytes) to 5 (all). |
 | `minScore` | number |  | `0` | Least mapping confidence accepted (0-1). |
@@ -2107,7 +2107,7 @@ IDA and Ghidra sessions of a native image: state, and for an open one the engine
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `engine` | string |  |  | Default auto: both. Values: auto, ida, ghidra. |
 | `bookmarks` | boolean |  |  | Ghidra: every Error and Warning bookmark (default: the first 5). |
 
@@ -2121,7 +2121,7 @@ Set a native function prototype or a global's C type in the engine; named types 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `type` | string |  |  | C prototype (int __fastcall Parse(Packet *p, int len)) or global type (Handler *[8]); empty clears. |
 | `items` | string |  |  | Instead of address and type: lines address = type. |
@@ -2140,7 +2140,7 @@ Rename or retype a native pseudocode local or argument, named as decompile_nativ
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `function` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `local` | string |  |  | The variable: its pseudocode name, or stack:OFFSET (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
@@ -2162,7 +2162,7 @@ Rename, retype or delete a stack frame member; a type at an empty offset creates
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `function` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `variable` | string |  |  | The member: get_native_frame name (var_28) or frame offset (hex, from the lowest address). |
 | `newName` | string |  |  | New name (a C identifier). |
@@ -2183,7 +2183,7 @@ Stack frame of a native function as the engine has it: members with offset, name
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `function` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. Comma-separated for several. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
 | `locals` | boolean |  |  | Decompile for the locals too. |
@@ -2200,7 +2200,7 @@ Declare C types in the engine, replacing same-named ones; engine errors save not
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `declarations` | string |  |  | C declarations; named types must exist or be declared too. |
 | `typeName` | string |  |  | Enum, struct or union to edit. |
 | `members` | string |  |  | Enum: NAME=value, ... (hex or decimal; or lines); NAME= removes. |
@@ -2221,7 +2221,7 @@ Named types of the engine database with size and member count; name= shows one a
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `filter` | string |  |  | substring (case-insensitive), * ? glob, or /regex/ (flags i, m, s). |
 | `kind` | string |  |  | udt: struct or union. Values: struct, union, udt, enum, typedef, func, ptr. |
 | `name` | string |  |  | Show this one type in full instead of a list. |
@@ -2244,7 +2244,7 @@ Redefine an address in the engine as code, a function, data or undefined, up to 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `kind` | string | yes |  | function with end moves a function end; flow (Ghidra): type branch, call, call_return or return, else clears. Values: code, function, undefine, data, flow. |
 | `end` | string |  |  | Exclusive end address (same forms as address). |
@@ -2261,7 +2261,7 @@ Re-run IDA or Ghidra auto-analysis over an image or a range and save; completes 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `engine` | string |  |  | Default auto. Values: auto, ida, ghidra. |
 | `analyzers` | boolean |  |  | List analyzer options and values instead of running. |
 | `filter` | string |  |  | With analyzers: name filter. |
@@ -2284,7 +2284,7 @@ Set how an instruction operand displays in engine disassembly and pseudocode. Ke
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
 | `operand` | integer |  | `0` | Operand index, 0 for the first. |
 | `display` | string |  |  | offset: an address; struct: IDA only. Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
@@ -2302,7 +2302,7 @@ Run IDAPython against the image database and return the last expression's value,
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `code` | string |  |  | Python source (or scriptPath); base is the image base. |
 | `reset` | boolean |  |  | Clear globals kept from earlier calls. |
 | `engine` | string |  |  | Default auto. Values: auto, ida. |
@@ -2321,7 +2321,7 @@ Run a Java or Python Ghidra script against the image in one transaction: saved o
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `code` | string |  |  | Java (a GhidraScript class, or a run() body with imports first) or Python source. |
 | `name` | string |  |  | Instead of code: a script in the Ghidra script folders or DATA/ghidra_scripts. |
 | `args` | string[] |  |  | With name: script arguments (getScriptArgs). |
@@ -2341,7 +2341,7 @@ Write the engine database of a native image, with the names, comments and types 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `image` | string | yes |  | Image id, name or path. |
+| `image` | string | yes |  | Image id, name, path. |
 | `outputPath` | string | yes |  | The .i64 (IDA), .gzf, or Ghidra types alone as .h or .gdt. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
 | `engine` | string |  |  | Default: the engine of the extension, else IDA. Values: auto, ida, ghidra. |
@@ -2561,7 +2561,7 @@ Device properties (getprop) with a summary: SDK, model, ABIs, patch level, debug
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 | `query` | string |  |  | Name or value filter; view=files: directory (default /data/local/tmp); window: local APK. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` | Most rows. |
@@ -2578,7 +2578,7 @@ Packages installed on a device (pm list packages -f -U -i): name, APK path, uid 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 | `query` | string |  |  | Only package names containing this. |
 | `user` | integer |  |  | Android user id (default: current). |
 | `offset` | integer |  |  |  |
@@ -2596,7 +2596,7 @@ One installed package (dumpsys package): versions, SDKs, paths, flags, installer
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name (com.example.app). |
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 
 Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, `targetSdk`, `codePath`, `dataDir`, `primaryCpuAbi`, `flags`, `firstInstallTime`, `lastUpdateTime`, `installer`, `uid`, `permissions`, `users`.
 
@@ -2610,7 +2610,7 @@ Copy every APK of an installed package (base and splits) into a new or empty dir
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name (com.example.app). |
 | `outputDirectory` | string | yes |  | A new or empty directory to write the APKs to. |
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 
 Structured output: `serial`, `package`, `files`, `summary`.
 
@@ -2625,7 +2625,7 @@ Copy one device file (not a directory) to outputPath with its size and SHA-256; 
 | `remotePath` | string | yes |  | Path on the device. |
 | `outputPath` | string | yes |  | The local file to write. |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 
 Structured output: `remote`, `local`, `size`, `sha256`.
 
@@ -2637,7 +2637,7 @@ Device log (logcat -d), newest lines first, by buffer, process, tag, priority an
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 | `pid` | integer |  |  | Only this process id. |
 | `tag` | string |  |  | Only this log tag. |
 | `priority` | string |  |  | Lowest priority. Values: V, D, I, W, E, F. |
@@ -2660,7 +2660,7 @@ Install an APK, split set or folder of APKs on a device; failures report their I
 | `keepInstalled` | boolean |  |  | Fail if the app is installed instead of replacing it. |
 | `downgrade` | boolean |  |  | Allow a lower version code. |
 | `grantPermissions` | boolean |  |  | Grant all requested runtime permissions. |
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
@@ -2674,7 +2674,7 @@ Remove an app (and its data unless keepData) from a device; needs the server opt
 |---|---|---|---|---|
 | `package` | string | yes |  | Package name (com.example.app). |
 | `keepData` | boolean |  |  | Keep app data and cache. |
-| `serial` | string |  |  | Device serial; omit with one device. |
+| `serial` | string |  |  | Device serial; omit if one device. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
@@ -2697,6 +2697,8 @@ Open a Windows minidump, an ELF or Mach-O core, or a region-set manifest and ret
 | `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own folder. |
 | `dacPath` | string |  |  | DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed. |
 | `downloadDac` | boolean |  |  | Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1). |
+| `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
+| `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:<name>). |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `notes`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2709,7 +2711,7 @@ Walk the call stack of a dump thread, naming frames from loaded images, PDBs or 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
+| `dump` | string | yes |  | A .dmp path or open_minidump's id. |
 | `thread` | string |  |  | Thread id, '#index', name or 'exception' (default: faulting thread, else first). |
 | `dumpTimeContext` | boolean |  |  | Faulting thread: its context at dump time, not the exception context (.ecxr). |
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
@@ -2764,7 +2766,7 @@ Hex dump of a dump's memory at an address, with its module, captured range and p
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dump` | string | yes |  | A .dmp path or the id open_minidump returned. |
+| `dump` | string | yes |  | A .dmp path or open_minidump's id. |
 | `address` | string | yes |  | Hex address, 'module+0x1234', or a module name (its base). |
 | `length` | integer |  | `256` | Bytes to read (up to 65536). |
 | `dumpOnly` | boolean |  |  | Only the bytes the dump holds, none from the module image. |
@@ -2833,12 +2835,13 @@ Inspect a running Windows process read-only: summary, modules, regions, threads,
 | `thread` | string |  |  | threads: only this one; stacks: the thread walked (default first). Id or name. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
-| `regionFilter` | string |  |  | view=regions filter; default committed. Values: committed, all, executable, writable, image, private, mapped. |
+| `regionFilter` | string |  |  | view=regions filter; default committed. Values: committed, all, executable, writable, image, private, mapped, unbacked. |
 | `maxFrames` | integer |  | `64` | view=stacks: max frames walked (up to 256). |
 | `imageDirectories` | string |  |  | Program binary folders (';'-separated), for modules whose file is unreadable. |
 | `timeoutSeconds` | integer |  | `20` | Time limit in seconds (up to 120). |
 | `maxTokens` | integer |  |  |  |
 | `imagePath` | string |  |  | windows: PNG of the first window. |
+| `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:<name>). |
 
 Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`, `runtime`, `access`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `startTimeUtc`, `counts`, `mainModule`, `largestRegions`, `thread`, `stackStop`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2854,7 +2857,7 @@ Open, list, inspect or close a session on a program: id, backend, modules matche
 | `program` | string |  |  | attach: pid, name, inspector:PORT, cdp:PORT, jdwp:PORT, ttd:PATH; spawn: program path (starts suspended); processes: name filter; *_child: pid. |
 | `arguments` | string[] |  |  | spawn: program arguments. |
 | `environment` | string[] |  |  | spawn: NAME=value variables. |
-| `session` | string |  |  | Session id from live_session. |
+| `session` | string |  |  | Id from live_session. |
 | `outputPath` | string |  |  | snapshot: dump file (default temp). |
 | `overwrite` | boolean |  |  | Overwrite outputPath. |
 | `childNames` | string[] |  |  | Hold children by image name (* any) at start. |
@@ -2871,7 +2874,7 @@ Set, list or clear stop points; continue resumes held threads; wait returns the 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `session` | string | yes |  | Session id from live_session. |
+| `session` | string | yes |  | Id from live_session. |
 | `action` | string |  | `list` | What to do. Values: list, set, clear, continue. |
 | `at` | string |  |  | set: name, module!export, address or file:line. |
 | `stopPoint` | string |  |  | clear: stop point id. |
@@ -2889,7 +2892,7 @@ Record each call of a function with arguments and result, decoded by prototype o
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `session` | string | yes |  | Session id from live_session. |
+| `session` | string | yes |  | Id from live_session. |
 | `action` | string |  | `list` | What to do. Values: list, set, clear. |
 | `at` | string |  |  | set: name, module!export or address. |
 | `watch` | string |  |  | clear: watch id. |
@@ -2906,7 +2909,7 @@ Read a held thread's registers and program memory as typed values, named through
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `session` | string | yes |  | Session id from live_session. |
+| `session` | string | yes |  | Id from live_session. |
 | `thread` | string |  |  | Thread id; default the first held. |
 | `registers` | string |  |  | Register names, comma-separated; default all. |
 | `memory` | string |  |  | An address, register or name to read. |
@@ -2924,7 +2927,7 @@ Page a session's events with a cursor and filters; polling never re-sends earlie
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `session` | string | yes |  | Session id from live_session. |
+| `session` | string | yes |  | Id from live_session. |
 | `cursor` | string |  |  | Cursor of an earlier page; default the oldest kept. |
 | `kind` | string |  |  | Only this kind. Values: stop, call, script, exception, module, thread, child, output, error, exit. |
 | `thread` | string |  |  | Only this thread id. |
@@ -2942,7 +2945,7 @@ Load, list or unload your Frida script in a session's program; its messages are 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `session` | string | yes |  | Session id from live_session. |
+| `session` | string | yes |  | Id from live_session. |
 | `action` | string |  | `list` | What to do. Values: list, load, unload. |
 | `source` | string |  |  | load: JavaScript source. |
 | `path` | string |  |  | load: a .js file instead. |
