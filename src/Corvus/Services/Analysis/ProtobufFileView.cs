@@ -12,6 +12,9 @@ internal sealed class ProtobufFileView : IFileSummaryView
 {
     private const int DefaultLimit = 20, MaxLimit = 200;
 
+    internal const string NoDescriptorNote = "input inspected; no FileDescriptorProto found. Try view=overview.";
+    internal const string NoReadableNote = "input inspected; no readable FileDescriptorProto. Try view=overview.";
+
     public sealed record Descriptor(string Name, string? Package, string Syntax, string Source,
         [property: Description("raw bytes, Latin-1 string constants (Java) or base64 string (C#).")] string Encoding,
         long Offset, [property: Description("The method that builds it, for string constants.")] string? Site,
@@ -45,7 +48,14 @@ internal sealed class ProtobufFileView : IFileSummaryView
         }
         var surface = ApiSurface.Read(items, ct, endpoints: false);
         var all = surface.Descriptors;
-        if (all.Count == 0) return asked ? new FileView(new Facts(0, 0, null, [], [.. surface.Notes, "no FileDescriptorProto found"]), []) : null;
+        if (all.Count == 0)
+        {
+            if (!asked) return null;
+            // Notes present means a candidate was rejected or an item was unreadable.
+            string summary = surface.Notes.Count > 0 ? NoReadableNote : NoDescriptorNote;
+            string[] empty = [.. surface.Notes, summary];
+            return new FileView(new Facts(0, 0, null, [], empty), []);
+        }
         int limit = Math.Clamp(file.Options.Limit ?? DefaultLimit, 1, MaxLimit);
         long offset = Math.Clamp(file.Options.Offset, 0, all.Count);
         var page = all.Skip((int)offset).Take(limit).Select(d => new Descriptor(d.File.Name, d.File.Package, d.File.Syntax, d.Source, d.Encoding, d.Offset, d.Site,

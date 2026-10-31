@@ -12,7 +12,7 @@ public static class ProtoScan
     public const int MaxPerBlob = 4096;
 
     /// <summary>Raw descriptors in <paramref name="data"/>, in offset order; a descriptor's bytes are not searched again.</summary>
-    public static List<(long Offset, ProtoFile File)> Raw(ReadOnlySpan<byte> data, CancellationToken ct = default)
+    public static List<(long Offset, ProtoFile File)> Raw(ReadOnlySpan<byte> data, CancellationToken ct = default, List<long>? rejected = null)
     {
         var found = new List<(long, ProtoFile)>();
         int from = 0, covered = 0;
@@ -23,6 +23,7 @@ public static class ProtoScan
             int end = from + hit + Suffix.Length;
             from = end;
             if ((found.Count & 63) == 0) ct.ThrowIfCancellationRequested();
+            bool hitRejected = false;
             // 0x0A, a one- or two-byte length, then the name that ends here.
             for (int length = 7; length <= 1024 && length <= end - 2; length++)
             {
@@ -32,13 +33,17 @@ public static class ProtoScan
                 if (data[start] != 0x0A) continue;
                 bool lengthMatches = length < 0x80 ? data[name - 1] == length : data[name - 2] == (byte)(length | 0x80) && data[name - 1] == length >> 7;
                 if (!lengthMatches) continue;
-                if (ProtoFile.Read(data[start..]) is { } file)
+                var file = ProtoFile.Read(data[start..]);
+                if (file is null)
                 {
-                    found.Add((start, file));
-                    covered = start + file.Length;
-                    from = Math.Max(from, covered);
-                    break;
+                    if (!hitRejected) rejected?.Add(start);
+                    hitRejected = true;
+                    continue;
                 }
+                found.Add((start, file));
+                covered = start + file.Length;
+                from = Math.Max(from, covered);
+                break;
             }
         }
         return found;

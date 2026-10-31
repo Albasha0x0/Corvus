@@ -126,6 +126,47 @@ public sealed class ProtobufTests
         Assert.Contains("gRPC services demo.v1.Users", view!.Highlights[0], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void An_asked_protobuf_view_of_an_image_without_descriptors_says_none_was_found()
+    {
+        var facts = AskedFacts(NativeFormats.FormatWriterTests.SampleMachO().Build());
+        Assert.Equal(0, facts.Total);
+        Assert.Equal([ProtobufFileView.NoDescriptorNote], facts.Notes);
+    }
+
+    [Fact]
+    public void An_asked_protobuf_view_of_a_name_only_descriptor_says_it_was_rejected()
+    {
+        var writer = NativeFormats.FormatWriterTests.SampleMachO();
+        writer.ExtraSections = [("__TEXT", "__const", 0x2000, new ProtoWriter().Str(1, "demo.proto").ToArray(), 0)];
+        var facts = AskedFacts(writer.Build());
+        Assert.Equal(0, facts.Total);
+        Assert.Contains(facts.Notes, n => n.Contains("descriptor candidate(s) rejected", StringComparison.Ordinal));
+        Assert.Equal(ProtobufFileView.NoReadableNote, facts.Notes[^1]);
+        Assert.DoesNotContain(ProtobufFileView.NoDescriptorNote, facts.Notes);
+    }
+
+    [Fact]
+    public void An_unasked_protobuf_view_of_an_image_without_descriptors_is_absent()
+    {
+        var bytes = NativeFormats.FormatWriterTests.SampleMachO().Build();
+        Assert.Null(new ProtobufFileView().Inspect(new FileInput("plain", bytes, Blob.Identify(bytes)), default));
+    }
+
+    [Fact]
+    public void The_empty_protobuf_note_names_a_registered_view()
+    {
+        Assert.Equal("overview", new FileViewOptions().View);
+        Assert.Contains("view=overview", ProtobufFileView.NoDescriptorNote, StringComparison.Ordinal);
+        Assert.Contains("view=overview", ProtobufFileView.NoReadableNote, StringComparison.Ordinal);
+    }
+
+    private static ProtobufFileView.Facts AskedFacts(byte[] bytes)
+    {
+        var input = new FileInput("plain", bytes, Blob.Identify(bytes)) { Options = new FileViewOptions("protobuf") };
+        return Assert.IsType<ProtobufFileView.Facts>(new ProtobufFileView().Inspect(input, default)?.Detail);
+    }
+
     // A structural fuzz edit renumbered a map entry's value field to 127.
     [Fact]
     public void A_map_entry_without_fields_1_and_2_prints_as_a_repeated_message()

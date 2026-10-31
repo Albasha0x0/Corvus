@@ -95,8 +95,10 @@ public sealed record ApiSurface(IReadOnlyList<CodeEndpoint> Endpoints, IReadOnly
                 }
                 else if (item.Kind is "elf" or "mach-o" or "native PE" or "NativeAOT executable" or "data")
                 {
-                    foreach (var (offset, file) in ProtoScan.Raw(item.Bytes, ct))
+                    var rejected = new List<long>();
+                    foreach (var (offset, file) in ProtoScan.Raw(item.Bytes, ct, rejected))
                         descriptors.Add(new FoundDescriptor(file, item.Path, "raw bytes", offset));
+                    if (rejected.Count > 0) notes.Add($"{item.Path}: {rejected.Count} descriptor candidate(s) rejected, first at 0x{rejected[0]:x}.");
                     if (endpoints && item.Kind == "mach-o") MachOEndpoints.Scan(item.Bytes, item.Path, rows, ct);
                 }
             }
