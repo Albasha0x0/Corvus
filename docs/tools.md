@@ -660,7 +660,7 @@ Extract a container and load its .NET assemblies: single-file bundles, Costura, 
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
 | `keyLog` | string |  |  | TLS key log of a pcap (SSLKEYLOGFILE) to decrypt with. |
-| `password` | string |  |  | Password of encrypted zip, 7z, RAR, PDF or Office document; only it is tried. |
+| `password` | string |  |  | Password of encrypted zip, 7z, RAR, PDF, Office document; only it is tried. |
 
 Structured output: `source`, `container`, `outputDirectory`, `items`, `offset`, `total`, `next`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 
@@ -2699,7 +2699,7 @@ Open a Windows minidump, an ELF or Mach-O core, or a region-set manifest and ret
 | `dacPath` | string |  |  | DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed. |
 | `downloadDac` | boolean |  |  | Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1). |
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
-| `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:<name>). |
+| `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `notes`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -2842,7 +2842,7 @@ Inspect a running Windows process read-only: summary, modules, regions, threads,
 | `timeoutSeconds` | integer |  | `20` | Time limit in seconds (up to 120). |
 | `maxTokens` | integer |  |  |  |
 | `imagePath` | string |  |  | windows: PNG of the first window. |
-| `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:<name>). |
+| `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
 
 Structured output: `processId`, `name`, `view`, `path`, `architecture`, `wow64`, `runtime`, `access`, `detached`, `handlesOpened`, `handlesClosed`, `stillRunning`, `notes`, `startTimeUtc`, `counts`, `mainModule`, `largestRegions`, `thread`, `stackStop`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
 

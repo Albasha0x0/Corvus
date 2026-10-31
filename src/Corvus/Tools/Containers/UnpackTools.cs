@@ -21,7 +21,7 @@ public sealed class UnpackTools(UnpackService unpacker, ServerOptions? options =
         [Description(RowOffsetDescription)] int offset = 0,
         [Description(LimitDescription)] int limit = 100,
         [Description("TLS key log of a pcap (SSLKEYLOGFILE) to decrypt with.")] string? keyLog = null,
-        [Description("Password of encrypted zip, 7z, RAR, PDF or Office document; only it is tried.")] string? password = null,
+        [Description("Password of encrypted zip, 7z, RAR, PDF, Office document; only it is tried.")] string? password = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
         {

@@ -29,7 +29,7 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         [Description("DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed.")] string? dacPath = null,
         [Description("Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
-        [Description("unbacked: YARA rules (text, file, folder, pack:<name>).")] string? yara = null,
+        [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
