@@ -30,6 +30,7 @@ public sealed class CryptoConstantTests : IDisposable
 
     private const string Aes = "AES (S-box, inverse S-box or T-table)";
     private const string Pa = "Blowfish P-array";
+    private const ulong ImageBase = 0x180000000;
 
     private static void AssertAt(string label, int offset, string text) =>
         Assert.Matches($"{System.Text.RegularExpressions.Regex.Escape(label)} @0x{offset:X}(?![0-9A-Fa-f])", text);
@@ -116,6 +117,85 @@ public sealed class CryptoConstantTests : IDisposable
         Assert.Contains("weak", text, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Builds blowfish.dll, whose export Cipher loads the address of a
+    /// Blowfish P-array in its data section.
+    /// </summary>
+    private string BlowfishImage()
+    {
+        var path = _dir.File("blowfish.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("blowfish.dll", [("Cipher", 0)], [], CipherCode, PArrayData));
+        return path;
+    }
+
+    private static byte[] CipherCode(Dictionary<string, uint> slots)
+    {
+        var a = new Iced.Intel.Assembler(64);
+        a.sub(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+        a.AddInstruction(Iced.Intel.Instruction.Create(
+            Iced.Intel.Code.Lea_r64_m,
+            Iced.Intel.Register.RCX,
+            new Iced.Intel.MemoryOperand(
+                Iced.Intel.Register.RIP, (long)(ImageBase + slots["parray"]), 8)));
+        a.add(Iced.Intel.AssemblerRegisters.rsp, 0x28);
+        a.ret();
+        var stream = new MemoryStream();
+        a.Assemble(new Iced.Intel.StreamCodeWriter(stream), ImageBase + LinkedImages.Text);
+        return stream.ToArray();
+    }
+
+    private static Dictionary<string, uint> PArrayData(PeBlob blob, List<uint> relocations)
+    {
+        blob.Align(4);
+        return new() { ["parray"] = blob.Bytes(Le(0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344)) };
+    }
+
+    private static string Lines(string text, string needle) =>
+        string.Join('\n', text.Split('\n').Where(l => l.Contains(needle, StringComparison.Ordinal)));
+
+    private static async Task<string> SurveyImage(InProcessServer server, string path)
+    {
+        var load = await server.Client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = path });
+        return await Survey(server, new() { ["assembly"] = load.StructuredContent!.Value.GetProperty("ids")[0].GetString() });
+    }
+
+    [Fact]
+    public async Task A_P_array_without_an_S_box_keeps_its_rule_label_and_match_count()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyImage(server, BlowfishImage());
+        Assert.Contains("const:blowfish x1", text);
+    }
+
+    [Fact]
+    public async Task A_Blowfish_P_array_in_an_image_data_section_is_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyImage(server, BlowfishImage());
+        Assert.Contains(Pa, text);
+    }
+
+    [Fact(Skip = "The survey does not attribute data-section constants to the reading function.")]
+    public async Task The_survey_names_the_function_that_reads_the_Blowfish_P_array()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyImage(server, BlowfishImage());
+        Assert.Contains("Cipher", Lines(text, Pa));
+    }
+
+    [Fact(Skip = "The dossier lists the constant data operand without its algorithm.")]
+    public async Task The_function_dossier_names_the_Blowfish_P_array_the_function_reads()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var r = await server.Client.CallToolAsync("analyze_native_function", new Dictionary<string, object?>
+        {
+            ["image"] = BlowfishImage(),
+            ["address"] = "Cipher",
+            ["sections"] = "data",
+        });
+        var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
+        Assert.Contains("180002000", Lines(text, Pa), StringComparison.OrdinalIgnoreCase);
+    }
     // The two library surveys scan megabytes of native code, so they run in the full set.
     [Fact]
     [Trait("Speed", "Slow")]
