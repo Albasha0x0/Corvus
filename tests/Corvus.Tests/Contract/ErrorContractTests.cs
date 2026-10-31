@@ -34,6 +34,38 @@ public class ErrorContractTests
     }
 
     [Fact]
+    public async Task The_filter_clears_structured_content_from_a_returned_error_and_keeps_its_text()
+    {
+        using var workspace = new AssemblyWorkspace();
+        using var services = Pipeline(workspace, new ResultStore(ResultCacheOptions.MemoryOnly));
+        var failed = new CallToolResult
+        {
+            IsError = true,
+            StructuredContent = JsonSerializer.SerializeToElement(new { code = "stale" }),
+            Content = [new TextContentBlock { Text = "x" }],
+        };
+        var error = await CallFilter.Run(new CallToolRequestParams { Name = "get_type_info" }, null, services, _ => ValueTask.FromResult(failed), default);
+        Assert.Null(error.StructuredContent);
+        Assert.Equal("x", ((TextContentBlock)error.Content[0]).Text);
+    }
+
+    [Fact]
+    public async Task A_thrown_error_carries_the_same_code_and_next_step_in_its_text_and_json_blocks()
+    {
+        using var workspace = new AssemblyWorkspace();
+        using var services = Pipeline(workspace, new ResultStore(ResultCacheOptions.MemoryOnly));
+        var thrown = await CallFilter.Run(new CallToolRequestParams { Name = "get_type_info" }, null, services, _ => throw new ToolError(ErrorCode.NotFound, "no type 'X'.", "list_types"), default);
+        Assert.Null(thrown.StructuredContent);
+        Assert.Equal(2, thrown.Content.Count);
+        var text = ((TextContentBlock)thrown.Content[0]).Text;
+        Assert.StartsWith(McpProtocolTests.ErrorJsonMarker, ((TextContentBlock)thrown.Content[1]).Text);
+        var json = JsonDocument.Parse(ErrorResult.JsonOf(thrown)!).RootElement;
+        Assert.Contains("(not_found)", text);
+        Assert.Equal("not_found", json.GetProperty("code").GetString());
+        Assert.EndsWith("Next: " + json.GetProperty("next").GetString(), text);
+    }
+
+    [Fact]
     public void An_error_without_a_next_step_gets_the_default()
     {
         var error = new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded.");
