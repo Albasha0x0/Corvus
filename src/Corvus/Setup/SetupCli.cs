@@ -477,7 +477,12 @@ internal static class SetupCli
             foreach (var unused in Corvus.Relay.RelayBuilds.RemoveUnusedHosts(state, configurations))
                 text.WriteLine($"  relay      removed the unused staged copy {SetupPlan.Short(env, unused)}");
         foreach (var note in report.Notes) text.WriteLine(note);
-        if (changed > 0) text.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
+        if (changed > 0)
+        {
+            text.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
+            text.WriteLine($"Until then, run tools from this shell: {ToolCli.Program} tools,"
+                + $" {ToolCli.Program} <tool> --load <file>, {ToolCli.Program} batch <file>.");
+        }
         // An installed copy takes over from an install made before the rename, whose registrations were renamed above.
         if (Installation.Root() is { } installed && LegacyInstall.Remove(env, installed) is { } old) text.WriteLine($"Removed the old program files from {old}.");
         report.Applied = changed > 0;

@@ -28,6 +28,25 @@ public sealed class ClientHomeTests : IDisposable
     }
 
     [Fact]
+    public void Install_names_the_shell_commands_to_use_until_the_client_restarts()
+    {
+        var dir = _home.Path("claude-profile");
+        Directory.CreateDirectory(dir);
+        var vars = new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = dir };
+        var (code, output) = _home.Run(_home.Env(variables: vars), "install", "--no-check", "--yes");
+        Assert.True(code == 0, output);
+        var restart = output.IndexOf("Restart the clients", StringComparison.Ordinal);
+        var fallback = output.IndexOf("corvus tools", StringComparison.Ordinal);
+        Assert.True(restart >= 0 && fallback > restart, output);
+        Assert.Contains("--load", output);
+        Assert.Contains("corvus batch <file>", output);
+        var (again, repeat) = _home.Run(_home.Env(variables: vars), "install", "--no-check", "--yes");
+        Assert.True(again == 0, repeat);
+        Assert.DoesNotContain("Restart the clients", repeat);
+        Assert.DoesNotContain("corvus batch", repeat);
+    }
+
+    [Fact]
     public void Gemini_Qwen_and_Copilot_homes_follow_their_variables()
     {
         var vars = new Dictionary<string, string>
