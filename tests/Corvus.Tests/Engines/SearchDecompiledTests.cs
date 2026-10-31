@@ -131,6 +131,47 @@ public sealed class SearchDecompiledTests : IDisposable
     }
 
     [Fact]
+    public async Task A_zero_hit_partial_scan_is_not_reported_as_absence()
+    {
+        var (tools, _, native) = Setup(Forty);
+        var text = await tools.SearchDecompiled(native.Id, "no_such_call", maxFunctions: 10);
+        Assert.Contains("not absence from the image", text);
+        Assert.Contains("No hit in the 10 functions searched; 29 of 39 functions in scope are not searched yet", text);
+        Assert.Contains("offset=10", text);
+    }
+
+    [Fact]
+    public async Task A_zero_hit_complete_scan_with_no_failures_names_the_whole_scope()
+    {
+        var (tools, _, native) = Setup(e => { Forty(e); e.Failing.Clear(); });
+        var text = await tools.SearchDecompiled(native.Id, "no_such_call");
+        Assert.Contains("No hit in any of the 39 functions in scope.", text);
+        Assert.DoesNotContain("not absence", text);
+    }
+
+    [Fact]
+    public async Task A_zero_hit_scan_from_an_offset_names_the_skipped_functions()
+    {
+        var (tools, _, native) = Setup(e => { Forty(e); e.Failing.Clear(); });
+        var text = await tools.SearchDecompiled(native.Id, "no_such_call", offset: 25);
+        Assert.Contains("No hit in the 14 functions searched; functions before offset 25 are not searched in this call.", text);
+        Assert.DoesNotContain("No hit in any of", text);
+    }
+
+    [Fact]
+    public async Task A_zero_hit_scan_with_a_failed_function_reports_absence_as_unknown_for_it()
+    {
+        var (tools, _, native) = Setup(Forty);
+        var text = await tools.SearchDecompiled(native.Id, "no_such_call");
+        Assert.Contains("No hit in the 38 of 39 functions in scope that decompiled; 1 function did not decompile, so absence is unknown for them.", text);
+        Assert.DoesNotContain("No hit in any of", text);
+
+        text = await tools.SearchDecompiled(native.Id, "no_such_call", maxFunctions: 25);
+        Assert.Contains("No hit in the 24 of 25 functions searched that decompiled; 14 of 39 functions in scope are not searched yet", text);
+        Assert.Contains("1 function did not decompile, so absence is unknown for them.", text);
+    }
+
+    [Fact]
     public async Task Requests_fill_the_decompiler_pool_and_a_second_search_reuses_the_pseudocode()
     {
         var (tools, engine, native) = Setup(e =>

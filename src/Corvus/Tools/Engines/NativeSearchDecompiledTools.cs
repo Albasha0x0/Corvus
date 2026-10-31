@@ -169,7 +169,23 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
                                    (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + $"; searched {cursor + (searched > 0 ? 1 : 0)}-{end} " +
                                    $"(requests of {chunk} over a decompiler pool of {lanes})\n");
         sb.Append(timeouts.Note("line"));
-        sb.Append($"{Plural(hits.Count, "hit")} in{Plural(hits.Select(h => h.Function).Distinct().Count(), "function")}:\n");
+        if (hits.Count == 0)
+        {
+            string unknown = failures.Count > 0 ? $" {Plural(failures.Count, "function")} did not decompile, so absence is unknown for them." : "";
+            string searchedText = failures.Count > 0
+                ? $"No hit in the {searched - failures.Count} of {Plural(searched, "function")} searched that decompiled;"
+                : $"No hit in the {Plural(searched, "function")} searched;";
+            if (nextCursor != null)
+                sb.Append($"{searchedText} {scope.Count - end} of {scope.Count} functions in scope are not searched yet, so this is not absence from the image.{unknown}\n");
+            else if (cursor > 0)
+                sb.Append($"{searchedText} functions before offset {cursor} are not searched in this call.{unknown}\n");
+            else if (failures.Count > 0)
+                sb.Append($"No hit in the {scope.Count - failures.Count} of {Plural(scope.Count, "function")} in scope that decompiled;{unknown}\n");
+            else
+                sb.Append($"No hit in any of the {Plural(scope.Count, "function")} in scope.\n");
+        }
+        else
+            sb.Append($"{Plural(hits.Count, "hit")} in{Plural(hits.Select(h => h.Function).Distinct().Count(), "function")}:\n");
         var rows = hits.Select(h => $"  {h.Function}  {h.Name}:{h.Line}  {h.Text}").ToList();
         int fit = pager.FitRows(rows, 2_000);
         foreach (var row in rows.Take(fit)) sb.Append(row).Append('\n');
