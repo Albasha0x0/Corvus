@@ -23,7 +23,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         bool Saved);
 
     [McpServerTool(Name = "ida_python", Title = "Run IDAPython on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run IDAPython against the image database and return the last expression's value, stdout and stderr. Off unless " +
+    [Description("Run IDAPython on the image database; returns the last expression's value, stdout and stderr. Off unless " +
                  "--ida-scripting (CORVUS_IDA_SCRIPTING=1); the code runs with server rights and is not undoable.")]
     public Task<string> IdaPython(
         [Description(NativeTools.ImageDescription)] string image,
@@ -93,7 +93,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     private const int MaxScriptBytes = 1 << 20;
 
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image", UseStructuredContent = true, OutputSchemaType = typeof(ScriptReport))]
-    [Description("Run a Java or Python Ghidra script against the image in one transaction: saved on return, rolled back on an exception. " +
+    [Description("Run a Java or Python Ghidra script on the image in one transaction: saved on return, rolled back on an exception. " +
                  "Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1); the code runs with server rights.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,

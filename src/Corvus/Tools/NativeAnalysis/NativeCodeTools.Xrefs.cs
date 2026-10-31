@@ -23,7 +23,7 @@ public sealed partial class NativeCodeTools
     };
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
-    [Description("What references a native address: calls, jumps, data reads and writes, pointers and switch tables, each with its function; " +
+    [Description("What references a native address: calls, jumps, data reads and writes, pointers, switch tables, each with its function; " +
                  "exports include other loaded images. direction=from lists what it references; Type::member finds struct member uses.")]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,

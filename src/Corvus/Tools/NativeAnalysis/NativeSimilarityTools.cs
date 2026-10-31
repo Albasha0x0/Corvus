@@ -48,7 +48,7 @@ public sealed class NativeSimilarityTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_similar_functions", Title = "Find similar functions", UseStructuredContent = true, OutputSchemaType = typeof(SimilarityReport))]
-    [Description("Find functions like a given one, ranked by code shape, control flow and shared strings, constants, imports and callees. " +
+    [Description("Find functions like a given one, ranked by code shape, control flow and shared strings, constants, imports, callees. " +
                  "view=duplicates or clusters groups look-alike functions image-wide.")]
     public Task<string> FindSimilarFunctions(
         [Description(NativeTools.ImageDescription)] string image,

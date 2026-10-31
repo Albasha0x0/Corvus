@@ -337,7 +337,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static partial Regex XrefRow();
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree", UseStructuredContent = true, OutputSchemaType = typeof(NativeCallTreeResult))]
-    [Description("Callers or callees of a native function, several levels deep across loaded images, through thunks and import slots; " +
+    [Description("Callers or callees of a native function, several levels deep across loaded images and through thunks and import slots; " +
                  "module!import gives its callers. Callees include GetProcAddress and virtual call targets.")]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,

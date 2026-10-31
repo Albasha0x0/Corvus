@@ -266,7 +266,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         }, cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
-    [Description("Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via Vineflower " +
+    [Description("Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or a jar or .class via Vineflower " +
                  "(engine=vineflower, CORVUS_JAVA_DECOMPILER2). Without either: disassemble_dex.")]
     public async Task<string> DecompileJava(
         [Description("An .apk, .aab or split set, a .dex, a jar or a .class.")] string path,

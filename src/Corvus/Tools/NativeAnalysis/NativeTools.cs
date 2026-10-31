@@ -19,7 +19,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>Longest get_pe_info waits for the automatic PDB search it reports.</summary>
     private static readonly TimeSpan PdbSearchWait = TimeSpan.FromSeconds(30);
 
-    public const string EngineTimeoutDescription = "Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial.";
+    public const string EngineTimeoutDescription = "Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans answer partial.";
 
     /// <summary>A tool's timeoutSeconds as an engine request limit; null when not given.</summary>
     public static TimeSpan? EngineTimeout(int? seconds) => seconds is { } s ? TimeSpan.FromSeconds(Math.Clamp(s, 1, 3600)) : null;
@@ -258,7 +258,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         [Description(ImageDescription)] string image,
         [Description("Only this library (.dll optional).")] string? library = null,
         [Description("Name substring (case-insensitive).")] string? filter = null,
-        [Description("Bind each import to its export, or say why not (load_assembly loadProviders=true loads the targets).")] bool bind = false,
+        [Description("Bind each import to its export, or say why not (load_assembly loadProviders=true loads targets).")] bool bind = false,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Max rows.")] int limit = 200,
         [Description("Also GetProcAddress imports, marked [dynamic] (waits for the code index).")] bool includeDynamic = false,

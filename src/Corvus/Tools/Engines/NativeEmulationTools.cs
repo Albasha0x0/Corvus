@@ -31,7 +31,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Per calling convention: integer, address, or pointer to 'text', u'text', buf:N (zeros) or hex:41A0.")] string? args = null,
+        [Description("Per calling convention: integer, address or pointer to 'text', u'text', buf:N (zeros) or hex:41A0.")] string? args = null,
         [Description("rcx=0x10, rdx='key' (values as args).")] string? registers = null,
         [Description("ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000.")] string? memory = null,
         [Description("Addresses to stop at.")] string? stopAt = null,

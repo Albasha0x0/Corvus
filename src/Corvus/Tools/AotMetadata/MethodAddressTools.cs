@@ -33,7 +33,7 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
     [Description("Native addresses, field offsets and tokens of an AOT method or type. script.json adds function bounds, shared " +
                  "code, generic instantiations and metadata slots; stringliteral.json adds the literals a method loads.")]
     public Task<string> GetMethodAddresses(
-        [Description("Type or member (Ns.Type::M(int), short name, token) or script.json name (List`1<int>::Add).")] string symbol,
+        [Description("Type or member (Ns.Type::M(int), name, token) or script.json name (List`1<int>::Add).")] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("With a type: a vtable slot number to resolve to its method, or all.")] string? slot = null,
         [Description("First entry of each long list.")] int offset = 0,

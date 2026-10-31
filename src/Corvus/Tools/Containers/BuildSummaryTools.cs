@@ -12,7 +12,7 @@ public sealed class BuildSummaryTools
     [Description("Summarize an application build without loading it: engine version, scripting backend (aot or mono), metadata version, " +
                  "platform, architecture and next calls.")]
     public async Task<string> SummarizeBuild(
-        [Description("Folder, executable, *_Data, global-metadata.dat, or package (.apk, .ipa, .app, zip).")] string path,
+        [Description("Folder, executable, *_Data, global-metadata.dat or package (.apk, .ipa, .app, zip).")] string path,
         [Description("Also run Detect It Easy (CORVUS_DIE or PATH) on the main binaries; about 1 s each.")] bool detectItEasy = false,
         CancellationToken cancellationToken = default)
     {

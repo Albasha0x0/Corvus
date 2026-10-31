@@ -219,7 +219,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     [Description("Clean transformed method bodies: fold (string decoders run in a safe IL interpreter), cfg (constant branches, flattened " +
                  "control flow), inline (forwarders, call proxies). What is left has a reason code (docs/simplify.md).")]
     public Task<string> SimplifyMethods(
-        [Description("Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly.")] string? symbol = null,
+        [Description("Method or type (nested included): Ns.Type::M(int), name or token; omit: whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required without symbol.")] string? assembly = null,
         [Description("Passes to run; omit for all three.")] string[]? passes = null,
         [Description("Max evaluation call depth.")] int maxDepth = 8,
@@ -254,7 +254,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(AssemblyDescription)] string assembly,
         [Description("Output path (.wasm writes Webcil for Blazor); default ORIGINAL.patched.dll.")] string? outputPath = null,
         [Description("Replace an existing file, not the original.")] bool overwrite = false,
-        [Description("Write nothing if the writer would change any member (default: save, list them).")] bool strict = false,
+        [Description("Write nothing if the writer would change a member (default: save, list them).")] bool strict = false,
         [Description("Replace the loaded file, keeping a .bak (needs --allow-replace-original).")] bool replaceOriginal = false,
         [Description("Write NAME.N.dll, the first free N.")] bool versioned = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>

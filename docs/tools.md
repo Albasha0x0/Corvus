@@ -31,7 +31,7 @@ Workspace and server state.
 
 **Load assembly** (edit, idempotent, long-running)
 
-Load a .NET assembly, a folder, or a native image (PE, ELF, Mach-O, wasm). An AOT build (global-metadata.dat v24-39) loads from its folder, global-metadata.dat or package as dummy assemblies with addresses, plus its binary. A repeat load is a no-op.
+Load a .NET assembly, a folder, or a native image (PE, ELF, Mach-O, wasm). An AOT build (global-metadata.dat v24-39) loads from its folder, global-metadata.dat or package as dummy assemblies with addresses and its binary. A repeat load is a no-op.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -154,7 +154,7 @@ Structured output: `outputPath`, `files`, `editedAssemblies`, `edits`, `patchedI
 
 **Load a session** (destructive, long-running)
 
-Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots) and reapply its work. A changed file is refused unless targetBuild=other.
+Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots), reapply its work. A changed file is refused unless targetBuild=other.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -216,7 +216,7 @@ Outline of a type without decompiling: declaration, attributes, member counts, t
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `section` | string |  | `summary` | A kind to page, or all. Values: summary, nested, fields, properties, events, methods, all. |
 | `includeCompilerGenerated` | boolean |  |  | Include compiler-generated members. |
@@ -247,7 +247,7 @@ Custom attributes with arguments on a type or member (parameters and return valu
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string |  |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. Omit for assembly-level attributes. |
+| `symbol` | string |  |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. Omit for assembly-level attributes. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. Required without symbol. |
 | `filter` | string |  |  | Only attributes whose type name contains this. |
 | `format` | string |  | `rows` | csharp only without symbol. Values: rows, csharp. |
@@ -265,7 +265,7 @@ Base chain, interfaces and directly derived or implementing loaded types of a ty
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
@@ -281,7 +281,7 @@ Every match of a symbol string or token, with kind, assembly, token and signatur
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `kind` | string |  |  | Restrict to this kind. Values: any, type, method, field, property, event, member. |
 | `offset` | integer |  |  |  |
@@ -298,7 +298,7 @@ Decompile a member or a whole type to C#; every overload unless a parameter list
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `member` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `member` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `kind` | string |  |  | Restrict to this kind (default any). Values: any, method, field, property, event. |
 | `simplified` | boolean |  |  | Show the code as simplify_methods would leave it, assembly unchanged. |
@@ -316,7 +316,7 @@ IL disassembly of a member or type (tokens, offsets, try blocks); each method st
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `source` | boolean |  |  | Portable PDB source lines at IL offsets, local names, SourceLink URLs. |
 | `offset` | integer |  |  |  |
@@ -328,7 +328,7 @@ Structured output: `language`, `code`, `offset`, `nextOffset`, `totalChars`, `sy
 
 **Search symbols by name** (read-only, idempotent)
 
-Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . or :: match full names. Exact matches first, then by name length, assembly and token.
+Find types and members by name in loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . or :: match full names. Exact matches first, then by name length, assembly and token.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -347,7 +347,7 @@ Structured output: `items`, `offset`, `total`, `notEvaluated`, `totalExact`, `li
 
 **Search string literals** (read-only, idempotent)
 
-Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. Dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.
+Find string literals (ldstr, string constants) by substring, wildcard or regex, with each user's method and IL offset. Dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -381,7 +381,7 @@ Structured output: `value`, `items`, `offset`, `total`, `limit`, `totalExact`, `
 
 **Search IL instruction patterns** (read-only, idempotent)
 
-Find methods containing an IL instruction sequence: ;-separated opcode [operand] elements with * and ? wildcards (operands match names, strings, numbers); ... skips up to 16 instructions, e.g. "ldstr *password*; ...; call *::Hash*".
+Find methods with an IL instruction sequence: ;-separated opcode [operand] elements with * and ? wildcards (operands match names, strings, numbers); ... skips up to 16 instructions, e.g. "ldstr *password*; ...; call *::Hash*".
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -398,7 +398,7 @@ Structured output: `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`,
 
 **Find usages (xrefs to)** (read-only, idempotent)
 
-Every use of a symbol across loaded assemblies: method call sites (also via base or interface), field reads, writes and address uses, type uses. A native export gives P/Invoke callers and native call sites.
+Every use of a symbol in loaded assemblies: method call sites (also via base or interface), field reads, writes and address uses, type uses. A native export gives P/Invoke callers and native call sites.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -522,7 +522,7 @@ Precompiled native code of a method in a ReadyToRun assembly: entry, code ranges
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `instantiation` | string |  |  | Only bodies whose name contains this text (Int32, __Canon). |
 | `maxBodies` | integer |  | `4` | Max bodies disassembled; the rest listed with addresses. |
@@ -672,7 +672,7 @@ Summarize an application build without loading it: engine version, scripting bac
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | Folder, executable, *_Data, global-metadata.dat, or package (.apk, .ipa, .app, zip). |
+| `path` | string | yes |  | Folder, executable, *_Data, global-metadata.dat or package (.apk, .ipa, .app, zip). |
 | `detectItEasy` | boolean |  |  | Also run Detect It Easy (CORVUS_DIE or PATH) on the main binaries; about 1 s each. |
 
 Structured output: `input`, `appDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`.
@@ -689,7 +689,7 @@ Rename a type, method, field, property (and accessors) or event in memory; other
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `symbol` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `newName` | string | yes |  | New name (a type: simple name without namespace). |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `kind` | string |  |  | Only resolve symbols of this kind. Values: type, method, field, property, event. |
@@ -721,7 +721,7 @@ Replace a method body with "return <value>;" ("return;" for void) in memory: for
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `value` | string |  |  | true/false, integer (decimal or 0x), float, "string" or null; omit for void or default(T). |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
@@ -736,7 +736,7 @@ Replace a method, constructor or accessor body with C# compiled against the asse
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `code` | string | yes |  | Statements of the new body only. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `dryRun` | boolean |  | `true` | true previews the IL to be written; false applies. |
@@ -751,7 +751,7 @@ Rewrite a method body from IL text, stack-validated: edit the get_il lines and p
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `method` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `il` | string | yes |  | IL instructions, one per line. |
 | `mode` | string |  | `replace` | replace swaps the body; prepend runs before it and can branch to its IL_xxxx labels. Values: replace, prepend. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
@@ -767,7 +767,7 @@ Add C# members to a class or struct; private members are accessible. No field or
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `code` | string | yes |  | C# member declarations. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
@@ -796,7 +796,7 @@ Clean transformed method bodies: fold (string decoders run in a safe IL interpre
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string |  |  | Method or type (nested included): Ns.Type::M(int), short name or token; omit: whole assembly. |
+| `symbol` | string |  |  | Method or type (nested included): Ns.Type::M(int), name or token; omit: whole assembly. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. Required without symbol. |
 | `passes` | string[] |  |  | Passes to run; omit for all three. |
 | `maxDepth` | integer |  | `8` | Max evaluation call depth. |
@@ -902,7 +902,7 @@ Write an assembly and its edits to a new file, atomically; a file changed since 
 | `assembly` | string | yes |  | Assembly id, name or path. |
 | `outputPath` | string |  |  | Output path (.wasm writes Webcil for Blazor); default ORIGINAL.patched.dll. |
 | `overwrite` | boolean |  |  | Replace an existing file, not the original. |
-| `strict` | boolean |  |  | Write nothing if the writer would change any member (default: save, list them). |
+| `strict` | boolean |  |  | Write nothing if the writer would change a member (default: save, list them). |
 | `replaceOriginal` | boolean |  |  | Replace the loaded file, keeping a .bak (needs --allow-replace-original). |
 | `versioned` | boolean |  |  | Write NAME.N.dll, the first free N. |
 
@@ -920,7 +920,7 @@ Native addresses, field offsets and tokens of an AOT method or type. script.json
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Type or member (Ns.Type::M(int), short name, token) or script.json name (List`1<int>::Add). |
+| `symbol` | string | yes |  | Type or member (Ns.Type::M(int), name, token) or script.json name (List`1<int>::Add). |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `slot` | string |  |  | With a type: a vtable slot number to resolve to its method, or all. |
 | `offset` | integer |  |  | First entry of each long list. |
@@ -969,7 +969,7 @@ Generate C++ binding code for a managed type of a Mono or AOT app: a struct that
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `type` | string | yes |  | Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `assembly` | string |  |  | Assembly id, name or path; omit: all. |
 | `members` | string |  |  | Comma-separated member names; default all but compiler-generated. |
 | `includeInherited` | boolean |  |  | Also bind inherited property getters. |
@@ -1025,7 +1025,7 @@ Imports of a native image per library, with the IAT slot code calls through; del
 | `image` | string | yes |  | Image id, name, path. |
 | `library` | string |  |  | Only this library (.dll optional). |
 | `filter` | string |  |  | Name substring (case-insensitive). |
-| `bind` | boolean |  |  | Bind each import to its export, or say why not (load_assembly loadProviders=true loads the targets). |
+| `bind` | boolean |  |  | Bind each import to its export, or say why not (load_assembly loadProviders=true loads targets). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `200` |  |
 | `includeDynamic` | boolean |  |  | Also GetProcAddress imports, marked [dynamic] (waits for the code index). |
@@ -1143,7 +1143,7 @@ Structured output: `image`, `functions`, `items`, `offset`, `total`, `engine`, `
 
 **List native globals** (read-only, idempotent, open-world, long-running)
 
-Named data of a native image outside code, from every name source, with type and size when known. An engine adds its defined data with values; get_native_type read=true reads fields.
+Named data of a native image outside code, from every name source, with type and size if known. An engine adds its defined data with values; get_native_type read=true reads fields.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1180,7 +1180,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`, `image`, `funct
 
 **Inspect native instructions** (read-only, idempotent, open-world, long-running)
 
-Instruction details at an address of a native image: encoding, operands, registers and flags read and written, memory accesses, stack change, flow and references. Walks up to 64 positions.
+Instruction details at a native address: encoding, operands, registers and flags read and written, memory accesses, stack change, flow and references. Walks up to 64 positions.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1238,7 +1238,7 @@ Structured output: `image`, `function`, `address`, `engine`, `items`, `offset`, 
 
 **Native cross-references** (read-only, idempotent, open-world, long-running)
 
-What references a native address: calls, jumps, data reads and writes, pointers and switch tables, each with its function; exports include other loaded images. direction=from lists what it references; Type::member finds struct member uses.
+What references a native address: calls, jumps, data reads and writes, pointers, switch tables, each with its function; exports include other loaded images. direction=from lists what it references; Type::member finds struct member uses.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1259,7 +1259,7 @@ Structured output: `image`, `target`, `items`, `offset`, `total`, `boundTo`, `en
 
 **Native call tree** (read-only, idempotent, open-world, long-running)
 
-Callers or callees of a native function, several levels deep across loaded images, through thunks and import slots; module!import gives its callers. Callees include GetProcAddress and virtual call targets.
+Callers or callees of a native function, several levels deep across loaded images and through thunks and import slots; module!import gives its callers. Callees include GetProcAddress and virtual call targets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1362,7 +1362,7 @@ Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `e
 
 **Native call targets** (read-only, idempotent, open-world, long-running)
 
-Resolve the targets of call and tail-jump sites, indirect ones included, with basis and confidence. An unresolved site names its reason and the trace_native_values call to follow. engine= merges that engine's targets.
+Resolve targets of call and tail-jump sites, indirect ones too, with basis and confidence. An unresolved site names its reason and the trace_native_values call to follow. engine= merges that engine's targets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1374,7 +1374,7 @@ Resolve the targets of call and tail-jump sites, indirect ones included, with ba
 | `engine` | string |  |  | auto (default): IDA or Ghidra if analyzed, else ours. Values: auto, ours, ida, ghidra. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `75` | Max sites (max 1000). |
-| `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
+| `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans answer partial. |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `image`, `scope`, `engine`, `engineNote`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `items`, `notes`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
@@ -1424,7 +1424,7 @@ Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalF
 
 **Find similar functions** (read-only, idempotent, long-running)
 
-Find functions like a given one, ranked by code shape, control flow and shared strings, constants, imports and callees. view=duplicates or clusters groups look-alike functions image-wide.
+Find functions like a given one, ranked by code shape, control flow and shared strings, constants, imports, callees. view=duplicates or clusters groups look-alike functions image-wide.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1552,7 +1552,7 @@ Emulate native code from an address: return value, registers and written strings
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `address` | string | yes |  | Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
-| `args` | string |  |  | Per calling convention: integer, address, or pointer to 'text', u'text', buf:N (zeros) or hex:41A0. |
+| `args` | string |  |  | Per calling convention: integer, address or pointer to 'text', u'text', buf:N (zeros) or hex:41A0. |
 | `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
 | `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
 | `stopAt` | string |  |  | Addresses to stop at. |
@@ -1570,7 +1570,7 @@ Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `retu
 
 **Verify native imports** (read-only, idempotent, long-running)
 
-Check P/Invoke declarations, PE imports or Mach-O load commands against library exports, as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.
+Check P/Invoke declarations, PE imports or Mach-O load commands against library exports as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1656,7 +1656,7 @@ Name a native address for every native tool and the engines; kept per file and u
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `stopOnError` | boolean |  |  | Stop at the first failing item. |
 | `showDecompile` | string |  |  | after: pseudocode after the edit; diff: its unified diff. Values: none, after, diff. |
-| `engine` | string |  |  | Engine to push to now (default: one with this image open, else at its next use). Values: auto, ida, ghidra. |
+| `engine` | string |  |  | Engine to push to now (default: the one with this image open, else next use). Values: auto, ida, ghidra. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
@@ -1677,7 +1677,7 @@ Comment a native address; undoable and pushed to the engines. append adds a line
 | `items` | string |  |  | Lines address = text, or JSON [{address, text, scope?, append?}]. |
 | `dryRun` | boolean |  | `true` | true previews; false applies. |
 | `stopOnError` | boolean |  |  | Stop at the first failing item. |
-| `engine` | string |  |  | Engine to push to now (default: one with this image open, else at its next use). Values: auto, ida, ghidra. |
+| `engine` | string |  |  | Engine to push to now (default: the one with this image open, else next use). Values: auto, ida, ghidra. |
 
 Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `items`, `pushedTo`, `digest`.
 
@@ -1834,7 +1834,7 @@ Find where a type or member of the old build went in the new one: new name, toke
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | Old build: Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), short name, token. |
+| `symbol` | string | yes |  | Old build: Type or member: Ns.Type, Ns.Outer+Inner, Ns.Type::Method(int), name, token. |
 | `oldAssembly` | string | yes |  | Old build: id, name or path. |
 | `newAssembly` | string | yes |  | New build: id, name or path. |
 | `diff` | boolean |  |  | C# diff of each pair (cut at 300 lines). |
@@ -2014,7 +2014,7 @@ Structured output: `oldImage`, `newImage`, `source`, `dryRun`, `applied`, `editI
 
 **Update work to a new build** (destructive, idempotent, long-running)
 
-Carry names, comments, types, name layers, patches, code patterns and notes from an old native build to a new one through one function match. Re-runs report already_present; .NET pairs carry notes only.
+Carry names, comments, types, name layers, patches, code patterns and notes from an old native build to a new one by one function match. Re-runs report already_present; .NET pairs carry notes only.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2138,7 +2138,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Rename or retype a decompiler local** (destructive, idempotent, open-world, long-running)
 
-Rename or retype a native pseudocode local or argument, named as decompile_native shows it (v3, a1) or stack:0x28. The first name or clear drops the edit; a type that does not fit is refused. Kept in annotations.
+Rename or retype a native pseudocode local or argument as decompile_native names it (v3, a1) or stack:0x28. The first name or clear drops the edit; a type that does not fit is refused. Kept in annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2181,7 +2181,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Native stack frame and locals** (read-only, idempotent, open-world, long-running)
 
-Stack frame of a native function as the engine has it: members with offset, name, type and size; locals=true adds decompiler locals. Offsets count from the lowest address, bracketed ones from the return address.
+Stack frame of a native function: members with offset, name, type and size; locals=true adds decompiler locals. Offsets count from the lowest address, bracketed ones from the return address.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2198,7 +2198,7 @@ Structured output: `image`, `engine`, `function`, `name`, `localSize`, `savedReg
 
 **Declare C types in the engine** (destructive, idempotent, open-world, long-running)
 
-Declare C types in the engine, replacing same-named ones; engine errors save nothing. typeName edits one enum, struct or union; delete and rename take any named type. Kept in annotations.
+Declare C types in the engine, replacing same-named ones; an engine error saves nothing. typeName edits one enum, struct or union; delete and rename take any named type. Kept in annotations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2300,7 +2300,7 @@ Structured output: `applied`, `dryRun`, `changes`, `editIds`, `failed`, `digest`
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run IDAPython against the image database and return the last expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1); the code runs with server rights and is not undoable.
+Run IDAPython on the image database; returns the last expression's value, stdout and stderr. Off unless --ida-scripting (CORVUS_IDA_SCRIPTING=1); the code runs with server rights and is not undoable.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2319,7 +2319,7 @@ Structured output: `image`, `engine`, `result`, `stdout`, `stderr`, `error`, `sa
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run a Java or Python Ghidra script against the image in one transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1); the code runs with server rights.
+Run a Java or Python Ghidra script on the image in one transaction: saved on return, rolled back on an exception. Off unless --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1); the code runs with server rights.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2461,7 +2461,7 @@ Structured output: `code`, `offset`, `nextOffset`, `totalChars`.
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or of a jar or .class via Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). Without either: disassemble_dex.
+Java source of a class or method via JADX (CORVUS_JAVA_DECOMPILER, JDK 17+), or a jar or .class via Vineflower (engine=vineflower, CORVUS_JAVA_DECOMPILER2). Without either: disassemble_dex.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2696,7 +2696,7 @@ Open a Windows minidump, an ELF or Mach-O core, or a region-set manifest and ret
 | `view` | string |  | `summary` | summary, modules, threads, memory or unloaded. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
-| `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own folder. |
+| `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own. |
 | `dacPath` | string |  |  | DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed. |
 | `downloadDac` | boolean |  |  | Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1). |
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
@@ -2714,12 +2714,12 @@ Walk the call stack of a dump thread, naming frames from loaded images, PDBs or 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dump` | string | yes |  | A .dmp path or open_minidump's id. |
-| `thread` | string |  |  | Thread id, '#index', name or 'exception' (default: faulting thread, else first). |
-| `dumpTimeContext` | boolean |  |  | Faulting thread: its context at dump time, not the exception context (.ecxr). |
+| `thread` | string |  |  | Thread id, '#index', name or 'exception' (default: faulting, else first). |
+| `dumpTimeContext` | boolean |  |  | Faulting thread: its context at dump time, not the exception's (.ecxr). |
 | `maxFrames` | integer |  | `256` | Max frames walked (up to 1024). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
-| `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own folder. |
+| `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own. |
 | `managed` | string |  | `auto` | auto: .NET frames through the DAC; off: native walk only. Values: auto, off. |
 | `maxTokens` | integer |  |  |  |
 
@@ -2733,7 +2733,7 @@ Lists the .NET GC heap of a dump or session: per-type counts and sizes, or match
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dump` | string | yes |  | A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs. |
+| `dump` | string | yes |  | A .dmp path, open_minidump's id or a session id (live-1): its program, read while it runs. |
 | `mode` | string |  | `stats` | stats (per type) or objects (one row each). Values: stats, objects. |
 | `type` | string |  |  | Type full name, '*' / '?' wildcards; default all. |
 | `minSize` | integer |  | `0` | Min object size in bytes. |
@@ -2752,7 +2752,7 @@ Read one .NET object of a dump or session: type, size, fields, a string's or box
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dump` | string | yes |  | A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs. |
+| `dump` | string | yes |  | A .dmp path, open_minidump's id or a session id (live-1): its program, read while it runs. |
 | `address` | string | yes |  | Hex address of the object. |
 | `depth` | integer |  | `1` | Levels of referenced objects expanded (up to 3). |
 | `maxFields` | integer |  | `100` | Max fields listed, nested ones included. |
@@ -2986,7 +2986,7 @@ Trace the files, registry keys, endpoints and child processes a session's progra
 |---|---|---|---|---|
 | `session` | string |  |  | Session id; start only. |
 | `action` | string |  | `list` | What to do. Values: start, stop, list, report, diff. |
-| `run` | string |  |  | Run id (tl-1; omitted: the only one); list without it or a filter lists them. |
+| `run` | string |  |  | Run id (tl-1; omitted: the only one); list without it or a filter lists runs. |
 | `a` | string |  |  | diff: the first timeline. |
 | `b` | string |  |  | diff: the second timeline. |
 | `category` | string |  |  | Only file, registry, network or process. Values: file, registry, network, process. |

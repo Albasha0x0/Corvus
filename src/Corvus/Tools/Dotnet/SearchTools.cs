@@ -12,7 +12,7 @@ namespace Corvus.Tools;
 public sealed class SearchTools(AssemblyWorkspace workspace, SearchService search, AotMetadataService aot, AotStringService aotStrings)
 {
     [McpServerTool(Name = "search_symbols", Title = "Search symbols by name", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
-    [Description("Find types and members by name across loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . " +
+    [Description("Find types and members by name in loaded assemblies: case-insensitive substring, wildcard (Get*Value?) or regex; queries with . " +
                  "or :: match full names. Exact matches first, then by name length, assembly and token.")]
     public Task<string> SearchSymbols(
         [Description("Name, substring, wildcard, regex or /pattern/.")] string query,
@@ -36,7 +36,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     private const int ValueClip = 200;
 
     [McpServerTool(Name = "search_strings", Title = "Search string literals", UseStructuredContent = true, OutputSchemaType = typeof(StringList))]
-    [Description("Find string literals (ldstr, string constants) by substring, wildcard or regex, with the method and IL offset using each. " +
+    [Description("Find string literals (ldstr, string constants) by substring, wildcard or regex, with each user's method and IL offset. " +
                  "Dummy assemblies: literals with slot RVAs and, with the binary, the functions loading them.")]
     public Task<string> SearchStrings(
         [Description("Substring, wildcard, regex or /pattern/.")] string query,
@@ -148,7 +148,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }, cancellationToken);
 
     [McpServerTool(Name = "search_il", Title = "Search IL instruction patterns", UseStructuredContent = true, OutputSchemaType = typeof(IlMatchList))]
-    [Description("Find methods containing an IL instruction sequence: ;-separated opcode [operand] elements with * and ? wildcards (operands match " +
+    [Description("Find methods with an IL instruction sequence: ;-separated opcode [operand] elements with * and ? wildcards (operands match " +
                  "names, strings, numbers); ... skips up to 16 instructions, e.g. \"ldstr *password*; ...; call *::Hash*\".")]
     public Task<string> SearchIL(
         [Description("Instruction pattern.")] string pattern,

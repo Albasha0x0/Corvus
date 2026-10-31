@@ -52,7 +52,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
-    [Description("Resolve the targets of call and tail-jump sites, indirect ones included, with basis and confidence. " +
+    [Description("Resolve targets of call and tail-jump sites, indirect ones too, with basis and confidence. " +
                  "An unresolved site names its reason and the trace_native_values call to follow. engine= merges that engine's targets.")]
     public Task<string> ResolveCallTargets(
         [Description(NativeTools.ImageDescription)] string image,

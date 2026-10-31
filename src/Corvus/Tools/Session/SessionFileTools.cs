@@ -54,7 +54,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     }, cancellationToken);
 
     [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true, OutputSchemaType = typeof(SessionLoadReport))]
-    [Description("Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots) and reapply its work. " +
+    [Description("Restore a save_session file: find each file (recorded path, relative path, else SHA-256 under searchRoots), reapply its work. " +
                  "A changed file is refused unless targetBuild=other.")]
     public Task<string> LoadSession(
         [Description("The session file.")] string path,

@@ -52,7 +52,7 @@ public sealed partial class LiveSessionTools
     public Task<string> LiveTimeline(
         [Description("Session id; start only.")] string? session = null,
         [Description("What to do.")] string action = "list",
-        [Description("Run id (tl-1; omitted: the only one); list without it or a filter lists them.")] string? run = null,
+        [Description("Run id (tl-1; omitted: the only one); list without it or a filter lists runs.")] string? run = null,
         [Description("diff: the first timeline.")] string? a = null,
         [Description("diff: the second timeline.")] string? b = null,
         [Description("Only file, registry, network or process.")] string? category = null,

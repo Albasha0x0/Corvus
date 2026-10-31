@@ -87,7 +87,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         IReadOnlyList<FrameRow> Items, int Offset, int Total, int? Frames = null);
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals", UseStructuredContent = true, OutputSchemaType = typeof(FrameReport))]
-    [Description("Stack frame of a native function as the engine has it: members with offset, name, type and size; locals=true adds " +
+    [Description("Stack frame of a native function: members with offset, name, type and size; locals=true adds " +
                  "decompiler locals. Offsets count from the lowest address, bracketed ones from the return address.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
@@ -384,7 +384,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Rename or retype a native pseudocode local or argument, named as decompile_native shows it (v3, a1) or stack:0x28. " +
+    [Description("Rename or retype a native pseudocode local or argument as decompile_native names it (v3, a1) or stack:0x28. " +
                  "The first name or clear drops the edit; a type that does not fit is refused." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
@@ -593,7 +593,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
-    [Description("Declare C types in the engine, replacing same-named ones; engine errors save nothing. typeName edits one enum, " +
+    [Description("Declare C types in the engine, replacing same-named ones; an engine error saves nothing. typeName edits one enum, " +
                  "struct or union; delete and rename take any named type." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,

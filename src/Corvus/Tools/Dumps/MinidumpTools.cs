@@ -13,9 +13,9 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
     Native.Providers.Worker.WorkerPool? workers = null)
 {
     private const string DumpDescription = "A .dmp path or open_minidump's id.";
-    private const string HeapSourceDescription = "A .dmp path, open_minidump's id, or a session id (live-1): its program, read while it runs.";
+    private const string HeapSourceDescription = "A .dmp path, open_minidump's id or a session id (live-1): its program, read while it runs.";
     private const string ImageDirectoriesDescription =
-        "Program binary folders (';'-separated), kept for the dump, plus its own folder.";
+        "Program binary folders (';'-separated), kept for the dump, plus its own.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
     [Description("Open a Windows minidump, an ELF or Mach-O core, or a region-set manifest and return its id. view=summary shows the " +
@@ -72,8 +72,8 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
                  "offset and C# statement.")]
     public Task<string> DumpStack(
         [Description(DumpDescription)] string dump,
-        [Description("Thread id, '#index', name or 'exception' (default: faulting thread, else first).")] string? thread = null,
-        [Description("Faulting thread: its context at dump time, not the exception context (.ecxr).")] bool dumpTimeContext = false,
+        [Description("Thread id, '#index', name or 'exception' (default: faulting, else first).")] string? thread = null,
+        [Description("Faulting thread: its context at dump time, not the exception's (.ecxr).")] bool dumpTimeContext = false,
         [Description("Max frames walked (up to 1024).")] int maxFrames = 256,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,

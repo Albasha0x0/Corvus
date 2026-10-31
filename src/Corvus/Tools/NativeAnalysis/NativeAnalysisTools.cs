@@ -223,7 +223,7 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify native imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
-    [Description("Check P/Invoke declarations, PE imports or Mach-O load commands against library exports, as the loader resolves them. " +
+    [Description("Check P/Invoke declarations, PE imports or Mach-O load commands against library exports as the loader resolves them. " +
                  "Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.")]
     public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,

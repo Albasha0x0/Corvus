@@ -87,7 +87,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, AotMetadataServi
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", UseStructuredContent = true, OutputSchemaType = typeof(ImageChange))]
     [Description("Load a .NET assembly, a folder, or a native image (PE, ELF, Mach-O, wasm). An AOT build (global-metadata.dat v24-39) " +
-                 "loads from its folder, global-metadata.dat or package as dummy assemblies with addresses, plus its binary. A repeat load is a no-op.")]
+                 "loads from its folder, global-metadata.dat or package as dummy assemblies with addresses and its binary. A repeat load is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path: a file, a folder (native files skipped), an AOT build, package or memory dump, or a Ghidra .gzf / .gpr (copied).")] string path,
         [Description("Also load assemblies in subdirectories.")] bool recursive = false,

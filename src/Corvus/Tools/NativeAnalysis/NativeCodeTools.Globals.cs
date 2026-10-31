@@ -37,7 +37,7 @@ public sealed partial class NativeCodeTools
     private const int MaxEngineData = 300_000;
 
     [McpServerTool(Name = "list_globals", Title = "List native globals", UseStructuredContent = true, OutputSchemaType = typeof(GlobalList))]
-    [Description("Named data of a native image outside code, from every name source, with type and size when known. An engine adds its " +
+    [Description("Named data of a native image outside code, from every name source, with type and size if known. An engine adds its " +
                  "defined data with values; get_native_type read=true reads fields.")]
     public Task<string> ListGlobals(
         [Description(NativeTools.ImageDescription)] string image,

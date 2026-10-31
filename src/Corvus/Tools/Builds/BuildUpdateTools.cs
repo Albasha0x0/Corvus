@@ -83,7 +83,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true, OutputSchemaType = typeof(UpdateReport))]
     [Description("Carry names, comments, types, name layers, patches, code patterns and notes from an old native build to a new one " +
-                 "through one function match. Re-runs report already_present; .NET pairs carry notes only.")]
+                 "by one function match. Re-runs report already_present; .NET pairs carry notes only.")]
     public Task<string> UpdateToNewBuild(
         [Description("Old build: image id or path.")] string oldImage,
         [Description("New build: image id or path.")] string newImage,
