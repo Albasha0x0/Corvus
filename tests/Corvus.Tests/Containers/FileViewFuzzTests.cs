@@ -96,6 +96,7 @@ public sealed class FileViewFuzzTests : IDisposable
     public void Fuzzed_saved_pages_never_throw_past_a_tool_error() => Fuzz(new PageFileView(), "page.html", 300,
         Encoding.UTF8.GetBytes("<!doctype html><!-- saved from url=(0024)https://a.example.com/ --><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'nonce-a' 'sha256-x'\">" +
             "<script nonce=a>go()</script><script src=\"data:text/javascript;base64,Z28oKQ==\" integrity=\"sha256-x sha384-y\"></script>" +
+            "<form method=post action=https://b.example.net/x><input type=password></form><meta http-equiv=refresh content=\"0;url=https://c.example/\"><script>location.href='https://d.example/'</script>" +
             "<script type=importmap>{\"imports\":{\"a\":\"https://b.example.net/a.js\"},\"scopes\":{\"/s/\":{\"a\":\"./a.js\"}}}</script>"));
 
     [Fact]

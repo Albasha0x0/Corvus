@@ -341,7 +341,7 @@ public static partial class SavedPage
     }
 
     /// <summary>A start tag's attributes, names lowercased, values entity-decoded; the first of a repeated name wins as in HTML.</summary>
-    private static Dictionary<string, string> Attributes(string text)
+    internal static Dictionary<string, string> Attributes(string text)
     {
         var a = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (Match m in Attribute().Matches(text))

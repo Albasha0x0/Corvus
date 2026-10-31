@@ -199,6 +199,10 @@ public static class FindingRules
         R("installer/suspicious", "an installer action or keyword worth reviewing"),
         I("installer/ioc", "a URL, address or file name in installer script"),
         N("page/blob-payload", "exact form: a standalone page's own script builds a Blob from a base64 literal over 4 KiB that decodes to an archive, program or document, and saves it", "a page builds a file in a Blob and saves it"),
+        R("page/foreign-form", "a POST form whose action is an absolute http(s) URL, a different origin from the saved file"),
+        R("page/password-foreign-form", "a password input in a POST form to an absolute http(s) URL"),
+        R("page/meta-refresh", "a meta refresh that redirects to a URL"),
+        R("page/script-redirect", "script that assigns location a URL literal or calls location.replace or location.assign with one"),
         R("capture/pattern", "a request pattern worth reviewing in captured traffic"),
         N("malcontent/*", "pack risk critical", "a malcontent behaviour"),
     ];

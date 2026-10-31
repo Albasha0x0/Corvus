@@ -3,7 +3,7 @@ using Corvus.Services.Web.Scripts;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>view=page: a saved web page's scripts with Subresource Integrity checked, import maps and meta CSP; nothing is fetched or run.</summary>
+/// <summary>view=page: a saved web page's or SVG's redirects and cross-origin forms, scripts with Subresource Integrity checked, import maps and meta CSP; nothing is fetched or run.</summary>
 internal sealed class PageFileView : IFileSummaryView
 {
     private const long MaxPage = 16L << 20;
@@ -18,7 +18,7 @@ internal sealed class PageFileView : IFileSummaryView
         if (file.Length > MaxPage || file.Streamed || file.Kind is not ("text" or "data" or "html")) return null;
         var ext = Path.GetExtension(file.Path).ToLowerInvariant();
         var text = ScriptText.Decode(file.Bytes, out _);
-        if (ext is not (".html" or ".htm" or ".xhtml") && !text.AsSpan(0, Math.Min(text.Length, 512)).TrimStart().StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase)) return null;
+        if (ext is not (".html" or ".htm" or ".xhtml" or ".svg") && !text.AsSpan(0, Math.Min(text.Length, 512)).TrimStart().StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase)) return null;
         var page = SavedPage.Read(text, file.Path, ct);
         var review = new List<string>();
         foreach (var r in page.Resources)
@@ -30,8 +30,11 @@ internal sealed class PageFileView : IFileSummaryView
         }
         review.AddRange(page.Policies.SelectMany(SavedPage.Weaknesses).Distinct());
         review.AddRange(page.Imports.Where(i => i.OtherOrigin).Take(20).Select(i => $"import map: {i.Specifier} maps to {i.Address}"));
+        var findings = PageRedirects.Find(text, ct);
+        // An SVG is read for its redirects only.
+        if (ext == ".svg" && findings.Count == 0) return null;
         var facts = new Facts(page.Url, page.Title, page.Resources, page.Imports, page.ModuleIntegrity, page.Policies, review, page.Notes);
-        return new FileView(facts, Highlights(page, review));
+        return new FileView(facts, Highlights(page, review)) { Findings = findings };
     }
 
     private static List<string> Highlights(SavedPage.Page p, List<string> review)
