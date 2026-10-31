@@ -28,6 +28,15 @@ public sealed class NativeEmulationTests
     }
 
     [Fact]
+    public void Stubs_split_on_commas_and_semicolons()
+    {
+        Assert.Equal(["a=1", "*=0", "b=2"], NativeEmulationTools.StubItems("a=1;*=0,b=2"));
+        Assert.Equal(["a=1", "*=0"], NativeEmulationTools.StubItems("a=1;*=0"));
+        Assert.Equal(["a=1", "b=2"], NativeEmulationTools.StubItems("a=1;;b=2,"));
+        Assert.Equal(["a='x;y'=1", "b=2"], NativeEmulationTools.StubItems("a='x;y'=1;b=2"));
+    }
+
+    [Fact]
     public void Candidate_sets_split_on_semicolons_outside_quotes()
     {
         Assert.Equal(["1, 2", "\"a;b\", 3"], NativeEmulationTools.Split("1, 2; \"a;b\", 3", ';'));

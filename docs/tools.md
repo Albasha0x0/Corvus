@@ -1555,7 +1555,7 @@ Emulate native code from an address: return value, registers and written strings
 | `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
 | `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
 | `stopAt` | string |  |  | Addresses to stop at. |
-| `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
+| `stubs` | string |  |  | Calls not run: name=value separated by , or ; (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
 | `read` | string |  |  | Shown after the run: ADDR or register, space, length (rcx 64). |
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |

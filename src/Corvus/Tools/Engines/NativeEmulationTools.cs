@@ -34,7 +34,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("rcx=0x10, rdx='key' (values as args).")] string? registers = null,
         [Description("ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000.")] string? memory = null,
         [Description("Addresses to stop at.")] string? stopAt = null,
-        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image).")] string? stubs = null,
+        [Description("Calls not run: name=value separated by , or ; (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image).")] string? stubs = null,
         [Description("Shown after the run: ADDR or register, space, length (rcx 64).")] string? read = null,
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
@@ -110,7 +110,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         if (memory != null) request["memory"] = new JsonArray([.. Split(memory).Select(parse.Memory)]);
         if (stopAt != null) request["stops"] = new JsonArray([.. Split(stopAt).Select(s => (JsonNode)Hex(parse.Va(s)))]);
         if (stubs != null)
-            request["stubs"] = new JsonArray([.. Split(stubs).Select(item => (JsonNode)new JsonArray(Key(item, "stubs"),
+            request["stubs"] = new JsonArray([.. StubItems(stubs).Select(item => (JsonNode)new JsonArray(Key(item, "stubs"),
                 Hex(Integer(After(item)) ?? throw new ToolError(ErrorCode.InvalidArgument, $"The stub value in '{item}' is not an integer."))))]);
         if (read != null) request["reads"] = new JsonArray([.. Split(read).Select(parse.Read)]);
         if (parse.ScratchBytes > MaxScratchBytes) throw new ToolError(ErrorCode.LimitExceeded, $"args and registers copy {parse.ScratchBytes} bytes; the scratch area holds {MaxScratchBytes}.");
@@ -418,6 +418,9 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         if (sb.ToString().Trim() is { Length: > 0 } last) items.Add(last);
         return items;
     }
+
+    /// <summary>Stub items separated by ',' or ';' outside quotes.</summary>
+    internal static List<string> StubItems(string stubs) => [.. Split(stubs).SelectMany(i => Split(i, ';'))];
 
     private static string Key(string item, string parameter)
     {
