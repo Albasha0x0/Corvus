@@ -31,6 +31,13 @@ public class NativeAddressTests
     }
 
     [Fact]
+    public void A_resolved_bare_import_slot_is_named_with_its_module()
+    {
+        var index = NativeCodeIndex.Build(ImportImage());
+        Assert.Equal("KERNEL32!Sleep", index.NameAt(NativeAddress.Parse(index.Image, "Sleep")));
+    }
+
+    [Fact]
     public void A_bare_import_resolves_on_a_MachO_image_without_the_underscore()
     {
         var image = CodeTestImage.Synthetic(NativeArch.Arm64, new byte[0x40], imports: [new("libSystem.B.dylib", "_Sleep", null, 0, 0x2000, false)], format: ImageFormat.MachO);
@@ -72,7 +79,9 @@ public class NativeAddressTests
     [Fact]
     public void An_unknown_bare_import_is_not_found()
     {
-        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => NativeAddress.Parse(ImportImage(), "Missing")).Code);
+        var e = Assert.Throws<ToolError>(() => NativeAddress.Parse(ImportImage(), "Missing"));
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+        Assert.Contains("module!import", e.Remediation);
     }
 
     [Fact]
