@@ -11,7 +11,7 @@ public sealed class AotBuildModel
     public const string FileName = "aot-model.bin";
     // "2IPM" little-endian.
     private const uint Magic = 0x4D504932;
-    private const int FormatVersion = 1;
+    private const int FormatVersion = 2;
 
     public required string BinaryPath { get; init; }
     public required string MetadataPath { get; init; }
@@ -35,6 +35,10 @@ public sealed class AotBuildModel
     /// <summary>Function starts that are not method code: invokers, generic method pointers, reverse P/Invoke wrappers.</summary>
     public uint[] Addresses { get; init; } = [];
     public List<Unreadable> Unreadables { get; init; } = [];
+    /// <summary>Image names that <see cref="SlotRef.Image"/> indexes.</summary>
+    public string[] VtableImages { get; init; } = [];
+    /// <summary>The vtable of each type that has one, in slot order.</summary>
+    public List<Vtable> Vtables { get; init; } = [];
     /// <summary>Counts: images, types, methods, fields, methods with code.</summary>
     public int Images { get; init; }
     public int Types { get; init; }
@@ -45,6 +49,24 @@ public sealed class AotBuildModel
 
     /// <summary>A ScriptMethod entry: RVA, script.json name, and the image and token of the definition it instantiates.</summary>
     public readonly record struct Entry(uint Address, string Name, string Image, uint Token);
+
+    /// <summary>A slot's method by image index and token; token 0 means no method.</summary>
+    public readonly record struct SlotRef(int Image, uint Method);
+
+    /// <summary>The vtable of one type; slot n is Slots[n].</summary>
+    public readonly record struct Vtable(int Image, uint Type, SlotRef[] Slots);
+
+    /// <summary>Returns a type's vtable by image name and token, or null if absent.</summary>
+    public Vtable? VtableOf(string image, uint type)
+    {
+        _vtableIndex ??= Vtables
+            .GroupBy(v => (Path.GetFileNameWithoutExtension(VtableImages[v.Image]).ToLowerInvariant(), v.Type))
+            .ToDictionary(g => g.Key, g => g.First());
+        var key = (Path.GetFileNameWithoutExtension(image).ToLowerInvariant(), type);
+        return _vtableIndex.TryGetValue(key, out var v) ? v : null;
+    }
+
+    private Dictionary<(string, uint), Vtable>? _vtableIndex;
 
     /// <summary>An item that could not be read: what it is, a reason code (snake_case) and the detail.</summary>
     public readonly record struct Unreadable(string Item, string Reason, string Detail);
@@ -72,6 +94,14 @@ public sealed class AotBuildModel
             foreach (var a in Addresses) w.Write(a);
             w.Write(Unreadables.Count);
             foreach (var u in Unreadables) { w.Write(u.Item); w.Write(u.Reason); w.Write(u.Detail); }
+            w.Write(VtableImages.Length);
+            foreach (var image in VtableImages) w.Write(image);
+            w.Write(Vtables.Count);
+            foreach (var v in Vtables)
+            {
+                w.Write(v.Image); w.Write(v.Type); w.Write(v.Slots.Length);
+                foreach (var slot in v.Slots) { w.Write(slot.Image); w.Write(slot.Method); }
+            }
         }
         File.Move(tmp, path, overwrite: true);
     }
@@ -116,8 +146,24 @@ public sealed class AotBuildModel
             n = Count(r, stream);
             var unreadable = new List<Unreadable>(n);
             for (int i = 0; i < n; i++) unreadable.Add(new Unreadable(r.ReadString(), r.ReadString(), r.ReadString()));
+            n = Count(r, stream);
+            var vtableImages = new string[n];
+            for (int i = 0; i < n; i++) vtableImages[i] = r.ReadString();
+            n = Count(r, stream);
+            var vtables = new List<Vtable>(n);
+            for (int i = 0; i < n; i++)
+            {
+                int image = r.ReadInt32();
+                uint type = r.ReadUInt32();
+                var refs = new SlotRef[Count(r, stream)];
+                for (int k = 0; k < refs.Length; k++) refs[k] = new SlotRef(r.ReadInt32(), r.ReadUInt32());
+                if (image < 0 || image >= vtableImages.Length || refs.Any(x => x.Method != 0 && (x.Image < 0 || x.Image >= vtableImages.Length)))
+                    throw new IOException("damaged model file: bad vtable image index");
+                vtables.Add(new Vtable(image, type, refs));
+            }
             return new AotBuildModel
             {
+                VtableImages = vtableImages, Vtables = vtables,
                 BinaryPath = binary, MetadataPath = metadata, MetadataVersion = version, HeaderVersion = header, EngineVersion = engine,
                 EngineVersionSource = engineSource, ImageBase = imageBase, MemoryImage = memory, Images = images, Types = types,
                 MethodDefinitions = methodDefs, Fields = fields, MethodsWithCode = withCode, ReadTime = readTime,

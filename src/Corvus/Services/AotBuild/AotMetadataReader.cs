@@ -715,6 +715,9 @@ public static class AotMetadataReader
                     : "no slot holds their encoded index (literals only reachable through generic or unused code have none)")
                 + "; they are not in the literal table (the metadata's full list is in the model)");
 
+        progress?.Invoke("vtables");
+        var (vtableImages, vtables) = AotVtables.Read(meta, s.Unreadable, ct);
+
         // Dummy assemblies.
         progress?.Invoke("dummy assemblies");
         var builder = new AotDummyBuilder(meta, bin, (m, _) => addressOf.TryGetValue(m, out var a) ? a : null, s.Unreadable);
@@ -731,7 +734,7 @@ public static class AotMetadataReader
             LiteralValues = literalValues, LiteralSlots = literalSlots, Methods = methods, Metadata = slots, MethodInfos = infos,
             Addresses = starts.Distinct().Order().ToArray(), Unreadables = s.Unreadables,
             Images = meta.imageDefinitions.Length, Types = builder.Types, MethodDefinitions = builder.Methods, Fields = builder.Fields,
-            MethodsWithCode = builder.MethodsWithCode,
+            MethodsWithCode = builder.MethodsWithCode, VtableImages = vtableImages, Vtables = vtables,
         };
     }
 }

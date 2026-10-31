@@ -85,7 +85,7 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
             if (sym.Member is TypeDef t)
             {
                 if (image?.Script is { } script) AppendTypeMetadata(sb, script, t, offset, limit, facts);
-                if (slot != null) { AppendSlot(sb, t, slot, offset, limit, facts); any = true; }
+                if (slot != null) { AppendSlot(sb, t, image, slot, offset, limit, facts); any = true; }
                 else
                 {
                     foreach (var f in t.Fields)
@@ -217,17 +217,28 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
         AppendMore(sb, offset, limit, slots.Count, "    ");
     }
 
-    private void AppendSlot(StringBuilder sb, TypeDef type, string slot, int offset, int limit, Facts facts)
+    private void AppendSlot(StringBuilder sb, TypeDef type, AotNavigator.Image? image, string slot, int offset, int limit, Facts facts)
     {
-        var vtable = AotNavigator.VTable(type);
+        var fromMetadata = image != null ? navigator.MetadataVtable(image, type) : null;
+        // A metadata vtable with no loaded method adds nothing over the Slot values.
+        string? fallbackNote = image?.ModelProblem is { } problem ? $"metadata vtable unavailable: {problem}; showing Slot values" : null;
+        if (fromMetadata != null && !fromMetadata.Any(e => e.Method != null))
+        {
+            fallbackNote = "metadata vtable names no loaded method; showing Slot values";
+            fromMetadata = null;
+        }
+        if (fallbackNote != null) sb.AppendLine($"  {fallbackNote}");
+        var vtable = fromMetadata ?? AotNavigator.VTable(type).Select(kv => new AotNavigator.MetadataSlot(kv.Key, kv.Value, null)).ToList();
         if (slot.Trim().Equals("all", StringComparison.OrdinalIgnoreCase))
         {
-            sb.AppendLine($"  vtable slots declared by it and its base types: {vtable.Count}{Showing(offset, limit, vtable.Count)}");
+            sb.AppendLine(fromMetadata != null
+                ? $"  vtable slots from the metadata, inherited ones included: {vtable.Count}{Showing(offset, limit, vtable.Count)}"
+                : $"  vtable slots declared by it and its base types: {vtable.Count}{Showing(offset, limit, vtable.Count)}");
             var page = new List<MethodAddressRow>();
-            foreach (var (n, m) in vtable.Skip(offset).Take(limit))
+            foreach (var entry in vtable.Skip(offset).Take(limit))
             {
-                sb.AppendLine($"    slot {n}: {SlotLine(type, m)}");
-                page.Add(SlotRow(type, n, m));
+                sb.AppendLine($"    slot {entry.Slot}: {(entry.Method != null ? SlotLine(type, entry.Method) : entry.Note)}");
+                page.Add(SlotRow(type, entry));
             }
             facts.Page(page, vtable.Count);
             AppendMore(sb, offset, limit, vtable.Count, "    ");
@@ -235,14 +246,22 @@ public sealed class MethodAddressTools(AssemblyWorkspace workspace, AotMetadataS
         }
         if (AotMetadataService.ParseNumber(slot) is not { } number || number > int.MaxValue)
             throw new ToolError(ErrorCode.InvalidArgument, $"slot '{slot}' is not a number or 'all'.", "pass a vtable slot number, or slot=all to list them");
-        if (vtable.TryGetValue((int)number, out var method))
+        if (vtable.FirstOrDefault(e => e.Slot == (int)number) is { } found)
         {
-            sb.AppendLine($"  slot {number}: {SlotLine(type, method)}");
-            facts.Members.Add(SlotRow(type, (int)number, method));
+            sb.AppendLine($"  slot {number}: {(found.Method != null ? SlotLine(type, found.Method) : found.Note)}");
+            facts.Members.Add(SlotRow(type, found));
         }
         else
-            sb.AppendLine($"  slot {number}: no method of {type.FullName} or its base types declares it" +
-                          (vtable.Count > 0 ? $" (declared slots: {vtable.Keys.First()}-{vtable.Keys.Last()})" : " (no slots: the dummy methods carry no Slot values)"));
+            sb.AppendLine(fromMetadata != null
+                ? $"  slot {number}: {type.FullName} has {vtable.Count} vtable slots in the metadata"
+                : $"  slot {number}: no method of {type.FullName} or its base types declares it" +
+                  (vtable.Count > 0 ? $" (declared slots: {vtable[0].Slot}-{vtable[^1].Slot})" : " (no slots: the dummy methods carry no Slot values)"));
+    }
+
+    private MethodAddressRow SlotRow(TypeDef type, AotNavigator.MetadataSlot entry)
+    {
+        var number = entry.Slot.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return entry.Method != null ? SlotRow(type, entry.Slot, entry.Method) : new MethodAddressRow("vtable_slot", "(no method)") { Slot = number, Detail = entry.Note };
     }
 
     private MethodAddressRow SlotRow(TypeDef type, int slot, MethodDef m)

@@ -14,6 +14,7 @@ public sealed class AotNavigator(AssemblyWorkspace workspace, AotMetadataService
     private readonly object _lock = new();
     private (int Generation, Dictionary<string, AotStringService.MethodStarts> Maps) _undumped = (-1, new());
     private (int Generation, Dictionary<string, Dictionary<int, List<ResolvedSymbol>>> Maps) _typeKeys = (-1, new());
+    private (int Generation, Dictionary<string, Dictionary<uint, MethodDef>> Maps) _methodTokens = (-1, new());
 
     /// <summary>Whether any method of <paramref name="asm"/> carries a valid [Address] attribute.</summary>
     public bool HasAddresses(LoadedAssembly asm) => aot.GetIndex(asm).Count > 0;
@@ -39,6 +40,22 @@ public sealed class AotNavigator(AssemblyWorkspace workspace, AotMetadataService
         /// <summary>Dummy methods by RVA (of every loaded assembly of the dump).</summary>
         public AotStringService.MethodStarts Methods { get; }
         public AotScript? Script { get; }
+        /// <summary>The dump's build model; null when it has none or cannot be read.</summary>
+        public AotBuildModel? Model
+        {
+            get
+            {
+                if (_modelRead || Dump?.Files.Model is not { } path) return _model;
+                _modelRead = true;
+                try { _model = AotBuildLoader.Model(path); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException) { ModelProblem = ex.Message; }
+                return _model;
+            }
+        }
+        /// <summary>Why the build model could not be read; null when it was read or absent.</summary>
+        public string? ModelProblem { get; private set; }
+        private AotBuildModel? _model;
+        private bool _modelRead;
         /// <summary>Why script.json could not be used.</summary>
         public string? Problem { get; }
         public uint[] Starts => Script?.FunctionStarts ?? Methods.Starts;
@@ -384,6 +401,48 @@ public sealed class AotNavigator(AssemblyWorkspace workspace, AotMetadataService
                     (map.TryGetValue(hash, out var list) ? list : map[hash] = []).Add(new ResolvedSymbol(asm, t));
                 }
             return _typeKeys.Maps[key] = map;
+        }
+    }
+
+    /// <summary>One slot of a type's metadata vtable: its method, or null with the reason it has none.</summary>
+    public sealed record MetadataSlot(int Slot, MethodDef? Method, string? Note);
+
+    /// <summary>Returns the metadata vtable of a type in slot order, or null if none.</summary>
+    public List<MetadataSlot>? MetadataVtable(Image image, TypeDef type)
+    {
+        if (image.Model is not { } model || type.Module?.Assembly?.Name is not { } assembly) return null;
+        if (TokenOf(type) is not { } token) return null;
+        if (model.VtableOf(assembly, token) is not { } vtable) return null;
+        var slots = new List<MetadataSlot>(vtable.Slots.Length);
+        for (int n = 0; n < vtable.Slots.Length; n++)
+        {
+            var (imageIndex, method) = vtable.Slots[n];
+            if (method == 0) { slots.Add(new(n, null, "no method definition (an empty slot or an instantiated generic method)")); continue; }
+            var name = model.VtableImages[imageIndex];
+            slots.Add(MethodByToken(image, name, method) is { } found
+                ? new(n, found, null)
+                : new(n, null, $"method 0x{method:X8} of {name}, which is not loaded"));
+        }
+        return slots;
+    }
+
+    private MethodDef? MethodByToken(Image image, string imageName, uint token)
+    {
+        var assembly = Path.GetFileNameWithoutExtension(imageName);
+        using (AssemblyWorkspace.Lock(_lock))
+        {
+            if (_methodTokens.Generation != workspace.Generation) _methodTokens = (workspace.Generation, new());
+            var key = assembly.ToLowerInvariant();
+            if (!_methodTokens.Maps.TryGetValue(key, out var map))
+            {
+                map = new Dictionary<uint, MethodDef>();
+                foreach (var asm in image.Assemblies.Where(a => string.Equals(a.Module.Assembly?.Name, assembly, StringComparison.OrdinalIgnoreCase)))
+                    foreach (var t in asm.Module.GetTypes())
+                        foreach (var m in t.Methods)
+                            if (TokenOf(m) is { } original) map.TryAdd(original, m);
+                _methodTokens.Maps[key] = map;
+            }
+            return map.GetValueOrDefault(token);
         }
     }
 

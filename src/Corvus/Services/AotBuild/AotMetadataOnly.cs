@@ -93,8 +93,10 @@ public static class AotMetadataOnly
                         try { literals[i] = meta.GetStringLiteralFromIndex(i); }
                         catch (Exception ex) when (ex is not OutOfMemoryException) { literals[i] = ""; unreadable.Add(new($"string literal {i}", "unreadable_literal", ex.Message)); }
                     }
+                    var (vtableImages, vtables) = AotVtables.Read(meta, (item, reason, detail) => unreadable.Add(new(item, reason, detail)), ct);
                     var model = new AotBuildModel
                     {
+                        VtableImages = vtableImages, Vtables = vtables,
                         BinaryPath = "", MetadataPath = Path.GetFullPath(files.Metadata), MetadataVersion = meta.MetadataVersion, HeaderVersion = header,
                         EngineVersion = version.ToString(), EngineVersionSource = source, ImageBase = 0, MemoryImage = false,
                         LiteralValues = literals, LiteralSlots = new uint[literals.Length], Unreadables = unreadable,

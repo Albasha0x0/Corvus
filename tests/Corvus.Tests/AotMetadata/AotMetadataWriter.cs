@@ -28,6 +28,15 @@ internal sealed class AotMetadataWriter
         return this;
     }
 
+    /// <summary>Sets the vtable of Program to these encoded method usages ((kind &lt;&lt; 29) | index).</summary>
+    public AotMetadataWriter Vtable(params uint[] usages)
+    {
+        _vtable = usages;
+        return this;
+    }
+
+    private uint[] _vtable = [];
+
     /// <summary>Adds an assembly (and its image); <paramref name="token"/> is the 8-byte public key token or null.</summary>
     public AotMetadataWriter Assembly(string name, string version, byte[]? token = null)
     {
@@ -66,16 +75,16 @@ internal sealed class AotMetadataWriter
         }
         var types = new MemoryStream();
         var tw = new BinaryWriter(types);
-        void Type(string ns, string typeName, int firstField, int firstMethod, ushort methods, ushort fields, int token)
+        void Type(string ns, string typeName, int firstField, int firstMethod, ushort methods, ushort fields, int token, ushort vtable = 0)
         {
             // Type: name, namespace, byval, declaring, parent, element, generic container, flags, first field, method, event,
             // property, nested type, interfaces, vtable, interface offsets; then eight counts and the bitfield and token.
-            foreach (var v in new[] { String(typeName), String(ns), 0, -1, -1, -1, -1, 0x100001, firstField, firstMethod, -1, -1, -1, -1, -1, -1 }) tw.Write(v);
-            foreach (var c in new ushort[] { methods, 0, fields, 0, 0, 0, 0, 0 }) tw.Write(c);
+            foreach (var v in new[] { String(typeName), String(ns), 0, -1, -1, -1, -1, 0x100001, firstField, firstMethod, -1, -1, -1, -1, vtable > 0 ? 0 : -1, -1 }) tw.Write(v);
+            foreach (var c in new ushort[] { methods, 0, fields, 0, 0, vtable, 0, 0 }) tw.Write(c);
             tw.Write(0);
             tw.Write(token);
         }
-        Type("", "Program", _fields.Count > 0 ? 0 : -1, -1, 0, (ushort)_fields.Count, 0x02000002);
+        Type("", "Program", _fields.Count > 0 ? 0 : -1, -1, 0, (ushort)_fields.Count, 0x02000002, (ushort)_vtable.Length);
         var methods = new MemoryStream();
         var mw = new BinaryWriter(methods);
         for (int a = 0; a < attributeTypes.Count; a++)
@@ -108,8 +117,11 @@ internal sealed class AotMetadataWriter
             rw.Write((int)data.Length);
         }
 
+        var vtableBlob = new MemoryStream();
+        foreach (var usage in _vtable) vtableBlob.Write(BitConverter.GetBytes(usage));
         var blobs = new Dictionary<string, byte[]>
         {
+            ["vtableMethods"] = vtableBlob.ToArray(),
             ["string"] = strings.ToArray(), ["typeDefinitions"] = types.ToArray(), ["images"] = images.ToArray(), ["assemblies"] = assemblies.ToArray(),
             ["methods"] = methods.ToArray(), ["fields"] = fieldDefs.ToArray(), ["attributeData"] = data.ToArray(), ["attributeDataRange"] = dataRanges.ToArray(),
         };
