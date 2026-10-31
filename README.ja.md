@@ -54,7 +54,7 @@ curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install
 | ネットワークキャプチャ | pcap ストリーム、HTTP オブジェクト、キーログで復号した TLS | なし |
 | Android | マニフェスト、リソース、DEX、Java | Java には JADX、デバイスには adb |
 | クラッシュダンプ | ミニダンプ、コアダンプ、スタック、.NET ヒープ | なし |
-| 実行中のプログラム | 停止ポイント、呼び出しの記録、コードカバレッジ | Frida 17.24.3 以降の 17.x、既定ではオフ |
+| 実行中のプログラム | 停止ポイント、呼び出しの記録、コードカバレッジ | Frida 17.24.3 から 17.24.x、既定ではオフ |
 
 全 165 ツールと 15 プロンプト：[機能](docs/features.md)、[ツールリファレンス](docs/tools.md)。
 

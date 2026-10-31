@@ -54,7 +54,7 @@ curl -fsSL https://github.com/Albasha0x0/Corvus/releases/latest/download/install
 | 网络捕获 | pcap 流、HTTP 对象、借助密钥日志解密的 TLS | 无 |
 | Android | 清单、资源、DEX、Java | Java 需要 JADX，设备需要 adb |
 | 崩溃转储 | 小型转储、核心转储、堆栈、.NET 堆 | 无 |
-| 运行中的程序 | 停止点、调用记录、代码覆盖率 | Frida 17.24.3 或更新的 17.x；默认关闭 |
+| 运行中的程序 | 停止点、调用记录、代码覆盖率 | Frida 17.24.3 至 17.24.x；默认关闭 |
 
 全部 165 个工具和 15 个提示：[功能](docs/features.md)、[工具参考](docs/tools.md)。
 

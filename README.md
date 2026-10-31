@@ -55,7 +55,7 @@ The installer verifies the download and registers Corvus with the MCP clients it
 | Network captures | pcap streams, HTTP objects, TLS with a key log | nothing |
 | Android | manifest, resources, DEX, Java | JADX for Java, adb for devices |
 | Crash dumps | minidumps, core dumps, stacks, .NET heap | nothing |
-| Running programs | stop points, call recording, code coverage | Frida 17.24.3 or newer 17.x; off by default |
+| Running programs | stop points, call recording, code coverage | Frida 17.24.3 to 17.24.x; off by default |
 
 All 165 tools and 15 prompts: [features](docs/features.md), [tool reference](docs/tools.md).
 

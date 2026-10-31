@@ -60,7 +60,7 @@ public sealed class LiveSessionErrorTests : IDisposable
     [Fact]
     public async Task A_Frida_outside_the_tested_range_opens_with_a_warning_and_one_too_old_is_refused()
     {
-        foreach (var (version, warned) in new[] { ("18.0.1", true), ("17.24.3", false) })
+        foreach (var (version, warned) in new[] { ("18.0.1", true), ("17.25.0", true), ("17.24.3", false), ("17.24.9", false) })
         {
             using var service = new LiveSessionService(_workspace, new NativeCodeService(_workspace, SharedCodeIndex.Options()))
                 { Backend = new ScriptedLiveBackend(Sqlite, Base, 0x200000) { FridaVersion = version } };

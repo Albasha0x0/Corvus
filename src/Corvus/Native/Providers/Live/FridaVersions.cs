@@ -7,11 +7,13 @@ public static class FridaVersions
 {
     /// <summary>Process.attachModuleObserver and the 17.x Module API; older releases are refused.</summary>
     public static readonly Version Required = new(17, 0, 0);
-    /// <summary>The oldest release the live tests passed on; the range ends before the next major release.</summary>
+    /// <summary>The oldest release the live tests passed on.</summary>
     public static readonly Version TestedFrom = new(17, 24, 3);
-    public const int TestedMajor = 17;
+    /// <summary>The first release outside the range: on 17.25.0 a program that starts a child process ends with an
+    /// access violation and a managed program's assembly load is not reported (Windows x64).</summary>
+    public static readonly Version TestedBefore = new(17, 25, 0);
 
-    public static string TestedRange => $"{TestedFrom} to {TestedMajor}.x";
+    public static string TestedRange => $"{TestedFrom} to {TestedBefore.Major}.{TestedBefore.Minor - 1}.x";
 
     /// <summary>The leading major.minor.patch of a version string (17.24.3, 17.5.0-dev.3); null when it has none.</summary>
     public static Version? Parse(string? version)
@@ -27,7 +29,7 @@ public static class FridaVersions
         return new Version(numbers[0], numbers[1], numbers[2]);
     }
 
-    public static bool Tested(Version v) => v >= TestedFrom && v.Major == TestedMajor;
+    public static bool Tested(Version v) => v >= TestedFrom && v < TestedBefore;
 
     /// <summary>Why sessions cannot run on this Frida (provider_unavailable), or null.</summary>
     public static string? Refusal(string? version) => Parse(version) is { } v && v < Required

@@ -50,7 +50,7 @@ public sealed class FridaBackend : ILiveBackend
 
     /// <summary>The pip command that installs a Frida in the tested range.</summary>
     public static string Upgrade =>
-        $"Install a tested Frida (python -m pip install \"frida>={FridaVersions.TestedFrom},<{FridaVersions.TestedMajor + 1}\"), or set {PythonVariable} to a python that has one.";
+        $"Install a tested Frida (python -m pip install \"frida>={FridaVersions.TestedFrom},<{FridaVersions.TestedBefore}\"), or set {PythonVariable} to a python that has one.";
 
     private Located Current => _ready.IsValueCreated ? _ready.Value : _found.Value;
 

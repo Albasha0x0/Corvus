@@ -203,7 +203,7 @@ file or its folder.
 
 | Variable | Program | Used for |
 |---|---|---|
-| `CORVUS_FRIDA_PYTHON` | Python with Frida's bindings (17.24.3 to 17.x) | the session tools' worker |
+| `CORVUS_FRIDA_PYTHON` | Python with Frida's bindings (17.24.3 to 17.24.x) | the session tools' worker |
 | `CORVUS_TTD` | folder with `TTDReplay.dll` and `TTDReplayCPU.dll` from WinDbg's `amd64\ttd` (TTD 1.11.617) | sessions on TTD recordings (`program=ttd:PATH`) |
 | `CORVUS_JAVA` | JDK 17+ (`JAVA_HOME`, `PATH`) | the Java decompilers |
 | `CORVUS_JAVA_DECOMPILER`, `CORVUS_JAVA_DECOMPILER2` | [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) jar; [Vineflower](https://github.com/Vineflower/vineflower) jar | `decompile_java`; `decompile_java engine=vineflower` |
