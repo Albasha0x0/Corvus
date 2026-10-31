@@ -530,7 +530,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             var bytes = File.ReadAllBytes(file);
             if (found.Count >= limits.MaxItems || (total += bytes.Length) > limits.MaxTotalBytes)
             {
-                notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
+                notes.Add(AnalysisLimits.Reached(limits, found.Count, files.Count - files.IndexOf(file)));
                 break;
             }
             bool named = manifest != null && (manifest.Contains(Path.GetFileName(file)) || manifest.Contains(Webcil.Integrity(bytes)));
@@ -599,7 +599,11 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var source = InputFiles.RequireRegularFile(path, "container file");
         if (!File.Exists(source)) throw Targets.FileNotFound(source);
         var length = new FileInfo(source).Length;
-        if (length > Math.Min(limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{source} is too large to unpack ({length:N0} bytes).");
+        if (length > Math.Min(limits.MaxTotalBytes, Array.MaxLength))
+        {
+            var raise = length <= Array.MaxLength ? $"set {AnalysisLimits.RaiseVariable} to raise the cap, or " : "";
+            throw new ToolError(ErrorCode.LimitExceeded, $"{source} is too large to unpack ({length:N0} bytes).", $"{raise}call summarize_file path={source}, which reads larger files as a stream");
+        }
         var data = File.ReadAllBytes(source);
         return (source, data, Blob.Sha256(data));
     }
@@ -631,7 +635,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             if (repeat && !archived && !item.Member) continue;
             if (found.Count >= limits.MaxItems || (total += item.Bytes.Length) > limits.MaxTotalBytes)
             {
-                notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
+                var cut = queue.Count + 1;
+                notes.Add(AnalysisLimits.Reached(limits, found.Count, cut));
                 break;
             }
 

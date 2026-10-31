@@ -33,7 +33,7 @@ internal sealed class SwfFile
         if (!Looks(data)) throw Malformed(name, "no SWF header");
         int version = data[3];
         long declared = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4));
-        if (declared < 8 || declared > maxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{name}: the SWF declares {declared:N0} bytes, past the {maxBytes:N0}-byte item limit.", "raise the limits");
+        if (declared < 8 || declared > maxBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{name}: the SWF declares {declared:N0} bytes, past the {maxBytes:N0}-byte item limit.", $"set {AnalysisLimits.RaiseVariable} to raise the caps");
         var notes = new List<string>();
         byte[] body;
         string compression;

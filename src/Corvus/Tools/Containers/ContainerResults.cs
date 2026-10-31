@@ -234,13 +234,28 @@ internal static class ContainerText
         return sb.ToString();
     }
 
+    private const int NoteCap = 20;
+
+    /// <summary>
+    /// The first 20 notes, then one line counting the rest by kind: the text
+    /// before the first colon, or the first word when there is none.
+    /// </summary>
+    internal static List<string> CappedNotes(IReadOnlyList<string> notes)
+    {
+        var shown = notes.Take(NoteCap).ToList();
+        if (notes.Count <= NoteCap) return shown;
+        var kinds = notes.Skip(NoteCap).GroupBy(n => n.Contains(':') ? n[..n.IndexOf(':')] : n.Split(' ')[0]).Select(g => $"{g.Count()} {g.Key}");
+        shown.Add($"{notes.Count - NoteCap} more not shown ({string.Join(", ", kinds.Take(5))}).");
+        return shown;
+    }
+
     public static string Unpack(UnpackService.UnpackReport r, int offset, int limit)
     {
         int written = r.Files.Count(f => f.Extracted != false);
         var header = new StringBuilder($"{Escape(r.Source)} ({r.Container}): {written} file(s) written to {r.OutputDirectory}.\n");
         if (r.Next is { } next)
             header.Append($"Next: {next.Tool} {string.Join(" ", next.Arguments.Select(a => $"{a.Key}={a.Value}"))} ({next.Reason}).\n");
-        foreach (var n in r.Notes) header.Append("Note: ").Append(Escape(n)).Append('\n');
+        foreach (var n in CappedNotes(r.Notes)) header.Append("Note: ").Append(Escape(n)).Append('\n');
         // Paths under the output directory are relative to it (the record names it once).
         var files = r.Files.Select(f => f.Path.StartsWith(r.OutputDirectory, StringComparison.OrdinalIgnoreCase)
             ? f with { Path = Path.GetRelativePath(r.OutputDirectory, f.Path).Replace('\\', '/') } : f).ToList();
@@ -255,7 +270,7 @@ internal static class ContainerText
             return sb.ToString();
         }
         return ToolOutput.List(files, offset, limit, Row,
-            rows => new UnpackPage(r.Source, r.Container, r.OutputDirectory, rows, offset, r.Files.Count) { Next = r.Next, Notes = r.Notes.Count > 0 ? r.Notes : null },
+            rows => new UnpackPage(r.Source, r.Container, r.OutputDirectory, rows, offset, r.Files.Count) { Next = r.Next, Notes = r.Notes.Count > 0 ? CappedNotes(r.Notes) : null },
             "file", header.ToString());
     }
 

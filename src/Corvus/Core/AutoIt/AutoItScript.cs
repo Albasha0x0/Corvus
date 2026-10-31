@@ -119,7 +119,7 @@ public static class AutoItScript
             for (int n = 2; !used.Add(itemName); n++) itemName = $"{Path.ChangeExtension(itemName, null)}~{n}{Path.GetExtension(itemName)}";
             entries.Add(new ContainerEntry(itemName, bytes.Length, detail));
             if (origin == "FileInstall file" && !(allFiles || Containers.IsInteresting(itemName))) continue;
-            if (items.Count >= limits.MaxItems || (total += bytes.Length) > limits.MaxTotalBytes) { notes.Add("Stopped: the extraction limit was reached."); break; }
+            if (items.Count >= limits.MaxItems || (total += bytes.Length) > limits.MaxTotalBytes) { notes.Add(AnalysisLimits.Reached(limits, items.Count, null)); break; }
             items.Add(new ExtractedItem(itemName, bytes, origin));
         }
         int files = records.Count(r => r.Data != null && r.Type is not (ScriptTokens or ScriptUnicode or ScriptAnsi));

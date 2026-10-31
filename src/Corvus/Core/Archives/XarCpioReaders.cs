@@ -15,7 +15,7 @@ internal static class ArchiveItems
         if (items.Count >= limits.MaxItems) return;
         total += bytes.Length;
         if (total > limits.MaxTotalBytes)
-            throw new ToolError(ErrorCode.LimitExceeded, $"extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
+            throw new ToolError(ErrorCode.LimitExceeded, $"extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", $"unpack fewer files, or set {AnalysisLimits.RaiseVariable} to raise the caps");
         if (allFiles || Wanted(bytes)) items.Add(new ExtractedItem(path, bytes, $"{kind} entry"));
     }
 
@@ -94,7 +94,7 @@ internal sealed class XarReader : IContainerReader
                     var buffer = new byte[81920];
                     for (int n; (n = z.Read(buffer)) > 0;)
                     {
-                        if (copy.Length + n > limits.MaxItemBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} decompresses past the {limits.MaxItemBytes:N0}-byte item limit.");
+                        if (copy.Length + n > limits.MaxItemBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} decompresses past the {limits.MaxItemBytes:N0}-byte item limit.", $"set {AnalysisLimits.RaiseVariable} to raise the item cap");
                         copy.Write(buffer, 0, n);
                     }
                     bytes = copy.ToArray();

@@ -6,7 +6,7 @@ using SharpCompress.Readers;
 
 namespace Corvus.Core.Archives;
 
-/// <summary>tar, 7z, RAR and single gzip, bzip2 or xz files; extraction stops at the item or total limit, naming the entry.</summary>
+/// <summary>tar, 7z, RAR and single gzip, bzip2 or xz files; an entry past the item limit stays listed unread; the total limit leaves the later entries listed unread.</summary>
 internal sealed class ArchiveReader : IContainerReader
 {
     public string Kind => "archive";
@@ -39,6 +39,9 @@ internal sealed class ArchiveReader : IContainerReader
         var entries = new List<ContainerEntry>();
         var notes = new List<string>();
         long total = 0;
+        bool totalReached = false;
+        string? totalFrom = null;
+        int totalCut = 0, countCut = 0;
         string kind = format;
         // Read before SharpCompress takes the stream; its entry list omits service records.
         var streamRecords = format == "rar" && stream.CanSeek ? Rar5Streams.Names(stream) : [];
@@ -50,12 +53,30 @@ internal sealed class ArchiveReader : IContainerReader
         {
             ct.ThrowIfCancellationRequested();
             entries.Add(new ContainerEntry(path, size));
-            if (items.Count >= limits.MaxItems) return;
+            if (items.Count >= limits.MaxItems)
+            {
+                entries[^1] = entries[^1] with { Detail = "over the item count limit; not read" };
+                countCut++;
+                return;
+            }
+            if (totalReached)
+            {
+                entries[^1] = entries[^1] with { Detail = "over the total limit; not read" };
+                totalCut++;
+                return;
+            }
             byte[] bytes;
             try
             {
                 using var s = open();
-                bytes = ReadBounded(s, path, limits.MaxItemBytes);
+                // An oversize entry stays in the listing; the others are still read.
+                if (ReadBounded(s, limits.MaxItemBytes) is not { } read)
+                {
+                    entries[^1] = entries[^1] with { Detail = $"over the {limits.MaxItemBytes:N0}-byte item limit; not read" };
+                    notes.Add(AnalysisLimits.Reached("item", $"{limits.MaxItemBytes:N0}-byte", 1, path));
+                    return;
+                }
+                bytes = read;
             }
             // SharpCompress 0.50.4 to 0.50.7 throw ArgumentNullException reading a RAR
             // entry without a checksum (fixed in adamhathcock/sharpcompress@714a27f,
@@ -75,7 +96,14 @@ internal sealed class ArchiveReader : IContainerReader
             }
             total += bytes.Length;
             if (total > limits.MaxTotalBytes)
-                throw new ToolError(ErrorCode.LimitExceeded, $"{name}: extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
+            {
+                // Later entries are listed unread, so one early cut is never followed by a smaller entry that fits.
+                totalReached = true;
+                totalFrom = path;
+                totalCut++;
+                entries[^1] = entries[^1] with { Detail = "over the total limit; not read" };
+                return;
+            }
             if (allFiles || Wanted(bytes)) items.Add(new ExtractedItem(path, bytes, $"{kind} entry"));
         }
 
@@ -125,6 +153,8 @@ internal sealed class ArchiveReader : IContainerReader
         }
         string[] paths = [.. entries.Select(e => e.Path), .. streamRecords];
         notes.AddRange(MemberNames.Notes(paths));
+        if (totalCut > 0) notes.Add(AnalysisLimits.Reached("total", $"{limits.MaxTotalBytes:N0}-byte", totalCut, totalFrom));
+        if (countCut > 0) notes.Add(AnalysisLimits.Reached("item count", $"{limits.MaxItems:N0}-file", countCut));
         if (entries.Count > items.Count && !allFiles) notes.Add($"{entries.Count - items.Count} of {entries.Count} files not extracted (not binaries or packages; allFiles extracts every file).");
         return new ContainerContents(kind, items, notes) { Entries = entries, Names = MemberNames.Issues(paths) };
     }
@@ -257,15 +287,15 @@ internal sealed class ArchiveReader : IContainerReader
         Blob.Identify(bytes) is ".NET assembly" or "native PE" or "NativeAOT executable" or "elf" or "mach-o" or "zip" or "gzip" or "7z" or "rar" or "asar" or "wasm" or "webcil"
         || Format(bytes) != null;
 
-    private static byte[] ReadBounded(Stream s, string path, long max)
+    // Null when the entry passes max bytes.
+    private static byte[]? ReadBounded(Stream s, long max)
     {
         using var copy = new MemoryStream();
         var buffer = new byte[81920];
         int n;
         while ((n = s.Read(buffer, 0, buffer.Length)) > 0)
         {
-            if (copy.Length + n > max)
-                throw new ToolError(ErrorCode.LimitExceeded, $"{path} decompresses past the {max:N0}-byte item limit.", "raise the limit, or extract it with a dedicated tool");
+            if (copy.Length + n > max) return null;
             copy.Write(buffer, 0, n);
         }
         return copy.ToArray();

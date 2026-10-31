@@ -88,7 +88,7 @@ internal sealed class UbiReader : IContainerReader
             entries.Add(new ContainerEntry(name, size, detail));
             if (size <= 0 || size > limits.MaxItemBytes || usable <= 0) { notes.Add($"{name}: {size:N0} bytes, not extracted"); continue; }
             if ((total += size) > limits.MaxTotalBytes)
-                throw new ToolError(ErrorCode.LimitExceeded, $"extracting {name} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
+                throw new ToolError(ErrorCode.LimitExceeded, $"extracting {name} passes the {limits.MaxTotalBytes:N0}-byte total limit.", $"unpack fewer files, or set {AnalysisLimits.RaiseVariable} to raise the caps");
             var bytes = new byte[size];
             long o = 0;
             // A static volume's unmapped blocks hold nothing, so only mapped ones are

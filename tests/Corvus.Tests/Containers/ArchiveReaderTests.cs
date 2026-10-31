@@ -29,12 +29,72 @@ public sealed class ArchiveReaderTests
     }
 
     [Fact]
-    public void A_bomb_stops_at_the_item_limit_naming_the_entry()
+    public void One_oversize_entry_stays_listed_and_the_others_are_read()
     {
-        var data = TarGz(("zeros.bin", new byte[2 * 1024 * 1024]));
-        var error = Assert.Throws<ToolError>(() => Containers.Open(data, "bomb.tgz", new AnalysisLimits { MaxItemBytes = 1024 * 1024 }, default, allFiles: true));
-        Assert.Equal(ErrorCode.LimitExceeded, error.Code);
-        Assert.Contains("zeros.bin", error.Message);
+        var data = TarGz(("big.bin", new byte[2 * 1024 * 1024]), ("small.txt", "ok"u8.ToArray()));
+        var opened = Containers.Open(data, "mixed.tgz", new AnalysisLimits { MaxItemBytes = 1024 * 1024 }, default, allFiles: true);
+        Assert.Equal(["big.bin", "small.txt"], opened.Entries!.Select(e => e.Path));
+        Assert.Equal("small.txt", Assert.Single(opened.Items).Name);
+        var note = Assert.Single(opened.Notes);
+        Assert.Contains("1,048,576-byte", note);
+        Assert.Contains("big.bin", note);
+        Assert.StartsWith("item limit:", note);
+    }
+
+    [Fact]
+    public void The_total_limit_leaves_every_later_entry_listed_and_unread()
+    {
+        var data = TarGz(("a.bin", new byte[600]), ("b.bin", new byte[600]), ("c.txt", "ok"u8.ToArray()));
+        var opened = Containers.Open(data, "total.tgz", new AnalysisLimits { MaxTotalBytes = 1000 }, default, allFiles: true);
+        Assert.Equal(["a.bin"], opened.Items.Select(i => i.Name));
+        Assert.All(opened.Entries!.Skip(1), e => Assert.Equal("over the total limit; not read", e.Detail));
+        var note = Assert.Single(opened.Notes, n => n.StartsWith("total limit:"));
+        Assert.Contains("2 file(s) not extracted (from b.bin)", note);
+    }
+
+    [Fact]
+    public void The_item_count_limit_counts_the_entries_cut()
+    {
+        var data = TarGz(("a.txt", "a"u8.ToArray()), ("b.txt", "b"u8.ToArray()), ("c.txt", "c"u8.ToArray()));
+        var opened = Containers.Open(data, "count.tgz", new AnalysisLimits { MaxItems = 1 }, default, allFiles: true);
+        Assert.Equal(3, opened.Entries!.Count);
+        var note = Assert.Single(opened.Notes, n => n.StartsWith("item count limit:"));
+        Assert.Contains("1-file; 2 file(s) not extracted", note);
+        Assert.DoesNotContain(AnalysisLimits.RaiseVariable, note);
+    }
+
+    [Fact]
+    public void The_reached_note_names_the_limit_value_count_cut_and_the_variable()
+    {
+        var note = AnalysisLimits.Reached("total", "4,096-byte", 3, "x.bin");
+        Assert.Equal("total limit: 4,096-byte; 3 file(s) not extracted (from x.bin). " + AnalysisLimits.RaiseVariable
+            + " raises it (megabytes of the item cap, up to 65536).", note);
+    }
+
+    [Theory]
+    [InlineData(null, 512L, null)]
+    [InlineData("1024", 1024L, null)]
+    [InlineData("256", 256L, null)]
+    [InlineData("65536", 65536L, null)]
+    [InlineData("0", 512L, "0")]
+    [InlineData("70000", 512L, "70000")]
+    [InlineData("lots", 512L, "lots")]
+    public void The_item_cap_variable_is_parsed_and_a_rejected_value_is_named(string? raw, long megabytes, string? rejected)
+    {
+        var (bytes, bad) = AnalysisLimits.ParseCap(raw);
+        Assert.Equal(megabytes << 20, bytes);
+        Assert.Equal(rejected, bad);
+    }
+
+    [Fact]
+    public void Hundreds_of_notes_show_the_first_twenty_and_one_counting_line()
+    {
+        var notes = Enumerable.Range(0, 300).Select(i => $"entry{i}: damaged").ToList();
+        var report = new Corvus.Services.Analysis.UnpackService.UnpackReport("a.tgz", "archive", "out", [], notes);
+        var text = Corvus.Tools.ContainerText.Unpack(report, 0, 10);
+        Assert.Equal(20, text.Split((char)10).Count(l => l.StartsWith("Note: entry")));
+        Assert.Contains("Note: 280 more not shown (", text);
+        Assert.Equal(21, Corvus.Tools.ContainerText.CappedNotes(notes).Count);
     }
 
     /// <summary>

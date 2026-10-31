@@ -170,6 +170,12 @@ Name the programs a session may start or attach to:
 | `CORVUS_DUMP_BUCKET_CACHE` | | per-dump signatures of `bucket_minidumps`; a rerun parses only new dumps |
 | `CORVUS_DEBUG_DIRS` | | path list searched for separate DWARF files of ELF and Mach-O images |
 
+### Extraction limits
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CORVUS_EXTRACT_LIMIT_MB` | 512 | largest extracted item in MB (1 to 65536); the total cap is eight times it |
+
 ### IDA and Ghidra
 
 | Variable | Default | Effect |

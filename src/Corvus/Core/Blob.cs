@@ -7,14 +7,48 @@ namespace Corvus.Core;
 /// <summary>Size limits for everything decoded, decompressed or extracted (they bound decompression bombs).</summary>
 public sealed record AnalysisLimits
 {
+    /// <summary>Environment variable that sets the item cap in megabytes (1 to 65536); the total cap is eight times it.</summary>
+    public const string RaiseVariable = "CORVUS_EXTRACT_LIMIT_MB";
+
+    private const long DefaultItemMb = 512, MaxItemMb = 65_536;
+
+    // Read once at startup; a malformed or out-of-range value keeps the default and is named by Reached.
+    private static readonly (long Bytes, string? Rejected) Cap = ParseCap(Environment.GetEnvironmentVariable(RaiseVariable));
+
+    // The cap in bytes, and the raw value when it was rejected.
+    internal static (long Bytes, string? Rejected) ParseCap(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return (DefaultItemMb << 20, null);
+        return long.TryParse(raw, out var mb) && mb >= 1 && mb <= MaxItemMb ? (mb << 20, null) : (DefaultItemMb << 20, raw);
+    }
+
     public static readonly AnalysisLimits Default = new();
 
     /// <summary>Largest single decoded / decompressed / extracted item.</summary>
-    public long MaxItemBytes { get; init; } = 512L * 1024 * 1024;
+    public long MaxItemBytes { get; init; } = Cap.Bytes;
     /// <summary>Largest total of everything extracted by one operation.</summary>
-    public long MaxTotalBytes { get; init; } = 4L * 1024 * 1024 * 1024;
+    public long MaxTotalBytes { get; init; } = Cap.Bytes * 8;
     /// <summary>Most items extracted by one operation.</summary>
     public int MaxItems { get; init; } = 20_000;
+    /// <summary>The item count limit when count has reached it, else the total byte limit; see the other overload.</summary>
+    public static string Reached(AnalysisLimits limits, int count, int? cut, string? at = null) =>
+        count >= limits.MaxItems ? Reached("item count", $"{limits.MaxItems:N0}-file", cut, at)
+            : Reached("total", $"{limits.MaxTotalBytes:N0}-byte", cut, at);
+
+    /// <summary>
+    /// Names a reached limit, its value and the count cut (null when unknown),
+    /// with the variable that raises a byte limit while it is below its maximum.
+    /// </summary>
+    public static string Reached(string limit, string value, int? cut, string? at = null)
+    {
+        var count = cut is { } c ? $"{c:N0} file(s)" : "later file(s)";
+        var hint = limit == "item count" ? ""
+            : Cap.Rejected is { } bad ? $" {RaiseVariable}={bad} was ignored (expected 1 to {MaxItemMb})."
+            : Cap.Bytes >> 20 < MaxItemMb ? $" {RaiseVariable} raises it (megabytes of the item cap, up to {MaxItemMb})."
+            : $" {RaiseVariable} is at its maximum ({MaxItemMb} MB).";
+        return $"{limit} limit: {value}; {count} not extracted{(at == null ? "" : $" (from {at})")}.{hint}";
+    }
+
     /// <summary>Nesting depth for containers inside containers / encodings inside encodings.</summary>
     public int MaxDepth { get; init; } = 4;
 

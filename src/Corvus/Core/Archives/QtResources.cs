@@ -292,7 +292,7 @@ internal static class QtResources
                 : stored.Length >= 4 ? new ZLibStream(new MemoryStream(b, e.DataAt + 4, (int)e.Stored - 4, writable: false), CompressionMode.Decompress)
                 : throw new InvalidDataException("shorter than its size field");
             using (z)
-                return Blob.ReadBounded(z, max) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{name}: {e.Path} expands past the {max:N0}-byte item limit.", "raise the limits");
+                return Blob.ReadBounded(z, max) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{name}: {e.Path} expands past the {max:N0}-byte item limit.", $"set {AnalysisLimits.RaiseVariable} to raise the caps");
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or ZstdSharp.ZstdException)
         {
@@ -334,7 +334,7 @@ internal static class QtResources
                 catch (ToolError ex) { if (failed++ < 3) notes.Add(ex.Message); }
                 entries.Add(new ContainerEntry(path, content?.Length ?? e.Stored, detail.Length > 0 ? detail : null));
                 if (content == null || stopped || !(allFiles || Containers.IsInteresting(path))) continue;
-                if (items.Count >= limits.MaxItems || (total += content.Length) > limits.MaxTotalBytes) { notes.Add("Stopped: the extraction limit was reached."); stopped = true; continue; }
+                if (items.Count >= limits.MaxItems || (total += content.Length) > limits.MaxTotalBytes) { notes.Add(AnalysisLimits.Reached(limits, items.Count, null)); stopped = true; continue; }
                 items.Add(new ExtractedItem(path, content, "Qt resource"));
             }
         }

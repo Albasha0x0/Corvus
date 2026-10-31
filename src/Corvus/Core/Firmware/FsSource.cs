@@ -96,7 +96,7 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
         }
         _total += bytes.Length;
         if (_total > limits.MaxTotalBytes)
-            throw new ToolError(ErrorCode.LimitExceeded, $"extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", "unpack fewer files or raise the limits");
+            throw new ToolError(ErrorCode.LimitExceeded, $"extracting {path} passes the {limits.MaxTotalBytes:N0}-byte total limit.", $"unpack fewer files, or set {AnalysisLimits.RaiseVariable} to raise the caps");
         if (all || ArchiveItems.Wanted(bytes)) _items.Add(new ExtractedItem(path, bytes, $"{kind} file"));
     }
 

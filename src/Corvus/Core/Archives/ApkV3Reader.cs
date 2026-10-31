@@ -157,7 +157,7 @@ internal sealed class ApkV3Reader : IContainerReader
                 2 => new ZstdSharp.DecompressionStream(input),
                 _ => throw Malformed(name, $"compression {alg} is not deflate or zstd"),
             };
-            return Blob.ReadBounded(z, max) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{name} decompresses past the {max:N0}-byte limit.", "raise the limits");
+            return Blob.ReadBounded(z, max) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{name} decompresses past the {max:N0}-byte limit.", $"set {AnalysisLimits.RaiseVariable} to raise the caps");
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or ZstdSharp.ZstdException) { throw Malformed(name, $"unreadable compressed data ({ex.Message})"); }
     }

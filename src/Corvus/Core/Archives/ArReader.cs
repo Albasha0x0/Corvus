@@ -103,7 +103,7 @@ internal sealed class ArReader : IContainerReader
         try
         {
             using var z = new ZstdSharp.DecompressionStream(new MemoryStream(member, writable: false));
-            return Blob.ReadBounded(z, limits.MaxItemBytes) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{name}: {memberName} decompresses past the {limits.MaxItemBytes:N0}-byte item limit.", "raise the limits");
+            return Blob.ReadBounded(z, limits.MaxItemBytes) ?? throw new ToolError(ErrorCode.LimitExceeded, $"{name}: {memberName} decompresses past the {limits.MaxItemBytes:N0}-byte item limit.", $"set {AnalysisLimits.RaiseVariable} to raise the caps");
         }
         catch (Exception ex) when (ex is IOException or ZstdSharp.ZstdException) { throw Malformed(name, $"{memberName} is unreadable zstd data ({ex.Message})"); }
     }
