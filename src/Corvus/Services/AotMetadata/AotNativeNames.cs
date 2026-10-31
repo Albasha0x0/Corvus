@@ -148,6 +148,20 @@ public sealed class AotNativeNames(AotMetadataService aot, AotNavigator navigato
             }
         }
 
+        if (index != null)
+        {
+            var taken = names.Keys.ToHashSet();
+            int helpers = 0;
+            foreach (var h in AotRuntimeHelpers.Find(pe, index, taken, ct))
+            {
+                if (!Executable(h.Rva)) continue;
+                names[h.Rva] = Unique(h.Name, h.Rva);
+                comments[h.Rva] = h.Evidence;
+                helpers++;
+            }
+            if (helpers > 0) notes.Add($"{helpers} runtime helper(s) named from the exported runtime API and call shape");
+        }
+
         var assemblies = string.Join(", ", image.Assemblies.Select(a => a.Id));
         var (sourcePath, identity) = Provenance(image);
         NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Metadata, names, comments, $"AOT metadata ({assemblies})",

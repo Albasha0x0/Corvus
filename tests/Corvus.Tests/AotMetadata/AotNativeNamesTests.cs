@@ -143,6 +143,27 @@ public sealed class AotNativeNamesTests : IDisposable
     }
 
     [Fact]
+    public async Task Runtime_helpers_are_named_beside_metadata_names_and_noted()
+    {
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(_binary)!, "script.json"), """
+            { "ScriptMethod": [
+                { "Address": 6144, "Name": "Fixture.Native.NativeThing$$First" },
+                { "Address": 6176, "Name": "Fixture.Native.NativeThing$$Second" },
+                { "Address": 6208, "Name": "Fixture.Native.NativeThing$$Shared<object>" },
+                { "Address": 5120, "Name": "Fixture.Native.NativeThing$$Initializer" } ] }
+            """);
+        File.WriteAllBytes(_binary, AotRuntimeHelpersTests.Image([("il2cpp_object_new", 0x1000)], [(0x1800, 0x1400), (0x1820, 0x1400), (0x1840, 0x1400)]));
+        var (native, index) = await Open();
+        var report = _names.Apply(native, index, _env.Workspace.Assemblies, default);
+        // The metadata name wins over the call shape at 0x1400.
+        Assert.Equal("Fixture_Native_NativeThing__Initializer", index.NameAt(0x1400));
+        Assert.Equal("Fixture_Native_NativeThing__First", index.NameAt(0x1800));
+        Assert.Equal("Runtime_ObjectNew", index.NameAt(0x1200));
+        Assert.Contains("behind export il2cpp_object_new", index.CommentFor(0x1200));
+        Assert.Contains(report.Notes, n => n == "1 runtime helper(s) named from the exported runtime API and call shape");
+    }
+
+    [Fact]
     public async Task Names_functions_slots_and_strings_and_ranks_below_user_names()
     {
         var (native, index) = await Open();
