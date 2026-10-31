@@ -164,6 +164,10 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         return value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : fallback;
     }
 
+    /// <summary>The open progress a worker's heartbeat stands for: its stage, else <paramref name="fallback"/>.</summary>
+    internal static NativeProviderProgress HeartbeatProgress(JsonElement body, string fallback, TimeSpan elapsed) =>
+        new(EventStage(body, fallback), elapsed);
+
     /// <summary>Notes the worker's progress stage while the session starts (open, load, analysis).</summary>
     protected void StartStage(string stage) => _startStage = stage;
 

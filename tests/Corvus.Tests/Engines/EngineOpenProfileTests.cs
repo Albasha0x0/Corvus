@@ -34,6 +34,21 @@ public sealed class EngineOpenProfileTests : IDisposable
     }
 
     [Fact]
+    public void A_heartbeat_without_a_stage_reports_the_open_stage_with_its_elapsed_time()
+    {
+        using var named = JsonDocument.Parse("{\"stage\":\"Decompiler Parameter ID\"}");
+        using var empty = JsonDocument.Parse("{\"stage\":\"\"}");
+        var named_progress = WorkerSessionBase.HeartbeatProgress(named.RootElement, "analysis", TimeSpan.FromSeconds(4));
+        var empty_progress = WorkerSessionBase.HeartbeatProgress(empty.RootElement, "analysis", TimeSpan.FromSeconds(6));
+        Assert.Equal(("Decompiler Parameter ID", TimeSpan.FromSeconds(4)), (named_progress.Stage, named_progress.Elapsed));
+        Assert.Equal(("analysis", TimeSpan.FromSeconds(6)), (empty_progress.Stage, empty_progress.Elapsed));
+        using var unnamed = JsonDocument.Parse("{}");
+        using var scalar = JsonDocument.Parse("7");
+        Assert.Equal("load", WorkerSessionBase.HeartbeatProgress(unnamed.RootElement, "load", TimeSpan.Zero).Stage);
+        Assert.Equal("load", WorkerSessionBase.HeartbeatProgress(scalar.RootElement, "load", TimeSpan.Zero).Stage);
+    }
+
+    [Fact]
     public void The_ida_worker_shows_a_named_queue_for_open_heartbeats_only()
     {
         var script = Corvus.Setup.ToolCli.WriteIdaScripts(Path.Combine(_dir.Path, "scripts"));

@@ -233,16 +233,18 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
         var worker = await provider.StartWorkerAsync(ghidra, java, new FileInfo(Entry!.InputCopy).Length, cancellationToken, refill: true).ConfigureAwait(false);
         SetWorker(worker);
+        // A heartbeat without an analyzer message still reports the open's stage.
+        string stage = "start";
         worker.EventReceived += e =>
         {
-            if (e.Name == "progress" && e.Body.TryGetProperty("stage", out var stage) && stage.GetString() is { Length: > 0 } s)
-                Options.Progress?.Report(new NativeProviderProgress(s, clock.Elapsed));
+            if (e.Name == "progress") Options.Progress?.Report(HeartbeatProgress(e.Body, Volatile.Read(ref stage), clock.Elapsed));
         };
         await provider.WaitStartedAsync(worker, Options.OpenTimeout, cancellationToken).ConfigureAwait(false);
 
         // An archive given for the image imports as an analyzed database.
         var reuse = DatabaseExists || Options.GhidraDatabase != null;
         ReusedDatabase = reuse;
+        Volatile.Write(ref stage, reuse ? "load" : "analysis");
         StartStage(reuse ? "load" : "analysis");
         Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
         if (!reuse) await provider.ColdAnalysis.WaitAsync(cancellationToken).ConfigureAwait(false);
