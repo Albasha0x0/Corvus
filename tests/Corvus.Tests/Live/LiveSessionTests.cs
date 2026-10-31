@@ -1362,4 +1362,21 @@ public sealed class LiveSessionReadTests : LiveSessionTestBase
         await _tools.LiveSession("close", session: "live-1");
         Assert.Contains("The program of session live-1 has ended", (await Assert.ThrowsAsync<ToolError>(() => tools.DumpHeap("live-1"))).Message);
     }
+
+    [Fact]
+    public async Task A_list_while_sessions_are_off_returns_no_sessions_and_a_notice()
+    {
+        var tools = new LiveSessionTools(new ServerOptions(), _service);
+        var call = OutputCall.Begin(new OutputCall("live_session", 6_000, null));
+        var text = await tools.LiveSession(" LIST ");
+        var report = Assert.IsType<LiveSessionTools.LiveSessionReport>(call.Record);
+        OutputCall.Begin(null!);
+        Assert.Empty(report.Sessions);
+        Assert.Contains("--allow-live-attach", report.Notice);
+        Assert.Empty(_service.Sessions);
+        Assert.Contains("No sessions.", text);
+        Assert.Contains("Sessions on running programs are off", text);
+        var e = await Assert.ThrowsAsync<ToolError>(() => tools.LiveSession("processes"));
+        Assert.Equal(ErrorCode.Unsupported, e.Code);
+    }
 }

@@ -121,6 +121,10 @@
       "description": "action=ipc: one line per route: direction, kind, channel, shape, count, code sites.",
       "type": "string"
     },
+    "notice": {
+      "description": "action=list: why the list is empty when sessions are off in this server.",
+      "type": "string"
+    },
     "notices": {
       "type": "array",
       "items": {

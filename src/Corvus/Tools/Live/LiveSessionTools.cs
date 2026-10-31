@@ -9,7 +9,7 @@ using Corvus.Services;
 
 namespace Corvus.Tools;
 
-/// <summary>Sessions on local programs, observation only; refused without --allow-live; spawn and attach need their own flags, and --live-allow limits both to listed programs.</summary>
+/// <summary>Sessions on local programs, observation only; refused without --allow-live, except action=list, which reports no sessions; spawn and attach need their own flags, and --live-allow limits both to listed programs.</summary>
 [McpServerToolType]
 public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionService live, MinidumpService? dumps = null, Services.Mobile.DexService? dex = null)
 {
@@ -44,6 +44,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         public LiveSnapshot? Snapshot { get; init; }
         [Description("action=ipc: one line per route: direction, kind, channel, shape, count, code sites.")]
         public string? Ipc { get; init; }
+        [Description("action=list: why the list is empty when sessions are off in this server.")]
+        public string? Notice { get; init; }
     }
 
     public sealed record LiveStopPoint(string Id,
@@ -129,6 +131,17 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         Task.Run(async () =>
         {
             var a = action.Trim().ToLowerInvariant();
+            // A list reads no program, so it succeeds, empty, while sessions are off.
+            if (a == "list" && !options.AllowLive)
+            {
+                var off = SessionsOff(false, false);
+                var notice = $"{off.Message} {off.Remediation}";
+                return ToolOutput.With($"No sessions. {notice}\n",
+                    new LiveSessionReport("list", null, null, null, null, null, [], [])
+                    {
+                        Notice = notice,
+                    });
+            }
             Require(spawn: a == "spawn", attach: a == "attach");
             switch (a)
             {
