@@ -77,7 +77,10 @@ Every server option applies ([configuration.md](configuration.md#server-options)
 - Server options belong to `serve`; a routed call with `--session` and one is a usage error, with `CORVUS_SESSION` they are ignored.
 - `batch steps.jsonl --session NAME` runs each step in the session; `batch --file` and `analyze` stay in-process.
 - `serve` on a name already in use is a usage error (exit code 2).
-- Only the starting account can reach a session; calls run one at a time, and a step abandoned by `--step-timeout` or Ctrl+C is cancelled before the next one starts.
+- Only the starting account can reach a session.
+- Calls run one at a time, except `server_status`, `read_result` and the instant read-only tools such as `get_engine_status` and `list_assemblies`.
+- Progress prints on stderr.
+- A step abandoned by `--step-timeout` or Ctrl+C is cancelled before the next one starts.
 - A routed call to a name with no running session is exit code 3.
 
 ## Batch

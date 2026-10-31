@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
+using Corvus.Mcp;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 
@@ -55,11 +57,30 @@ internal static partial class ToolCli
         new(pipe, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | (firstInstance ? PipeOptions.FirstPipeInstance : PipeOptions.None));
 
+    /// <summary>Runs one routed call and reports its progress; the result is the reply.</summary>
+    internal delegate Task<CallToolResult> RoutedCall(string tool, Dictionary<string, object?> arguments, IProgress<ProgressNotificationValue> progress, CancellationToken cancellationToken);
+
     /// <summary>
-    /// Answers requests on the pipe, one call at a time, until cancelled.
-    /// In-flight calls are cancelled and awaited before it returns.
+    /// Tools that answer at once and change nothing loaded, so they do not
+    /// wait for the turn of a long call: the instant read-only tools of the
+    /// contract, plus server_status and read_result.
     /// </summary>
-    internal static async Task ServeSessionAsync(ToolSession session, string pipe, NamedPipeServerStream next, CancellationToken cancellationToken)
+    internal static readonly IReadOnlySet<string> TurnFree = new HashSet<string>(
+        ToolContract.Table.Where(t => t.Value.Latency == LatencyClass.Instant && ToolEffects.Of(t.Key).ReadOnly).Select(t => t.Key)
+            // The contract rates server_status interactive (it probes once) and read_result as writing
+            // (outputPath); neither touches the workspace.
+            .Concat(["server_status", "read_result"]),
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// Answers requests on the pipe until cancelled. In-flight calls are
+    /// cancelled and awaited before it returns.
+    /// </summary>
+    internal static Task ServeSessionAsync(ToolSession session, string pipe, NamedPipeServerStream next, CancellationToken cancellationToken) =>
+        ServeSessionAsync(async (tool, arguments, progress, ct) => await session.Client.CallToolAsync(tool, arguments, progress, cancellationToken: ct), pipe, next, cancellationToken);
+
+    /// <summary>Serves with a caller-supplied call runner.</summary>
+    internal static async Task ServeSessionAsync(RoutedCall run, string pipe, NamedPipeServerStream next, CancellationToken cancellationToken)
     {
         var turn = new SemaphoreSlim(1);
         var connections = new List<Task>();
@@ -72,7 +93,7 @@ internal static partial class ToolCli
                 var connected = next;
                 next = OpenInstance(pipe, firstInstance: false);
                 connections.RemoveAll(t => t.IsCompleted);
-                connections.Add(AnswerAsync(session, connected, turn, cancellationToken));
+                connections.Add(AnswerAsync(run, connected, turn, cancellationToken));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
@@ -84,7 +105,7 @@ internal static partial class ToolCli
         }
     }
 
-    private static async Task AnswerAsync(ToolSession session, NamedPipeServerStream pipe, SemaphoreSlim turn, CancellationToken cancellationToken)
+    private static async Task AnswerAsync(RoutedCall run, NamedPipeServerStream pipe, SemaphoreSlim turn, CancellationToken cancellationToken)
     {
         await using var _ = pipe;
         try
@@ -102,6 +123,18 @@ internal static partial class ToolCli
                 catch (IOException) { await call.CancelAsync(); }
                 catch (OperationCanceledException) { }
             }, CancellationToken.None);
+            // One writer drains the lines in order, so progress precedes the reply.
+            var lines = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
+            var pump = Task.Run(async () =>
+            {
+                await foreach (var text in lines.Reader.ReadAllAsync(cancellationToken))
+                    await WriteLine(text);
+            }, CancellationToken.None);
+            async Task WriteLine(string text)
+            {
+                await pipe.WriteAsync(utf8.GetBytes(text + "\n"), cancellationToken);
+                await pipe.FlushAsync(cancellationToken);
+            }
             string reply;
             try
             {
@@ -111,14 +144,16 @@ internal static partial class ToolCli
                 var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
                 if (request["args"] is JsonObject args)
                     foreach (var (key, value) in args) arguments[key] = value is null ? null : JsonSerializer.SerializeToElement(value);
-                // Calls share one workspace, so they run in turn.
-                await turn.WaitAsync(call.Token);
+                var progress = new QueuedProgress(lines.Writer);
+                // Turn-free tools must not change loaded state.
+                var free = TurnFree.Contains(tool);
+                if (!free) await turn.WaitAsync(call.Token);
                 try
                 {
-                    var result = await session.Client.CallToolAsync(tool, arguments, cancellationToken: call.Token);
+                    var result = await run(tool, arguments, progress, call.Token);
                     reply = JsonSerializer.Serialize(result, McpJsonUtilities.DefaultOptions);
                 }
-                finally { turn.Release(); }
+                finally { if (!free) turn.Release(); }
             }
             catch (OperationCanceledException) when (call.IsCancellationRequested) { return; }
             catch (Exception ex)
@@ -129,16 +164,28 @@ internal static partial class ToolCli
             {
                 await watch.CancelAsync();
                 await watcher;
+                lines.Writer.TryComplete();
+                await pump;
             }
-            await pipe.WriteAsync(utf8.GetBytes(reply + "\n"), cancellationToken);
-            await pipe.FlushAsync(cancellationToken);
+            await WriteLine(reply);
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException) { }
     }
 
+    /// <summary>Queues each report as a pipe line in call order, without posting to the thread pool.</summary>
+    private sealed class QueuedProgress(ChannelWriter<string> lines) : IProgress<ProgressNotificationValue>
+    {
+        public void Report(ProgressNotificationValue v) =>
+            lines.TryWrite(new JsonObject
+            {
+                ["progress"] = new JsonObject { ["progress"] = v.Progress, ["total"] = v.Total, ["message"] = v.Message },
+            }.ToJsonString());
+    }
+
     /// <summary>
-    /// Sends one call to a running session. Returns null after reporting a
-    /// protocol error (the caller exits 2); an unreachable session throws.
+    /// Sends one call to a running session and prints its progress on stderr.
+    /// Returns null after reporting a protocol error (the caller exits 2); an
+    /// unreachable session throws.
     /// </summary>
     internal static async Task<CallToolResult?> InvokeRemote(string name, string tool, Dictionary<string, object?> arguments, CliIo io, CancellationToken cancellationToken)
     {
@@ -158,9 +205,41 @@ internal static partial class ToolCli
         await pipe.WriteAsync(utf8.GetBytes(request + "\n"), cancellationToken);
         await pipe.FlushAsync(cancellationToken);
         using var reader = new StreamReader(pipe, utf8, false, 4096, leaveOpen: true);
-        var line = await reader.ReadLineAsync(cancellationToken)
-            ?? throw new SessionUnreachableException($"Session {name} closed the connection without a reply.");
-        if (JsonNode.Parse(line) is JsonObject o && o["protocolError"] is { } message)
+        IProgress<ProgressNotificationValue> progress = io.ErrorTty ? new ProgressLine(io.Error) : io.Log.For(tool);
+        string line;
+        JsonObject? reply;
+        try
+        {
+            while (true)
+            {
+                line = await reader.ReadLineAsync(cancellationToken)
+                    ?? throw new SessionUnreachableException($"Session {name} closed the connection without a reply.");
+                reply = JsonNode.Parse(line) as JsonObject;
+                if (reply?["progress"] is not JsonObject p) break;
+                progress.Report(new ProgressNotificationValue
+                {
+                    Progress = p["progress"]?.GetValue<float>() ?? 0,
+                    Total = p["total"]?.GetValue<float>(),
+                    Message = p["message"]?.GetValue<string>(),
+                });
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
+        {
+            io.Error.WriteLine($"{tool}: the session sent a malformed line.");
+            return null;
+        }
+        finally
+        {
+            if (progress is ProgressLine pl) pl.Clear();
+            else io.Log.Flush();
+        }
+        if (reply == null)
+        {
+            io.Error.WriteLine($"{tool}: the session sent a reply that is not an object.");
+            return null;
+        }
+        if (reply["protocolError"] is { } message)
         {
             io.Error.WriteLine($"{tool}: {message.GetValue<string>()}");
             return null;
