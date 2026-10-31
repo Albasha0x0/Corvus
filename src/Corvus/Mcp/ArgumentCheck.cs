@@ -11,6 +11,7 @@ public static class ArgumentCheck
     public static void Apply(JsonElement inputSchema, IDictionary<string, JsonElement>? arguments, string? tool = null)
     {
         if (arguments == null || arguments.Count == 0) return;
+        ApplySelectorAliases(tool, arguments);
         var properties = inputSchema.TryGetProperty("properties", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
         var declared = properties.ValueKind == JsonValueKind.Object ? properties.EnumerateObject().Select(e => e.Name).ToList() : [];
         foreach (var name in arguments.Keys)
@@ -63,6 +64,49 @@ public static class ArgumentCheck
             };
         }
     }
+
+    /// <summary>Canonical member-selector parameter of each tool.</summary>
+    private static readonly Dictionary<string, string> SelectorParameters = new(StringComparer.Ordinal)
+    {
+        ["get_il"] = "symbol", ["decompile_member"] = "member", ["stub_method"] = "method",
+    };
+
+    /// <summary>Binds a selector alias to the tool's canonical name; refuses differing values.</summary>
+    private static void ApplySelectorAliases(string? tool, IDictionary<string, JsonElement> arguments)
+    {
+        if (tool == null || !SelectorParameters.TryGetValue(tool, out var canonical)) return;
+        string? first = null;
+        foreach (var alias in SelectorParameters.Values)
+        {
+            if (alias == canonical || !arguments.TryGetValue(alias, out var value)) continue;
+            if (first != null)
+            {
+                // Two aliases and no canonical: name the two the caller passed.
+                if (!SameSelector(arguments[canonical], value)) throw SelectorConflict(alias, first);
+                arguments.Remove(alias);
+                continue;
+            }
+            if (arguments.TryGetValue(canonical, out var existing))
+            {
+                // Equal values are one selector; the alias is dropped.
+                if (!SameSelector(existing, value)) throw SelectorConflict(alias, canonical);
+                arguments.Remove(alias);
+                continue;
+            }
+            arguments.Remove(alias);
+            arguments[canonical] = value;
+            first = alias;
+        }
+    }
+
+    private static bool SameSelector(JsonElement a, JsonElement b) =>
+        a.ValueKind == b.ValueKind && (a.ValueKind == JsonValueKind.String ? a.GetString() == b.GetString() : a.GetRawText() == b.GetRawText());
+
+    private static ToolError SelectorConflict(string alias, string canonical) =>
+        new(ErrorCode.InvalidArgument, $"parameter '{alias}' conflicts with '{canonical}'.", $"Pass only {canonical}.")
+        {
+            Details = new { parameter = alias, canonical },
+        };
 
     /// <summary>Parameters that name a file or directory on this machine to read, in every tool that declares them.</summary>
     public static readonly IReadOnlySet<string> InputPathParameters = new HashSet<string>(StringComparer.Ordinal)
