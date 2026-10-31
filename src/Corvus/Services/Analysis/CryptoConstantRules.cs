@@ -14,8 +14,13 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     /// <summary>Describes one hit from the section bytes, the offset and the matched pattern; null adds no detail.</summary>
     private delegate string? DetailFn(ReadOnlySpan<byte> bytes, int at, byte[] pattern);
 
-    /// <summary>A constant set: its byte patterns, whether they count only in code (an immediate) and an optional per-hit detail.</summary>
-    private sealed record Constant(string Algorithm, bool CodeOnly, Pattern[] Patterns, DetailFn? Detail = null);
+    /// <summary>
+    /// A constant set: its byte patterns, whether they count only in code (an immediate) and an optional per-hit detail.
+    /// A set with a Shape has no patterns and matches code shapes, on x86 and x64 images only.
+    /// </summary>
+    private sealed record Constant(
+        string Algorithm, bool CodeOnly, Pattern[] Patterns, DetailFn? Detail = null,
+        Func<byte[], int, CancellationToken, IEnumerable<(int At, int Length)>>? Shape = null);
 
     /// <summary>Bytes to find, with the table they belong to when the rule covers several (null otherwise).</summary>
     private sealed record Pattern(byte[] Bytes, string? Table = null)
@@ -131,7 +136,15 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             T("SM4 CK", Le(0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269)),
             T("SM4 CK", Be(0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269)),
         ]),
-        ["chacha"] = new("ChaCha20 / Salsa20 constant", false, ["expand 32-byte k"u8.ToArray(), "expand 16-byte k"u8.ToArray()]),
+        ["chacha"] = new("ChaCha20 / Salsa20 constant (either key size, kept for compatibility)", false, ["expand 32-byte k"u8.ToArray(), "expand 16-byte k"u8.ToArray()]),
+        ["chacha-256"] = new("ChaCha20 / Salsa20 constant for a 256-bit key (\"expand 32-byte k\")", false,
+            ["expand 32-byte k"u8.ToArray(), Be(0x61707865, 0x3320646E, 0x79622D32, 0x6B206574)]),
+        ["chacha-128"] = new("ChaCha20 / Salsa20 constant for a 128-bit key (\"expand 16-byte k\")", false,
+            ["expand 16-byte k"u8.ToArray(), Be(0x61707865, 0x3120646E, 0x79622D36, 0x6B206574)]),
+        // Salsa20 stores these words apart, so each is matched on its own.
+        ["chacha-code"] = new("ChaCha20 / Salsa20 constant words as immediates", true,
+            [Le(0x61707865), Le(0x3320646E), Le(0x3120646E), Le(0x79622D32), Le(0x79622D36), Le(0x6B206574)]),
+        ["rc4-loop"] = new("RC4 state fill and swap loops (x86 and x64 code shape, heuristic)", true, [], Shape: Rc4Loops),
         // x86 code writes initial values word by word as immediates, never as one table.
         ["sha256-code"] = new("SHA-256 initial values as immediates", true, [Le(0x6A09E667), Le(0xBB67AE85)]),
         ["sha1-md5-code"] = new("MD5 / SHA-1 initial values as immediates", true, [Le(0x67452301), Le(0x98BADCFE)]),
@@ -152,11 +165,46 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["murmur3"] = new("MurmurHash3 constants", true, [Le(0xCC9E2D51), Le(0x1B873593)]),
     };
 
+    // Yields (offset, length) at the first compare of a fill and swap loop pair.
+    // The fill loop stores bytes before its compare; the swap loop loads and
+    // stores bytes between the two compares. Compares are cmp reg, 100h forms.
+    private static IEnumerable<(int At, int Length)> Rc4Loops(byte[] b, int read, CancellationToken ct)
+    {
+        const int MaxGap = 192, FillReach = 48;
+        var cmps = new List<int>();
+        for (int i = 0; i + 5 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            int imm = b[i] == 0x3D ? i + 1 : b[i] == 0x81 && b[i + 1] >= 0xF8 && i + 6 <= read ? i + 2 : -1;
+            if (imm >= 0 && b[imm] == 0 && b[imm + 1] == 1 && b[imm + 2] == 0 && b[imm + 3] == 0)
+                cmps.Add(i);
+        }
+        for (int k = 0; k + 1 < cmps.Count; k++)
+        {
+            if (cmps[k + 1] - cmps[k] > MaxGap) continue;
+            int fill = 0, loads = 0, stores = 0;
+            for (int i = Math.Max(0, cmps[k] - FillReach); i < cmps[k] - 1; i++)
+                if (IsByteMove(b, i, out bool store) && store) fill++;
+            for (int i = cmps[k]; i < cmps[k + 1] - 1; i++)
+                if (IsByteMove(b, i, out bool store)) { if (store) stores++; else loads++; }
+            if (fill < 1 || stores < 2 || loads < 2) continue;
+            yield return (cmps[k], cmps[k + 1] - cmps[k]);
+            k++;
+        }
+    }
+
+    // A byte move through a base+index operand: opcode 88 or 8A, ModRM mod 00, 01 or 10 with a SIB byte.
+    private static bool IsByteMove(byte[] b, int i, out bool store)
+    {
+        store = b[i] == 0x88;
+        return (b[i] == 0x88 || b[i] == 0x8A) && (b[i + 1] & 0x07) == 0x04 && (b[i + 1] & 0xC0) != 0xC0;
+    }
+
     public IReadOnlyCollection<string> Kinds => ["const"];
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3"]]),
     ];
@@ -172,11 +220,21 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         {
             bool code = (section.Access & (SectionAccess.Execute | SectionAccess.Code)) != 0;
             if (constant.CodeOnly && !code) continue;
+            if (constant.Shape is not null && image.Arch is not (NativeArch.X86 or NativeArch.X64)) continue;
             int size = (int)Math.Min(section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize), budget);
             if (size <= 0) continue;
             budget -= size;
             var bytes = new byte[size];
             int read = image.Read(section.Rva, bytes);
+            if (constant.Shape is { } shape)
+                foreach (var (at, length) in shape(bytes, read, ct))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    uint rva = section.Rva + (uint)at;
+                    count++;
+                    if (locations.Count < MaxLocations)
+                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}"));
+                }
             var found = new List<(Pattern Pattern, uint Start, uint End)>();
             foreach (var pattern in constant.Patterns)
                 for (int from = 0; from < read;)

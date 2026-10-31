@@ -69,6 +69,48 @@ public sealed class CryptoConstantTests : IDisposable
     }
 
     [Fact]
+    public async Task The_128_bit_and_256_bit_key_constants_are_named_apart()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var k256 = await SurveyBytes(server, [.. Pad(0x40), .. "expand 32-byte k"u8.ToArray(), .. Pad(0x40)]);
+        Assert.Contains("256-bit key", k256);
+        Assert.DoesNotContain("128-bit key", k256);
+        var k128 = await SurveyBytes(server, [.. Pad(0x40), .. "expand 16-byte k"u8.ToArray(), .. Pad(0x40)]);
+        Assert.Contains("128-bit key", k128);
+        Assert.DoesNotContain("256-bit key", k128);
+    }
+
+    [Fact]
+    public async Task A_big_endian_constant_table_is_named_at_its_offset()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x80), .. Be(0x61707865, 0x3320646E, 0x79622D32, 0x6B206574), .. Pad(0x40)]);
+        AssertAt("ChaCha20 / Salsa20 constant for a 256-bit key (\"expand 32-byte k\")", 0x80, text);
+    }
+
+    [Fact]
+    public async Task A_constant_word_loaded_as_an_immediate_is_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x20), 0xB8, .. Le(0x61707865), 0xC3, .. Pad(0x20)]);
+        Assert.Contains("constant words as immediates", text);
+    }
+
+    [Fact]
+    public async Task An_RC4_fill_and_swap_loop_pair_is_named_in_each_compare_form()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] store = [0x88, 0x04, 0x0B], load = [0x8A, 0x04, 0x0B];
+        byte[][] compares = [[0x81, 0xF9, 0, 1, 0, 0], [0x3D, 0, 1, 0, 0], [0x48, 0x3D, 0, 1, 0, 0], [0x48, 0x81, 0xF9, 0, 1, 0, 0]];
+        foreach (var cmp in compares)
+        {
+            byte[] rc4 = [.. store, .. cmp, .. load, .. load, .. store, .. store, .. cmp];
+            var hit = await SurveyBytes(server, [.. Pad(0x40), .. rc4, .. Pad(0x40)]);
+            Assert.Contains("RC4 state fill and swap loops", hit);
+        }
+    }
+
+    [Fact]
     public async Task The_XTEA_start_sum_does_not_name_the_TEA_delta()
     {
         await using var server = await InProcessServer.StartAsync();
@@ -101,6 +143,29 @@ public sealed class CryptoConstantTests : IDisposable
         await using var server = await InProcessServer.StartAsync();
         var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x10001), .. Pad(0x40)]);
         AssertAt("IDEA modulus 65537 as immediate (low confidence)", 0x100, text);
+    }
+
+    [Fact]
+    public async Task Two_compares_against_256_without_byte_moves_between_them_are_not_an_RC4_loop()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] store = [0x88, 0x04, 0x0B], load = [0x8A, 0x04, 0x0B], cmp = [0x81, 0xF9, 0, 1, 0, 0];
+        var single = await SurveyBytes(server, [.. Pad(0x40), .. store, .. cmp, .. Pad(0x40)]);
+        Assert.DoesNotContain("RC4 state fill and swap loops", single);
+        var bare = await SurveyBytes(server, [.. Pad(0x40), .. store, .. cmp, .. cmp, .. Pad(0x40)]);
+        Assert.DoesNotContain("RC4 state fill and swap loops", bare);
+        var outside = await SurveyBytes(server, [.. load, .. load, .. store, .. store, .. store, .. cmp, .. Pad(0x20), .. cmp, .. load, .. load, .. store, .. store]);
+        Assert.DoesNotContain("RC4 state fill and swap loops", outside);
+    }
+
+    [Fact]
+    public async Task A_128_bit_big_endian_table_and_the_legacy_constant_are_both_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x80), .. Be(0x61707865, 0x3120646E, 0x79622D36, 0x6B206574), .. Pad(0x40)]);
+        AssertAt("ChaCha20 / Salsa20 constant for a 128-bit key (\"expand 16-byte k\")", 0x80, text);
+        var legacy = await SurveyBytes(server, [.. Pad(0x40), .. "expand 32-byte k"u8.ToArray(), .. Pad(0x40)]);
+        Assert.Contains("kept for compatibility", legacy);
     }
 
     [Fact]
