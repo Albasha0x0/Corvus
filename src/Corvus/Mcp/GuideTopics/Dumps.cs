@@ -5,6 +5,7 @@ public static partial class Guide
     private const string DumpsTopic = """
         Crash dumps and running processes.
         - open_minidump reads a user-mode .dmp: view=summary (exception, faulting function, thread), modules, threads, memory, unloaded.
+        - view=modules adds loadPath, the local file's signer and codeState (the .text section in memory against that file).
         - dump_stack unwinds a thread (scanned frames carry basis inferred); read_dump_memory reads its memory.
         - Linux / Android ELF cores and macOS Mach-O cores open the same way; modules match local files by build id or UUID.
         - A .NET Linux core reads through the Windows-hosted DAC; pass the runtime's folder in imageDirectories.

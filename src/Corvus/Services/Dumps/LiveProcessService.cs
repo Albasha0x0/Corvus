@@ -136,7 +136,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
                 case "modules":
                     report = report with
                     {
-                        Items = live.Modules.Skip(offset).Take(limit).Select(m => (object)MinidumpService.ModuleRow(m, dirs, live.Arch)).ToList(),
+                        Items = live.Modules.Skip(offset).Take(limit).Select(m => (object)MinidumpService.Checked(session, m)).ToList(),
                         Offset = offset, Total = live.Modules.Count,
                     };
                     break;

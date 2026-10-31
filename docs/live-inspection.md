@@ -34,6 +34,12 @@
 - Another process cannot read a window's `GWLP_WNDPROC` or `DWLP_DLGPROC`; Windows returns 0, so such a handler is reported as unknown.
 - At most 2,000 elements and 16 levels; the result names the cut.
 
+## Module and region checks
+
+- `view=modules` (also `open_minidump view=modules`) adds `loadPath`: network, temp, user_writable, system, program_files or other.
+- It adds the local file's `signer` and `signatureState` (signed, catalog, unsigned, digest_mismatch, invalid, unreadable or unknown).
+- `codeState` compares the `.text` section in memory with the matching local file, relocations applied: same, differs, partial (the dump lacks pages) or unknown.
+
 ## Sessions
 
 ### Opt-in

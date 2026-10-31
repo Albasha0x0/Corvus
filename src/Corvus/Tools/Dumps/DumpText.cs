@@ -64,7 +64,11 @@ internal static class DumpText
     public static string Module(MinidumpService.ModuleSummary m) =>
         $"{m.Base} {m.Name} size {m.Size}" + (m.FileVersion != null ? $" v{m.FileVersion}" : "") + (m.Built != null ? $" built {m.Built}" : $" stamp {m.TimeDateStamp}") +
         (m.PdbName != null ? $", pdb {m.PdbName}{(m.PdbGuid != null ? $" {m.PdbGuid}/{m.PdbAge}" : "")}" : "") +
-        $"; local {m.LocalImage}{(m.LocalPath == null ? $" ({m.LocalDetail})" : m.LocalPath.Equals(m.Path, StringComparison.OrdinalIgnoreCase) ? "" : $" ({m.LocalPath})")}" + (m.Managed == true ? ", .NET" : "") + $"\n{m.Path}";
+        $"; local {m.LocalImage}{(m.LocalPath == null ? $" ({m.LocalDetail})" : m.LocalPath.Equals(m.Path, StringComparison.OrdinalIgnoreCase) ? "" : $" ({m.LocalPath})")}" + (m.Managed == true ? ", .NET" : "") + (m is MinidumpService.CheckedModule c ? Checks(c) : "") + $"\n{m.Path}";
+
+    private static string Checks(MinidumpService.CheckedModule m) =>
+        (m.LoadPath != null ? $"; path {m.LoadPath}" : "") + (m.SignatureState != null ? $"; signature {m.SignatureState}{(m.Signer != null ? $" ({m.Signer})" : "")}" : "") +
+        (m.CodeState != null ? $"; code {m.CodeState}{(m.CodeState is "differs" or "partial" && m.CodeDetail != null ? $" ({m.CodeDetail})" : "")}" : "");
 
     public static string Thread(MinidumpService.ThreadSummary t) =>
         $"{t.Id}{(t.Name != null ? $" \"{t.Name}\"" : "")}{(t.Faulting ? " [faulting]" : "")}: {t.Location ?? t.InstructionPointer ?? "no context"}" +

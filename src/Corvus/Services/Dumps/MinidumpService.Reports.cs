@@ -44,7 +44,7 @@ public sealed partial class MinidumpService
         [property: Description("C++ exceptions: the thrown type and its catchable base types, from the ThrowInfo.")] IReadOnlyList<string>? ThrownTypes,
         bool Continuable);
 
-    public sealed record ModuleSummary(
+    public record ModuleSummary(
         string Name, string Path, string Base, string Size,
         string TimeDateStamp, string? Built, string? FileVersion,
         string? PdbName, string? PdbGuid, uint? PdbAge,
@@ -53,6 +53,24 @@ public sealed partial class MinidumpService
         [property: Description("A .NET assembly (from the local file's header); null when unknown.")] bool? Managed)
     {
         [Description("ELF cores: the module's GNU build id, from its header in the core.")] public string? BuildId { get; init; }
+    }
+
+    /// <summary>A module row of a list view: the summary with the load path class, the local file's signer and the code comparison.</summary>
+    public sealed record CheckedModule(
+        string Name, string Path, string Base, string Size,
+        string TimeDateStamp, string? Built, string? FileVersion,
+        string? PdbName, string? PdbGuid, uint? PdbAge, string LocalImage, string? LocalPath, string LocalDetail, bool? Managed)
+        : ModuleSummary(Name, Path, Base, Size, TimeDateStamp, Built, FileVersion, PdbName, PdbGuid, PdbAge, LocalImage, LocalPath, LocalDetail, Managed)
+    {
+        [Description("network, temp, user_writable, system, program_files or other.")] public string? LoadPath { get; init; }
+        [Description("Common name of the local file's signer; null when unsigned or unknown.")] public string? Signer { get; init; }
+        [Description("signed, catalog, unsigned, digest_mismatch, invalid, unreadable or unknown.")] public string? SignatureState { get; init; }
+        [Description(".text in memory against the matching local file: same, differs, partial or unknown.")] public string? CodeState { get; init; }
+        public string? CodeDetail { get; init; }
+
+        /// <summary>The checked row of <paramref name="m"/>, its checks unset.</summary>
+        public static CheckedModule Of(ModuleSummary m) => new(m.Name, m.Path, m.Base, m.Size, m.TimeDateStamp, m.Built, m.FileVersion, m.PdbName, m.PdbGuid, m.PdbAge,
+            m.LocalImage, m.LocalPath, m.LocalDetail, m.Managed) { BuildId = m.BuildId };
     }
 
     public sealed record ThreadSummary(
@@ -216,12 +234,29 @@ public sealed partial class MinidumpService
         d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here.</summary>
-    public (string Id, IReadOnlyList<ModuleSummary> Rows, int Total) Modules(string path, string? imageDirectories, int offset, int limit)
+    public (string Id, IReadOnlyList<CheckedModule> Rows, int Total) Modules(string path, string? imageDirectories, int offset, int limit)
     {
         using var s = Open(path, imageDirectories);
-        if (s.Core is { } core) return (s.Id, core.CoreModules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => CoreModuleRow(s, m)).ToList(), core.CoreModules.Count);
+        if (s.Core is { } core)
+            return (s.Id, core.CoreModules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit))
+                .Select(m => CheckedModule.Of(CoreModuleRow(s, m)) with { LoadPath = ModuleChecks.PathClass(m.Module.Path) }).ToList(), core.CoreModules.Count);
         var d = s.Memory;
-        return (s.Id, d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => ModuleRow(m, s.Directories, d.Arch, s.LoadedImages)).ToList(), d.Modules.Count);
+        return (s.Id, d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => Checked(s, m)).ToList(), d.Modules.Count);
+    }
+
+    /// <summary>The module row with its load path class, the local file's signer and the code sections compared with that file.</summary>
+    internal static CheckedModule Checked(Session s, DumpModule m)
+    {
+        var row = CheckedModule.Of(ModuleRow(m, s.Directories, s.Memory.Arch, s.LoadedImages));
+        var signature = row.LocalImage != "missing" && row.LocalPath != null ? ModuleChecks.Signature(row.LocalPath) : new ModuleSignature(null, "unknown");
+        CodeComparison code = row.LocalImage switch
+        {
+            "matches" when s.Code(m) is { Source: "disk", Image: { } image } => ModuleChecks.CompareCode(s.Memory, m, image),
+            "matches" => new CodeComparison("unknown", "the local file could not be read"),
+            "mismatch" => new CodeComparison("unknown", "the local file is another build"),
+            _ => new CodeComparison("unknown", "no local file"),
+        };
+        return row with { LoadPath = ModuleChecks.PathClass(m.Path), Signer = signature.Signer, SignatureState = signature.State, CodeState = code.State, CodeDetail = code.Detail };
     }
 
     /// <summary>Threads from <paramref name="offset"/>, each instruction pointer named; for WoW64 the 32-bit side where the dump holds it.</summary>
