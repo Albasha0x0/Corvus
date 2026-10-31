@@ -47,7 +47,7 @@
 ## Worker and helper processes
 
 <!-- readers:begin (generated from the worker op table; CORVUS_UPDATE_DOCS=1 updates it) -->
-- Read in the file worker: `summarize_file`, `list_assemblies`, `search_container`, `unpack_container`, `open_minidump`, `read_dump_memory`, `dump_heap`, `dump_object`, `dump_stack`, `bucket_minidumps`, `symbolize_stack_text`, `extract_strings`, `extract_embedded`, `survey_features`, `export_project`.
+- Read in the file worker: `summarize_file`, `list_assemblies`, `search_container`, `unpack_container`, `open_minidump`, `read_dump_memory`, `dump_heap`, `dump_object`, `dump_stack`, `bucket_minidumps`, `symbolize_stack_text`, `extract_strings`, `extract_embedded`, `survey_features`, `export_project`, `get_android_manifest`, `list_android_resources`, `get_android_resource`, `list_dex_classes`, `get_dex_class`, `disassemble_dex`, `search_dex`, `find_dex_references`.
 - Read in the server process, where a crafted file can end it:
   - session: `load_assembly`, `reload_assembly`, `load_session`.
   - dotnet: `list_namespaces`, `list_types`, `get_type_info`, `get_assembly_info`, `get_attributes`, `get_type_hierarchy`, `resolve_symbol`, `decompile_member`, `get_il`, `search_symbols`, `search_strings`, `search_constants`, `search_il`, `find_references`, `find_callees`, `get_call_tree`, `find_call_paths`, `list_resources`, `get_resource`, `export_project`, `get_r2r_code`, `find_r2r_method`.

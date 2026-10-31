@@ -75,6 +75,8 @@ internal sealed class FileOps : IWorkerOps
         Entry(FileWork.DumpView), Entry(FileWork.DumpRead), Entry(FileWork.DumpHeap), Entry(FileWork.DumpObject),
         Entry(FileWork.DumpStack), Entry(FileWork.DumpBuckets), Entry(FileWork.Symbolize),
         Entry(FileWork.Strings), Entry(FileWork.Embedded), Entry(FileWork.Survey), Entry(FileWork.ExportPackage),
+        Entry(FileWork.AndroidManifest), Entry(FileWork.AndroidResources), Entry(FileWork.AndroidResource),
+        Entry(FileWork.DexClasses), Entry(FileWork.DexClass), Entry(FileWork.DexSmali), Entry(FileWork.DexSearch), Entry(FileWork.DexReferences),
     ];
 
     private static (string, string, WorkerOp) Entry<TArgs, TResult>(FileOp<TArgs, TResult> op) => (op.Name, op.Tool, Op(op));
@@ -239,6 +241,54 @@ public static class FileWork
         return new ExportOutcome(true, System.IO.Path.GetFileName(a.Path), output.Final, files.Count, files.FirstOrDefault(f => f.StartsWith("build.gradle", StringComparison.Ordinal)) is { } gradle
             ? System.IO.Path.Combine(output.Final, gradle) : null, []) { Replaced = output.Replace, Notes = notes, RenamedFiles = output.Renamed.Count > 0 ? output.Renamed : null };
     }
+
+    public sealed record ManifestArgs(string Path);
+
+    public sealed record ResourcesArgs(string Path, string? Type, string? Name, string? Config, int Offset, int Limit);
+
+    public sealed record ResourceArgs(string Path, string Name, string? OutputPath, bool Overwrite);
+
+    public sealed record DexClassesArgs(string Path, string? Query, string? Package, int Offset, int Limit, string? Mapping);
+
+    public sealed record DexClassArgs(string Path, string Class, string? Mapping);
+
+    public sealed record DexSmaliArgs(string Path, string Symbol, bool Annotated, bool Simplified, string? Mapping);
+
+    public sealed record DexSearchArgs(string Path, string Kind, string Query, int Offset, int Limit, string? Mapping);
+
+    public sealed record DexReferencesArgs(string Path, string Target, string? Kind, string? Direction, int Offset, int Limit);
+
+    /// <summary>get_android_manifest over a package.</summary>
+    public static readonly FileOp<ManifestArgs, Core.Mobile.AndroidManifestSummary> AndroidManifest = new("android_manifest", "get_android_manifest",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.AndroidPackageService>().Manifest(a.Path, ct));
+
+    /// <summary>list_android_resources over a package: one page.</summary>
+    public static readonly FileOp<ResourcesArgs, Services.Mobile.AndroidResourceList> AndroidResources = new("android_resources", "list_android_resources",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.AndroidPackageService>().Resources(a.Path, a.Type, a.Name, a.Config, a.Offset, a.Limit));
+
+    /// <summary>get_android_resource over a package; the bytes go to <see cref="ResourceArgs.OutputPath"/> when it is given.</summary>
+    public static readonly FileOp<ResourceArgs, Services.Mobile.AndroidResourceRead> AndroidResource = new("android_resource", "get_android_resource",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.AndroidPackageService>().Resource(a.Path, a.Name, a.OutputPath, a.Overwrite));
+
+    /// <summary>list_dex_classes: one page of classes.</summary>
+    public static readonly FileOp<DexClassesArgs, Services.Mobile.DexClassList> DexClasses = new("dex_classes", "list_dex_classes",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.DexService>().ListClasses(a.Path, a.Query, a.Package, a.Offset, a.Limit, ct, a.Mapping));
+
+    /// <summary>get_dex_class: the whole class, paged by the tool.</summary>
+    public static readonly FileOp<DexClassArgs, Services.Mobile.DexClassDetail> DexClass = new("dex_class", "get_dex_class",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.DexService>().GetClass(a.Path, a.Class, ct, a.Mapping));
+
+    /// <summary>disassemble_dex: the listing text.</summary>
+    public static readonly FileOp<DexSmaliArgs, string> DexSmali = new("dex_smali", "disassemble_dex",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.DexService>().Disassemble(a.Path, a.Symbol, a.Annotated, ct, a.Mapping, a.Simplified));
+
+    /// <summary>search_dex: one page of hits.</summary>
+    public static readonly FileOp<DexSearchArgs, Services.Mobile.DexHitList> DexSearch = new("dex_search", "search_dex",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.DexService>().Search(a.Path, a.Kind, a.Query, a.Offset, a.Limit, ct, a.Mapping));
+
+    /// <summary>find_dex_references: one page of references.</summary>
+    public static readonly FileOp<DexReferencesArgs, Services.Mobile.DexReferenceList> DexReferences = new("dex_references", "find_dex_references",
+        (services, a, ct) => services.GetRequiredService<Services.Mobile.DexService>().References(a.Path, a.Target, a.Kind, a.Direction, a.Offset, a.Limit, ct));
 
     /// <summary>A dump the server resolved: the id it gave the file and the image folders it is read with.</summary>
     public sealed record DumpTarget(string Id, string Path, string? ImageDirectories);

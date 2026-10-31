@@ -210,6 +210,39 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
         await ReadsAsync(session, zip);
     }
 
+    [Theory]
+    [InlineData("get_android_manifest")]
+    [InlineData("list_android_resources")]
+    [InlineData("get_android_resource")]
+    [InlineData("list_dex_classes")]
+    [InlineData("get_dex_class")]
+    [InlineData("disassemble_dex")]
+    [InlineData("search_dex")]
+    [InlineData("find_dex_references")]
+    [InlineData("export_project")]
+    public async Task A_package_read_that_ends_the_worker_is_named_and_the_next_read_succeeds(string tool)
+    {
+        var (zip, _, _, _) = Inputs();
+        var package = Fixture(tool + ".apk", Corvus.Tools.FileOps.FixtureMarker + "exit");
+        Dictionary<string, object?> arguments = tool switch
+        {
+            "get_android_resource" => new() { ["path"] = package, ["name"] = "@string/app_name" },
+            "get_dex_class" => new() { ["path"] = package, ["class"] = AndroidSamples.Main },
+            "disassemble_dex" => new() { ["path"] = package, ["symbol"] = AndroidSamples.Main },
+            "search_dex" => new() { ["path"] = package, ["kind"] = "string", ["query"] = "api" },
+            "find_dex_references" => new() { ["path"] = package, ["target"] = AndroidSamples.Main },
+            "export_project" => new() { ["assembly"] = package, ["outputDirectory"] = Path.Combine(_dir.Path, "project") },
+            _ => new() { ["path"] = package },
+        };
+        using var pool = Pool();
+        using var shared = WorkerPool.UseShared(pool);
+        await using var session = await Session(false);
+        var failed = Whole(await Call(session, tool, arguments));
+        Assert.Contains("Error (provider_unavailable)", failed);
+        Assert.Contains(tool + ".apk", failed);
+        await ReadsAsync(session, zip);
+    }
+
     [Fact]
     public async Task A_relative_path_reads_in_the_worker_as_in_the_server()
     {
@@ -297,6 +330,7 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
         {
             var (zip, package, library, bytes) = Inputs();
             var dump = SyntheticCrash.Write(_dir);
+            var apk = AndroidSamples.Save(_dir, "sample.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex())));
             var calls = new List<(string Tool, Func<string, Dictionary<string, object?>> Args)>
             {
                 ("open_minidump", _ => new() { ["path"] = dump }),
@@ -321,6 +355,24 @@ public sealed class FileIsolationTests(ITestOutputHelper output) : FileIsolation
                 ("survey_features", _ => new() { ["path"] = library }),
                 ("survey_features", _ => new() { ["path"] = library, ["category"] = "all" }),
                 ("survey_features", _ => new() { ["path"] = zip }),
+                ("get_android_manifest", _ => new() { ["path"] = apk }),
+                ("get_android_manifest", _ => new() { ["path"] = apk, ["view"] = "components" }),
+                ("get_android_manifest", _ => new() { ["path"] = bytes }),
+                ("list_android_resources", _ => new() { ["path"] = apk }),
+                ("list_android_resources", _ => new() { ["path"] = apk, ["type"] = "string", ["limit"] = 1 }),
+                ("get_android_resource", _ => new() { ["path"] = apk, ["name"] = "@string/app_name" }),
+                ("get_android_resource", _ => new() { ["path"] = apk, ["name"] = "res/layout/main.xml" }),
+                ("get_android_resource", mode => new() { ["path"] = apk, ["name"] = "assets/config.json", ["outputPath"] = Path.Combine(_dir.Path, mode + "-config.json") }),
+                ("get_android_resource", _ => new() { ["path"] = apk, ["name"] = "assets/absent.json" }),
+                ("list_dex_classes", _ => new() { ["path"] = apk }),
+                ("list_dex_classes", _ => new() { ["path"] = apk, ["query"] = "Main", ["limit"] = 1 }),
+                ("get_dex_class", _ => new() { ["path"] = apk, ["class"] = AndroidSamples.Main }),
+                ("get_dex_class", _ => new() { ["path"] = apk, ["class"] = "Lno/Such;" }),
+                ("disassemble_dex", _ => new() { ["path"] = apk, ["symbol"] = AndroidSamples.ComputeInt }),
+                ("disassemble_dex", _ => new() { ["path"] = apk, ["symbol"] = AndroidSamples.Main, ["format"] = "annotated" }),
+                ("search_dex", _ => new() { ["path"] = apk, ["kind"] = "string", ["query"] = "api" }),
+                ("find_dex_references", _ => new() { ["path"] = apk, ["target"] = AndroidSamples.NameField }),
+                ("export_project", mode => new() { ["assembly"] = apk, ["outputDirectory"] = Path.Combine(_dir.Path, mode + "-project") }),
                 ("dump_heap", _ => new() { ["dump"] = dump }),
                 ("dump_object", _ => new() { ["dump"] = dump, ["address"] = "0x1000" }),
                 ("summarize_file", _ => new() { ["path"] = zip }),

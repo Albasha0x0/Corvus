@@ -11,7 +11,8 @@ using static Corvus.Tools.ToolSupport;
 namespace Corvus.Tools;
 
 [McpServerToolType]
-public sealed class AndroidTools(AndroidPackageService packages, DexService dex, JavaDecompilerService java, JavaDotNetMap map, JniBindings jni, OutputPager pager)
+public sealed class AndroidTools(AndroidPackageService packages, DexService dex, JavaDecompilerService java, JavaDotNetMap map, JniBindings jni, OutputPager pager,
+    ServerOptions? serverOptions = null, Native.Providers.Worker.WorkerPool? workers = null)
 {
     public const string PackageDescription = "An .apk, .aab or split set (.apks, .xapk, .apkm).";
     /// <summary>get_android_resource's record beside its text page: the entry, and where its bytes went.</summary>
@@ -32,7 +33,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("summary (default) or components.")] string? view = null,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most components.")] int limit = 50,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         bool components = (view ?? "summary").Trim().ToLowerInvariant() switch
         {
@@ -40,7 +41,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             "components" => true,
             var v => throw new ToolError(ErrorCode.InvalidArgument, $"unknown view '{v}'; use summary or components."),
         };
-        var m = packages.Manifest(path, cancellationToken);
+        var m = await FileIsolation.RunAsync(serverOptions, workers, FileWork.AndroidManifest, new FileWork.ManifestArgs(path), path,
+            () => packages.Manifest(path, cancellationToken), cancellationToken);
         static string Meta(AndroidMetaData d) => $"{d.Name}={d.Value ?? d.Resource}";
         static string Filter(AndroidIntentFilter f) => string.Join(" ", f.Actions.Concat(f.Categories)
             .Concat(f.Data.Select(d => $"{d.Scheme}://{d.Host}{(d.Port != null ? ":" + d.Port : "")}{d.Path}{(d.MimeType != null ? " " + d.MimeType : "")}"))
@@ -128,9 +130,11 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most rows.")] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var r = packages.Resources(path, type, name, config, offset, ClampLimit(limit));
+        var args = new FileWork.ResourcesArgs(path, type, name, config, offset, ClampLimit(limit));
+        var r = await FileIsolation.RunAsync(serverOptions, workers, FileWork.AndroidResources, args, path,
+            () => packages.Resources(path, type, name, config, offset, ClampLimit(limit)), cancellationToken);
         return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total,
             x => $"{x.Id} @{x.Type}/{x.Name}{(x.Config.Length > 0 ? $" [{x.Config}]" : "")}  {x.ValueType}: {x.Value}{(x.ValueTruncated == true ? " ..." : "")}",
             rows => r with { Items = rows }, "resource", $"Types: {string.Join(", ", r.Types.Select(t => $"{t.Key} {t.Value}"))}\n");
@@ -146,9 +150,14 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Overwrite outputPath.")] bool overwrite = false,
         [Description(CharOffsetDescription)] int offset = 0,
         [Description(MaxTokensDescription)] int? maxTokens = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var r = packages.Resource(path, name, outputPath, overwrite);
+        var args = new FileWork.ResourceArgs(path, name, outputPath, overwrite);
+        // A sandboxed worker cannot write the named file, so a write stays in the server.
+        var r = outputPath != null && FileIsolation.PoolFor(serverOptions, workers) is { Sandboxed: true }
+            ? packages.Resource(path, name, outputPath, overwrite)
+            : await FileIsolation.RunAsync(serverOptions, workers, FileWork.AndroidResource, args, path,
+                () => packages.Resource(path, name, outputPath, overwrite), cancellationToken);
         var record = new AndroidResourceFile(r.Entry, r.OutputPath, r.Bytes, r.Sha256);
         return r.OutputPath != null ? ToolOutput.Report(r.Text, record) : ToolOutput.Text(pager, r.Text, offset, record, maxTokens);
     }, cancellationToken);
@@ -164,9 +173,11 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Most classes.")] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
-        var r = dex.ListClasses(path, query, package, offset, ClampLimit(limit), cancellationToken, mapping);
+        var args = new FileWork.DexClassesArgs(path, query, package, offset, ClampLimit(limit), mapping);
+        var r = await FileIsolation.RunAsync(serverOptions, workers, FileWork.DexClasses, args, path,
+            () => dex.ListClasses(path, query, package, offset, ClampLimit(limit), cancellationToken, mapping), cancellationToken);
         static string Row(DexClassRow c) => $"{c.Descriptor}{(c.Original != null ? " = " + c.Original : "")}  [{string.Join("; ", new[]
         {
             c.Access.Length > 0 ? c.Access : null,
@@ -189,7 +200,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(RowOffsetDescription)] int offset = 0,
         [Description("Most members.")] int limit = 150,
         [Description(MappingDescription)] string? mapping = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         var (fields, methods) = (members ?? "all").Trim().ToLowerInvariant() switch
         {
@@ -198,7 +209,8 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             "methods" or "method" => (false, true),
             var m => throw new ToolError(ErrorCode.InvalidArgument, $"unknown members '{m}'; use all, fields or methods."),
         };
-        var c = dex.GetClass(path, @class, cancellationToken, mapping);
+        var c = await FileIsolation.RunAsync(serverOptions, workers, FileWork.DexClass, new FileWork.DexClassArgs(path, @class, mapping), path,
+            () => dex.GetClass(path, @class, cancellationToken, mapping), cancellationToken);
         bool Wanted(string name) => query is not { Length: > 0 } q || name.Contains(q, StringComparison.OrdinalIgnoreCase);
         static IReadOnlyList<T>? Some<T>(IReadOnlyList<T> list) => list.Count > 0 ? list : null;
         var all = (fields ? c.Fields.Where(f => Wanted(f.Name)).Select(f => new DexMember("field", f.Id, f.Access, $"{DexFile.JavaName(f.Type)} {f.Name}", f.Value, null, null,
@@ -238,7 +250,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             var layout = (format ?? "smali").Trim().ToLowerInvariant() switch
             {
@@ -247,7 +259,10 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
                 "simplified" => "simplified",
                 var f => throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{f}'; use smali, annotated or simplified."),
             };
-            return pager.Page(dex.Disassemble(path, symbol, layout == "annotated", cancellationToken, mapping, layout == "simplified"), offset, maxTokens);
+            var args = new FileWork.DexSmaliArgs(path, symbol, layout == "annotated", layout == "simplified", mapping);
+            var text = await FileIsolation.RunAsync(serverOptions, workers, FileWork.DexSmali, args, path,
+                () => dex.Disassemble(path, symbol, args.Annotated, cancellationToken, mapping, args.Simplified), cancellationToken);
+            return pager.Page(text, offset, maxTokens);
         }, cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java", UseStructuredContent = true, OutputSchemaType = typeof(TextPageRecord))]
@@ -332,10 +347,12 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         [Description(MappingDescription)] string? mapping = null,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(async () =>
     {
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = "indexing the DEX code (once per package)" });
-        var r = dex.Search(path, kind, query, offset, ClampLimit(limit), cancellationToken, mapping);
+        var args = new FileWork.DexSearchArgs(path, kind, query, offset, ClampLimit(limit), mapping);
+        var r = await FileIsolation.RunAsync(serverOptions, workers, FileWork.DexSearch, args, path,
+            () => dex.Search(path, kind, query, offset, ClampLimit(limit), cancellationToken, mapping), cancellationToken);
         static string Row(DexHit h) => $"{h.Kind} {h.Value}{(h.Original != null ? " = " + h.Original : "")}" + (h.Method != null ? $"  in {h.Method}{(h.InOriginal != null ? " (" + h.InOriginal + ")" : "")} @{h.Offset} {h.Opcode}" : "")
                                        + (h.Uses is { } u ? $"  ({u} uses)" : "");
         return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total, Row, rows => r with { Items = rows }, "hit", string.Concat(r.Notes.Select(n => $"Note: {n}\n")));
@@ -353,10 +370,12 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("Most references.")] int limit = 100,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(async () =>
     {
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = "indexing the DEX code (once per package)" });
-        var r = dex.References(path, target, kind, direction, offset, ClampLimit(limit), cancellationToken);
+        var args = new FileWork.DexReferencesArgs(path, target, kind, direction, offset, ClampLimit(limit));
+        var r = await FileIsolation.RunAsync(serverOptions, workers, FileWork.DexReferences, args, path,
+            () => dex.References(path, target, kind, direction, offset, ClampLimit(limit), cancellationToken), cancellationToken);
         static string Row(DexReference x) => $"{x.Method} @{x.Offset}  {x.Opcode} {x.Target}";
         var header = $"{(r.Direction == "from" ? "From" : "To")} {r.TargetKind} {r.Target}\n" + string.Concat(r.Notes.Select(n => $"Note: {n}\n"));
         return ToolOutput.List(r.Items, r.Offset, ClampLimit(limit), r.Total, Row, rows => r with { Items = rows }, "reference", header);
