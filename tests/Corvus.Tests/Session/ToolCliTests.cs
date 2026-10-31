@@ -252,6 +252,23 @@ public class ToolCliTests
     }
 
     [Fact]
+    public void A_bad_batch_line_is_named_by_file_line_and_column()
+    {
+        // Regression: a bad JSON Lines step was reported at line 0.
+        // A comment and a blank line precede the steps; line 4 is the bad one.
+        var text = "# steps\n\n  {\"tool\":\"list_assemblies\"}\n  {\"tool\": }\n";
+        var ex = Assert.Throws<UsageException>(() => ToolCli.ParseBatch(text));
+        Assert.Contains("line 4, byte column 12", ex.Message);
+    }
+
+    [Fact]
+    public void A_bad_batch_array_is_named_by_line_and_column()
+    {
+        var ex = Assert.Throws<UsageException>(() => ToolCli.ParseBatch("[\n{\"tool\": }]"));
+        Assert.Contains("line 2, byte column 10", ex.Message);
+    }
+
+    [Fact]
     public async Task Prompts_and_resources_list_from_the_command_line()
     {
         var (code, output, _) = await Run("prompts");

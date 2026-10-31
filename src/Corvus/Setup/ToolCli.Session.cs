@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ModelContextProtocol;
@@ -10,18 +11,38 @@ internal static partial class ToolCli
 {
     public sealed record BatchStep(string Tool, Dictionary<string, object?> Arguments);
 
+    // Reports a one-based line and a UTF-8 byte column; omits both when the reader gave none.
+    static string BatchJsonError(JsonException ex, long line, int indent) =>
+        ex.BytePositionInLine is long col
+            ? $"The batch is not valid JSON at line {line}, byte column {col + indent + 1}: {ex.Message}"
+            : $"The batch is not valid JSON: {ex.Message}";
+
     /// <summary>Steps from a JSON array or JSON Lines ({"tool", "args"}; # lines are comments); every tool is checked before any runs.</summary>
     public static List<BatchStep> ParseBatch(string text)
     {
         var nodes = new List<JsonNode?>();
-        try
+        if (text.TrimStart().StartsWith('['))
         {
-            if (text.TrimStart().StartsWith('[')) nodes.AddRange(JsonNode.Parse(text)!.AsArray());
-            else
-                foreach (var line in text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith('#')))
-                    nodes.Add(JsonNode.Parse(line));
+            try { nodes.AddRange(JsonNode.Parse(text)!.AsArray()); }
+            catch (JsonException ex) { throw new UsageException(BatchJsonError(ex, (ex.LineNumber ?? 0) + 1, 0)); }
         }
-        catch (JsonException ex) { throw new UsageException($"The batch is not valid JSON: {ex.Message}"); }
+        else
+        {
+            var fileLines = text.Split('\n');
+            for (int i = 0; i < fileLines.Length; i++)
+            {
+                var line = fileLines[i].TrimEnd();
+                var trimmed = line.TrimStart();
+                if (trimmed.Length == 0 || trimmed.StartsWith('#')) continue;
+                try { nodes.Add(JsonNode.Parse(trimmed)); }
+                catch (JsonException ex)
+                {
+                    // The reader's column is relative to the trimmed line.
+                    var indent = Encoding.UTF8.GetByteCount(line.AsSpan(0, line.Length - trimmed.Length));
+                    throw new UsageException(BatchJsonError(ex, i + 1, indent));
+                }
+            }
+        }
         var steps = new List<BatchStep>();
         foreach (var node in nodes)
         {
