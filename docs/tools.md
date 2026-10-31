@@ -1546,7 +1546,7 @@ Structured output: `image`, `engine`, `pattern`, `items`, `functionsTotal`, `off
 
 **Emulate native code** (read-only, idempotent, open-world, long-running)
 
-Emulate native code from an address: return value, registers and written strings. An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.
+Emulate native code from an address: return value, registers and written strings. resume= continues a run a budget stopped.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1556,13 +1556,14 @@ Emulate native code from an address: return value, registers and written strings
 | `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
 | `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
 | `stopAt` | string |  |  | Addresses to stop at. |
-| `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
+| `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0; *=0 calls outside the image). |
 | `read` | string |  |  | Shown after the run: ADDR or register, space or :, length (rcx 64). |
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
 | `candidates` | string |  |  | Argument sets, ;-separated, each as args; one timeoutSeconds covers all. |
 | `engine` | string |  |  | auto: Ghidra, else ours; ours: x86/x64/ARM64 integer code; speakeasy: a whole program. Values: auto, ghidra, ours, speakeasy. |
+| `resume` | string |  |  | Run id from Next; address is ignored. |
 
 Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `returnRegister`, `returnValue`, `registers`, `callCount`, `calls`, `written`, `reads`, `trace`, `candidates`, `apiCalls`, `filesWritten`, `regionSet`, `notes`.
 

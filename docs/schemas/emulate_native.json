@@ -199,7 +199,7 @@
       }
     },
     "filesWritten": {
-      "description": "engine=speakeasy: files the program wrote in the emulator's file system, with their saved copies.",
+      "description": "engine=speakeasy: files the program wrote, with their saved copies.",
       "type": "array",
       "items": {
         "type": "object",
@@ -224,7 +224,7 @@
       }
     },
     "regionSet": {
-      "description": "engine=speakeasy: region-set manifest of the program's image, allocations and stack after the run (open_minidump reads it).",
+      "description": "engine=speakeasy: region-set manifest of the image, allocations and stack after the run (open_minidump reads it).",
       "type": "string"
     },
     "notes": {

@@ -81,11 +81,11 @@ public sealed partial class NativeEmulationTools
             "unsupported_api" => new ToolError(ErrorCode.Unsupported, $"Emulation stopped at {where}: the emulator does not model {run.Detail ?? "an API"}.",
                 "the calls before it are in the partial result; engine=ghidra with stubs= answers that call in one function") { Partial = text },
             "timeout" or "max_total_time" => new ToolError(ErrorCode.Timeout, $"Emulation reached its time budget ({seconds} s) at {where}.",
-                "raise timeoutSeconds; the calls so far are in the partial result") { Partial = text },
+                $"{RaiseNext("timeoutSeconds", seconds, MaxTimeBudget, "run longer")}; the calls so far are in the partial result") { Partial = text },
             "max_api_count" => new ToolError(ErrorCode.LimitExceeded, $"Emulation reached {MaxApiCalls:N0} API calls at {where}.",
                 "the calls so far are in the partial result") { Partial = text },
             "max_instructions" or "max_instruction_count" => new ToolError(ErrorCode.LimitExceeded, $"Emulation reached its instruction budget ({maxInstructions:N0}) at {where}.",
-                "raise maxInstructions; the calls so far are in the partial result") { Partial = text },
+                $"{RaiseNext("maxInstructions", maxInstructions, MaxInstructionBudget, "run longer")}; the calls so far are in the partial result") { Partial = text },
             _ => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {run.Stop}{(run.Detail != null ? $" ({run.Detail})" : "")}.",
                 "the calls before it are in the partial result; disassemble shows the code there") { Partial = text },
         };

@@ -137,13 +137,117 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
         var spin = await Run("Spin", maxInstructions: 1000);
         Assert.Contains("1,000 instructions", spin);
         Assert.Contains("instruction budget (1,000) reached at ", spin);
-        Assert.Contains("(Spin); raise maxInstructions", spin);
+        Assert.Contains("(Spin); emulate_native image=emu.dll address=Spin resume=emu-", spin);
         var timed = await rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 50_000_000, timeoutSeconds: 1, engine: "ours");
         output.WriteLine(timed);
         Assert.Contains("Stopped: time budget reached at ", timed);
         var stopped = await Run("Fnv1a", args: "\"a\"", stopAt: $"rva:0x{rig.At["Fnv1aEnd"]:X}");
         Assert.Contains("Stopped: reached a stop address", stopped);
         Assert.Contains($"RAX=0x{NativeEmulationGhidraTests.Fnv1a("a"):x}", stopped);
+    }
+
+    private static string ResumeId(string text) =>
+        System.Text.RegularExpressions.Regex.Match(text, "resume=(emu-[0-9a-f]+)").Groups[1].Value;
+
+    [Fact]
+    public async Task A_run_stopped_by_a_budget_and_resumed_equals_an_uninterrupted_run()
+    {
+        var input = new string('a', 30_000);
+        var whole = await Run("Fnv1a", args: $"\"{input}\"");
+        var cut = await Run("Fnv1a", args: $"\"{input}\"", maxInstructions: 50_000);
+        Assert.Contains("Stopped: instruction budget (50,000) reached", cut);
+        var resumed = await rig.Tools.EmulateNative("emu.dll", "Fnv1a", resume: ResumeId(cut));
+        output.WriteLine(resumed);
+        Assert.Contains("Stopped: returned to the caller", resumed);
+        static string FirstLine(string text) => text[..text.IndexOf('\n')];
+        string Line(string text, string prefix) => text.Split('\n').First(l => l.StartsWith(prefix, StringComparison.Ordinal));
+        Assert.Equal(Line(whole, "Return value:"), Line(resumed, "Return value:"));
+        Assert.Equal(FirstLine(whole), FirstLine(resumed));
+        Assert.Contains(System.Text.RegularExpressions.Regex.Match(whole, "[0-9,]+ instructions").Value, resumed);
+    }
+
+    [Fact]
+    public async Task A_resumed_run_that_stops_on_a_budget_again_keeps_its_id()
+    {
+        var cut = await Run("Spin", maxInstructions: 1000);
+        var id = ResumeId(cut);
+        var again = await rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 1000, resume: id);
+        Assert.Contains("2,000 instructions", again);
+        Assert.Equal(id, ResumeId(again));
+    }
+
+    [Fact]
+    public async Task An_unknown_resume_id_is_named_and_refused()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.EmulateNative("emu.dll", "Spin", resume: "emu-00000000"));
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+        Assert.Contains("emu-00000000", e.Message);
+    }
+
+    [Fact]
+    public async Task Resume_refuses_inputs_that_would_change_the_run()
+    {
+        var cut = await Run("Spin", maxInstructions: 1000);
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.EmulateNative("emu.dll", "Spin", args: "1", resume: ResumeId(cut)));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+    }
+
+    [Fact]
+    public async Task Resume_with_a_ghidra_or_speakeasy_engine_is_refused()
+    {
+        var cut = await Run("Spin", maxInstructions: 1000);
+        foreach (var engine in new[] { "ghidra", "speakeasy" })
+        {
+            var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.EmulateNative("emu.dll", "Spin", resume: ResumeId(cut), engine: engine));
+            Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_cancelled_resume_leaves_the_run_to_resume_again()
+    {
+        var cut = await Run("Spin", maxInstructions: 1000);
+        var id = ResumeId(cut);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 1000, resume: id, cancellationToken: cancelled.Token));
+        var again = await rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 1000, resume: id);
+        Assert.Contains("2,000 instructions", again);
+    }
+
+    [Fact]
+    public async Task The_oldest_stopped_run_is_dropped_past_the_kept_limit()
+    {
+        var first = ResumeId(await Run("Spin", maxInstructions: 1000));
+        for (int i = 0; i < EmulationRuns.Kept; i++) await Run("Spin", maxInstructions: 1000);
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.EmulateNative("emu.dll", "Spin", resume: first));
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+    }
+
+    [Fact]
+    public async Task A_resume_id_of_another_image_is_refused()
+    {
+        var id = ResumeId(await Run("Spin", maxInstructions: 1000));
+        var e = Assert.Throws<ToolError>(() => EmulationRuns.Find("other.dll", id));
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+    }
+
+    [Fact]
+    public async Task A_batch_names_the_sets_left_when_the_time_budget_is_spent()
+    {
+        var text = await rig.Tools.EmulateNative("emu.dll", "Spin", maxInstructions: 50_000_000, timeoutSeconds: 1, candidates: "1; 2; 3", engine: "ours");
+        output.WriteLine(text);
+        Assert.Contains("Next: candidates=", text);
+    }
+
+    [Fact]
+    public void The_raise_next_is_not_offered_at_the_maximum()
+    {
+        Assert.Contains("raise maxInstructions", NativeEmulationTools.RaiseNext("maxInstructions", 1000, 50_000_000, "go further"));
+        var atMax = NativeEmulationTools.RaiseNext("maxInstructions", 50_000_000, 50_000_000, "go further");
+        Assert.DoesNotContain("raise", atMax);
+        Assert.Contains("maximum", atMax);
     }
 
     [Fact]

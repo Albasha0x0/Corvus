@@ -28,7 +28,11 @@ public static class IntegerEmulation
     };
 
     /// <summary>Runs one request and returns the worker's result fields with "engine": "ours"; bad input throws InvalidArgument or LimitExceeded.</summary>
-    public static JsonObject Run(INativeImage image, ulong imageBase, NativeCodeIndex? index, JsonObject request, CancellationToken ct)
+    public static JsonObject Run(INativeImage image, ulong imageBase, NativeCodeIndex? index, JsonObject request, CancellationToken ct) =>
+        Start(image, imageBase, index, request, ct).Result;
+
+    /// <summary>Runs one request like Run and returns the run beside its result.</summary>
+    internal static (JsonObject Result, EmulationRun Run) Start(INativeImage image, ulong imageBase, NativeCodeIndex? index, JsonObject request, CancellationToken ct)
     {
         var cpu = Cpu(image);
         int ptr = cpu.PointerSize;
@@ -48,8 +52,6 @@ public static class IntegerEmulation
         }
 
         ulong start = Va(Text(request, "start")!);
-        long maxIns = (long)(Number(request["max_instructions"]) ?? 1_000_000);
-        double seconds = Number(request["seconds"]) ?? 10;
         int traceMax = (int)(Number(request["trace"]) ?? 0);
 
         ulong stackTop = regionBase + StackSize;
@@ -99,15 +101,32 @@ public static class IntegerEmulation
         var shown = cpu.MainRegisters;
         var before = shown.Select(n => cpu.TryGet(n, out var v) ? v : 0).ToList();
 
-        mem.Tracking = true;
-        var clock = Stopwatch.StartNew();
-        long executed = 0;
+        var run = new EmulationRun(image, imageBase, index, cpu, mem, heap, byAddress, sentinel, regionBase, stackTop, shown, before, scratchOut, stops, stubs,
+            anyStub, traceMax, start, request["reads"] as JsonArray);
+        long maxIns = (long)(Number(request["max_instructions"]) ?? 1_000_000);
+        double seconds = Number(request["seconds"]) ?? 10;
+        return (Execute(run, maxIns, seconds, ct), run);
+    }
+
+    /// <summary>Continues a run with fresh budgets; returns the whole run's result.</summary>
+    internal static JsonObject Resume(EmulationRun run, long maxInstructions, double seconds, CancellationToken ct) =>
+        Execute(run, maxInstructions, seconds, ct);
+
+    private static JsonObject Execute(EmulationRun run, long maxIns, double seconds, CancellationToken ct)
+    {
+        var (image, imageBase, index, cpu, mem, heap, byAddress, sentinel) = (run.Image, run.ImageBase, run.Index, run.Cpu, run.Mem, run.Heap, run.ByAddress, run.Sentinel);
+        var (regionBase, stackTop, shown, before, scratchOut) = (run.RegionBase, run.StackTop, run.Shown, run.Before, run.ScratchOut);
+        var (stops, stubs, anyStub, traceMax, start) = (run.Stops, run.Stubs, run.AnyStub, run.TraceMax, run.Start);
+        int ptr = cpu.PointerSize;
+        var trace = run.Trace;
+        var calls = run.Calls;
+        long executed = run.Executed, limit = executed + maxIns;
+        int callCount = run.CallCount;
+        ulong lastSite = run.LastSite;
         string? stop = null, detail = null;
         ulong? stoppedAt = null;
-        var trace = new Queue<(ulong, string)>();
-        var calls = new JsonArray();
-        int callCount = 0;
-        ulong lastSite = start;
+        mem.Tracking = true;
+        var clock = Stopwatch.StartNew();
 
         void Record(ulong site, ulong target, string? name, string action, ulong? value)
         {
@@ -197,7 +216,7 @@ public static class IntegerEmulation
                 continue;
             }
             if (executed > 0 && stops.Contains(pc)) { stop = "stop_address"; break; }
-            if (executed >= maxIns) { stop = "instruction_budget"; break; }
+            if (executed >= limit) { stop = "instruction_budget"; break; }
             if ((executed & 1023) == 0)
             {
                 if (ct.IsCancellationRequested) { stop = "cancelled"; break; }
@@ -279,6 +298,11 @@ public static class IntegerEmulation
             Record(step.Site, target, calleeName, "into", null);
         }
         mem.Tracking = false;
+        run.Executed = executed;
+        run.CallCount = callCount;
+        run.LastSite = lastSite;
+        run.Elapsed += clock.Elapsed;
+        run.Resumable = stop is "instruction_budget" or "time_budget" or "cancelled";
 
         ulong stopPc = stoppedAt ?? cpu.Pc;
         var o = new JsonObject
@@ -290,7 +314,7 @@ public static class IntegerEmulation
             ["pc"] = Hex(stopPc),
             ["where"] = Where(imageBase, index, stopPc),
             ["instructions"] = executed,
-            ["seconds"] = Math.Round(clock.Elapsed.TotalSeconds, 3),
+            ["seconds"] = Math.Round(run.Elapsed.TotalSeconds, 3),
             ["return_register"] = cpu.ReturnRegister,
             ["return_value"] = Hex(cpu.TryGet(cpu.ReturnRegister, out var ret) ? ret : 0),
         };
@@ -301,9 +325,9 @@ public static class IntegerEmulation
             regRows.Add(new JsonArray(shown[k], Hex(now), now != before[k]));
         }
         o["registers"] = regRows;
-        o["calls"] = calls;
+        o["calls"] = calls.DeepClone();
         o["call_count"] = callCount;
-        o["scratch"] = scratchOut;
+        o["scratch"] = scratchOut.DeepClone();
         o["stack"] = Hex(regionBase) + "-" + Hex(stackTop);
 
         // Written memory outside the stack.
@@ -330,7 +354,7 @@ public static class IntegerEmulation
         o["written_ranges"] = data.Count;
 
         var reads = new JsonArray();
-        if (request["reads"] is JsonArray asked)
+        if (run.Reads is { } asked)
             foreach (var q in asked)
             {
                 var row = new JsonObject();

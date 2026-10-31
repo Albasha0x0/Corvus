@@ -27,7 +27,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
     [Description("Emulate native code from an address: return value, registers and written strings. " +
-                 "An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.")]
+                 "resume= continues a run a budget stopped.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -35,13 +35,14 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("rcx=0x10, rdx='key' (values as args).")] string? registers = null,
         [Description("ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000.")] string? memory = null,
         [Description("Addresses to stop at.")] string? stopAt = null,
-        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image).")] string? stubs = null,
+        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0; *=0 calls outside the image).")] string? stubs = null,
         [Description("Shown after the run: ADDR or register, space or :, length (rcx 64).")] string? read = null,
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
         [Description("Argument sets, ;-separated, each as args; one timeoutSeconds covers all.")] string? candidates = null,
         [Description("auto: Ghidra, else ours; ours: x86/x64/ARM64 integer code; speakeasy: a whole program.")] string? engine = null,
+        [Description("Run id from Next; address is ignored.")] string? resume = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -51,13 +52,21 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         if (id is not ("ghidra" or OursEngine or SpeakeasyEngine))
             throw new ToolError(ErrorCode.Unsupported, $"emulate_native runs in Ghidra's p-code emulator, the built-in emulator or speakeasy, not in '{engine!.Trim()}'.",
                 $"omit engine or pass engine=ghidra (Ghidra from {GhidraOptions.DirectoryVariable}), engine=ours or engine=speakeasy ({ExternalTools.Emulator.Variable})");
-        if (maxInstructions is < 1 or > 50_000_000) throw new ToolError(ErrorCode.InvalidArgument, $"maxInstructions must be 1-50000000, not {maxInstructions}.");
-        if (timeoutSeconds is < 1 or > 300) throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-300, not {timeoutSeconds}.");
+        if (maxInstructions is < 1 or > MaxInstructionBudget) throw new ToolError(ErrorCode.InvalidArgument, $"maxInstructions must be 1-50000000, not {maxInstructions}.");
+        if (timeoutSeconds is < 1 or > MaxTimeBudget) throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds must be 1-300, not {timeoutSeconds}.");
         if (id == SpeakeasyEngine)
         {
-            RefuseGhidraOnly(("args", args), ("registers", registers), ("memory", memory), ("stopAt", stopAt), ("stubs", stubs), ("read", read),
+            RefuseGhidraOnly(("resume", resume), ("args", args), ("registers", registers), ("memory", memory), ("stopAt", stopAt), ("stubs", stubs), ("read", read),
                 ("candidates", candidates), ("trace", trace == 0 ? null : trace.ToString(CultureInfo.InvariantCulture)));
             return await EmulateProgramAsync(image, address, maxInstructions, timeoutSeconds, cancellationToken);
+        }
+        if (resume != null && !auto && id == "ghidra")
+            throw new ToolError(ErrorCode.InvalidArgument, "resume continues engine=ours runs.", "omit resume, or pass engine=ours");
+        if (resume != null)
+        {
+            RefuseResumeWith(("args", args), ("registers", registers), ("memory", memory), ("stopAt", stopAt), ("stubs", stubs), ("read", read),
+                ("candidates", candidates), ("trace", trace == 0 ? null : trace.ToString(CultureInfo.InvariantCulture)));
+            return await ResumeOursAsync(image, address, resume.Trim(), maxInstructions, timeoutSeconds, cancellationToken);
         }
         int seconds = timeoutSeconds;
         if (trace is < 0 or > 2000) throw new ToolError(ErrorCode.InvalidArgument, $"trace must be 0-2000, not {trace}.");
@@ -71,7 +80,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             oursNote = $"auto: Ghidra is not available ({missing.Reason}), so the built-in emulator";
         if (oursNote != null)
             return await EmulateOursAsync(native, startRva, oursNote, args, registers, memory, stopAt, stubs, read, maxInstructions, seconds, trace, candidates,
-                cancellationToken);
+                address, cancellationToken);
         engines.Provider("ghidra");
         var session = await engines.Session(native, "ghidra", new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"Ghidra {p.Stage}" })), cancellationToken);
@@ -90,7 +99,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             return Mcp.ToolOutput.Report(FormatBatch(native.Id, sets, runs), BatchReport(native.Id, sets, runs));
         }
         var r = await ghidra.CallAsync("emulate", request, cancellationToken, timeout: TimeSpan.FromSeconds(seconds + 30));
-        return Finish(native.Id, r, maxInstructions);
+        return Finish(native.Id, r, maxInstructions, timeoutSeconds, address);
     });
 
     internal const string OursEngine = "ours";
@@ -119,7 +128,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
     }
 
     private async Task<string> EmulateOursAsync(LoadedNative native, uint startRva, string note, string? args, string? registers, string? memory,
-        string? stopAt, string? stubs, string? read, int maxInstructions, int seconds, int trace, string? candidates, CancellationToken ct)
+        string? stopAt, string? stubs, string? read, int maxInstructions, int seconds, int trace, string? candidates, string address, CancellationToken ct)
     {
         IntegerEmulation.Cpu(native.Image);
         var index = nativeCode != null ? await nativeCode.Index(native, null, ct) : null;
@@ -149,14 +158,40 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             }
             return Mcp.ToolOutput.Report(FormatBatch(native.Id, sets, runs), BatchReport(native.Id, sets, runs));
         }
-        var r = JsonSerializer.SerializeToElement(await Task.Run(() => IntegerEmulation.Run(native.Image, imageBase, index, request, ct), ct));
-        return Finish(native.Id, r, maxInstructions);
+        var (json, run) = await Task.Run(() => IntegerEmulation.Start(native.Image, imageBase, index, request, ct), ct);
+        var r = JsonSerializer.SerializeToElement(json);
+        return Finish(native.Id, r, maxInstructions, seconds, address, run);
     }
 
-    private static string Finish(string imageId, JsonElement r, int maxInstructions)
+    private async Task<string> ResumeOursAsync(string image, string address, string id, int maxInstructions, int seconds, CancellationToken ct)
     {
-        var text = Format(imageId, r, maxInstructions);
+        var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), ct);
+        var run = EmulationRuns.Find(native.Id, id);
+        EngineReport.Answered(new EngineChoice(OursEngine, "resume: the built-in emulator"), engines);
+        var r = JsonSerializer.SerializeToElement(await Task.Run(() => IntegerEmulation.Resume(run, maxInstructions, seconds, ct), ct));
+        // The run stays kept until it ends, so a failed or cancelled resume can be retried.
+        if (!run.Resumable) EmulationRuns.Drop(id);
+        return Finish(native.Id, r, maxInstructions, seconds, address, run, id);
+    }
+
+    private static void RefuseResumeWith(params (string Name, string? Value)[] given)
+    {
+        if (given.FirstOrDefault(g => g.Value != null) is { Name: { } name })
+            throw new ToolError(ErrorCode.InvalidArgument, $"resume continues a run with its own inputs; {name} cannot change them.", "omit it, or start a run without resume");
+    }
+
+    private static string Finish(string imageId, JsonElement r, int maxInstructions, int timeoutSeconds, string address, EmulationRun? run = null, string? id = null)
+    {
         var stop = r.GetProperty("stop").GetString();
+        string? next = stop switch
+        {
+            "instruction_budget" or "time_budget" when run is { Resumable: true } =>
+                $"emulate_native image={imageId} address={address} resume={EmulationRuns.Keep(imageId, run, id)} continues with a fresh budget",
+            "instruction_budget" => RaiseNext("maxInstructions", maxInstructions, MaxInstructionBudget, "go further"),
+            "time_budget" => RaiseNext("timeoutSeconds", timeoutSeconds, MaxTimeBudget, "go further"),
+            _ => null,
+        };
+        var text = Format(imageId, r, maxInstructions, next);
         var where = At(r);
         var detail = r.GetProperty("detail").GetString();
         ToolError? error = stop switch
@@ -170,11 +205,18 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             "unmapped_execute" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.", "the trace (trace=50) shows the jump") { Partial = text },
             "error" => new ToolError(ErrorCode.Unsupported, $"Emulation stopped at {where}: {detail}.",
                 "an instruction the emulator does not model (system calls, segment bases, interrupts); stopAt= ends before it") { Partial = text },
-            "cancelled" => new ToolError(ErrorCode.Cancelled, $"Emulation was cancelled at {where}.") { Partial = text },
+            "cancelled" => new ToolError(ErrorCode.Cancelled, $"Emulation was cancelled at {where}.",
+                id != null ? $"emulate_native image={imageId} address={address} resume={id} continues it" : null) { Partial = text },
             _ => null,
         };
         return error != null ? throw error : Mcp.ToolOutput.Report(text, Report(imageId, r));
     }
+
+    internal const int MaxInstructionBudget = 50_000_000, MaxTimeBudget = 300;
+
+    /// <summary>The Next that raises <paramref name="parameter"/>, or at its <paramref name="max"/> the call that ends the run sooner.</summary>
+    internal static string RaiseNext(string parameter, int current, int max, string goal) =>
+        current < max ? $"raise {parameter} (up to {max:N0}) to {goal}" : $"{parameter} is at its maximum {max:N0}; stopAt= ends the run at an address";
 
     private static string At(JsonElement r) =>
         r.GetProperty("where").GetString() is { } w ? $"{r.GetProperty("pc").GetString()} ({w})" : r.GetProperty("pc").GetString() ?? "?";
@@ -198,10 +240,10 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("engine=speakeasy: the program's API calls in order.")]
         public IReadOnlyList<EmulatedApiCall>? ApiCalls { get; init; }
 
-        [Description("engine=speakeasy: files the program wrote in the emulator's file system, with their saved copies.")]
+        [Description("engine=speakeasy: files the program wrote, with their saved copies.")]
         public IReadOnlyList<EmulatedFile>? FilesWritten { get; init; }
 
-        [Description("engine=speakeasy: region-set manifest of the program's image, allocations and stack after the run (open_minidump reads it).")]
+        [Description("engine=speakeasy: region-set manifest of the image, allocations and stack after the run (open_minidump reads it).")]
         public string? RegionSet { get; init; }
 
         public IReadOnlyList<string>? Notes { get; init; }
@@ -248,7 +290,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             sb.Append(c.Stop switch
             {
                 "returned" => $"returned {c.ReturnValue}",
-                "not_run" => "not run: the time budget was spent; raise timeoutSeconds",
+                "not_run" => "not run: the time budget was spent",
                 _ => c.Stop + (c.StoppedAt != null ? $" at {c.StoppedAt}" : "") + (c.Detail != null ? $": {c.Detail}" : ""),
             });
             if (c.Stop != "not_run") sb.Append(CultureInfo.InvariantCulture, $", {c.Instructions:N0} instructions");
@@ -256,6 +298,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
                 sb.Append("; ").Append(x.Label ?? x.Va).Append(": ").Append(x.Error ?? x.Text ?? x.Bytes);
             sb.Append('\n');
         }
+        var left = report.Candidates!.Where(c => c.Stop == "not_run").Select(c => c.Args).ToList();
+        if (left.Count > 0) sb.Append("Next: candidates=").Append(string.Join("; ", left)).Append(" runs the sets not run\n");
         return sb.ToString();
     }
 
@@ -283,7 +327,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
             { ElapsedSeconds = r.TryGetProperty("seconds", out var s) ? Math.Round(s.GetDouble(), 3) : null };
     }
 
-    internal static string Format(string imageId, JsonElement r, int maxInstructions)
+    internal static string Format(string imageId, JsonElement r, int maxInstructions, string? next = null)
     {
         var sb = new StringBuilder();
         long count = r.GetProperty("instructions").GetInt64();
@@ -301,12 +345,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         sb.Append("Stopped: ").Append(why);
         // A return stops on the sentinel return address, which says nothing.
         if (stop != "returned") sb.Append(" at ").Append(At(r));
-        sb.Append(stop switch
-        {
-            "instruction_budget" => "; raise maxInstructions to go further",
-            "time_budget" => "; raise timeoutSeconds to go further",
-            _ => "",
-        }).Append('\n');
+        if (next != null && stop is "instruction_budget" or "time_budget") sb.Append("; ").Append(next);
+        sb.Append('\n');
         if (r.GetProperty("return_register").GetString() is { } rr && stop == "returned")
         {
             var v = r.GetProperty("return_value").GetString()!;

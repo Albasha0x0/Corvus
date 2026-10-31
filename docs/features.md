@@ -249,6 +249,8 @@ Frida's bindings ([live-inspection.md](live-inspection.md)).
   - Reports the return value, changed registers, written memory with decoded strings, and a trace.
 - `engine=ours`: built in, no engine needed; x86, x64 and ARM64 integer code. `auto` picks it without Ghidra.
   - Floating point, vector arithmetic, system calls and segment bases stop the run and name the instruction.
+  - An unmodelled call or an unmapped read stops the run with an error and the partial result.
+  - A run a budget stopped continues with `resume=<id>` and a fresh budget; the last 4 stopped runs are kept.
 - `engine=speakeasy`: a whole PE, or raw x86 / x64 code, in speakeasy 2.0.0b9 (`CORVUS_EMULATOR`), in the worker host. Windows APIs are modelled. Nothing runs natively.
   - An unmodelled API stops the run by name, keeping the calls before it.
   - Reports API calls, written files and memory as a region set that `open_minidump` reads.
