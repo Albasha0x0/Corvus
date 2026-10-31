@@ -206,7 +206,8 @@ public static class Blob
     public static (byte[]? Bytes, string? Kind) TryDecompressAssembly(ReadOnlySpan<byte> data, long maxBytes) =>
         StartsWith(data, "XALZ"u8) ? (TryXalz(data, maxBytes), "lz4") : StartsWith(data, "XAZS"u8) ? (TryXazs(data, maxBytes), "zstd") : (null, null);
 
-    public sealed record Carved(int Offset, int Length, bool IsDotNet);
+    /// <summary>A PE image found in a byte range: offset, length, whether it is .NET, and machine name (empty when unknown).</summary>
+    public sealed record Carved(int Offset, int Length, bool IsDotNet, string Machine = "");
 
     /// <summary>Finds PE images embedded anywhere in <paramref name="data"/> (validated headers; overlays excluded).</summary>
     public static List<Carved> CarvePe(ReadOnlySpan<byte> data, int maxResults = 10_000, CancellationToken ct = default)
@@ -222,7 +223,7 @@ public static class Blob
             var pe = PeImage.TryParse(data, at);
             if (pe != null && pe.EndOfImage <= data.Length - at && pe.EndOfImage > 0)
             {
-                found.Add(new Carved(at, (int)pe.EndOfImage, pe.IsDotNet(data)));
+                found.Add(new Carved(at, (int)pe.EndOfImage, pe.IsDotNet(data), pe.MachineName));
                 // Nested images are found by analyzing the container.
                 i = at + (int)pe.EndOfImage;
             }

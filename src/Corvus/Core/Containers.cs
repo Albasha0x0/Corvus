@@ -390,34 +390,34 @@ public static class Containers
             from = image.Length;
         }
         if (top != null && !top.Kind.EndsWith("with embedded .NET images", StringComparison.Ordinal) && top.Kind != "none") return top;
-        var (items, native) = CarveRange(s, from, length, limits, ct);
+        var (items, nativeImages) = CarveRange(s, from, length, limits, ct);
         const string WindowedNote = "gzip streams are not scanned in files over 64 MiB.";
         if (top == null)
         {
             var notes = new List<string> { WindowedNote };
-            if (native > 0) notes.Add($"{native} embedded native PE image(s) found (not extracted).");
+            if (nativeImages.Count > 0) notes.Add(NativeNote(nativeImages, afterImage: false));
             if (items.Count == 0) notes.Add($"Not a known container ({kind}) and no embedded .NET images were found.");
             return new ContainerContents(items.Count > 0 ? $"{kind} with embedded .NET images" : "none", items, notes);
         }
-        if (items.Count == 0 && native == 0) return new ContainerContents(top.Kind, top.Items, [.. top.Notes, WindowedNote]);
+        if (items.Count == 0 && nativeImages.Count == 0) return new ContainerContents(top.Kind, top.Items, [.. top.Notes, WindowedNote]);
         var merged = new List<ExtractedItem>([.. top.Items, .. items]);
         var mergedNotes = items.Count > 0 ? top.Notes.Where(n => !n.Contains("no embedded .NET images", StringComparison.Ordinal) && !n.StartsWith("A native executable with no .NET bundle", StringComparison.Ordinal)).ToList() : [.. top.Notes];
-        if (native > 0) mergedNotes.Add($"{native} embedded native PE image(s) found after the image (not extracted).");
+        if (nativeImages.Count > 0) mergedNotes.Add(NativeNote(nativeImages, afterImage: true));
         mergedNotes.Add(WindowedNote);
         return new ContainerContents(merged.Count > 0 ? $"{kind} with embedded .NET images" : top.Kind, merged, mergedNotes);
     }
 
-    /// <summary>.NET images and XALZ chunks carved from bytes [<paramref name="from"/>, <paramref name="to"/>) of a stream, read in windows; with the count of native PE images seen.</summary>
-    private static (List<ExtractedItem> Items, int Native) CarveRange(Stream s, long from, long to, AnalysisLimits limits, CancellationToken ct)
+    /// <summary>.NET images and XALZ chunks carved from bytes [<paramref name="from"/>, <paramref name="to"/>) of a stream, read in windows; with the native PE images seen (offset, size, machine).</summary>
+    private static (List<ExtractedItem> Items, List<NativeImage> Native) CarveRange(Stream s, long from, long to, AnalysisLimits limits, CancellationToken ct)
     {
         const int Window = 64 << 20, Overlap = 1 << 16;
         var items = new List<ExtractedItem>();
-        int native = 0;
-        if (from >= to) return (items, 0);
+        var native = new List<NativeImage>();
+        if (from >= to) return (items, native);
         var buffer = new byte[(int)Math.Min(Window, to - from)];
         // The first offset not inside an image already found.
         long next = from;
-        for (long w = from; w < to && items.Count + native < limits.MaxItems; w += Window - Overlap)
+        for (long w = from; w < to && items.Count + native.Count < limits.MaxItems; w += Window - Overlap)
         {
             ct.ThrowIfCancellationRequested();
             int n = (int)Math.Min(buffer.Length, to - w);
@@ -427,7 +427,7 @@ public static class Containers
             bool last = w + n >= to;
             // A start in the overlap belongs to the next window, which holds its headers.
             int limit = last ? n : n - Overlap;
-            for (int i = (int)Math.Clamp(next - w, 0, n); i < limit && items.Count + native < limits.MaxItems;)
+            for (int i = (int)Math.Clamp(next - w, 0, n); i < limit && items.Count + native.Count < limits.MaxItems;)
             {
                 int at = span[i..limit].IndexOf("MZ"u8);
                 if (at < 0) break;
@@ -438,7 +438,7 @@ public static class Containers
                 byte[]? bytes = at + pe.EndOfImage <= n ? span.Slice(at, (int)pe.EndOfImage).ToArray()
                     : pe.EndOfImage <= limits.MaxItemBytes ? ReadRange(s, w + at, (int)pe.EndOfImage) : null;
                 if (bytes != null && PeImage.TryParse(bytes)?.IsDotNet(bytes) == true) items.Add(new ExtractedItem($"carved_0x{w + at:X}.dll", bytes, $"carved .NET image at 0x{w + at:X}"));
-                else native++;
+                else native.Add(new NativeImage(w + at, pe.EndOfImage, pe.MachineName));
                 next = end;
                 if (end - w >= n) break;
                 i = (int)(end - w);
@@ -451,6 +451,18 @@ public static class Containers
             if (last) break;
         }
         return (items, native);
+    }
+
+    private sealed record NativeImage(long Offset, long Size, string Machine);
+
+    private const int MaxListedNative = 8;
+
+    // Lists at most 8 images, then a count of the rest.
+    private static string NativeNote(List<NativeImage> images, bool afterImage)
+    {
+        var shown = string.Join("; ", images.Take(MaxListedNative).Select(i => $"offset 0x{i.Offset:X}, {i.Size} bytes, {i.Machine}"));
+        var more = images.Count > MaxListedNative ? $"; {images.Count - MaxListedNative} more" : "";
+        return $"{images.Count} embedded native PE image(s) found{(afterImage ? " after the image" : "")} (not extracted): {shown}{more}.";
     }
 
     private static byte[] ReadRange(Stream s, long at, int n)
@@ -759,7 +771,7 @@ public static class Containers
     {
         var items = new List<ExtractedItem>();
         var notes = new List<string>();
-        int native = 0;
+        var native = new List<NativeImage>();
         // Streams inside a carved image are not repeated.
         var covered = new List<(int Offset, int End)>();
         foreach (var c in Blob.CarvePe(data, limits.MaxItems, ct))
@@ -767,7 +779,7 @@ public static class Containers
             ct.ThrowIfCancellationRequested();
             if (c.IsDotNet) covered.Add((c.Offset, c.Offset + c.Length));
             if (c.Offset == 0 && c.Length == data.Length) continue;
-            if (!c.IsDotNet) { native++; continue; }
+            if (!c.IsDotNet) { native.Add(new NativeImage(c.Offset, c.Length, c.Machine)); continue; }
             items.Add(new ExtractedItem($"carved_0x{c.Offset:X}.dll", data.AsSpan(c.Offset, c.Length).ToArray(), $"carved .NET image at 0x{c.Offset:X}"));
         }
         foreach (int at in Blob.FindAll(data, "XALZ"u8, limits.MaxItems))
@@ -794,7 +806,7 @@ public static class Containers
             items.Add(new ExtractedItem($"gzip_0x{at:X}.bin", found.Bytes, $"gzip stream at 0x{at:X}, {found.Length} bytes"));
             gzips++;
         }
-        if (native > 0) notes.Add($"{native} embedded native PE image(s) found (not extracted).");
+        if (native.Count > 0) notes.Add(NativeNote(native, afterImage: false));
         if (items.Count == 0)
             notes.Add(kind == "native PE"
                 ? "A native executable with no .NET bundle or embedded .NET images (it may be wrapped, compressed, or not .NET at all)."

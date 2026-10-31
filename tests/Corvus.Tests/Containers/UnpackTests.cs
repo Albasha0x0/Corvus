@@ -629,6 +629,33 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     }
 
     [Fact]
+    public void An_embedded_native_image_note_gives_offset_size_and_machine()
+    {
+        var inner = NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1);
+        var blob = Noise(0x300 + inner.Length + 0x100);
+        inner.CopyTo(blob, 0x300);
+
+        var c = Containers.Carve(blob, "outer.bin", "data", AnalysisLimits.Default, default);
+
+        Assert.Contains(c.Notes, n => n.Contains($"offset 0x300, {inner.Length} bytes, x64", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Nine_embedded_native_images_list_eight_and_count_the_rest()
+    {
+        var inner = NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1);
+        var blob = Noise(9 * (inner.Length + 0x100) + 0x100);
+        for (int k = 0; k < 9; k++) inner.CopyTo(blob, 0x100 + k * (inner.Length + 0x100));
+
+        var c = Containers.Carve(blob, "dir/outer.bin", "data", AnalysisLimits.Default, default);
+
+        var note = Assert.Single(c.Notes, n => n.Contains("embedded native PE image(s)", StringComparison.Ordinal));
+        Assert.StartsWith("9 embedded native PE image(s) found (not extracted)", note, StringComparison.Ordinal);
+        Assert.Equal(8, note.Split("offset 0x").Length - 1);
+        Assert.EndsWith("; 1 more.", note, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_gzip_stream_inside_a_carved_image_is_skipped_and_the_label_keeps_images()
     {
         var image = System.IO.File.ReadAllBytes(Env.FixturePath);
