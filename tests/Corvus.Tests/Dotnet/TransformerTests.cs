@@ -17,7 +17,7 @@ public sealed class TransformerTests : IDisposable
         _dir.Dispose();
     }
 
-    private static List<TransformerFinding> Identify(Action<ModuleDefUser> build) => Transformers.Identify(ModuleDefMD.Load(ContainerFixtures.Module("App", build)));
+    private static List<TransformerFinding> Identify(Action<ModuleDefUser> build) => Transformers.Identify(ModuleDefMD.Load(ContainerFixtures.Module("App", build))).Found;
 
     private static MethodDefUser Static(ModuleDef m, string name, TypeSig ret, params TypeSig[] parameters) =>
         new(name, MethodSig.CreateStatic(ret, parameters), MethodImplAttributes.IL | MethodImplAttributes.Managed, MethodAttributes.Public | MethodAttributes.Static);
@@ -120,6 +120,37 @@ public sealed class TransformerTests : IDisposable
     }
 
     [Fact]
+    public void A_corrupt_type_row_reports_the_transformers_as_unknown()
+    {
+        var image = ContainerFixtures.Module("App", Confuser);
+        var (stream, _) = MetadataSurvey.TablesStream(image)!.Value;
+        ulong valid = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(image.AsSpan(stream + 8));
+        int typeDefRows = stream + 24 + 4 * System.Numerics.BitOperations.PopCount(valid & 0b11);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(typeDefRows), 0x0001_0000);
+        // A given corlib reference lets dnlib load without reading the type table.
+        var module = ModuleDefMD.Load(image, new ModuleCreationOptions { CorLibAssemblyRef = new AssemblyRefUser(new AssemblyNameInfo("System.Runtime")) });
+        var (found, readable) = Transformers.Identify(module);
+        Assert.False(readable);
+        Assert.Empty(found);
+        var scan = ModuleScan.Run(module, MetadataUtil.SafeInstructions, AnalysisLimits.Default, default);
+        var facts = Markers.Detect(scan);
+        Assert.Contains(Transformers.UnknownLine, facts.Indicators);
+        Assert.Null(facts.Transformers);
+    }
+
+    [Fact]
+    public void A_concrete_method_without_an_IL_body_is_counted()
+    {
+        var module = ModuleDefMD.Load(ContainerFixtures.Module("App", m =>
+        {
+            var t = Type(m, "N", "Holder");
+            t.Methods.Add(new MethodDefUser("Stub", MethodSig.CreateStatic(m.CorLibTypes.Void), MethodImplAttributes.IL | MethodImplAttributes.Managed,
+                MethodAttributes.Public | MethodAttributes.Static));
+        }));
+        Assert.Equal(1, MetadataUtil.CountBodyless(MetadataUtil.CountedTypes(module)));
+    }
+
+    [Fact]
     public void Fuzzed_Module_NeverThrows()
     {
         var failures = FormatFuzz.Run(ContainerFixtures.Module("App", Confuser), b =>
@@ -127,7 +158,7 @@ public sealed class TransformerTests : IDisposable
             ModuleDefMD module;
             try { module = MetadataRows.Load(b); }
             catch (Exception) { return; } // a module dnlib refuses is not ours to read
-            using (module) Transformers.Identify(module);
+            using (module) _ = Transformers.Identify(module);
         }, 800);
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(5)));
     }

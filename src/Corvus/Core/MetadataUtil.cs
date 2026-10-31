@@ -92,6 +92,11 @@ public static class MetadataUtil
     /// <summary>All types including nested ones, except &lt;Module&gt;; a nested type belongs to its top-level type's namespace.</summary>
     public static List<TypeDef> CountedTypes(ModuleDef module) => module.GetTypes().Where(t => t.FullName != "<Module>").ToList();
 
+    /// <summary>Concrete, non-native methods of <paramref name="types"/> that have no IL body.</summary>
+    public static int CountBodyless(IEnumerable<TypeDef> types) =>
+        types.SelectMany(t => t.Methods).Count(m => m.RVA == 0 && !m.IsAbstract && !m.IsPinvokeImpl && !m.IsInternalCall
+                                                    && !m.IsRuntime && m.DeclaringType?.IsInterface != true);
+
     /// <summary>Distinct namespaces of <paramref name="types"/>, nested types counted under their top-level type's.</summary>
     public static int NamespaceCount(IEnumerable<TypeDef> types) => types.Select(t => TopLevel(t).Namespace.String).Distinct().Count();
 

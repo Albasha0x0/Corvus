@@ -94,7 +94,8 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
             sb.AppendLine($"Exception clauses: {health.InvalidClauseCount} invalid in {health.InvalidClauses.Count} method(s) (e.g. " +
                           string.Join("; ", m.GetTypes().SelectMany(t => t.Methods).Where(x => health.ClauseIssues(x).Count > 0).Take(3)
                               .Select(x => $"{Format.MemberLabel(x)} {health.ClauseIssues(x)[0]}")) + "); get_il shows them per method.");
-        var transformers = Analysis.Transformers.Identify(m);
+        var (transformers, transformersReadable) = Analysis.Transformers.Identify(m);
+        if (!transformersReadable) sb.AppendLine(Analysis.Transformers.UnknownLine);
         foreach (var o in transformers) sb.AppendLine($"Transformer: {o.Name} ({o.Confidence}): {string.Join("; ", o.Evidence)}");
         if (view == "transforms")
         {

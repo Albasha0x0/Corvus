@@ -15,19 +15,25 @@ public static partial class Transformers
 {
     private const int MaxEvidence = 4;
 
-    /// <summary>The tools found; none when the metadata is too damaged to read (dnlib reads it lazily and throws on bad rows).</summary>
-    public static List<TransformerFinding> Identify(ModuleDef module)
+    /// <summary>The line that reports a type table that could not be read.</summary>
+    public const string UnknownLine = "Transformers: unknown (type table unreadable).";
+
+    /// <summary>
+    /// Returns the tools found and whether the type table was readable;
+    /// an unreadable table means unknown, not none.
+    /// </summary>
+    public static (List<TransformerFinding> Found, bool Readable) Identify(ModuleDef module)
     {
         try { return Read(module); }
-        catch (Exception) { return []; }
+        catch (Exception) { return ([], false); }
     }
 
-    private static List<TransformerFinding> Read(ModuleDef module)
+    private static (List<TransformerFinding> Found, bool Readable) Read(ModuleDef module)
     {
         var found = new List<TransformerFinding>();
         List<TypeDef> types;
         try { types = [.. module.GetTypes()]; }
-        catch (Exception) { return found; }
+        catch (Exception) { return (found, false); }
         var attributes = new HashSet<string>(StringComparer.Ordinal);
         try
         {
@@ -78,7 +84,7 @@ public static partial class Transformers
 
         // .NET Reactor adds <PrivateImplementationDetails>{GUID} holders; NecroBit leaves methods without bodies.
         var reactor = types.Where(t => ReactorHolder().IsMatch(t.Name.String)).Select(t => $"type {Safe(t.Name)}").Take(2).ToList();
-        int stubs = types.SelectMany(t => t.Methods).Count(m => m.RVA == 0 && !m.IsAbstract && !m.IsPinvokeImpl && !m.IsInternalCall && !m.IsRuntime && m.DeclaringType?.IsInterface != true);
+        int stubs = MetadataUtil.CountBodyless(types);
         if (reactor.Count > 0 && stubs > 0) reactor.Add($"{stubs} method(s) without an IL body (NecroBit moves bodies to native code)");
         Add(".NET Reactor", stubs > 0 ? "strong" : "likely", reactor);
 
@@ -91,7 +97,7 @@ public static partial class Transformers
                     eaz.Add($"string decoder {Safe(t.Name)}::{Safe(m.Name)}(int) reading an embedded resource");
         if (Named("EazfuscatorNETAttribute") || attributes.Any(a => a.Contains("Eazfuscator", StringComparison.Ordinal))) eaz.Insert(0, "Eazfuscator attribute");
         Add("Eazfuscator.NET", eaz.Any(e => e.Contains("attribute", StringComparison.Ordinal)) ? "marker" : "likely", eaz);
-        return found;
+        return (found, true);
     }
 
     [GeneratedRegex(@"^<PrivateImplementationDetails>\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$")]

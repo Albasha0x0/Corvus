@@ -85,13 +85,12 @@ public static class Markers
         foreach (var (method, callers) in decoders)
             indicators.Add($"Possible string decoder {Format.MemberLabel(method)}: an int -> string method called from {callers} methods.");
 
-        // Concrete, non-native methods must have an IL body.
-        int missing = types.SelectMany(t => t.Methods).Count(m => m.RVA == 0 && !m.IsAbstract && !m.IsPinvokeImpl && !m.IsInternalCall
-                                                                  && !m.IsRuntime && m.DeclaringType?.IsInterface != true);
+        int missing = MetadataUtil.CountBodyless(types);
         if (missing > 0)
             indicators.Add($"{missing} concrete method(s) have no IL body: encrypted or stripped bodies, or a reference assembly.");
 
-        var transformers = Transformers.Identify(module);
+        var (transformers, readable) = Transformers.Identify(module);
+        if (!readable) indicators.Add(Transformers.UnknownLine);
         return new MarkerFacts(tools, indicators, ratio) { Transformers = transformers.Count > 0 ? transformers : null };
     }
 
