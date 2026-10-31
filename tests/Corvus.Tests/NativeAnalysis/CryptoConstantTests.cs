@@ -572,4 +572,94 @@ public sealed class CryptoConstantTests : IDisposable
         Assert.Contains("const:sha1-md5", skia);
         Assert.Contains("const:murmur3", skia);
     }
+
+    private static byte[] Be64(params ulong[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
+
+    private static readonly byte[] Blake2Schedule = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3];
+    private static readonly byte[] Blake3Permutation = [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8];
+
+    private static byte[] Dwords(byte[] bytes) => Le([.. bytes.Select(b => (uint)b)]);
+
+    private static byte[] Table(string form) => form switch
+    {
+        "sha3_le" => Le64(1, 0x8082, 0x800000000000808A, 0x8000000080008000),
+        "sha3_be" => Be64(1, 0x8082, 0x800000000000808A, 0x8000000080008000),
+        "ripemd160_le" => Le(0x50A28BE6, 0x5C4DD124, 0x6D703EF3, 0x7A6D76E9),
+        "ripemd160_be" => Be(0x50A28BE6, 0x5C4DD124, 0x6D703EF3, 0x7A6D76E9),
+        "whirlpool" => [0x18, 0x23, 0xC6, 0xE8, 0x87, 0xB8, 0x01, 0x4F, 0x36, 0xA6, 0xD2, 0xF5, 0x79, 0x6F, 0x91, 0x52, 0x60, 0xBC, 0x9B, 0x8E, 0xA3, 0x0C, 0x7B, 0x35, 0x1D, 0xE0, 0xD7, 0xC2, 0x2E, 0x4B, 0xFE, 0x57],
+        "blake2_bytes" => Blake2Schedule,
+        "blake2_dwords" => Dwords(Blake2Schedule),
+        "blake3_bytes" => Blake3Permutation,
+        "blake3_dwords" => Dwords(Blake3Permutation),
+        "sm3_le" => Le(0x7380166F, 0x4914B2B9, 0x172442D7, 0xDA8A0600),
+        "sm3_be" => Be(0x7380166F, 0x4914B2B9, 0x172442D7, 0xDA8A0600),
+        "sha224_le" => Le(0xC1059ED8, 0x367CD507, 0x3070DD17, 0xF70E5939),
+        "sha224_be" => Be(0xC1059ED8, 0x367CD507, 0x3070DD17, 0xF70E5939),
+        "sha384_le" => Le64(0xCBBB9D5DC1059ED8, 0x629A292A367CD507),
+        "sha384_be" => Be64(0xCBBB9D5DC1059ED8, 0x629A292A367CD507),
+        _ => throw new ArgumentException(form),
+    };
+
+    [Theory]
+    [InlineData("SHA-3 (Keccak round constants)", "sha3_le")]
+    [InlineData("SHA-3 (Keccak round constants)", "sha3_be")]
+    [InlineData("RIPEMD-160 (right-line round constants)", "ripemd160_le")]
+    [InlineData("RIPEMD-160 (right-line round constants)", "ripemd160_be")]
+    [InlineData("Whirlpool S-box", "whirlpool")]
+    [InlineData("BLAKE2 (message schedule, rounds 1 and 2)", "blake2_bytes")]
+    [InlineData("BLAKE2 (message schedule, rounds 1 and 2)", "blake2_dwords")]
+    [InlineData("BLAKE3 (message permutation)", "blake3_bytes")]
+    [InlineData("BLAKE3 (message permutation)", "blake3_dwords")]
+    [InlineData("SM3 (initial values)", "sm3_le")]
+    [InlineData("SM3 (initial values)", "sm3_be")]
+    [InlineData("SHA-224 (initial values)", "sha224_le")]
+    [InlineData("SHA-224 (initial values)", "sha224_be")]
+    [InlineData("SHA-384 (initial values)", "sha384_le")]
+    [InlineData("SHA-384 (initial values)", "sha384_be")]
+    public async Task Digest_tables_are_named_at_their_offsets(string label, string form)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x120), .. Table(form), .. Pad(0x80)]);
+        AssertAt(label, 0x120, text);
+    }
+
+    [Theory]
+    [InlineData("blake2_bytes")]
+    [InlineData("blake2_dwords")]
+    [InlineData("blake3_bytes")]
+    [InlineData("blake3_dwords")]
+    public async Task A_BLAKE_table_does_not_name_SHA_2(string form)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x120), .. Table(form), .. Pad(0x80)]);
+        Assert.DoesNotContain("SHA-256", text);
+        Assert.DoesNotContain("SHA-512", text);
+    }
+
+    [Theory]
+    [InlineData("RIPEMD-160 round constants as immediates", 0x50A28BE6)]
+    [InlineData("SM3 round constants as immediates", 0x79CC4519)]
+    [InlineData("SHA-512 initial values as immediates", 0xF3BCC908)]
+    public async Task Round_constant_immediates_are_named_in_a_raw_code_image(string label, uint immediate)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(immediate), .. Pad(0x40)]);
+        AssertAt(label, 0x100, text);
+    }
+
+    [Theory]
+    [InlineData("RIPEMD-160 round constants as immediates", 0x50A28BE6)]
+    [InlineData("SM3 round constants as immediates", 0x79CC4519)]
+    public async Task Round_constant_immediates_are_not_named_in_a_data_section(string label, uint immediate)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var path = _dir.File("immediates.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("immediates.dll", [("Cipher", 0)], [], CipherCode, (blob, _) =>
+        {
+            blob.Align(4);
+            return new() { ["parray"] = blob.Bytes(Le(immediate)) };
+        }));
+        var text = await SurveyImage(server, path);
+        Assert.DoesNotContain(label, text);
+    }
 }

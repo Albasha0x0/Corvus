@@ -70,6 +70,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     private static byte[] Le(params uint[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
     private static byte[] Be(params uint[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
+    private static byte[] Be64(params ulong[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
     private static byte[] Le64(params ulong[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
 
     private static readonly Dictionary<string, Constant> Constants = new(StringComparer.Ordinal)
@@ -89,6 +90,9 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ]),
         ["sha256"] = new("SHA-256 (initial values or round constants)", false, [Le(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A), Le(0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5)]),
         ["sha512"] = new("SHA-512 (initial values or round constants)", false, [Le64(0x6A09E667F3BCC908, 0xBB67AE8584CAA73B), Le64(0x428A2F98D728AE22, 0x7137449123EF65CD)]),
+        ["sha224"] = new("SHA-224 (initial values)", false, [Le(0xC1059ED8, 0x367CD507, 0x3070DD17, 0xF70E5939), Be(0xC1059ED8, 0x367CD507, 0x3070DD17, 0xF70E5939)]),
+        ["sha384"] = new("SHA-384 (initial values)", false, [Le64(0xCBBB9D5DC1059ED8, 0x629A292A367CD507), Be64(0xCBBB9D5DC1059ED8, 0x629A292A367CD507)]),
+        ["sha512-code"] = new("SHA-512 initial values as immediates", true, [Le(0xF3BCC908), Le(0x84CAA73B)]),
         ["sha1-md5"] = new("MD5 / SHA-1 initial values", false, [Le(0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476)]),
         ["md5"] = new("MD5 round constants", false, [Le(0xD76AA478, 0xE8C7B756, 0x242070DB, 0xC1BDCEEE)]),
         ["crc32"] = new("CRC-32 table", false, [Le(0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA)]),
@@ -163,6 +167,26 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["crc32-poly"] = new("CRC-32 polynomial (reflected)", true, [Le(0xEDB88320)]),
         ["fnv"] = new("FNV-1 hash constants", true, [Le(0x811C9DC5), Le(0x01000193)]),
         ["murmur3"] = new("MurmurHash3 constants", true, [Le(0xCC9E2D51), Le(0x1B873593)]),
+        ["sha3"] = new("SHA-3 (Keccak round constants)", false, [Le64(1, 0x8082, 0x800000000000808A, 0x8000000080008000), Be64(1, 0x8082, 0x800000000000808A, 0x8000000080008000)]),
+        ["ripemd160"] = new("RIPEMD-160 (right-line round constants)", false, [Le(0x50A28BE6, 0x5C4DD124, 0x6D703EF3, 0x7A6D76E9), Be(0x50A28BE6, 0x5C4DD124, 0x6D703EF3, 0x7A6D76E9)]),
+        ["ripemd160-code"] = new("RIPEMD-160 round constants as immediates", true, [Le(0x50A28BE6), Le(0xA953FD4E)]),
+        ["whirlpool"] = new("Whirlpool S-box", false, [new byte[] {0x18, 0x23, 0xC6, 0xE8, 0x87, 0xB8, 0x01, 0x4F, 0x36, 0xA6, 0xD2, 0xF5, 0x79, 0x6F, 0x91, 0x52, 0x60, 0xBC, 0x9B, 0x8E, 0xA3, 0x0C, 0x7B, 0x35, 0x1D, 0xE0, 0xD7, 0xC2, 0x2E, 0x4B, 0xFE, 0x57}]),
+        // BLAKE2 shares its initial values with SHA-2, so only the message
+        // schedule identifies it.
+        ["blake2"] = new("BLAKE2 (message schedule, rounds 1 and 2)", false,
+        [
+            new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3},
+            Le(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3),
+        ]),
+        // BLAKE3 shares its initial values with SHA-256, so only the message
+        // permutation identifies it.
+        ["blake3"] = new("BLAKE3 (message permutation)", false,
+        [
+            new byte[] {2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8},
+            Le(2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8),
+        ]),
+        ["sm3"] = new("SM3 (initial values)", false, [Le(0x7380166F, 0x4914B2B9, 0x172442D7, 0xDA8A0600), Be(0x7380166F, 0x4914B2B9, 0x172442D7, 0xDA8A0600)]),
+        ["sm3-code"] = new("SM3 round constants as immediates", true, [Le(0x79CC4519), Le(0x7A879D8A)]),
     };
 
     // Yields (offset, length) at the first compare of a fill and swap loop pair.
@@ -206,7 +230,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     [
         new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
-        new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3"]]),
+        new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
     ];
 
     public Evidence? Evaluate(SurveySubject subject, string feature, CancellationToken ct)
