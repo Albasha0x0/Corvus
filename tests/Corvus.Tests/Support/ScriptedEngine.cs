@@ -40,10 +40,17 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     /// <summary>Stages that last until their source completes, in place of their milliseconds.</summary>
     public Dictionary<string, TaskCompletionSource> StageGates { get; } = [];
     public int Opens;
+    /// <summary>Types the session lists.</summary>
+    public List<NativeTypeEntry> Types { get; } = [];
+    /// <summary>When set, listing types waits for it.</summary>
+    public TaskCompletionSource? TypeGate { get; set; }
+    /// <summary>When set, the open fails with it.</summary>
+    public Exception? OpenFailure { get; set; }
 
     public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref Opens);
+        if (OpenFailure != null) throw OpenFailure;
         var clock = System.Diagnostics.Stopwatch.StartNew();
         foreach (var (stage, ms) in OpenStages)
         {
@@ -118,6 +125,12 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
                 catch (ToolError x) { results.Add(new DecompileOutcome(rva, DecompileStatus.Error, null, ToolError.CodeName(x.Code), x.Message)); }
             }
             return results;
+        }
+
+        public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default)
+        {
+            if (e.TypeGate != null) await e.TypeGate.Task.WaitAsync(cancellationToken);
+            return new NativeTypeList(e.Types.Count, e.Types);
         }
 
         public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>

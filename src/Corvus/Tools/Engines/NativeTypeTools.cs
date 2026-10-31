@@ -37,6 +37,20 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return (native, rva, session);
     }
 
+    /// <summary>The result of <paramref name="body"/>, ended with a Timeout error at the request limit; the open it waited on keeps running.</summary>
+    private async Task<T> Bounded<T>(Func<CancellationToken, Task<T>> body, CancellationToken caller)
+    {
+        // Every engine step of one call shares the limit, so a stall cannot outlast it.
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(caller);
+        limit.CancelAfter(engines.RequestTimeout);
+        try { return await body(limit.Token); }
+        catch (OperationCanceledException) when (limit.IsCancellationRequested && !caller.IsCancellationRequested)
+        {
+            throw new ToolError(ErrorCode.Timeout, $"the engine did not finish the request within {engines.RequestTimeout.TotalSeconds:0} s.",
+                "call again; an open that is still running is reused") { RetryAfter = NativeEngineService.OpenRetryAfter };
+        }
+    }
+
     /// <summary>An engine edit kept in the image's user types and recorded in the native edit journal (its id, or null when nothing changed).</summary>
     private async Task<(UserTypeResult Result, EditId? Id)> Apply(LoadedNative native, INativeDecompilerSession session, string tool, NativeUserTypeBatch batch,
         Func<UserTypeResult, UserTypeLayer, UserTypeLayer?> record, CancellationToken ct, NativeUserTypeBatch? inverse = null) =>
@@ -1047,7 +1061,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("List the first 32 members of each (enums: name = value).")] bool members = false,
         [Description("Add the types each refers to.")] bool related = false,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Bounded(async ct =>
     {
         var k = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
         if (k is not (null or "struct" or "union" or "udt" or "enum" or "typedef" or "func" or "ptr"))
@@ -1055,10 +1069,10 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var order = string.IsNullOrWhiteSpace(sort) ? "name" : sort.Trim().ToLowerInvariant();
         if (order is not ("ordinal" or "name" or "size")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use name or size");
         var nameFilter = NameFilter.Parse(filter);
-        var (_, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
+        var (_, _, session) = await Open(image, "rva:0", engine, progress, ct);
         if (!string.IsNullOrWhiteSpace(name))
         {
-            var t = await session.GetTypeAsync(name.Trim(), cancellationToken);
+            var t = await session.GetTypeAsync(name.Trim(), ct);
             var sb = new System.Text.StringBuilder($"{t.Kind} {t.Name}" + (t.Size >= 0 ? $", {t.Size} bytes" : "") + $" ({session.ProviderId})\n" + t.Declaration.TrimEnd() + "\n");
             if (t.Members.Count > 0)
             {
@@ -1073,7 +1087,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, 5000);
         var (total, rows) = await NativeEngineQueries.Types(session, new NativeEngineQueries.TypeQuery(nameFilter, k, order, descending,
-            related ? RelatedMemberRows : members ? MemberRows : 0, offset, limit), cancellationToken);
+            related ? RelatedMemberRows : members ? MemberRows : 0, offset, limit), ct);
         var relatedNames = new Dictionary<string, IReadOnlyList<string>>();
         if (related)
         {
@@ -1083,7 +1097,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                 var texts = (t.Members ?? []).Where(_ => t.Kind != "enum").Select(m => m.Type).ToList();
                 // Aliases, pointers and function types name what they refer to only in their declaration.
                 if (t.MemberCount == 0 && t.Kind is not "enum" && declarations++ < RelatedDeclarations)
-                    texts.Add((await session.GetTypeAsync(t.Name, cancellationToken)).Declaration);
+                    texts.Add((await session.GetTypeAsync(t.Name, ct)).Declaration);
                 relatedNames[t.Name] = RelatedTypes(texts, t.Name);
             }
         }
@@ -1094,7 +1108,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                      $"({session.ProviderId})\n";
         return ToolOutput.List(entries, offset, limit, total, TypeLine,
             page => new TypeListReport(session.ProviderId, page, offset, total), "type", header.TrimStart());
-    });
+    }, cancellationToken));
 
     public sealed record TypeMemberEntry(string Name, string? Type,
         long Offset, long? Size);
