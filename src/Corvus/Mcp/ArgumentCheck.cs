@@ -14,6 +14,7 @@ public static class ArgumentCheck
         ApplySelectorAliases(tool, arguments);
         var properties = inputSchema.TryGetProperty("properties", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
         var declared = properties.ValueKind == JsonValueKind.Object ? properties.EnumerateObject().Select(e => e.Name).ToList() : [];
+        ApplyFilterAlias(declared, arguments);
         foreach (var name in arguments.Keys)
             if (!declared.Contains(name, StringComparer.Ordinal))
                 throw UnknownParameter(name, declared);
@@ -82,14 +83,14 @@ public static class ArgumentCheck
             if (first != null)
             {
                 // Two aliases and no canonical: name the two the caller passed.
-                if (!SameSelector(arguments[canonical], value)) throw SelectorConflict(alias, first);
+                if (!SameSelector(arguments[canonical], value)) throw AliasConflict(alias, first);
                 arguments.Remove(alias);
                 continue;
             }
             if (arguments.TryGetValue(canonical, out var existing))
             {
                 // Equal values are one selector; the alias is dropped.
-                if (!SameSelector(existing, value)) throw SelectorConflict(alias, canonical);
+                if (!SameSelector(existing, value)) throw AliasConflict(alias, canonical);
                 arguments.Remove(alias);
                 continue;
             }
@@ -99,10 +100,30 @@ public static class ArgumentCheck
         }
     }
 
+    /// <summary>Binds query and filter to the one the tool declares.</summary>
+    private static void ApplyFilterAlias(List<string> declared, IDictionary<string, JsonElement> arguments)
+    {
+        foreach (var (alias, canonical) in new[] { ("query", "filter"), ("filter", "query") })
+        {
+            if (declared.Contains(alias) || !declared.Contains(canonical)) continue;
+            BindAlias(arguments, alias, canonical);
+        }
+    }
+
+    // Equal values are one argument and the alias is dropped; differing values conflict.
+    private static void BindAlias(IDictionary<string, JsonElement> arguments, string alias, string canonical)
+    {
+        if (!arguments.TryGetValue(alias, out var value)) return;
+        if (arguments.TryGetValue(canonical, out var existing) && !SameSelector(existing, value))
+            throw AliasConflict(alias, canonical);
+        arguments.Remove(alias);
+        arguments[canonical] = value;
+    }
+
     private static bool SameSelector(JsonElement a, JsonElement b) =>
         a.ValueKind == b.ValueKind && (a.ValueKind == JsonValueKind.String ? a.GetString() == b.GetString() : a.GetRawText() == b.GetRawText());
 
-    private static ToolError SelectorConflict(string alias, string canonical) =>
+    private static ToolError AliasConflict(string alias, string canonical) =>
         new(ErrorCode.InvalidArgument, $"parameter '{alias}' conflicts with '{canonical}'.", $"Pass only {canonical}.")
         {
             Details = new { parameter = alias, canonical },
