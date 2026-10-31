@@ -27,13 +27,19 @@ internal sealed class OfficeDocument
     public bool Encrypted { get; set; }
     public List<MacroFinding> Findings { get; private set; } = [];
 
+    /// <summary>Findings read from fields, DDE links, formulas and altChunk parts; kept by <see cref="Scan"/>.</summary>
+    internal List<MacroFinding> Active { get; } = [];
+
+    /// <summary>Hyperlink targets read from fields, formulas and altChunk parts, with where each was read.</summary>
+    internal List<(string Target, string Location)> Targets { get; } = [];
+
     /// <summary>OOXML parts and OLE streams read whole are bounded by this many bytes.</summary>
     private const long MaxPart = 256L << 20;
 
     public static bool IsOoxml(ZipArchive zip) => zip.GetEntry("[Content_Types].xml") != null;
 
     /// <summary>The document's active content; null when the bytes are neither a compound file nor an OOXML package.</summary>
-    public static OfficeDocument? Read(byte[] data, string name, CancellationToken ct)
+    public static OfficeDocument? Read(byte[] data, string name, CancellationToken ct, int depth = 0)
     {
         if (CompoundFile.Looks(data)) return FromCompound(CompoundFile.Read(data, name), ct);
         if (RtfObjects.Looks(data))
@@ -66,7 +72,7 @@ internal sealed class OfficeDocument
         try
         {
             using var zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
-            return IsOoxml(zip) ? FromOoxml(zip, name, ct) : null;
+            return IsOoxml(zip) ? FromOoxml(zip, name, ct, depth) : null;
         }
         catch (InvalidDataException) { return null; }
     }
@@ -210,10 +216,10 @@ internal sealed class OfficeDocument
         catch (Exception ex) when (ex is InvalidDataException or ArgumentOutOfRangeException) { return null; }
     }
 
-    private static OfficeDocument FromOoxml(ZipArchive zip, string name, CancellationToken ct)
+    private static OfficeDocument FromOoxml(ZipArchive zip, string name, CancellationToken ct, int depth)
     {
         var doc = new OfficeDocument { Format = OoxmlFormat(zip) };
-        doc.ReadOoxml(zip, "", ct);
+        doc.ReadOoxml(zip, "", ct, depth);
         doc.Scan();
         return doc;
     }
@@ -224,7 +230,7 @@ internal sealed class OfficeDocument
         : zip.Entries.Any(e => e.FullName.StartsWith("ppt/", StringComparison.Ordinal)) ? "PowerPoint presentation (OOXML)" : "OOXML package";
 
     /// <summary>The VBA projects, embedded objects, external links and macro sheets of an OOXML package, paths under <paramref name="prefix"/>.</summary>
-    private void ReadOoxml(ZipArchive zip, string prefix, CancellationToken ct)
+    private void ReadOoxml(ZipArchive zip, string prefix, CancellationToken ct, int depth = 0)
     {
         foreach (var entry in zip.Entries)
         {
@@ -257,6 +263,7 @@ internal sealed class OfficeDocument
                 ReadLinks(entry, prefix);
         }
         if (zip.Entries.Any(e => e.FullName.StartsWith("xl/", StringComparison.Ordinal)) && XlmMacros.FromOoxml(zip, ct) is { HasMacroSheets: true } x) Xlm = x;
+        OfficeFormulas.Read(zip, prefix, this, depth, ct);
     }
 
     private void ReadLinks(ZipArchiveEntry rels, string prefix)
@@ -307,6 +314,7 @@ internal sealed class OfficeDocument
             Findings.Add(new MacroFinding("Template", link.Target, $"a remote {link.Type} target, loaded when the document opens") { Location = link.Part });
         foreach (var link in Links.Where(l => l.Type is "attachedTemplate" or "oleObject" or "frame" or "subDocument"))
             Findings.Add(new MacroFinding("IOC", link.Target, $"external {link.Type} relationship, loaded when the document opens") { Location = link.Part });
+        Findings.AddRange(Active);
         foreach (var o in Objects)
         {
             var ext = Path.GetExtension(o.Name).ToLowerInvariant();

@@ -495,7 +495,7 @@ Pass the name as `view=`.
 | `installer`, `lnk`, `script`, `procmon` | command lines that download, decode or hide through a system tool: one `launcher/command-line` finding |
 | `office`, `page`, `pdf`, `shell` | targets with `ms-msdt:`, `search-ms:`, an Office scheme, `file://` or a UNC path: one `link/local-handler` finding |
 | `mail` | headers, received chain, recorded authentication results, From, Reply-To and Return-Path side by side, links, parts, attachments |
-| `office` | VBA with folded strings, Excel 4.0 macros, OLE packages and classes, RTF objects and templates, findings by line |
+| `office` | VBA with folded strings, Excel 4.0 macros, OLE packages and classes, RTF objects and templates, DDE and DDEAUTO fields, DDE links, WEBSERVICE and CALL formulas, altChunk parts, findings by line |
 | `pdf` | keywords, actions, scripts, embedded files |
 | `firmware` | formats found at offsets in an opaque image |
 | `raw` | likely instruction sets and load bases of headerless code |

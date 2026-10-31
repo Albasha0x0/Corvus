@@ -29,7 +29,7 @@ internal sealed class OfficeFileView : IFileSummaryView
         if (file.Length > MaxDocument) return null;
         var doc = OfficeDocument.Read(file.Bytes, System.IO.Path.GetFileName(file.Path), ct);
         if (doc == null) return null;
-        bool active = doc.Projects.Count > 0 || doc.Xlm != null || doc.Objects.Count > 0 || doc.Links.Count > 0 || doc.Classes.Count > 0 || doc.Encrypted;
+        bool active = doc.Projects.Count > 0 || doc.Xlm != null || doc.Objects.Count > 0 || doc.Links.Count > 0 || doc.Classes.Count > 0 || doc.Active.Count > 0 || doc.Targets.Count > 0 || doc.Encrypted;
         // A document without active content is listed only when asked for.
         if (!active && file.Options.View != Name) return null;
         var budget = System.Diagnostics.Stopwatch.StartNew();
@@ -41,7 +41,7 @@ internal sealed class OfficeFileView : IFileSummaryView
             [.. doc.Objects.Select(o => new EmbeddedFile(o.Path, o.Name, o.SourcePath, o.Bytes.Length, Blob.Identify(o.Bytes), Blob.Sha256(o.Bytes)))],
             doc.Links, doc.Notes);
         var links = doc.Links.Select(l => (l.Target, $"{l.Type} link in {l.Part}"));
-        return new FileView(facts, Highlights(doc)) { Findings = [.. FindingRules.FromMacros(doc.Findings, "office"), .. LocalHandlerTargets.Scan(doc.Links.Select(l => (l.Target, l.Part)), "office")], Indicators = IndicatorList.FromText("office", links, ct) };
+        return new FileView(facts, Highlights(doc)) { Findings = [.. FindingRules.FromMacros(doc.Findings, "office"), .. LocalHandlerTargets.Scan(doc.Links.Select(l => (l.Target, l.Part)).Concat(doc.Targets), "office")], Indicators = IndicatorList.FromText("office", links, ct) };
     }
 
     private const int MaxPeeledSource = 1 << 20, MaxPeeledChars = 8000, MaxPeeledTotal = 64_000;

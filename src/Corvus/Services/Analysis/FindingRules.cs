@@ -194,6 +194,9 @@ public static class FindingRules
         I("office/encoded-string", "hex or base64 strings in macro text"),
         N("office/ole-class", "exact list: Equation Editor and OLE Package objects", "an embedded or linked object of a class that runs code"),
         R("office/template", "a remote template or linked object target"),
+        N("office/dde", "a DDE or DDEAUTO field, a DDE link or a DDE formula reference", "a DDE field, link or formula reference"),
+        R("office/field", "an INCLUDETEXT or INCLUDEPICTURE field with an http(s), UNC or file target; other HYPERLINK, INCLUDETEXT and INCLUDEPICTURE fields are info"),
+        R("office/formula", "a WEBSERVICE, CALL or REGISTER formula; a HYPERLINK formula is info"),
         R("pdf/suspicious", "a PDF action or keyword worth reviewing"),
         I("pdf/ioc", "a URL a PDF action opens"),
         R("shortcut/suspicious", "a shortcut target or argument worth reviewing"),
@@ -280,6 +283,9 @@ public static class FindingRules
         {
             var (type, category) = f.Type switch
             {
+                "Dde" => ("dde", "DDE"),
+                "Field" or "RemoteField" => ("field", "field"),
+                "Formula" or "LinkFormula" => ("formula", "formula"),
                 "AutoExec" => ("autoexec", "autorun"),
                 "Suspicious" => ("suspicious", "keyword"),
                 "IOC" => ("ioc", "address"),
@@ -287,7 +293,7 @@ public static class FindingRules
                 "Template" => ("template", "remote target"),
                 _ => ("encoded-string", "encoded string"),
             };
-            var level = type == "ole-class" ? FindingLevel.Noteworthy : type == "template" ? FindingLevel.Review : type != "suspicious" ? FindingLevel.Info : autorun && f.Decoded != null ? FindingLevel.Noteworthy : FindingLevel.Review;
+            var level = type is "ole-class" or "dde" ? FindingLevel.Noteworthy : type == "template" || f.Type is "RemoteField" or "Formula" ? FindingLevel.Review : type is "field" or "formula" ? FindingLevel.Info : type != "suspicious" ? FindingLevel.Info : autorun && f.Decoded != null ? FindingLevel.Noteworthy : FindingLevel.Review;
             var rule = $"{source}/{type}";
             var evidence = f.Decoded != null ? $"{f.Keyword} (decoded from {f.Decoded}): {f.Description}" : $"{f.Keyword}: {f.Description}";
             return new Finding(Check(rule, level), rule, category, evidence, f.Location, source);
