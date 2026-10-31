@@ -911,13 +911,14 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             return s;
         }
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
-            List<UnpackService.ManagedAssembly> Manifests) managed;
+            List<UnpackService.ManagedAssembly> Manifests, List<NameIssue> Names) managed;
         try { managed = UnpackService.Managed(input, facts.Sha256, Limits, ct); }
         catch (ToolError ex)
         {
             return WithViews(new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message, .. viewNotes]));
         }
         DependencyView(input, managed.Assemblies, managed.Manifests, views, viewNotes, ct);
+        if (ArchiveNameView.Of(managed.Names) is { } entryNames) views["entries"] = entryNames;
         var reportNotes = new List<string>(managed.Notes);
         // The section table is in the headers.
         reportNotes.AddRange(MappingNotes(input.Streamed ? input.Head : input.Bytes));

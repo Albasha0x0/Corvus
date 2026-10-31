@@ -354,7 +354,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             lock (_lock) fromPackage = _packageCache is { } c && c.Key == key ? c.Sources : [];
             if (fromPackage.Count == 0)
             {
-                var (_, _, assemblies, _, _, _) = UnpackService.Managed(full, AnalysisLimits.Default, ct);
+                var (_, _, assemblies, _, _, _, _) = UnpackService.Managed(full, AnalysisLimits.Default, ct);
                 var context = new ModuleContext();
                 foreach (var a in assemblies)
                 {

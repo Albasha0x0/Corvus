@@ -129,13 +129,17 @@ internal sealed class FsTree(string kind, bool allFiles, AnalysisLimits limits, 
     {
         if (_unread > 20) Notes.Add($"{_unread - 20} more files unreadable");
         foreach (var h in _hidden.Take(20)) Notes.Add($"Hidden entry: '{MemberNames.Show(h)}' carries the hidden attribute.");
+        var paths = _entries.Select(e => e.Path).ToList();
+        var names = MemberNames.Issues(paths, streams: kind != "NTFS");
+        names.AddRange(_hidden.Select(h => new NameIssue("hidden", h, "carries the hidden attribute")));
+        if (names.Count > MemberNames.MaxIssues) names = names[..MemberNames.MaxIssues];
         if (_hidden.Count > 20) Notes.Add($"{_hidden.Count - 20} more hidden entries.");
         // NTFS names a stream as file:stream.
-        Notes.AddRange(MemberNames.Notes(_entries.Select(e => e.Path).ToList(), streams: kind != "NTFS"));
+        Notes.AddRange(MemberNames.Notes(paths, streams: kind != "NTFS"));
         if (_entries.Count == 0) Notes.Add($"no files were recovered from this {kind} image: nothing extracted");
         int files = _entries.Count(e => e.Detail == null || !(e.Detail.StartsWith("symbolic link", StringComparison.Ordinal) || SpecialKinds.Contains(e.Detail)));
         if (!allFiles && files > _items.Count)
             Notes.Add($"{files - _items.Count} of {files} files not extracted (not binaries or packages; allFiles extracts every file).");
-        return new ContainerContents(kind, _items, Notes) { Entries = _entries };
+        return new ContainerContents(kind, _items, Notes) { Entries = _entries, Names = names };
     }
 }

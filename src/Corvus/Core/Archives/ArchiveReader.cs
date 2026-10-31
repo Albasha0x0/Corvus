@@ -57,7 +57,10 @@ internal sealed class ArchiveReader : IContainerReader
                 using var s = open();
                 bytes = ReadBounded(s, path, limits.MaxItemBytes);
             }
-            catch (Exception ex) when (EntryDamage.Is(ex))
+            // SharpCompress 0.50.4 to 0.50.7 throw ArgumentNullException reading a RAR
+            // entry without a checksum (fixed in adamhathcock/sharpcompress@714a27f,
+            // 1.0.0); the entry is kept as damaged data.
+            catch (Exception ex) when (EntryDamage.Is(ex) || ex is ArgumentNullException && format == "rar")
             {
                 entries[^1] = entries[^1] with { Detail = EntryDamage.Detail(ex.GetType().Name) };
                 notes.Add(EntryDamage.Note(path, ex));
@@ -120,9 +123,10 @@ internal sealed class ArchiveReader : IContainerReader
                 throw new ToolError(ErrorCode.MalformedInput, $"{name} is not a readable {kind} archive: {ex.Message}", $"summarize_file path={name} says what it holds");
             notes.Add($"{kind}: stopped reading at entry {entries.Count + 1}: {ex.Message}");
         }
-        notes.AddRange(MemberNames.Notes([.. entries.Select(e => e.Path), .. streamRecords]));
+        string[] paths = [.. entries.Select(e => e.Path), .. streamRecords];
+        notes.AddRange(MemberNames.Notes(paths));
         if (entries.Count > items.Count && !allFiles) notes.Add($"{entries.Count - items.Count} of {entries.Count} files not extracted (not binaries or packages; allFiles extracts every file).");
-        return new ContainerContents(kind, items, notes) { Entries = entries };
+        return new ContainerContents(kind, items, notes) { Entries = entries, Names = MemberNames.Issues(paths) };
     }
 
     private const int MaxTarParts = 10_000;

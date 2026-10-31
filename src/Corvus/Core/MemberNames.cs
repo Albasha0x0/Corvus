@@ -2,6 +2,9 @@ using System.Text;
 
 namespace Corvus.Core;
 
+/// <summary>A member name worth a review: <see cref="Kind"/> is unsafe-path, collision or hidden, <see cref="Why"/> says what about it.</summary>
+public sealed record NameIssue(string Kind, string Name, string Why);
+
 /// <summary>Member and attachment names that disguise what a file is: bidirectional controls, a runnable double extension, long padding.</summary>
 public static class MemberNames
 {
@@ -85,6 +88,19 @@ public static class MemberNames
         if (found.Count > max) { var rest = found.Count - max; found = [.. found.Take(max)]; found.Add($"{rest} more member names reported."); }
         return found;
     }
+
+    /// <summary>The unsafe-path and collision issues among <paramref name="names"/>, at most <see cref="MaxIssues"/>; empty when none.</summary>
+    public static List<NameIssue> Issues(IReadOnlyList<string> names, bool streams = true)
+    {
+        var found = new List<NameIssue>();
+        foreach (var n in names)
+            if (PathConcern(n, streams) is { } why) found.Add(new NameIssue("unsafe-path", n, why));
+        foreach (var n in Collisions(names)) found.Add(new NameIssue("collision", n, "used for a file and a folder"));
+        return found.Count > MaxIssues ? found[..MaxIssues] : found;
+    }
+
+    /// <summary>The most issues kept for one container.</summary>
+    public const int MaxIssues = 200;
 
     /// <summary>The name with control and format characters as U+XXXX, clipped to 80 characters.</summary>
     internal static string Show(string name)

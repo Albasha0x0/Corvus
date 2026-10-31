@@ -57,6 +57,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     private sealed record Walked(string Container, List<Found> Items, List<string> Notes)
     {
         public List<ContainerEntry>? Entries { get; init; }
+
+        public List<NameIssue> Names { get; init; } = [];
     }
 
     /// <param name="progress">Phase messages: reading, entries found, files written, assemblies loaded.</param>
@@ -387,12 +389,12 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     /// <summary>Managed assemblies in a file; a plain assembly yields itself.</summary>
     internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
-        List<ManagedAssembly> Manifests) Managed(
+        List<ManagedAssembly> Manifests, List<NameIssue> Names) Managed(
         string path, AnalysisLimits limits, CancellationToken ct)
     {
         if (WebcilFolder(path, limits, ct) is { } folder)
             return (folder.Source, folder.Walked.Container,
-                folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes, null, []);
+                folder.Walked.Items.Select(i => new ManagedAssembly(i.Relative, i.Bytes, i.Sha256, i.Origin)).ToList(), folder.Walked.Notes, null, [], []);
         if (Deployment(path, limits, ct, allFiles: false) is { } deployment)
             return Managed(deployment.Source, null, deployment.Sha, deployment.Walked, limits);
         var (source, data, sha) = ReadSource(path, limits);
@@ -401,7 +403,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     /// <summary>Managed assemblies in a file summarize_file has open; a streamed file's top level is read as a stream when its format allows.</summary>
     internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
-        List<ManagedAssembly> Manifests) Managed(
+        List<ManagedAssembly> Manifests, List<NameIssue> Names) Managed(
         FileInput input, string sha, AnalysisLimits limits, CancellationToken ct)
     {
         if (!input.Streamed) return Script(input, Managed(input.Path, input.Bytes, sha, Walk(input.Bytes, sha, input.Path, limits, ct), limits), ct);
@@ -419,8 +421,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// names, with counts, in place of none.
     /// </summary>
     private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
-        List<ManagedAssembly> Manifests) Script(FileInput input,
-        (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries, List<ManagedAssembly> Manifests) managed,
+        List<ManagedAssembly> Manifests, List<NameIssue> Names) Script(FileInput input,
+        (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries, List<ManagedAssembly> Manifests, List<NameIssue> Names) managed,
         CancellationToken ct)
     {
         if (managed.Container != "none" || !Web.JsBundleFiles.Looks(input.Bytes, input.Path)
@@ -431,7 +433,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     }
 
     private static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes, List<ContainerEntry>? Entries,
-        List<ManagedAssembly> Manifests) Managed(
+        List<ManagedAssembly> Manifests, List<NameIssue> Names) Managed(
         string source, byte[]? data, string sha, Walked walked, AnalysisLimits limits)
     {
         var assemblies = walked.Items.Where(i => i.Kind == DotNet)
@@ -454,7 +456,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(app.Path), app.Bytes, Blob.Sha256(app.Bytes), ApphostAppOrigin));
             walked.Notes.Add($"Using the application next to the launcher: {Path.GetFileName(app.Path)}.");
         }
-        return (source, container, assemblies, walked.Notes, walked.Entries, Manifests(source, walked, limits));
+        return (source, container, assemblies, walked.Notes, walked.Entries, Manifests(source, walked, limits), walked.Names);
     }
 
     /// <summary>The dependency manifests (.deps.json) inside the file, else the one beside it (App.deps.json next to App.exe or App.dll).</summary>
@@ -617,6 +619,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         long total = 0;
 
         notes.AddRange(top.Notes);
+        var names = new List<NameIssue>(top.Names ?? []);
         var queue = new Queue<(ExtractedItem Item, string Prefix, int Depth, bool Archived)>(top.Items.Select(i => (i, "", 1, top.Entries != null)));
         while (queue.Count > 0)
         {
@@ -660,6 +663,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 if (inner.Kind == "none") continue;
                 notes.Add($"{item.Name}: {inner.Kind}.");
                 notes.AddRange(inner.Notes.Select(n => $"{item.Name}: {n}"));
+                names.AddRange((inner.Names ?? []).Select(n => n with { Name = $"{item.Name}: {n.Name}" }));
                 // Sanitized when used.
                 var innerPrefix = prefix + "/" + item.Name + "_unpacked";
                 foreach (var i in inner.Items) queue.Enqueue((i, innerPrefix, depth + 1, inner.Entries != null));
@@ -669,7 +673,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 notes.Add($"{item.Name}: {ex.Message}");
             }
         }
-        return new Walked(top.Kind, found, notes) { Entries = top.Entries };
+        return new Walked(top.Kind, found, notes) { Entries = top.Entries, Names = names };
     }
 
     /// <summary>Path components kept for an archive file (node_modules trees run deep).</summary>

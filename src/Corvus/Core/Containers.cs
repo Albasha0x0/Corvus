@@ -59,6 +59,9 @@ public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, L
 {
     /// <summary>Every entry of an archive container; null for the others, whose items are what they hold.</summary>
     public List<ContainerEntry>? Entries { get; init; }
+
+    /// <summary>The entries a review would look at (unsafe paths, collisions, hidden); null when the reader does not check names.</summary>
+    public List<NameIssue>? Names { get; init; }
 }
 
 /// <summary>Opens one container level (callers recurse); offsets are bounds-checked, decompression bounded by <see cref="AnalysisLimits"/>.</summary>
@@ -549,7 +552,8 @@ public static class Containers
         var items = new List<ExtractedItem>();
         var notes = new List<string>();
         var stores = new List<(string Path, byte[] Bytes)>();
-        notes.AddRange(MemberNames.Notes(entries.Select(e => e.FullName).ToList()));
+        var paths = entries.Select(e => e.FullName).ToList();
+        notes.AddRange(MemberNames.Notes(paths));
         Dictionary<(uint, int), string>? v1Names = null;
         long total = 0;
         foreach (var e in entries)
@@ -624,7 +628,7 @@ public static class Containers
             notes.AddRange(carved.Notes.Select(n => $"{path}: {n}"));
         }
         if (items.Count == 0) notes.Add("No assemblies or nested packages found in the archive.");
-        return new ContainerContents(kind, items, notes);
+        return new ContainerContents(kind, items, notes) { Names = MemberNames.Issues(paths) };
     }
 
     /// <summary>Walks CRC-checked local file headers without a central directory; Complete when it reached the directory or the end.</summary>

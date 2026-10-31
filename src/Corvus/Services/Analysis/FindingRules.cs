@@ -174,6 +174,10 @@ public static class FindingRules
         N("package/gradle-wrapper-url", "a build tool downloaded and run from outside services.gradle.org", "the Gradle wrapper downloads its tool"),
         R("package/cmake-process", "CMake runs a process at configure"),
         N("guarddog/*", "a GuardDog threat-* rule", "a GuardDog rule matches"),
+        // Archive and disk image entries.
+        R("archive/unsafe-path", "an entry path with a '..', rooted, drive or stream part, or a part ending in a blank or a dot"),
+        R("archive/name-collision", "one name used for a file and a folder"),
+        R("archive/hidden-entry", "an entry with the hidden attribute in an ISO, UDF, FAT or NTFS image"),
         // Native images.
         I("packer/packing-tool", "a packing tool's section names or header"),
         I("packer/hardening-tool", "a hardening tool's section names"),
