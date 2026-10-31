@@ -25,14 +25,36 @@ internal sealed class ProtobufFileView : IFileSummaryView
 
     public string Name => "protobuf";
 
+    // Bounds the overview read of an archive; view=protobuf lifts it.
+    private const long OverviewItemBytes = 32L * 1024 * 1024;
+
+    // True when the archive holds a code entry within the overview bound; counts the larger ones.
+    private static bool OverviewCode(string path, out int oversized, CancellationToken ct)
+    {
+        oversized = 0;
+        bool any = false;
+        using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+        foreach (var e in zip.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            var n = e.FullName;
+            if (!(n.EndsWith(".dex", StringComparison.Ordinal) || n.EndsWith(".so", StringComparison.Ordinal) || n.EndsWith(".dylib", StringComparison.Ordinal))) continue;
+            if (e.Length > OverviewItemBytes) oversized++;
+            else any = true;
+        }
+        return any;
+    }
+
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         bool asked = file.Options.Wants(Name);
         List<ContainerItem> items;
+        int skipped = 0;
         if (file.Kind == "zip")
         {
-            if (!asked) return null;
-            items = ApiSurface.CodeItems(file.Path, [], AnalysisLimits.Default, ct);
+            var limits = asked ? AnalysisLimits.Default : AnalysisLimits.Default with { MaxItemBytes = OverviewItemBytes };
+            if (!asked && !OverviewCode(file.Path, out skipped, ct)) return null;
+            items = ApiSurface.CodeItems(file.Path, [], limits, ct);
         }
         else
         {
@@ -63,10 +85,11 @@ internal sealed class ProtobufFileView : IFileSummaryView
         long? next = offset + page.Count < all.Count ? offset + page.Count : null;
         var notes = new List<string>(surface.Notes);
         if (next != null) notes.Add($"{all.Count} descriptors; offset={next} lists the next");
+        if (skipped > 0) notes.Add($"overview: {skipped} code entr(ies) over {OverviewItemBytes >> 20} MiB not read (unknown); view=protobuf reads them.");
         var services = all.SelectMany(d => d.File.Services.Select(s => (d.File.Package is { } p ? p + "." : "") + s.Name)).Distinct().ToList();
         var highlights = new List<string>
         {
-            $"{all.Count} embedded protobuf descriptor(s): {string.Join(", ", all.Take(8).Select(d => d.File.Name))}{(all.Count > 8 ? ", ..." : "")}" +
+            $"{all.Count} embedded protobuf descriptor(s), {all.Sum(d => d.File.Messages.Count)} message(s): {string.Join(", ", all.Take(8).Select(d => $"{d.File.Name} ({d.File.Messages.Count})"))}{(all.Count > 8 ? ", ..." : "")}" +
             (services.Count > 0 ? $"; gRPC services {string.Join(", ", services.Take(6))}{(services.Count > 6 ? ", ..." : "")}" : "") + " (view=protobuf gives the .proto text).",
         };
         return new FileView(new Facts(all.Count, offset, next, page, notes), highlights);

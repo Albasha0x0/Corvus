@@ -126,6 +126,45 @@ public sealed class ProtobufTests
         Assert.Contains("gRPC services demo.v1.Users", view!.Highlights[0], StringComparison.Ordinal);
     }
 
+    private static byte[] Second() => new ProtoWriter().Str(1, "b.proto").Str(2, "b")
+        .Msg(4, m => m.Str(1, "A").Field(2, "x", 1, 5)).Msg(4, m => m.Str(1, "B").Field(2, "y", 1, 5))
+        .Msg(4, m => m.Str(1, "C").Field(2, "z", 1, 5)).Str(12, "proto3").ToArray();
+
+    [Fact]
+    public void The_protobuf_highlight_names_each_descriptor_with_its_message_count()
+    {
+        var writer = NativeFormats.FormatWriterTests.SampleMachO();
+        writer.ExtraSections = [("__TEXT", "__const", 0x2000, ProtoWriter.Demo(), 0), ("__TEXT", "__cstring", 0x3000, Second(), 0)];
+        var bytes = writer.Build();
+        var view = new ProtobufFileView().Inspect(new FileInput("demo", bytes, Blob.Identify(bytes)), default);
+        var facts = Assert.IsType<ProtobufFileView.Facts>(view?.Detail);
+        Assert.Equal(2, facts.Total);
+        var line = view!.Highlights[0];
+        Assert.Contains("2 embedded protobuf descriptor(s), 4 message(s): ", line, StringComparison.Ordinal);
+        Assert.Contains("demo.proto (1)", line, StringComparison.Ordinal);
+        Assert.Contains("b.proto (3)", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_overview_of_an_archive_names_descriptors_of_its_native_library()
+    {
+        var writer = NativeFormats.FormatWriterTests.SampleMachO();
+        writer.ExtraSections = [("__TEXT", "__const", 0x2000, ProtoWriter.Demo(), 0)];
+        var path = Path.Combine(Path.GetTempPath(), $"pb-{Guid.NewGuid():N}.zip");
+        try
+        {
+            using (var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create))
+            {
+                using var w = zip.CreateEntry("lib/arm64-v8a/libdemo.so").Open();
+                w.Write(writer.Build());
+            }
+            var bytes = File.ReadAllBytes(path);
+            var view = new ProtobufFileView().Inspect(new FileInput(path, bytes, "zip"), default);
+            Assert.Contains("1 embedded protobuf descriptor(s), 1 message(s): demo.proto (1)", view?.Highlights[0], StringComparison.Ordinal);
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void An_asked_protobuf_view_of_an_image_without_descriptors_says_none_was_found()
     {
