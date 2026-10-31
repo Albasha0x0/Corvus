@@ -39,6 +39,9 @@
           "loadedAs": {
             "type": "string"
           },
+          "fileOffset": {
+            "type": "integer"
+          },
           "basis": {
             "type": "string"
           }

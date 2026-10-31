@@ -754,7 +754,7 @@ public static class Containers
         var items = new List<ExtractedItem>();
         var notes = new List<string>();
         int native = 0;
-        foreach (var c in Blob.CarvePe(data, limits.MaxItems))
+        foreach (var c in Blob.CarvePe(data, limits.MaxItems, ct))
         {
             ct.ThrowIfCancellationRequested();
             if (c.Offset == 0 && c.Length == data.Length) continue;

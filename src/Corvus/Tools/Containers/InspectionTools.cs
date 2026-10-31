@@ -172,7 +172,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
 
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
     [Description("Embedded content of an assembly or container (resources, byte arrays, long literals), decoded through hex, base64, " +
-                 "compression and XOR to an image, archive or text, with its encoding chain. save=true writes them (defanged names).")]
+                 "compression and XOR to an image, archive or text, with its encoding chain. A native PE file lists the PE images inside it with their file offsets. save=true writes them (defanged names).")]
     public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("An assembly or container file, read without loading; pass this or assembly.")] string? path = null,

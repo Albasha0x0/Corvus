@@ -610,7 +610,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResu
 
 **Extract embedded content** (edit, idempotent)
 
-Embedded content of an assembly or container (resources, byte arrays, long literals), decoded through hex, base64, compression and XOR to an image, archive or text, with its encoding chain. save=true writes them (defanged names).
+Embedded content of an assembly or container (resources, byte arrays, long literals), decoded through hex, base64, compression and XOR to an image, archive or text, with its encoding chain. A native PE file lists the PE images inside it with their file offsets. save=true writes them (defanged names).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

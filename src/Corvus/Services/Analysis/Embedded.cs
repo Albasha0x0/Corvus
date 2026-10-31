@@ -20,6 +20,9 @@ public sealed record EmbeddedContent(
     [System.Text.Json.Serialization.JsonIgnore]
     public byte[] Bytes { get; init; } = [];
 
+    /// <summary>Byte offset of the item inside the outer file, set for a PE image found in a native file; null otherwise.</summary>
+    public long? FileOffset { get; init; }
+
     /// <summary>"inferred" for a brute-forced XOR key or a high-entropy guess; null when the decode chain is exact.</summary>
     public string? Basis => Kind.StartsWith("high-entropy", StringComparison.Ordinal) || Encoding.Any(e => e.Contains("brute-forced", StringComparison.Ordinal)) ? "inferred" : null;
 }
@@ -134,6 +137,10 @@ public static class Embedded
         if (reportRaw && data.Length >= MinEncryptedSize && Blob.Entropy(data) >= EncryptedEntropy)
             add(Make(data, source, chain, "high-entropy data (encrypted or compressed?)"));
     }
+
+    /// <summary>A PE image found at <paramref name="offset"/> of its outer file, with Kind from the image itself.</summary>
+    public static EmbeddedContent FromImage(byte[] image, string source, long offset) =>
+        Make(image, source, [], Blob.Identify(image)) with { FileOffset = offset };
 
     private static EmbeddedContent Make(byte[] data, string source, List<string> chain, string kind)
     {

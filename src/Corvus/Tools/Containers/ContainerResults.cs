@@ -286,6 +286,7 @@ internal static class ContainerText
     private static string EmbeddedRow(EmbeddedContent c)
     {
         var sb = new StringBuilder($"{c.Kind} {c.Size:N0} bytes in {Escape(c.Source)}");
+        if (c.FileOffset is { } at) sb.Append($" at file offset {at} (0x{at:X})");
         if (c.Encoding.Count > 0) sb.Append(" via ").Append(Escape(string.Join(" > ", c.Encoding)));
         if (c.Basis != null) sb.Append($" ({c.Basis})");
         if (c.Detail != null) sb.Append(": ").Append(Escape(c.Detail.Length > 120 ? c.Detail[..120] + "…" : c.Detail));

@@ -386,6 +386,64 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
+    public void Embedded_native_images_in_a_native_file_report_their_offset_and_save_identical_bytes()
+    {
+        var inner = NativePeTests.KitchenSink(is64: false);
+        var outer = NativePeTests.KitchenSink(is64: true);
+        var padded = outer.Length + (16 - outer.Length % 16) % 16;
+        var file = new byte[padded + inner.Length];
+        outer.CopyTo(file, 0);
+        inner.CopyTo(file, padded);
+        var path = Save("Outer.exe", file);
+
+        var report = Inspection.ExtractEmbedded(null, path, true, _dir.File("native-out"), false, default);
+        var item = Assert.Single(report.Contents, c => c.FileOffset == padded);
+        Assert.Equal("native PE", item.Kind);
+        Assert.Equal(inner, File.ReadAllBytes(item.SavedTo!));
+    }
+
+    [Fact]
+    public void Embedded_a_native_image_inside_a_section_is_listed_with_its_offset()
+    {
+        var inner = NativePeTests.KitchenSink(is64: false);
+        var builder = new PeBuilder { EntryPoint = 0x1000 };
+        builder.Add(".text", [0xC3], 0x60000020);
+        builder.Add(".rsrc", inner);
+        var file = builder.Build();
+        var at = file.AsSpan().IndexOf(inner);
+        Assert.True(at > 0);
+        var path = Save("Resource.exe", file);
+
+        var report = Inspection.ExtractEmbedded(null, path, true, _dir.File("section-out"), false, default);
+        var item = Assert.Single(report.Contents, c => c.FileOffset == at);
+        Assert.Equal(inner, File.ReadAllBytes(item.SavedTo!));
+        Assert.Contains($"at file offset {at} (0x{at:X})", Corvus.Tools.ContainerText.Embedded(report, 0, 10));
+    }
+
+    [Fact]
+    public void Embedded_a_managed_image_inside_a_native_file_keeps_the_container_path()
+    {
+        var inner = Compile("Inner", "public static class Inner { public static int V = 1; }");
+        var outer = NativePeTests.KitchenSink(is64: true);
+        var padded = outer.Length + (16 - outer.Length % 16) % 16;
+        var file = new byte[padded + inner.Length];
+        outer.CopyTo(file, 0);
+        inner.CopyTo(file, padded);
+
+        var report = Inspection.ExtractEmbedded(null, Save("Holder.exe", file), false, null, false, default);
+        Assert.DoesNotContain(report.Contents, c => c.FileOffset != null);
+        Assert.DoesNotContain(report.Notes, n => n.Contains("found past the header"));
+    }
+
+    [Fact]
+    public void Embedded_a_native_file_without_inner_images_takes_the_existing_path()
+    {
+        var path = Save("Plain.exe", NativePeTests.KitchenSink(is64: true));
+        var error = Assert.Throws<ToolError>(() => Inspection.ExtractEmbedded(null, path, false, null, false, default));
+        Assert.Contains("not a .NET assembly", error.Message);
+    }
+
+    [Fact]
     public void Embedded_save_writes_defanged_files_and_values_come_from_decoded_text()
     {
         var path = Save("Encoded.dll", EncodedFixture());

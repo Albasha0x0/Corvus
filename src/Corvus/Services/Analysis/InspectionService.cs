@@ -819,6 +819,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         var (label, source, sha, contents, notes) = assembly == null && ContainerInput(path) is { } container
             ? EmbeddedInContainer(container, xorText, ct)
+            : assembly == null && NativeInput(path, ct) is { } native
+            ? EmbeddedInNative(native, ct)
             : WithAssembly(assembly, path, s =>
                 (s.Label, assembly != null ? workspace.Get(assembly).FilePath : Path.GetFullPath(path!), Blob.Sha256(s.Image), Embedded.Find(s.Scan, Limits, ct, xorText), s.Scan.Notes), ct);
         if (!includeMedia && contents.Any(c => Blob.IsMedia(c.Kind)))
@@ -847,6 +849,40 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }
         if (zone.Note is { } unmarked) notes.Add(unmarked);
         return new EmbeddedReport(label, written, root, notes);
+    }
+
+    /// <summary>A native PE file that holds PE images past its own header, or null for any other input.</summary>
+    private static (string Full, string Sha, byte[] Bytes, List<Blob.Carved> Images)? NativeInput(string? path, CancellationToken ct)
+    {
+        if (path == null || Directory.Exists(Path.GetFullPath(path)) || !File.Exists(path)) return null;
+        var (full, bytes) = ReadFile(path);
+        if (Blob.Identify(bytes) is not ("native PE" or "NativeAOT executable")) return null;
+        // Scanning from byte 1 skips the outer header and still covers its sections.
+        var images = Blob.CarvePe(bytes.AsSpan(1), Limits.MaxItems, ct).Select(c => c with { Offset = c.Offset + 1 }).ToList();
+        return images.Count == 0 ? null : (full, Blob.Sha256(bytes), bytes, images);
+    }
+
+    /// <summary>Each PE image inside a native file, with its file offset; the outer image is not listed.</summary>
+    private static (string, string, string, List<EmbeddedContent>, List<string>) EmbeddedInNative(
+        (string Full, string Sha, byte[] Bytes, List<Blob.Carved> Images) native, CancellationToken ct)
+    {
+        var contents = new List<EmbeddedContent>();
+        var notes = new List<string>();
+        long total = 0;
+        foreach (var c in native.Images)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (total + c.Length > Limits.MaxTotalBytes)
+            {
+                notes.Add($"Stopped at {contents.Count} of {native.Images.Count} PE images: the total size limit of {Limits.MaxTotalBytes:N0} bytes was reached.");
+                break;
+            }
+            total += c.Length;
+            contents.Add(Embedded.FromImage(native.Bytes.AsSpan(c.Offset, c.Length).ToArray(), $"offset 0x{c.Offset:X}", c.Offset));
+        }
+        if (native.Images.Count >= Limits.MaxItems) notes.Add($"The scan stopped at the limit of {Limits.MaxItems:N0} images.");
+        notes.Insert(0, $"{contents.Count} PE image(s) found past the header of the native file.");
+        return (Path.GetFileName(native.Full), native.Full, native.Sha, contents, notes);
     }
 
     /// <summary>The managed assemblies of a container file (not itself an assembly), or null for any other input.</summary>

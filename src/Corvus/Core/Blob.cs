@@ -209,12 +209,13 @@ public static class Blob
     public sealed record Carved(int Offset, int Length, bool IsDotNet);
 
     /// <summary>Finds PE images embedded anywhere in <paramref name="data"/> (validated headers; overlays excluded).</summary>
-    public static List<Carved> CarvePe(ReadOnlySpan<byte> data, int maxResults = 10_000)
+    public static List<Carved> CarvePe(ReadOnlySpan<byte> data, int maxResults = 10_000, CancellationToken ct = default)
     {
         var found = new List<Carved>();
         int i = 0;
         while (found.Count < maxResults)
         {
+            ct.ThrowIfCancellationRequested();
             int at = data[i..].IndexOf("MZ"u8);
             if (at < 0) break;
             at += i;
