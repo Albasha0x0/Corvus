@@ -2865,7 +2865,7 @@ Open, list, inspect or close a session on a program: id, backend, modules matche
 | `downloadDac` | boolean |  |  | Download a missing DAC. |
 | `device` | string |  |  | adb serial; device runs frida-server. |
 
-Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `ipc`, `notice`.
+Structured output: `action`, `session`, `backend`, `program`, `processId`, `state`, `modules`, `sessions`, `processes`, `snapshot`, `ipc`.
 
 ### live_break
 

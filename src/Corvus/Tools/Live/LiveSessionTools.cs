@@ -44,7 +44,8 @@ public sealed partial class LiveSessionTools(ServerOptions options, LiveSessionS
         public LiveSnapshot? Snapshot { get; init; }
         [Description("action=ipc: one line per route: direction, kind, channel, shape, count, code sites.")]
         public string? Ipc { get; init; }
-        [Description("action=list: why the list is empty when sessions are off in this server.")]
+        // Text only: the output schema is at its size limit.
+        [System.Text.Json.Serialization.JsonIgnore]
         public string? Notice { get; init; }
     }
 
