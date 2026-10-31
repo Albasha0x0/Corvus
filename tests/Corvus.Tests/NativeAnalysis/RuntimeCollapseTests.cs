@@ -273,4 +273,47 @@ public class RuntimeCollapseTests
         var all = index.DisassembleFunction(fn, 2000, out _).Where(e => e.Line != null).Select(e => e.Line!).ToList();
         Assert.Equal(3, RuntimeCollapse.Find(all, Va).Count);
     }
+
+    [Fact]
+    public void A_lazy_block_and_a_barrier_in_one_function_collapse_without_hiding_other_code()
+    {
+        var lines = new[]
+        {
+            L(0x00, "push rbx"),
+            L(0x04, "cmp byte ptr [140003000h],0", rip: true, mem: 0x3000),
+            L(0x08, "jne 0000000140000014h", FlowKind.ConditionalJump, 0x14),
+            L(0x0C, "lea rcx,[140004000h]"),
+            L(0x10, "call 0000000140001000h", FlowKind.Call, 0x1000, len: 4),
+            L(0x14, "mov rax,rcx"),
+            L(0x18, "shr rax,0Ch"),
+            L(0x1C, "bts dword ptr [rdx],eax"),
+            L(0x20, "lock cmpxchg [rdx],rcx"),
+            L(0x24, "jne 0000000140000018h", FlowKind.ConditionalJump, 0x18),
+            L(0x28, "pop rbx"),
+            L(0x2C, "ret", FlowKind.Return),
+        };
+        var runs = RuntimeCollapse.Find(lines, Va);
+        Assert.Equal(2, runs.Count);
+        Assert.Equal(4, runs[0x04].Count);
+        Assert.Equal(4, runs[0x18].Count);
+        int kept = lines.Length - runs.Values.Sum(r => r.Count);
+        Assert.Equal(4, kept);
+        Assert.Contains("lazy initialization of " + Va(0x3000), runs[0x04].Note);
+        Assert.Contains("write barrier", runs[0x18].Note);
+        Assert.Equal(0x14u, runs[0x04].End);
+        Assert.Equal(0x28u, runs[0x18].End);
+        Assert.False(runs.ContainsKey(0x00) || runs.ContainsKey(0x14) || runs.ContainsKey(0x28));
+    }
+
+    [Fact]
+    public void A_function_listing_keeps_code_outside_both_runs_and_drops_their_instructions()
+    {
+        var (index, fn) = Fixture();
+        var plain = Listing(index, fn, false);
+        var text = Listing(index, fn, true);
+        Assert.Contains("4883EC28", text);
+        Assert.Contains("4883C428", text);
+        Assert.Contains("48C1E80C", plain);
+        Assert.DoesNotContain("48C1E80C", text);
+    }
 }
