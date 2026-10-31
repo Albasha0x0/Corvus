@@ -143,6 +143,9 @@ public sealed class PdbTypeModel
             if (cache.Models[slot] is { IsFaulted: true } or { IsCanceled: true }) cache.Models[slot] = null;
             read = cache.Models[slot] ??= Task.Run(() => Read(pdb, pointerSize));
         }
+        // WaitAsync returns a finished read even to a cancelled caller: check first,
+        // so cancellation does not depend on timing.
+        ct.ThrowIfCancellationRequested();
         return read.WaitAsync(ct).GetAwaiter().GetResult();
     }
 

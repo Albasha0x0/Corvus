@@ -81,6 +81,8 @@ public sealed class PdbTypeModelTests(ITestOutputHelper output) : IDisposable
         var other = Fixture();
         Assert.ThrowsAny<OperationCanceledException>(() => PdbTypeModel.Of(other, 8, new CancellationToken(canceled: true)));
         Assert.NotNull(PdbTypeModel.Of(other, 8));
+        // Regression for CI run 41166517189: a read that already finished still answers a cancelled caller with the cancellation.
+        Assert.ThrowsAny<OperationCanceledException>(() => PdbTypeModel.Of(other, 8, new CancellationToken(canceled: true)));
     }
 
     /// <summary>The writer's output for the fixture, pinned: the model refactor must leave it byte for byte.</summary>
