@@ -1033,7 +1033,8 @@ public sealed class LiveSessionEventTests : LiveSessionTestBase
         await _tools.LiveSession("attach", program: "99994242");
         await _tools.LiveBreak("live-1", "set", at: $"0x{Base + 0x1000:X}");
         for (int i = 0; i < 5; i++) _backend.Hit("s1", 100 + i, Base + 0x1010);
-        await Task.Delay(200);
+        // A page without a cursor starts at the oldest event, so polling for the last stop sends nothing twice.
+        for (int i = 0; i < 200 && !(await _tools.LiveEvents("live-1", kind: "stop")).Contains("thread 104"); i++) await Task.Delay(50);
         var first = await _tools.LiveEvents("live-1", kind: "stop", limit: 3);
         Assert.Contains("thread 100", first);
         Assert.Contains("thread 102", first);
