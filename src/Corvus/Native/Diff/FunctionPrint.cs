@@ -57,6 +57,21 @@ public sealed class ImagePrints
 
     public FunctionPrint? At(uint start) => ByStart.TryGetValue(start, out var i) ? Functions[i] : null;
 
+    private int[]? _calleeFanIn;
+
+    /// <summary>Per function index, how many functions of this image call it.</summary>
+    // Benign race: concurrent callers compute the same array, after the prints are built.
+    internal int[] CalleeFanIn => _calleeFanIn ??= ComputeFanIn();
+
+    private int[] ComputeFanIn()
+    {
+        var counts = new int[Functions.Length];
+        foreach (var f in Functions)
+            foreach (var c in f.Callees.Distinct())
+                if ((uint)c < (uint)counts.Length) counts[c]++;
+        return counts;
+    }
+
     private long _decodes;
 
     /// <summary>Functions of this image decoded again for exact similarity scores; the sketches need no decode.</summary>

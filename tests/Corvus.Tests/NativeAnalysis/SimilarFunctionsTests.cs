@@ -119,6 +119,45 @@ public class SimilarFunctionsTests
     }
 
     [Fact]
+    public void A_callee_called_from_many_functions_weighs_less_in_the_shared_callee_score()
+    {
+        var a = new Assembler(64);
+        var labels = new Dictionary<string, Label>();
+        Label L(string name) => labels.TryGetValue(name, out var l) ? l : labels[name] = a.CreateLabel(name);
+        void Here(string name) { var l = L(name); a.Label(ref l); labels[name] = l; }
+        // Sixteen callers share Helper. D0 and D1 add one own callee each.
+        // R and S call only App, which few functions call.
+        for (int i = 0; i < 12; i++)
+        {
+            Here("C" + i);
+            a.mov(eax, i + 1); a.call(L("Helper")); a.add(eax, i * 7 + 3); a.ret(); a.int3();
+        }
+        Here("P"); a.call(L("Helper")); a.call(L("App")); a.ret(); a.int3();
+        Here("Q"); a.call(L("Helper")); a.call(L("App")); a.ret(); a.int3();
+        Here("D0"); a.call(L("Helper")); a.call(L("U0")); a.ret(); a.int3();
+        Here("D1"); a.call(L("Helper")); a.call(L("U1")); a.ret(); a.int3();
+        Here("R"); a.call(L("App")); a.ret(); a.int3();
+        Here("S"); a.call(L("App")); a.ret(); a.int3();
+        Here("U0"); a.mov(eax, 3); a.ret(); a.int3();
+        Here("U1"); a.mov(eax, 4); a.ret(); a.int3();
+        Here("Helper"); a.mov(eax, 1); a.ret(); a.int3();
+        Here("App"); a.mov(eax, 2); a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), 0x140000000UL + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        var s = Make(NativeArch.X64, stream.ToArray(), labels.ToDictionary(kv => kv.Key, kv => (uint)(result.GetLabelRIP(kv.Value) - 0x140000000UL)));
+
+        var f = s.Prints.Functions;
+        var (c0, c1, d0, d1, r, t) = (f[s.Of("C0")], f[s.Of("C1")], f[s.Of("D0")], f[s.Of("D1")], f[s.Of("R")], f[s.Of("S")]);
+        double plain = SimilarFunctions.Score(d0, d1, 0, true, null);
+        double weighted = SimilarFunctions.Score(d0, d1, 0, true, s.Prints);
+        Assert.True(weighted < plain, $"shared helper {weighted} vs {plain}");
+        // The callee term falls from 1/3 to 0.2 at weight 1 of 9.
+        Assert.Equal((1.0 / 3 - 0.2) / 9, plain - weighted, 3);
+        Assert.Equal(SimilarFunctions.Score(c0, c1, 0, true, null), SimilarFunctions.Score(c0, c1, 0, true, s.Prints), 9);
+        Assert.Equal(SimilarFunctions.Score(r, t, 0, true, null), SimilarFunctions.Score(r, t, 0, true, s.Prints), 9);
+    }
+
+    [Fact]
     public void Duplicates_group_one_shape_and_clusters_link_near_duplicates()
     {
         var s = X64Sample.Value;

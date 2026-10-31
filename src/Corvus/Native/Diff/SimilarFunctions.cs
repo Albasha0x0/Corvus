@@ -92,8 +92,8 @@ public static class SimilarFunctions
 
     private static readonly ConditionalWeakTable<ImagePrints, ConcurrentDictionary<string, (List<SimilarGroup> Groups, int Compared)>> ClusterCache = new();
 
-    /// <summary>Weighted similarity 0-1: code (3-gram Jaccard) dominates; mnemonic mix, size, graph shape, imports, strings, constants and (same image) callees.</summary>
-    public static double Score(FunctionPrint a, FunctionPrint b, double code, bool sameImage)
+    /// <summary>Weighted similarity 0-1: code (3-gram Jaccard) dominates; mnemonic mix, size, graph shape, imports, strings, constants and (same image) callees; `home` weights shared callees by fan-in, null leaves them unweighted.</summary>
+    public static double Score(FunctionPrint a, FunctionPrint b, double code, bool sameImage, ImagePrints? home)
     {
         if (a.Failed || b.Failed) return 0;
         double sum = 0, weight = 0;
@@ -106,7 +106,7 @@ public static class SimilarFunctions
         if (a.Imports.Length + b.Imports.Length > 0) Add(BuildMatcher.Jaccard(a.Imports, b.Imports, string.CompareOrdinal), 1);
         if (a.Strings.Length + b.Strings.Length > 0) Add(BuildMatcher.Jaccard(a.Strings, b.Strings, string.CompareOrdinal), 1.5);
         if (a.Constants.Length + b.Constants.Length > 0) Add(BuildMatcher.Jaccard(a.Constants, b.Constants, (x, y) => x.CompareTo(y)), 1);
-        if (sameImage && a.Callees.Length + b.Callees.Length > 0) Add(CalleeJaccard(a.Callees, b.Callees), 1);
+        if (sameImage && a.Callees.Length + b.Callees.Length > 0) Add(CalleeJaccard(a.Callees, b.Callees, sameImage ? home?.CalleeFanIn : null), 1);
         return sum / weight;
     }
 
@@ -134,7 +134,7 @@ public static class SimilarFunctions
                 double j = CodeSketch.Jaccard(q.Sketch, c.Sketch!);
                 double code = Math.Max(j, 0.9 * EstimatedContainment(j, q.Shingles, c.Shingles));
                 // Slack for the estimate's noise (about 0.09 at Jaccard 0.5).
-                double s = Score(q, c, code, same);
+                double s = Score(q, c, code, same, home);
                 if (s >= minScore - 0.15) local.Hits.Add((image, i, s));
                 return local;
             }, local => { foreach (var x in local.Hits) pre.Add(x); Interlocked.Add(ref scanned, local.Seen); });
@@ -161,7 +161,7 @@ public static class SimilarFunctions
             double containment = mine.Count == 0 ? 0 : (double)both / mine.Count;
             bool contains = containment >= 0.8 && mine.Count >= 8 && theirs.Count > mine.Count * 1.5;
             bool same = ReferenceEquals(image, home);
-            double score = Score(q, c, contains ? Math.Max(jaccard, 0.9 * containment) : jaccard, same);
+            double score = Score(q, c, contains ? Math.Max(jaccard, 0.9 * containment) : jaccard, same, home);
             if (score < minScore) return decoders;
             string kind = q.BytesHash == c.BytesHash ? "identical" : q.StructHash == c.StructHash ? "same_shape" : contains && jaccard < 0.6 ? "contains" : "similar";
             hits[k] = new SimilarHit(image, i, Math.Round(score, 3), kind, Math.Round(jaccard, 3), Math.Round(containment, 3),
@@ -206,13 +206,19 @@ public static class SimilarFunctions
         return both.ToArray();
     }
 
-    private static double CalleeJaccard(int[] a, int[] b)
+    /// <summary>Callees called from more functions than this are discounted.</summary>
+    private const int CommonCalleeFanIn = 8;
+
+    private static double CalleeJaccard(int[] a, int[] b, int[]? fanIn)
     {
         if (a.Length == 0 || b.Length == 0) return 0;
-        int both = 0;
+        double Weight(int x) => fanIn == null || (uint)x >= (uint)fanIn.Length || fanIn[x] <= CommonCalleeFanIn ? 1 : (double)CommonCalleeFanIn / fanIn[x];
         var set = b.Length > 16 ? b.ToHashSet() : null;
-        foreach (var x in a) if (set?.Contains(x) ?? Array.IndexOf(b, x) >= 0) both++;
-        return (double)both / (a.Length + b.Length - both);
+        // Weighted Jaccard: identical sets score 1, shared helpers add little.
+        double both = 0, total = 0;
+        foreach (var x in a) { double w = Weight(x); total += w; if (set?.Contains(x) ?? Array.IndexOf(b, x) >= 0) both += w; }
+        foreach (var x in b) total += Weight(x);
+        return both / (total - both);
     }
 
     /// <summary>Groups of functions of one graph and instruction shape (identical or same_shape), most redundant bytes first.</summary>
@@ -232,7 +238,7 @@ public static class SimilarFunctions
             {
                 var members = g.OrderBy(i => f[i].Start).ToArray();
                 bool identical = members.All(i => f[i].BytesHash == f[members[0]].BytesHash);
-                return new SimilarGroup(identical ? "identical" : "same_shape", members, members.Select(i => Math.Round(Score(f[members[0]], f[i], 1, true), 3)).ToArray());
+                return new SimilarGroup(identical ? "identical" : "same_shape", members, members.Select(i => Math.Round(Score(f[members[0]], f[i], 1, true, image), 3)).ToArray());
             })
             .OrderByDescending(Redundant).ThenBy(g => f[g.Members[0]].Start).ToList();
 
@@ -267,7 +273,7 @@ public static class SimilarFunctions
             var (x, y) = (f[a], f[b]);
             if (BuildMatcher.Ratio(x.Instructions, y.Instructions) < 0.5) return;
             pairs++;
-            if (Score(x, y, CodeSketch.Jaccard(x.Sketch!, y.Sketch!), true) >= minScore) Union(a, b);
+            if (Score(x, y, CodeSketch.Jaccard(x.Sketch!, y.Sketch!), true, image) >= minScore) Union(a, b);
         }
         for (int band = 0; band < CodeSketch.Bands; band++)
         {
@@ -311,7 +317,7 @@ public static class SimilarFunctions
                 bool identical = members.All(i => f[i].BytesHash == anchor.BytesHash);
                 bool shape = members.All(i => f[i].StructHash == anchor.StructHash);
                 return new SimilarGroup(identical ? "identical" : shape ? "same_shape" : "similar", members,
-                    members.Select(i => Math.Round(Score(anchor, f[i], CodeSketch.Jaccard(anchor.Sketch!, f[i].Sketch!), true), 3)).ToArray());
+                    members.Select(i => Math.Round(Score(anchor, f[i], CodeSketch.Jaccard(anchor.Sketch!, f[i].Sketch!), true, image), 3)).ToArray());
             })
             .OrderByDescending(g => g.Members.Length).ThenByDescending(g => f[g.Members[0]].Instructions).ThenBy(g => f[g.Members[0]].Start).ToList();
         compared = pairs;
