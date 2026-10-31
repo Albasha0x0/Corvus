@@ -111,6 +111,105 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.EndsWith("Sleep(5)", rows[2]);
     }
 
+    [Fact]
+    public void A_callee_given_as_a_function_address_selects_the_same_calls_as_its_name()
+    {
+        var code = Assemble(64, a =>
+        {
+            var callee = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.mov(ecx, 0x10);
+            a.call(callee);
+            a.add(rsp, 0x28);
+            a.ret();
+            a.Label(ref callee);
+            a.mov(eax, ecx);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+        var target = index.Functions.First(f => f.Start != Code);
+        var analysis = Corvus.Tools.NativeCallTools.Sites(index)!;
+
+        var byHex = Corvus.Tools.NativeCallTools.ResolveCallee(index, $"0x{target.Start:X}", out _);
+        Assert.Equal(target.Name, byHex);
+        var byName = Corvus.Tools.NativeCallTools.CallsTo(index, analysis, target.Name, 100, default);
+        Assert.Single(byName);
+        Assert.Equal(byName.Select(c => c.Rva), Corvus.Tools.NativeCallTools.CallsTo(index, analysis, byHex, 100, default).Select(c => c.Rva));
+
+        var inside = Assert.Throws<Corvus.Core.ToolError>(() => Corvus.Tools.NativeCallTools.ResolveCallee(index, $"0x{target.Start + 1:X}", out _));
+        Assert.Contains("not the start of a function", inside.Message);
+    }
+
+    private static NativeCodeIndex TwoCalleesIndex(string firstName, string secondName)
+    {
+        var code = Assemble(64, a =>
+        {
+            var one = a.CreateLabel();
+            var two = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.call(one);
+            a.call(two);
+            a.add(rsp, 0x28);
+            a.ret();
+            a.Label(ref one);
+            a.mov(eax, 1);
+            a.ret();
+            a.Label(ref two);
+            a.mov(eax, 2);
+            a.ret();
+        });
+        var probe = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+        var starts = probe.Functions.Where(f => f.Start != Code).OrderBy(f => f.Start).Select(f => f.Start).ToArray();
+        var exports = new[] { new NativeExport(firstName, 1, starts[0], null), new NativeExport(secondName, 2, starts[1], null) };
+        return NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code, exports: exports));
+    }
+
+    [Fact]
+    public void A_callee_address_shared_by_two_function_names_is_rejected_unless_filtering_by_address()
+    {
+        var index = TwoCalleesIndex("dup", "dup");
+        var start = index.Functions.Where(f => f.Start != Code).Min(f => f.Start);
+        var error = Assert.Throws<Corvus.Core.ToolError>(() => Corvus.Tools.NativeCallTools.ResolveCallee(index, $"0x{start:X}", out _));
+        Assert.Equal(Corvus.Core.ErrorCode.InvalidArgument, error.Code);
+        Assert.Contains("Several functions are named", error.Message);
+        Corvus.Tools.NativeCallTools.ResolveCallee(index, $"0x{start:X}", out var resolved, byAddress: true);
+        Assert.Equal(start, resolved);
+    }
+
+    [Fact]
+    public void A_hex_looking_function_name_resolves_as_a_name()
+    {
+        var index = TwoCalleesIndex("0x1234", "other");
+        var name = Corvus.Tools.NativeCallTools.ResolveCallee(index, "0x1234", out var start);
+        Assert.Equal("0x1234", name);
+        Assert.Null(start);
+    }
+
+    [Fact]
+    public void A_numeric_callee_outside_any_function_stays_an_unknown_name()
+    {
+        var index = TwoCalleesIndex("one", "two");
+        Assert.Equal("0x7fffffff", Corvus.Tools.NativeCallTools.ResolveCallee(index, "0x7fffffff", out _));
+        Assert.Equal("cafe", Corvus.Tools.NativeCallTools.ResolveCallee(index, "cafe", out _));
+        Assert.Equal("1234", Corvus.Tools.NativeCallTools.ResolveCallee(index, "1234", out _));
+    }
+
+    [Fact]
+    public void A_hex_callee_filters_the_call_sites_of_a_function_scope_by_target()
+    {
+        var index = TwoCalleesIndex("one", "two");
+        var target = index.Functions.Where(f => f.Start != Code).Min(f => f.Start);
+        var image = NativeAddress.Va(index.Image, Code);
+
+        var scoped = Corvus.Tools.NativeCallTools.Report(index, image, $"0x{target:X}", 0, 50, default);
+        Assert.Contains("calls in", scoped);
+        Assert.Contains("1 call site", scoped);
+        var wide = Corvus.Tools.NativeCallTools.Report(index, null, $"0x{target:X}", 0, 50, default);
+        Assert.Contains("1 call site", wide);
+        var all = Corvus.Tools.NativeCallTools.Report(index, image, null, 0, 50, default);
+        Assert.Contains("2 call site", all);
+    }
+
     // Reproduces the b36a849f full run, where analyze_native_function on the
     // largest function of chrome.dll ran on 90 s after its cancel.
     [Fact]

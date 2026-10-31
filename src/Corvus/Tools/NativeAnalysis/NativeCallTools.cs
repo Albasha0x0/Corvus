@@ -64,7 +64,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call, or an address in a function (all its calls): " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Only calls to this API, module!name or function; without address, image-wide.")] string? callee = null,
+        [Description("Only calls to this API, module!name, function name or function start (0x hex); without address, image-wide.")] string? callee = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max call sites (max 1000).")] int limit = 50,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
@@ -89,7 +89,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         public IEnumerable<CallSiteInfo> CallsTo(NativeImport import, int max, CancellationToken ct = default) => analysis.CallsTo(import, max, ct);
     }
 
-    private string Report(NativeCodeIndex index, string? address, string? callee, int offset, int limit, CancellationToken ct)
+    internal static string Report(NativeCodeIndex index, string? address, string? callee, int offset, int limit, CancellationToken ct)
     {
         var analysis = Sites(index)!;
         var notes = new List<string>();
@@ -113,12 +113,14 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
             }
             if (!string.IsNullOrWhiteSpace(callee))
             {
-                sites = sites.Where(s => CalleeMatches(s, callee)).ToList();
-                scope += $" to {callee.Trim()}";
+                callee = ResolveCallee(index, callee, out var fnStart, byAddress: true);
+                sites = sites.Where(s => fnStart is { } t ? s.Target == t : CalleeMatches(s, callee)).ToList();
+                scope += $" to {callee}";
             }
         }
         else
         {
+            callee = ResolveCallee(index, callee!, out _);
             // Mach-O symbols carry the C underscore: dlsym is _dlsym.
             if (index.Image.Format == ImageFormat.MachO && !callee!.Trim().StartsWith('_') && !callee.Contains('!') && !KnownCallee(index, callee.Trim())
                 && KnownCallee(index, "_" + callee.Trim()))
@@ -138,6 +140,31 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return ToolOutput.List(page, start, max, sites.Count, r => $"{r.Record.Address}  {r.Record.Function}  {Format.EscapeMarkers(r.Display)}  [{r.Record.CalleeKind}" +
                                                                     (r.Record.TailCall ? ", tail" : "") + (r.Record.SignatureKnown ? "" : ", no signature") + "]",
             rows => new CallArgumentsReport(image, scope, rows.Select(r => r.Record).ToList(), start, sites.Count, notes), "call site", header);
+    }
+
+    /// <summary>
+    /// Returns the callee as a name: a known name is kept, a 0x-prefixed
+    /// address becomes the name of the function starting there, with its start
+    /// in <paramref name="start"/>. An address outside the image is kept as
+    /// text. Rejects an address inside a function; unless
+    /// <paramref name="byAddress"/> is set, also a name shared by functions.
+    /// </summary>
+    internal static string ResolveCallee(NativeCodeIndex index, string callee, out uint? start, bool byAddress = false)
+    {
+        start = null;
+        var text = callee.Trim();
+        if (KnownCallee(index, text) || !text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || NativeAddress.Number(text) is null) return text;
+        uint rva;
+        try { rva = NativeCodeTools.Address(index, text); }
+        catch (ToolError) { return text; }
+        var fn = index.FunctionByStart(rva) ?? throw new ToolError(ErrorCode.InvalidArgument,
+            $"{NativeAddress.Va(index.Image, rva)} is not the start of a function.",
+            "list_functions shows the function starts");
+        if (!byAddress && index.Functions.Count(f => f.Name.Equals(fn.Name, StringComparison.OrdinalIgnoreCase)) > 1)
+            throw new ToolError(ErrorCode.InvalidArgument, $"Several functions are named '{fn.Name}'; {text} cannot select one.",
+                "rename one of them, or pass address with callee");
+        start = fn.Start;
+        return fn.Name;
     }
 
     private static bool KnownCallee(NativeCodeIndex index, string callee) =>

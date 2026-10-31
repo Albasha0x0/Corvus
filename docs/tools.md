@@ -1324,7 +1324,7 @@ Call sites with recovered argument values: constants, strings, addresses, earlie
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | A call, or an address in a function (all its calls): Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
-| `callee` | string |  |  | Only calls to this API, module!name or function; without address, image-wide. |
+| `callee` | string |  |  | Only calls to this API, module!name, function name or function start (0x hex); without address, image-wide. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` | Max call sites (max 1000). |
 | `maxTokens` | integer |  |  |  |
