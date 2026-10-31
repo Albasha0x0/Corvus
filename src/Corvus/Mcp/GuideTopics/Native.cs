@@ -13,7 +13,7 @@ public static partial class Guide
         - Indirect calls: resolve_call_targets, find_virtual_calls (crossCheck=true compares with IDA or Ghidra).
         - Values: get_call_arguments (callee= a name or 0x function start), trace_native_values (engine=ida|ghidra uses the decompiler's IR).
         - emulate_native runs a decoder or hash in an emulator, never natively; engine=speakeasy runs a whole PE with Windows APIs modelled.
-        - emulate_native models malloc, calloc, realloc, free, memcpy, memset and strlen; a named stub wins over a model, and *= answers only imports and calls outside the image.
+        - emulate_native models malloc, calloc, realloc, free, memcpy, memset and strlen; a named stub wins over a model, and *= answers only imports and calls outside the image; stubs are separated by , or ;.
         - Search: search_native_strings, search_bytes (?? wildcards; memory=engine for loaded bytes), search_instructions, trace_native_feature, find_similar_functions.
         - Data: read_bytes (type= reads values), convert_number, resolve_address, list_cpp_classes, get_native_type (at=0x48 names a field; read=true adds values).
         - decompile_native needs IDA or Ghidra (functions=[...] decompiles several; callersOf= the callers); search_decompiled runs a regex over pseudocode (cursor= continues).

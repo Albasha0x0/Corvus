@@ -21,6 +21,8 @@ public sealed record EmbeddedContent(
     public byte[] Bytes { get; init; } = [];
 
     /// <summary>Byte offset of the item inside the outer file, set for a PE image found in a native file; null otherwise.</summary>
+    // Not serialized: Source already names the offset.
+    [System.Text.Json.Serialization.JsonIgnore]
     public long? FileOffset { get; init; }
 
     /// <summary>"inferred" for a brute-forced XOR key or a high-entropy guess; null when the decode chain is exact.</summary>

@@ -610,7 +610,7 @@ Structured output: `assembly`, `items`, `offset`, `total`, `byType`, `valuesResu
 
 **Extract embedded content** (edit, idempotent)
 
-Embedded content of an assembly or container (resources, byte arrays, long literals), decoded through hex, base64, compression and XOR to an image, archive or text, with its encoding chain. A native PE file lists the PE images inside it with their file offsets. save=true writes them (defanged names).
+Embedded content of an assembly, container or native PE (resources, byte arrays, literals, inner PEs), decoded (hex, base64, compression, XOR) to an image, archive or text with its encoding chain; save=true writes them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -618,8 +618,8 @@ Embedded content of an assembly or container (resources, byte arrays, long liter
 | `path` | string |  |  | An assembly or container file, read without loading; pass this or assembly. |
 | `save` | boolean |  |  | Write the items to disk. |
 | `outputDirectory` | string |  |  | New or empty directory, or an earlier extraction of this file; default under temp. |
-| `load` | boolean |  |  | Load the .NET assemblies found (implies save). |
-| `xorText` | boolean |  |  | Also brute-force 1-16 byte XOR keys over unreadable data for text (slower). |
+| `load` | boolean |  |  | Load .NET assemblies found (implies save). |
+| `xorText` | boolean |  |  | Also try 1-16 byte XOR keys on unreadable data for text (slower). |
 | `includeMedia` | boolean |  |  | Also list and save images (else counted). |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `100` |  |
@@ -1555,7 +1555,7 @@ Emulate native code from an address: return value, registers and written strings
 | `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
 | `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
 | `stopAt` | string |  |  | Addresses to stop at. |
-| `stubs` | string |  |  | Calls not run: name=value separated by , or ; (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
+| `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
 | `read` | string |  |  | Shown after the run: ADDR or register, space, length (rcx 64). |
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |

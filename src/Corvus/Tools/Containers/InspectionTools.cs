@@ -171,15 +171,15 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
     }
 
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true, OutputSchemaType = typeof(EmbeddedPage))]
-    [Description("Embedded content of an assembly or container (resources, byte arrays, long literals), decoded through hex, base64, " +
-                 "compression and XOR to an image, archive or text, with its encoding chain. A native PE file lists the PE images inside it with their file offsets. save=true writes them (defanged names).")]
+    [Description("Embedded content of an assembly, container or native PE (resources, byte arrays, literals, inner PEs), " +
+                 "decoded (hex, base64, compression, XOR) to an image, archive or text with its encoding chain; save=true writes them.")]
     public async Task<string> ExtractEmbedded(
         [Description(AssemblyParam)] string? assembly = null,
         [Description("An assembly or container file, read without loading; pass this or assembly.")] string? path = null,
         [Description("Write the items to disk.")] bool save = false,
         [Description("New or empty directory, or an earlier extraction of this file; default under temp.")] string? outputDirectory = null,
-        [Description("Load the .NET assemblies found (implies save).")] bool load = false,
-        [Description("Also brute-force 1-16 byte XOR keys over unreadable data for text (slower).")] bool xorText = false,
+        [Description("Load .NET assemblies found (implies save).")] bool load = false,
+        [Description("Also try 1-16 byte XOR keys on unreadable data for text (slower).")] bool xorText = false,
         [Description("Also list and save images (else counted).")] bool includeMedia = false,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = 100,

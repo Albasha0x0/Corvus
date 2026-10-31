@@ -4,7 +4,7 @@
 
 Files, containers and wrapped apps (nothing is executed).
 - summarize_file: identity, signature, markers, wrapping, features, strings and entry points in one call; its views field lists the views that apply.
-- Details: survey_features, extract_strings, extract_embedded.
+- Details: survey_features, extract_strings, extract_embedded (a native PE lists its inner PE images by file offset; save=true writes defanged names).
 - Wrapped apps (single-file .exe, Costura, .nupkg, Xamarin / MAUI .apk): list_assemblies path= lists the assemblies inside.
 - search_container finds types and members inside by name (kind=file: inner paths); unpack_container extracts and loads them.
 - list_assemblies and unpack_container flag ReadyToRun and merged assemblies.
