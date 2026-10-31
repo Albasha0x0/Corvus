@@ -101,21 +101,22 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
         return available > 0 ? Math.Max(available / 2, MinimumMemoryBytes) : null;
     }
 
-    /// <summary>Runs <paramref name="op"/> in the worker of <paramref name="kind"/>; throws provider_unavailable (host off or worker crashed), limit_exceeded (memory limit) or timeout; <paramref name="file"/> names the input in the error.</summary>
-    public async Task<JsonElement> RunAsync(string kind, string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, string? file = null)
+    /// <summary>Runs <paramref name="op"/> in the worker of <paramref name="kind"/>; throws provider_unavailable (host off or worker crashed), limit_exceeded (memory limit) or timeout; <paramref name="file"/> names the input in the error. With <paramref name="stall"/> the request ends after that long without progress and under 1% of a core.</summary>
+    public async Task<JsonElement> RunAsync(string kind, string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, string? file = null,
+        TimeSpan? stall = null)
     {
         if (!Enabled)
             throw new ToolError(ErrorCode.ProviderUnavailable, $"The worker host is off ({EnableVariable}=0); unset {EnableVariable} to turn it on.");
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         var slot = SlotOf(kind);
         var connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
-        try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
+        try { return await connection.RequestAsync(op, args, timeout, cancellationToken, stallLimit: stall).ConfigureAwait(false); }
         catch (ToolError e) when (e.Code == ErrorCode.ProviderUnavailable && connection.KillReason is { } reason && reason != "disposed")
         {
             // Stopped for another request's timeout: run this one once more on a fresh worker.
             await RetireAsync(slot, connection).ConfigureAwait(false);
             connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
-            return await RequestOnce(kind, op, args, timeout, slot, connection, file, cancellationToken).ConfigureAwait(false);
+            return await RequestOnce(kind, op, args, timeout, slot, connection, file, cancellationToken, stall).ConfigureAwait(false);
         }
         catch (ToolError e) when (e.Code == ErrorCode.ProviderUnavailable && connection.EndedOnItsOwn && !cancellationToken.IsCancellationRequested
                                   && Volatile.Read(ref _disposed) == 0)
@@ -123,7 +124,7 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
             // A crash or the memory limit ends every request on the worker: each
             // runs once more on a worker of its own, so only its cause fails.
             await RetireAsync(slot, connection).ConfigureAwait(false);
-            return await RunAloneAsync(kind, op, args, timeout, file, cancellationToken).ConfigureAwait(false);
+            return await RunAloneAsync(kind, op, args, timeout, file, cancellationToken, stall).ConfigureAwait(false);
         }
         catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
         {
@@ -132,11 +133,12 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     }
 
     /// <summary>Runs one request on a worker started for it alone and ended after; its crash or memory limit is named as this request's own.</summary>
-    private async Task<JsonElement> RunAloneAsync(string kind, string op, JsonObject? args, TimeSpan timeout, string? file, CancellationToken cancellationToken)
+    private async Task<JsonElement> RunAloneAsync(string kind, string op, JsonObject? args, TimeSpan timeout, string? file, CancellationToken cancellationToken,
+        TimeSpan? stall)
     {
         var slot = new Slot();
         var connection = await ConnectAsync(kind, slot, cancellationToken).ConfigureAwait(false);
-        try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
+        try { return await connection.RequestAsync(op, args, timeout, cancellationToken, stallLimit: stall).ConfigureAwait(false); }
         catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
         {
             var failed = await Failed(kind, op, slot, connection, e, file).ConfigureAwait(false);
@@ -147,9 +149,9 @@ public sealed class WorkerPool(WorkerPoolOptions? options = null) : IDisposable
     }
 
     private async Task<JsonElement> RequestOnce(string kind, string op, JsonObject? args, TimeSpan timeout, Slot slot, WorkerConnection connection, string? file,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, TimeSpan? stall)
     {
-        try { return await connection.RequestAsync(op, args, timeout, cancellationToken).ConfigureAwait(false); }
+        try { return await connection.RequestAsync(op, args, timeout, cancellationToken, stallLimit: stall).ConfigureAwait(false); }
         catch (ToolError e) when (e.Code is ErrorCode.LimitExceeded or ErrorCode.ProviderUnavailable)
         {
             throw await Failed(kind, op, slot, connection, e, file).ConfigureAwait(false);

@@ -181,27 +181,17 @@ public sealed class WorkerConnection : IDisposable
     // True when CPU time grew under 1% over the last idle; false when unreadable and idle passed.
     private async Task<bool> IdleAsync(TimeSpan idle, CancellationToken token)
     {
-        var samples = new Queue<(long Ticks, TimeSpan Cpu)>();
+        var rule = new StallRule(idle, _options.Time);
         while (true)
         {
-            var now = _options.Time.GetTimestamp();
             if (_process.TreeCpuTime() is not { } cpu)
             {
                 await Task.Delay(idle, _options.Time, token).ConfigureAwait(false);
                 return false;
             }
-            if (CpuIdle(samples, now, cpu, idle)) return true;
+            if (rule.Idle(cpu)) return true;
             await Task.Delay(idle / 8, _options.Time, token).ConfigureAwait(false);
         }
-    }
-
-    // Records a CPU sample; true once the window is covered and used under 1% of a core.
-    private bool CpuIdle(Queue<(long Ticks, TimeSpan Cpu)> samples, long now, TimeSpan cpu, TimeSpan window)
-    {
-        samples.Enqueue((now, cpu));
-        while (samples.Count > 1 && _options.Time.GetElapsedTime(samples.ElementAt(1).Ticks, now) >= window) samples.Dequeue();
-        var (first, used) = samples.Peek();
-        return _options.Time.GetElapsedTime(first, now) >= window && cpu - used < window / 100;
     }
 
     /// <summary>What the request reached (written, progress, stage, log, last message age), telling slow from never run.</summary>
@@ -279,7 +269,8 @@ public sealed class WorkerConnection : IDisposable
 
             using var expiry = new CancellationTokenSource(timeout, _options.Time);
             using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
-            var wentQuiet = stallLimit is { } st ? StalledAsync(id, st, timer) : quiet is { } q ? QuietAsync(id, q, timer) : Task.FromResult(false);
+            var stallRule = stallLimit is { } window ? new StallRule(window, _options.Time) : null;
+            var wentQuiet = stallRule != null ? StalledAsync(id, stallRule, timer) : quiet is { } q ? QuietAsync(id, q, timer) : Task.FromResult(false);
             var stop = Task.Delay(Timeout.Infinite, timer.Token);
             try
             {
@@ -295,7 +286,7 @@ public sealed class WorkerConnection : IDisposable
             var stalled = stallLimit != null && await wentQuiet.ConfigureAwait(false);
             // The quiet wait cancels the timer before returning, so its answer comes at once.
             var limit = stalled
-                ? $"stalled on '{op}': no progress and under 1% of a core for {Seconds(stallLimit!.Value)}"
+                ? $"{StallRule.MessagePrefix}{op}': no progress and under 1% of a core for {Seconds(stallLimit!.Value)} ({stallRule!.LastUnitText})"
                 : quiet != null && await wentQuiet.ConfigureAwait(false)
                     ? $"reported no progress on '{op}' for {Seconds(quiet.Value)}"
                     : $"did not finish '{op}' within {Seconds(timeout)}";
@@ -361,29 +352,24 @@ public sealed class WorkerConnection : IDisposable
     // True (and cancels timer) once the request reports no progress and the tree
     // uses under 1% of a core for the stall window. Unreadable CPU time leaves
     // no progress alone. False when it ends or the timer fires first.
-    private async Task<bool> StalledAsync(long id, TimeSpan stall, CancellationTokenSource timer)
+    private async Task<bool> StalledAsync(long id, StallRule rule, CancellationTokenSource timer)
     {
         var token = timer.Token;
-        var samples = new Queue<(long Ticks, TimeSpan Cpu)>();
         try
         {
             while (true)
             {
-                long last;
                 lock (_sync)
                 {
                     if (!_running.TryGetValue(id, out var r)) return false;
-                    last = r.LastProgressTicks;
+                    rule.Progress(r.Stage, r.LastProgressTicks);
                 }
-                var now = _options.Time.GetTimestamp();
-                var silent = _options.Time.GetElapsedTime(last, now) >= stall;
-                var idle = _process.TreeCpuTime() is not { } c || CpuIdle(samples, now, c, stall);
-                if (silent && idle)
+                if (rule.Stalled(_process.TreeCpuTime()))
                 {
                     timer.Cancel();
                     return true;
                 }
-                await Task.Delay(stall / 8, _options.Time, token).ConfigureAwait(false);
+                await Task.Delay(rule.Window / 8, _options.Time, token).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) { return false; }

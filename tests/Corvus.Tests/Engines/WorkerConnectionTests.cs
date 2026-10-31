@@ -237,6 +237,23 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_request_using_CPU_runs_past_one_hour_under_an_infinite_timeout()
+    {
+        var clock = new ArmedClock();
+        using var worker = new FakeWorkerProcess { Cpu = () => clock.Elapsed * 0.05 };
+        using var c = worker.Connect(new WorkerConnectionOptions { Time = clock });
+        var busy = c.RequestAsync("hold", new JsonObject { ["tag"] = "long" }, Timeout.InfiniteTimeSpan, default, stallLimit: TimeSpan.FromMinutes(10));
+        for (int i = 0; i < 130; i++)
+        {
+            await clock.ArmedAsync();
+            clock.Advance(TimeSpan.FromMinutes(1));
+        }
+        Assert.False(busy.IsCompleted);
+        worker.Release();
+        Assert.Equal("long", (await busy).GetProperty("tag").GetString());
+    }
+
+    [Fact]
     public async Task A_request_with_unreadable_CPU_time_is_stopped_after_its_stall_limit_without_progress()
     {
         var clock = new ArmedClock();
@@ -246,6 +263,7 @@ public class WorkerConnectionTests
         await clock.RunUntilAsync(silent, within: TimeSpan.FromSeconds(3));
         var e = await Assert.ThrowsAsync<ToolError>(() => silent);
         Assert.Contains("stalled on 'hold'", e.Message);
+        Assert.Contains("no progress unit was reported", e.Message);
         Assert.Contains("raise the stall limit", e.Remediation!);
     }
 

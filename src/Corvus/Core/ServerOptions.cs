@@ -210,6 +210,12 @@ public sealed class ServerOptions
 
     public const string EngineAnalysisStallVariable = "CORVUS_ENGINE_ANALYSIS_STALL";
 
+    /// <summary>Seconds a file worker may report no progress and use under 1% of a core before it is stopped as stalled.</summary>
+    public int StallSeconds { get; set; } = 600;
+
+    /// <summary>Environment variable that sets <see cref="StallSeconds"/>.</summary>
+    public const string StallWindowVariable = "CORVUS_STALL_WINDOW";
+
     /// <summary>
     /// The longest an in-process call may run, long-running tools included;
     /// null: no ceiling. Engine and live calls keep their own limits.
@@ -354,6 +360,7 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
+        o.StallSeconds = Seconds(StallWindowVariable, o.StallSeconds);
         if (Environment.GetEnvironmentVariable(EngineAnalysisStallVariable) is { Length: > 0 }) o.EngineAnalysisStallSeconds = Seconds(EngineAnalysisStallVariable, 0);
         if (Environment.GetEnvironmentVariable(MaxCallMinutesVariable)?.Trim() is { Length: > 0 } minutes)
             o.CallCeiling = int.TryParse(minutes, out var m) && m >= 0 ? m == 0 ? null : TimeSpan.FromMinutes(m)

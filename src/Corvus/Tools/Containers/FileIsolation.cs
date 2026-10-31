@@ -21,9 +21,6 @@ public static class FileIsolation
 {
     public const string Kind = "files";
 
-    /// <summary>The longest a read may take when its call has no deadline; past it the worker is stopped.</summary>
-    public static readonly TimeSpan OpLimit = TimeSpan.FromHours(1);
-
     /// <summary>Records and arguments cross the pipe in the tools' own serialization.</summary>
     internal static JsonSerializerOptions Json => Catalog.ToolSerializerOptions;
 
@@ -42,8 +39,13 @@ public static class FileIsolation
             throw new ToolError(ErrorCode.ProviderUnavailable, $"The file worker could not start, so {file} was not read: {e.Message}",
                 $"set {ServerOptions.InProcessParsingVariable}=1 (or pass {ServerOptions.InProcessParsingOption}) to read files in the server process");
         }
+        var window = TimeSpan.FromSeconds(options?.StallSeconds ?? new ServerOptions().StallSeconds);
         JsonElement answer;
-        try { answer = await pool.RunAsync(Kind, op.Name, (JsonObject)JsonSerializer.SerializeToNode(args, Json)!, OpLimit, cancellationToken, file); }
+        try { answer = await pool.RunAsync(Kind, op.Name, (JsonObject)JsonSerializer.SerializeToNode(args, Json)!, Timeout.InfiniteTimeSpan, cancellationToken, file, window); }
+        catch (ToolError e) when (e.Code == ErrorCode.Timeout && e.Message.Contains(StallRule.MessagePrefix, StringComparison.Ordinal))
+        {
+            throw Stalled(e, op.Tool, file);
+        }
         catch (ToolError e) when (e.Code == ErrorCode.ProviderUnavailable)
         {
             throw new ToolError(ErrorCode.ProviderUnavailable, $"Reading {file} ('{op.Name}') ended the file worker; nothing from that read is kept. {e.Message}",
@@ -51,6 +53,12 @@ public static class FileIsolation
         }
         return FileOps.Unwrap<TResult>(answer);
     }
+
+    /// <summary>The error of a read whose worker was stopped as stalled: it names the last progress unit and the call to repeat.</summary>
+    internal static ToolError Stalled(ToolError stalled, string tool, string file) =>
+        new(ErrorCode.Timeout, $"Reading {file} for '{tool}' was stopped: {stalled.Message}",
+            $"repeat the same {tool} call to read from the start, or raise {ServerOptions.StallWindowVariable} (seconds without progress)")
+        { Retryable = false };
 }
 
 /// <summary>The file reads a <c>corvus worker</c> answers: {result}, {error} for a <see cref="ToolError"/>, or {exception}.</summary>
