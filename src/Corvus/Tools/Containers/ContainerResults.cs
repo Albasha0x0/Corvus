@@ -129,9 +129,9 @@ internal static class ContainerText
     internal const int MaxHighlights = 25;
     private const int MaxEntryPoints = 10, MaxNotes = 12, MaxFindings = 50, MaxTextFindings = 5;
 
-    /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies, all.</summary>
+    /// <summary>The views of a summary: overview, managed (with assemblies), each provider view that applies in ordinal order, all; reserved names are listed once.</summary>
     public static IReadOnlyList<string> ViewsOf(InspectionService.FileSummary s, bool triage) =>
-        ["overview", .. s.Assemblies.Count > 0 ? ["managed"] : Array.Empty<string>(), .. s.Views.Keys.Union(triage ? ["native"] : []).Order(StringComparer.Ordinal), "all"];
+        ["overview", .. s.Assemblies.Count > 0 ? ["managed"] : Array.Empty<string>(), .. s.Views.Keys.Union(triage ? ["native"] : []).Where(v => v is not ("overview" or "managed" or "all")).Order(StringComparer.Ordinal), "all"];
 
     public static FileSummaryRecord Summary(InspectionService.FileSummary s, string view)
     {
