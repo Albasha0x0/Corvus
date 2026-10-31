@@ -75,6 +75,8 @@ public static class OutputSchemas
             foreach (var key in Annotations) o.Remove(key);
         if (o["properties"] is JsonObject properties)
         {
+            // A change row's rule id is declared in docs/schemas only; rows allow further properties.
+            if (strip && properties.ContainsKey("kind") && properties.ContainsKey("key") && properties.ContainsKey("fields")) properties.Remove("rule");
             var required = o["required"] as JsonArray;
             foreach (var (name, child) in properties.ToList())
             {

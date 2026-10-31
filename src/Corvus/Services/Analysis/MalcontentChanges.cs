@@ -50,7 +50,7 @@ internal static partial class MalcontentChanges
         var rows = before.Keys.Union(after.Keys, StringComparer.Ordinal).Where(k => before.ContainsKey(k) != after.ContainsKey(k))
             .OrderByDescending(k => (after.GetValueOrDefault(k) ?? before[k]).Risk).ThenBy(k => k, StringComparer.Ordinal)
             .Select(k => new EvidenceChange(after.ContainsKey(k) ? "added" : "removed", $"{Pack}/{k}",
-                before.TryGetValue(k, out var o) ? Evidence(o) : null, after.TryGetValue(k, out var n) ? Evidence(n) : null, null)).ToList();
+                before.TryGetValue(k, out var o) ? Evidence(o) : null, after.TryGetValue(k, out var n) ? Evidence(n) : null, null, $"{Pack}/{k}")).ToList();
         var text = new System.Text.StringBuilder($"malcontent {version} behaviours: {rows.Count(r => r.Kind == "added")} added, {rows.Count(r => r.Kind == "removed")} removed" +
                                                  (rows.Count > MaxRows ? $"; the {MaxRows} of highest risk kept" : "") +
                                                  (rows.Count > MaxTextRows ? $"; the {MaxTextRows} of highest risk shown, the rest in changes" : "") + ".\n");

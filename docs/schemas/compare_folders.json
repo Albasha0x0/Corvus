@@ -437,6 +437,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "rule": {
+            "description": "Finding rows: the rule id.",
+            "type": "string"
           }
         },
         "required": [

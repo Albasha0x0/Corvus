@@ -383,7 +383,7 @@ public static partial class Lockfiles
             bool had = before.TryGetValue(key, out var o), has = after.TryGetValue(key, out var n);
             if (!had)
             {
-                rows.Add(new Core.EvidenceChange("added", $"{where}: {key}", null, Describe(n!, Outside(n!)), null));
+                rows.Add(new Core.EvidenceChange("added", $"{where}: {key}", null, Describe(n!, Outside(n!)), null, LockRule(Outside(n!), n!.InstallScript)));
                 continue;
             }
             if (!has)
@@ -404,10 +404,13 @@ public static partial class Lockfiles
                 noteworthy = true;
             }
             if (!o.InstallScript && n.InstallScript) fields.Add("install script");
-            if (fields.Count > 0) rows.Add(new Core.EvidenceChange("changed", $"{where}: {key}", Describe(o, false), Describe(n, noteworthy), fields));
+            if (fields.Count > 0) rows.Add(new Core.EvidenceChange("changed", $"{where}: {key}", Describe(o, false), Describe(n, noteworthy), fields, LockRule(noteworthy, !o.InstallScript && n.InstallScript)));
         }
         return rows;
     }
+
+    // A row is a finding when it is noteworthy or newly runs a script at install.
+    private static string? LockRule(bool noteworthy, bool installScript) => noteworthy ? "package/locked-source" : installScript ? "package/install-script" : null;
 
     /// <summary>A Python distribution name normalized as package indexes compare it: lowercase, runs of '-', '_' and '.' as one '-'.</summary>
     internal static string Normalize(string name) => Regex.Replace(name.Trim().ToLowerInvariant(), "[-_.]+", "-", RegexOptions.NonBacktracking);

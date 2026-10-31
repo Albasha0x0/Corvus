@@ -13,7 +13,8 @@ public sealed record EvidenceSource(
 public sealed record EvidenceChange(
     [property: Description("changed, removed, added, or unknown (absent from a partial side); engine memory: what wrote the range.")] string Kind,
     string Key, string? Old, string? New,
-    [property: Description("changed: the fields that differ; engine memory: the range's detail.")] IReadOnlyList<string>? Fields);
+    [property: Description("changed: the fields that differ; engine memory: the range's detail.")] IReadOnlyList<string>? Fields,
+    [property: Description("Finding rows: the rule id.")] string? Rule = null);
 
 /// <summary>A comparison of two results: where each came from, how they were compared and the counts; the rows are the record's changes.</summary>
 public sealed record EvidenceSummary(

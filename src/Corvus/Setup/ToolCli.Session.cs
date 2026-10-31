@@ -49,7 +49,7 @@ internal static partial class ToolCli
             return a.Json != a.JsonLines ? await FileBatchAsync(a, io, cancellationToken)
                 : throw new UsageException("batch --file writes JSON: add --json for one document or --jsonl for one record per line.");
         var fileOption = a.Rules != null ? "--rules" : a.Recurse ? "--recurse" : a.FailOn != null ? "--fail-on" : a.AllowIncomplete ? "--allow-incomplete"
-            : a.Extract != null ? "--extract" : a.PasswordFile != null ? "--password-file" : a.Baseline != null ? "--baseline" : a.Report != null ? "--report" : a.Sarif != null ? "--sarif" : a.JsonLines ? "--jsonl"
+            : a.Extract != null ? "--extract" : a.PasswordFile != null ? "--password-file" : a.Baseline != null ? "--baseline" : a.Report != null ? "--report" : a.JsonLines ? "--jsonl"
             : a.Out != null ? "--out" : null;
         if (fileOption != null) throw new UsageException($"{fileOption} goes with batch --file.");
         if (a.Positionals.Count != 1) throw new UsageException("batch takes one file (- for stdin).");
@@ -58,6 +58,9 @@ internal static partial class ToolCli
         try { text = source == "-" ? io.In.ReadToEnd() : File.ReadAllText(source); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { throw new UsageException($"Cannot read {source}: {ex.Message}"); }
         var steps = ParseBatch(text);
+        var sarif = OutputPath("--sarif", a.Sarif);
+        if (sarif != null && Directory.Exists(sarif)) throw new UsageException($"--sarif names a file, not a folder: {a.Sarif}.");
+        var comparisons = new List<JsonObject>();
         await using var session = await ToolSession.StartAsync(a.Server(), cancellationToken);
         int exit = Exit.Ok;
         for (int i = 0; i < steps.Count; i++)
@@ -65,6 +68,7 @@ internal static partial class ToolCli
             var step = steps[i];
             var result = await Invoke(session, step.Tool, step.Arguments, io, cancellationToken);
             int code = result is null ? Exit.Usage : result.IsError == true ? ExitCode(Split(result).Error) : Exit.Ok;
+            if (result != null && step.Tool == "compare_folders" && result.IsError != true && Structured(result) is JsonObject comparison) comparisons.Add(comparison);
             if (result != null)
             {
                 var (output, notices, error) = Split(result);
@@ -96,6 +100,8 @@ internal static partial class ToolCli
                 break;
             }
         }
+        // The findings new in each compare_folders step, as one run.
+        if (sarif != null) await File.WriteAllTextAsync(sarif, SarifLog.BuildDiff(comparisons, Directory.GetCurrentDirectory()).ToJsonString(Compact), CancellationToken.None);
         return exit;
     }
 

@@ -43,7 +43,7 @@ public static class CapabilityChanges
         var after = Keyed(@new);
         return [.. before.Keys.Union(after.Keys, StringComparer.Ordinal).Where(k => before.ContainsKey(k) != after.ContainsKey(k)).Order(StringComparer.Ordinal)
             .Select(k => new EvidenceChange(after.ContainsKey(k) ? "added" : "removed", k, before.TryGetValue(k, out var o) ? Where(o) : null,
-                after.TryGetValue(k, out var n) ? Where(n) : null, null))];
+                after.TryGetValue(k, out var n) ? Where(n) : null, null, (after.GetValueOrDefault(k) ?? before[k]).Rule))];
     }
 
     /// <summary>Policy facts added or removed between two package versions, and a summary line counting them with the findings by group.</summary>
