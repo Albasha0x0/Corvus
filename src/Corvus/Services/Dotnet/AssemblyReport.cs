@@ -45,8 +45,10 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
         [System.ComponentModel.Description("view=metadata or all: the first 50 metadata problems.")] public IReadOnlyList<MetadataIssue>? MetadataIssues { get; init; }
     }
 
-    /// <summary>What get_assembly_info shows: summary, references, metadata, all, or transforms (not part of all: it runs a dry run).</summary>
-    public static readonly string[] Views = ["summary", "references", "metadata", "all", "transforms"];
+    /// <summary>What get_assembly_info shows: summary, references, metadata, all, transforms (a dry run) or bindings; the last two are not part of all.</summary>
+    public static readonly string[] Views = ["summary", "references", "metadata", "all", "transforms", "bindings"];
+
+    private const int MaxBindings = 500;
 
     /// <summary>Rows of a metadata table.</summary>
     public sealed record TableRows(string Table, uint Rows);
@@ -106,6 +108,15 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, AotMetadataServi
                 sb.AppendLine($"  {l.Layer}: {l.State}, {string.Join("; ", evidence)}");
                 transformers.Add(new("layer: " + l.Layer, l.State, evidence));
             }
+        }
+        if (view == "bindings")
+        {
+            var map = BindingMap.Read(m);
+            sb.AppendLine($"Script bindings: {map.Bindings.Count}" + (map.Bindings.Count > MaxBindings ? $" (first {MaxBindings} listed)" : ""));
+            foreach (var b in map.Bindings.Take(MaxBindings)) sb.AppendLine($"  {b.ScriptName} -> {b.Target}  [{b.BoundType ?? "type unknown"}]  in {b.Binder}");
+            foreach (var u in map.Unnamed) sb.AppendLine($"  registered without a name (unknown): {u}");
+            foreach (var e in map.Empty) sb.AppendLine($"  no readable registration (unknown): {e}");
+            foreach (var u in map.Unreadable) sb.AppendLine($"  unreadable method (unknown): {u}");
         }
         if (ReadyToRunService.Summary(workspace, asm) is { } readyToRun)
             sb.AppendLine(readyToRun);

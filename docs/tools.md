@@ -230,7 +230,7 @@ Structured output: `type`, `declaration`, `counts`, `section`, `items`, `offset`
 
 **Assembly overview** (read-only, idempotent)
 
-Assembly overview: identity, framework, entry point, counts, invalid IL, transformer, edits. view=references, metadata (headers, streams, tables, heaps) or transforms (dry-run layers).
+Assembly overview: identity, framework, entry point, counts, invalid IL, transformer, edits. view=references, metadata (tables, heaps), transforms (a dry run) or bindings (script names).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

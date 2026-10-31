@@ -16,6 +16,7 @@ public static partial class Guide
         - find_call_paths to=<native export> or native:<image>!<function> follows native callers to roots and to managed callers through P/Invoke.
         - find_callees and get_call_tree follow P/Invokes into loaded native code; .NET call tools take native exports as symbols ('kernel32.dll!CreateFileW').
         - verify_native_imports checks [DllImport]s against the DLLs' real exports.
+        - get_assembly_info view=bindings: script names bound to managed methods by binder classes (types ending in Wrap).
         - list_resources, get_resource: managed and Win32 resources; outputPath writes one to a file.
         - ReadyToRun: get_r2r_code shows a method's precompiled code; find_r2r_method maps a native address to its method.
         - Mixed-mode C++/CLI assemblies load as .NET plus a native view.
