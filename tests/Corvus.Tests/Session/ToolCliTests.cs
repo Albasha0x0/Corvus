@@ -29,6 +29,32 @@ public class ToolCliTests
         Assert.Equal("", error);
     }
 
+    [Theory]
+    [InlineData("""{"path":"C:\Users\a.dll"}""")]
+    [InlineData("""{"path":"C:\users\a.dll"}""")]
+    public void An_invalid_escape_in_a_windows_path_suggests_slashes(string json)
+    {
+        var e = Assert.Throws<UsageException>(
+            () => CliArgs.Parse(["--args", json]).ToolArguments(null, TextReader.Null));
+        Assert.Contains(@"Use / or \\ in paths.", e.Message);
+    }
+
+    [Fact]
+    public void An_invalid_escape_in_a_name_value_suggests_slashes()
+    {
+        var e = Assert.Throws<UsageException>(
+            () => CliArgs.Parse(["tool", "path:=\"C:\\Users\\a.dll\""]).ToolArguments(null, TextReader.Null));
+        Assert.EndsWith(@"Use / or \\ in paths.", e.Message);
+    }
+
+    [Fact]
+    public void A_json_error_without_an_escape_gets_no_hint()
+    {
+        var e = Assert.Throws<UsageException>(
+            () => CliArgs.Parse(["--args", "{bad"]).ToolArguments(null, TextReader.Null));
+        Assert.DoesNotContain("in paths", e.Message);
+    }
+
     [Fact]
     public async Task A_help_flag_after_the_first_token_is_not_usage()
     {

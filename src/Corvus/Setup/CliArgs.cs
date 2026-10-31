@@ -108,7 +108,7 @@ internal sealed partial class CliArgs
         {
             JsonNode? parsed;
             try { parsed = JsonNode.Parse(json); }
-            catch (JsonException ex) { throw new UsageException($"The arguments are not valid JSON: {ex.Message}"); }
+            catch (JsonException ex) { throw new UsageException($"The arguments are not valid JSON: {ex.Message}{EscapeHint(ex)}"); }
             if (parsed is not JsonObject obj) throw new UsageException("The arguments must be a JSON object.");
             foreach (var (key, value) in obj) result[key] = Element(value);
         }
@@ -138,8 +138,15 @@ internal sealed partial class CliArgs
     private static JsonNode? ParseJson(string key, string text)
     {
         try { return JsonNode.Parse(text); }
-        catch (JsonException ex) { throw new UsageException($"{key}:= takes JSON: {ex.Message}"); }
+        catch (JsonException ex) { throw new UsageException($"{key}:= takes JSON: {ex.Message}{EscapeHint(ex)}"); }
     }
+
+    // JSON text reads the backslashes of a Windows path as escapes. Matches the
+    // runtime messages "'U' is an invalid escapable character" and "... hex digit".
+    private static string EscapeHint(JsonException ex) =>
+        ex.Message.Contains("invalid escap", StringComparison.OrdinalIgnoreCase)
+        || ex.Message.Contains("hex digit", StringComparison.OrdinalIgnoreCase)
+            ? " Use / or \\\\ in paths." : "";
 
     /// <summary>A text value as the parameter's schema type: integer, number, boolean, array (JSON or comma-separated), object or string.</summary>
     public static JsonNode? Coerce(string key, string text, JsonNode? schema)
