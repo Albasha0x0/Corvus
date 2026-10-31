@@ -17,10 +17,12 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     /// <summary>
     /// A constant set: its byte patterns, whether they count only in code (an immediate) and an optional per-hit detail.
     /// A set with a Shape has no patterns and matches code shapes, on x86 and x64 images only.
+    /// A Version set reports the number that follows the match; a Weak set marks each hit as weak evidence.
     /// </summary>
     private sealed record Constant(
         string Algorithm, bool CodeOnly, Pattern[] Patterns, DetailFn? Detail = null,
-        Func<byte[], int, CancellationToken, IEnumerable<(int At, int Length)>>? Shape = null);
+        Func<byte[], int, CancellationToken, IEnumerable<(int At, int Length)>>? Shape = null,
+        bool Version = false, bool Weak = false);
 
     /// <summary>Bytes to find, with the table they belong to when the rule covers several (null otherwise).</summary>
     private sealed record Pattern(byte[] Bytes, string? Table = null)
@@ -71,6 +73,8 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private static byte[] Le(params uint[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
     private static byte[] Be(params uint[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
     private static byte[] Be64(params ulong[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
+    private static byte[] Le16(params ushort[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
+    private static byte[] Be16(params ushort[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
     private static byte[] Le64(params ulong[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
 
     // Big-endian bytes as published, then little-endian limbs, then
@@ -87,6 +91,11 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     private static Pattern[] Text(params string[] names) => [.. names.Select(n => (Pattern)System.Text.Encoding.ASCII.GetBytes(n))];
 
+    private static readonly byte[] CodeLengthOrder = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+    // Version strings match their prefix and report the digits that follow.
+    // Magics and 4-byte tags are weak evidence and report it. Alphabets are
+    // matched as raw byte runs of 32 to 64 characters.
     private static readonly Dictionary<string, Constant> Constants = new(StringComparer.Ordinal)
     {
         ["aes"] = new("AES (S-box, inverse S-box, T-table or round constants)", false,
@@ -109,7 +118,35 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["sha512-code"] = new("SHA-512 initial values as immediates", true, [Le(0xF3BCC908), Le(0x84CAA73B)]),
         ["sha1-md5"] = new("MD5 / SHA-1 initial values", false, [Le(0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476)]),
         ["md5"] = new("MD5 round constants", false, [Le(0xD76AA478, 0xE8C7B756, 0x242070DB, 0xC1BDCEEE)]),
-        ["crc32"] = new("CRC-32 table", false, [Le(0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA)]),
+        ["crc32"] = new("CRC-32 table", false,
+        [
+            Le(0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA),
+            Le(0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9),
+            Be(0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA),
+            Be(0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9),
+        ]),
+        ["crc32c"] = new("CRC-32C table", false, [Le(0x00000000, 0xF26B8303, 0xE13B70F7, 0x1350F3F4), Be(0x00000000, 0xF26B8303, 0xE13B70F7, 0x1350F3F4)]),
+        ["crc32c-poly"] = new("CRC-32C polynomial (reflected)", true, [Le(0x82F63B78)]),
+        ["crc64-poly"] = new("CRC-64 polynomial (reflected)", true, [Le64(0xC96C5795D7870F42), Le64(0x95AC9329AC4BC9B5)]),
+        ["adler32"] = new("Adler-32 modulus reduction", true, [Le(0x80078071)]),
+        ["lz4"] = new("LZ4 frame or legacy magic", false, [Le(0x184D2204), Le(0x184C2102)], Weak: true),
+        ["zstd"] = new("Zstandard frame magic", false, [Le(0xFD2FB528)], Weak: true),
+        ["deflate"] = new("Deflate code-length order", false,
+        [
+            CodeLengthOrder,
+            Le16(CodeLengthOrder.Select(b => (ushort)b).ToArray()),
+            Be16(CodeLengthOrder.Select(b => (ushort)b).ToArray()),
+            Le(CodeLengthOrder.Select(b => (uint)b).ToArray()),
+            Be(CodeLengthOrder.Select(b => (uint)b).ToArray()),
+        ]),
+        ["xz"] = new("XZ container magic", false, [new byte[] {0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00}]),
+        ["brotli"] = new("Brotli static dictionary", false, ["timedownlifeleftback"u8.ToArray()]),
+        ["lzfse"] = new("LZFSE block magic", false, ["bvx2"u8.ToArray(), "bvxn"u8.ToArray(), "bvx-"u8.ToArray()], Weak: true),
+        ["base64"] = new("Base64 alphabet", false, ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"u8.ToArray(), "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"u8.ToArray()]),
+        ["base32"] = new("Base32 alphabet", false, ["ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"u8.ToArray()]),
+        ["base58"] = new("Base58 alphabet", false, ["123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"u8.ToArray()]),
+        ["zlib-version"] = new("zlib version string", false, ["inflate 1."u8.ToArray(), "deflate 1."u8.ToArray()], Version: true),
+        ["openssl-version"] = new("OpenSSL version string", false, ["OpenSSL 1."u8.ToArray(), "OpenSSL 3."u8.ToArray()], Version: true),
         ["blowfish"] = new("Blowfish P-array", false, [Le(BlowfishP), Be(BlowfishP)], BlowfishPDetail),
         ["blowfish-sbox"] = new("Blowfish S-box", false, [Le(BlowfishS0), Be(BlowfishS0)], BlowfishSBoxDetail),
         ["cast"] = new("CAST-128 S-box", false, [Le(CastS1), Be(CastS1)], CastDetail),
@@ -279,8 +316,19 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
         new("asymmetric, authentication or key derivation structures", "crypto", [["const:p256", "const:p384", "const:secp256k1", "const:curve25519", "const:rsa", "const:rsa-blob", "const:hmac", "const:poly1305", "const:kdf"]]),
-        new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
+        new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:crc32c", "const:crc32c-poly", "const:crc64-poly", "const:adler32", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
+        new("compression format markers or tables", "crypto", [["const:lz4", "const:zstd", "const:deflate", "const:xz", "const:brotli", "const:lzfse"]]),
+        new("text encoding alphabets", "crypto", [["const:base64", "const:base32", "const:base58"]]),
+        new("crypto or compression library version strings", "crypto", [["const:zlib-version", "const:openssl-version"]]),
     ];
+
+    // Reads the dotted number that ends a version prefix, e.g. "1.3.1".
+    private static string VersionAfter(byte[] bytes, int at, int prefixLength)
+    {
+        int start = at + prefixLength - 2, end = at + prefixLength;
+        while (end < bytes.Length && (bytes[end] is >= (byte)'0' and <= (byte)'9' or >= (byte)'a' and <= (byte)'z' or (byte)'.')) end++;
+        return " " + System.Text.Encoding.ASCII.GetString(bytes, start, end - start).TrimEnd('.');
+    }
 
     public Evidence? Evaluate(SurveySubject subject, string feature, CancellationToken ct)
     {
@@ -332,8 +380,9 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                 count++;
                 if (locations.Count < MaxLocations)
                 {
-                    var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), (int)(rva - section.Rva), pattern.Bytes);
-                    locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (pattern.Table is { } table ? $" [{table}]" : "") + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})"));
+                    int at = (int)(rva - section.Rva);
+                    var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), at, pattern.Bytes);
+                    locations.Add($"{constant.Algorithm}{(constant.Version ? VersionAfter(bytes, at, pattern.Bytes.Length) : "")} @{NativeAddress.Va(image, rva)}" + (pattern.Table is { } table ? $" [{table}]" : "") + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})") + (constant.Weak ? " (weak evidence)" : ""));
                 }
             }
         }

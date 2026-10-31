@@ -296,6 +296,99 @@ public sealed class CryptoConstantTests : IDisposable
     }
 
     [Fact]
+    public async Task Format_markers_and_alphabets_are_named_at_their_offsets()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0xFD2FB528), .. Pad(0x40), .. Le(0x00000000, 0xF26B8303, 0xE13B70F7, 0x1350F3F4), .. Pad(0x40), .. "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"u8.ToArray(), .. Pad(0x40), .. "inflate 1.3.1"u8.ToArray(), .. Pad(0x40)]);
+        AssertAt("Zstandard frame magic", 0x100, text);
+        Assert.Contains("(weak evidence)", Lines(text, "Zstandard"));
+        AssertAt("CRC-32C table", 0x144, text);
+        AssertAt("Base58 alphabet", 0x194, text);
+        AssertAt("zlib version string 1.3.1", 0x20E, text);
+    }
+
+    [Fact]
+    public async Task CRC_32_tables_are_named_in_both_byte_orders_and_bit_orders()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0, 0x77073096, 0xEE0E612C, 0x990951BA), .. Pad(0x40), .. Be(0, 0x77073096, 0xEE0E612C, 0x990951BA), .. Pad(0x40), .. Le(0, 0x04C11DB7, 0x09823B6E, 0x0D4326D9), .. Pad(0x40), .. Be(0, 0x04C11DB7, 0x09823B6E, 0x0D4326D9), .. Be(0, 0xF26B8303, 0xE13B70F7, 0x1350F3F4)]);
+        AssertAt("CRC-32 table", 0x100, text);
+        AssertAt("CRC-32 table", 0x150, text);
+        AssertAt("CRC-32 table", 0x1A0, text);
+        AssertAt("CRC-32 table", 0x1F0, text);
+        AssertAt("CRC-32C table", 0x200, text);
+    }
+
+    [Fact]
+    public async Task Checksum_polynomials_are_named_in_code()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x82F63B78), .. Pad(0x40), .. BitConverter.GetBytes(0xC96C5795D7870F42UL), .. Pad(0x40), .. Le(0x80078071), .. Pad(0x40)]);
+        AssertAt("CRC-32C polynomial (reflected)", 0x100, text);
+        AssertAt("CRC-64 polynomial (reflected)", 0x144, text);
+        AssertAt("Adler-32 modulus reduction", 0x18C, text);
+    }
+
+    [Fact]
+    public async Task Checksum_polynomials_in_a_data_section_are_not_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var path = _dir.File("poly.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("poly.dll", [("Cipher", 0)], [], CipherCode, (blob, _) =>
+        {
+            blob.Align(8);
+            return new() { ["parray"] = blob.Bytes([.. Le(0x82F63B78), .. Le(0x80078071), .. BitConverter.GetBytes(0xC96C5795D7870F42UL)]) };
+        }));
+        var text = await SurveyImage(server, path);
+        Assert.DoesNotContain("CRC-32C polynomial", text);
+        Assert.DoesNotContain("Adler-32", text);
+        Assert.DoesNotContain("CRC-64", text);
+    }
+
+    [Fact]
+    public async Task Compression_markers_are_named_at_their_offsets()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x184D2204), .. Pad(0x40), .. "bvx2"u8.ToArray(), .. Pad(0x40), .. new byte[] { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 }, .. Pad(0x40), .. "timedownlifeleftback"u8.ToArray(), .. Pad(0x40)]);
+        AssertAt("LZ4 frame or legacy magic", 0x100, text);
+        AssertAt("LZFSE block magic", 0x144, text);
+        AssertAt("XZ container magic", 0x188, text);
+        AssertAt("Brotli static dictionary", 0x1CE, text);
+        Assert.DoesNotContain("const:lzma", text);
+    }
+
+    [Fact]
+    public async Task The_Deflate_code_length_order_is_named_as_bytes_words_and_dwords()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+        var words = order.SelectMany(b => new byte[] { b, 0 }).ToArray();
+        var dwords = order.SelectMany(b => new byte[] { b, 0, 0, 0 }).ToArray();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. order, .. Pad(0x40), .. words, .. Pad(0x40), .. dwords, .. Pad(0x40)]);
+        AssertAt("Deflate code-length order", 0x100, text);
+        AssertAt("Deflate code-length order", 0x153, text);
+        AssertAt("Deflate code-length order", 0x1B9, text);
+    }
+
+    [Fact]
+    public async Task Text_alphabets_are_named_and_the_hex_digits_alone_are_not()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"u8.ToArray(), .. Pad(0x40), .. "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"u8.ToArray(), .. Pad(0x40), .. "0123456789abcdef"u8.ToArray(), .. Pad(0x40)]);
+        AssertAt("Base64 alphabet", 0x100, text);
+        AssertAt("Base32 alphabet", 0x180, text);
+        Assert.DoesNotContain("const:hex", text);
+    }
+
+    [Fact]
+    public async Task An_OpenSSL_version_string_reports_its_version()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. "OpenSSL 3.0.13 30 Jan 2024"u8.ToArray(), .. Pad(0x40)]);
+        AssertAt("OpenSSL version string 3.0.13", 0x100, text);
+    }
+
+    [Fact]
     public async Task The_AES_big_endian_T_table_is_named_at_its_offset()
     {
         await using var server = await InProcessServer.StartAsync();
