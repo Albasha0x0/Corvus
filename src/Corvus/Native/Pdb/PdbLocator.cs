@@ -187,7 +187,10 @@ public static class PdbLocator
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return "unreadable: " + ex.Message; }
     }
 
-    /// <summary>Downloads the PDB from <paramref name="server"/> to a temporary file, verifies GUID and age, then moves it into the cache; a mismatching or oversized file is deleted. Returns the cached path.</summary>
+    /// <summary>Upper bound of a download time limit, seconds.</summary>
+    public const int MaxTimeoutSeconds = 3600;
+
+    /// <summary>Downloads the PDB from <paramref name="server"/> to a temporary file, verifies GUID and age, then moves it into the cache; a timeout keeps the partial file and the next call resumes it with a Range request; a mismatching or oversized file is deleted. Returns the cached path.</summary>
     public static async Task<string> DownloadAsync(PeCodeView cv, string server, TimeSpan timeout, long maxBytes, HttpMessageHandler? handler = null, string? cache = null,
         CancellationToken ct = default)
     {
@@ -258,30 +261,63 @@ public static class PdbLocator
         return await FetchUrl(url, target, what, check, timeout, maxBytes, ServersOf(baseUri), handler, ct).ConfigureAwait(false);
     }
 
-    /// <summary>Downloads <paramref name="url"/> to <paramref name="target"/> (kept when already there and accepted); a temporary file first, a failing <paramref name="check"/> deletes it.</summary>
+    /// <summary>Age after which a kept partial download is discarded.</summary>
+    private static readonly TimeSpan PartialLifetime = TimeSpan.FromDays(7);
+
+    /// <summary>Downloads <paramref name="url"/> to <paramref name="target"/> (kept when already there and accepted); a partial file first, kept after a timeout so the next call resumes it with a Range request, a failing <paramref name="check"/> deletes it.</summary>
     internal static async Task<string> FetchUrl(Uri url, string target, string what, Func<string, string?> check, TimeSpan timeout, long maxBytes,
-        NetworkServers servers, HttpMessageHandler? handler, CancellationToken ct)
+        NetworkServers servers, HttpMessageHandler? handler, CancellationToken ct, bool fresh = false)
     {
         if (File.Exists(target) && check(target) == null) return target;
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
-        var temp = target + $".{Environment.ProcessId}.{Guid.NewGuid():N}.part";
+        // The partial file is bound to its URL, so another server starts fresh.
+        var temp = $"{target}.{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(url.AbsoluteUri)))[..8]}.part";
+        bool keepPartial = false, owned = false;
+        try
+        {
+            if (File.Exists(temp) && (fresh || DateTime.UtcNow - File.GetLastWriteTimeUtc(temp) > PartialLifetime)) File.Delete(temp);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(timeout);
         try
         {
+            long have = File.Exists(temp) ? new FileInfo(temp).Length : 0;
             using var http = NetworkPolicy.Client(servers, Timeout.InfiniteTimeSpan, handler, "Microsoft-Symbol-Server/10.0.0.0");
-            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (have > 0) request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+            {
+                if (have == 0 || fresh) throw new ToolError(ErrorCode.ProviderUnavailable, $"{url} answered 416 Requested Range Not Satisfiable without a Range request.");
+                // The partial file is complete or stale; start over without it.
+                return await FetchUrl(url, target, what, check, timeout, maxBytes, servers, handler, ct, fresh: true).ConfigureAwait(false);
+            }
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 throw new ToolError(ErrorCode.NotFound, $"{url} does not have this {what} (404).", "the build may not be on that server; try another server or a local path");
             if (!response.IsSuccessStatusCode)
                 throw new ToolError(ErrorCode.ProviderUnavailable, $"{url} answered {(int)response.StatusCode} {response.ReasonPhrase}.");
-            if (response.Content.Headers.ContentLength is { } declared && declared > maxBytes)
-                throw new ToolError(ErrorCode.LimitExceeded, $"{url} is {declared} bytes; the download limit is {maxBytes} bytes.");
+            bool resumed = response.StatusCode == System.Net.HttpStatusCode.PartialContent;
+            // A 206 from another offset cannot be appended; start over once without a Range.
+            if (resumed && response.Content.Headers.ContentRange?.From != have)
+            {
+                if (fresh) throw new ToolError(ErrorCode.ProviderUnavailable, $"{url} answered 206 from offset {response.Content.Headers.ContentRange?.From} to a request from {have}.");
+                return await FetchUrl(url, target, what, check, timeout, maxBytes, servers, handler, ct, fresh: true).ConfigureAwait(false);
+            }
+            long total = resumed ? have : 0;
+            if (response.Content.Headers.ContentLength is { } declared && total + declared > maxBytes)
+                throw new ToolError(ErrorCode.LimitExceeded, $"{url} is {total + declared} bytes; the download limit is {maxBytes} bytes.");
+            FileStream file;
+            try { file = new FileStream(temp, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true); }
+            catch (IOException) when (File.Exists(temp))
+            {
+                throw new ToolError(ErrorCode.ProviderUnavailable, $"Another download of {target} is running.", "retry the same load_pdb call when it finishes");
+            }
+            owned = true;
+            await using (file)
             await using (var body = await response.Content.ReadAsStreamAsync(timeoutCts.Token).ConfigureAwait(false))
-            await using (var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
             {
                 var buffer = new byte[1 << 16];
-                long total = 0;
                 int n;
                 while ((n = await body.ReadAsync(buffer, timeoutCts.Token).ConfigureAwait(false)) > 0)
                 {
@@ -298,7 +334,11 @@ public static class PdbLocator
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new ToolError(ErrorCode.Timeout, $"Downloading {url} took longer than {timeout.TotalSeconds:0} s.");
+            keepPartial = true;
+            var next = Math.Min(timeout.TotalSeconds * 2, MaxTimeoutSeconds);
+            throw new ToolError(ErrorCode.Timeout, $"Downloading {url} took longer than {timeout.TotalSeconds:0} s; the partial file is kept.",
+                timeout.TotalSeconds < MaxTimeoutSeconds ? $"load_pdb download=true timeoutSeconds={next:0} (resumes the partial download)"
+                : "load_pdb download=true with a faster server or a local path");
         }
         catch (HttpRequestException ex) when (NetworkPolicy.Refusal(ex) is { } refused)
         {
@@ -315,7 +355,7 @@ public static class PdbLocator
         }
         finally
         {
-            try { if (File.Exists(temp)) File.Delete(temp); }
+            try { if (owned && !keepPartial && File.Exists(temp)) File.Delete(temp); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
     }

@@ -235,6 +235,10 @@ public sealed class PdbService
                         verified = downloaded = true;
                         break;
                     }
+                    catch (ToolError e) when (e.Code == ErrorCode.Timeout)
+                    {
+                        throw;
+                    }
                     catch (ToolError e)
                     {
                         probes.Add(new PdbProbe(s, "download failed: " + e.Message));
@@ -283,6 +287,10 @@ public sealed class PdbService
                     downloaded = verified = true;
                     downloadError = null;
                     break;
+                }
+                catch (ToolError e) when (e.Code == ErrorCode.Timeout)
+                {
+                    throw;
                 }
                 catch (ToolError e)
                 {

@@ -7,6 +7,7 @@ using Corvus.Native.Code;
 using Corvus.Native.Pdb;
 using Corvus.Native.Pe;
 using Corvus.Services;
+using Corvus.Tools;
 
 namespace Corvus.Tests;
 
@@ -436,6 +437,141 @@ public class PdbTests
             PdbLocator.DownloadAsync(cv, "file:///c:/x", TimeSpan.FromSeconds(1), 1, server, dir.File("cache")))).Code);
         // Nothing but the verified file is left behind.
         Assert.Single(Directory.GetFiles(dir.File("cache"), "*", SearchOption.AllDirectories));
+    }
+
+    // The first body ends mid-file and then stalls; the retry must send a Range request.
+    private sealed class StalledBody(byte[] head) : Stream
+    {
+        private int _read;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            if (_read < head.Length)
+            {
+                int n = Math.Min(buffer.Length, head.Length - _read);
+                head.AsMemory(_read, n).CopyTo(buffer);
+                _read += n;
+                return n;
+            }
+            await Task.Delay(Timeout.Infinite, ct);
+            return 0;
+        }
+    }
+
+    [Fact]
+    public async Task A_stalled_download_names_its_time_limit_and_the_retry_resumes_and_verifies()
+    {
+        using var dir = new TempDir();
+        var cv = new PeCodeView("RSDS", SampleGuid, 3, @"C:\build\tiny.pdb");
+        var good = PdbBuilder.Sample().Build();
+        int half = good.Length / 2;
+        var stalled = new FakeServer(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledBody(good[..half])) });
+        var timeout = await Assert.ThrowsAsync<ToolError>(() =>
+            PdbLocator.DownloadAsync(cv, "https://sym.example", TimeSpan.FromMilliseconds(300), 1 << 20, stalled, dir.File("cache")));
+        Assert.Equal(ErrorCode.Timeout, timeout.Code);
+        Assert.Contains("timeoutSeconds=", timeout.Remediation);
+
+        System.Net.Http.Headers.RangeHeaderValue? range = null;
+        var resume = new FakeServer(r =>
+        {
+            range = r.Headers.Range;
+            var part = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent(good[half..]) };
+            part.Content.Headers.ContentRange = new System.Net.Http.Headers.ContentRangeHeaderValue(half, good.Length - 1, good.Length);
+            return part;
+        });
+        var path = await PdbLocator.DownloadAsync(cv, "https://sym.example", TimeSpan.FromSeconds(30), 1 << 20, resume, dir.File("cache"));
+        Assert.Equal(half, range!.Ranges.Single().From);
+        Assert.Equal(good, File.ReadAllBytes(path));
+        Assert.Single(Directory.GetFiles(dir.File("cache"), "*", SearchOption.AllDirectories));
+    }
+
+    private static readonly PeCodeView TinyCv = new("RSDS", SampleGuid, 3, @"C:\build\tiny.pdb");
+
+    private static async Task<(byte[] Good, string Cache, TempDir Dir)> StallHalf(TimeSpan timeout)
+    {
+        var dir = new TempDir();
+        var good = PdbBuilder.Sample().Build();
+        var stalled = new FakeServer(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledBody(good[..(good.Length / 2)])) });
+        await Assert.ThrowsAsync<ToolError>(() => PdbLocator.DownloadAsync(TinyCv, "https://sym.example", timeout, 1 << 20, stalled, dir.File("cache")));
+        return (good, dir.File("cache"), dir);
+    }
+
+    [Fact]
+    public async Task A_server_that_ignores_Range_restarts_the_partial_file()
+    {
+        var (good, cache, dir) = await StallHalf(TimeSpan.FromMilliseconds(300));
+        using (dir)
+        {
+            var full = new FakeServer(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(good) });
+            var path = await PdbLocator.DownloadAsync(TinyCv, "https://sym.example", TimeSpan.FromSeconds(30), 1 << 20, full, cache);
+            Assert.Equal(good, File.ReadAllBytes(path));
+        }
+    }
+
+    [Fact]
+    public async Task A_416_answer_restarts_the_partial_file_without_a_Range()
+    {
+        var (good, cache, dir) = await StallHalf(TimeSpan.FromMilliseconds(300));
+        using (dir)
+        {
+            var ranges = new List<bool>();
+            var server = new FakeServer(r =>
+            {
+                ranges.Add(r.Headers.Range != null);
+                return r.Headers.Range != null ? new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable)
+                    : new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(good) };
+            });
+            var path = await PdbLocator.DownloadAsync(TinyCv, "https://sym.example", TimeSpan.FromSeconds(30), 1 << 20, server, cache);
+            Assert.Equal([true, false], ranges);
+            Assert.Equal(good, File.ReadAllBytes(path));
+        }
+    }
+
+    [Fact]
+    public async Task A_416_answer_without_a_Range_request_is_refused()
+    {
+        using var dir = new TempDir();
+        var server = new FakeServer(_ => new HttpResponseMessage(HttpStatusCode.RequestedRangeNotSatisfiable));
+        var e = await Assert.ThrowsAsync<ToolError>(() =>
+            PdbLocator.DownloadAsync(TinyCv, "https://sym.example", TimeSpan.FromSeconds(30), 1 << 20, server, dir.File("cache")));
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+    }
+
+    [Fact]
+    public async Task A_206_from_another_offset_restarts_the_partial_file()
+    {
+        var (good, cache, dir) = await StallHalf(TimeSpan.FromMilliseconds(300));
+        using (dir)
+        {
+            var server = new FakeServer(r =>
+            {
+                if (r.Headers.Range == null) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(good) };
+                var part = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent(good[1..]) };
+                part.Content.Headers.ContentRange = new System.Net.Http.Headers.ContentRangeHeaderValue(1, good.Length - 1, good.Length);
+                return part;
+            });
+            var path = await PdbLocator.DownloadAsync(TinyCv, "https://sym.example", TimeSpan.FromSeconds(30), 1 << 20, server, cache);
+            Assert.Equal(good, File.ReadAllBytes(path));
+        }
+    }
+
+    [Fact]
+    public void A_download_limit_outside_its_range_is_rejected()
+    {
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => PdbTools.CheckLimits(4, 2048)).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => PdbTools.CheckLimits(3601, 2048)).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => PdbTools.CheckLimits(120, 0)).Code);
+        PdbTools.CheckLimits(5, 16384);
     }
 
     // ---- names in the code index ----

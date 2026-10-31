@@ -39,6 +39,15 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         return "PDB not loaded (load_pdb)";
     }
 
+    /// <summary>Rejects a download time limit or size limit outside the accepted range.</summary>
+    internal static void CheckLimits(int timeoutSeconds, int maxMegabytes)
+    {
+        if (timeoutSeconds is < 5 or > PdbLocator.MaxTimeoutSeconds)
+            throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {timeoutSeconds} is outside 5-{PdbLocator.MaxTimeoutSeconds}.", "pass timeoutSeconds between 5 and 3600");
+        if (maxMegabytes is < 1 or > 16 * 1024)
+            throw new ToolError(ErrorCode.InvalidArgument, $"maxMegabytes {maxMegabytes} is outside 1-16384.", "pass maxMegabytes between 1 and 16384");
+    }
+
     [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols", UseStructuredContent = true, OutputSchemaType = typeof(EditResult))]
     [Description("Load PDB (GUID and age checked) or DWARF debug symbols for a native image: names, types, source lines. Searches path, the " +
                  "image folder, symbol paths and CORVUS_DEBUG_DIRS; local matches load automatically.")]
@@ -48,8 +57,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
         [Description("If nothing local matches: symbol server (PDB), debuginfod (ELF).")] bool download = false,
         [Description("Default: _NT_SYMBOL_PATH servers, else Microsoft (PDB); CORVUS_DEBUGINFOD_URLS (DWARF). Others are refused.")] string? server = null,
         [Description("Use the path file even if GUID/age or build-id differs.")] bool allowMismatch = false,
-        [Description("Download time limit, seconds.")] int timeoutSeconds = 120,
-        [Description("Download size limit in MB.")] int maxMegabytes = 2048,
+        [Description("Download time limit, seconds (5-3600).")] int timeoutSeconds = 120,
+        [Description("Download size limit in MB (1-16384).")] int maxMegabytes = 2048,
         [Description("Remove the PDB names and saved copy instead.")] bool clear = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -66,9 +75,15 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs)
                 : deleted ? $"{native.Id}: deleted the saved PDB names." : $"{native.Id}: no PDB names were loaded.", new EditResult(changes.Count > 0, false, changes, []));
         }
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"locating the PDB of {native.Id}" });
-        var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 5, 3600));
-        long maxBytes = Math.Clamp(maxMegabytes, 1, 16 * 1024) * (1L << 20);
-        var r = await pdbs.Load(native, path, download, server, allowMismatch, timeout, maxBytes, cancellationToken);
+        if (download) CheckLimits(timeoutSeconds, maxMegabytes);
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+        long maxBytes = maxMegabytes * (1L << 20);
+        PdbService.LoadResult r;
+        try { r = await pdbs.Load(native, path, download, server, allowMismatch, timeout, maxBytes, cancellationToken); }
+        catch (ToolError e) when (e.Code == ErrorCode.Timeout && server != null && e.Remediation is { } next)
+        {
+            throw new ToolError(e.Code, e.Message, next.Replace("download=true", $"download=true server={server}", StringComparison.Ordinal));
+        }
         bool dwarf = native.Image.Format is ImageFormat.Elf or ImageFormat.MachO;
         if (r.State == null && dwarf)
         {
