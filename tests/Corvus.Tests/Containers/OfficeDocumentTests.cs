@@ -122,6 +122,32 @@ public sealed class OfficeDocumentTests
     }
 
     [Fact]
+    public void A_given_password_decrypts_a_package_and_a_wrong_one_is_named_not_decrypted()
+    {
+        var xlsm = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()), ("xl/data.txt", "member text"u8.ToArray()));
+        var locked = StandardEncrypted(xlsm, "caller secret");
+        using (ContainerPassword.Enter("caller secret"))
+        {
+            Assert.Contains(Containers.Open(locked, "a.xlsx", AnalysisLimits.Default, default).Items, i => i.Name == "EncryptedPackage.zip");
+            Assert.Equal("Excel workbook (OOXML), encrypted", View(locked, "a.xlsx")!.Format);
+        }
+        using (ContainerPassword.Enter("another secret"))
+        {
+            var f = View(locked, "a.xlsx")!;
+            Assert.Contains(f.Notes, n => n.Contains("not decrypted (the password did not decrypt it)", StringComparison.Ordinal));
+            Assert.DoesNotContain(f.Notes, n => n.Contains("secret", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void A_given_password_replaces_the_built_in_ones()
+    {
+        var xlsm = Ooxml(("xl/workbook.xml", "<workbook/>"u8.ToArray()));
+        using var _ = ContainerPassword.Enter("caller secret");
+        Assert.Contains(View(StandardEncrypted(xlsm, "VelvetSweatshop"), "a.xlsx")!.Notes, n => n.Contains("the password did not decrypt it", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void An_ole_package_object_is_extracted_under_its_embedded_name()
     {
         var exe = ContainerFixtures.Module("Payload");

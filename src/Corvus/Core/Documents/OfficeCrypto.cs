@@ -20,12 +20,14 @@ internal static class OfficeCrypto
         try
         {
             if (!(major == 4 && minor == 4) && !(minor == 2 && major is 2 or 3 or 4)) return (null, $"encryption version {major}.{minor} is not read");
-            foreach (var password in Passwords)
+            // A caller's password is the only one tried.
+            var given = ContainerPassword.Current;
+            foreach (var password in given != null ? [given] : Passwords)
             {
                 var (plain, how) = major == 4 && minor == 4 ? Agile(info, package, size, password) : Standard(info, package, size, password);
                 if (plain != null || how != Wrong) return (plain, how);
             }
-            return (null, "encrypted with a password other than the built-in and common ones");
+            return (null, given != null ? "the password did not decrypt it" : "encrypted with a password other than the built-in and common ones");
         }
         catch (Exception ex) when (ex is CryptographicException or XmlException or FormatException or ArgumentException or IndexOutOfRangeException)
         {

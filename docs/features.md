@@ -293,7 +293,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 - `unpack_container` writes out a container's files (table below) and loads its assemblies. `extractOnly=true` only extracts.
 - Reads bytes only; never runs the file.
 - Nested containers open, up to 4 levels deep.
-- `password=` opens an encrypted zip (ZipCrypto, AES), 7z or RAR; only that password is tried and a wrong one names each entry as not read.
+- `password=` opens an encrypted zip (ZipCrypto, AES), 7z, RAR or OOXML document (standard, agile); only that password is tried and a wrong one names each entry as not read.
 - `list_assemblies path=` lists a container's assemblies and writes nothing.
 - `search_container` finds types and members by name across a container's assemblies: default 100 matches, up to 5,000.
 
