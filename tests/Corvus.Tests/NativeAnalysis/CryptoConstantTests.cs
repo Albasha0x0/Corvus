@@ -2,7 +2,7 @@ using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
-/// <summary>survey_features crypto constants: AES, SHA-256 and Blowfish P-array constants in a raw image; ChaCha in e_sqlite3; CRC-32, MD5 and MurmurHash3 in libSkiaSharp.</summary>
+/// <summary>survey_features crypto constants: AES, SHA-256 and Blowfish P-array constants and DES, Twofish, Camellia and SM4 tables in a raw image; ChaCha in e_sqlite3; CRC-32, MD5 and MurmurHash3 in libSkiaSharp.</summary>
 public sealed class CryptoConstantTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -43,6 +43,86 @@ public sealed class CryptoConstantTests : IDisposable
         var raw = await SurveyBytes(server, [.. Pad(0x100), .. sbox, .. Pad(0x40), .. Le(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A), .. Pad(0x100)]);
         AssertAt(Aes, 0x100, raw);
         AssertAt("SHA-256 (initial values or round constants)", 0x150, raw);
+    }
+
+    private const string Des = "DES / 3DES (initial permutation, permuted choice 1 or S-box 1)";
+    private const string Twofish = "Twofish (q0 or q1 permutation)";
+    private const string Camellia = "Camellia (S-box 1 or key schedule constants Sigma)";
+    private const string Sm4 = "SM4 (S-box, system parameter FK or fixed parameter CK)";
+
+    private static byte[] Le64(params ulong[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
+
+    private static readonly byte[] DesIp = [58, 50, 42, 34, 26, 18, 10, 2, 60, 52, 44, 36, 28, 20, 12, 4];
+    private static readonly byte[] DesPc1 = [57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18];
+    private static readonly byte[] DesS1 = [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7, 0, 15, 7, 4, 14, 2, 13, 1, 10, 6, 12, 11, 9, 5, 3, 8];
+    private static readonly byte[] Q0 = [0xA9, 0x67, 0xB3, 0xE8, 0x04, 0xFD, 0xA3, 0x76, 0x9A, 0x92, 0x80, 0x78, 0xE4, 0xDD, 0xD1, 0x38];
+    private static readonly byte[] Q1 = [0x75, 0xF3, 0xC6, 0xF4, 0xDB, 0x7B, 0xFB, 0xC8, 0x4A, 0xD3, 0xE6, 0x6B, 0x45, 0x7D, 0xE8, 0x4B];
+    private static readonly byte[] CamS1 = [0x70, 0x82, 0x2C, 0xEC, 0xB3, 0x27, 0xC0, 0xE5, 0xE4, 0x85, 0x57, 0x35, 0xEA, 0x0C, 0xAE, 0x41];
+    private static readonly byte[] Sm4S = [0xD6, 0x90, 0xE9, 0xFE, 0xCC, 0xE1, 0x3D, 0xB7, 0x16, 0xB6, 0x14, 0xC2, 0x28, 0xFB, 0x2C, 0x05];
+    private static readonly uint[] Sigma = [0xA09E667F, 0x3BCC908B, 0xB67AE858, 0x4CAA73B2];
+    private static readonly uint[] Fk = [0xA3B1BAC6, 0x56AA3350, 0x677D9197, 0xB27022DC];
+    private static readonly uint[] Ck = [0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269];
+
+    public static IEnumerable<object[]> TablePatterns() =>
+    [
+        [Des, "DES initial permutation", DesIp],
+        [Des, "DES initial permutation", Le(58, 50, 42, 34)],
+        [Des, "DES initial permutation", Be(58, 50, 42, 34)],
+        [Des, "DES permuted choice 1", DesPc1],
+        [Des, "DES permuted choice 1", Le(57, 49, 41, 33)],
+        [Des, "DES permuted choice 1", Be(57, 49, 41, 33)],
+        [Des, "DES S-box 1", DesS1],
+        [Des, "DES S-box 1", Le(14, 4, 13, 1, 2, 15, 11, 8)],
+        [Des, "DES S-box 1", Be(14, 4, 13, 1, 2, 15, 11, 8)],
+        [Twofish, "Twofish q0", Q0],
+        [Twofish, "Twofish q0", Le(0xA9, 0x67, 0xB3, 0xE8)],
+        [Twofish, "Twofish q0", Be(0xA9, 0x67, 0xB3, 0xE8)],
+        [Twofish, "Twofish q1", Q1],
+        [Twofish, "Twofish q1", Le(0x75, 0xF3, 0xC6, 0xF4)],
+        [Twofish, "Twofish q1", Be(0x75, 0xF3, 0xC6, 0xF4)],
+        [Camellia, "Camellia S-box 1", CamS1],
+        [Camellia, "Camellia S-box 1", Le(0x70, 0x82, 0x2C, 0xEC)],
+        [Camellia, "Camellia S-box 1", Be(0x70, 0x82, 0x2C, 0xEC)],
+        [Camellia, "Camellia Sigma", Le64(0xA09E667F3BCC908B, 0xB67AE8584CAA73B2)],
+        [Camellia, "Camellia Sigma", Be(Sigma)],
+        [Camellia, "Camellia Sigma", Le(Sigma)],
+        [Sm4, "SM4 S-box", Sm4S],
+        [Sm4, "SM4 S-box", Le(0xD6, 0x90, 0xE9, 0xFE)],
+        [Sm4, "SM4 S-box", Be(0xD6, 0x90, 0xE9, 0xFE)],
+        [Sm4, "SM4 FK", Le(Fk)],
+        [Sm4, "SM4 FK", Be(Fk)],
+        [Sm4, "SM4 CK", Le(Ck)],
+        [Sm4, "SM4 CK", Be(Ck)],
+    ];
+
+    [Theory]
+    [MemberData(nameof(TablePatterns))]
+    public async Task A_cipher_table_is_named_with_its_table_at_its_offset(string algorithm, string table, byte[] pattern)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. pattern, .. Pad(0x40)]);
+        AssertAt(algorithm, 0x100, text);
+        Assert.Contains($"[{table}]", text);
+    }
+
+    [Theory]
+    [MemberData(nameof(TablePatterns))]
+    public async Task A_cipher_table_with_one_byte_changed_is_not_named(string algorithm, string table, byte[] pattern)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var near = (byte[])pattern.Clone();
+        near[near.Length / 2] ^= 0xFF;
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. near, .. Pad(0x40)]);
+        Assert.DoesNotContain(algorithm, text);
+        Assert.DoesNotContain($"[{table}]", text);
+    }
+
+    [Fact]
+    public async Task The_first_DES_S_box_row_alone_is_not_named()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. DesS1[..16], .. Pad(0x40)]);
+        Assert.DoesNotContain(Des, text);
     }
 
     [Fact]

@@ -15,7 +15,15 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private delegate string? DetailFn(ReadOnlySpan<byte> bytes, int at, byte[] pattern);
 
     /// <summary>A constant set: its byte patterns, whether they count only in code (an immediate) and an optional per-hit detail.</summary>
-    private sealed record Constant(string Algorithm, bool CodeOnly, byte[][] Patterns, DetailFn? Detail = null);
+    private sealed record Constant(string Algorithm, bool CodeOnly, Pattern[] Patterns, DetailFn? Detail = null);
+
+    /// <summary>Bytes to find, with the table they belong to when the rule covers several (null otherwise).</summary>
+    private sealed record Pattern(byte[] Bytes, string? Table = null)
+    {
+        public static implicit operator Pattern(byte[] bytes) => new(bytes);
+    }
+
+    private static Pattern T(string table, byte[] bytes) => new(bytes, table);
 
     // Whether a table head in the given byte order sits at the offset.
     private static bool HeadAt(ReadOnlySpan<byte> bytes, int at, uint[] head, bool big)
@@ -63,14 +71,14 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     {
         ["aes"] = new("AES (S-box, inverse S-box, T-table or round constants)", false,
         [
-            [0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76],
-            [0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB],
+            new byte[] {0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76},
+            new byte[] {0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB},
             Le(0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D),
             Be(0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D),
             Le(0x51F4A750, 0x7E416553, 0x1A17A4C3, 0x3A275E96),
             Be(0x51F4A750, 0x7E416553, 0x1A17A4C3, 0x3A275E96),
             // Key expansion round constants, shared by the 128-, 192- and 256-bit schedules.
-            [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36],
+            new byte[] {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36},
             Le(0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36),
             Be(0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36),
         ]),
@@ -82,6 +90,47 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["blowfish"] = new("Blowfish P-array", false, [Le(BlowfishP), Be(BlowfishP)], BlowfishPDetail),
         ["blowfish-sbox"] = new("Blowfish S-box", false, [Le(BlowfishS0), Be(BlowfishS0)], BlowfishSBoxDetail),
         ["cast"] = new("CAST-128 S-box", false, [Le(CastS1), Be(CastS1)], CastDetail),
+        ["des"] = new("DES / 3DES (initial permutation, permuted choice 1 or S-box 1)", false,
+        [
+            T("DES initial permutation", [58, 50, 42, 34, 26, 18, 10, 2, 60, 52, 44, 36, 28, 20, 12, 4]),
+            T("DES initial permutation", Le(58, 50, 42, 34)),
+            T("DES initial permutation", Be(58, 50, 42, 34)),
+            T("DES permuted choice 1", [57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18]),
+            T("DES permuted choice 1", Le(57, 49, 41, 33)),
+            T("DES permuted choice 1", Be(57, 49, 41, 33)),
+            // Rows 0 and 1 together: row 0 alone is a plain permutation of 0..15 that other tables contain.
+            T("DES S-box 1", [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7, 0, 15, 7, 4, 14, 2, 13, 1, 10, 6, 12, 11, 9, 5, 3, 8]),
+            T("DES S-box 1", Le(14, 4, 13, 1, 2, 15, 11, 8)),
+            T("DES S-box 1", Be(14, 4, 13, 1, 2, 15, 11, 8)),
+        ]),
+        ["twofish"] = new("Twofish (q0 or q1 permutation)", false,
+        [
+            T("Twofish q0", [0xA9, 0x67, 0xB3, 0xE8, 0x04, 0xFD, 0xA3, 0x76, 0x9A, 0x92, 0x80, 0x78, 0xE4, 0xDD, 0xD1, 0x38]),
+            T("Twofish q0", Le(0xA9, 0x67, 0xB3, 0xE8)),
+            T("Twofish q0", Be(0xA9, 0x67, 0xB3, 0xE8)),
+            T("Twofish q1", [0x75, 0xF3, 0xC6, 0xF4, 0xDB, 0x7B, 0xFB, 0xC8, 0x4A, 0xD3, 0xE6, 0x6B, 0x45, 0x7D, 0xE8, 0x4B]),
+            T("Twofish q1", Le(0x75, 0xF3, 0xC6, 0xF4)),
+            T("Twofish q1", Be(0x75, 0xF3, 0xC6, 0xF4)),
+        ]),
+        ["camellia"] = new("Camellia (S-box 1 or key schedule constants Sigma)", false,
+        [
+            T("Camellia S-box 1", [0x70, 0x82, 0x2C, 0xEC, 0xB3, 0x27, 0xC0, 0xE5, 0xE4, 0x85, 0x57, 0x35, 0xEA, 0x0C, 0xAE, 0x41]),
+            T("Camellia S-box 1", Le(0x70, 0x82, 0x2C, 0xEC)),
+            T("Camellia S-box 1", Be(0x70, 0x82, 0x2C, 0xEC)),
+            T("Camellia Sigma", Le64(0xA09E667F3BCC908B, 0xB67AE8584CAA73B2)),
+            T("Camellia Sigma", Be(0xA09E667F, 0x3BCC908B, 0xB67AE858, 0x4CAA73B2)),
+            T("Camellia Sigma", Le(0xA09E667F, 0x3BCC908B, 0xB67AE858, 0x4CAA73B2)),
+        ]),
+        ["sm4"] = new("SM4 (S-box, system parameter FK or fixed parameter CK)", false,
+        [
+            T("SM4 S-box", [0xD6, 0x90, 0xE9, 0xFE, 0xCC, 0xE1, 0x3D, 0xB7, 0x16, 0xB6, 0x14, 0xC2, 0x28, 0xFB, 0x2C, 0x05]),
+            T("SM4 S-box", Le(0xD6, 0x90, 0xE9, 0xFE)),
+            T("SM4 S-box", Be(0xD6, 0x90, 0xE9, 0xFE)),
+            T("SM4 FK", Le(0xA3B1BAC6, 0x56AA3350, 0x677D9197, 0xB27022DC)),
+            T("SM4 FK", Be(0xA3B1BAC6, 0x56AA3350, 0x677D9197, 0xB27022DC)),
+            T("SM4 CK", Le(0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269)),
+            T("SM4 CK", Be(0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269)),
+        ]),
         ["chacha"] = new("ChaCha20 / Salsa20 constant", false, ["expand 32-byte k"u8.ToArray(), "expand 16-byte k"u8.ToArray()]),
         // x86 code writes initial values word by word as immediates, never as one table.
         ["sha256-code"] = new("SHA-256 initial values as immediates", true, [Le(0x6A09E667), Le(0xBB67AE85)]),
@@ -96,7 +145,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     public IEnumerable<Features.Rule> Rules =>
     [
-        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:chacha", "const:tea"]]),
+        new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:tea"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3"]]),
     ];
 
@@ -116,21 +165,34 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             budget -= size;
             var bytes = new byte[size];
             int read = image.Read(section.Rva, bytes);
+            var found = new List<(Pattern Pattern, uint Start, uint End)>();
             foreach (var pattern in constant.Patterns)
                 for (int from = 0; from < read;)
                 {
                     ct.ThrowIfCancellationRequested();
-                    int at = bytes.AsSpan(from, read - from).IndexOf(pattern);
+                    int at = bytes.AsSpan(from, read - from).IndexOf(pattern.Bytes);
                     if (at < 0) break;
                     uint rva = section.Rva + (uint)(from + at);
-                    count++;
-                    if (locations.Count < MaxLocations)
-                    {
-                        var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), from + at, pattern);
-                        locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})"));
-                    }
-                    from += at + pattern.Length;
+                    found.Add((pattern, rva, rva + (uint)pattern.Bytes.Length));
+                    from += at + pattern.Bytes.Length;
                 }
+            // Little- and big-endian word forms of one small-valued table overlap by 3 bytes: keep the
+            // word-aligned hit, then the earliest, and count a table once.
+            found.Sort((x, y) => (x.Start % 4 == 0 ? 0 : 1).CompareTo(y.Start % 4 == 0 ? 0 : 1) is var c and not 0 ? c : x.Start.CompareTo(y.Start));
+            var kept = new List<(Pattern Pattern, uint Start, uint End)>();
+            foreach (var hit in found)
+                if (hit.Pattern.Table is null || !kept.Exists(k => k.Pattern.Table == hit.Pattern.Table && hit.Start < k.End && k.Start < hit.End))
+                    kept.Add(hit);
+            kept.Sort((x, y) => x.Start.CompareTo(y.Start));
+            foreach (var (pattern, rva, _) in kept)
+            {
+                count++;
+                if (locations.Count < MaxLocations)
+                {
+                    var detail = constant.Detail?.Invoke(bytes.AsSpan(0, read), (int)(rva - section.Rva), pattern.Bytes);
+                    locations.Add($"{constant.Algorithm} @{NativeAddress.Va(image, rva)}" + (pattern.Table is { } table ? $" [{table}]" : "") + (index.FunctionAt(rva) is { } f ? $" in {Format.Within(f.Name, f.Start, rva)}" : $" in {section.Name}") + (detail is null ? "" : $" ({detail})"));
+                }
+            }
         }
         return count == 0 ? null : new Evidence(feature, count, locations);
     }
