@@ -210,6 +210,58 @@ public sealed class FeatureTraceTests : IDisposable
         var capped = FeatureTrace.Run(index, "settings", false, FeatureKinds.Strings, 1, 0, [], default);
         Assert.Single(capped.Seeds);
         Assert.Equal(3, capped.TotalSeeds);
-        Assert.Contains("3 matches; the first 1 were followed (maxSeeds)", capped.Notes);
+        Assert.Contains("3 matches; the best 1 were followed (maxSeeds)", capped.Notes);
+    }
+
+    private static FeatureClass[] Named(params string[] names) =>
+        names.Select((n, i) => new FeatureClass(n, 0x3000 + (uint)i * 8, [])).ToArray();
+
+    private async Task<(AssemblyWorkspace Workspace, NativeCodeIndex Index)> PlainIndex()
+    {
+        var (ws, code, _) = Rig();
+        var native = ws.LoadAny(Sample()).Native!;
+        return (ws, await code.Index(native, null, default));
+    }
+
+    [Fact]
+    public async Task A_single_seed_goes_to_the_whole_word_match_scanned_last()
+    {
+        var (ws, index) = await PlainIndex();
+        using var _ = ws;
+        var r = FeatureTrace.Run(index, "login", false, FeatureKinds.Classes, 1,
+            0, Named("ContentCatalogInt32", "ReportLogInfo", "Login"), default);
+        Assert.Equal("Login", Assert.Single(r.Seeds).Text);
+        Assert.Equal(3, r.TotalSeeds);
+    }
+
+    [Fact]
+    public async Task Equal_ranks_and_lengths_keep_scan_order()
+    {
+        var (ws, index) = await PlainIndex();
+        using var _ = ws;
+        var r = FeatureTrace.Run(index, "login", false, FeatureKinds.Classes, 1,
+            0, Named("User_login", "Login_User"), default);
+        Assert.Equal("User_login", Assert.Single(r.Seeds).Text);
+    }
+
+    [Fact]
+    public async Task Regex_and_quoted_queries_keep_scan_order()
+    {
+        var (ws, index) = await PlainIndex();
+        using var _ = ws;
+        var classes = Named("ReportLogInfo", "LoginLongerName", "Login");
+        var regex = FeatureTrace.Run(index, "login", true, FeatureKinds.Classes, 3, 0, classes, default);
+        Assert.Equal(["ReportLogInfo", "LoginLongerName", "Login"], regex.Seeds.Select(s => s.Text));
+        var quoted = FeatureTrace.Run(index, "\"login\"", false, FeatureKinds.Classes, 3, 0, classes, default);
+        Assert.Equal("Login", Assert.Single(quoted.Seeds).Text);
+    }
+
+    [Fact]
+    public void A_whole_text_match_ranks_before_a_whole_word_inside_it()
+    {
+        Assert.Equal(0, FeatureTrace.BoundaryRank("Login", "login"));
+        Assert.Equal(1, FeatureTrace.BoundaryRank("user_login_ok", "login"));
+        Assert.Equal(2, FeatureTrace.BoundaryRank("ReportLogInfo", "login"));
+        Assert.Equal(3, FeatureTrace.BoundaryRank("ContentCatalogInt32", "login"));
     }
 }

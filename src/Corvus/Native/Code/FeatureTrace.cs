@@ -55,6 +55,9 @@ public sealed class FeatureTrace
     private readonly CallAnalysis? _calls;
     private FeatureEngine? _engine;
     private readonly Func<string, bool> _match;
+    private readonly Func<string, int>? _rank;
+    private readonly List<Candidate> _candidates = [];
+    private readonly HashSet<uint> _queuedStrings = [];
     private readonly List<FeatureSeed> _seeds = [];
     private readonly List<FeatureEvidence> _evidence = [];
     private readonly List<string> _notes = [];
@@ -63,11 +66,12 @@ public sealed class FeatureTrace
     private readonly int _maxSeeds;
     private int _total;
 
-    private FeatureTrace(NativeCodeIndex index, Func<string, bool> match, int maxSeeds)
+    private FeatureTrace(NativeCodeIndex index, Func<string, bool> match, Func<string, int>? rank, int maxSeeds)
     {
         _index = index;
         _calls = CallAnalysis.Supports(index) ? CallAnalysis.For(index) : null;
         _match = match;
+        _rank = rank;
         _maxSeeds = maxSeeds;
     }
 
@@ -80,6 +84,7 @@ public sealed class FeatureTrace
         var cache = Cache.GetValue(index, _ => []);
         lock (cache) if (cache.TryGetValue(key, out var hit)) return hit;
         Func<string, bool> match;
+        Func<string, int>? rank = null;
         if (!regex && query.Length >= 2 && query[0] == '"' && query[^1] == '"')
         {
             var exact = query[1..^1];
@@ -93,8 +98,12 @@ public sealed class FeatureTrace
             var timeouts = new RegexTimeouts();
             match = t => timeouts.IsMatch(pattern, t);
         }
-        else match = t => t.Contains(query, StringComparison.OrdinalIgnoreCase);
-        var trace = new FeatureTrace(index, match, maxSeeds) { _engine = engine };
+        else
+        {
+            match = t => t.Contains(query, StringComparison.OrdinalIgnoreCase);
+            rank = t => BoundaryRank(t, query);
+        }
+        var trace = new FeatureTrace(index, match, rank, maxSeeds) { _engine = engine };
         var result = trace.Execute(query, kinds, callerDepth, classes, ct);
         lock (cache)
         {
@@ -114,14 +123,66 @@ public sealed class FeatureTrace
         if (kinds.HasFlag(FeatureKinds.Exports)) Exports(ct);
         if (kinds.HasFlag(FeatureKinds.Classes)) Classes(classes, ct);
         if (kinds.HasFlag(FeatureKinds.Constants) && !query.StartsWith('"') && Number(query) is { } value) Constants(value, ct);
-        if (_total > _seeds.Count) _notes.Add($"{_total} matches; the first {_seeds.Count} were followed (maxSeeds)");
+        RunCandidates(ct);
+        if (_total > _seeds.Count) _notes.Add($"{_total} matches; the best {_seeds.Count} were followed (maxSeeds)");
         var functions = Aggregate();
         var (hubs, cut) = callerDepth > 0 ? Hubs(functions, callerDepth, ct) : ([], false);
         return new FeatureTraceResult(query, _seeds, _total, functions, hubs, cut, _notes);
     }
 
-    /// <summary>Counts a match and, under the seed budget, follows it; a failure is recorded on the seed.</summary>
-    private void Seed(string kind, uint rva, string text, Action<int> follow, CancellationToken ct)
+    private sealed record Candidate(int Rank, int Length, string Kind, uint Rva, string Text, Action<int> Follow);
+
+    /// <summary>Queues a match; <paramref name="rankText"/> is the text as the query sees it.</summary>
+    private void Seed(string kind, uint rva, string text, Action<int> follow, string? rankText = null, int? rank = null)
+    {
+        rankText ??= text;
+        _candidates.Add(new Candidate(rank ?? _rank?.Invoke(rankText) ?? 0, _rank == null ? 0 : rankText.Length, kind, rva, text, follow));
+    }
+
+    /// <summary>
+    /// Ranks <paramref name="query"/> in <paramref name="text"/> on this scale:
+    /// <list type="bullet">
+    /// <item>0 the whole text.</item>
+    /// <item>1 a whole word.</item>
+    /// <item>2 a word at one edge.</item>
+    /// <item>3 inside a word.</item>
+    /// </list>
+    /// </summary>
+    internal static int BoundaryRank(string text, string query)
+    {
+        if (text.Equals(query, StringComparison.OrdinalIgnoreCase)) return 0;
+        int best = 3;
+        for (int at = text.IndexOf(query, StringComparison.OrdinalIgnoreCase); at >= 0;
+            at = at + 1 < text.Length ? text.IndexOf(query, at + 1, StringComparison.OrdinalIgnoreCase) : -1)
+        {
+            int edges = (Boundary(text, at) ? 1 : 0) + (Boundary(text, at + query.Length) ? 1 : 0);
+            best = Math.Min(best, 3 - edges);
+        }
+        return best;
+    }
+
+    private static bool Boundary(string t, int i)
+    {
+        if (i <= 0 || i >= t.Length) return true;
+        char p = t[i - 1], c = t[i];
+        if (!char.IsLetterOrDigit(p) || !char.IsLetterOrDigit(c)) return true;
+        if (char.IsLetter(p) != char.IsLetter(c)) return true;
+        if (char.IsLower(p) && char.IsUpper(c)) return true;
+        return char.IsUpper(p) && char.IsUpper(c) && i + 1 < t.Length && char.IsLower(t[i + 1]);
+    }
+
+    private void RunCandidates(CancellationToken ct)
+    {
+        // Regex and quoted queries carry no rank or length, so they keep scan order.
+        var ordered = _candidates.Select((c, i) => (c, i)).OrderBy(x => x.c.Rank).ThenBy(x => x.c.Length).ThenBy(x => x.i).Select(x => x.c);
+        foreach (var c in ordered) SeedNow(c.Kind, c.Rva, c.Text, c.Follow, ct);
+    }
+
+    /// <summary>
+    /// Counts a match and, under the seed budget, follows it; a failure is recorded on the seed.
+    /// An address shared by two kinds is seeded once, by the better-ranked match.
+    /// </summary>
+    private void SeedNow(string kind, uint rva, string text, Action<int> follow, CancellationToken ct)
     {
         _total++;
         if (_seeds.Count >= _maxSeeds || !_seeded.Add(rva)) return;
@@ -154,6 +215,7 @@ public sealed class FeatureTrace
             if (!_match(text)) continue;
             var quoted = $"{(s.Encoding == StringEncoding.Utf16 ? "L" : "")}\"{Format.Clip(text, 120)}\"";
             uint length = (uint)Math.Max(1, s.Length * (s.Encoding == StringEncoding.Utf16 ? 2 : 1));
+            _queuedStrings.Add(s.Rva);
             Seed("string", s.Rva, quoted, id =>
             {
                 foreach (var x in _index.RefsToRange(s.Rva, s.Rva + length))
@@ -163,16 +225,17 @@ public sealed class FeatureTrace
                     else if (x.Kind == XrefKind.Pointer) Table(x.From, quoted, id);
                 }
                 if (_perSeed.GetValueOrDefault(id) == 0) EngineRefs(s.Rva, $"uses {quoted}", id);
-            }, ct);
+            }, text);
         }
         if (_engine == null) return;
         // Strings only the engine defines.
         foreach (var (rva, text) in _engine.Strings)
         {
             ct.ThrowIfCancellationRequested();
-            if (_seeded.Contains(rva) || !_match(text)) continue;
+            if (_queuedStrings.Contains(rva) || !_match(text)) continue;
             var quoted = $"\"{Format.Clip(text, 120)}\"";
-            Seed("string", rva, quoted, id => EngineRefs(rva, $"uses {quoted}", id), ct);
+            _queuedStrings.Add(rva);
+            Seed("string", rva, quoted, id => EngineRefs(rva, $"uses {quoted}", id), text);
         }
     }
 
@@ -210,7 +273,7 @@ public sealed class FeatureTrace
         {
             if (failure != null) throw failure;
             foreach (var (site, detail) in hits) Add(site, "constant", detail, id);
-        }, ct);
+        }, rank: 0);
     }
 
     private List<(uint, string)> X86Constants(ulong value, CancellationToken ct)
@@ -369,7 +432,7 @@ public sealed class FeatureTrace
             ct.ThrowIfCancellationRequested();
             var name = _index.NameAt(f.Start) ?? f.KnownName;
             if (name == null || !_match(name) || f.ThunkImport != null) continue;
-            Seed("name", f.Start, name, id => Add(f.Start, "named", $"named {name}", id), ct);
+            Seed("name", f.Start, name, id => Add(f.Start, "named", $"named {name}", id));
         }
         foreach (var (rva, name, _, _) in _index.Sourced.In(0, uint.MaxValue))
         {
@@ -380,7 +443,7 @@ public sealed class FeatureTrace
                 foreach (var x in _index.RefsTo(rva).Where(x => _index.FunctionAt(x.From) != null))
                     Add(x.From, "data", $"{x.Kind.ToString().ToLowerInvariant()} [{name}]", id);
                 if (_perSeed.GetValueOrDefault(id) == 0) EngineRefs(rva, $"uses [{name}]", id);
-            }, ct);
+            });
         }
     }
 
@@ -399,7 +462,7 @@ public sealed class FeatureTrace
                     foreach (var c in _index.Callers(imp)) Add(c.From, "call", $"calls {full}", id);
                 foreach (var x in _index.RefsTo(imp.SlotRva).Where(x => x.Kind is XrefKind.Read or XrefKind.Address && _index.FunctionAt(x.From) != null))
                     Add(x.From, "pointer", $"loads the pointer of {full}", id);
-            }, ct);
+            });
         }
         if (_calls == null) return;
         foreach (var d in _calls.DynamicImports(ct).Imports)
@@ -409,7 +472,7 @@ public sealed class FeatureTrace
             {
                 Add(d.CallSite, "resolve", $"resolves {d.FullName}: {d.How}", id);
                 foreach (var site in d.PointerCalls) Add(site, "call", _calls.CallAt(site, ct)?.Display ?? $"calls {d.FullName} through its pointer", id);
-            }, ct);
+            }, d.FullName);
         }
     }
 
@@ -419,7 +482,7 @@ public sealed class FeatureTrace
         {
             ct.ThrowIfCancellationRequested();
             if (e.Name == null || e.ForwardedTo != null || !_match(e.Name)) continue;
-            Seed("export", e.Rva, e.Name, id => Add(e.Rva, "exported", $"exported as {e.Name}", id), ct);
+            Seed("export", e.Rva, e.Name, id => Add(e.Rva, "exported", $"exported as {e.Name}", id));
         }
     }
 
@@ -435,7 +498,7 @@ public sealed class FeatureTrace
                     Add(x.From, "vftable", $"installs or reads {c.Name}'s vftable", id);
                 foreach (var (slot, i) in c.Slots.Select((s, i) => (s, i)).DistinctBy(x => x.s).Take(64))
                     if (_index.FunctionByStart(slot) != null) Add(slot, "method", $"slot {i} of {c.Name}'s vftable", id);
-            }, ct);
+            });
         }
     }
 
