@@ -50,6 +50,13 @@ public sealed class LocalHandlerTargetTests
     }
 
     [Fact]
+    public void An_svg_link_with_a_search_ms_target_is_reported()
+    {
+        var svg = Text("<svg xmlns=\"http://www.w3.org/2000/svg\"><a href=\"search-ms:query=x\"><text>y</text></a></svg>");
+        Assert.Contains(View(new PageFileView(), "p.svg", svg).Findings, f => f.Rule == "link/local-handler");
+    }
+
+    [Fact]
     public void A_PDF_URI_and_remote_go_to_action_with_local_targets_are_reported()
     {
         var pdf = Text("%PDF-1.4\n1 0 obj\n<</Type/Catalog/OpenAction 2 0 R>>\nendobj\n2 0 obj\n<</S/URI/URI(search-ms:query=x)>>\nendobj\n" +

@@ -30,11 +30,11 @@ internal sealed class PageFileView : IFileSummaryView
         }
         review.AddRange(page.Policies.SelectMany(SavedPage.Weaknesses).Distinct());
         review.AddRange(page.Imports.Where(i => i.OtherOrigin).Take(20).Select(i => $"import map: {i.Specifier} maps to {i.Address}"));
-        var findings = PageRedirects.Find(text, ct);
-        // An SVG is read for its redirects only.
+        IReadOnlyList<Finding> findings = [.. PageRedirects.Find(text, ct), .. LocalHandlerTargets.Scan(LocalHandlerTargets.FromHtml(text), "page")];
+        // An SVG is read for its redirects and links only.
         if (ext == ".svg" && findings.Count == 0) return null;
         var facts = new Facts(page.Url, page.Title, page.Resources, page.Imports, page.ModuleIntegrity, page.Policies, review, page.Notes);
-        return new FileView(facts, Highlights(page, review)) { Findings = [.. findings, .. LocalHandlerTargets.Scan(LocalHandlerTargets.FromHtml(text), "page")] };
+        return new FileView(facts, Highlights(page, review)) { Findings = findings };
     }
 
     private static List<string> Highlights(SavedPage.Page p, List<string> review)
