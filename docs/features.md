@@ -311,6 +311,7 @@ Managed code compiled ahead of time to native code: a build folder, `global-meta
 | Unrecognized data | .NET images, XALZ chunks and gzip streams carved by offset |
 | Godot `.pck` | every file, Godot 3 and 4 |
 | Qt resources (`.rcc` or compiled in) | every file, Qt 5 and 6 |
+| Offset and size index plus blobs | every entry with size and entropy; a damaged last record named |
 | Flash SWF | tags, ActionScript blocks, images, sounds |
 | Unreal pak and IoStore | every file or chunk, decompressed; encrypted indexes named |
 | GameMaker data file | chunks, code entries, strings, textures, audio |
