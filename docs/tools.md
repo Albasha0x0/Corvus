@@ -1324,7 +1324,7 @@ Call sites with recovered argument values: constants, strings, addresses, earlie
 |---|---|---|---|---|
 | `image` | string | yes |  | Image id, name, path. |
 | `address` | string |  |  | A call, or an address in a function (all its calls): Hex VA/RVA (rva:/va:/off:), export, module!import, function. |
-| `callee` | string |  |  | Only calls to this API, module!name, function name or function start (0x hex); without address, image-wide. |
+| `callee` | string |  |  | Only calls to this API, module!name or function; without address, image-wide. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` | Max call sites (max 1000). |
 | `maxTokens` | integer |  |  |  |
@@ -1545,7 +1545,7 @@ Structured output: `image`, `engine`, `pattern`, `items`, `functionsTotal`, `off
 
 **Emulate native code** (read-only, idempotent, open-world, long-running)
 
-Emulate native code from an address (a string decoder, a hash): return value, registers and written strings. An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.
+Emulate native code from an address: return value, registers and written strings. An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1555,7 +1555,7 @@ Emulate native code from an address (a string decoder, a hash): return value, re
 | `registers` | string |  |  | rcx=0x10, rdx='key' (values as args). |
 | `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
 | `stopAt` | string |  |  | Addresses to stop at. |
-| `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call). |
+| `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
 | `read` | string |  |  | Shown after the run: ADDR or register, space, length (rcx 64). |
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
@@ -2050,7 +2050,7 @@ Record a finding, question, hypothesis or todo on a native address, .NET member,
 | `text` | string | yes |  | At most 4,000 characters. |
 | `kind` | string |  |  | Default finding. Values: finding, question, hypothesis, todo. |
 | `status` | string |  |  | Default open. Values: open, confirmed, refuted, answered, dropped. |
-| `anchor` | string |  |  | <image>@<address> or <image>!<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
+| `anchor` | string |  |  | <image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
 | `tags` | string[] |  |  | At most 10. |
 | `evidence` | object[] |  |  | At most 10: {result: r-... or last:N, expect: supports\|refutes}, {tool, args} of a call made here, or {text}. |
 
@@ -2087,7 +2087,7 @@ Notes, newest first, filtered by status, kind, anchor, tag and text. A file anch
 |---|---|---|---|---|
 | `status` | string |  |  | Default open; all for every status. Values: open, confirmed, refuted, answered, dropped, all. |
 | `kind` | string |  |  | Only this kind. Values: finding, question, hypothesis, todo. |
-| `anchor` | string |  |  | <image>@<address> or <image>!<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
+| `anchor` | string |  |  | <image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide). |
 | `tag` | string |  |  | Only notes with this tag. |
 | `text` | string |  |  | Text substring (case-insensitive). |
 | `offset` | integer |  |  |  |

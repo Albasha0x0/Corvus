@@ -64,7 +64,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     public Task<string> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call, or an address in a function (all its calls): " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Only calls to this API, module!name, function name or function start (0x hex); without address, image-wide.")] string? callee = null,
+        [Description("Only calls to this API, module!name or function; without address, image-wide.")] string? callee = null,
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description("Max call sites (max 1000).")] int limit = 50,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,

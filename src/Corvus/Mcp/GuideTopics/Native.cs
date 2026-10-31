@@ -11,12 +11,13 @@ public static partial class Guide
         - Functions: list_functions, list_globals, disassemble, inspect_instruction, get_cfg, analyze_native_function, get_exception_info.
         - References: find_xrefs ('kernel32!CreateFileW' lists every call site), native_call_tree, find_call_paths to='native:<image>!<function>'.
         - Indirect calls: resolve_call_targets, find_virtual_calls (crossCheck=true compares with IDA or Ghidra).
-        - Values: get_call_arguments, trace_native_values (engine=ida|ghidra uses the decompiler's IR).
+        - Values: get_call_arguments (callee= a name or 0x function start), trace_native_values (engine=ida|ghidra uses the decompiler's IR).
         - emulate_native runs a decoder or hash in an emulator, never natively; engine=speakeasy runs a whole PE with Windows APIs modelled.
+        - emulate_native models malloc, calloc, realloc, free, memcpy, memset and strlen; a named stub wins over a model, and *= answers only imports and calls outside the image.
         - Search: search_native_strings, search_bytes (?? wildcards; memory=engine for loaded bytes), search_instructions, trace_native_feature, find_similar_functions.
         - Data: read_bytes (type= reads values), convert_number, resolve_address, list_cpp_classes, get_native_type (at=0x48 names a field; read=true adds values).
         - decompile_native needs IDA or Ghidra (functions=[...] decompiles several; callersOf= the callers); search_decompiled runs a regex over pseudocode (cursor= continues).
-        - Addresses: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixes, export names, module!import, sub_<rva>, function names.
+        - Addresses: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixes, export names, module!import or a bare import name, entry (the entry point), sub_<rva>, function names.
         - A name on several addresses is an ambiguous error listing them.
         - Symbols: a matching local PDB or DWARF is read with the code index; load_pdb loads one by path or downloads it (download=true); search_pdb_symbols lists its symbols.
         - Names from load_pdb and apply_metadata_names are saved per file SHA-256; list_native_edits shows the layers, clear=true removes one.

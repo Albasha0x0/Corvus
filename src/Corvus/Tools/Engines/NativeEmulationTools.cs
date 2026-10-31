@@ -25,8 +25,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
     internal const int MaxCandidates = 1000;
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
-    [Description("Emulate native code from an address (a string decoder, a hash): return value, registers and " +
-                 "written strings. malloc, calloc, realloc and free are modelled on a heap; a heap fault stops with heap_error. " +
+    [Description("Emulate native code from an address: return value, registers and written strings. " +
                  "An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
@@ -35,7 +34,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("rcx=0x10, rdx='key' (values as args).")] string? registers = null,
         [Description("ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000.")] string? memory = null,
         [Description("Addresses to stop at.")] string? stopAt = null,
-        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call outside the image). Order: named stub, built-in memcpy/memset/strlen model (import or image routine), then *= (imports and targets outside the image only; image routines run).")] string? stubs = null,
+        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image).")] string? stubs = null,
         [Description("Shown after the run: ADDR or register, space, length (rcx 64).")] string? read = null,
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,

@@ -15,7 +15,7 @@ public sealed partial class NoteTools(AssemblyWorkspace workspace, NotesService 
     ServerOptions? options = null)
 {
     public const string AnchorDescription =
-        "<image>@<address> or <image>!<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide).";
+        "<image>@<address>, <assembly>:<symbol or token>, image or assembly id, dump:<id or path>, or empty (session-wide).";
 
     public sealed record NoteList(
         [property: Description("Notes, newest first.")] IReadOnlyList<Note> Items,
