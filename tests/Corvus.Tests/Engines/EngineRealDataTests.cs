@@ -87,12 +87,14 @@ public sealed class EngineRealDataGhidraTests(ITestOutputHelper output) : Engine
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
         // The same source again reuses its compiled bundle: compilation is most of a first run.
         var script = new Dictionary<string, object?> { ["image"] = image, ["code"] = "println(\"functions \" + currentProgram.getFunctionManager().getFunctionCount());", ["engine"] = "ghidra" };
-        // The worker writes a script's source next to its classes each time it compiles it (ScriptOps.compile).
+        // The worker writes a script's source next to its classes each time it
+        // compiles it (ScriptOps.compile), under its own home.
+        // Regression for the eece1727 push run, which read the cache folder.
         var key = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((string)script["code"]!)))[..16];
-        var source = Path.Combine(Corvus.Native.Providers.AnalysisCache.DefaultRoot, "ghidra", "home", "scripts", key, $"UserScript_{key}.java");
         var clock = System.Diagnostics.Stopwatch.StartNew();
         await Log(c, "ghidra_script", script);
         var first = clock.Elapsed;
+        var source = GhidraScriptSource.Path(key);
         var compiled = File.GetLastWriteTimeUtc(source);
         clock.Restart();
         await Log(c, "ghidra_script", script);
@@ -133,5 +135,21 @@ public sealed class EngineRealDataGhidraTests(ITestOutputHelper output) : Engine
         Assert.Contains("args a|b c", await Log(c, "ghidra_script", new() { ["image"] = image, ["name"] = "echo_args.py", ["args"] = new[] { "a", "b c" }, ["engine"] = "ghidra" }));
         // Java still runs in the same worker.
         Assert.Contains("jitinterface_x64.dll", await Log(c, "ghidra_script", new() { ["image"] = image, ["code"] = "println(currentProgram.getName());", ["engine"] = "ghidra" }));
+    }
+}
+
+/// <summary>Where a Ghidra worker writes a compiled script's source.</summary>
+internal static class GhidraScriptSource
+{
+    /// <summary>The source of the script with this key under the worker folder (the extension-set folder of the worker root, else the cache folder).</summary>
+    internal static string Path(string key)
+    {
+        var name = $"UserScript_{key}.java";
+        var workerRoot = Environment.GetEnvironmentVariable(Corvus.Native.Providers.Ghidra.GhidraOptions.WorkerDirectoryVariable);
+        if (workerRoot is not { Length: > 0 })
+            return System.IO.Path.Combine(Corvus.Native.Providers.AnalysisCache.DefaultRoot, "ghidra", "home", "scripts", key, name);
+        foreach (var set in Directory.Exists(workerRoot) ? Directory.GetDirectories(workerRoot) : [])
+            if (System.IO.Path.Combine(set, "home", "scripts", key, name) is var path && File.Exists(path)) return path;
+        return System.IO.Path.Combine(workerRoot, "*", "home", "scripts", key, name);
     }
 }
