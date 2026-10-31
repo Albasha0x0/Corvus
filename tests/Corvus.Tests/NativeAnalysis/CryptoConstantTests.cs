@@ -29,6 +29,7 @@ public sealed class CryptoConstantTests : IDisposable
     private static byte[] Pad(int n) => new byte[n];
 
     private const string Aes = "AES (S-box, inverse S-box, T-table or round constants)";
+    private const string Poly = "Poly1305 (clamp mask of the 128-bit key half) [size=128 confidence=high]";
     private const string Pa = "Blowfish P-array";
     private const ulong ImageBase = 0x180000000;
 
@@ -661,5 +662,83 @@ public sealed class CryptoConstantTests : IDisposable
         }));
         var text = await SurveyImage(server, path);
         Assert.DoesNotContain(label, text);
+    }
+
+    [Theory]
+    [InlineData("P-256 (field prime, base point x) [size=256 confidence=high]", "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF")]
+    [InlineData("P-256 (field prime, base point x) [size=256 confidence=high]", "6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296")]
+    [InlineData("P-384 (field prime, base point x) [size=384 confidence=high]", "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFF")]
+    [InlineData("P-384 (field prime, base point x) [size=384 confidence=high]", "AA87CA22BE8B05378EB1C71EF320AD746E1D3B628BA79B9859F741E082542A385502F25DBF55296C3A545E3872760AB7")]
+    [InlineData("secp256k1 (field prime, base point x) [size=256 confidence=high]", "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F")]
+    [InlineData("secp256k1 (field prime, base point x) [size=256 confidence=high]", "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798")]
+    [InlineData("Curve25519 (field prime 2^255-19) [size=256 confidence=high]", "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFED")]
+    public async Task A_curve_parameter_is_named_in_each_byte_and_dword_form(string label, string hex)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var be = Convert.FromHexString(hex);
+        var le = be.Reverse().ToArray();
+        var dw = new byte[be.Length];
+        for (int i = 0; i < be.Length; i += 4)
+            for (int j = 0; j < 4; j++) dw[i + j] = be[i + 3 - j];
+        foreach (var form in new[] { be, le, dw })
+        {
+            var text = await SurveyBytes(server, [.. Pad(0x100), .. form, .. Pad(0x40)]);
+            AssertAt(label, 0x100, text);
+        }
+    }
+
+    [Fact]
+    public async Task Poly1305_clamp_masks_are_counted_once_per_form()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Le(0x0FFFFFFF, 0x0FFFFFFC, 0x0FFFFFFC, 0x0FFFFFFC), .. Pad(0x40)]);
+        AssertAt(Poly, 0x100, text);
+        Assert.Contains("const:poly1305 x1", text);
+        var big = await SurveyBytes(server, [.. Pad(0x100), .. Be(0x0FFFFFFF, 0x0FFFFFFC, 0x0FFFFFFC, 0x0FFFFFFC), .. Pad(0x40)]);
+        AssertAt(Poly, 0x100, big);
+    }
+
+    [Fact]
+    public async Task The_rsaEncryption_object_identifier_is_named_at_medium_confidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        byte[] oid = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. oid, .. Pad(0x40)]);
+        AssertAt("RSA (rsaEncryption object identifier) [size=in key blob confidence=medium]", 0x100, text);
+    }
+
+    [Fact]
+    public async Task An_RSA_key_blob_magic_is_named_separately_at_low_confidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. "RSA2"u8.ToArray(), .. Pad(0x40)]);
+        AssertAt("RSA (key blob magic RSA1, RSA2 or RSA3) [confidence=low]", 0x100, text);
+        Assert.DoesNotContain("rsaEncryption", text);
+    }
+
+    [Fact]
+    public async Task An_HMAC_pad_block_is_named_at_low_confidence()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. Enumerable.Repeat((byte)0x5C, 64), .. Pad(0x40)]);
+        AssertAt("HMAC (inner or outer pad block) [block=64 confidence=low]", 0x100, text);
+    }
+
+    [Theory]
+    [InlineData("HKDF")]
+    [InlineData("hkdf")]
+    [InlineData("PBKDF2")]
+    [InlineData("scrypt")]
+    [InlineData("Scrypt")]
+    [InlineData("argon2id")]
+    [InlineData("Argon2id")]
+    [InlineData("CMAC")]
+    [InlineData("cmac")]
+    [InlineData("AES-CMAC")]
+    public async Task A_key_derivation_name_string_is_named_as_low_confidence(string name)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x100), .. System.Text.Encoding.ASCII.GetBytes(name), .. Pad(0x40)]);
+        AssertAt("Key derivation or CMAC (algorithm name string) [confidence=low]", 0x100, text);
     }
 }

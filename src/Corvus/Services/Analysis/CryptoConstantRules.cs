@@ -73,6 +73,20 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private static byte[] Be64(params ulong[] words) => [.. words.SelectMany(w => BitConverter.GetBytes(w).Reverse())];
     private static byte[] Le64(params ulong[] words) => [.. words.SelectMany(BitConverter.GetBytes)];
 
+    // Big-endian bytes as published, then little-endian limbs, then
+    // big-endian dwords stored little-endian.
+    private static Pattern[] Forms(string hex)
+    {
+        var be = Convert.FromHexString(hex);
+        var le = be.Reverse().ToArray();
+        var dw = new byte[be.Length];
+        for (int i = 0; i < be.Length; i += 4)
+            for (int j = 0; j < 4; j++) dw[i + j] = be[i + 3 - j];
+        return [be, le, dw];
+    }
+
+    private static Pattern[] Text(params string[] names) => [.. names.Select(n => (Pattern)System.Text.Encoding.ASCII.GetBytes(n))];
+
     private static readonly Dictionary<string, Constant> Constants = new(StringComparer.Ordinal)
     {
         ["aes"] = new("AES (S-box, inverse S-box, T-table or round constants)", false,
@@ -166,6 +180,40 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["idea"] = new("IDEA modulus 65537 as immediate (low confidence)", true, [Le(0x10001)]),
         ["crc32-poly"] = new("CRC-32 polynomial (reflected)", true, [Le(0xEDB88320)]),
         ["fnv"] = new("FNV-1 hash constants", true, [Le(0x811C9DC5), Le(0x01000193)]),
+        ["p256"] = new("P-256 (field prime, base point x) [size=256 confidence=high]", false,
+        [
+            .. Forms("FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF"),
+            .. Forms("6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296"),
+        ]),
+        ["p384"] = new("P-384 (field prime, base point x) [size=384 confidence=high]", false,
+        [
+            .. Forms("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE"
+                + "FFFFFFFF0000000000000000FFFFFFFF"),
+            .. Forms("AA87CA22BE8B05378EB1C71EF320AD746E1D3B628BA79B9859F741E082542A38"
+                + "5502F25DBF55296C3A545E3872760AB7"),
+        ]),
+        ["secp256k1"] = new("secp256k1 (field prime, base point x) [size=256 confidence=high]", false,
+        [
+            .. Forms("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F"),
+            .. Forms("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798"),
+        ]),
+        ["curve25519"] = new("Curve25519 (field prime 2^255-19) [size=256 confidence=high]", false,
+            [.. Forms("7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFED")]),
+        ["rsa"] = new("RSA (rsaEncryption object identifier) [size=in key blob confidence=medium]", false,
+            [new byte[] {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01}]),
+        ["rsa-blob"] = new("RSA (key blob magic RSA1, RSA2 or RSA3) [confidence=low]", false,
+            Text("RSA1", "RSA2", "RSA3")),
+        ["hmac"] = new("HMAC (inner or outer pad block) [block=64 confidence=low]", false,
+            [Enumerable.Repeat((byte)0x36, 64).ToArray(), Enumerable.Repeat((byte)0x5C, 64).ToArray()]),
+        ["poly1305"] = new("Poly1305 (clamp mask of the 128-bit key half) [size=128 confidence=high]", false,
+        [
+            Le(0x0FFFFFFF, 0x0FFFFFFC, 0x0FFFFFFC, 0x0FFFFFFC),
+            Be(0x0FFFFFFF, 0x0FFFFFFC, 0x0FFFFFFC, 0x0FFFFFFC),
+        ]),
+        ["kdf"] = new("Key derivation or CMAC (algorithm name string) [confidence=low]", false,
+            Text("HKDF", "hkdf", "PBKDF2", "pbkdf2", "scrypt", "Scrypt", "argon2id", "Argon2id",
+                "argon2i", "Argon2i", "argon2d", "Argon2d", "CMAC", "cmac", "AES-CMAC", "AES128-CMAC",
+                "OMAC1")),
         ["murmur3"] = new("MurmurHash3 constants", true, [Le(0xCC9E2D51), Le(0x1B873593)]),
         ["sha3"] = new("SHA-3 (Keccak round constants)", false, [Le64(1, 0x8082, 0x800000000000808A, 0x8000000080008000), Be64(1, 0x8082, 0x800000000000808A, 0x8000000080008000)]),
         ["ripemd160"] = new("RIPEMD-160 (right-line round constants)", false, [Le(0x50A28BE6, 0x5C4DD124, 0x6D703EF3, 0x7A6D76E9), Be(0x50A28BE6, 0x5C4DD124, 0x6D703EF3, 0x7A6D76E9)]),
@@ -230,6 +278,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     [
         new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
+        new("asymmetric, authentication or key derivation structures", "crypto", [["const:p256", "const:p384", "const:secp256k1", "const:curve25519", "const:rsa", "const:rsa-blob", "const:hmac", "const:poly1305", "const:kdf"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
     ];
 
