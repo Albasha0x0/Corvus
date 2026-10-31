@@ -90,7 +90,8 @@ public static class Embedded
         for (int x = 0; x < compared.Count; x++)
             for (int y = x + 1; y < compared.Count; y++)
             {
-                var shared = BlockRepeats.Shared(found[compared[x]].Bytes, found[compared[y]].Bytes);
+                var (bx, by) = (found[compared[x]].Bytes, found[compared[y]].Bytes);
+                var shared = BlockRepeats.Siblings(bx, by);
                 if (shared is null) continue;
                 notes[compared[x]].Add($"{found[compared[y]].Source}: {shared}");
                 notes[compared[y]].Add($"{found[compared[x]].Source}: {shared}");

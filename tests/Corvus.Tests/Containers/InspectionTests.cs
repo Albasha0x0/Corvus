@@ -546,6 +546,89 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
+    public void Sibling_buffers_report_a_shared_header_and_where_they_differ()
+    {
+        byte[] a = [0x4D, 0x5A, 0x90, 0x00, 1, 2, 3, 4, 5, 6];
+        byte[] b = [0x4D, 0x5A, 0x90, 0x00, 9, 9, 9, 9, 9, 9];
+        Assert.Equal("4-byte header shared (4D5A9000); differs at 0x4", BlockRepeats.Header(a, b));
+        Assert.Equal("10-byte header shared (4D5A900001020304...)", BlockRepeats.Header(a, a));
+    }
+
+    [Fact]
+    public void Sibling_buffers_under_four_shared_bytes_report_no_header()
+    {
+        Assert.Null(BlockRepeats.Header([1, 2, 3], [2, 2, 3]));
+        Assert.Null(BlockRepeats.Header([1, 2, 3, 4], [1, 2, 3, 5]));
+        Assert.Null(BlockRepeats.Header([], [1]));
+    }
+
+    [Fact]
+    public void Sibling_resources_with_one_header_name_its_length_and_difference()
+    {
+        var a = Random2K(81);
+        var b = Random2K(82);
+        var c = Random2K(83);
+        a.AsSpan(0, 6).CopyTo(b.AsSpan(0, 6));
+        Assert.Equal(6, a.AsSpan().CommonPrefixLength(b));
+        Assert.True(a.AsSpan().CommonPrefixLength(c) < 4);
+        Assert.True(b.AsSpan().CommonPrefixLength(c) < 4);
+        var fixture = ContainerFixtures.Module("Headers", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("a.bin", a));
+            m.Resources.Add(new EmbeddedResource("b.bin", b));
+            m.Resources.Add(new EmbeddedResource("c.bin", c));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("Headers.dll", fixture), false, null, false, default);
+        string expected = $"6-byte header shared ({Convert.ToHexString(a.AsSpan(0, 6))}); differs at 0x6 (structural signal only)";
+        var da = Assert.Single(report.Contents, p => p.Source == "resource 'a.bin'").Detail;
+        var db = Assert.Single(report.Contents, p => p.Source == "resource 'b.bin'").Detail;
+        Assert.Contains($"resource 'b.bin': {expected}", da);
+        Assert.Contains($"resource 'a.bin': {expected}", db);
+        Assert.Null(Assert.Single(report.Contents, p => p.Source == "resource 'c.bin'").Detail);
+    }
+
+    [Fact]
+    public void Sibling_resources_sharing_one_byte_stay_unannotated()
+    {
+        var a = Random2K(84);
+        var b = Random2K(85);
+        b[0] = a[0];
+        Assert.Equal(1, a.AsSpan().CommonPrefixLength(b));
+        var fixture = ContainerFixtures.Module("OneByte", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("a.bin", a));
+            m.Resources.Add(new EmbeddedResource("b.bin", b));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("OneByte.dll", fixture), false, null, false, default);
+        Assert.All(report.Contents.Where(p => p.Source.StartsWith("resource '")), p => Assert.Null(p.Detail));
+    }
+
+    [Fact]
+    public void Sibling_resources_with_a_header_and_a_block_name_both_notes()
+    {
+        var a = Random2K(86);
+        var b = Random2K(87);
+        a.AsSpan(0, 6).CopyTo(b.AsSpan(0, 6));
+        a.AsSpan(0x200, 8).CopyTo(b.AsSpan(0x200, 8));
+        var fixture = ContainerFixtures.Module("HeaderBlock", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("a.bin", a));
+            m.Resources.Add(new EmbeddedResource("b.bin", b));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("HeaderBlock.dll", fixture), false, null, false, default);
+        var da = Assert.Single(report.Contents, p => p.Source == "resource 'a.bin'").Detail;
+        Assert.Contains($"8-byte block shared at 0x200; 6-byte header shared ({Convert.ToHexString(a.AsSpan(0, 6))}); differs at 0x6 (structural signal only)", da);
+    }
+
+    [Fact]
+    public void A_shorter_buffer_that_is_a_prefix_names_where_it_ends()
+    {
+        var a = Random2K(88);
+        Assert.Equal($"1024-byte header shared ({Convert.ToHexString(a.AsSpan(0, 8))}...); shorter buffer ends at 0x400",
+            BlockRepeats.Header(a, a[..1024]));
+    }
+
+    [Fact]
     public void Sibling_notes_name_three_siblings_then_count_the_rest()
     {
         var common = Random2K(51).AsSpan(0, 8).ToArray();

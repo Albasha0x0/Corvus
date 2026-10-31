@@ -13,6 +13,9 @@ internal static class BlockRepeats
 {
     internal const int MaxScanBytes = 4 * 1024 * 1024;
     private const int MaxGroups = 3, MaxOffsets = 4;
+    private const int MaxHeaderShown = 8;
+    // Shorter prefixes occur by chance (1 in 256 for one byte) in unrelated data.
+    private const int MinHeaderBytes = 4;
 
     /// <summary>Notes on aligned blocks that occur more than once; null when none repeat or under 8 bytes.</summary>
     internal static string? Within(byte[] data)
@@ -43,7 +46,15 @@ internal static class BlockRepeats
     }
 
     /// <summary>Notes on equal blocks at the same aligned offset in both buffers; null when none match.</summary>
-    internal static string? Shared(byte[] a, byte[] b)
+    internal static string? Shared(byte[] a, byte[] b) => Siblings(a, b, header: false);
+
+    /// <summary>
+    /// Notes on equal aligned blocks and the shared header of two buffers;
+    /// null when neither is found.
+    /// </summary>
+    internal static string? Siblings(byte[] a, byte[] b) => Siblings(a, b, header: true);
+
+    private static string? Siblings(byte[] a, byte[] b, bool header)
     {
         int common = Math.Min(a.Length, b.Length);
         int length = Math.Min(common, MaxScanBytes);
@@ -62,7 +73,24 @@ internal static class BlockRepeats
             }
             if (offsets.Count > 0) notes.Add($"{size}-byte block shared at {Offsets(offsets)}");
         }
+        if (header && Header(a, b) is { } text) notes.Add(text);
         return notes.Count == 0 ? null : Close(notes, common > length);
+    }
+
+    /// <summary>
+    /// Reports the leading bytes two buffers share, the first offset where they
+    /// differ and where a shorter buffer ends. Null under 4 shared bytes.
+    /// </summary>
+    internal static string? Header(byte[] a, byte[] b)
+    {
+        int common = Math.Min(a.Length, b.Length);
+        int prefix = a.AsSpan(0, common).CommonPrefixLength(b.AsSpan(0, common));
+        if (prefix < MinHeaderBytes) return null;
+        string shown = Convert.ToHexString(a.AsSpan(0, Math.Min(prefix, MaxHeaderShown)));
+        string more = prefix > MaxHeaderShown ? "..." : "";
+        string end = prefix < common ? $"; differs at 0x{prefix:X}"
+            : a.Length != b.Length ? $"; shorter buffer ends at 0x{common:X}" : "";
+        return $"{prefix}-byte header shared ({shown}{more}){end}";
     }
 
     private static string Close(List<string> notes, bool truncated) =>
