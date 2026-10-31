@@ -53,15 +53,7 @@ internal sealed class InnoSetupReader : IContainerReader
     public ContainerContents? Open(Stream stream, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         var read = InstallerPe.Of(stream);
-        var offsets = OffsetTable(read(0, (int)Math.Min(stream.Length, HeadBytes))!, read) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: no Inno Setup offset table.");
-        var id = read(offsets.Setup0, 64) is { } idBytes ? Encoding.ASCII.GetString(idBytes).TrimEnd('\0') : throw new ToolError(ErrorCode.MalformedInput, $"{name}: setup-0 is past the end of the file.");
-        var version = id.StartsWith(SetupIdPrefix, StringComparison.Ordinal) && id.EndsWith(')') ? id[SetupIdPrefix.Length..^1].Replace(") (u", " (u)") : null;
-        var layout = Layouts.FirstOrDefault(l => l.Id == version)
-            ?? throw new ToolError(ErrorCode.Unsupported, $"{name}: Inno Setup data \"{id}\" is not a format this reader knows (5.5 to 7.1 are; before 6.3 the Unicode builds).");
-
-        Setup setup;
-        try { setup = ReadSetup(stream, read, offsets.Setup0 + 64, layout, name); }
-        catch (Exception ex) when (Damaged(ex)) { throw new ToolError(ErrorCode.MalformedInput, $"{name}: the Inno Setup data does not decode: {ex.Message}"); }
+        var (offsets, version, layout, setup) = Load(stream, read, name);
 
         var notes = new List<string>
         {
@@ -96,6 +88,21 @@ internal sealed class InnoSetupReader : IContainerReader
         return new ContainerContents("Inno Setup installer", items, notes) { Entries = entries };
     }
 
+    /// <summary>The offset table, the data version, its layout and the decoded setup-0; throws a tool error when any is not one this reader knows.</summary>
+    private static (Offsets Offsets, string Version, Layout Layout, Setup Setup) Load(Stream stream, InstallerPe.Read read, string name)
+    {
+        var offsets = OffsetTable(read(0, (int)Math.Min(stream.Length, HeadBytes))!, read) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: no Inno Setup offset table.");
+        var id = read(offsets.Setup0, 64) is { } idBytes ? Encoding.ASCII.GetString(idBytes).TrimEnd('\0') : throw new ToolError(ErrorCode.MalformedInput, $"{name}: setup-0 is past the end of the file.");
+        var version = id.StartsWith(SetupIdPrefix, StringComparison.Ordinal) && id.EndsWith(')') ? id[SetupIdPrefix.Length..^1].Replace(") (u", " (u)") : null;
+        var layout = Layouts.FirstOrDefault(l => l.Id == version)
+            ?? throw new ToolError(ErrorCode.Unsupported, $"{name}: Inno Setup data \"{id}\" is not a format this reader knows (5.5 to 7.1 are; before 6.3 the Unicode builds).");
+        try { return (offsets, version!, layout, ReadSetup(stream, read, offsets.Setup0 + 64, layout, name)); }
+        catch (Exception ex) when (Damaged(ex)) { throw new ToolError(ErrorCode.MalformedInput, $"{name}: the Inno Setup data does not decode: {ex.Message}"); }
+    }
+
+    /// <summary>The [Run] and [Registry] entries and the Pascal script flag; throws a tool error for data this reader cannot decode.</summary>
+    public static InstallerScript ReadScript(Stream stream, string name) => Load(stream, InstallerPe.Of(stream), name).Setup.Script;
+
     private static string Method(int m) => m >= 0 && m < Methods.Length ? Methods[m] : $"method {m}";
 
     /// <summary>Decoder failures on damaged data (the decoders throw a range of exception types).</summary>
@@ -104,7 +111,7 @@ internal sealed class InnoSetupReader : IContainerReader
     private sealed record App(string Name, string Version, string Publisher);
     private sealed record SetupFile(string Path, int Location, long ExternalSize, bool Uninstaller);
     private sealed record Location(int FirstSlice, int LastSlice, long Start, long Suboffset, long Size, long CompressedSize, byte[] Hash, bool CallOptimized, bool Encrypted, bool Compressed);
-    private sealed record Setup(App App, List<SetupFile> Files, List<Location> Locations, int Compression, bool EncryptedFiles);
+    private sealed record Setup(App App, List<SetupFile> Files, List<Location> Locations, int Compression, bool EncryptedFiles, InstallerScript Script);
 
     private static Setup ReadSetup(Stream stream, InstallerPe.Read read, long at, Layout layout, string name)
     {
@@ -119,7 +126,7 @@ internal sealed class InnoSetupReader : IContainerReader
         }
         var (first, next) = Block(stream, read, at, layout);
         var r = new RecordReader(first);
-        var (headerStrings, header) = r.Record(layout.Header);
+        var (headerStrings, header) = r.Record(layout.Header, out var headerAnsi);
         int Count(int offset) => BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(offset)) is var n and >= 0 ? n : throw new InvalidDataException("negative entry count");
         var files = new List<SetupFile>();
         for (int i = 0; i < layout.Entries.Length; i++)
@@ -134,6 +141,7 @@ internal sealed class InnoSetupReader : IContainerReader
             }
         }
 
+        var script = ReadScript(r, header, headerAnsi, layout, Count);
         var (second, _) = Block(stream, read, next, layout);
         var l = layout.Location;
         int count = Count(layout.FileLocations);
@@ -151,8 +159,49 @@ internal sealed class InnoSetupReader : IContainerReader
                 (flags >> l.CallOptimized & 1) != 0, (flags >> l.ChunkEncrypted & 1) != 0, (flags >> l.ChunkCompressed & 1) != 0));
             encryptedFiles |= locations[^1].Encrypted;
         }
-        return new Setup(new App(headerStrings[0], headerStrings[9], headerStrings[4]), files, locations, header[layout.CompressMethod], encryptedFiles);
+        return new Setup(new App(headerStrings[0], headerStrings[9], headerStrings[4]), files, locations, header[layout.CompressMethod], encryptedFiles, script);
     }
+
+    /// <summary>The [Run], [UninstallRun] and [Registry] entries after the file list, and whether a compiled Pascal script is present.</summary>
+    private static InstallerScript ReadScript(RecordReader r, byte[] header, int[] headerAnsi, Layout layout, Func<int, int> count)
+    {
+        // CompiledCodeText is the last of the header's four ANSI strings.
+        bool code = headerAnsi.Length > 0 && headerAnsi[^1] > 0;
+        if (!ScriptLayouts.TryGetValue(layout.Id, out var s)) return InstallerScript.Undecoded("Inno Setup", $"the [Run] and [Registry] records of data {layout.Id} are not known", code);
+        try
+        {
+            var commands = new List<InstallerCommand>();
+            var registry = new List<InstallerRegistryWrite>();
+            for (int section = 0; section < s.Records.Length; section++)
+            {
+                var kind = section switch { 2 => "Registry", 5 => "Run", 6 => "UninstallRun", _ => null };
+                int n = count(s.Counts[section]);
+                for (int index = 0; index < n; index++)
+                {
+                    var (strings, fixedPart) = r.Record(s.Records[section]);
+                    if (kind == "Registry")
+                        registry.Add(new InstallerRegistryWrite(index, RegistryTypes.ElementAtOrDefault(fixedPart[s.RegistryType]) is { } t ? $"Registry {t}" : "Registry",
+                            $@"{RootName(BinaryPrimitives.ReadUInt32LittleEndian(fixedPart.AsSpan(s.RegistryRoot)))}\{strings[0]}", strings[1].Length > 0 ? strings[1] : null, strings[2]));
+                    else if (kind != null)
+                    {
+                        var text = strings[1].Length > 0 ? $"{strings[0]} {strings[1]}" : strings[0];
+                        commands.Add(new InstallerCommand(index, (fixedPart[s.RunOptions] & 1) != 0 ? $"{kind} (shell execute)" : kind, text));
+                    }
+                }
+            }
+            return new InstallerScript("Inno Setup", commands, registry, code, null);
+        }
+        catch (Exception ex) when (Damaged(ex)) { return InstallerScript.Undecoded("Inno Setup", $"the [Run] and [Registry] entries do not decode: {ex.Message}", code); }
+    }
+
+    /// <summary>Registry value types in the order of TSetupRegistryEntry.Typ.</summary>
+    private static readonly string[] RegistryTypes = ["none", "string", "expandsz", "dword", "binary", "multisz", "qword"];
+
+    /// <summary>A root key as [Registry] spells it; HKA (value 1) is the root the installer's mode picks.</summary>
+    private static string RootName(uint root) => root switch
+    {
+        0x80000000 => "HKCR", 0x80000001 => "HKCU", 0x80000002 => "HKLM", 0x80000003 => "HKU", 0x80000005 => "HKCC", 1 => "HKA", _ => $"root 0x{root:X8}",
+    };
 
     /// <summary>A compressed block: a CRC-checked header (stored size, compressed flag), then 4 KiB chunks each after its CRC-32.</summary>
     private static (byte[] Data, long Next) Block(Stream stream, InstallerPe.Read read, long at, Layout layout)
@@ -201,11 +250,15 @@ internal sealed class InnoSetupReader : IContainerReader
     {
         private int _at;
 
-        public (string[] Strings, byte[] Fixed) Record(Rec rec)
+        public (string[] Strings, byte[] Fixed) Record(Rec rec) => Record(rec, out _);
+
+        /// <summary>The record, with the byte length of each of its ANSI strings.</summary>
+        public (string[] Strings, byte[] Fixed) Record(Rec rec, out int[] ansiLengths)
         {
             var strings = new string[rec.Strings];
             for (int i = 0; i < rec.Strings; i++) strings[i] = Encoding.Unicode.GetString(Take(Length()));
-            for (int i = 0; i < rec.AnsiStrings; i++) Take(Length());
+            ansiLengths = new int[rec.AnsiStrings];
+            for (int i = 0; i < rec.AnsiStrings; i++) Take(ansiLengths[i] = Length());
             return (strings, Take(rec.Fixed).ToArray());
         }
 
@@ -311,6 +364,51 @@ internal sealed class InnoSetupReader : IContainerReader
     /// <summary>The record layout of one data format; an encryption header size of 0 means none.</summary>
     private sealed record Layout(string Id, int EncryptionHeader, int StoredSizeBytes, Rec Header, Rec[] Entries, int[] Counts, int FileLocations,
         int CompressMethod, int FileLocation, int ExternalSize, int FileType, LocationLayout Location);
+
+    /// <summary>
+    /// The records after the file list, in stream order: icons, INI entries, registry entries, install deletes, uninstall
+    /// deletes, [Run] entries, [UninstallRun] entries; their header count offsets and the fixed-part offsets of a
+    /// registry entry's RootKey and Typ and of a run entry's Options.
+    /// </summary>
+    private sealed record ScriptLayout(Rec[] Records, int[] Counts, int RegistryRoot, int RegistryType, int RunOptions);
+
+    /// <summary>Computed from each format's Shared.Struct.pas, as <see cref="Layouts"/> is.</summary>
+    private static readonly Dictionary<string, ScriptLayout> ScriptLayouts = new()
+    {
+        ["5.5.0 (u)"] = new([new(13, 0, 32), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["5.5.6 (u)"] = new([new(13, 0, 32), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["5.5.7 (u)"] = new([new(13, 0, 32), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["6.0.0 (u)"] = new([new(13, 0, 32), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["6.1.0 (u)"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["6.3.0"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["6.4.0.1"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["6.4.2"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["6.4.3"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [36, 40, 44, 48, 52, 56, 60], 20, 26, 25),
+        ["6.5.0"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [40, 44, 48, 52, 56, 60, 64], 20, 26, 25),
+        ["6.5.2"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [40, 44, 48, 52, 56, 60, 64], 20, 26, 25),
+        ["6.6.0"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [40, 44, 48, 52, 56, 60, 64], 20, 26, 25),
+        ["6.6.1"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [40, 44, 48, 52, 56, 60, 64], 20, 26, 25),
+        ["6.7.0"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(13, 0, 27), new(13, 0, 27)],
+            [40, 44, 48, 52, 56, 60, 64], 20, 26, 25),
+        ["7.0.0.1"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 29), new(7, 0, 21), new(7, 0, 21), new(14, 0, 27), new(14, 0, 27)],
+            [40, 44, 48, 52, 56, 60, 64], 20, 26, 25),
+        ["7.0.0.3"] = new([new(13, 0, 48), new(10, 0, 21), new(9, 0, 30), new(7, 0, 21), new(7, 0, 21), new(14, 0, 28), new(14, 0, 28)],
+            [40, 44, 48, 52, 56, 60, 64], 20, 26, 26),
+
+    };
 
     /// <summary>Computed from each format's Shared.Struct.pas (Struct.pas before 6.4; packed records; strings are stored apart from the fixed part).</summary>
     private static readonly Layout[] Layouts =

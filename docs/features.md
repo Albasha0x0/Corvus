@@ -488,7 +488,7 @@ Pass the name as `view=`.
 | `nib`, `xbf`, `pri`, `plist` | compiled UI and resource files decoded |
 | `esp32` | ESP32 images, partitions, NVS values |
 | `model` | safetensors, GGUF, ONNX, PyTorch, pickle, joblib, `.npy`, `.npz`, `.keras`; code a file runs when loaded; nothing unpickled |
-| `installer` | MSI custom actions, services, autostart entries |
+| `installer` | MSI custom actions, services, autostart entries; NSIS and Inno Setup commands, `[Run]` and registry writes at their entries; InstallShield and Advanced Installer named |
 | `lnk` | a shortcut's target, arguments and noteworthy traits |
 | `shell` | the targets of a `.url`, `.library-ms` or `.searchConnector-ms` file; a WebDAV location is named |
 | `installer`, `lnk`, `script`, `procmon` | command lines that download, decode or hide through a system tool: one `launcher/command-line` finding |

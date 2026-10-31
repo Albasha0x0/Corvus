@@ -41,34 +41,8 @@ internal sealed class NsisInstallerReader : IContainerReader
     public ContainerContents? Open(Stream stream, string name, bool allFiles, AnalysisLimits limits, CancellationToken ct)
     {
         var read = InstallerPe.Of(stream);
-        var first = FirstHeader(read(0, (int)Math.Min(stream.Length, HeadBytes))!) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: no NSIS first header.");
-        if (first.HeaderSize > MaxHeader) throw new ToolError(ErrorCode.LimitExceeded, $"{name}: the NSIS header is {first.HeaderSize:N0} bytes, over {MaxHeader:N0}.");
-        long body = first.Offset + FirstHeaderBytes, bodySize = Math.Min(first.DataSize - FirstHeaderBytes, stream.Length - body);
-        var sig = (bodySize >= 16 ? read(body, 16) : null) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: the NSIS data is cut short.");
-        var codec = Method(sig);
         var notes = new List<string>();
-        if (codec is Codec.X86Filter) throw new ToolError(ErrorCode.Unsupported, $"{name}: the NSIS data uses the x86 branch filter, which is not decoded.");
-        if (codec is Codec.Bzip2 || codec is Codec.Deflate && NonSolid(sig, bodySize, first.HeaderSize) && Method(sig.AsSpan(4)) is Codec.Bzip2)
-            throw new ToolError(ErrorCode.Unsupported, $"{name}: the NSIS data is bzip2 in NSIS's variant without block checksums, which is not decoded.");
-
-        Data source;
-        byte[]? header;
-        try
-        {
-            if (codec is Codec.Lzma || !NonSolid(sig, bodySize, first.HeaderSize))
-            {
-                source = new SolidData(Decoder(codec, new SubStream(stream, body, bodySize), bodySize));
-                header = source.Block(0, MaxHeader, out _);
-            }
-            else
-            {
-                var b = new BlockData(stream, read, body, bodySize, 0);
-                header = b.Block(0, MaxHeader, out _);
-                source = new BlockData(stream, read, body, bodySize, b.End);
-            }
-        }
-        catch (Exception ex) when (Damaged(ex)) { throw new ToolError(ErrorCode.MalformedInput, $"{name}: the NSIS header does not decode: {ex.Message}"); }
-        var script = (header != null ? Script.Parse(header) : null) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: the NSIS header is not one this reader knows.");
+        var (first, codec, source, script) = Load(stream, read, name);
 
         var items = new List<ExtractedItem>();
         var entries = new List<ContainerEntry>();
@@ -109,6 +83,44 @@ internal sealed class NsisInstallerReader : IContainerReader
         if (!allFiles && entries.Count > items.Count) notes.Add($"{entries.Count - items.Count} of {entries.Count} files not extracted (not binaries or packages; allFiles extracts every file).");
         return new ContainerContents("NSIS installer", items, notes) { Entries = entries };
     }
+
+    private sealed record Loaded(First First, Codec Codec, Data Source, Script Script);
+
+    /// <summary>The first header, the data codec and the parsed script; throws a tool error for a header this reader cannot decode.</summary>
+    private static Loaded Load(Stream stream, InstallerPe.Read read, string name)
+    {
+        var first = FirstHeader(read(0, (int)Math.Min(stream.Length, HeadBytes))!) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: no NSIS first header.");
+        if (first.HeaderSize > MaxHeader) throw new ToolError(ErrorCode.LimitExceeded, $"{name}: the NSIS header is {first.HeaderSize:N0} bytes, over {MaxHeader:N0}.");
+        long body = first.Offset + FirstHeaderBytes, bodySize = Math.Min(first.DataSize - FirstHeaderBytes, stream.Length - body);
+        var sig = (bodySize >= 16 ? read(body, 16) : null) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: the NSIS data is cut short.");
+        var codec = Method(sig);
+        if (codec is Codec.X86Filter) throw new ToolError(ErrorCode.Unsupported, $"{name}: the NSIS data uses the x86 branch filter, which is not decoded.");
+        if (codec is Codec.Bzip2 || codec is Codec.Deflate && NonSolid(sig, bodySize, first.HeaderSize) && Method(sig.AsSpan(4)) is Codec.Bzip2)
+            throw new ToolError(ErrorCode.Unsupported, $"{name}: the NSIS data is bzip2 in NSIS's variant without block checksums, which is not decoded.");
+
+        Data source;
+        byte[]? header;
+        try
+        {
+            if (codec is Codec.Lzma || !NonSolid(sig, bodySize, first.HeaderSize))
+            {
+                source = new SolidData(Decoder(codec, new SubStream(stream, body, bodySize), bodySize));
+                header = source.Block(0, MaxHeader, out _);
+            }
+            else
+            {
+                var b = new BlockData(stream, read, body, bodySize, 0);
+                header = b.Block(0, MaxHeader, out _);
+                source = new BlockData(stream, read, body, bodySize, b.End);
+            }
+        }
+        catch (Exception ex) when (Damaged(ex)) { throw new ToolError(ErrorCode.MalformedInput, $"{name}: the NSIS header does not decode: {ex.Message}"); }
+        var script = (header != null ? Script.Parse(header) : null) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: the NSIS header is not one this reader knows.");
+        return new Loaded(first, codec, source, script);
+    }
+
+    /// <summary>The commands in the installer's script; throws a tool error for a header this reader cannot decode.</summary>
+    public static InstallerScript ReadScript(Stream stream, string name) => Load(stream, InstallerPe.Of(stream), name).Script.Commands;
 
     /// <summary>Decoder failures on damaged data (the decoders throw a range of exception types).</summary>
     private static bool Damaged(Exception ex) => ex is not (OperationCanceledException or ToolError or OutOfMemoryException);
@@ -232,10 +244,14 @@ internal sealed class NsisInstallerReader : IContainerReader
     private sealed record ScriptFile(string Path, uint Offset, bool Uninstaller);
 
     /// <summary>The header's entries and strings: the files the script extracts, under their install paths.</summary>
-    private sealed record Script(List<ScriptFile> Files, bool Unicode)
+    private sealed record Script(List<ScriptFile> Files, bool Unicode, InstallerScript Commands)
     {
         private const int Blocks = 8, EntriesBlock = 2, StringsBlock = 3, EntryBytes = 28;
-        private const int CreateDir = 11, ExtractFile = 20, AssignVar = 25, WriteUninstaller = 62, OutDirVariable = 31;
+        // Opcodes are the EW_ enum of Source/exehead/fileform.h. The numbers used here are the same in
+        // v2.46, v3.0, v3.08 and the current master of the NSIS source; builds that drop features renumber them.
+        private const int CreateDir = 11, ExtractFile = 20, AssignVar = 25, PushPop = 31, ShellExec = 40, Execute = 41, RegisterDll = 44, WriteReg = 51, WriteUninstaller = 62;
+        private const int OutDirVariable = 31, MaxOpcode = 69;
+        private const int RegExpandSz = 2, RegBinary = 3, RegDword = 4, RegMultiSz = 7;
 
         private static readonly string[] Variables =
         [
@@ -267,6 +283,10 @@ internal sealed class NsisInstallerReader : IContainerReader
             var reader = new Strings(h, (int)strings, unicode, unicode || table.IndexOfAnyInRange((byte)1, (byte)4) >= 0);
 
             var files = new List<ScriptFile>();
+            var commands = new List<InstallerCommand>();
+            var registry = new List<InstallerRegistryWrite>();
+            var pushed = new List<string>();
+            string? unmatched = null;
             var seen = new HashSet<(string, uint)>();
             // File /r saves the output folder in $_OUTDIR (StrCpy $_OUTDIR $OUTDIR) and sets subfolders from it.
             string outDir = "$INSTDIR", savedOutDir = "$INSTDIR";
@@ -274,8 +294,29 @@ internal sealed class NsisInstallerReader : IContainerReader
             for (int k = 0; k < count; k++)
             {
                 int Parm(int i) => BinaryPrimitives.ReadInt32LittleEndian(h.AsSpan((int)entries + k * EntryBytes + 4 + i * 4));
-                switch (BinaryPrimitives.ReadInt32LittleEndian(h.AsSpan((int)entries + k * EntryBytes)))
+                int opcode = BinaryPrimitives.ReadInt32LittleEndian(h.AsSpan((int)entries + k * EntryBytes));
+                if (opcode is <= 0 or > MaxOpcode) unmatched ??= $"entry {k} has opcode {opcode}, outside the table of NSIS 2.46 to 3.x";
+                // Plugin arguments are pushed last argument first, directly before the call.
+                if (opcode != PushPop && opcode != RegisterDll) pushed.Clear();
+                switch (opcode)
                 {
+                    case PushPop when Parm(1) == 0 && Parm(2) == 0:
+                        pushed.Add(reader.Get(Parm(0)));
+                        break;
+                    case Execute:
+                        commands.Add(new(k, Parm(2) != 0 ? "ExecWait" : "Exec", reader.Get(Parm(0))));
+                        break;
+                    case ShellExec:
+                        commands.Add(new(k, "ExecShell", string.Join(' ', new[] { reader.Get(Parm(0)), reader.Get(Parm(1)), reader.Get(Parm(2)) }.Where(t => t.Length > 0))));
+                        break;
+                    case RegisterDll:
+                        var call = $"{reader.Get(Parm(0))}!{reader.Get(Parm(1))}";
+                        commands.Add(new(k, Parm(2) == 0 ? "PluginCall" : "RegisterDll", Parm(2) == 0 && pushed.Count > 0 ? $"{call}({string.Join(", ", Enumerable.Reverse(pushed))})" : call));
+                        pushed.Clear();
+                        break;
+                    case WriteReg:
+                        registry.Add(WriteRegistry(k, Parm(0), reader.Get(Parm(1)), reader.Get(Parm(2)), Parm(3), Parm(4), Parm(5), reader));
+                        break;
                     case CreateDir when Parm(1) != 0:
                         outDir = Expand(reader.Get(Parm(0)));
                         break;
@@ -291,7 +332,32 @@ internal sealed class NsisInstallerReader : IContainerReader
                         break;
                 }
             }
-            return new Script(files, unicode);
+            var script = unmatched != null ? InstallerScript.Undecoded("NSIS", unmatched) : new InstallerScript("NSIS", commands, registry, null, null);
+            return new Script(files, unicode, script);
+        }
+
+        /// <summary>A WriteReg entry: parm4 is the data kind the compiler wrote (string, dword, binary), parm5 the registry type.</summary>
+        private static InstallerRegistryWrite WriteRegistry(int index, int root, string key, string name, int data, int kind, int type, Strings reader)
+        {
+            var (command, value) = kind switch
+            {
+                RegDword => ("WriteRegDWORD", reader.Get(data)),
+                RegBinary => (type == RegMultiSz ? "WriteRegMultiStr" : type == 0 ? "WriteRegNone" : "WriteRegBin", null),
+                _ => (type == RegExpandSz || kind == RegExpandSz ? "WriteRegExpandStr" : "WriteRegStr", reader.Get(data)),
+            };
+            return new InstallerRegistryWrite(index, command, $@"{RootName(root)}\{key}", name, value);
+        }
+
+        /// <summary>A root key as the script spells it: SHCTX is 0; the 32-bit and 64-bit view flags add a suffix.</summary>
+        private static string RootName(int root)
+        {
+            uint r = (uint)root;
+            string view = (r & 0x40000000) != 0 ? "32" : (r & 0x20000000) != 0 ? "64" : "";
+            return (r & 0x9FFFFFFF) switch
+            {
+                0 => "SHCTX" + view, 0x80000000 => "HKCR" + view, 0x80000001 => "HKCU" + view, 0x80000002 => "HKLM" + view, 0x80000003 => "HKU",
+                0x80000004 => "HKPD", 0x80000005 => "HKCC", 0x80000006 => "HKDD", _ => $"root 0x{r:X8}",
+            };
         }
 
         /// <summary>The block offsets and counts for <paramref name="size"/>-byte block headers; null unless the blocks lie in order.</summary>
