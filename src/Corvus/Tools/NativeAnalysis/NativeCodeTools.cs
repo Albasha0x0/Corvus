@@ -239,8 +239,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                 if (index.Sourced.CommentAt(fn.Start) is { } fc)
                     foreach (var c in fc.Text.Split('\n')) sb.AppendLine($"; {c}");
                 var calls = new Dictionary<uint, string>(NativeCallTools.CallComments(index, fn, cancellationToken));
-                foreach (var (at, note) in NativeAotCode.Comments(native, index, fn, cancellationToken))
-                    calls[at] = calls.TryGetValue(at, out var known) ? $"{note}; {known}" : note;
+                void Merge(IEnumerable<KeyValuePair<uint, string>> notes)
+                {
+                    foreach (var (at, note) in notes)
+                        calls[at] = calls.TryGetValue(at, out var known) ? $"{note}; {known}" : note;
+                }
+                Merge(NativeAotCode.Comments(native, index, fn, cancellationToken));
+                Merge(AotFieldNotes.Comments(native, index, fn, cancellationToken));
                 AppendFunction(sb, index, classifier, fn, max, calls, warnings, cancellationToken);
             }
             else

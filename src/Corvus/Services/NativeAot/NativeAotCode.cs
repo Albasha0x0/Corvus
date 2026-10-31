@@ -230,7 +230,7 @@ public static class NativeAotCode
     }
 
     /// <summary>The function's instructions in address order.</summary>
-    private static List<Instruction> Decode(INativeImage image, IEnumerable<(uint Start, uint End)> ranges, CancellationToken ct)
+    internal static List<Instruction> Decode(INativeImage image, IEnumerable<(uint Start, uint End)> ranges, CancellationToken ct)
     {
         var result = new List<Instruction>();
         foreach (var (start, end) in ranges.OrderBy(r => r.Start))
