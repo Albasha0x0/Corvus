@@ -53,6 +53,38 @@ public class AssemblyInfoTests
         Assert.Contains($"Metadata heaps: #Strings {streams["#Strings"]} bytes (2-byte indexes), #US ", text);
     }
 
+    // Fixture with the metadata root magic overwritten.
+    [Fact]
+    public void A_changed_metadata_signature_is_reported_with_the_value_found()
+    {
+        var image = File.ReadAllBytes(Env.FixturePath);
+        using var reader = new PEReader(new MemoryStream(image));
+        int root = reader.PEHeaders.MetadataStartOffset;
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(root), 0x11223344);
+
+        var issue = Assert.Single(MetadataSurvey.Survey(image));
+        Assert.Equal("bad_metadata_root", issue.Code);
+        Assert.Equal($"0x{root:X}", issue.FileOffset);
+        Assert.Equal("signature 0x11223344 is not 0x424A5342 (BSJB)", issue.Detail);
+    }
+
+    // Fixture with the #GUID and #Blob stream headers exchanged in place.
+    [Fact]
+    public void Reordered_metadata_streams_are_read_without_an_issue()
+    {
+        var image = File.ReadAllBytes(Env.FixturePath);
+        using var reader = new PEReader(new MemoryStream(image));
+        int root = reader.PEHeaders.MetadataStartOffset;
+        int a = image.AsSpan().IndexOf("#Blob\0"u8) - 8;
+        int b = image.AsSpan().IndexOf("#GUID\0"u8) - 8;
+        Assert.True(a > root && b > root);
+        var first = image.AsSpan(a, 16).ToArray();
+        image.AsSpan(b, 16).CopyTo(image.AsSpan(a, 16));
+        first.CopyTo(image.AsSpan(b, 16));
+
+        Assert.Empty(MetadataSurvey.Survey(image));
+    }
+
     /// <summary>No false positives on the fixture and on large runtime assemblies.</summary>
     [Fact]
     public void The_row_sweep_finds_no_issues_in_clean_assemblies()

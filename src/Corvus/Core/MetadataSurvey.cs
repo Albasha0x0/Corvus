@@ -48,9 +48,11 @@ public static class MetadataSurvey
             return issues;
         }
         var md = image.AsSpan(mdStart, mdSize);
-        if (BinaryPrimitives.ReadUInt32LittleEndian(md) != 0x424A5342)
+        uint magic = BinaryPrimitives.ReadUInt32LittleEndian(md);
+        if (magic != 0x424A5342)
         {
-            issues.Add(new("bad_metadata_root", "metadata root", Hex(mdStart), "no BSJB signature"));
+            issues.Add(new("bad_metadata_root", "metadata root", Hex(mdStart),
+                $"signature 0x{magic:X8} is not 0x424A5342 (BSJB)"));
             return issues;
         }
         int versionLength = BinaryPrimitives.ReadInt32LittleEndian(md[12..]);
