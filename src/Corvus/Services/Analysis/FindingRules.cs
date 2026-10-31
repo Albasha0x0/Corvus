@@ -191,6 +191,7 @@ public static class FindingRules
         I("pdf/ioc", "a URL a PDF action opens"),
         R("shortcut/suspicious", "a shortcut target or argument worth reviewing"),
         I("shortcut/ioc", "a URL in shortcut arguments"),
+        R("launcher/command-line", "a program that starts other code, with an argument shape that downloads, decodes or hides"),
         R("installer/suspicious", "an installer action or keyword worth reviewing"),
         I("installer/ioc", "a URL, address or file name in installer script"),
         N("page/blob-payload", "exact form: a standalone page's own script builds a Blob from a base64 literal over 4 KiB that decodes to an archive, program or document, and saves it", "a page builds a file in a Blob and saves it"),
@@ -251,6 +252,10 @@ public static class FindingRules
 
     /// <summary>A packer finding as the shared record.</summary>
     public static Finding ToFinding(Native.PackerFinding p) => new(Check(p.Rule, FromPacker(p.Kind)), p.Rule, "packer", $"{p.Name}: {p.Evidence}", null, "packer");
+
+    /// <summary>The launcher uses of one view as shared records under launcher/command-line; empty when none.</summary>
+    internal static IEnumerable<Finding> FromLaunchers(IEnumerable<Core.Documents.Launchers.Use> uses, string source, string? location = null) =>
+        uses.Select(u => new Finding(Check("launcher/command-line", FindingLevel.Review), "launcher/command-line", "process", $"{u.Program} {u.Shape}: {u.What}", location, source));
 
     /// <summary>olevba-type findings of one view as shared records, rule ids "&lt;source&gt;/&lt;type&gt;"; AutoExec, IOC and encoded strings are info.</summary>
     internal static IReadOnlyList<Finding> FromMacros(IEnumerable<Core.Documents.MacroFinding> found, string source)

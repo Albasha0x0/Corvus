@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
+using Corvus.Core.Documents;
 using Corvus.Services.Web;
 using Corvus.Services.Web.Scripts;
 
@@ -71,6 +72,7 @@ internal sealed class ScriptFileView : IFileSummaryView
             payloads.Count > 0 ? [.. payloads.Select(p => new Payload(p.Name, p.Kind, p.Size, p.Sha256))] : null);
         var findings = payloads.Select(p => new Finding(FindingLevel.Noteworthy, "page/blob-payload", "smuggling",
             $"builds a {p.Kind} of {p.Size:N0} bytes in a Blob and saves it", p.Name, "page")).ToList();
+        findings.AddRange(FindingRules.FromLaunchers(Launchers.MatchAll(reading.Calls), "script"));
         var highlights = Highlights(reading);
         highlights.AddRange(payloads.Take(3).Select(p => $"Builds a {p.Kind} of {p.Size:N0} bytes in a Blob and saves it; unpack_container carves it as {p.Name}."));
         return new FileView(facts, highlights) { Findings = findings, Indicators = IndicatorList.FromText("script", [(reading.Plain, "peeled text")], ct) };

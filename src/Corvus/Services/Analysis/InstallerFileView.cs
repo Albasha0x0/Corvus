@@ -42,11 +42,13 @@ internal sealed class InstallerFileView : IFileSummaryView
         var product = new Product(props.GetValueOrDefault("ProductName"), props.GetValueOrDefault("ProductVersion"), props.GetValueOrDefault("Manufacturer"),
             props.GetValueOrDefault("ProductCode"), props.GetValueOrDefault("UpgradeCode"), props.GetValueOrDefault("ProductLanguage"));
         var findings = new List<MacroFinding>();
+        var commands = new List<string?>();
         var steps = new List<CodeStep>();
         foreach (var ca in p.CustomActions)
         {
             var target = ca.Target is { Length: > 300 } t ? t[..297] + "..." : ca.Target;
             steps.Add(new CodeStep(ca.Action, ca.Kind, ca.SourceKind == "inline" ? "inline" : $"{ca.SourceKind} {ca.Source}", target, ca.Execution, ca.Sequences));
+            if (ca.Kind == "EXE") commands.Add($"{ca.Source} {ca.Target}");
             if (ca.Kind is "DLL" or "EXE" or "JScript" or "VBScript" or "nested install")
                 findings.Add(new MacroFinding("Suspicious", ca.Action, $"runs {ca.Kind} from {(ca.SourceKind == "inline" ? "inline text" : $"{ca.SourceKind} {ca.Source}")}, {ca.Execution}") { Location = "CustomAction" });
             // Script text is inline, in the Binary table, or a property's value.
@@ -72,6 +74,7 @@ internal sealed class InstallerFileView : IFileSummaryView
         foreach (var s in services.Where(s => s.Start is "automatic" or "boot" or "system"))
             findings.Add(new MacroFinding("Suspicious", s.Name, $"installs a service that starts {s.Start}{(s.Account != null ? $" as {s.Account}" : "")}") { Location = "ServiceInstall" });
         var shortcuts = (db.Table("Shortcut")?.Records() ?? []).Select(r => $"{MsiPackage.LongName(r.GetValueOrDefault("Name") as string)} -> {r.GetValueOrDefault("Target")}{(r.GetValueOrDefault("Arguments") is string a && a.Length > 0 ? " " + a : "")}").ToList();
+        commands.AddRange(shortcuts);
         foreach (var f in p.Files.Where(f => f.Path.Contains("/Startup/", StringComparison.Ordinal)))
             findings.Add(new MacroFinding("Suspicious", f.Path, "a file installed in the Startup folder runs at every logon") { Location = "File" });
         var cabinets = p.Files.Select(f => f.Cabinet).Where(c => c != null).Distinct().Select(c => c!.StartsWith('#') ? $"{c[1..]} (embedded)" : $"{c} (external)").ToList();
@@ -83,6 +86,6 @@ internal sealed class InstallerFileView : IFileSummaryView
         var h = new List<string> { $"Windows Installer package: {product.Name} {product.Version} by {product.Manufacturer}; {p.Files.Count} file(s), {steps.Count(s => s.Kind is "DLL" or "EXE" or "JScript" or "VBScript")} custom action(s) running code." };
         h.AddRange(p.CustomActions.Where(c => c.System && c.Kind is "DLL" or "EXE" or "JScript" or "VBScript").Take(5).Select(c => $"Custom action {c.Action} runs {c.Kind} as LocalSystem."));
         h.AddRange(findings.Where(f => f.Location is "Registry" or "ServiceInstall" or "File").Take(5).Select(f => $"Worth reviewing: {f.Description} ({f.Keyword})."));
-        return new FileView(facts, h) { Findings = FindingRules.FromMacros(findings, "installer") };
+        return new FileView(facts, h) { Findings = [.. FindingRules.FromMacros(findings, "installer"), .. FindingRules.FromLaunchers(Launchers.MatchAll(commands), "installer")] };
     }
 }

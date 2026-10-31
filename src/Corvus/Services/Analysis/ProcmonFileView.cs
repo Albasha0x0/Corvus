@@ -1,4 +1,5 @@
 using Corvus.Core;
+using Corvus.Core.Documents;
 using Corvus.Core.Logs;
 
 namespace Corvus.Services.Analysis;
@@ -64,7 +65,10 @@ internal sealed class ProcmonFileView : IFileSummaryView
         var created = log.Processes.Count(p => p.Started != null && first != null && p.Started >= first);
         if (created > 0) highlights.Add($"{created} process(es) started during the capture.");
         return new FileView(new Facts(log.Format, log.Header, log.Events, first, last, Top(operations), Top(processes), Top(results),
-            [.. log.Processes.Take(MaxProcesses).Select(Shorten)], filter, matched, offset, next, page, notes), highlights);
+            [.. log.Processes.Take(MaxProcesses).Select(Shorten)], filter, matched, offset, next, page, notes), highlights)
+        {
+            Findings = [.. log.Processes.SelectMany(p => FindingRules.FromLaunchers(Launchers.Match(p.CommandLine), "procmon", $"PID {p.Pid}"))],
+        };
     }
 
     private static bool Keeps(string filter, ProcmonLog.Event e) =>

@@ -104,7 +104,7 @@ internal static class ProcmonSamples
     }
 
     /// <summary>The backing file: events in order, the first at <see cref="Start"/> and each 10 ms after the one before.</summary>
-    public static byte[] Log(IReadOnlyList<Ev> events, string computer = "BUILD-HOST")
+    public static byte[] Log(IReadOnlyList<Ev> events, string computer = "BUILD-HOST", IReadOnlyList<Proc>? table = null)
     {
         var f = new Detail();
         f.Zero(0x3A8);
@@ -123,14 +123,15 @@ internal static class ProcmonSamples
         long offsetsAt = f.Length;
         foreach (var o in offsets) { f.U32((uint)o); f.U8(0); }
 
+        var processes = table ?? Processes;
         var strings = new List<string> { "" };
         int S(string s) { int i = strings.IndexOf(s); if (i < 0) { strings.Add(s); i = strings.Count - 1; } return i; }
         var records = new List<byte[]>();
-        for (int i = 0; i < Processes.Count; i++)
+        for (int i = 0; i < processes.Count; i++)
         {
-            var p = Processes[i];
+            var p = processes[i];
             var r = new Detail();
-            int parent = Processes.ToList().FindIndex(q => q.Pid == p.ParentPid);
+            int parent = processes.ToList().FindIndex(q => q.Pid == p.ParentPid);
             r.U32((uint)i + 1); r.U32((uint)p.Pid); r.U32((uint)p.ParentPid); r.U32((uint)(parent + 1)); r.U64(0x3E7); r.U32(1); r.U32(0);
             r.U64((ulong)Start.AddSeconds(-30 + i).ToFileTimeUtc()); r.U64(0); r.U32(0); r.U32(1);
             foreach (var s in new[] { "High", p.User, p.Name, p.ImagePath, p.CommandLine, "Sample Company", "1.0.0.0", "Sample program" }) r.U32((uint)S(s));

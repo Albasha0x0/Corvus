@@ -32,7 +32,7 @@ internal sealed class ShellLinkFileView : IFileSummaryView
         h.AddRange(findings.Where(x => x.Type == "Suspicious").Select(x => $"Worth reviewing: {x.Description}."));
         IEnumerable<(string, string)> fields = new[] { ("target", l.Target), ("arguments", l.Arguments), ("network path", l.NetworkPath), ("icon location", l.IconLocation), ("description", l.Name) }
             .Where(f => !string.IsNullOrEmpty(f.Item2)).Select(f => (f.Item2!, f.Item1));
-        return new FileView(facts, h) { Findings = FindingRules.FromMacros(findings, "shortcut"), Indicators = IndicatorList.FromText("lnk", fields, ct) };
+        return new FileView(facts, h) { Findings = [.. FindingRules.FromMacros(findings, "shortcut"), .. FindingRules.FromLaunchers(Launchers.Match($"{l.Target} {l.Arguments}"), "shortcut")], Indicators = IndicatorList.FromText("lnk", fields, ct) };
     }
 
     private static string Attributes(uint a)
