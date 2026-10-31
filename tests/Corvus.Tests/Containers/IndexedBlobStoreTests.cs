@@ -46,6 +46,62 @@ public sealed class IndexedBlobStoreTests
     }
 
     [Fact]
+    public void The_store_notes_name_entry_sizes_entropy_and_the_next_calls()
+    {
+        var contents = Open(Store(0, Text(400), Noise(600), Text(200)));
+        Assert.Contains(contents.Notes, n => n.Contains("3 entries, 1 of 3 measured above entropy 7.5") && n.Contains("entry_0000 400 bytes, entropy ") && n.Contains("entry_0001 600 bytes, entropy 7.") && n.Contains("entry_0002 200 bytes, entropy "));
+        Assert.Contains(contents.Notes, n => n.Contains("list_assemblies on this file") && n.Contains("unpack_container on this file"));
+    }
+
+    [Fact]
+    public void A_truncated_store_notes_the_entries_with_unknown_entropy()
+    {
+        var contents = Open(Store(100, Text(300), Text(300), Text(300)));
+        Assert.Contains(contents.Notes, n => n.Contains("0 of 2 measured") && n.Contains("1 with unknown entropy") && n.Contains("entry_0002 300 bytes, entropy unknown"));
+    }
+
+    [Fact]
+    public void Entries_past_the_extraction_limit_are_noted_with_unknown_entropy()
+    {
+        var limits = AnalysisLimits.Default with { MaxItems = 2 };
+        var contents = Containers.Open(Store(0, Text(100), Text(100), Text(100), Text(100)), "package.bin", limits, default);
+        Assert.Contains(contents.Notes, n => n.Contains("0 of 2 measured") && n.Contains("2 with unknown entropy") && n.Contains("entry_0003 100 bytes, entropy unknown"));
+    }
+
+    [Fact]
+    public async Task The_summary_reply_carries_the_entry_and_next_call_notes()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("package.bin");
+        File.WriteAllBytes(file, Store(0, Text(400), Noise(600), Text(200)));
+        using var workspace = new AssemblyWorkspace();
+        var tools = new Corvus.Tools.InspectionTools(new Corvus.Services.Analysis.InspectionService(workspace), workspace);
+        var text = await tools.SummarizeFile(path: file);
+        Assert.Contains("Note: 3 entries, 1 of 3 measured", text);
+        Assert.Contains("list_assemblies on this file", text);
+    }
+
+    [Fact]
+    public async Task The_overview_of_a_truncated_store_keeps_the_leading_notes()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("package.bin");
+        File.WriteAllBytes(file, Store(50, [.. Enumerable.Range(0, 20).Select(_ => Text(100))]));
+        using var workspace = new AssemblyWorkspace();
+        var tools = new Corvus.Tools.InspectionTools(new Corvus.Services.Analysis.InspectionService(workspace), workspace);
+        var text = await tools.SummarizeFile(path: file);
+        Assert.Contains("Note: 20 entries", text);
+        Assert.Contains("list_assemblies on this file", text);
+    }
+
+    [Fact]
+    public void A_store_with_more_than_eight_entries_names_the_count_listed()
+    {
+        var contents = Open(Store(0, [.. Enumerable.Range(0, 10).Select(_ => Text(100))]));
+        Assert.Contains(contents.Notes, n => n.Contains("8 of 10 entries"));
+    }
+
+    [Fact]
     public void An_entry_past_the_end_of_a_truncated_store_is_reported_as_damaged()
     {
         var contents = Open(Store(100, Text(300), Text(300), Text(300)));
