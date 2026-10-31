@@ -205,6 +205,11 @@ public sealed class ServerOptions
 
     public const string EngineOpenTimeoutVariable = "CORVUS_ENGINE_OPEN_TIMEOUT";
 
+    /// <summary>Seconds IDA's first analysis may report no progress and use under 1% of a core before it stops; null: the open limit applies instead.</summary>
+    public int? EngineAnalysisStallSeconds { get; set; }
+
+    public const string EngineAnalysisStallVariable = "CORVUS_ENGINE_ANALYSIS_STALL";
+
     /// <summary>
     /// The longest an in-process call may run, long-running tools included;
     /// null: no ceiling. Engine and live calls keep their own limits.
@@ -349,6 +354,7 @@ public sealed class ServerOptions
         if (Environment.GetEnvironmentVariable(LiveInstallFridaVariable)?.Trim() is "1" or "true" or "on") o.LiveInstallFrida = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
+        if (Environment.GetEnvironmentVariable(EngineAnalysisStallVariable) is { Length: > 0 }) o.EngineAnalysisStallSeconds = Seconds(EngineAnalysisStallVariable, 0);
         if (Environment.GetEnvironmentVariable(MaxCallMinutesVariable)?.Trim() is { Length: > 0 } minutes)
             o.CallCeiling = int.TryParse(minutes, out var m) && m >= 0 ? m == 0 ? null : TimeSpan.FromMinutes(m)
                 : throw new ArgumentException($"{MaxCallMinutesVariable} must be a number of minutes (0: no ceiling), not '{minutes}'");

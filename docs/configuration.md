@@ -189,6 +189,7 @@ Name the programs a session may start or attach to:
 | `CORVUS_GHIDRA_DECOMPILE_TIMEOUT`, `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` | 60, 200 | seconds per decompiled function (1-600); decompiler response limit in MB (16-2048) |
 | `CORVUS_ENGINE_ANALYSIS` | `full` | `none`: open images without auto-analysis, for huge or hostile inputs |
 | `CORVUS_ENGINE_MEMORY_MB` | ¾ of available | memory limit of each IDA or Ghidra worker (Windows job object); a worker at it is ended; `0`: none |
+| `CORVUS_ENGINE_ANALYSIS_STALL` | unset | seconds IDA's first analysis may show no progress and under 1% CPU before it stops; replaces the open limit |
 | `CORVUS_ENGINE_REQUEST_TIMEOUT`, `CORVUS_ENGINE_OPEN_TIMEOUT` | 120, 1200 | seconds per engine request (a stopped request returns what it found); seconds for an engine's start plus auto-analysis |
 | `CORVUS_STALL_DIR` | `<analysis cache>/ghidra/stalls` | thread dumps of Ghidra workers stopped for time |
 

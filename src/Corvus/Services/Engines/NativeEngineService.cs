@@ -55,6 +55,7 @@ public sealed class NativeEngineService : IDisposable
         DefaultMode = options?.Engine ?? EngineMode.Auto;
         RequestTimeout = TimeSpan.FromSeconds(options?.EngineRequestTimeoutSeconds ?? 120);
         OpenTimeout = TimeSpan.FromSeconds(options?.EngineOpenTimeoutSeconds ?? 1200);
+        _analysisStall = options?.EngineAnalysisStallSeconds is { } stall ? TimeSpan.FromSeconds(stall) : null;
         _analysis = options?.EngineAnalysis ?? EngineAnalysis.Full;
         _prewarm = options?.Prewarm;
         if (_prewarm != null && workspace != null) workspace.NativeLoaded += native => _ = PrewarmCore(native);
@@ -225,6 +226,7 @@ public sealed class NativeEngineService : IDisposable
     public TimeSpan OpenTimeout { get; }
 
     private readonly EngineAnalysis _analysis;
+    private readonly TimeSpan? _analysisStall;
 
     /// <summary>Engine answers kept across processes; null when switched off (<see cref="EngineOutputCache.MaxMegabytesVariable"/>=0).</summary>
     public EngineOutputCache? OutputCache => _outputCache.Value;
@@ -281,7 +283,7 @@ public sealed class NativeEngineService : IDisposable
             OutputCache = OutputCache,
             OutputIdentity = OutputIdentity(id) + ((native.Image as Native.RawCodeImage)?.Layout.Key is { } raw ? "|raw " + raw : "") +
                              (native.Overrides is { } ov ? "|" + ov.Key : ""),
-            Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, Analysis = _analysis,
+            Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout, AnalysisStall = _analysisStall, Analysis = _analysis,
             Raw = (native.Image as Native.RawCodeImage)?.Layout,
             Overrides = native.Overrides,
             GhidraDatabase = native.EngineDatabase,

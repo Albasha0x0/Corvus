@@ -207,6 +207,72 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task A_request_using_CPU_without_progress_outlasts_its_stall_limit_and_an_idle_one_is_stopped()
+    {
+        var clock = new ArmedClock();
+        // 5% of a core and no progress event: the request is busy, not stalled.
+        using (var worker = new FakeWorkerProcess { Cpu = () => clock.Elapsed * 0.05 })
+        using (var c = worker.Connect(new WorkerConnectionOptions { Time = clock }))
+        {
+            var busy = c.RequestAsync("hold", new JsonObject { ["tag"] = "busy" }, Timeout.InfiniteTimeSpan, default, stallLimit: TimeSpan.FromSeconds(1));
+            for (int i = 0; i < 40; i++)
+            {
+                await clock.ArmedAsync();
+                clock.Advance(TimeSpan.FromMilliseconds(125));
+            }
+            Assert.False(busy.IsCompleted);
+            worker.Release();
+            Assert.Equal("busy", (await busy).GetProperty("tag").GetString());
+        }
+        clock = new ArmedClock();
+        using (var worker = new FakeWorkerProcess { Cpu = () => TimeSpan.Zero })
+        using (var c = worker.Connect(new WorkerConnectionOptions { Time = clock }))
+        {
+            var idle = c.RequestAsync("hold", null, Timeout.InfiniteTimeSpan, default, stallLimit: TimeSpan.FromSeconds(1));
+            await clock.RunUntilAsync(idle, within: TimeSpan.FromSeconds(3));
+            var e = await Assert.ThrowsAsync<ToolError>(() => idle);
+            Assert.Equal(ErrorCode.Timeout, e.Code);
+            Assert.Contains("stalled on 'hold'", e.Message);
+        }
+    }
+
+    [Fact]
+    public async Task A_request_with_unreadable_CPU_time_is_stopped_after_its_stall_limit_without_progress()
+    {
+        var clock = new ArmedClock();
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(new WorkerConnectionOptions { Time = clock });
+        var silent = c.RequestAsync("hold", null, Timeout.InfiniteTimeSpan, default, stallLimit: TimeSpan.FromSeconds(1));
+        await clock.RunUntilAsync(silent, within: TimeSpan.FromSeconds(3));
+        var e = await Assert.ThrowsAsync<ToolError>(() => silent);
+        Assert.Contains("stalled on 'hold'", e.Message);
+        Assert.Contains("raise the stall limit", e.Remediation!);
+    }
+
+    [Fact]
+    public async Task A_progress_event_restarts_the_stall_window_of_an_idle_request()
+    {
+        var clock = new ArmedClock();
+        using var worker = new FakeWorkerProcess { Cpu = () => TimeSpan.Zero };
+        using var c = worker.Connect(new WorkerConnectionOptions { Time = clock });
+        var held = c.RequestAsync("hold", new JsonObject { ["tag"] = "alive" }, Timeout.InfiniteTimeSpan, default, stallLimit: TimeSpan.FromSeconds(1));
+        for (int i = 1; i <= 6; i++)
+        {
+            // Each event lands 800 ms after the last, inside the one-second window.
+            for (int step = 0; step < 4; step++)
+            {
+                await clock.ArmedAsync();
+                clock.Advance(TimeSpan.FromMilliseconds(200));
+            }
+            Assert.False(held.IsCompleted);
+            worker.Emit(new JsonObject { ["event"] = "progress", ["id"] = 1L, ["stage"] = "load" });
+            await Until(() => c.Running.FirstOrDefault()?.ProgressEvents == i);
+        }
+        worker.Release();
+        Assert.Equal("alive", (await held).GetProperty("tag").GetString());
+    }
+
+    [Fact]
     public async Task A_start_that_keeps_using_CPU_outlasts_its_idle_limit_and_an_idle_one_is_stopped()
     {
         var clock = new ArmedClock();

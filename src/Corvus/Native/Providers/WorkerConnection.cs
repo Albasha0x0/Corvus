@@ -181,7 +181,6 @@ public sealed class WorkerConnection : IDisposable
     // True when CPU time grew under 1% over the last idle; false when unreadable and idle passed.
     private async Task<bool> IdleAsync(TimeSpan idle, CancellationToken token)
     {
-        var step = idle / 8;
         var samples = new Queue<(long Ticks, TimeSpan Cpu)>();
         while (true)
         {
@@ -191,12 +190,18 @@ public sealed class WorkerConnection : IDisposable
                 await Task.Delay(idle, _options.Time, token).ConfigureAwait(false);
                 return false;
             }
-            samples.Enqueue((now, cpu));
-            while (samples.Count > 1 && _options.Time.GetElapsedTime(samples.ElementAt(1).Ticks, now) >= idle) samples.Dequeue();
-            var (first, used) = samples.Peek();
-            if (_options.Time.GetElapsedTime(first, now) >= idle && cpu - used < idle / 100) return true;
-            await Task.Delay(step, _options.Time, token).ConfigureAwait(false);
+            if (CpuIdle(samples, now, cpu, idle)) return true;
+            await Task.Delay(idle / 8, _options.Time, token).ConfigureAwait(false);
         }
+    }
+
+    // Records a CPU sample; true once the window is covered and used under 1% of a core.
+    private bool CpuIdle(Queue<(long Ticks, TimeSpan Cpu)> samples, long now, TimeSpan cpu, TimeSpan window)
+    {
+        samples.Enqueue((now, cpu));
+        while (samples.Count > 1 && _options.Time.GetElapsedTime(samples.ElementAt(1).Ticks, now) >= window) samples.Dequeue();
+        var (first, used) = samples.Peek();
+        return _options.Time.GetElapsedTime(first, now) >= window && cpu - used < window / 100;
     }
 
     /// <summary>What the request reached (written, progress, stage, log, last message age), telling slow from never run.</summary>
@@ -247,8 +252,9 @@ public sealed class WorkerConnection : IDisposable
         ? $"Raise {ServerOptions.EngineOpenTimeoutVariable} (seconds for an engine's start and analysis) and call again."
         : $"Retry with a larger time limit (timeoutSeconds where the tool takes it, or {ServerOptions.EngineRequestTimeoutVariable}).";
 
-    /// <summary>Sends one request and awaits its response; throws <see cref="ToolError"/>; stops after <paramref name="quiet"/> without progress.</summary>
-    public async Task<JsonElement> RequestAsync(string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, TimeSpan? quiet = null)
+    /// <summary>Sends one request and awaits its response; throws <see cref="ToolError"/>; stops after <paramref name="quiet"/> without progress, or after <paramref name="stallLimit"/> with neither progress nor CPU use (which replaces <paramref name="quiet"/>).</summary>
+    public async Task<JsonElement> RequestAsync(string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken, TimeSpan? quiet = null,
+        TimeSpan? stallLimit = null)
     {
         var serial = !_options.Concurrent;
         if (serial)
@@ -273,7 +279,7 @@ public sealed class WorkerConnection : IDisposable
 
             using var expiry = new CancellationTokenSource(timeout, _options.Time);
             using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
-            var wentQuiet = quiet is { } q ? QuietAsync(id, q, timer) : Task.FromResult(false);
+            var wentQuiet = stallLimit is { } st ? StalledAsync(id, st, timer) : quiet is { } q ? QuietAsync(id, q, timer) : Task.FromResult(false);
             var stop = Task.Delay(Timeout.Infinite, timer.Token);
             try
             {
@@ -286,10 +292,14 @@ public sealed class WorkerConnection : IDisposable
             if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
             if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw await DiedAsync(op).ConfigureAwait(false);
             var cancelled = cancellationToken.IsCancellationRequested;
+            var stalled = stallLimit != null && await wentQuiet.ConfigureAwait(false);
             // The quiet wait cancels the timer before returning, so its answer comes at once.
-            var limit = await wentQuiet.ConfigureAwait(false)
-                ? $"reported no progress on '{op}' for {Seconds(quiet!.Value)}"
-                : $"did not finish '{op}' within {Seconds(timeout)}";
+            var limit = stalled
+                ? $"stalled on '{op}': no progress and under 1% of a core for {Seconds(stallLimit!.Value)}"
+                : quiet != null && await wentQuiet.ConfigureAwait(false)
+                    ? $"reported no progress on '{op}' for {Seconds(quiet.Value)}"
+                    : $"did not finish '{op}' within {Seconds(timeout)}";
+            var next = stalled ? "The analysis made no progress; retry, or raise the stall limit." : _remediation(ErrorCode.Timeout, op);
             // Read the worker at the timeout, before the cancel, so the state shows the request still running or lost.
             var activity = cancelled ? "" : Activity(id, write);
             var stall = cancelled ? "" : Stall();
@@ -298,7 +308,7 @@ public sealed class WorkerConnection : IDisposable
                 if (cancelled) throw new OperationCanceledException(cancellationToken);
                 if (tcs.Task.Result.Ok) return tcs.Task.Result.Result;
                 throw new ToolError(ErrorCode.Timeout, $"{_name} {limit}; the request was cancelled.{activity}{stall}",
-                    _remediation(ErrorCode.Timeout, op));
+                    next);
             }
             if (cancelled)
             {
@@ -308,7 +318,7 @@ public sealed class WorkerConnection : IDisposable
             Kill($"'{op}' timed out");
             throw new ToolError(ErrorCode.Timeout,
                 $"{_name} {limit}; the worker was stopped.{activity}{stall}{StderrSuffix()}",
-                _remediation(ErrorCode.Timeout, op));
+                next);
         }
         finally
         {
@@ -343,6 +353,37 @@ public sealed class WorkerConnection : IDisposable
                     return true;
                 }
                 await Task.Delay(left, _options.Time, token).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) { return false; }
+    }
+
+    // True (and cancels timer) once the request reports no progress and the tree
+    // uses under 1% of a core for the stall window. Unreadable CPU time leaves
+    // no progress alone. False when it ends or the timer fires first.
+    private async Task<bool> StalledAsync(long id, TimeSpan stall, CancellationTokenSource timer)
+    {
+        var token = timer.Token;
+        var samples = new Queue<(long Ticks, TimeSpan Cpu)>();
+        try
+        {
+            while (true)
+            {
+                long last;
+                lock (_sync)
+                {
+                    if (!_running.TryGetValue(id, out var r)) return false;
+                    last = r.LastProgressTicks;
+                }
+                var now = _options.Time.GetTimestamp();
+                var silent = _options.Time.GetElapsedTime(last, now) >= stall;
+                var idle = _process.TreeCpuTime() is not { } c || CpuIdle(samples, now, c, stall);
+                if (silent && idle)
+                {
+                    timer.Cancel();
+                    return true;
+                }
+                await Task.Delay(stall / 8, _options.Time, token).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) { return false; }
