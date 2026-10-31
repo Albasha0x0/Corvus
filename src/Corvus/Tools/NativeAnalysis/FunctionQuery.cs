@@ -47,12 +47,13 @@ internal sealed record FunctionQuery(NameFilter? Filter, long? MinSize, long? Ma
         return found;
     }
 
-    /// <summary>The matching items in order: address and name ascend, size and callers descend, unless <see cref="Descending"/> says otherwise.</summary>
-    public List<T> Apply<T>(IEnumerable<T> items, Func<T, uint> start, Func<T, long> size, Func<T, string> name, Func<T, int> callers, Func<T, bool>? typed)
+    /// <summary>The matching items in order: address and name ascend, size and callers descend, unless <see cref="Descending"/> says otherwise; the filter also matches <paramref name="alias"/>.</summary>
+    public List<T> Apply<T>(IEnumerable<T> items, Func<T, uint> start, Func<T, long> size, Func<T, string> name, Func<T, int> callers, Func<T, bool>? typed,
+        Func<T, string?>? alias = null)
     {
         var list = items.Where(f => (MinSize == null || size(f) >= MinSize) && (MaxSize == null || size(f) <= MaxSize)
                                     && (From == null || start(f) >= From) && (To == null || start(f) < To)
-                                    && (HasType == null || typed!(f) == HasType) && (Filter == null || Filter.IsMatch(name(f))));
+                                    && (HasType == null || typed!(f) == HasType) && (Filter == null || (Filter.IsMatch(name(f)) || (alias?.Invoke(f) is { } a && Filter.IsMatch(a)))));
         bool down = Descending ?? Sort is "size" or "callers";
         IOrderedEnumerable<T> ordered = Sort switch
         {

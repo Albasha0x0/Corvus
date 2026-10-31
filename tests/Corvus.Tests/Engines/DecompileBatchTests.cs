@@ -54,6 +54,16 @@ public sealed class DecompileBatchTests : IDisposable
     }
 
     [Fact]
+    public async Task The_engine_function_name_is_shown_beside_ours_in_the_decompile_header()
+    {
+        var (tools, provider, native, first, second) = await Setup();
+        provider.Functions = [(first, second, "FUN_180001000"), (second, second + 0x10, "Second")];
+        var text = await tools.DecompileNative(native.Id, address: "First");
+        Assert.Contains("// First [engine: FUN_180001000] at", text);
+        Assert.DoesNotContain("[engine:", await tools.DecompileNative(native.Id, address: "Second"));
+    }
+
+    [Fact]
     public async Task MaxFunctions_skips_the_rest_with_the_follow_up_call()
     {
         var (tools, provider, native, _, _) = await Setup();

@@ -107,7 +107,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
     [Description("Functions of a native image: address, size, name, flags, how found and caller count. An exact name filter adds the " +
-                 "engine's function record.")]
+                 "engine's function record. Through an engine, a row adds [engine: name] when the engine's name differs; the filter matches both.")]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,

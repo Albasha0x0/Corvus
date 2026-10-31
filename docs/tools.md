@@ -1118,7 +1118,7 @@ Structured output: `items`.
 
 **List native functions** (read-only, idempotent, open-world, long-running)
 
-Functions of a native image: address, size, name, flags, how found and caller count. An exact name filter adds the engine's function record.
+Functions of a native image: address, size, name, flags, how found and caller count. An exact name filter adds the engine's function record. Through an engine, a row adds [engine: name] when the engine's name differs; the filter matches both.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

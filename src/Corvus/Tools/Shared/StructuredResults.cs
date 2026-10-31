@@ -54,7 +54,8 @@ public sealed record FunctionEntry(
     string Name,
     [property: Description("thunk, noreturn, unresolved jumps, invalid code, truncated, funclet, ...")] IReadOnlyList<string> Flags,
     [property: Description("How it was found.")] string Sources,
-    [property: Description("Call sites and other references reaching it.")] int References);
+    [property: Description("Call sites and other references reaching it.")] int References,
+    [property: Description("The engine's own name for it, when it differs from Name.")] string? EngineName = null);
 
 public sealed record FunctionList(string Image,
     [property: Description("Functions in the image (before the filter).")] int Functions,

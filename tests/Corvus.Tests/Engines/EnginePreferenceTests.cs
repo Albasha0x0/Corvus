@@ -246,13 +246,14 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         ida.Functions = [new(first, first + 0x20, "ida_First", NativeFunctionFlags.None, 1), new(first + 0x40, first + 0x60, "ida_only", NativeFunctionFlags.None, 1)];
         ghidra.Functions = [new(first, first + 0x20, "FUN_first", NativeFunctionFlags.None, 1), new(first + 0x40, first + 0x60, "ghidra_only", NativeFunctionFlags.None, 1)];
 
-        // Named: Ghidra's analysis is opened (IDA is not), every result says so and our names win.
+        // Named: Ghidra's analysis is opened (IDA is not), every result says so and our names
+        // win, with the engine's name beside them.
         var results = await CallAll(rig, "ghidra");
         foreach (var result in results) Assert.Contains("Engine: ghidra (engine=ghidra: Ghidra's analysis)", result);
         Assert.Contains("(via Ghidra)", results[0]);
         Assert.Contains("ghidra_only", results[0]);
         Assert.Contains("First", results[0]);
-        Assert.DoesNotContain("FUN_first", results[0]);
+        Assert.Contains("First [engine: FUN_first]", results[0]);
         Assert.Contains("ghidra_only", results[4]);
         Assert.Equal((0, 1), (ida.Opens, ghidra.Opens));
 

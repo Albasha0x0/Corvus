@@ -171,6 +171,32 @@ public sealed class EngineViewTests : IDisposable
     }
 
     [Fact]
+    public async Task The_engine_function_name_is_shown_beside_ours_in_the_listing()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        var first = (await rig.Code.Index(native, null, default)).AddressOfName("First")!.Value;
+        rig.Provider.Functions = [new NativeFunctionInfo(first, first + 0x10, "FUN_180001000", NativeFunctionFlags.None)];
+        var listing = await rig.Tools.ListFunctions(rig.Image, filter: "First", engine: "ghidra");
+        Assert.Contains("First [engine: FUN_180001000]", listing);
+        // The filter finds the function by the engine's name too.
+        Assert.Contains("First [engine: FUN_180001000]", await rig.Tools.ListFunctions(rig.Image, filter: "FUN_180001000", engine: "ghidra"));
+    }
+
+    [Fact]
+    public async Task No_engine_name_is_shown_when_it_equals_ours_or_is_empty()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        var first = (await rig.Code.Index(native, null, default)).AddressOfName("First")!.Value;
+        foreach (var engineName in new[] { "First", "" })
+        {
+            rig.Provider.Functions = [new NativeFunctionInfo(first, first + 0x10, engineName, NativeFunctionFlags.None)];
+            Assert.DoesNotContain("[engine:", await rig.Tools.ListFunctions(rig.Image, filter: "First", engine: "ghidra"));
+        }
+    }
+
+    [Fact]
     public async Task An_exact_name_and_the_dossier_show_the_engine_function_record_of_an_open_session()
     {
         var rig = Setup();

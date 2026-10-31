@@ -98,6 +98,10 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     private static string Name(NativeCodeIndex index, uint rva, string engineName) =>
         index.Sourced.NameAt(rva)?.Name ?? index.FunctionByStart(rva)?.KnownName ?? (engineName.Length > 0 ? engineName : $"sub_{rva:X}");
 
+    /// <summary>The engine's own name beside ours when the two differ, else empty.</summary>
+    private static string EngineAlias(string ours, string engineName) =>
+        engineName.Length > 0 && !string.Equals(ours, engineName, StringComparison.Ordinal) ? $" [engine: {engineName}]" : "";
+
     private static List<string> FlagList(NativeFunctionFlags flags)
     {
         var list = new List<string>();
@@ -156,16 +160,18 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         var session = await Session(native, choice, progress, ct);
         var functions = await LoadFunctions(session, references: true, ct);
         var list = query.Apply(functions.List.Select(f => (f, Name: Name(index, f.StartRva, f.Name))), x => x.f.StartRva, x => x.f.EndRva - x.f.StartRva,
-            x => x.Name, x => x.f.References ?? 0, x => x.f.Flags.HasFlag(NativeFunctionFlags.Typed));
+            x => x.Name, x => x.f.References ?? 0, x => x.f.Flags.HasFlag(NativeFunctionFlags.Typed),
+            x => x.f.Name);
         string Sources(NativeFunctionInfo f) => index.FunctionByStart(f.StartRva)?.Sources is { } declared ? $"{choice.Engine}, {declared}" : choice.Engine;
-        var lines = new RowView<(NativeFunctionInfo f, string Name)>(list, x => $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{Flags(x.f.Flags)}  ({Sources(x.f)}; {x.f.References ?? 0} refs)");
+        var lines = new RowView<(NativeFunctionInfo f, string Name)>(list, x => $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{EngineAlias(x.Name, x.f.Name)}{Flags(x.f.Flags)}  ({Sources(x.f)}; {x.f.References ?? 0} refs)");
         int thunks = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Thunk));
         int library = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Library));
         var display = NativeEngineService.DisplayName(choice.Engine);
         var coverage = Decoded(index) ? $"functions, sizes and references come from {display}'s analysis; names in effect here win over {display}'s"
             : $"{index.SupportNote ?? $"{index.Image.Arch} instructions are not decoded by the built-in analysis"}; functions, sizes and references come from {display}";
         var structured = Paged(list, offset, limit, (page, o, total, more) => new FunctionList(native.Id, functions.List.Count,
-            page.Select(x => new FunctionEntry(Va(index, x.f.StartRva), (int)(x.f.EndRva - x.f.StartRva), x.Name, FlagList(x.f.Flags), Sources(x.f), x.f.References ?? 0)).ToList(),
+            page.Select(x => new FunctionEntry(Va(index, x.f.StartRva), (int)(x.f.EndRva - x.f.StartRva), x.Name, FlagList(x.f.Flags), Sources(x.f), x.f.References ?? 0,
+                EngineAlias(x.Name, x.f.Name) is { Length: > 0 } ? x.f.Name : null)).ToList(),
             o, total, more, coverage, choice.Engine, choice.Note));
         int exact = query.ExactIndex(list, x => x.Name);
         var detail = exact >= 0 ? await RecordDetail(session, list[exact].f.StartRva, r => Va(index, r), ct) : "";

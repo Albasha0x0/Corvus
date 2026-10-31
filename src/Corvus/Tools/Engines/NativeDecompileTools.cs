@@ -390,7 +390,9 @@ public sealed partial class NativeAnalysisTools
         // The name in effect, as list_functions and search_decompiled show it.
         var (display, symbol) = NativeTools.Named(code?.Ready(native)?.NameAt(function.StartRva) ?? function.Name, native.Image.Format);
         // One stable header line; open time and saved-analysis state go in _meta.
-        var sb = new StringBuilder($"// {display} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
+        var alias = function.Name.Length > 0 && !string.Equals(function.Name, code?.Ready(native)?.NameAt(function.StartRva) ?? function.Name, StringComparison.Ordinal)
+            ? $" [engine: {NativeTools.Named(function.Name, native.Image.Format).Item1}]" : "";
+        var sb = new StringBuilder($"// {display}{alias} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
                                    $"{(session.DatabaseNote is { } note ? ", " + note : "")}{symbol})\n");
         for (int i = 0; i < lines.Length; i++)
             sb.Append(addresses ? (byLine.TryGetValue(i, out var at) ? $"/* {native.Image.ImageBase + at:X} */ " : new string(' ', 6 + 16 - 2)) : "")

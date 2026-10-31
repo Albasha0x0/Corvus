@@ -36,6 +36,10 @@
           "references": {
             "description": "Call sites and other references reaching it.",
             "type": "integer"
+          },
+          "engineName": {
+            "description": "The engine's own name for it, when it differs from Name.",
+            "type": "string"
           }
         },
         "required": [
