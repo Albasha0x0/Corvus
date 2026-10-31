@@ -553,6 +553,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                     if (a.Rva != f.Start || a.Comment != null)
                         x.Add(Va(a.Rva), $"{(a.Name != null && a.Rva != f.Start ? $"name {a.Name}" : "")}{(a.Name != null && a.Rva != f.Start && a.Comment != null ? "; " : "")}" +
                                          $"{(a.Comment != null ? $"comment {a.Comment}" : "")} ({a.Source.Id()})", a.Comment != null ? "comment" : "name");
+            CryptoAttribution.Notes(native, index, f, (address, text, kind) => x.Add(address, text, kind), ct);
             // capa runs from a survey only, as it reads the whole file for minutes; the dossier shows the labels it kept.
             if (Services.Analysis.NativeCapa.Cached(native.FilePath) is { } capa)
             {

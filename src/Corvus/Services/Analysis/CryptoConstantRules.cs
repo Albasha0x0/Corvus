@@ -309,6 +309,61 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         return (b[i] == 0x88 || b[i] == 0x8A) && (b[i + 1] & 0x07) == 0x04 && (b[i + 1] & 0xC0) != 0xC0;
     }
 
+    private static readonly string[] CipherKeys =
+        ["aes", "blowfish", "blowfish-sbox", "cast", "des", "twofish", "camellia", "sm4", "serpent", "rc5-rc6"];
+
+    // Table size in bytes from the signature: the AES S-box and the Blowfish P-array
+    // with four S-boxes are exact; other tables get a bounded span.
+    private static int TableSpan(string algorithm) => algorithm switch
+    {
+        "AES" => 256,
+        "Blowfish" => 4168,
+        _ => 1024,
+    };
+
+    /// <summary>
+    /// A cipher table found in an image: its range, the algorithm name and the
+    /// table kind (null when the rule has no table kind).
+    /// </summary>
+    internal sealed record CipherTable(uint Start, uint End, string Algorithm, string? Table);
+
+    /// <summary>
+    /// Every block cipher table in the image, in address order; empty when none
+    /// is found. A range covers the table size of the algorithm from the
+    /// signature, cut at the section end.
+    /// Bounded by the survey scan limit.
+    /// </summary>
+    internal static IReadOnlyList<CipherTable> CipherTables(INativeImage image, CancellationToken ct)
+    {
+        var result = new List<CipherTable>();
+        long budget = MaxScanBytes;
+        foreach (var section in image.Sections)
+        {
+            int size = (int)Math.Min(section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize), budget);
+            if (size <= 0) continue;
+            budget -= size;
+            var bytes = new byte[size];
+            int read = image.Read(section.Rva, bytes);
+            foreach (var key in CipherKeys)
+            {
+                var constant = Constants[key];
+                string name = constant.Algorithm.Split(" (")[0].Split(' ')[0];
+                foreach (var pattern in constant.Patterns)
+                    for (int from = 0; from < read;)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        int at = bytes.AsSpan(from, read - from).IndexOf(pattern.Bytes);
+                        if (at < 0) break;
+                        uint rva = section.Rva + (uint)(from + at);
+                        uint span = (uint)Math.Max(pattern.Bytes.Length, Math.Min(TableSpan(name), read - (from + at)));
+                        result.Add(new CipherTable(rva, rva + span, name, pattern.Table));
+                        from += at + pattern.Bytes.Length;
+                    }
+            }
+        }
+        return result.OrderBy(t => t.Start).ToList();
+    }
+
     public IReadOnlyCollection<string> Kinds => ["const"];
 
     public IEnumerable<Features.Rule> Rules =>

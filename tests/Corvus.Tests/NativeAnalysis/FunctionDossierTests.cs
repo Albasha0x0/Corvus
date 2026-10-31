@@ -180,6 +180,191 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.Equal(first, await Answer(() => tools.AnalyzeNativeFunction(path, "Main", sections: "flow")));
     }
 
+    /// <summary>
+    /// cipher.dll: Block reads the AES S-box; Wrapper calls Block in a loop that steps 16 bytes and names a storage
+    /// operation; Open and Save call Wrapper.
+    /// </summary>
+    private static (string Path, Dictionary<string, uint> At) CipherSample(
+        TempDir dir, int step = 0x10, bool loop = true, bool chain = false, bool zero = false,
+        bool mask = false, int rounds = 0, int extraCallers = 0)
+    {
+        Dictionary<string, uint>? at = null;
+        byte[] Code(Dictionary<string, uint> slots)
+        {
+            Instruction Rip(Iced.Intel.Code c, Register r, uint rva) => Instruction.Create(c, r, new MemoryOperand(Register.RIP, (long)(Base + rva), 8));
+            var a = new Assembler(64);
+            var block = a.CreateLabel();
+            var wrapper = a.CreateLabel();
+            var open = a.CreateLabel();
+            var save = a.CreateLabel();
+            var again = a.CreateLabel();
+            a.Label(ref open);
+            a.sub(rsp, 0x28);
+            a.call(wrapper);
+            a.add(rsp, 0x28);
+            a.ret();
+            for (int i = 0; i < 6; i++) a.int3();
+            a.Label(ref save);
+            a.sub(rsp, 0x28);
+            a.call(wrapper);
+            a.add(rsp, 0x28);
+            a.ret();
+            for (int i = 0; i < 6; i++) a.int3();
+            for (int c = 0; c < extraCallers; c++)
+            {
+                a.sub(rsp, 0x28);
+                a.call(wrapper);
+                a.add(rsp, 0x28);
+                a.ret();
+                for (int i = 0; i < 6; i++) a.int3();
+            }
+            a.Label(ref wrapper);
+            a.sub(rsp, 0x28);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RDX, slots["name"]));
+            a.mov(ecx, 0);
+            if (loop)
+            {
+                a.Label(ref again);
+                if (zero) a.xor(eax, eax);
+                if (chain) a.xor(edx, eax);
+                a.call(block);
+                a.add(ecx, step);
+                a.cmp(ecx, 0x40);
+                a.jl(again);
+            }
+            else a.call(block);
+            if (mask) a.and(ecx, 0xF);
+            if (rounds != 0) a.cmp(edx, rounds);
+            a.add(rsp, 0x28);
+            a.ret();
+            for (int i = 0; i < 6; i++) a.int3();
+            a.Label(ref block);
+            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r32_rm32, Register.EAX, slots["sbox"]));
+            a.ret();
+            var stream = new MemoryStream();
+            var result = a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text, BlockEncoderOptions.ReturnNewInstructionOffsets);
+            at = new()
+            {
+                ["Open"] = (uint)(result.GetLabelRIP(open) - Base), ["Save"] = (uint)(result.GetLabelRIP(save) - Base),
+                ["Wrapper"] = (uint)(result.GetLabelRIP(wrapper) - Base), ["Block"] = (uint)(result.GetLabelRIP(block) - Base),
+            };
+            return stream.ToArray();
+        }
+        static Dictionary<string, uint> Data(PeBlob blob, List<uint> relocations)
+        {
+            blob.Align(16);
+            var table = new byte[256];
+            byte[] head = [0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76];
+            head.CopyTo(table, 0);
+            uint sbox = blob.Bytes(table);
+            return new() { ["sbox"] = sbox, ["name"] = blob.Ascii("localStorageGetItem") };
+        }
+        LinkedImages.Build("cipher.dll", [], [("KERNEL32.dll", ["ExitProcess"])], Code, Data);
+        var path = dir.File("cipher.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("cipher.dll", [("Open", (int)(at!["Open"] - LinkedImages.Text))], [("KERNEL32.dll", ["ExitProcess"])], Code, Data));
+        return (path, at);
+    }
+
+    [Fact]
+    public async Task A_cipher_wrapper_names_its_algorithm_mode_and_local_record_path()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir);
+        var text = await Answer(() => tools.AnalyzeNativeFunction(path, $"rva:0x{at["Wrapper"]:X}", sections: "annotations"));
+        NativeLinkTests.Has(text, "crypto: calls ");
+        NativeLinkTests.Has(text, "(AES)");
+        NativeLinkTests.Has(text, "mode ECB");
+        NativeLinkTests.Has(text, "local record path (localStorageGetItem)");
+        NativeLinkTests.Has(text, "not network traffic");
+        Assert.DoesNotContain("network request", text);
+    }
+
+    private async Task<string> Wrapper(
+        int step = 0x10, bool loop = true, bool chain = false, bool zero = false,
+        bool mask = false, int rounds = 0, int extraCallers = 0, int maxItems = 40)
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir, step, loop, chain, zero, mask, rounds, extraCallers);
+        return await Answer(() => tools.AnalyzeNativeFunction(
+            path, $"rva:0x{at["Wrapper"]:X}", sections: "annotations", maxItems: maxItems));
+    }
+
+    [Fact]
+    public async Task A_zeroing_xor_in_the_block_loop_keeps_mode_ecb()
+    {
+        NativeLinkTests.Has(await Wrapper(zero: true), "mode ECB");
+    }
+
+    [Fact]
+    public async Task An_xor_between_blocks_is_reported_as_not_ecb()
+    {
+        var text = await Wrapper(chain: true);
+        NativeLinkTests.Has(text, "mode not ECB");
+        Assert.DoesNotContain("mode ECB", text);
+    }
+
+    [Fact]
+    public async Task A_loop_without_a_16_byte_step_leaves_the_mode_undetermined()
+    {
+        var text = await Wrapper(step: 8);
+        NativeLinkTests.Has(text, "mode not determined (a loop calls the block routine without a 16-byte step)");
+        Assert.DoesNotContain("mode ECB", text);
+    }
+
+    [Fact]
+    public async Task A_call_outside_a_loop_leaves_the_mode_undetermined()
+    {
+        NativeLinkTests.Has(await Wrapper(loop: false), "mode not determined (no loop calls the block routine)");
+    }
+
+    [Fact]
+    public async Task An_aes_round_count_compare_names_the_key_size()
+    {
+        NativeLinkTests.Has(await Wrapper(rounds: 0xC), "AES key size 192 bits");
+        var plain = await Wrapper();
+        NativeLinkTests.Has(plain, "AES key size not determined");
+    }
+
+    [Fact]
+    public async Task A_16_byte_mask_reports_the_padding_block_size_only_when_seen()
+    {
+        NativeLinkTests.Has(await Wrapper(mask: true), "padding to 16-byte blocks");
+        Assert.DoesNotContain("padding", await Wrapper());
+    }
+
+    [Fact]
+    public async Task A_wrapper_lists_every_caller_and_the_count_survives_a_section_limit()
+    {
+        var all = await Wrapper(extraCallers: 10);
+        NativeLinkTests.Has(all, "crypto: 12 callers");
+        Assert.True(System.Text.RegularExpressions.Regex.Count(all, "crypto caller: ") >= 12);
+        NativeLinkTests.Has(await Wrapper(extraCallers: 10, maxItems: 5), "crypto: 12 callers");
+    }
+
+    [Fact]
+    public async Task A_caller_of_a_wrapper_reaches_the_cipher_routine_two_calls_deep()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir);
+        var text = await Answer(() => tools.AnalyzeNativeFunction(path, $"rva:0x{at["Open"]:X}", sections: "annotations"));
+        NativeLinkTests.Has(text, "crypto: reaches ");
+    }
+
+    [Fact]
+    public async Task A_cipher_routine_names_its_references_and_callers()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir);
+        var block = await Answer(() => tools.AnalyzeNativeFunction(path, $"rva:0x{at["Block"]:X}", sections: "annotations"));
+        NativeLinkTests.Has(block, "crypto: reads AES tables");
+        NativeLinkTests.Has(block, "crypto: 1 caller");
+        NativeLinkTests.Has(block, "crypto caller: ");
+    }
+
     /// <summary>A call's text, record, warnings and coverage as one string, to compare repeats.</summary>
     internal static async Task<string> Answer(Func<Task<string>> call)
     {
