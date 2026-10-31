@@ -223,8 +223,8 @@ public sealed partial class NativeAnalysisTools(AssemblyWorkspace workspace, Nat
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify native imports", UseStructuredContent = true, OutputSchemaType = typeof(NativeImportReport))]
-    [Description("Check P/Invoke declarations, native PE imports (rows module!entry) or Mach-O load commands against library exports, as the loader resolves them. " +
-                 "Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked. PE reasons: exact, ordinal, forwarded, missing_export, missing_ordinal, forwarder_broken, dll_not_found, api_set_unmapped, system_dll_not_on_host.")]
+    [Description("Check P/Invoke declarations, native PE imports or Mach-O load commands against library exports, as the loader resolves them. " +
+                 "Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.")]
     public Task<string> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
         [Description("Only this verdict or reason (contradicted, missing_export...).")] string? status = null,

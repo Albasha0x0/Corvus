@@ -1556,7 +1556,7 @@ Emulate native code from an address: return value, registers and written strings
 | `memory` | string |  |  | ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000. |
 | `stopAt` | string |  |  | Addresses to stop at. |
 | `stubs` | string |  |  | Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image). |
-| `read` | string |  |  | Shown after the run: ADDR or register, space, length (rcx 64). |
+| `read` | string |  |  | Shown after the run: ADDR or register, space or colon, length (rcx 64). |
 | `maxInstructions` | integer |  | `1000000` | Instruction budget (1-50000000). |
 | `timeoutSeconds` | integer |  | `10` | Time budget, s (1-300). |
 | `trace` | integer |  | `0` | Last instructions listed (0-2000). |
@@ -1569,7 +1569,7 @@ Structured output: `image`, `engine`, `instructions`, `stop`, `stoppedAt`, `retu
 
 **Verify native imports** (read-only, idempotent, long-running)
 
-Check P/Invoke declarations, native PE imports (rows module!entry) or Mach-O load commands against library exports, as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked. PE reasons: exact, ordinal, forwarded, missing_export, missing_ordinal, forwarder_broken, dll_not_found, api_set_unmapped, system_dll_not_on_host.
+Check P/Invoke declarations, native PE imports or Mach-O load commands against library exports, as the loader resolves them. Verdicts: verified, contradicted, unresolved, dynamic_only, not_checked.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
