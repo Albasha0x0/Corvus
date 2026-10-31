@@ -504,7 +504,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                     ? $"string {(s.Encoding == StringEncoding.Utf16 ? "L" : "")}\"{Format.Clip(index.ReadString(s, 200), 120)}\""
                     : image.Imports.FirstOrDefault(i => i.SlotRva == to) is { } imp ? $"import slot {NativeCodeIndex.ImportName(imp)}"
                     : $"{(image.SectionAt(to) is { } sec && (sec.Access & SectionAccess.Write) != 0 ? "global" : "constant data")} {index.NameAt(to) ?? Va(to)}";
-                if (index.StringAt(to) == null && Services.Analysis.CryptoConstantRules.TableAt(index, to) is { } algorithm) what += $" ({algorithm})";
+                if (index.StringAt(to) == null && Services.Analysis.CryptoConstantRules.Facts(index, ct).TableContaining(to) is { } table) what += $" ({table.Algorithm})";
                 x.Add(Va(to), $"{kind} {what} ({Plural(g.Count(), "site")}, first at {Va(g.First().From)})", index.StringAt(to) != null ? "string" : kind);
             }
         }
@@ -554,7 +554,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                     if (a.Rva != f.Start || a.Comment != null)
                         x.Add(Va(a.Rva), $"{(a.Name != null && a.Rva != f.Start ? $"name {a.Name}" : "")}{(a.Name != null && a.Rva != f.Start && a.Comment != null ? "; " : "")}" +
                                          $"{(a.Comment != null ? $"comment {a.Comment}" : "")} ({a.Source.Id()})", a.Comment != null ? "comment" : "name");
-            CryptoAttribution.Notes(native, index, f, (address, text, kind) => x.Add(address, text, kind), ct);
+            CryptoAttribution.Notes(index, f, (address, text, kind) => x.Add(address, text, kind), ct);
             // capa runs from a survey only, as it reads the whole file for minutes; the dossier shows the labels it kept.
             if (Services.Analysis.NativeCapa.Cached(native.FilePath) is { } capa)
             {

@@ -398,7 +398,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             }
         }
         var plist = index.Image is Native.MachO.MachOFile ? AppleFileView.BundleInfo(index.Image.Path) : null;
-        var report = NativeReport(index, label, plist, ct);
+        var report = NativeReport(index, label, plist, ct, category);
         if (index.Image is Native.MachO.MachOFile)
             return string.Equals(category, CapaCategory, StringComparison.OrdinalIgnoreCase)
                 ? report with { Notes = [.. report.Notes, $"category {CapaCategory}: not checked: capa reads PE, ELF and .NET files"] } : report;
@@ -414,7 +414,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     }
 
     /// <summary>The rules over a native image's code index; a Mach-O image also gets the Apple app rules (with its bundle's Info.plist).</summary>
-    private static FeatureReport NativeReport(NativeCodeIndex index, string label, Core.Mobile.PlistDict? plist, CancellationToken ct)
+    internal static FeatureReport NativeReport(NativeCodeIndex index, string label, Core.Mobile.PlistDict? plist, CancellationToken ct,
+        string? category = null, long scanLimit = CryptoConstantRules.ScanLimit)
     {
         var scan = new NativeFeatureScan(index, ct);
         var mobile = index.Image is Native.MachO.MachOFile ? new MobileSubject { Platform = "apple", InfoPlist = plist } : null;
@@ -424,6 +425,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         if (index.Support != CodeSupport.Full) notes.Add(index.SupportNote ?? "instructions are not decoded: imports, strings and sections only");
         notes.AddRange(index.Truncations);
         notes.AddRange(scan.Notes);
+        // Constant rules are crypto rules; other categories never ran them.
+        bool constants = category == null || category.Equals("all", StringComparison.OrdinalIgnoreCase) || category.Equals("crypto", StringComparison.OrdinalIgnoreCase);
+        if (constants && CryptoConstantRules.Extent(index.Image, scanLimit).Note is { } partial) notes.Add(partial);
         return new FeatureReport(label, index.Functions.Count, found, notes);
     }
 

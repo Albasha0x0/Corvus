@@ -2,9 +2,11 @@ using Iced.Intel;
 using System.Buffers.Binary;
 using Corvus.Core;
 using Corvus.Native;
+using Corvus.Native.Code;
 using Corvus.Mcp;
 using Corvus.Native.Annotations;
 using Corvus.Services;
+using Corvus.Services.Analysis;
 using Corvus.Tools;
 using static Iced.Intel.AssemblerRegisters;
 
@@ -186,7 +188,7 @@ public sealed class FunctionDossierTests : IDisposable
     /// </summary>
     private static (string Path, Dictionary<string, uint> At) CipherSample(
         TempDir dir, int step = 0x10, bool loop = true, bool chain = false, bool zero = false,
-        bool mask = false, int rounds = 0, int extraCallers = 0)
+        bool mask = false, int rounds = 0, int extraCallers = 0, bool registerChain = false, bool interior = false)
     {
         Dictionary<string, uint>? at = null;
         byte[] Code(Dictionary<string, uint> slots)
@@ -226,7 +228,8 @@ public sealed class FunctionDossierTests : IDisposable
             {
                 a.Label(ref again);
                 if (zero) a.xor(eax, eax);
-                if (chain) a.xor(edx, eax);
+                if (chain) a.xor(__[rdx], eax);
+                if (registerChain) a.xor(edx, eax);
                 a.call(block);
                 a.add(ecx, step);
                 a.cmp(ecx, 0x40);
@@ -239,7 +242,7 @@ public sealed class FunctionDossierTests : IDisposable
             a.ret();
             for (int i = 0; i < 6; i++) a.int3();
             a.Label(ref block);
-            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r32_rm32, Register.EAX, slots["sbox"]));
+            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r32_rm32, Register.EAX, slots["sbox"] + (interior ? 100u : 0u)));
             a.ret();
             var stream = new MemoryStream();
             var result = a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text, BlockEncoderOptions.ReturnNewInstructionOffsets);
@@ -301,16 +304,76 @@ public sealed class FunctionDossierTests : IDisposable
     public async Task An_xor_between_blocks_is_reported_as_not_ecb()
     {
         var text = await Wrapper(chain: true);
-        NativeLinkTests.Has(text, "mode not ECB");
+        NativeLinkTests.Has(text, "mode CBC");
+        NativeLinkTests.Has(text, "confidence=medium");
         Assert.DoesNotContain("mode ECB", text);
     }
 
-    [Fact]
-    public async Task A_loop_without_a_16_byte_step_leaves_the_mode_undetermined()
+    private static NativeCodeIndex Index(string path) =>
+        NativeCodeIndex.Build(NativeImageLoader.FromBytes(File.ReadAllBytes(path), path));
+
+    private InspectionService Inspection()
     {
-        var text = await Wrapper(step: 8);
-        NativeLinkTests.Has(text, "mode not determined (a loop calls the block routine without a 16-byte step)");
-        Assert.DoesNotContain("mode ECB", text);
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var ws = new AssemblyWorkspace(options);
+        return new InspectionService(ws, new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann"))));
+    }
+
+    [Fact]
+    public async Task An_8_byte_block_loop_gets_the_mode_and_confidence_of_the_survey_rule()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir, 8);
+        var text = await Answer(() => tools.AnalyzeNativeFunction(path, $"rva:0x{at["Wrapper"]:X}", sections: "annotations"));
+        NativeLinkTests.Has(text, "crypto: mode ECB (block=8 bytes, confidence=low");
+        var rule = Inspection().SurveyFeatures(null, path, null, CancellationToken.None).Features
+            .SelectMany(f => f.Evidence).Single(e => e.Feature == "const:ecb-loop");
+        var location = Assert.Single(rule.Locations);
+        Assert.Contains("mode=ECB confidence=low", location);
+        Assert.Contains("block=8 bytes", location);
+    }
+
+    // A register xor is not chaining evidence for the loop shape.
+    [Fact]
+    public async Task A_register_xor_in_the_block_loop_is_not_read_as_chaining()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir, registerChain: true);
+        var text = await Answer(() => tools.AnalyzeNativeFunction(path, $"rva:0x{at["Wrapper"]:X}", sections: "annotations"));
+        NativeLinkTests.Has(text, "crypto: mode ECB (block=16 bytes, confidence=low");
+    }
+
+    [Fact]
+    public async Task A_reference_into_the_middle_of_a_table_is_named()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir, interior: true);
+        var text = await Answer(() => tools.AnalyzeNativeFunction(path, $"rva:0x{at["Block"]:X}", sections: "data"));
+        NativeLinkTests.Has(text, "constant data");
+        NativeLinkTests.Has(text, "(AES)");
+    }
+
+    [Fact]
+    public async Task A_capped_scan_reports_partial_not_absent()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, at) = CipherSample(_dir);
+        var index = Index(path);
+        var report = InspectionService.NativeReport(index, "cipher.dll", null, CancellationToken.None, scanLimit: 16);
+        Assert.Contains(report.Notes, n => n.StartsWith("partial: scanned 16 of ", StringComparison.Ordinal)
+                                           && n.Contains("unknown, not absent", StringComparison.Ordinal));
+        Assert.DoesNotContain(InspectionService.NativeReport(index, "cipher.dll", null, CancellationToken.None, "imports", 16).Notes,
+            n => n.StartsWith("partial:", StringComparison.Ordinal));
+        Assert.DoesNotContain(InspectionService.NativeReport(index, "cipher.dll", null, CancellationToken.None).Notes,
+            n => n.StartsWith("partial:", StringComparison.Ordinal));
+        var lines = new List<string>();
+        CryptoAttribution.Notes(index, Assert.Single(index.Functions, f => f.Start == at["Wrapper"]),
+            (_, text, _) => lines.Add(text), CancellationToken.None, scanLimit: 16);
+        Assert.Contains(lines, l => l.StartsWith("crypto: tables unknown (partial: scanned 16 of ", StringComparison.Ordinal));
     }
 
     [Fact]

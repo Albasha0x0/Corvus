@@ -11,7 +11,8 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 {
     private const int MaxLocations = 5;
     private const int MaxUsers = 32;
-    private const long MaxScanBytes = 256L << 20;
+    // Section bytes read per image by a scan; the rest is reported unscanned.
+    internal const long ScanLimit = 256L << 20;
 
     /// <summary>Describes one hit from the section bytes, the offset and the matched pattern; null adds no detail.</summary>
     private delegate string? DetailFn(ReadOnlySpan<byte> bytes, int at, byte[] pattern);
@@ -203,9 +204,9 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             [Le(0x61707865), Le(0x3320646E), Le(0x3120646E), Le(0x79622D32), Le(0x79622D36), Le(0x6B206574)]),
         ["rc4-loop"] = new("RC4 state fill and swap loops (x86 and x64 code shape, heuristic)", true, [], Shape: Rc4Loops),
         ["aes-schedule-code"] = new("AES key schedule expansion without tables (x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: AesSchedules),
-        ["ecb-loop"] = new("Possible block loop without chaining (x86 and x64 code shape, heuristic) [mode=ECB confidence=low]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ecb)),
-        ["cbc-loop"] = new("Block loop with chaining (x86 and x64 code shape, heuristic) [mode=CBC confidence=medium]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Cbc)),
-        ["ctr-loop"] = new("Block loop with a counter and a keystream xor (x86 and x64 code shape, heuristic) [mode=CTR confidence=medium]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ctr)),
+        ["ecb-loop"] = new($"Possible block loop without chaining (x86 and x64 code shape, heuristic) [mode=ECB confidence={LoopConfidence(LoopMode.Ecb)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ecb)),
+        ["cbc-loop"] = new($"Block loop with chaining (x86 and x64 code shape, heuristic) [mode=CBC confidence={LoopConfidence(LoopMode.Cbc)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Cbc)),
+        ["ctr-loop"] = new($"Block loop with a counter and a keystream xor (x86 and x64 code shape, heuristic) [mode=CTR confidence={LoopConfidence(LoopMode.Ctr)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ctr)),
         ["gcm-tag-code"] = new("GCM tag production (carry-less multiply or reduction constant 0xE1000000 or 0xE100000000000000, x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: GcmTags),
         ["chacha-round"] = new("ChaCha20 quarter round (rotates 16, 12, 8, 7; x86 and x64 code shape, heuristic)", true, [], Shape: ChaChaRounds),
         ["salsa-round"] = new("Salsa20 quarter round (rotates 7, 9, 13, 18; x86 and x64 code shape, heuristic)", true, [], Shape: SalsaRounds),
@@ -315,6 +316,11 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
 
     private enum LoopMode { Ecb, Cbc, Ctr }
 
+    // One confidence per mode, for the survey rule text and the dossier.
+    private static string LoopConfidence(LoopMode mode) => mode == LoopMode.Ecb ? "low" : "medium";
+
+    private readonly record struct LoopHit(int Step, int Target, int Length, LoopMode Mode, int Width);
+
     // Yields an AES-NI key generation assist or a software round-constant
     // doubling: shift left by one, then xor 1Bh.
     private static IEnumerable<(int At, int Length)> AesSchedules(byte[] b, int read, CancellationToken ct)
@@ -371,7 +377,10 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     // Yields a loop body whose block operation (a call or an AES-NI round) is
     // stepped by 8 or 16 bytes, classified by where it xors and counts.
     // Backward conditional jumps, jmp and loop close the body.
-    private static IEnumerable<(int At, int Length)> BlockLoops(byte[] b, int read, CancellationToken ct, LoopMode want)
+    private static IEnumerable<(int At, int Length)> BlockLoops(byte[] b, int read, CancellationToken ct, LoopMode want) =>
+        LoopScan(b, read, ct).Where(h => h.Mode == want).Select(h => (h.Step, h.Length));
+
+    private static IEnumerable<LoopHit> LoopScan(byte[] b, int read, CancellationToken ct)
     {
         const int MaxBody = 128;
         for (int i = 0; i + 6 <= read; i++)
@@ -401,7 +410,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             // A xor after the block call with no counter has no chaining
             // evidence, so it stays low confidence ECB; CBC decrypt lands here.
             var mode = counter && after ? LoopMode.Ctr : before ? LoopMode.Cbc : LoopMode.Ecb;
-            if (mode == want) yield return (step, end - target);
+            yield return new LoopHit(step, target, end - target, mode, WidthAt(b, step));
         }
     }
 
@@ -436,7 +445,10 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     // Reads the block width of the loop whose step instruction sits at the
     // offset.
     private static string? LoopWidth(ReadOnlySpan<byte> bytes, int at, byte[] _) =>
-        at + 3 <= bytes.Length ? $"block={bytes[at + 2]} bytes" : null;
+        at + 3 <= bytes.Length ? $"block={WidthAt(bytes, at)} bytes" : null;
+
+    // The block width operand of the step instruction at the offset.
+    private static int WidthAt(ReadOnlySpan<byte> bytes, int at) => bytes[at + 2];
 
     // Yields pclmulqdq or the reduction constant E1000000h as an immediate.
     private static IEnumerable<(int At, int Length)> GcmTags(byte[] b, int read, CancellationToken ct)
@@ -561,6 +573,13 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private static readonly string[] CipherKeys =
         ["aes", "blowfish", "blowfish-sbox", "cast", "des", "twofish", "camellia", "sm4", "serpent", "rc5-rc6"];
 
+    // Table size in bytes of non-cipher tables whose pattern is the table head.
+    // SHA-2 is absent: one rule matches both initial values and round constants.
+    private static readonly Dictionary<string, int> TableSizes = new()
+    {
+        ["md5"] = 256, ["crc32"] = 1024, ["crc32c"] = 1024, ["sha3"] = 192,
+    };
+
     // Table size in bytes from the signature: the AES S-box and the Blowfish P-array
     // with four S-boxes are exact; other tables get a bounded span.
     private static int TableSpan(string algorithm) => algorithm switch
@@ -571,32 +590,83 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     };
 
     /// <summary>
-    /// A cipher table found in an image: its range, the algorithm name and the
-    /// table kind (null when the rule has no table kind).
+    /// A constant table found in an image: its range, the algorithm name and the
+    /// table kind (null when the rule has no table kind). Cipher marks block
+    /// cipher tables.
     /// </summary>
-    internal sealed record CipherTable(uint Start, uint End, string Algorithm, string? Table);
+    internal sealed record CipherTable(uint Start, uint End, string Algorithm, string? Table, bool Cipher = true);
 
-    /// <summary>
-    /// Every block cipher table in the image, in address order; empty when none
-    /// is found. A range covers the table size of the algorithm from the
-    /// signature, cut at the section end.
-    /// Bounded by the survey scan limit.
-    /// </summary>
-    internal static IReadOnlyList<CipherTable> CipherTables(INativeImage image, CancellationToken ct)
+    /// <summary>A block loop found in code: its body, the step instruction, the mode and the block width in bytes.</summary>
+    internal sealed record BlockLoop(uint Start, uint Step, uint Length, string Mode, int Width, string Confidence);
+
+    /// <summary>Section bytes read by a scan, and section bytes in the image.</summary>
+    internal sealed record ScanExtent(long Scanned, long Total)
     {
-        var result = new List<CipherTable>();
-        long budget = MaxScanBytes;
+        /// <summary>True when the scan stopped before the end of the section bytes.</summary>
+        public bool Partial => Scanned < Total;
+
+        /// <summary>The note for a capped scan; null when the whole image was read.</summary>
+        public string? Note => Partial
+            ? $"partial: scanned {Scanned} of {Total} bytes; constants in the rest are unknown, not absent; "
+              + "search the rest with search_bytes (allSections=true)"
+            : null;
+    }
+
+    /// <summary>Table ranges and block loops of one image, found in one pass over its section bytes.</summary>
+    internal sealed record CryptoFacts(IReadOnlyList<CipherTable> Tables, IReadOnlyList<BlockLoop> Loops, ScanExtent Extent)
+    {
+        /// <summary>The table that contains the address, or null; the nearest start wins.</summary>
+        public CipherTable? TableContaining(uint rva) => Tables.LastOrDefault(t => rva >= t.Start && rva < t.End);
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<NativeCodeIndex, CryptoFacts> FactsCache = new();
+
+    private static long SectionSize(NativeSection section) =>
+        section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize);
+
+    /// <summary>The sections a scan reads, in image order, with the byte count taken from each within the limit.</summary>
+    internal static IReadOnlyList<(NativeSection Section, int Size)> Plan(INativeImage image, long limit = ScanLimit)
+    {
+        var plan = new List<(NativeSection, int)>();
+        long budget = limit;
         foreach (var section in image.Sections)
         {
-            int size = (int)Math.Min(section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize), budget);
+            int size = (int)Math.Min(SectionSize(section), budget);
             if (size <= 0) continue;
             budget -= size;
+            plan.Add((section, size));
+        }
+        return plan;
+    }
+
+    /// <summary>How many of the image's section bytes a scan with the limit reads.</summary>
+    internal static ScanExtent Extent(INativeImage image, long limit = ScanLimit) =>
+        new(Plan(image, limit).Sum(p => (long)p.Size), image.Sections.Sum(s => Math.Max(0, SectionSize(s))));
+
+    /// <summary>
+    /// The table ranges and block loops of the image, computed once per code index.
+    /// Empty lists mean none found in the scanned bytes; the extent says whether that is complete.
+    /// Bounded by <see cref="ScanLimit"/>.
+    /// </summary>
+    internal static CryptoFacts Facts(NativeCodeIndex index, CancellationToken ct, long limit = ScanLimit) =>
+        limit != ScanLimit ? Scan(index.Image, limit, ct)
+        : FactsCache.TryGetValue(index, out var cached) ? cached : FactsCache.GetValue(index, i => Scan(i.Image, ScanLimit, ct));
+
+    /// <summary>Scans the image's sections once for table ranges and block loops, reading at most the limit.</summary>
+    internal static CryptoFacts Scan(INativeImage image, long limit, CancellationToken ct)
+    {
+        var tables = new List<CipherTable>();
+        var loops = new List<BlockLoop>();
+        foreach (var (section, size) in Plan(image, limit))
+        {
             var bytes = new byte[size];
             int read = image.Read(section.Rva, bytes);
-            foreach (var key in CipherKeys)
+            foreach (var (key, constant) in Constants)
             {
-                var constant = Constants[key];
-                string name = constant.Algorithm.Split(" (")[0].Split(' ')[0];
+                bool cipher = CipherKeys.Contains(key);
+                if (!cipher && (constant.CodeOnly || constant.Version || constant.Weak || constant.Shape is not null)) continue;
+                // Cipher names stay short; other tables keep the full name.
+                string name = cipher ? constant.Algorithm.Split(" (")[0].Split(' ')[0] : constant.Algorithm.Split(" (")[0];
                 foreach (var pattern in constant.Patterns)
                     for (int from = 0; from < read;)
                     {
@@ -604,13 +674,20 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                         int at = bytes.AsSpan(from, read - from).IndexOf(pattern.Bytes);
                         if (at < 0) break;
                         uint rva = section.Rva + (uint)(from + at);
-                        uint span = (uint)Math.Max(pattern.Bytes.Length, Math.Min(TableSpan(name), read - (from + at)));
-                        result.Add(new CipherTable(rva, rva + span, name, pattern.Table));
+                        // Tables without a known size cover the matched head.
+                        int known = cipher ? TableSpan(name) : TableSizes.GetValueOrDefault(key);
+                        uint span = (uint)Math.Max(pattern.Bytes.Length, Math.Min(known, read - (from + at)));
+                        tables.Add(new CipherTable(rva, rva + span, name, pattern.Table, cipher));
                         from += at + pattern.Bytes.Length;
                     }
             }
+            bool code = (section.Access & (SectionAccess.Execute | SectionAccess.Code)) != 0;
+            if (code && image.Arch is NativeArch.X86 or NativeArch.X64)
+                foreach (var h in LoopScan(bytes, read, ct))
+                    loops.Add(new BlockLoop(section.Rva + (uint)h.Target, section.Rva + (uint)h.Step, (uint)h.Length,
+                        h.Mode.ToString().ToUpperInvariant(), h.Width, LoopConfidence(h.Mode)));
         }
-        return result.OrderBy(t => t.Start).ToList();
+        return new CryptoFacts([.. tables.OrderBy(t => t.Start)], loops, Extent(image, limit));
     }
 
     public IReadOnlyCollection<string> Kinds => ["const"];
@@ -665,26 +742,6 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     private static string Names(List<NativeFunction> functions) =>
         string.Join(", ", functions.Take(MaxUsers).Select(f => f.Name)) + (functions.Count > MaxUsers ? ", ..." : "");
 
-    /// <summary>
-    /// Names the algorithm whose table starts at the address, or null when none does.
-    /// Immediate-only, version and weak sets are not tables and never match.
-    /// </summary>
-    internal static string? TableAt(NativeCodeIndex index, uint rva)
-    {
-        var buffer = new byte[MaxTableHead];
-        int read = index.Image.Read(rva, buffer);
-        foreach (var constant in Constants.Values)
-        {
-            if (constant.CodeOnly || constant.Version || constant.Weak || constant.Shape is not null) continue;
-            foreach (var pattern in constant.Patterns)
-                if (read >= pattern.Bytes.Length && buffer.AsSpan(0, pattern.Bytes.Length).SequenceEqual(pattern.Bytes))
-                    return constant.Algorithm;
-        }
-        return null;
-    }
-
-    private static readonly int MaxTableHead = Constants.Values.SelectMany(c => c.Patterns).Max(p => p.Bytes.Length);
-
     // Reads the dotted number that ends a version prefix, e.g. "1.3.1".
     private static string VersionAfter(byte[] bytes, int at, int prefixLength)
     {
@@ -699,15 +756,11 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         var image = index.Image;
         var locations = new List<string>();
         int count = 0;
-        long budget = MaxScanBytes;
-        foreach (var section in image.Sections)
+        foreach (var (section, size) in Plan(image))
         {
             bool code = (section.Access & (SectionAccess.Execute | SectionAccess.Code)) != 0;
             if (constant.CodeOnly && !code) continue;
             if (constant.Shape is not null && image.Arch is not (NativeArch.X86 or NativeArch.X64)) continue;
-            int size = (int)Math.Min(section.VirtualSize == 0 ? section.RawSize : Math.Min(section.VirtualSize, section.RawSize), budget);
-            if (size <= 0) continue;
-            budget -= size;
             var bytes = new byte[size];
             int read = image.Read(section.Rva, bytes);
             if (constant.Shape is { } shape)

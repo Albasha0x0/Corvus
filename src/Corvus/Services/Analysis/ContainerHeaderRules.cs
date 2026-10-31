@@ -15,7 +15,6 @@ internal sealed class ContainerHeaderRules : ISurveyRuleProvider
     private const int MaxEntries = 256;
     private const int MinBody = 600;
     private const int MaxReferences = 3;
-    private const long MaxScanBytes = 256L << 20;
     private const double BodyEntropy = 7.5;
 
     public IReadOnlyCollection<string> Kinds => ["container"];
@@ -34,15 +33,8 @@ internal sealed class ContainerHeaderRules : ISurveyRuleProvider
         if (subject.Native is not { } index || feature != "container:header") return null;
         var image = index.Image;
         var sections = new List<(NativeSection Section, byte[] Bytes)>();
-        long budget = MaxScanBytes;
-        foreach (var section in image.Sections)
+        foreach (var (section, size) in CryptoConstantRules.Plan(image))
         {
-            long span = section.VirtualSize == 0
-                ? section.RawSize
-                : Math.Min(section.VirtualSize, section.RawSize);
-            int size = (int)Math.Min(span, budget);
-            if (size <= 0) continue;
-            budget -= size;
             var bytes = new byte[size];
             int read = image.Read(section.Rva, bytes);
             sections.Add((section, read == size ? bytes : bytes[..read]));

@@ -16,16 +16,8 @@ internal static partial class CryptoAttribution
     private const int MaxDepth = 3;
     private const int MaxLines = 4096;
 
-    private sealed record TableSet(IReadOnlyList<CryptoConstantRules.CipherTable> Tables);
-
     [GeneratedRegex(@"(?<![A-Za-z])(local|session)Storage(?![a-z])|(?<![A-Za-z])IndexedDB(?![a-z])|document\.cookie")]
     private static partial Regex StoragePath();
-
-    [GeneratedRegex(@"^\s*(?:xor|pxor|xorps|vpxor)\s+(?<ops>.+)$", RegexOptions.IgnoreCase)]
-    private static partial Regex Xor();
-
-    [GeneratedRegex(@"\b(add|inc)\b.*[, ](10h|0x10|16)\b", RegexOptions.IgnoreCase)]
-    private static partial Regex Step16();
 
     [GeneratedRegex(@"\band\b.*[, ](0Fh|0x0?f|15)\b", RegexOptions.IgnoreCase)]
     private static partial Regex Mask15();
@@ -39,13 +31,17 @@ internal static partial class CryptoAttribution
     /// the function neither reads nor reaches one.
     /// </summary>
     internal static void Notes(
-        LoadedNative native, NativeCodeIndex index, NativeFunction f,
-        Action<string?, string, string> add, CancellationToken ct)
+        NativeCodeIndex index, NativeFunction f,
+        Action<string?, string, string> add, CancellationToken ct, long scanLimit = CryptoConstantRules.ScanLimit)
     {
         var image = index.Image;
-        var tables = native.GetAnalysis(
-            _ => new TableSet(CryptoConstantRules.CipherTables(image, ct))).Tables;
-        if (tables.Count == 0) return;
+        var facts = CryptoConstantRules.Facts(index, ct, scanLimit);
+        var tables = facts.Tables.Where(t => t.Cipher).ToList();
+        if (tables.Count == 0)
+        {
+            if (facts.Extent.Note is { } note) add(null, $"crypto: tables unknown ({note})", "crypto");
+            return;
+        }
         string Va(uint r) => NativeAddress.Va(image, r);
         string Name(NativeFunction fn) => index.NameAt(fn.Start) ?? fn.Name;
 
@@ -92,22 +88,18 @@ internal static partial class CryptoAttribution
                 + $"({string.Join(", ", algorithms)}) at {Va(callee.Start)}", "crypto");
 
         var lines = Lines(index, f);
-        var loop = BlockLoop(index, f, [.. reached.Select(r => r.Site)], ct);
-        if (loop is { } l)
+        if (reached.Count > 0)
         {
-            var body = lines.Where(x => x.Rva >= l.Start && x.Rva < l.End).ToList();
-            bool chained = body.Any(x => IsChainingXor(x.Text));
-            bool step = body.Any(x => Step16().IsMatch(x.Text));
-            add(Va(l.Start), step
-                ? chained
-                    ? "crypto: mode not ECB (xor in the 16-byte block loop: chained or counter)"
-                    : "crypto: mode ECB (a 16-byte block loop calls the block routine; "
-                      + "no xor in the loop body)"
-                : "crypto: mode not determined (a loop calls the block routine "
-                  + "without a 16-byte step)", "crypto");
+            if (index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
+                add(Va(f.Start), "crypto: mode not determined (loop shapes are read on x86 and x64 only)", "crypto");
+            else if (BlockLoop(index, f, facts, [.. reached.Select(r => r.Site)]) is { } loop)
+                add(Va(loop.Start),
+                    $"crypto: mode {loop.Mode} (block={loop.Width} bytes, confidence={loop.Confidence}; "
+                    + "a loop steps the block routine call)", "crypto");
+            else
+                add(Va(f.Start), "crypto: mode not determined (no loop calls the block routine"
+                    + (facts.Extent.Partial ? $"; {facts.Extent.Note}" : "") + ")", "crypto");
         }
-        else if (reached.Count > 0)
-            add(Va(f.Start), "crypto: mode not determined (no loop calls the block routine)", "crypto");
 
         if (algorithmNames.Contains("AES"))
         {
@@ -138,14 +130,6 @@ internal static partial class CryptoAttribution
                       + "stored data, not network traffic", "crypto");
     }
 
-    // A zeroing idiom (identical operands) does not chain blocks.
-    private static bool IsChainingXor(string text)
-    {
-        if (Xor().Match(text) is not { Success: true } m) return false;
-        var ops = m.Groups["ops"].Value.Split(',', StringSplitOptions.TrimEntries);
-        return ops.Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-    }
-
     private static List<DisasmLine> Lines(NativeCodeIndex index, NativeFunction fn)
     {
         var all = new List<DisasmLine>();
@@ -155,20 +139,15 @@ internal static partial class CryptoAttribution
         return all;
     }
 
-    // A loop is a back edge: its target block starts at or before its source.
-    private static (uint Start, uint End)? BlockLoop(
-        NativeCodeIndex index, NativeFunction f, HashSet<uint> sites, CancellationToken ct)
+    // Smallest shared loop in the function that contains a block routine call.
+    private static CryptoConstantRules.BlockLoop? BlockLoop(
+        NativeCodeIndex index, NativeFunction f, CryptoConstantRules.CryptoFacts facts, HashSet<uint> sites)
     {
-        if (sites.Count == 0) return null;
-        var graph = index.GetGraph(f, ct);
-        (uint Start, uint End)? best = null;
-        foreach (var b in graph.Blocks)
-            foreach (var e in b.Successors)
-                if (graph.BlockAt(e.To) is { } t && t.Start <= b.Start && e.Kind != EdgeKind.TailCall
-                    && sites.Any(s => s >= t.Start && s < b.End)
-                    && (best is null || b.End - t.Start < best.Value.End - best.Value.Start))
-                    best = (t.Start, b.End);
-        return best;
+        var ranges = index.Ranges(f).ToList();
+        return facts.Loops
+            .Where(l => ranges.Exists(r => l.Start >= r.Start && l.Start < r.End)
+                        && sites.Any(s => s >= l.Start && s < l.Start + l.Length))
+            .OrderBy(l => l.Length).FirstOrDefault();
     }
 
     // Strings that name a storage operation, from the function and two caller levels.

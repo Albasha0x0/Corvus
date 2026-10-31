@@ -1005,7 +1005,7 @@ public sealed class CryptoConstantTests : IDisposable
             ["sections"] = "data",
         });
         var text = string.Concat(r.Content.OfType<TextContentBlock>().Select(b => b.Text));
-        Assert.Contains("180002000", Lines(text, Pa), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("180002000", Lines(text, "(Blowfish)"), StringComparison.OrdinalIgnoreCase);
     }
     // The two library surveys scan megabytes of native code, so they run in the full set.
     [Fact]
