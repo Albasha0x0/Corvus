@@ -134,7 +134,10 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
 
     /// <summary>
     /// emu.dll exports: XorDecode(dst, src, n) writes src[i] ^ 0x5A; Fnv1a(s) returns the 32-bit FNV-1a of a NUL-terminated string;
-    /// HashName() returns Fnv1a("kernel32.dll") + 1 through a call; Ticks() returns GetTickCount() + 1; Deref(p) returns *(int*)p; Spin() loops.
+    /// HashName() returns Fnv1a("kernel32.dll") + 1 through a call; Ticks() returns GetTickCount() + 1; Deref(p) returns *(int*)p; Spin() loops;
+    /// Alloc(n) returns malloc(n); Calloc(a, b), Realloc(p, n) and Free(p) forward to the heap imports;
+    /// ThunkAlloc(n) calls malloc through a jump stub; HeapRoundTrip, HeapReuse, DoubleFree, UseAfterFree,
+    /// PastEnd, GrowFail and ReallocZero call the heap imports in sequence.
     /// </summary>
     internal static string Build(TempDir dir, Dictionary<string, uint> at)
     {
@@ -144,6 +147,21 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             Label xorDecode = a.CreateLabel(), xorLoop = a.CreateLabel(), xorDone = a.CreateLabel();
             Label fnv = a.CreateLabel(), fnvLoop = a.CreateLabel(), fnvEnd = a.CreateLabel();
             Label hashName = a.CreateLabel(), ticks = a.CreateLabel(), deref = a.CreateLabel(), spin = a.CreateLabel();
+            Label alloc = a.CreateLabel(), roundTrip = a.CreateLabel(), reuse = a.CreateLabel(), twice = a.CreateLabel();
+            Label calloc = a.CreateLabel(), realloc = a.CreateLabel(), free = a.CreateLabel(), thunkCall = a.CreateLabel();
+            Label thunk = a.CreateLabel(), useAfterFree = a.CreateLabel(), pastEnd = a.CreateLabel();
+            Label growFail = a.CreateLabel(), reallocZero = a.CreateLabel();
+            void CallImport(string key) => a.AddInstruction(Instruction.Create(
+                Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base + slots[key]), 8)));
+            void Forward(ref Label label, string key)
+            {
+                a.Label(ref label);
+                a.sub(rsp, 0x28);
+                CallImport(key);
+                a.add(rsp, 0x28);
+                a.ret();
+                Pad(a);
+            }
             a.Label(ref xorDecode);
             a.test(r8d, r8d);
             a.jz(xorDone);
@@ -192,6 +210,123 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             Pad(a);
             a.Label(ref spin);
             a.jmp(spin);
+            Pad(a);
+            Forward(ref alloc, "msvcrt.dll!malloc");
+            Forward(ref calloc, "msvcrt.dll!calloc");
+            Forward(ref realloc, "msvcrt.dll!realloc");
+            Forward(ref free, "msvcrt.dll!free");
+            a.Label(ref thunkCall);
+            a.sub(rsp, 0x28);
+            a.call(thunk);
+            a.add(rsp, 0x28);
+            a.ret();
+            Pad(a);
+            a.Label(ref thunk);
+            a.AddInstruction(Instruction.Create(
+                Iced.Intel.Code.Jmp_rm64, new MemoryOperand(Register.RIP, (long)(Base + slots["msvcrt.dll!malloc"]), 8)));
+            Pad(a);
+            // p = malloc(8); free(p); return *p.
+            a.Label(ref useAfterFree);
+            a.sub(rsp, 0x38);
+            a.mov(ecx, 8);
+            CallImport("msvcrt.dll!malloc");
+            a.mov(__qword_ptr[rsp + 0x30], rax);
+            a.mov(rcx, rax);
+            CallImport("msvcrt.dll!free");
+            a.mov(rax, __qword_ptr[rsp + 0x30]);
+            a.mov(rax, __qword_ptr[rax]);
+            a.add(rsp, 0x38);
+            a.ret();
+            Pad(a);
+            // p = malloc(16); return the 8 bytes that start at p + 16.
+            a.Label(ref pastEnd);
+            a.sub(rsp, 0x28);
+            a.mov(ecx, 16);
+            CallImport("msvcrt.dll!malloc");
+            a.mov(rax, __qword_ptr[rax + 16]);
+            a.add(rsp, 0x28);
+            a.ret();
+            Pad(a);
+            // p = malloc(8); *p = 0x77; realloc(p, 1 << 30) fails; return *p.
+            a.Label(ref growFail);
+            a.sub(rsp, 0x38);
+            a.mov(ecx, 8);
+            CallImport("msvcrt.dll!malloc");
+            a.mov(__qword_ptr[rsp + 0x30], rax);
+            a.mov(__qword_ptr[rax], 0x77);
+            a.mov(rcx, rax);
+            a.mov(edx, 0x40000000);
+            CallImport("msvcrt.dll!realloc");
+            a.mov(rax, __qword_ptr[rsp + 0x30]);
+            a.mov(rax, __qword_ptr[rax]);
+            a.add(rsp, 0x38);
+            a.ret();
+            Pad(a);
+            // p = malloc(8); realloc(p, 0) releases p; free(p) is then a repeated release.
+            a.Label(ref reallocZero);
+            a.sub(rsp, 0x38);
+            a.mov(ecx, 8);
+            CallImport("msvcrt.dll!malloc");
+            a.mov(__qword_ptr[rsp + 0x30], rax);
+            a.mov(rcx, rax);
+            a.xor(edx, edx);
+            CallImport("msvcrt.dll!realloc");
+            a.mov(rcx, __qword_ptr[rsp + 0x30]);
+            CallImport("msvcrt.dll!free");
+            a.add(rsp, 0x38);
+            a.ret();
+            Pad(a);
+            // p = malloc(16); *p = 0x1234; p = realloc(p, 64); r = *p; free(p); return r.
+            a.Label(ref roundTrip);
+            a.sub(rsp, 0x38);
+            a.mov(ecx, 16);
+            CallImport("msvcrt.dll!malloc");
+            a.mov(__qword_ptr[rax], 0x1234);
+            a.mov(rcx, rax);
+            a.mov(edx, 64);
+            CallImport("msvcrt.dll!realloc");
+            a.mov(r10, __qword_ptr[rax]);
+            a.mov(__qword_ptr[rsp + 0x30], r10);
+            a.mov(rcx, rax);
+            CallImport("msvcrt.dll!free");
+            a.mov(rax, __qword_ptr[rsp + 0x30]);
+            a.add(rsp, 0x38);
+            a.ret();
+            Pad(a);
+            // p = malloc(24); *p = 0x55; free(p); q = calloc(1, 24); return (q == p) + 2 * *q.
+            a.Label(ref reuse);
+            a.sub(rsp, 0x38);
+            a.mov(ecx, 24);
+            CallImport("msvcrt.dll!malloc");
+            a.mov(__qword_ptr[rsp + 0x30], rax);
+            a.mov(__qword_ptr[rax], 0x55);
+            a.mov(rcx, rax);
+            CallImport("msvcrt.dll!free");
+            a.mov(ecx, 1);
+            a.mov(edx, 24);
+            CallImport("msvcrt.dll!calloc");
+            a.mov(rcx, __qword_ptr[rsp + 0x30]);
+            a.mov(r10, __qword_ptr[rax]);
+            a.add(r10, r10);
+            a.xor(edx, edx);
+            a.cmp(rax, rcx);
+            a.sete(dl);
+            a.lea(rax, __[r10 + rdx]);
+            a.add(rsp, 0x38);
+            a.ret();
+            Pad(a);
+            // p = malloc(8); free(p); free(p).
+            a.Label(ref twice);
+            a.sub(rsp, 0x38);
+            a.mov(ecx, 8);
+            CallImport("msvcrt.dll!malloc");
+            a.mov(__qword_ptr[rsp + 0x30], rax);
+            a.mov(rcx, rax);
+            CallImport("msvcrt.dll!free");
+            a.mov(rcx, __qword_ptr[rsp + 0x30]);
+            CallImport("msvcrt.dll!free");
+            a.add(rsp, 0x38);
+            a.ret();
             var stream = new MemoryStream();
             var result = a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text, BlockEncoderOptions.ReturnNewInstructionOffsets);
             uint Rva(Label l) => (uint)(result.GetLabelRIP(l) - Base);
@@ -202,6 +337,18 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             at["Ticks"] = Rva(ticks);
             at["Deref"] = Rva(deref);
             at["Spin"] = Rva(spin);
+            at["Alloc"] = Rva(alloc);
+            at["HeapRoundTrip"] = Rva(roundTrip);
+            at["HeapReuse"] = Rva(reuse);
+            at["DoubleFree"] = Rva(twice);
+            at["Calloc"] = Rva(calloc);
+            at["Realloc"] = Rva(realloc);
+            at["Free"] = Rva(free);
+            at["ThunkAlloc"] = Rva(thunkCall);
+            at["UseAfterFree"] = Rva(useAfterFree);
+            at["PastEnd"] = Rva(pastEnd);
+            at["GrowFail"] = Rva(growFail);
+            at["ReallocZero"] = Rva(reallocZero);
             at["encoded"] = slots["encoded"];
             return stream.ToArray();
         }
@@ -213,9 +360,10 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
             uint input = blob.Ascii(HashInput);
             return new() { ["encoded"] = encoded, ["input"] = input };
         }
-        (string, string[])[] imports = [("KERNEL32.dll", ["GetTickCount"])];
+        (string, string[])[] imports = [("KERNEL32.dll", ["GetTickCount"]), ("msvcrt.dll", ["malloc", "calloc", "realloc", "free"])];
         LinkedImages.Build("emu.dll", [], imports, Code, Data);
-        string[] exported = ["XorDecode", "Fnv1a", "HashName", "Ticks", "Deref", "Spin"];
+        string[] exported = ["XorDecode", "Fnv1a", "HashName", "Ticks", "Deref", "Spin", "Alloc", "HeapRoundTrip", "HeapReuse", "DoubleFree",
+            "Calloc", "Realloc", "Free", "ThunkAlloc", "UseAfterFree", "PastEnd", "GrowFail", "ReallocZero"];
         var path = dir.File("emu.dll");
         File.WriteAllBytes(path, LinkedImages.Build("emu.dll", [.. exported.Select(n => (n, (object)(int)(at[n] - LinkedImages.Text)))], imports, Code, Data));
         return path;

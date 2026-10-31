@@ -128,4 +128,123 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
         Assert.Contains("Stopped: reached a stop address", stopped);
         Assert.Contains($"RAX=0x{NativeEmulationGhidraTests.Fnv1a("a"):x}", stopped);
     }
+
+    [Fact]
+    public async Task Allocation_calls_run_against_a_heap_that_keeps_resized_bytes()
+    {
+        var text = await Run("HeapRoundTrip");
+        Assert.Contains("Return value: RAX = 0x1234", text);
+        Assert.Contains("malloc: modelled, returned 0x", text);
+        Assert.Contains("realloc: modelled, returned 0x", text);
+        Assert.Contains("free: modelled, returned 0x0", text);
+    }
+
+    [Fact]
+    public async Task A_released_block_is_reused_and_comes_back_zeroed_from_calloc()
+    {
+        var text = await Run("HeapReuse");
+        Assert.Matches(@"Return value: RAX = 0x1(?!\w)", text);
+    }
+
+    [Fact]
+    public async Task Equal_allocation_calls_return_equal_addresses()
+    {
+        var first = await Run("Alloc", args: "32");
+        var second = await Run("Alloc", args: "32");
+        var line = first.Split((char)10).First(l => l.StartsWith("Return value:", StringComparison.Ordinal));
+        Assert.DoesNotContain("RAX = 0x0", line);
+        Assert.Contains(line, second);
+    }
+
+    [Fact]
+    public async Task An_allocation_larger_than_the_heap_returns_null()
+    {
+        var text = await Run("Alloc", args: "0x40000000");
+        Assert.Contains("Return value: RAX = 0x0", text);
+    }
+
+    [Fact]
+    public async Task A_second_release_of_a_block_stops_the_run_naming_the_call()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("DoubleFree"));
+        output.WriteLine(e.Message);
+        Assert.Equal(ErrorCode.Failed, e.Code);
+        Assert.Contains("already released", e.Message);
+    }
+
+    [Fact]
+    public async Task A_stub_for_an_allocation_call_wins_over_the_heap_model()
+    {
+        var text = await Run("Alloc", args: "32", stubs: "malloc=0x77");
+        Assert.Contains("Return value: RAX = 0x77", text);
+        Assert.Contains("malloc: stubbed, returned 0x77", text);
+    }
+
+    [Fact]
+    public async Task An_allocation_through_a_jump_stub_is_modelled()
+    {
+        var text = await Run("ThunkAlloc", args: "32");
+        Assert.Contains("malloc: modelled, returned 0x", text);
+        Assert.DoesNotContain("Return value: RAX = 0x0", text);
+    }
+
+    [Fact]
+    public async Task A_read_after_the_block_is_released_is_a_memory_fault()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("UseAfterFree"));
+        output.WriteLine(e.Message);
+        Assert.Contains("memory=", e.Remediation);
+    }
+
+    [Fact]
+    public async Task A_read_past_the_end_of_a_block_is_a_memory_fault()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("PastEnd"));
+        output.WriteLine(e.Message);
+        Assert.Contains("memory=", e.Remediation);
+    }
+
+    [Fact]
+    public async Task Releasing_a_null_pointer_is_a_no_op()
+    {
+        var text = await Run("Free", args: "0");
+        Assert.Contains("free: modelled, returned 0x0", text);
+    }
+
+    [Fact]
+    public async Task A_resize_of_a_null_pointer_allocates()
+    {
+        var text = await Run("Realloc", args: "0,16");
+        Assert.Contains("realloc: modelled, returned 0x", text);
+        Assert.DoesNotContain("Return value: RAX = 0x0", text);
+    }
+
+    [Fact]
+    public async Task A_resize_to_zero_releases_the_block()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("ReallocZero"));
+        Assert.Contains("already released", e.Message);
+    }
+
+    [Fact]
+    public async Task A_zeroed_array_whose_product_overflows_returns_null()
+    {
+        var text = await Run("Calloc", args: "0x100000000,0x100000000");
+        Assert.Contains("Return value: RAX = 0x0", text);
+    }
+
+    [Fact]
+    public async Task A_resize_of_an_unknown_address_stops_the_run_naming_the_call()
+    {
+        var e = await Assert.ThrowsAsync<ToolError>(() => Run("Realloc", args: "0x12345,8"));
+        Assert.Equal(ErrorCode.Failed, e.Code);
+        Assert.Contains("no live allocation", e.Message);
+    }
+
+    [Fact]
+    public async Task A_failed_resize_keeps_the_old_block_live()
+    {
+        var text = await Run("GrowFail");
+        Assert.Contains("Return value: RAX = 0x77", text);
+    }
 }

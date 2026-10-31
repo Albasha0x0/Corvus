@@ -110,6 +110,37 @@ public sealed class EmulatorMemory
         }
     }
 
+    /// <summary>
+/// Maps <paramref name="length"/> zeroed readable bytes at
+/// <paramref name="va"/>, outside the image and the region.
+/// </summary>
+    public void Map(ulong va, ulong length) => SetMapped(va, length, true);
+
+    /// <summary>
+/// Unmaps the bytes at <paramref name="va"/>: they read as unmapped again and
+/// are no longer reported as written.
+/// </summary>
+    public void Unmap(ulong va, ulong length) => SetMapped(va, length, false);
+
+    private void SetMapped(ulong va, ulong length, bool mapped)
+    {
+        for (ulong done = 0; done < length;)
+        {
+            ulong at = va + done, page = at & ~(ulong)(PageSize - 1);
+            int off = (int)(at - page), n = (int)Math.Min((ulong)(PageSize - off), length - done);
+            var p = Get(at, true);
+            p.Data.AsSpan(off, n).Clear();
+            if (p.Valid != null)
+                for (int i = off; i < off + n; i++)
+                {
+                    if (mapped) p.Valid[i >> 6] |= 1UL << (i & 63);
+                    else p.Valid[i >> 6] &= ~(1UL << (i & 63));
+                    p.Written[i >> 6] &= ~(1UL << (i & 63));
+                }
+            done += (ulong)n;
+        }
+    }
+
     public ulong ReadUInt(ulong va, int size, bool bigEndian = false)
     {
         Span<byte> b = stackalloc byte[8];

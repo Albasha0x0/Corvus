@@ -26,7 +26,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
 
     [McpServerTool(Name = "emulate_native", Title = "Emulate native code", UseStructuredContent = true, OutputSchemaType = typeof(EmulationReport))]
     [Description("Emulate native code from an address (a string decoder, a hash): return value, registers and " +
-                 "written strings. An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.")]
+                 "written strings. malloc, calloc, realloc and free are modelled on a heap; a heap fault stops with heap_error. " +
+                 "An unmodelled call or unmapped read is an error; engine=speakeasy runs a whole PE with Windows APIs modelled.")]
     public Task<string> EmulateNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -164,6 +165,8 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
                 "stubs=NAME=VALUE answers that call, stubs=*=0 every call") { Partial = text },
             "memory_fault" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.",
                 "memory= maps bytes there, or args / registers pass a pointer to a buffer (buf:N)") { Partial = text },
+            "heap_error" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.",
+                "the trace (trace=50) shows the calls that led here") { Partial = text },
             "unmapped_execute" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.", "the trace (trace=50) shows the jump") { Partial = text },
             "error" => new ToolError(ErrorCode.Unsupported, $"Emulation stopped at {where}: {detail}.",
                 "an instruction the emulator does not model (system calls, segment bases, interrupts); stopAt= ends before it") { Partial = text },
@@ -207,6 +210,13 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
     /// <summary>The engine of a run: "ours" when the built-in emulator marked it, else "ghidra".</summary>
     private static string EngineOf(JsonElement r) =>
         r.ValueKind == JsonValueKind.Object && r.TryGetProperty("engine", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString()! : "ghidra";
+
+    private static string ActionText(string? action) => action switch
+    {
+        "stub" => "stubbed",
+        "model" => "modelled",
+        _ => "skipped",
+    };
 
     private static string Kind(string engine) => engine == OursEngine ? "built-in emulation" : "Ghidra p-code emulation";
 
@@ -316,7 +326,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
                 var name = c.GetProperty("name").GetString() ?? c.GetProperty("target").GetString();
                 var action = c.GetProperty("action").GetString();
                 sb.Append("  ").Append(c.GetProperty("site").GetString()).Append(" -> ").Append(name).Append(": ")
-                    .Append(action == "into" ? "stepped in" : $"{(action == "stub" ? "stubbed" : "skipped")}, returned {c.GetProperty("value").GetString()}").Append('\n');
+                    .Append(action == "into" ? "stepped in" : $"{ActionText(action)}, returned {c.GetProperty("value").GetString()}").Append('\n');
             }
         }
         var scratch = r.GetProperty("scratch");

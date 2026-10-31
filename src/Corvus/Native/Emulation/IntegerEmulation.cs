@@ -11,6 +11,7 @@ public static class IntegerEmulation
 {
     // Stack in the low half of the region, scratch buffers in the high half; the return sentinel just above it.
     private const ulong Region = 0x200000, StackSize = 0x100000, ImportArea = 0x10000;
+    private const ulong HeapSize = 0x1000000;
     private const int MaxCalls = 100, MaxRanges = 64, MaxRangeBytes = 4096, MaxRead = 65536;
 
     /// <summary>The instruction sets the built-in emulator models: x86, x64 and ARM64.</summary>
@@ -32,9 +33,12 @@ public static class IntegerEmulation
         var cpu = Cpu(image);
         int ptr = cpu.PointerSize;
         var imports = image.Imports.Where(i => i.SlotRva != 0 && i.SlotRva + (uint)ptr <= image.SizeOfImage).GroupBy(i => i.SlotRva).Select(g => g.First()).ToList();
-        ulong regionBase = PickRegion(imageBase, image.SizeOfImage, ptr, (ulong)imports.Count * 16);
+        // The region reserves the heap after the import addresses.
+        ulong regionBase = PickRegion(imageBase, image.SizeOfImage, ptr, (ulong)imports.Count * 16 + HeapSize);
         var mem = new EmulatorMemory(image, imageBase, regionBase, Region);
         ulong sentinel = regionBase + Region, importBase = regionBase + Region + ImportArea;
+        ulong heapBase = (importBase + (ulong)imports.Count * 16 + 0xFFF) & ~0xFFFUL;
+        var heap = new EmulatorHeap(mem, heapBase, HeapSize);
         var byAddress = new Dictionary<ulong, NativeImport>();
         for (int k = 0; k < imports.Count; k++)
         {
@@ -114,6 +118,19 @@ public static class IntegerEmulation
             });
         }
 
+        // Answers a callee without a stub from the heap model; null when the callee has none.
+        ulong? Model(string? name, out string? fault)
+        {
+            fault = null;
+            var label = name == null ? null : name.Contains('!') ? name[(name.IndexOf('!') + 1)..] : name;
+            if (!EmulatorHeap.Models(label)) return null;
+            return heap.Call(label!, k =>
+            {
+                var slot = cpu.Arguments(k + 1)[k];
+                return slot.Register is { } r ? cpu.TryGet(r, out var v) ? v : 0 : mem.ReadUInt(cpu.Sp + (ulong)slot.StackOffset, ptr);
+            }, out fault);
+        }
+
         int Purge(NativeImport? import) => ptr == 4 && image.Format == ImageFormat.Pe && import != null ? X86ImportArity.Pops(import, image.Path) ?? 0 : 0;
 
         while (true)
@@ -124,7 +141,21 @@ public static class IntegerEmulation
             {
                 // Execution reached an import through a slot (a jump stub, a register call): its stub answers it.
                 string name = NativeCodeIndex.ImportName(reached);
-                string? named = Stub(stubs, name, pc), value = named ?? anyStub;
+                string? named = Stub(stubs, name, pc), value = named;
+                if (named == null && Model(name, out var heapFault) is { } modelled)
+                {
+                    if (heapFault != null)
+                    {
+                        stop = "heap_error";
+                        stoppedAt = lastSite;
+                        detail = $"call at 0x{lastSite:x}: {heapFault}";
+                        break;
+                    }
+                    Record(lastSite, pc, name, "model", modelled);
+                    cpu.ReturnFromCall(mem, modelled, Purge(reached));
+                    continue;
+                }
+                value ??= anyStub;
                 if (value == null)
                 {
                     stop = "unmodelled_call";
@@ -178,6 +209,19 @@ public static class IntegerEmulation
             if (byAddress.ContainsKey(target)) continue;
             var (calleeName, thunk) = Callee(image, imageBase, index, target);
             string? stubValue = Stub(stubs, calleeName, target);
+            if (stubValue == null && thunk != null && Model(calleeName, out var thunkFault) is { } thunkValue)
+            {
+                if (thunkFault != null)
+                {
+                    stop = "heap_error";
+                    stoppedAt = step.Site;
+                    detail = $"call at 0x{step.Site:x}: {thunkFault}";
+                    break;
+                }
+                Record(step.Site, target, calleeName, "model", thunkValue);
+                cpu.ReturnFromCall(mem, thunkValue, Purge(thunk));
+                continue;
+            }
             // A call to the next instruction reads its own address and is never skipped.
             string? anyValue = stubValue == null && target != step.FallThrough ? anyStub : null;
             if (stubValue != null || anyValue != null)
