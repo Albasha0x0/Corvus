@@ -157,11 +157,15 @@ internal static class LeakGuard
         try
         {
             if (Directory.Exists(path))
-                return $"{name}/ [{string.Join(", ", Directory.EnumerateFileSystemEntries(path).Take(3).Select(Path.GetFileName))}]";
+                return $"{name}/ [{string.Join(", ", Directory.EnumerateFileSystemEntries(path).Take(3).Select(Path.GetFileName))}]"
+                    + (DeleteFailures.TryGetValue(Path.GetFullPath(path), out var failure) ? $" ({failure})" : "");
             return $"{name} ({new FileInfo(path).Length} bytes)";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return name; }
     }
+
+    /// <summary>The last error of a test folder whose deletion gave up, by path.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> DeleteFailures = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Folders shared by a test class for the whole run; deleted before the check.</summary>
     private static readonly System.Collections.Concurrent.ConcurrentBag<string> RunScoped = [];
