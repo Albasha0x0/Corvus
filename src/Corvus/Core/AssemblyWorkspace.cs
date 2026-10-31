@@ -24,6 +24,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public AssemblyWorkspace(ServerOptions? options = null, ILogger<AssemblyWorkspace>? logger = null)
     {
         _logger = logger;
+        LoadedSet = new LoadedSetRecord(options?.LoadedSetFile);
         var resolver = new DnlibResolver(this);
         DnlibContext = new ModuleContext(resolver, new Resolver(resolver));
         foreach (var dir in options?.SearchDirectories ?? [])
@@ -41,6 +42,9 @@ public sealed class AssemblyWorkspace : IDisposable
 
     /// <summary>Raised once when Dispose begins, before the files are released.</summary>
     public event Action? Disposing;
+
+    /// <summary>The ids loaded so far, kept across restarts.</summary>
+    internal LoadedSetRecord LoadedSet { get; }
 
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _notices = new();
 
@@ -209,6 +213,7 @@ public sealed class AssemblyWorkspace : IDisposable
                     lock (_externalDecompilerRefs) _externalDecompilerRefs.Clear();
                     Released();
                     _lock.ExitWriteLock();
+                    LoadedSet.Flush();
                 }
             }
         }
@@ -403,6 +408,7 @@ public sealed class AssemblyWorkspace : IDisposable
         for (int n = 2; IdTaken(id); n++) id = $"{baseId}#{n}";
         var native = new LoadedNative(id, full, image) { Overrides = overrides?.Invoke(image) };
         _natives.Add(native);
+        LoadedSet.Add(new LoadedSetEntry(id, full, native.OriginalSha256));
         _logger?.LogInformation("Loaded native image {Id} from {Path}", id, full);
         return native;
     }
@@ -475,14 +481,15 @@ public sealed class AssemblyWorkspace : IDisposable
                 "use the .NET tools (decompile_member, get_il, find_references) for it");
         if (MissingPath(id)) throw Targets.FileNotFound(id);
         if (_natives.Count == 0)
-            throw Targets.NotLoaded("No native images are loaded.", id);
+            throw Targets.NotLoaded("No native images are loaded.", LoadNext(id));
         throw new ToolError(ErrorCode.NotFound, $"No loaded native image matches '{identifier}'. Loaded: {string.Join(", ", _natives.Select(n => n.Id))}",
-            "list_assemblies shows loaded ids; a file path loads the file");
+            RecordedNext(id) ?? "list_assemblies shows loaded ids; a file path loads the file");
     }
 
     public void UnloadNative(LoadedNative native) => Write(() =>
     {
         if (!_natives.Remove(native)) throw Gone(native.Id);
+        LoadedSet.Remove(native.Id);
         native.Release();
         return 0;
     });
@@ -561,6 +568,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
         var asm = new LoadedAssembly(MakeUniqueId(module, full), full, bytes, module) { Shared = true };
         _assemblies.Add(asm);
+        LoadedSet.Add(new LoadedSetEntry(asm.Id, full, asm.OriginalSha256));
         ModuleSetChanged();
         AttachNativeView(asm, bytes);
 
@@ -608,6 +616,7 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             // A concurrent unload or reload already replaced it.
             if (!_assemblies.Remove(asm)) throw Gone(asm.Id);
+            LoadedSet.Remove(asm.Id);
             ModuleSetChanged();
             RemoveNativeViews(asm);
             asm.Dispose();
@@ -670,8 +679,30 @@ public sealed class AssemblyWorkspace : IDisposable
         if (MissingPath(id)) throw Targets.FileNotFound(id);
         if (_assemblies.Count == 0) throw NoAssemblies(id);
         throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", _assemblies.Select(a => a.Id))}",
-            "list_assemblies shows loaded ids; a file path loads the file");
+            RecordedNext(id) ?? "list_assemblies shows loaded ids; a file path loads the file");
     }
+
+    /// <summary>
+    /// The call that loads the file an unloaded id referred to, or null when
+    /// none is recorded or the file is gone; a changed file is named.
+    /// </summary>
+    private string? RecordedNext(string id)
+    {
+        if (LoadedSet.Find(id) is not { } entry || !File.Exists(entry.Path)) return null;
+        var next = $"load_assembly path={entry.Path}";
+        try
+        {
+            using var stream = File.OpenRead(entry.Path);
+            var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
+            if (!sha.Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase))
+                next += $" (the file differs from the one loaded as {entry.Id})";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return next;
+    }
+
+    /// <summary>The load call for an unknown id: the recorded path, else the id as a path.</summary>
+    internal string LoadNext(string id) => RecordedNext(id) ?? $"load_assembly path={id}";
 
     /// <summary>A path-like identifier naming nothing on disk.</summary>
     private static bool MissingPath(string id) =>
@@ -680,7 +711,9 @@ public sealed class AssemblyWorkspace : IDisposable
     private ToolError NoAssemblies(string? identifier = null)
     {
         var natives = _natives.ToArray();
-        var next = identifier != null ? $"load_assembly path={identifier}" : "load_assembly path=<a .NET assembly or folder>";
+        var next = identifier != null
+            ? LoadNext(identifier)
+            : "load_assembly path=<a .NET assembly or folder>";
         return natives.Length == 0
             ? new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded.", next)
             : new ToolError(ErrorCode.NotLoaded,

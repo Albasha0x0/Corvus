@@ -30,7 +30,7 @@ public static class Targets
     public static ToolError DirectoryNotFound(string path) => new(ErrorCode.NotFound, $"Directory not found: '{path}'", FileNotFoundNext);
 
     /// <summary>The not_loaded for a name when nothing of the kind is loaded.</summary>
-    internal static ToolError NotLoaded(string message, string value) => new(ErrorCode.NotLoaded, message, $"load_assembly path={value}");
+    internal static ToolError NotLoaded(string message, string next) => new(ErrorCode.NotLoaded, message, next);
 
     /// <summary>Resolves <paramref name="value"/> to a target of <paramref name="kind"/>, loading an existing file; the caller shows the notice.</summary>
     public static Target Resolve(AssemblyWorkspace workspace, string? value, TargetKind kind, string parameter = "assembly")
@@ -132,7 +132,7 @@ public static class Targets
         if (workspace.Read(() => workspace.FindByPath(full) != null || workspace.FindNative(full) != null)) return null;
         // A load cannot take the write lock from inside a read.
         if (workspace.LockHeld)
-            throw NotLoaded($"'{text}' is not loaded.", text);
+            throw NotLoaded($"'{text}' is not loaded.", workspace.LoadNext(text));
         (LoadedAssembly? Assembly, LoadedNative? Native) loaded;
         try { loaded = workspace.LoadAny(full); }
         catch (ToolError e) when (e.Code == ErrorCode.Unsupported && e.Remediation == null)

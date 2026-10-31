@@ -45,6 +45,9 @@ public sealed class ServerOptions
     public int MaxOutputChars { get; set; } = 60_000;
     public int TimeoutSeconds { get; set; } = 180;
 
+    /// <summary>The file that keeps loaded ids and paths across restarts; null: not kept. Only the server host sets it.</summary>
+    public string? LoadedSetFile { get; set; }
+
     /// <summary>Warm method bodies and build the call graph in the background after loading (default on).</summary>
     public bool BackgroundIndexing { get; set; } = true;
 
@@ -253,7 +256,10 @@ public sealed class ServerOptions
 
     public static ServerOptions Parse(string[] args)
     {
-        var o = new ServerOptions { CodeIndexCache = Native.Code.CodeIndexCacheOptions.FromEnvironment() };
+        var o = new ServerOptions
+        {
+            CodeIndexCache = Native.Code.CodeIndexCacheOptions.FromEnvironment(),
+        };
         string? cacheRoot = null;
         long? cacheMb = null;
         int? cacheDays = null;

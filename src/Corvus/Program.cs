@@ -24,6 +24,7 @@ ServerOptions options;
 try
 {
     options = ServerOptions.Parse(args);
+    options.LoadedSetFile = Path.Combine(Corvus.Native.Providers.DataFolder.Root, "loaded-set.json");
 }
 catch (Exception ex)
 {
