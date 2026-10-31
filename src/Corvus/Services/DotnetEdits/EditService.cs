@@ -125,10 +125,20 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         return description + PlaceholderNote(symbol.Assembly.Module, m);
     }
 
-    /// <summary>Whether the module's methods carry [Address] attributes.</summary>
-    internal static bool IsPlaceholderAssembly(ModuleDef module) =>
-        module.GetTypes().SelectMany(t => t.Methods)
-            .Any(m => m.CustomAttributes.Any(a => a.AttributeType?.Name == "AddressAttribute"));
+    /// <summary>True when at least half of the module's methods with a body carry [Address] attributes.</summary>
+    internal static bool IsPlaceholderAssembly(ModuleDef module)
+    {
+        int bodies = 0, addressed = 0;
+        foreach (var m in module.GetTypes().SelectMany(t => t.Methods))
+        {
+            if (!m.HasBody) continue;
+            bodies++;
+            if (m.CustomAttributes.Any(a => a.AttributeType?.Name == "AddressAttribute")) addressed++;
+        }
+        // A generated placeholder puts [Address] on nearly every method with
+        // a body; a real assembly with a few such methods is not one.
+        return addressed > 0 && addressed * 2 >= bodies;
+    }
 
     private const string PlaceholderStem =
         "Warning: this is a generated placeholder assembly; its edits do not change the running program.";

@@ -296,6 +296,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         try { asm = workspace.Get(assembly); }
         catch (ToolError) { return null; }
         if (aot == null || !aot.HasAddresses(asm)) return null;
+        // A few [Address] methods in a real assembly make no placeholder
+        // unless a dump binds it to its native binary.
+        if (aot.ImageOf(asm)?.Dump == null && !EditService.IsPlaceholderAssembly(asm.Module)) return null;
         var native = aot?.ImageOf(asm) is { Dump: { } dump } ? workspace.Natives.FirstOrDefault(n => dump.Files.Describes(n)) : null;
         return native != null
             ? $"{asm.Id} is a dummy assembly: its methods have no bodies, so no call is scanned here; survey_features image={native.Id} reads the native code"
