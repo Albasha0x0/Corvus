@@ -207,6 +207,9 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
         ["ecb-loop"] = new($"Possible block loop without chaining (x86 and x64 code shape, heuristic) [mode=ECB confidence={LoopConfidence(LoopMode.Ecb)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ecb)),
         ["cbc-loop"] = new($"Block loop with chaining (x86 and x64 code shape, heuristic) [mode=CBC confidence={LoopConfidence(LoopMode.Cbc)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Cbc)),
         ["ctr-loop"] = new($"Block loop with a counter and a keystream xor (x86 and x64 code shape, heuristic) [mode=CTR confidence={LoopConfidence(LoopMode.Ctr)}]", true, [], Detail: LoopWidth, Shape: (b, n, ct) => BlockLoops(b, n, ct, LoopMode.Ctr)),
+        ["hmac-pad-code"] = new("HMAC pad xor (0x36 and 0x5C key pads, x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: HmacPads),
+        ["cmac-code"] = new("CMAC subkey doubling (shift left by one, xor 0x87, x86 and x64 code shape, heuristic) [confidence=low]", true, [], Shape: CmacDoublings),
+        ["poly1305-code"] = new("Poly1305 key clamp as immediates (0x0FFFFFFC, 0x0FFFFFFF, x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: PolyClamps),
         ["gcm-tag-code"] = new("GCM tag production (carry-less multiply or reduction constant 0xE1000000 or 0xE100000000000000, x86 and x64 code shape, heuristic) [confidence=medium]", true, [], Shape: GcmTags),
         ["chacha-round"] = new("ChaCha20 quarter round (rotates 16, 12, 8, 7; x86 and x64 code shape, heuristic)", true, [], Shape: ChaChaRounds),
         ["salsa-round"] = new("Salsa20 quarter round (rotates 7, 9, 13, 18; x86 and x64 code shape, heuristic)", true, [], Shape: SalsaRounds),
@@ -450,6 +453,105 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     // The block width operand of the step instruction at the offset.
     private static int WidthAt(ReadOnlySpan<byte> bytes, int at) => bytes[at + 2];
 
+    // Length of a xor with an 8-bit immediate (opcodes 34, 80 /6, 83 /6) or a
+    // 32-bit one (35, 81 /6) whose bytes are all the value; 0 when none starts
+    // at i. Opcode 83 sign-extends, so it matches only values below 80h. The
+    // modrm forms accept a register or a memory operand with its SIB and
+    // displacement bytes; an operand that runs past the buffer does not match.
+    private static int XorPad(byte[] b, int i, int read, byte v, bool repeated)
+    {
+        if (i + 2 <= read && b[i] == 0x34 && b[i + 1] == v) return 2;
+        if (i + 5 <= read && b[i] == 0x35 && Dword(b, i + 1, v, repeated)) return 5;
+        if (i + 2 > read || b[i] is not (0x80 or 0x81 or 0x83) || (b[i + 1] & 0x38) != 0x30) return 0;
+        int modrm = ModrmLength(b, i + 1, read);
+        if (modrm == 0) return 0;
+        int imm = i + 1 + modrm;
+        if (b[i] == 0x81) return imm + 4 <= read && Dword(b, imm, v, repeated) ? 1 + modrm + 4 : 0;
+        return imm + 1 <= read && b[imm] == v && (b[i] == 0x80 || v < 0x80) ? 1 + modrm + 1 : 0;
+    }
+
+    // Bytes of a modrm operand with its SIB and displacement; 0 when cut off.
+    private static int ModrmLength(byte[] b, int at, int read)
+    {
+        int mod = b[at] >> 6, rm = b[at] & 7, n = 1;
+        if (mod == 3) return n;
+        if (rm == 4)
+        {
+            if (at + 1 >= read) return 0;
+            n++;
+            if (mod == 0 && (b[at + 1] & 7) == 5) n += 4;
+        }
+        else if (mod == 0 && rm == 5) n += 4;
+        if (mod == 1) n++;
+        else if (mod == 2) n += 4;
+        return at + n <= read ? n : 0;
+    }
+
+    // Whether four bytes at i are the value repeated, or the value then zeros.
+    private static bool Dword(byte[] b, int i, byte v, bool repeated) =>
+        b[i] == v
+        && (repeated
+            ? b[i + 1] == v && b[i + 2] == v && b[i + 3] == v
+            : b[i + 1] == 0 && b[i + 2] == 0 && b[i + 3] == 0);
+
+    // Yields the first of an inner pad (0x36) and an outer pad (0x5C) xor
+    // within one function body.
+    private static IEnumerable<(int At, int Length)> HmacPads(byte[] b, int read, CancellationToken ct)
+    {
+        const int Reach = 256;
+        int inner = -1, outer = -1, innerLength = 0, outerLength = 0;
+        for (int i = 0; i + 2 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            int n;
+            if ((n = XorPad(b, i, read, 0x36, true)) > 0) { inner = i; innerLength = n; }
+            else if ((n = XorPad(b, i, read, 0x5C, true)) > 0) { outer = i; outerLength = n; }
+            else continue;
+            if (inner < 0 || outer < 0 || Math.Abs(inner - outer) > Reach) continue;
+            int first = Math.Min(inner, outer);
+            yield return (first, Math.Max(inner + innerLength, outer + outerLength) - first);
+            inner = outer = -1;
+        }
+    }
+
+    // Yields a shift left by one followed within a few bytes by a xor with 0x87,
+    // the constant of the 128-bit subkey doubling.
+    private static IEnumerable<(int At, int Length)> CmacDoublings(byte[] b, int read, CancellationToken ct)
+    {
+        const int Reach = 48;
+        int lastShift = -1000;
+        for (int i = 0; i + 2 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            if (IsShiftByOne(b, i, read)) { lastShift = i; continue; }
+            int xor = i - lastShift <= Reach ? XorPad(b, i, read, 0x87, false) : 0;
+            if (xor == 0) continue;
+            yield return (lastShift, i - lastShift + xor);
+            lastShift = -1000;
+        }
+    }
+
+    // Yields the 64-bit clamp immediate, or the 0x0FFFFFFC and 0x0FFFFFFF
+    // immediates within one routine.
+    private static IEnumerable<(int At, int Length)> PolyClamps(byte[] b, int read, CancellationToken ct)
+    {
+        const int Reach = 96;
+        int low = -1000, high = -1000;
+        for (int i = 1; i + 4 <= read; i++)
+        {
+            if ((i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            if (b[i + 1] != 0xFF || b[i + 2] != 0xFF || b[i + 3] != 0x0F || b[i] is not (0xFC or 0xFF)) continue;
+            bool imm = b[i - 1] is 0x25 or >= 0xB8 and <= 0xBF || i >= 2 && b[i - 2] == 0x81;
+            if (!imm) continue;
+            if (i + 8 <= read && (b[i] == 0xFC || b[i + 4] == 0xFC) && b[i + 4] is 0xFC or 0xFF && b[i + 5] == 0xFF && b[i + 6] == 0xFF && b[i + 7] == 0x0F)
+            { yield return (i - 1, 9); i += 7; continue; }
+            if (b[i] == 0xFC) low = i; else high = i;
+            if (Math.Abs(low - high) > Reach) continue;
+            yield return (Math.Min(low, high), Math.Abs(low - high) + 4);
+            low = high = -1000;
+        }
+    }
+
     // Yields pclmulqdq or the reduction constant E1000000h as an immediate.
     private static IEnumerable<(int At, int Length)> GcmTags(byte[] b, int read, CancellationToken ct)
     {
@@ -599,6 +701,15 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     /// <summary>A block loop found in code: its body, the step instruction, the mode and the block width in bytes.</summary>
     internal sealed record BlockLoop(uint Start, uint Step, uint Length, string Mode, int Width, string Confidence);
 
+    /// <summary>An authentication or schedule shape found in code: its range, rule key and confidence.</summary>
+    internal sealed record CodeShape(uint Start, uint Length, string Key, string Confidence);
+
+    // Shape rules the attribution reads, with their confidence.
+    private static readonly Dictionary<string, string> ShapeConfidence = new()
+    {
+        ["hmac-pad-code"] = "medium", ["cmac-code"] = "low", ["poly1305-code"] = "medium", ["aes-schedule-code"] = "medium",
+    };
+
     /// <summary>Section bytes read by a scan, and section bytes in the image.</summary>
     internal sealed record ScanExtent(long Scanned, long Total)
     {
@@ -612,8 +723,8 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
             : null;
     }
 
-    /// <summary>Table ranges and block loops of one image, found in one pass over its section bytes.</summary>
-    internal sealed record CryptoFacts(IReadOnlyList<CipherTable> Tables, IReadOnlyList<BlockLoop> Loops, ScanExtent Extent)
+    /// <summary>Table ranges, block loops and authentication shapes of one image, found in one pass over its section bytes.</summary>
+    internal sealed record CryptoFacts(IReadOnlyList<CipherTable> Tables, IReadOnlyList<BlockLoop> Loops, ScanExtent Extent, IReadOnlyList<CodeShape> Shapes)
     {
         /// <summary>The table that contains the address, or null; the nearest start wins.</summary>
         public CipherTable? TableContaining(uint rva) => Tables.LastOrDefault(t => rva >= t.Start && rva < t.End);
@@ -657,6 +768,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     {
         var tables = new List<CipherTable>();
         var loops = new List<BlockLoop>();
+        var shapes = new List<CodeShape>();
         foreach (var (section, size) in Plan(image, limit))
         {
             var bytes = new byte[size];
@@ -686,8 +798,12 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
                 foreach (var h in LoopScan(bytes, read, ct))
                     loops.Add(new BlockLoop(section.Rva + (uint)h.Target, section.Rva + (uint)h.Step, (uint)h.Length,
                         h.Mode.ToString().ToUpperInvariant(), h.Width, LoopConfidence(h.Mode)));
+            if (code && image.Arch is NativeArch.X86 or NativeArch.X64)
+                foreach (var (key, confidence) in ShapeConfidence)
+                    foreach (var (at, length) in Constants[key].Shape!(bytes, read, ct))
+                        shapes.Add(new CodeShape(section.Rva + (uint)at, (uint)length, key, confidence));
         }
-        return new CryptoFacts([.. tables.OrderBy(t => t.Start)], loops, Extent(image, limit));
+        return new CryptoFacts([.. tables.OrderBy(t => t.Start)], loops, Extent(image, limit), shapes);
     }
 
     public IReadOnlyCollection<string> Kinds => ["const"];
@@ -696,7 +812,7 @@ internal sealed class CryptoConstantRules : ISurveyRuleProvider
     [
         new("block cipher or stream cipher constants", "crypto", [["const:aes", "const:blowfish", "const:blowfish-sbox", "const:cast", "const:des", "const:twofish", "const:camellia", "const:sm4", "const:chacha", "const:chacha-256", "const:chacha-128", "const:chacha-code", "const:rc4-loop", "const:aes-schedule-code", "const:ecb-loop", "const:cbc-loop", "const:ctr-loop", "const:gcm-tag-code", "const:chacha-round", "const:salsa-round", "const:tea-round", "const:xxtea-round", "const:tea", "const:xtea", "const:rc5-rc6", "const:rc5-rc6-code", "const:serpent"]]),
         new("possible block cipher constants", "crypto", [["const:xxtea", "const:idea"]]),
-        new("asymmetric, authentication or key derivation structures", "crypto", [["const:p256", "const:p384", "const:secp256k1", "const:curve25519", "const:rsa", "const:rsa-blob", "const:hmac", "const:poly1305", "const:kdf"]]),
+        new("asymmetric, authentication or key derivation structures", "crypto", [["const:p256", "const:p384", "const:secp256k1", "const:curve25519", "const:rsa", "const:rsa-blob", "const:hmac", "const:poly1305", "const:hmac-pad-code", "const:cmac-code", "const:poly1305-code", "const:kdf"]]),
         new("hash or checksum constants", "crypto", [["const:sha256", "const:sha256-code", "const:sha512", "const:sha512-code", "const:sha224", "const:sha384", "const:sha1-md5", "const:sha1-md5-code", "const:md5", "const:crc32", "const:crc32-poly", "const:crc32c", "const:crc32c-poly", "const:crc64-poly", "const:adler32", "const:fnv", "const:murmur3", "const:sha3", "const:ripemd160", "const:ripemd160-code", "const:whirlpool", "const:blake2", "const:blake3", "const:sm3", "const:sm3-code"]]),
         new("compression format markers or tables", "crypto", [["const:lz4", "const:zstd", "const:deflate", "const:xz", "const:brotli", "const:lzfse"]]),
         new("text encoding alphabets", "crypto", [["const:base64", "const:base32", "const:base58"]]),

@@ -682,4 +682,155 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.True(lines[0].Length < 200, lines[0]);
         Assert.Equal(32, NativeEngineCode.RecordLines(record with { SignatureSource = "user" }, r => $"0x{r:X}", compact: true).Count(l => l.StartsWith("param ", StringComparison.Ordinal)));
     }
+
+    /// <summary>
+    /// hmac.dll: Mac holds <paramref name="body"/> (directly, or in a callee when
+    /// <paramref name="viaCallee"/>); the body may call Digest, which reads the
+    /// SHA-256 initial values (through a wrapper when <paramref name="wrapDigest"/>).
+    /// </summary>
+    private static (string Path, Dictionary<string, uint> At) ShapeSample(
+        TempDir dir, Action<Assembler, Label> body, bool viaCallee = false, bool wrapDigest = false)
+    {
+        Dictionary<string, uint>? at = null;
+        byte[] Code(Dictionary<string, uint> slots)
+        {
+            var a = new Assembler(64);
+            var mac = a.CreateLabel();
+            var inner = a.CreateLabel();
+            var wrap = a.CreateLabel();
+            var digest = a.CreateLabel();
+            a.Label(ref mac);
+            a.sub(rsp, 0x28);
+            if (viaCallee)
+            {
+                a.call(inner);
+                a.add(rsp, 0x28);
+                a.ret();
+                for (int i = 0; i < 6; i++) a.int3();
+                a.Label(ref inner);
+                a.sub(rsp, 0x28);
+            }
+            body(a, wrapDigest ? wrap : digest);
+            a.add(rsp, 0x28);
+            a.ret();
+            for (int i = 0; i < 6; i++) a.int3();
+            if (wrapDigest)
+            {
+                a.Label(ref wrap);
+                a.sub(rsp, 0x28);
+                a.call(digest);
+                a.add(rsp, 0x28);
+                a.ret();
+                for (int i = 0; i < 6; i++) a.int3();
+            }
+            a.Label(ref digest);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Lea_r64_m, Register.RDX, new MemoryOperand(Register.RIP, (long)(Base + slots["iv"]), 8)));
+            a.ret();
+            var stream = new MemoryStream();
+            var result = a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text, BlockEncoderOptions.ReturnNewInstructionOffsets);
+            at = new() { ["Mac"] = (uint)(result.GetLabelRIP(mac) - Base) };
+            return stream.ToArray();
+        }
+        static Dictionary<string, uint> Data(PeBlob blob, List<uint> relocations)
+        {
+            blob.Align(16);
+            byte[] iv = [.. new uint[] { 0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A }.SelectMany(BitConverter.GetBytes)];
+            return new() { ["iv"] = blob.Bytes(iv) };
+        }
+        LinkedImages.Build("hmac.dll", [], [("KERNEL32.dll", ["ExitProcess"])], Code, Data);
+        var path = dir.File("hmac.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("hmac.dll", [("Mac", (int)(at!["Mac"] - LinkedImages.Text))], [("KERNEL32.dll", ["ExitProcess"])], Code, Data));
+        return (path, at);
+    }
+
+    private static Action<Assembler, Label> Pads(int digestCalls) => (a, digest) =>
+    {
+        a.xor(eax, 0x36363636);
+        for (int i = 0; i < digestCalls; i++) a.call(digest);
+        a.xor(eax, 0x5C5C5C5C);
+    };
+
+    private async Task<string> Annotations((string Path, Dictionary<string, uint> At) sample)
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        return await Answer(() => tools.AnalyzeNativeFunction(sample.Path, $"rva:0x{sample.At["Mac"]:X}", sections: "annotations"));
+    }
+
+    [Fact]
+    public async Task Pad_xors_around_two_hash_calls_read_as_a_nested_hash()
+    {
+        var text = await Annotations(ShapeSample(_dir, Pads(2)));
+        NativeLinkTests.Has(text, "HMAC pad xors (0x36 and 0x5C) in this function (confidence=medium");
+        NativeLinkTests.Has(text, "nested hash HMAC over SHA-256");
+        NativeLinkTests.Has(text, "called 2 times");
+    }
+
+    [Fact]
+    public async Task Pad_xors_around_one_hash_call_name_the_missing_outer_hash()
+    {
+        var text = await Annotations(ShapeSample(_dir, Pads(1)));
+        NativeLinkTests.Has(text, "one call to ");
+        NativeLinkTests.Has(text, "outer hash call not seen in this function");
+    }
+
+    [Fact]
+    public async Task Three_hash_calls_around_pad_xors_are_not_called_inner_and_outer()
+    {
+        var text = await Annotations(ShapeSample(_dir, Pads(3)));
+        NativeLinkTests.Has(text, "3 calls to ");
+        NativeLinkTests.Has(text, "inner and outer not distinguished");
+        Assert.DoesNotContain("nested hash HMAC", text);
+    }
+
+    [Fact]
+    public async Task Pad_xors_without_a_hash_call_say_none_was_seen_in_the_function()
+    {
+        var text = await Annotations(ShapeSample(_dir, Pads(0)));
+        NativeLinkTests.Has(text, "no hash routine call seen in this function");
+    }
+
+    [Fact]
+    public async Task Pad_xors_in_a_callee_are_attributed_to_the_call_site()
+    {
+        var text = await Annotations(ShapeSample(_dir, Pads(2), viaCallee: true));
+        NativeLinkTests.Has(text, "HMAC pad xors (0x36 and 0x5C) in callee ");
+        NativeLinkTests.Has(text, "nested hash HMAC over SHA-256");
+    }
+
+    [Fact]
+    public async Task A_hash_reached_through_a_wrapper_still_counts_as_the_hash_call()
+    {
+        var text = await Annotations(ShapeSample(_dir, Pads(2), wrapDigest: true));
+        NativeLinkTests.Has(text, "nested hash HMAC over SHA-256");
+    }
+
+    [Fact]
+    public async Task A_subkey_doubling_is_noted_as_a_CMAC_shape()
+    {
+        var text = await Annotations(ShapeSample(_dir, (a, _) => { a.shl(eax, 1); a.xor(eax, 0x87); }));
+        NativeLinkTests.Has(text, "CMAC subkey doubling (xor 0x87) in this function (confidence=low");
+    }
+
+    [Fact]
+    public async Task Clamp_immediates_are_noted_as_a_Poly1305_shape()
+    {
+        var text = await Annotations(ShapeSample(_dir, (a, _) => { a.and(eax, 0x0FFFFFFC); a.and(edx, 0x0FFFFFFF); }));
+        NativeLinkTests.Has(text, "Poly1305 key clamp in this function (confidence=medium");
+    }
+
+    [Fact]
+    public async Task A_round_constant_doubling_is_noted_as_a_schedule_expansion()
+    {
+        var text = await Annotations(ShapeSample(_dir, (a, _) => { a.shl(al, 1); a.xor(al, 0x1B); }));
+        NativeLinkTests.Has(text, "key schedule expansion in this function (confidence=medium");
+    }
+
+    [Fact]
+    public async Task A_function_without_authentication_shapes_gets_no_shape_note()
+    {
+        var text = await Annotations(ShapeSample(_dir, (a, digest) => a.call(digest)));
+        Assert.DoesNotContain("code shape", text);
+        Assert.DoesNotContain("HMAC", text);
+    }
 }

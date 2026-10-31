@@ -36,6 +36,7 @@ internal static partial class CryptoAttribution
     {
         var image = index.Image;
         var facts = CryptoConstantRules.Facts(index, ct, scanLimit);
+        ShapeNotes(index, f, facts, add);
         var tables = facts.Tables.Where(t => t.Cipher).ToList();
         if (tables.Count == 0)
         {
@@ -129,6 +130,99 @@ internal static partial class CryptoAttribution
             add(null, $"crypto: local record path ({string.Join(", ", path.Take(3))}); "
                       + "stored data, not network traffic", "crypto");
     }
+
+    private static readonly Dictionary<string, string> ShapeLabels = new()
+    {
+        ["hmac-pad-code"] = "HMAC pad xors (0x36 and 0x5C)",
+        ["cmac-code"] = "CMAC subkey doubling (xor 0x87)",
+        ["poly1305-code"] = "Poly1305 key clamp",
+        ["aes-schedule-code"] = "key schedule expansion",
+    };
+
+    // Notes for authentication and schedule shapes in the function or in a callee
+    // up to two calls down, and the hash routines an HMAC shape calls.
+    private static void ShapeNotes(
+        NativeCodeIndex index, NativeFunction f, CryptoConstantRules.CryptoFacts facts,
+        Action<string?, string, string> add)
+    {
+        if (facts.Shapes.Count == 0) return;
+        var image = index.Image;
+        string Va(uint r) => NativeAddress.Va(image, r);
+        string Name(NativeFunction fn) => index.NameAt(fn.Start) ?? fn.Name;
+        IEnumerable<CryptoConstantRules.CodeShape> In(NativeFunction fn)
+        {
+            var ranges = index.Ranges(fn).ToList();
+            return facts.Shapes.Where(s => ranges.Exists(r => s.Start >= r.Start && s.Start < r.End));
+        }
+
+        var hashes = facts.Tables.Where(t => !t.Cipher && HashPrefixes.Any(p => t.Algorithm.StartsWith(p, StringComparison.Ordinal))).ToList();
+        // Hash tables read by the function or by a wrapper's callees two calls down.
+        List<string> HashesOf(NativeFunction fn, int depth = 2)
+        {
+            var found = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (var r in index.RefsFrom(fn).Where(r => r.Kind is XrefKind.Read or XrefKind.Address))
+                if (hashes.LastOrDefault(t => r.To >= t.Start && r.To < t.End)?.Algorithm is { } a) found.Add(a);
+            if (found.Count == 0 && depth > 0)
+                foreach (var c in index.Callees(fn))
+                    if (c.Function is { } g && g.Start != fn.Start)
+                        found.UnionWith(HashesOf(g, depth - 1));
+            return [.. found];
+        }
+
+        var seen = new HashSet<uint>();
+        var level = new List<(NativeFunction Fn, uint Site, int Depth)> { (f, 0, 0) };
+        while (level.Count > 0)
+        {
+            var next = new List<(NativeFunction, uint, int)>();
+            foreach (var (fn, site, depth) in level)
+            {
+                if (!seen.Add(fn.Start)) continue;
+                foreach (var shape in In(fn))
+                {
+                    var where = depth == 0 ? "in this function"
+                        : $"{(depth == 1 ? "in callee" : "in nested callee")} {Name(fn)} at {Va(fn.Start)}";
+                    add(Va(depth == 0 ? shape.Start : site),
+                        $"crypto: {ShapeLabels[shape.Key]} {where} (confidence={shape.Confidence}; code shape)", "crypto");
+                    if (shape.Key == "hmac-pad-code") HmacCalls(fn, shape);
+                }
+                if (depth < 2)
+                    foreach (var c in index.Callees(fn))
+                        if (c.Function is { } g) next.Add((g, depth == 0 ? c.From : site, depth + 1));
+            }
+            level = next;
+        }
+
+        // Rule first: two calls to one hash routine read as inner and outer;
+        // any other count is stated as seen, since the pads and the calls may
+        // sit in different functions. Hashes compiled to immediates are not
+        // recognised.
+        void HmacCalls(NativeFunction owner, CryptoConstantRules.CodeShape shape)
+        {
+            var calls = index.Callees(owner)
+                .Where(c => c.Function is { } g && HashesOf(g).Count > 0)
+                .GroupBy(c => c.Function!.Start).OrderByDescending(g => g.Count()).FirstOrDefault();
+            if (calls is null)
+            {
+                add(Va(shape.Start), "crypto: HMAC pad shape; no hash routine call seen in this function "
+                    + "(confidence=low)", "crypto");
+                return;
+            }
+            var hash = calls.First().Function!;
+            var algorithm = string.Join(", ", HashesOf(hash));
+            var count = calls.Count();
+            add(Va(calls.Min(c => c.From)),
+                count == 2
+                    ? $"crypto: nested hash HMAC over {algorithm}: {Name(hash)} called 2 times "
+                      + "(inner and outer; confidence=medium)"
+                    : count == 1
+                        ? $"crypto: HMAC pad shape with one call to {Name(hash)} ({algorithm}); "
+                          + "outer hash call not seen in this function (confidence=low)"
+                        : $"crypto: HMAC pad shape with {count} calls to {Name(hash)} ({algorithm}); "
+                          + "inner and outer not distinguished (confidence=low)", "crypto");
+        }
+    }
+
+    private static readonly string[] HashPrefixes = ["MD5", "SHA", "RIPEMD", "BLAKE", "SM3", "Whirlpool"];
 
     private static List<DisasmLine> Lines(NativeCodeIndex index, NativeFunction fn)
     {

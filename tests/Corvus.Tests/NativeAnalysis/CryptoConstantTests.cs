@@ -1187,4 +1187,85 @@ public sealed class CryptoConstantTests : IDisposable
         var text = await SurveyBytes(server, [.. Pad(0x100), .. System.Text.Encoding.ASCII.GetBytes(name), .. Pad(0x40)]);
         AssertAt("Key derivation or CMAC (algorithm name string) [confidence=low]", 0x100, text);
     }
+
+    [Fact]
+    public async Task Both_HMAC_pad_xors_are_an_authentication_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var both = await SurveyBytes(server, [.. Pad(0x40), 0x35, 0x36, 0x36, 0x36, 0x36, .. Pad(0x10), 0x35, 0x5C, 0x5C, 0x5C, 0x5C, .. Pad(0x40)]);
+        Assert.Contains("HMAC pad xor", both);
+        var one = await SurveyBytes(server, [.. Pad(0x40), 0x35, 0x36, 0x36, 0x36, 0x36, .. Pad(0x40)]);
+        Assert.DoesNotContain("HMAC pad xor", one);
+    }
+
+    [Fact]
+    public async Task A_doubling_xor_with_0x87_is_a_CMAC_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), 0xD1, 0xE0, 0x90, 0x34, 0x87, .. Pad(0x40)]);
+        Assert.Contains("CMAC subkey doubling", text);
+        var plain = await SurveyBytes(server, [.. Pad(0x40), 0x34, 0x87, .. Pad(0x40)]);
+        Assert.DoesNotContain("CMAC subkey doubling", plain);
+    }
+
+    [Fact]
+    public async Task Clamp_immediates_are_a_Poly1305_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var wide = await SurveyBytes(server, [.. Pad(0x40), 0x48, 0xB8, 0xFC, 0xFF, 0xFF, 0x0F, 0xFC, 0xFF, 0xFF, 0x0F, .. Pad(0x40)]);
+        Assert.Contains("Poly1305 key clamp as immediates", wide);
+        var pair = await SurveyBytes(server, [.. Pad(0x40), 0x25, 0xFC, 0xFF, 0xFF, 0x0F, 0x90, 0x25, 0xFF, 0xFF, 0xFF, 0x0F, .. Pad(0x40)]);
+        Assert.Contains("Poly1305 key clamp as immediates", pair);
+        var lone = await SurveyBytes(server, [.. Pad(0x40), 0x25, 0xFC, 0xFF, 0xFF, 0x0F, .. Pad(0x40)]);
+        Assert.DoesNotContain("Poly1305 key clamp as immediates", lone);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x34, 0x36 }, new byte[] { 0x34, 0x5C })]
+    [InlineData(new byte[] { 0x80, 0xF0, 0x36 }, new byte[] { 0x80, 0xF0, 0x5C })]
+    [InlineData(new byte[] { 0x83, 0xF0, 0x36 }, new byte[] { 0x83, 0xF0, 0x5C })]
+    [InlineData(new byte[] { 0x80, 0x74, 0x24, 0x08, 0x36 }, new byte[] { 0x80, 0x34, 0x5C })]
+    [InlineData(new byte[] { 0x81, 0xB0, 0x10, 0x00, 0x00, 0x00, 0x36, 0x36, 0x36, 0x36 }, new byte[] { 0x81, 0xF2, 0x5C, 0x5C, 0x5C, 0x5C })]
+    public async Task Each_xor_encoding_of_a_pad_is_an_HMAC_shape(byte[] inner, byte[] outer)
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), .. inner, .. Pad(0x10), .. outer, .. Pad(0x40)]);
+        Assert.Contains("HMAC pad xor", text);
+    }
+
+    [Fact]
+    public async Task Pad_xors_further_apart_than_the_reach_are_not_an_HMAC_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), 0x35, 0x36, 0x36, 0x36, 0x36, .. Pad(0x200), 0x35, 0x5C, 0x5C, 0x5C, 0x5C, .. Pad(0x40)]);
+        Assert.DoesNotContain("HMAC pad xor", text);
+    }
+
+    [Fact]
+    public async Task A_pad_xor_cut_off_at_the_end_of_the_image_is_ignored()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), 0x35, 0x36, 0x36, 0x36, 0x36, .. Pad(0x10), 0x81, 0xB0, 0x10]);
+        Assert.DoesNotContain("HMAC pad xor", text);
+    }
+
+    [Fact]
+    public async Task A_xor_0x87_beyond_the_reach_of_the_shift_is_not_a_CMAC_shape()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var text = await SurveyBytes(server, [.. Pad(0x40), 0xD1, 0xE0, .. Pad(0x40), 0x34, 0x87, .. Pad(0x40)]);
+        Assert.DoesNotContain("CMAC subkey doubling", text);
+    }
+
+    [Fact]
+    public async Task Clamp_immediates_in_either_order_are_a_Poly1305_shape_and_distant_ones_are_not()
+    {
+        await using var server = await InProcessServer.StartAsync();
+        var reversed = await SurveyBytes(server, [.. Pad(0x40), 0x25, 0xFF, 0xFF, 0xFF, 0x0F, 0x90, 0x25, 0xFC, 0xFF, 0xFF, 0x0F, .. Pad(0x40)]);
+        Assert.Contains("Poly1305 key clamp as immediates", reversed);
+        var wide = await SurveyBytes(server, [.. Pad(0x40), 0x48, 0xB8, 0xFF, 0xFF, 0xFF, 0x0F, 0xFC, 0xFF, 0xFF, 0x0F, .. Pad(0x40)]);
+        Assert.Contains("Poly1305 key clamp as immediates", wide);
+        var far = await SurveyBytes(server, [.. Pad(0x40), 0x25, 0xFC, 0xFF, 0xFF, 0x0F, .. Pad(0x100), 0x25, 0xFF, 0xFF, 0xFF, 0x0F, .. Pad(0x40)]);
+        Assert.DoesNotContain("Poly1305 key clamp as immediates", far);
+    }
 }
