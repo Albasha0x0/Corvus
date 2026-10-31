@@ -494,6 +494,129 @@ public class InspectionTests : IDisposable
             on.Contents.Where(p => p != recovered).Select(p => (p.Source, string.Join(">", p.Encoding))).Order());
     }
 
+    [Fact]
+    public void Sibling_high_entropy_resources_report_a_shared_block_offset()
+    {
+        // Two random 2 KB resources that carry the same 8-byte block at 0x10.
+        var a = new byte[2048];
+        var b = new byte[2048];
+        new Random(11).NextBytes(a);
+        new Random(12).NextBytes(b);
+        a.AsSpan(0x10, 8).CopyTo(b.AsSpan(0x10, 8));
+        var fixture = ContainerFixtures.Module("Siblings", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("a.bin", a));
+            m.Resources.Add(new EmbeddedResource("b.bin", b));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("Siblings.dll", fixture), false, null, false, default);
+        var first = Assert.Single(report.Contents, p => p.Source == "resource 'a.bin'");
+        Assert.Contains("8-byte block shared at 0x10", first.Detail);
+        Assert.Contains("structural signal only", first.Detail);
+        Assert.Contains("resource 'b.bin'", first.Detail);
+        var second = Assert.Single(report.Contents, p => p.Source == "resource 'b.bin'");
+        Assert.Contains("resource 'a.bin'", second.Detail);
+        Assert.Contains("8-byte block shared at 0x10", second.Detail);
+    }
+
+    [Fact]
+    public void A_high_entropy_resource_without_siblings_carries_no_shared_note()
+    {
+        var fixture = ContainerFixtures.Module("Alone", m => m.Resources.Add(new EmbeddedResource("a.bin", Random2K(21))));
+        var report = Inspection.ExtractEmbedded(null, Save("Alone.dll", fixture), false, null, false, default);
+        Assert.Null(Assert.Single(report.Contents, p => p.Source == "resource 'a.bin'").Detail);
+    }
+
+    [Fact]
+    public void A_16_byte_block_shared_between_siblings_is_not_repeated_as_8_byte_blocks()
+    {
+        var a = Random2K(31);
+        var b = Random2K(32);
+        a.AsSpan(0x30, 16).CopyTo(b.AsSpan(0x30, 16));
+        Assert.Equal("16-byte block shared at 0x30 (structural signal only)", BlockRepeats.Shared(a, b));
+    }
+
+    [Fact]
+    public void Sibling_buffers_of_unequal_length_compare_the_common_prefix()
+    {
+        var a = Random2K(41);
+        var b = Random2K(42)[..1024];
+        a.AsSpan(0x200, 8).CopyTo(b.AsSpan(0x200, 8));
+        a.AsSpan(0x600, 8).CopyTo(b.AsSpan(0x100, 8));
+        Assert.Equal("8-byte block shared at 0x200 (structural signal only)", BlockRepeats.Shared(a, b));
+    }
+
+    [Fact]
+    public void Sibling_notes_name_three_siblings_then_count_the_rest()
+    {
+        var common = Random2K(51).AsSpan(0, 8).ToArray();
+        var fixture = ContainerFixtures.Module("Many", m =>
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                var data = Random2K(60 + i);
+                common.CopyTo(data, 0x10);
+                m.Resources.Add(new EmbeddedResource($"r{i}.bin", data));
+            }
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("Many.dll", fixture), false, null, false, default);
+        var first = Assert.Single(report.Contents, p => p.Source == "resource 'r0.bin'");
+        Assert.Contains("and 2 more siblings", first.Detail);
+        Assert.Equal(3, first.Detail!.Split("resource 'r").Length - 1);
+    }
+
+    [Fact]
+    public void A_high_entropy_resource_with_an_internal_repeat_carries_the_detail()
+    {
+        var data = Random2K(71);
+        data.AsSpan(0x40, 16).CopyTo(data.AsSpan(0x400, 16));
+        var fixture = ContainerFixtures.Module("Inner", m => m.Resources.Add(new EmbeddedResource("a.bin", data)));
+        var report = Inspection.ExtractEmbedded(null, Save("Inner.dll", fixture), false, null, false, default);
+        Assert.Contains("0x40, 0x400", Assert.Single(report.Contents, p => p.Source == "resource 'a.bin'").Detail);
+    }
+
+    [Fact]
+    public void Short_and_uniform_buffers_have_no_repeated_blocks()
+    {
+        Assert.Null(BlockRepeats.Within([1, 2, 3]));
+        Assert.Null(BlockRepeats.Within([]));
+        Assert.Null(BlockRepeats.Within(new byte[64]));
+        Assert.Null(BlockRepeats.Shared(new byte[64], new byte[64]));
+        Assert.Null(BlockRepeats.Shared([1, 2, 3], [1, 2, 3]));
+    }
+
+    [Fact]
+    public void Repeated_block_groups_beyond_three_are_counted()
+    {
+        var data = new byte[8 * 10];
+        for (int g = 0; g < 5; g++)
+        {
+            data[g * 16] = (byte)(g + 1);
+            data[g * 16 + 8] = (byte)(g + 1);
+        }
+        var note = BlockRepeats.Within(data);
+        Assert.Contains("and 2 more 8-byte groups", note);
+        Assert.DoesNotContain("16-byte", note);
+    }
+
+    private static byte[] Random2K(int seed)
+    {
+        var data = new byte[2048];
+        new Random(seed).NextBytes(data);
+        return data;
+    }
+
+    [Fact]
+    public void A_block_repeated_inside_one_buffer_is_named_with_its_offsets()
+    {
+        var data = new byte[256];
+        new Random(5).NextBytes(data);
+        data.AsSpan(0x20, 16).CopyTo(data.AsSpan(0x80, 16));
+        var note = BlockRepeats.Within(data);
+        Assert.Contains("16-byte block", note);
+        Assert.Contains("0x20, 0x80", note);
+        Assert.Null(BlockRepeats.Within(Unrepeated()));
+    }
+
     [Trait("Speed", "Slow")]
     [Fact]
     public void Embedded_XOR_text_rejects_readable_and_random_data()
@@ -936,4 +1059,6 @@ public class InspectionTests : IDisposable
         var nulls = await client.CallToolAsync("summarize_file", new Dictionary<string, object?> { ["path"] = everyday });
         Assert.DoesNotContain(":null", nulls.StructuredContent!.ToString());
     }
+
+    private static byte[] Unrepeated() => [.. Enumerable.Range(0, 256).Select(i => (byte)i)];
 }

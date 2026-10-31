@@ -71,7 +71,38 @@ public static class Embedded
             ct.ThrowIfCancellationRequested();
             if (s.Value.Length >= MinStringLength) ExamineText(s.Value, $"string {s.Location.Where}", Add, limits, xorText);
         }
+        AnnotateSiblings(found);
         return found;
+    }
+
+    private const int MaxSiblingItems = 64, MaxSiblingNotes = 3;
+
+    // Equal blocks at one offset in two undecoded items point at a shared
+    // structure. Each pair is scanned once; items and notes are capped.
+    private static void AnnotateSiblings(List<EmbeddedContent> found)
+    {
+        var raw = Enumerable.Range(0, found.Count)
+            .Where(i => found[i].Kind.StartsWith("high-entropy", StringComparison.Ordinal)).ToList();
+        var notes = raw.ToDictionary(i => i, _ => new List<string>());
+        var compared = raw.Take(MaxSiblingItems).ToList();
+        for (int x = 0; x < compared.Count; x++)
+            for (int y = x + 1; y < compared.Count; y++)
+            {
+                var shared = BlockRepeats.Shared(found[compared[x]].Bytes, found[compared[y]].Bytes);
+                if (shared is null) continue;
+                notes[compared[x]].Add($"{found[compared[y]].Source}: {shared}");
+                notes[compared[y]].Add($"{found[compared[x]].Source}: {shared}");
+            }
+        foreach (int i in raw.Skip(MaxSiblingItems))
+            notes[i].Add($"sibling comparison skipped (over {MaxSiblingItems} high-entropy items)");
+        foreach (var (i, list) in notes)
+        {
+            if (list.Count == 0) continue;
+            var shown = list.Take(MaxSiblingNotes).ToList();
+            if (list.Count > MaxSiblingNotes) shown.Add($"and {list.Count - MaxSiblingNotes} more siblings");
+            var detail = string.Join("; ", shown.Prepend(found[i].Detail).Where(n => n != null));
+            found[i] = found[i] with { Detail = detail };
+        }
     }
 
     /// <summary>Hex is tried before base64 because every hex string is also valid base64.</summary>
@@ -163,6 +194,7 @@ public static class Embedded
         {
             detail = $"{pe.MachineName} {(pe.IsDll ? "DLL" : "EXE")}";
         }
+        if (kind.StartsWith("high-entropy", StringComparison.Ordinal)) detail ??= BlockRepeats.Within(data);
         return new EmbeddedContent(source, chain, kind, data.Length, Blob.Sha256(data), Math.Round(Blob.Entropy(data), 2), detail) { Bytes = data };
     }
 
