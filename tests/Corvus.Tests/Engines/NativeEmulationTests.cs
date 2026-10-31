@@ -56,6 +56,39 @@ public sealed class NativeEmulationTests
     }
 
     [Fact]
+    public void A_read_item_takes_a_space_or_colon_before_the_length()
+    {
+        Assert.Equal(("rcx", 16), NativeEmulationTools.SplitRead("rcx 16"));
+        Assert.Equal(("0x1000", 32), NativeEmulationTools.SplitRead("0x1000:32"));
+        Assert.Equal(("rcx", 64), NativeEmulationTools.SplitRead("rcx"));
+        Assert.Equal(("va:0x10", 64), NativeEmulationTools.SplitRead("va:0x10"));
+        Assert.Equal(("va:0x10", 32), NativeEmulationTools.SplitRead("va:0x10:32"));
+        Assert.Equal(("0x1000", 32), NativeEmulationTools.SplitRead("0x1000: 32"));
+        Assert.Equal(("0x1000", 32), NativeEmulationTools.SplitRead("0x1000 :32"));
+        Assert.Equal(("rcx", 16), NativeEmulationTools.SplitRead("rcx:16"));
+        Assert.Equal(("my func", 64), NativeEmulationTools.SplitRead("my func"));
+    }
+
+    [Fact]
+    public void A_read_item_that_is_a_name_with_a_colon_passes_through()
+    {
+        Assert.Equal(("ns::func", 64), NativeEmulationTools.SplitRead("ns::func"));
+        Assert.Equal(("Foo:bar", 64), NativeEmulationTools.SplitRead("Foo:bar"));
+        Assert.Equal(("rcx:abc", 64), NativeEmulationTools.SplitRead("rcx:abc"));
+    }
+
+    [Fact]
+    public void A_read_item_with_a_bad_length_is_refused_with_the_expected_form()
+    {
+        Assert.Contains("ADDR LEN", Assert.Throws<ToolError>(() => NativeEmulationTools.SplitRead("0x1000:abc")).Remediation);
+        Assert.Throws<ToolError>(() => NativeEmulationTools.SplitRead("0x1000:"));
+        Assert.Throws<ToolError>(() => NativeEmulationTools.SplitRead("rcx:-5"));
+        Assert.Throws<ToolError>(() => NativeEmulationTools.SplitRead(":16"));
+        Assert.Throws<ToolError>(() => NativeEmulationTools.SplitRead("rcx 0"));
+        Assert.Throws<ToolError>(() => NativeEmulationTools.SplitRead("0x1000:70000"));
+    }
+
+    [Fact]
     public void Written_bytes_show_as_text_when_they_read_as_text()
     {
         Assert.StartsWith("\"Hi\\n\" | 48 69 0A 00", NativeEmulationTools.Show([0x48, 0x69, 0x0A, 0]));

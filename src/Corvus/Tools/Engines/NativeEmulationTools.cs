@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -35,7 +36,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000.")] string? memory = null,
         [Description("Addresses to stop at.")] string? stopAt = null,
         [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 calls outside the image).")] string? stubs = null,
-        [Description("Shown after the run: ADDR or register, space, length (rcx 64).")] string? read = null,
+        [Description("Shown after the run: ADDR or register, space or colon, length (rcx 64).")] string? read = null,
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
         [Description("Last instructions listed (0-2000).")] int trace = 0,
@@ -431,6 +432,48 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
 
     private static string After(string item) => item[(item.IndexOf('=') + 1)..].Trim();
 
+    /// <summary>Splits 'ADDR LEN' or 'ADDR:LEN'; length defaults to 64, must be 1-65536.</summary>
+    internal static (string Where, int Length) SplitRead(string item)
+    {
+        var text = Regex.Replace(item.Trim(), @"\s*:\s*", ":");
+        if (text.StartsWith("va:", StringComparison.OrdinalIgnoreCase))
+        {
+            var (inner, innerLength) = SplitRead(text[3..]);
+            return (text[..3] + inner, innerLength);
+        }
+
+        var parts = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        string where;
+        string tail;
+        if (parts.Length > 1)
+        {
+            if (!IsInt(parts[^1])) return (string.Join(' ', parts), 64);
+            where = string.Join(' ', parts[..^1]);
+            tail = parts[^1];
+        }
+        else
+        {
+            int colon = text.LastIndexOf(':');
+            if (colon < 0 || (colon > 0 && text[colon - 1] == ':')) return (text, 64);
+            where = text[..colon];
+            tail = text[(colon + 1)..];
+            // Other colon forms (Foo:bar) are names the worker resolves.
+            bool numericHead = Regex.IsMatch(where, @"^(0[xX][0-9a-fA-F]+|\d+)$");
+            if (!IsInt(tail) && !(tail.Length == 0 || numericHead)) return (text, 64);
+            if (colon == 0 && !IsInt(tail)) return (text, 64);
+            if (where.Length == 0) throw BadLength(item);
+        }
+
+        if (!int.TryParse(tail, NumberStyles.Integer, CultureInfo.InvariantCulture, out var length)) throw BadLength(item);
+        if (length is < 1 or > 65536) throw new ToolError(ErrorCode.InvalidArgument, $"A read length must be 1-65536, not {length}.");
+        return (where, length);
+    }
+
+    private static bool IsInt(string text) => int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
+
+    private static ToolError BadLength(string item) =>
+        new(ErrorCode.InvalidArgument, $"Read item '{item}' has no valid length.", "Use 'ADDR LEN' or 'REGISTER LEN', e.g. rcx 64.");
+
     /// <summary>Decimal or 0x hex, negative as two's complement in 64 bits.</summary>
     internal static ulong? Integer(string text)
     {
@@ -523,11 +566,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
 
         public JsonNode Read(string item)
         {
-            var parts = item.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            int length = 64;
-            if (parts.Length > 1 && int.TryParse(parts[^1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) { length = n; parts = parts[..^1]; }
-            if (length is < 1 or > 65536) throw new ToolError(ErrorCode.InvalidArgument, $"A read length must be 1-65536, not {length}.");
-            var where = string.Join(' ', parts);
+            var (where, length) = SplitRead(item);
             try
             {
                 return new JsonObject { ["va"] = Hex(Va(where)), ["length"] = length };
