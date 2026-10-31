@@ -67,6 +67,9 @@ public sealed partial class MinidumpService
         [Description("signed, catalog, unsigned, digest_mismatch, invalid, unreadable or unknown.")] public string? SignatureState { get; init; }
         [Description(".text in memory against the matching local file: same, differs, partial or unknown.")] public string? CodeState { get; init; }
         public string? CodeDetail { get; init; }
+        [Description("Rebuilt .NET image: readable, partial, unreadable or unknown.")] public string? Metadata { get; init; }
+        [Description("Why the metadata is not readable.")] public string? MetadataReason { get; init; }
+        [Description("File written under outputPath.")] public string? ImageFile { get; init; }
 
         /// <summary>The checked row of <paramref name="m"/>, its checks unset.</summary>
         public static CheckedModule Of(ModuleSummary m) => new(m.Name, m.Path, m.Base, m.Size, m.TimeDateStamp, m.Built, m.FileVersion, m.PdbName, m.PdbGuid, m.PdbAge,
@@ -247,15 +250,42 @@ public sealed partial class MinidumpService
     private static bool IsWow64Process(MinidumpFile d) =>
         d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase) || m.FileName.Equals("wow64.dll", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here.</summary>
-    public (string Id, IReadOnlyList<CheckedModule> Rows, int Total) Modules(string path, string? imageDirectories, int offset, int limit)
+    /// <summary>Modules from <paramref name="offset"/>, with whether a matching image is here and the metadata state of each .NET image.</summary>
+    /// <remarks>With <paramref name="outputPath"/>, the page's images go to that new or empty folder, returned as Folder; a core file refuses it.</remarks>
+    public (string Id, IReadOnlyList<CheckedModule> Rows, int Total, string? Folder) Modules(string path, string? imageDirectories, int offset, int limit, string? outputPath = null, CancellationToken ct = default)
     {
         using var s = Open(path, imageDirectories);
         if (s.Core is { } core)
+        {
+            if (outputPath != null)
+                throw new ToolError(ErrorCode.Unsupported, "A core file has no rebuilt module images.", "open_minidump view=modules without outputPath, or read_dump_memory at a module base");
             return (s.Id, core.CoreModules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit))
-                .Select(m => CheckedModule.Of(CoreModuleRow(s, m)) with { LoadPath = ModuleChecks.PathClass(m.Module.Path) }).ToList(), core.CoreModules.Count);
+                .Select(m => CheckedModule.Of(CoreModuleRow(s, m)) with { LoadPath = ModuleChecks.PathClass(m.Module.Path) }).ToList(), core.CoreModules.Count, null);
+        }
         var d = s.Memory;
-        return (s.Id, d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).Select(m => Checked(s, m)).ToList(), d.Modules.Count);
+        var page = d.Modules.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, MaxListLimit)).ToList();
+        ModuleExport? export = null;
+        if (outputPath != null)
+        {
+            var root = SafeFile.Output(outputPath);
+            if (File.Exists(root) || Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
+                throw new ToolError(ErrorCode.Conflict, $"outputPath needs a new or empty folder: {root}.", "pass outputPath as a new folder, e.g. <dump>-modules");
+            export = DumpModuleExport.Write(d, page, root, ct);
+        }
+        var rows = page.Select(m =>
+        {
+            ct.ThrowIfCancellationRequested();
+            var row = Checked(s, m);
+            var at = $"0x{m.Base:X}";
+            if (export?.Written.FirstOrDefault(w => w.Base == at) is { } w) return row with { Metadata = w.Metadata, MetadataReason = w.MetadataReason, ImageFile = w.File };
+            if (export?.Skipped.FirstOrDefault(k => k.Base == at) is { } k) {
+                var skippedState = DumpManagedMetadata.Inspect(d, m, k.Reason);
+                return row with { Metadata = skippedState?.State, MetadataReason = skippedState?.Reason };
+            }
+            var state = DumpManagedMetadata.Inspect(d, m);
+            return row with { Metadata = state?.State, MetadataReason = state?.Reason };
+        }).ToList();
+        return (s.Id, rows, d.Modules.Count, export?.Folder);
     }
 
     /// <summary>The module row with its load path class, the local file's signer and the code sections compared with that file.</summary>

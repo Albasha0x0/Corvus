@@ -313,7 +313,7 @@ public static class FileWork
     /// <summary>A dump the server resolved: the id it gave the file and the image folders it is read with.</summary>
     public sealed record DumpTarget(string Id, string Path, string? ImageDirectories);
 
-    public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null);
+    public sealed record DumpViewArgs(DumpTarget Dump, string View, int Offset, int Limit, string? DacPath, bool DownloadDac, string? RegionFilter = null, string? Yara = null, string? OutputPath = null);
 
     public sealed record DumpReadArgs(DumpTarget Dump, string Address, int Length, bool ImageFallback);
 
@@ -405,8 +405,13 @@ public static class FileWork
                 var report = dumps.Summarize(id, directories, new DacRequest(string.IsNullOrWhiteSpace(a.DacPath) ? null : a.DacPath, a.DownloadDac), ct).GetAwaiter().GetResult();
                 return new DumpViewResult(report, null, 0);
             case "modules":
-                var (mId, modules, mTotal) = dumps.Modules(id, directories, a.Offset, a.Limit);
-                return new DumpViewResult(null, mId, mTotal) { Modules = modules };
+                var (mId, modules, mTotal, folder) = dumps.Modules(id, directories, a.Offset, a.Limit, a.OutputPath, ct);
+                var written = modules.Count(m => m.ImageFile != null);
+                return new DumpViewResult(null, mId, mTotal)
+                {
+                    Modules = modules,
+                    Notes = folder == null ? null : [$"images: {written} of {modules.Count} written to {folder}; the rest have no image or are over the size limit."],
+                };
             case "threads":
                 var (tId, threads, tTotal) = dumps.Threads(id, directories, a.Offset, a.Limit, ct).GetAwaiter().GetResult();
                 return new DumpViewResult(null, tId, tTotal) { Threads = threads };

@@ -52,6 +52,117 @@ public sealed class DumpManagedMetadataTests : IDisposable
         return Assert.Single(DumpModuleExport.Write(path, _dir.File("modules"), default).Written);
     }
 
+    private string ManagedDump(byte[] mapped, int captured)
+    {
+        var b = SyntheticCrash.Builder();
+        b.Modules.Clear();
+        b.Memory.RemoveAll(m => m.Start == SyntheticCrash.Base);
+        b.Modules.Add(new MinidumpBuilder.Module(Base, (uint)mapped.Length, 0, @"Z:\app\fixture.dll"));
+        b.Memory.Add((Base, mapped[..captured]));
+        var path = _dir.File("view.dmp");
+        File.WriteAllBytes(path, b.Build());
+        return path;
+    }
+
+    [Fact]
+    public void The_modules_view_rows_carry_the_metadata_state_and_reason()
+    {
+        var (mapped, offset, _) = ManagedImage();
+        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(ManagedDump(mapped, offset + 64), null, 0, 10).Rows);
+        Assert.Equal("unreadable", row.Metadata);
+        Assert.False(string.IsNullOrEmpty(row.MetadataReason));
+        Assert.Null(row.ImageFile);
+    }
+
+    [Fact]
+    public void The_modules_view_writes_the_page_images_under_outputPath_and_names_each_file()
+    {
+        var (mapped, _, _) = ManagedImage();
+        var folder = _dir.File("rebuilt");
+        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(ManagedDump(mapped, mapped.Length), null, 0, 10, folder).Rows);
+        Assert.Equal("readable", row.Metadata);
+        Assert.Equal("fixture.dll", row.ImageFile);
+        Assert.True(File.Exists(Path.Combine(folder, "fixture.dll")));
+    }
+
+    [Fact]
+    public void The_modules_view_refuses_an_outputPath_folder_that_is_not_empty()
+    {
+        var (mapped, _, _) = ManagedImage();
+        File.WriteAllText(_dir.File("taken.txt"), "x");
+        var error = Assert.Throws<Corvus.Core.ToolError>(() => new Corvus.Services.MinidumpService().Modules(ManagedDump(mapped, mapped.Length), null, 0, 10, _dir.Path));
+        Assert.Contains("new or empty folder", error.Message);
+    }
+
+    private string HeaderlessDump(uint size, bool captureHeader)
+    {
+        var (mapped, _, _) = ManagedImage();
+        var b = SyntheticCrash.Builder();
+        b.Modules.Clear();
+        b.Memory.RemoveAll(m => m.Start == SyntheticCrash.Base);
+        b.Modules.Add(new MinidumpBuilder.Module(Base, size, 0, @"Z:ppixture.dll"));
+        if (captureHeader) b.Memory.Add((Base, mapped[..0x1000]));
+        var path = _dir.File("headerless.dmp");
+        File.WriteAllBytes(path, b.Build());
+        return path;
+    }
+
+    [Fact]
+    public void A_module_whose_header_page_is_not_captured_reports_unknown_with_a_reason()
+    {
+        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x9000, false), null, 0, 10).Rows);
+        Assert.Equal("unknown", row.Metadata);
+        Assert.Equal("the dump does not hold the module header", row.MetadataReason);
+    }
+
+    [Fact]
+    public void A_managed_image_over_the_size_limit_reports_unknown_with_a_reason()
+    {
+        var row = Assert.Single(new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x9000000, true), null, 0, 10).Rows);
+        Assert.Equal("unknown", row.Metadata);
+        Assert.Contains("larger than", row.MetadataReason);
+    }
+
+    [Fact]
+    public void A_skipped_managed_module_reports_unknown_with_the_skip_reason_under_outputPath()
+    {
+        var folder = _dir.File("skipped");
+        var (_, rows, _, _) = new Corvus.Services.MinidumpService().Modules(HeaderlessDump(0x9000000, true), null, 0, 10, folder);
+        var row = Assert.Single(rows);
+        Assert.Equal("unknown", row.Metadata);
+        Assert.Contains("larger than", row.MetadataReason);
+        Assert.Null(row.ImageFile);
+    }
+
+    [Fact]
+    public void A_native_module_row_has_no_metadata_state()
+    {
+        var path = _dir.File("native-view.dmp");
+        File.WriteAllBytes(path, SyntheticCrash.Builder().Build());
+        var rows = new Corvus.Services.MinidumpService().Modules(path, null, 0, 10).Rows;
+        Assert.All(rows, r => Assert.Null(r.Metadata));
+    }
+
+    [Fact]
+    public void The_modules_view_returns_the_resolved_folder_of_the_written_images()
+    {
+        var (mapped, _, _) = ManagedImage();
+        var folder = _dir.File("resolved");
+        var (_, _, _, resolved) = new Corvus.Services.MinidumpService().Modules(ManagedDump(mapped, mapped.Length), null, 0, 10, folder);
+        Assert.Equal(Path.GetFullPath(folder), resolved);
+    }
+
+    [Fact]
+    public void A_cancelled_modules_call_writes_no_image()
+    {
+        var (mapped, _, _) = ManagedImage();
+        var folder = _dir.File("cancelled");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() => new Corvus.Services.MinidumpService().Modules(ManagedDump(mapped, mapped.Length), null, 0, 10, folder, cts.Token));
+        Assert.Empty(Directory.Exists(folder) ? Directory.GetFiles(folder) : []);
+    }
+
     [Fact]
     public void An_intact_managed_image_reports_readable_metadata()
     {

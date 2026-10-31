@@ -22,18 +22,29 @@ public static class DumpModuleExport
     /// <summary>Largest image written, and most bytes written in all.</summary>
     public const long MaxImageBytes = 128L << 20, MaxTotalBytes = 1L << 30;
 
-    /// <summary>Writes each module of the minidump at <paramref name="dump"/> into <paramref name="folder"/>, a new or empty folder; modules whose headers the dump lacks, or past a size limit, are listed as skipped.</summary>
+    /// <summary>Writes each module of the minidump at <paramref name="dump"/> into a new or empty <paramref name="folder"/>.</summary>
+    /// <remarks>Modules whose headers the dump lacks, or past a size limit, are listed as skipped.</remarks>
     /// <remarks>File names are the module's own, made safe under the folder; a name taken by another module, or not a plain file name, gets the module's base address.</remarks>
     public static ModuleExport Write(string dump, string folder, CancellationToken ct)
     {
         using var file = MinidumpFile.Open(dump);
+        return Write(file, file.Modules, folder, ct);
+    }
+
+    /// <summary>Writes the images of <paramref name="modules"/>, rebuilt from <paramref name="memory"/>.</summary>
+    /// <remarks>A failed write deletes the files this call created.</remarks>
+    public static ModuleExport Write(IProcessMemory memory, IEnumerable<DumpModule> modules, string folder, CancellationToken ct)
+    {
         var root = Path.GetFullPath(folder);
         Directory.CreateDirectory(root);
         var written = new List<ExportedModule>();
         var skipped = new List<SkippedModule>();
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var created = new List<string>();
         long total = 0;
-        foreach (var module in file.Modules)
+        try
+        {
+        foreach (var module in modules)
         {
             ct.ThrowIfCancellationRequested();
             var at = $"0x{module.Base:X}";
@@ -42,7 +53,7 @@ public static class DumpModuleExport
                 skipped.Add(new SkippedModule(module.FileName, at, $"larger than {MaxImageBytes >> 20} MB"));
                 continue;
             }
-            var image = DumpImages.FromMemory(file, module, out ulong captured);
+            var image = DumpImages.FromMemory(memory, module, out ulong captured);
             if (image == null)
             {
                 skipped.Add(new SkippedModule(module.FileName, at, "the dump does not hold the image headers"));
@@ -56,10 +67,18 @@ public static class DumpModuleExport
             }
             var name = NameFor(module, used);
             SafeFile.WriteUnderRoot(root, name, bytes.Span, overwrite: false);
+            created.Add(Path.Combine(root, name));
             total += bytes.Length;
             var metadata = DumpManagedMetadata.Inspect(image);
             written.Add(new ExportedModule(name, at, module.Size, Convert.ToHexStringLower(SHA256.HashData(bytes.Span)), (int)(captured * 100 / Math.Max(1u, module.Size)),
                 metadata?.State, metadata?.Reason));
+        }
+        }
+        catch
+        {
+            foreach (var path in created)
+                try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            throw;
         }
         return new ModuleExport(root, written, skipped);
     }

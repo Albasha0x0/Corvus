@@ -18,18 +18,19 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
         "Program binary folders (';'-separated), kept for the dump, plus its own.";
 
     [McpServerTool(Name = "open_minidump", Title = "Open a crash dump", UseStructuredContent = true, OutputSchemaType = typeof(MinidumpService.DumpReport))]
-    [Description("Open a Windows minidump, an ELF or Mach-O core, or a region-set manifest and return its id. view=summary shows the " +
-                 "OS, process, exception and .NET state (Microsoft's signature-checked DAC); other views page rows.")]
+    [Description("Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its id. view=summary: OS, " +
+                 "process, exception, .NET state; other views page rows.")]
     public Task<string> OpenMinidump(
-        [Description("The .dmp path (or an open dump's id).")] string path,
+        [Description("The .dmp path or open dump id.")] string path,
         [Description("summary, modules, threads, memory or unloaded.")] string view = "summary",
         [Description(ToolSupport.RowOffsetDescription)] int offset = 0,
         [Description(ToolSupport.LimitDescription)] int limit = MinidumpService.DefaultListLimit,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,
-        [Description("DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed.")] string? dacPath = null,
-        [Description("Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
+        [Description("DAC file or folder for a build not installed.")] string? dacPath = null,
+        [Description("Fetch a matching DAC (symbol server; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
         [Description("view=memory: all (default) or unbacked.")] string? regionFilter = null,
         [Description("unbacked: YARA rules (text, file, folder, pack:name).")] string? yara = null,
+        [Description("view=modules: new or empty image folder.")] string? outputPath = null,
         [Description(ToolSupport.MaxTokensDescription)] int? maxTokens = null,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
@@ -41,11 +42,12 @@ public sealed class MinidumpTools(MinidumpService dumps, LiveSessionService? ses
             throw new ToolError(ErrorCode.InvalidArgument, $"regionFilter '{regionFilter}' is not one of {string.Join(", ", MinidumpService.MemoryFilters)}.");
         if (filter != "all" && v != "memory") throw new ToolError(ErrorCode.InvalidArgument, "regionFilter goes with view=memory.");
         if (!string.IsNullOrWhiteSpace(yara) && filter != "unbacked") throw new ToolError(ErrorCode.InvalidArgument, "yara goes with regionFilter=unbacked.");
+        if (!string.IsNullOrWhiteSpace(outputPath) && v != "modules") throw new ToolError(ErrorCode.InvalidArgument, "outputPath goes with view=modules.", "pass view=modules");
         var args = new FileWork.DumpViewArgs(Target(path, imageDirectories), v, offset, limit, dacPath, downloadDac, filter == "all" ? null : filter,
-            string.IsNullOrWhiteSpace(yara) ? null : yara);
+            string.IsNullOrWhiteSpace(yara) ? null : yara, string.IsNullOrWhiteSpace(outputPath) ? null : outputPath);
         var r = await FileIsolation.RunAsync(Isolation, workers, FileWork.DumpView, args, args.Dump.Path, () => FileWork.ViewOf(dumps, args, cancellationToken), cancellationToken);
         if (r.Summary is { } report) return ToolOutput.Report(DumpText.Summary(report), report);
-        if (r.Modules is { } modules) return Rows(r.Id!, v, modules, offset, limit, r.Total, DumpText.Module, "module");
+        if (r.Modules is { } modules) return Rows(r.Id!, v, modules, offset, limit, r.Total, DumpText.Module, "module", r.Notes);
         if (r.Threads is { } threads) return Rows(r.Id!, v, threads, offset, limit, r.Total, DumpText.Thread, "thread");
         if (r.Unbacked is { } unbacked) return Rows(r.Id!, v, unbacked, offset, limit, r.Total, DumpText.Memory, "region", r.Notes);
         if (r.Memory is { } memory) return Rows(r.Id!, v, memory, offset, limit, r.Total, DumpText.Memory, "region");

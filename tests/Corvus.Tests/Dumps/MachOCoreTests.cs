@@ -190,7 +190,7 @@ public sealed class MachOCoreTests
         var path = Write(dir, SyntheticMachOCore.Core(imageInCore: false, notes: true));
         File.WriteAllBytes(dir.File("app"), SyntheticMachOCore.Image(x64: false));
         using var service = new MinidumpService();
-        var (_, modules, _) = service.Modules(path, null, 0, 10);
+        var (_, modules, _, _) = service.Modules(path, null, 0, 10);
         Assert.Equal("matches", modules[0].LocalImage);
         Assert.Contains($"UUID {Convert.ToHexStringLower(SyntheticMachOCore.Uuid)} matches", modules[0].LocalDetail);
 

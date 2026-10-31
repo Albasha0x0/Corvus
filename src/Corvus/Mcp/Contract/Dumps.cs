@@ -10,8 +10,9 @@ public static partial class ToolEffects
     private static Dictionary<string, Effects> DumpsTools() => new(StringComparer.Ordinal)
     {
         // Crash dumps (an open dump gets an id, as loading an image does)
-        // downloadDac=true fetches the runtime's DAC from a symbol server.
-        ["open_minidump"] = Reads(longRunning: true, openWorld: true),
+        // downloadDac=true fetches the runtime's DAC from a symbol server;
+        // view=modules outputPath writes rebuilt images to a new or empty folder.
+        ["open_minidump"] = Changes(destructive: false, idempotent: false, longRunning: true, openWorld: true),
         ["dump_stack"] = Reads(),
         ["dump_heap"] = Reads(longRunning: true),
         ["dump_object"] = Reads(),
@@ -38,7 +39,7 @@ public sealed partial record ToolContract
 {
     private static Dictionary<string, ToolContract> DumpsTools() => new(StringComparer.Ordinal)
     {
-        ["open_minidump"] = Row(O.Report, L.Interactive),
+        ["open_minidump"] = Row(O.Report, L.Interactive, noDryRun: "writes only with view=modules outputPath"),
         ["dump_stack"] = Row(O.List, L.Instant, sort: "stack walk order, innermost first"),
         ["dump_heap"] = Row(O.List, L.Interactive, sort: "total size descending, type (mode=objects: heap order)"),
         ["dump_object"] = Row(O.Report, L.Instant),

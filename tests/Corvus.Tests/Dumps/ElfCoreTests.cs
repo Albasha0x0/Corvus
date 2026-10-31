@@ -278,13 +278,23 @@ public sealed class ElfCoreTests
     }
 
     [Fact]
+    public void A_core_file_refuses_outputPath_and_names_the_next_call()
+    {
+        using var dir = new TempDir();
+        var path = Write(dir, SyntheticCore.Core(arm64: false, moduleCode: false));
+        using var service = new MinidumpService();
+        var error = Assert.Throws<Corvus.Core.ToolError>(() => service.Modules(path, null, 0, 10, dir.File("out")));
+        Assert.Contains("read_dump_memory", error.Remediation);
+    }
+
+    [Fact]
     public async Task Module_code_comes_from_the_file_matched_by_build_id()
     {
         using var dir = new TempDir();
         var path = Write(dir, SyntheticCore.Core(arm64: false, moduleCode: false));
         File.WriteAllBytes(dir.File("libcrash.so"), SyntheticCore.Module(arm64: false));
         using var service = new MinidumpService();
-        var (_, modules, _) = service.Modules(path, null, 0, 10);
+        var (_, modules, _, _) = service.Modules(path, null, 0, 10);
         Assert.Equal("matches", modules[0].LocalImage);
         Assert.Contains("build id", modules[0].LocalDetail);
 

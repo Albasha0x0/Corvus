@@ -24,6 +24,22 @@ public static class DumpManagedMetadata
         catch (Exception ex) when (ex is not OperationCanceledException) { return Unreadable($"the metadata is not valid: {ex.Message}"); }
     }
 
+    /// <summary>Returns the metadata state of the module's image rebuilt from <paramref name="memory"/>; null for a native module, unknown when the header or image is not in the dump.</summary>
+    /// <remarks>With <paramref name="notRebuilt"/>, a .NET module is reported unknown with that reason instead of being rebuilt.</remarks>
+    public static ManagedMetadataState? Inspect(IProcessMemory memory, DumpModule module, string? notRebuilt = null)
+    {
+        var head = new byte[0x1000];
+        if (memory.ReadMemory(module.Base, head) < 0x200) return Unknown("the dump does not hold the module header");
+        if (!DumpImages.TryHeader(head, out _, out _, out bool dotNet)) return Unknown("the module header is not a PE header");
+        if (!dotNet) return null;
+        if (notRebuilt != null) return Unknown(notRebuilt);
+        if (module.Size > DumpModuleExport.MaxImageBytes) return Unknown($"the image is larger than {DumpModuleExport.MaxImageBytes >> 20} MB: not rebuilt");
+        var image = DumpImages.FromMemory(memory, module, out _);
+        return image == null ? Unknown("the dump does not hold the image headers") : Inspect(image);
+    }
+
+    private static ManagedMetadataState Unknown(string reason) => new("unknown", reason);
+
     private static ManagedMetadataState InspectCore(PeFile image)
     {
         var bytes = image.FileBytes.Span;

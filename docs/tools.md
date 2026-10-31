@@ -2687,21 +2687,22 @@ Crash dumps and crash text.
 
 ### open_minidump
 
-**Open a crash dump** (read-only, idempotent, open-world, long-running)
+**Open a crash dump** (edit, open-world, long-running)
 
-Open a Windows minidump, an ELF or Mach-O core, or a region-set manifest and return its id. view=summary shows the OS, process, exception and .NET state (Microsoft's signature-checked DAC); other views page rows.
+Open a Windows minidump, ELF or Mach-O core, or region-set manifest; returns its id. view=summary: OS, process, exception, .NET state; other views page rows.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | The .dmp path (or an open dump's id). |
+| `path` | string | yes |  | The .dmp path or open dump id. |
 | `view` | string |  | `summary` | summary, modules, threads, memory or unloaded. |
 | `offset` | integer |  |  |  |
 | `limit` | integer |  | `50` |  |
 | `imageDirectories` | string |  |  | Program binary folders (';'-separated), kept for the dump, plus its own. |
-| `dacPath` | string |  |  | DAC (mscordaccore.dll / mscordacwks.dll) file or folder for a build not installed. |
-| `downloadDac` | boolean |  |  | Fetch a matching DAC from a symbol server (network; refused under CORVUS_OFFLINE=1). |
+| `dacPath` | string |  |  | DAC file or folder for a build not installed. |
+| `downloadDac` | boolean |  |  | Fetch a matching DAC (symbol server; refused under CORVUS_OFFLINE=1). |
 | `regionFilter` | string |  |  | view=memory: all (default) or unbacked. |
 | `yara` | string |  |  | unbacked: YARA rules (text, file, folder, pack:name). |
+| `outputPath` | string |  |  | view=modules: new or empty image folder. |
 | `maxTokens` | integer |  |  |  |
 
 Structured output: `id`, `view`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `counts`, `faultingModule`, `faultingThread`, `handleTypes`, `issues`, `notes`, `items`, `offset`, `total`, `limit`, `totalExact`, `hasMore`, `nextOffset`.
