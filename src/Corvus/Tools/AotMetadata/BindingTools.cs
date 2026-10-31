@@ -32,7 +32,5 @@ public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerato
         return pager.Page(generator.Generate(sym.Assembly, (TypeDef)sym.Member, only, includeInherited, target), offset, maxTokens);
     }, cancellationToken);
 
-    /// <summary>Whether the module's methods carry an [Address] attribute (the first 2,000 looked at).</summary>
-    private static bool IsAotDummy(ModuleDef module) =>
-        module.GetTypes().SelectMany(t => t.Methods).Take(2_000).Any(m => m.CustomAttributes.Any(a => a.AttributeType?.Name == "AddressAttribute"));
+    private static bool IsAotDummy(ModuleDef module) => EditService.IsPlaceholderAssembly(module);
 }

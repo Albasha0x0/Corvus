@@ -117,13 +117,44 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
         var args = SymbolArgs("method", symbol);
         args["value"] = value;
         if (Previewed(dryRun, "stub_method", args))
-            return $"Dry run — {symbol.Label} would become: {shown}\n" + Listing(il);
+            return $"Dry run — {symbol.Label} would become: {shown}\n" + Listing(il) + PlaceholderNote(symbol.Assembly.Module, m);
 
         Apply(m, body);
         var description = $"stub {symbol.Label} => {shown}";
         symbol.Assembly.RecordEdit(new EditRecord("stub_method", args, description, [symbol.Label]));
-        return description;
+        return description + PlaceholderNote(symbol.Assembly.Module, m);
     }
+
+    /// <summary>Whether the module's methods carry [Address] attributes.</summary>
+    internal static bool IsPlaceholderAssembly(ModuleDef module) =>
+        module.GetTypes().SelectMany(t => t.Methods)
+            .Any(m => m.CustomAttributes.Any(a => a.AttributeType?.Name == "AddressAttribute"));
+
+    private const string PlaceholderStem =
+        "Warning: this is a generated placeholder assembly; its edits do not change the running program.";
+
+    private static string PlaceholderNote(ModuleDef module, MethodDef method)
+    {
+        if (!IsPlaceholderAssembly(module)) return "";
+        var values = AotMetadataService.GetAttributes(method)
+            .Where(a => a.Name == "AddressAttribute" && !a.InvalidAddress)
+            .ToList();
+        // A VA is the fallback when no RVA is recorded.
+        var address = new[] { "RVA", "VA" }
+            .Select(key => values
+                .Select(a => a.Values.TryGetValue(key, out var r) ? AotMetadataService.ParseNumber(r) : null)
+                .FirstOrDefault(r => r is > 0))
+            .FirstOrDefault(r => r is not null);
+        var at = address is { } v
+            ? $" The method's address is 0x{v:X}: patch_bytes image=<image> address=0x{v:X}."
+            : " Patch the native image with patch_bytes image=<image> address=<RVA>.";
+        return "\n" + PlaceholderStem + at;
+    }
+
+    private static string PlaceholderSaveNote(LoadedAssembly asm) =>
+        asm.IsDirty && IsPlaceholderAssembly(asm.Module)
+            ? "\n" + PlaceholderStem + " Patch the native image with patch_bytes image=<image> address=<RVA>."
+            : "";
 
     private static void EmitValue(IList<Instruction> il, CilBody body, TypeSig ret, string? value)
     {
@@ -754,7 +785,8 @@ public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler
                $"{(backup != null ? $" Original backed up to {backup}." : "")}" +
                (webcil ? " Written as Webcil; update or remove this file's integrity hash in blazor.boot.json or dotnet.boot.js." : "") +
                (saved.EditList.Count > 0 ? $"\nEdits written: {string.Join(", ", saved.EditList.Select(e => $"{e.Id} ({e.Digest})"))}." : "") +
-               $"{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}";
+               $"{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}" +
+               PlaceholderSaveNote(asm);
     }
 
     /// <summary>What an edit does to the file's signatures: they cover the original bytes, so none survives a change.</summary>

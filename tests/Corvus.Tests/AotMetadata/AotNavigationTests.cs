@@ -178,6 +178,64 @@ public sealed class AotNavigationTests(ITestOutputHelper output) : IDisposable
         await Assert.ThrowsAsync<ToolError>(() => tools.GetMethodAddresses("Vt.Derived::Stop", slot: "6"));
     }
 
+    // The fixture is BuildVTableTypes, whose Base::Run has RVA 0x1400.
+    [Fact]
+    public void A_stub_in_a_placeholder_assembly_names_the_native_patch()
+    {
+        var path = _dir.File("Vt.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Vt", BuildVTableTypes));
+        using var env = new Env(path);
+        var applied = env.Edit(() => env.Edits.StubMethod(env.One("Vt.Base::Run"), null));
+        Assert.Contains("generated placeholder assembly", applied);
+        Assert.Contains("patch_bytes image=<image> address=0x1400", applied);
+        Assert.Contains("generated placeholder assembly", env.Edit(() => env.Edits.StubMethod(env.One("Vt.Base::Stop"), null, dryRun: true)));
+        Assert.DoesNotContain("placeholder", string.Join("\n", env.Fixture.Edits.Select(e => e.Description)));
+        var saved = env.Edit(() => env.Edits.Save(env.Fixture, _dir.File("Vt.out.dll"), overwrite: false));
+        Assert.Contains("generated placeholder assembly", saved);
+        Assert.Contains("patch_bytes image=<image> address=<RVA>", saved);
+    }
+
+    // An address-only attribute names its VA when no RVA is recorded.
+    [Fact]
+    public void A_stub_in_a_placeholder_assembly_falls_back_to_the_va()
+    {
+        var path = _dir.File("Va.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Va", module =>
+        {
+            var type = new TypeDefUser("Va", "Box", module.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.Public };
+            var method = new MethodDefUser("Run", MethodSig.CreateInstance(module.CorLibTypes.Void),
+                MethodAttributes.Public | MethodAttributes.HideBySig) { Body = Ret() };
+            var attr = new TypeDefUser("Va", "AddressAttribute", module.CorLibTypes.Object.TypeDefOrRef);
+            var ctor = new MethodDefUser(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void),
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName) { Body = Ret() };
+            attr.Methods.Add(ctor);
+            var ca = new CustomAttribute(ctor);
+            ca.NamedArguments.Add(new CANamedArgument(true, module.CorLibTypes.UInt64, "VA", new CAArgument(module.CorLibTypes.UInt64, 0x180002000UL)));
+            method.CustomAttributes.Add(ca);
+            type.Methods.Add(method);
+            module.Types.Add(attr);
+            module.Types.Add(type);
+        }));
+        using var env = new Env(path);
+        Assert.Contains("address=0x180002000", env.Edit(() => env.Edits.StubMethod(env.One("Va.Box::Run"), null)));
+    }
+
+    [Fact]
+    public void A_stub_in_an_ordinary_assembly_carries_no_placeholder_warning()
+    {
+        var path = _dir.File("Plain.dll");
+        File.WriteAllBytes(path, ContainerFixtures.Module("Plain", module =>
+        {
+            var type = new TypeDefUser("Plain", "Box", module.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.Public };
+            type.Methods.Add(new MethodDefUser("Run", MethodSig.CreateInstance(module.CorLibTypes.Void),
+                MethodAttributes.Public | MethodAttributes.HideBySig) { Body = Ret() });
+            module.Types.Add(type);
+        }));
+        using var env = new Env(path);
+        Assert.DoesNotContain("placeholder", env.Edit(() => env.Edits.StubMethod(env.One("Plain.Box::Run"), null)));
+        Assert.DoesNotContain("placeholder", env.Edit(() => env.Edits.Save(env.Fixture, _dir.File("Plain.out.dll"), overwrite: false)));
+    }
+
     /// <summary>Vt.Base with virtual Run (slot 5) and Stop (slot 6); Vt.Derived overrides Stop only.</summary>
     private static void BuildVTableTypes(ModuleDefUser module)
     {
