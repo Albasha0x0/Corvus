@@ -64,26 +64,29 @@ public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceP
         var uris = _uris.Keys.ToList();
         var streams = _streams.Keys.ToList();
         var server = uris.Count > 0 ? services.GetService<McpServer>() : null;
-        _ = Task.Run(async () =>
-        {
-            foreach (var uri in server == null ? [] : uris)
-                if (!await Send(() => server!.SendNotificationAsync(NotificationMethods.ResourceUpdatedNotification, new ResourceUpdatedNotificationParams { Uri = uri })))
+        _ = Task.Run(() => SendUpdated(server, uris, streams));
+    }
+
+    private static async Task SendUpdated(McpServer? server, List<string> uris, List<Stream> streams)
+    {
+        foreach (var uri in server == null ? [] : uris)
+            if (!await Send(() => server!.SendNotificationAsync(NotificationMethods.ResourceUpdatedNotification, new ResourceUpdatedNotificationParams { Uri = uri })))
+                break;
+        foreach (var stream in streams)
+            foreach (var uri in stream.Uris)
+                if (!await Send(() => stream.Server.SendMessageAsync(new JsonRpcNotification
+                    {
+                        Method = NotificationMethods.ResourceUpdatedNotification,
+                        Params = new JsonObject { ["uri"] = uri, ["_meta"] = new JsonObject { [SubscriptionKey] = stream.Id?.DeepClone() } },
+                    })))
                     break;
-            foreach (var stream in streams)
-                foreach (var uri in stream.Uris)
-                    if (!await Send(() => stream.Server.SendMessageAsync(new JsonRpcNotification
-                        {
-                            Method = NotificationMethods.ResourceUpdatedNotification,
-                            Params = new JsonObject { ["uri"] = uri, ["_meta"] = new JsonObject { [SubscriptionKey] = stream.Id?.DeepClone() } },
-                        })))
-                        break;
-        });
     }
 
     /// <summary>
     /// Sends <paramref name="message"/> as a logging notification to the
-    /// connected client and to each open listen stream; an empty message
-    /// is sent as is, and nothing is sent when no client is connected.
+    /// connected client and to each open listen stream, then a resource
+    /// update for every subscribed URI so a client re-reads the status;
+    /// an empty message is sent as is, and nothing is sent when no client is connected.
     /// </summary>
     // MCP9005: logging is obsolete in the 2026-07-28 revision; earlier clients still read it.
 #pragma warning disable MCP9005
@@ -91,6 +94,7 @@ public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceP
     {
         var streams = _streams.Keys.ToList();
         var server = services.GetService<McpServer>();
+        var uris = _uris.Keys.ToList();
         if (server == null && streams.Count == 0) return;
         var data = JsonSerializer.SerializeToElement(message);
         _ = Task.Run(async () =>
@@ -110,6 +114,7 @@ public sealed class ResourceSubscriptions(AssemblyWorkspace workspace, IServiceP
                         ["_meta"] = new JsonObject { [SubscriptionKey] = stream.Id?.DeepClone() },
                     },
                 }));
+            await SendUpdated(uris.Count > 0 ? server : null, uris, streams);
         });
     }
 #pragma warning restore MCP9005

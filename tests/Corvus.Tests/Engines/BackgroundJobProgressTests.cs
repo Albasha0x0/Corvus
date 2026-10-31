@@ -2,6 +2,8 @@ using Corvus.Core;
 using Corvus.Mcp;
 using Corvus.Native.Providers;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 
 namespace Corvus.Tests;
 
@@ -50,4 +52,31 @@ public sealed class BackgroundJobProgressTests
         var subscriptions = new ResourceSubscriptions(workspace, new ServiceCollection().BuildServiceProvider());
         subscriptions.Announce("image.bin: ended");
     }
+
+    // MCP9005: logging is obsolete in the 2026-07-28 revision; earlier clients still read it.
+#pragma warning disable MCP9005
+    [Fact]
+    public async Task Announce_sends_a_logging_notice_and_a_resource_update_to_a_subscribed_client()
+    {
+        await using var server = await InProcessServer.StartAsync("2025-06-18");
+        var logged = new TaskCompletionSource<string>();
+        var updated = new TaskCompletionSource<string>();
+        await using var log = server.Client.RegisterNotificationHandler(NotificationMethods.LoggingMessageNotification, (n, _) =>
+        {
+            logged.TrySetResult(n.Params!.ToString());
+            return ValueTask.CompletedTask;
+        });
+        await using var res = server.Client.RegisterNotificationHandler(NotificationMethods.ResourceUpdatedNotification, (n, _) =>
+        {
+            updated.TrySetResult(n.Params!["uri"]!.GetValue<string>());
+            return ValueTask.CompletedTask;
+        });
+        await server.Client.SubscribeToResourceAsync("corvus://assemblies");
+
+        server.Services.GetRequiredService<ResourceSubscriptions>().Announce("image.bin: ended");
+
+        Assert.Contains("image.bin: ended", await logged.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal("corvus://assemblies", await updated.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+#pragma warning restore MCP9005
 }

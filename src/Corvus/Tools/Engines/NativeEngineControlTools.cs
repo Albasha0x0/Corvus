@@ -14,7 +14,7 @@ namespace Corvus.Tools;
 
 /// <summary>Control of the engine's own analysis: its analyzer settings and a new auto-analysis run.</summary>
 [McpServerToolType]
-public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? code = null)
+public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeCodeService? code = null, ResourceSubscriptions? subscriptions = null)
 {
     public sealed record AnalyzerEntry(string Name, string Value, string Type);
 
@@ -101,7 +101,7 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
                 var done = await control.ReanalyzeAsync(pairs, start, stop, timeoutSeconds, CancellationToken.None);
                 EngineControl.Advance(session);
                 return $"{(done.Complete ? "complete" : "partial, the budget ran out")}; functions {done.FunctionsBefore:N0} before, {done.FunctionsAfter:N0} after";
-            });
+            }, subscriptions == null ? null : (image, result) => subscriptions.Announce($"{image}: {result}"));
             return ToolOutput.Report($"// {native.Id}: {session.ProviderId} reanalysis of {scope ?? "the whole image"} started in the background ({timeoutSeconds} s budget)\n" +
                                      (pairs.Count > 0 ? $"Options for this run: {string.Join(", ", pairs.Select(p => $"{p.Key}={p.Value}"))} (restored afterwards)\n" : "") +
                                      "server_status shows the session busy, then the result; other engine calls on this image get conflict with retryAfterMs until it ends.\n",

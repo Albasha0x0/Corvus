@@ -224,19 +224,16 @@ public sealed class WorkerSessionBaseTests : IDisposable
     {
         await using var s = await Open();
         var ended = new TaskCompletionSource<(string Result, bool Running)>();
-        void On(string image, string result)
+        var raised = 0;
+        s.StartBackground("job-ok", TimeSpan.FromSeconds(5), () => Task.FromResult("done"), (_, result) =>
         {
-            if (result.Contains("job-ok", StringComparison.Ordinal)) ended.TrySetResult((result, s.BackgroundRunning));
-        }
-        WorkerSessionBase.BackgroundEnded += On;
-        try
-        {
-            s.StartBackground("job-ok", TimeSpan.FromSeconds(5), () => Task.FromResult("done"));
-            var (result, running) = await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Contains("done", result);
-            Assert.False(running);
-        }
-        finally { WorkerSessionBase.BackgroundEnded -= On; }
+            Interlocked.Increment(ref raised);
+            ended.TrySetResult((result, s.BackgroundRunning));
+        });
+        var (result, running) = await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains("done", result);
+        Assert.False(running);
+        Assert.Equal(1, raised);
     }
 
     [Fact]
@@ -244,35 +241,44 @@ public sealed class WorkerSessionBaseTests : IDisposable
     {
         await using var s = await Open();
         var ended = new TaskCompletionSource<string>();
-        void On(string image, string result)
-        {
-            if (result.Contains("job-bad", StringComparison.Ordinal)) ended.TrySetResult(result);
-        }
-        WorkerSessionBase.BackgroundEnded += On;
-        try
-        {
-            s.StartBackground("job-bad", TimeSpan.FromSeconds(5), () => throw new InvalidOperationException("broke"));
-            Assert.Contains("failed", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
-        }
-        finally { WorkerSessionBase.BackgroundEnded -= On; }
+        s.StartBackground("job-bad", TimeSpan.FromSeconds(5), () => throw new InvalidOperationException("broke"),
+            (_, result) => ended.TrySetResult(result));
+        Assert.Contains("failed", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
     }
 
     [Fact]
     public async Task A_throwing_end_subscriber_does_not_fault_the_background_job()
     {
         await using var s = await Open();
-        static void Throw(string image, string result)
+        var threw = new TaskCompletionSource();
+        var job = s.StartBackground("job-throw", TimeSpan.FromSeconds(5), () => Task.FromResult("done"),
+            (_, _) =>
+            {
+                threw.TrySetResult();
+                throw new InvalidOperationException("subscriber");
+            });
+        await job.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await threw.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains("done", s.BackgroundResult);
+        Assert.False(job.Task.IsFaulted);
+    }
+
+    [Fact]
+    public async Task A_background_job_end_reaches_only_the_session_that_started_it()
+    {
+        await using var first = await Open();
+        await using var second = await Open();
+        var heardByFirst = 0;
+        var firstEnded = new TaskCompletionSource();
+        var secondEnded = new TaskCompletionSource();
+        first.StartBackground("job-one", TimeSpan.FromSeconds(5), () => Task.FromResult("done"), (_, _) =>
         {
-            if (result.Contains("job-throw", StringComparison.Ordinal)) throw new InvalidOperationException("subscriber");
-        }
-        WorkerSessionBase.BackgroundEnded += Throw;
-        try
-        {
-            var job = s.StartBackground("job-throw", TimeSpan.FromSeconds(5), () => Task.FromResult("done"));
-            await job.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Contains("done", s.BackgroundResult);
-        }
-        finally { WorkerSessionBase.BackgroundEnded -= Throw; }
+            Interlocked.Increment(ref heardByFirst);
+            firstEnded.TrySetResult();
+        });
+        second.StartBackground("job-two", TimeSpan.FromSeconds(5), () => Task.FromResult("done"), (_, _) => secondEnded.TrySetResult());
+        await Task.WhenAll(firstEnded.Task, secondEnded.Task).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, heardByFirst);
     }
 
     private sealed class TestSession(AnalysisCache cache, bool concurrent, int maxRestarts) : WorkerSessionBase(new NativeOpenOptions())

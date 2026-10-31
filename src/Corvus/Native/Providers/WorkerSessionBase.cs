@@ -548,10 +548,6 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             Budget > now - Started ? Budget - (now - Started) : TimeSpan.Zero;
     }
 
-    /// <summary>Raised once when a background job ends, with the image file name and the outcome text.</summary>
-    // A subscriber removes its handler when its host stops; the event outlives every session.
-    internal static event Action<string, string>? BackgroundEnded;
-
     /// <summary>The running or last background job; <see cref="BackgroundResult"/> is its outcome once it ended.</summary>
     internal BackgroundJob? Background { get; private set; }
 
@@ -562,8 +558,11 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     internal bool BackgroundRunning => Background is { Task.IsCompleted: false };
 
-    /// <summary>Starts <paramref name="run"/> with no caller; conflict when one is already running.</summary>
-    internal BackgroundJob StartBackground(string what, TimeSpan budget, Func<Task<string>> run)
+    /// <summary>
+    /// Starts <paramref name="run"/> with no caller; conflict when one is already running.
+    /// <paramref name="ended"/> receives the image file name and the outcome text once the job ended; null keeps none.
+    /// </summary>
+    internal BackgroundJob StartBackground(string what, TimeSpan budget, Func<Task<string>> run, Action<string, string>? ended = null)
     {
         lock (_backgroundLock)
         {
@@ -577,12 +576,13 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
                 catch (Exception e) { BackgroundResult = $"{what} failed after {(DateTime.UtcNow - started).TotalSeconds:0} s: {e.Message}"; }
             });
             // Raised once the task is complete, so a client told of the end sees the engine free.
-            _ = task.ContinueWith(_ =>
-            {
-                // A failing subscriber must not fault the job.
-                try { BackgroundEnded?.Invoke(Path.GetFileName(ImagePath), BackgroundResult!); }
-                catch (Exception) { }
-            }, TaskScheduler.Default);
+            if (ended != null)
+                _ = task.ContinueWith(_ =>
+                {
+                    // A failing subscriber must not fault the job.
+                    try { ended(Path.GetFileName(ImagePath), BackgroundResult!); }
+                    catch (Exception e) { Console.Error.WriteLine($"The end notice of the background {what} failed: {e.Message}"); }
+                }, TaskScheduler.Default);
             return Background = new BackgroundJob(what, started, budget, task);
         }
     }
