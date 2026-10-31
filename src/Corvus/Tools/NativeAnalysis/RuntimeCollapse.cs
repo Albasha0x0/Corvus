@@ -39,18 +39,26 @@ internal static partial class RuntimeCollapse
     /// <summary>One collapsed run: the first instruction, the end of the run, the instruction count and the comment line.</summary>
     internal sealed record Run(uint Start, uint End, int Count, string Note);
 
-    /// <summary>The non-overlapping runs found in <paramref name="lines"/>, keyed by start address; empty when none match.</summary>
-    internal static Dictionary<uint, Run> Find(IReadOnlyList<DisasmLine> lines, Func<uint, string> va)
+    /// <summary>The non-overlapping runs found in <paramref name="lines"/>, keyed by start address; empty when none match. <paramref name="calls"/> names call targets that the decoder text does not.</summary>
+    internal static Dictionary<uint, Run> Find(IReadOnlyList<DisasmLine> lines, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls = null)
     {
         var runs = new Dictionary<uint, Run>();
         for (int i = 0; i < lines.Count;)
         {
-            var run = Barrier(lines, i, va) ?? Lazy(lines, i, va) ?? Init(lines, i, va);
-            if (run == null) { i++; continue; }
+            var run = Barrier(lines, i, va) ?? Lazy(lines, i, va) ?? Init(lines, i, va, calls);
+            if (run == null || !Contiguous(lines, i, run.Count)) { i++; continue; }
             runs[lines[i].Rva] = run;
             i += run.Count;
         }
         return runs;
+    }
+
+    // A gap between blocks inside a run would be swallowed with no gap line.
+    private static bool Contiguous(IReadOnlyList<DisasmLine> lines, int from, int count)
+    {
+        for (int k = from + 1; k < from + count; k++)
+            if (lines[k].Rva != lines[k - 1].Rva + (uint)lines[k - 1].Facts.Length) return false;
+        return true;
     }
 
     private static string Mnemonic(DisasmLine l)
@@ -119,10 +127,16 @@ internal static partial class RuntimeCollapse
     }
 
     // Matches calls that name a static-base helper; unnamed targets stay listed.
-    private static Run? Init(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va)
+    private static Run? Init(IReadOnlyList<DisasmLine> lines, int i, Func<uint, string> va, IReadOnlyDictionary<uint, string>? calls)
     {
-        var m = StaticBase().Match(lines[i].Text);
-        return m.Success ? Make(lines, i, 1, "metadata initialization " + m.Groups[1].Value, va) : null;
+        var l = lines[i];
+        var m = StaticBase().Match(l.Text);
+        if (m.Success) return Make(lines, i, 1, "metadata initialization " + m.Groups[1].Value, va);
+        if (l.Facts.Flow != FlowKind.Call) return null;
+        string? named = calls != null && calls.TryGetValue(l.Rva, out var c) ? c : null;
+        var t = StaticBaseName().Match(named ?? "");
+        if (!t.Success) t = StaticBaseName().Match(l.Comment ?? "");
+        return t.Success ? Make(lines, i, 1, "metadata initialization " + t.Value, va) : null;
     }
 
     [GeneratedRegex(@"\s*,\s*|\s+")]
@@ -133,6 +147,9 @@ internal static partial class RuntimeCollapse
 
     [GeneratedRegex(@"^shr \w+,(12|0xc|0*ch)$")]
     private static partial Regex ShiftBy12();
+
+    [GeneratedRegex(@"\S*(?:GetGCStaticBase|GetNonGCStaticBase|GetThreadStaticBase)\S*")]
+    private static partial Regex StaticBaseName();
 
     [GeneratedRegex(@"^\s*call\s+(\S*(?:GetGCStaticBase|GetNonGCStaticBase|GetThreadStaticBase)\S*)\s*$")]
     private static partial Regex StaticBase();

@@ -316,4 +316,28 @@ public class RuntimeCollapseTests
         Assert.Contains("48C1E80C", plain);
         Assert.DoesNotContain("48C1E80C", text);
     }
+
+    [Fact]
+    public void A_call_named_only_by_the_call_map_is_one_metadata_initialization_line()
+    {
+        var lines = new[] { L(0, "call 0000000140001000h", FlowKind.Call, 0x1000), L(4, "ret", FlowKind.Return) };
+        var calls = new Dictionary<uint, string> { [0] = "GetNonGCStaticBase_Thing" };
+        var run = Assert.Single(RuntimeCollapse.Find(lines, Va, calls).Values);
+        Assert.Contains("metadata initialization GetNonGCStaticBase_Thing", run.Note);
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
+
+    [Fact]
+    public void A_run_split_by_a_gap_between_blocks_is_kept()
+    {
+        var lines = new[]
+        {
+            L(0x14, "shr rax,0Ch"),
+            L(0x18, "bts dword ptr [rdx],eax"),
+            L(0x40, "lock cmpxchg [rdx],rcx"),
+            L(0x44, "jne 0000000140000014h", FlowKind.ConditionalJump, 0x14),
+            L(0x48, "ret", FlowKind.Return),
+        };
+        Assert.Empty(RuntimeCollapse.Find(lines, Va));
+    }
 }
