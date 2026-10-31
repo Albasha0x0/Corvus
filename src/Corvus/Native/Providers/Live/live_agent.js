@@ -76,11 +76,17 @@ function moduleRow(m) {
   return { name: m.name, base: m.base.toString(), size: m.size, path: m.path };
 }
 
-// Workaround for frida/frida-gum#1190 (16.7 to 17.24, fixed in 4e628a8): delay-loaded DLLs are missing from the registry
-// until the next LoadLibrary; K32EnumProcessModules (no loader lock) adds them, minus the agent's cloaked ranges.
+// Workaround for frida/frida-gum#1190 (16.7 to 17.24, fixed in 4e628a8, first in 17.25.0): delay-loaded DLLs are
+// missing from the registry until the next LoadLibrary; K32EnumProcessModules (no loader lock) adds them, minus the
+// agent's cloaked ranges.
+const registryMissesDelayLoads = (() => {
+  const [major, minor] = Frida.version.split('.').map(Number);
+  return major < 17 || (major === 17 && minor < 25);
+})();
+
 function loadedModules() {
   const rows = Process.enumerateModules().map(moduleRow);
-  if (Process.platform !== 'windows') return rows;
+  if (Process.platform !== 'windows' || !registryMissesDelayLoads) return rows;
   try {
     const k32 = Process.getModuleByName('kernel32.dll');
     const abi = Process.arch === 'ia32' ? 'stdcall' : 'default';
