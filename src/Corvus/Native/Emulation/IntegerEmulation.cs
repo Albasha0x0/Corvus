@@ -188,7 +188,7 @@ public static class IntegerEmulation
                 {
                     stop = "unmodelled_call";
                     stoppedAt = lastSite;
-                    detail = $"call at 0x{lastSite:x} to {name} (outside the image): stub it (stubs=NAME=VALUE, or *=VALUE for every call)";
+                    detail = $"call at 0x{lastSite:x} to {name} (outside the image): stub it (stubs=NAME=VALUE, or *=VALUE for every call outside the image)";
                     break;
                 }
                 ulong v = Va(value);
@@ -251,8 +251,10 @@ public static class IntegerEmulation
                 continue;
             }
             if (stubValue == null && TryModel(calleeName, step.Site, target, thunk)) { if (stop != null) break; continue; }
-            // A call to the next instruction reads its own address and is never skipped.
-            string? anyValue = stubValue == null && target != step.FallThrough ? anyStub : null;
+            // The any-call stub answers calls outside the image only, so image
+            // routines run. A call to the next instruction is never skipped.
+            bool external = thunk != null || target < imageBase || target - imageBase >= image.SizeOfImage;
+            string? anyValue = stubValue == null && external && target != step.FallThrough ? anyStub : null;
             if (stubValue != null || anyValue != null)
             {
                 ulong v = Va(stubValue ?? anyValue!);
@@ -264,14 +266,14 @@ public static class IntegerEmulation
             {
                 stop = "unmodelled_call";
                 stoppedAt = step.Site;
-                detail = $"call at 0x{step.Site:x} to {calleeName} (outside the image): stub it (stubs=NAME=VALUE, or *=VALUE for every call)";
+                detail = $"call at 0x{step.Site:x} to {calleeName} (outside the image): stub it (stubs=NAME=VALUE, or *=VALUE for every call outside the image)";
                 break;
             }
             if (!mem.Mapped(target))
             {
                 stop = "unmodelled_call";
                 stoppedAt = step.Site;
-                detail = $"call at 0x{step.Site:x} to 0x{target:x} (unmapped): stub it (stubs=NAME=VALUE, or *=VALUE for every call)";
+                detail = $"call at 0x{step.Site:x} to 0x{target:x} (unmapped): stub it (stubs=NAME=VALUE, or *=VALUE for every call outside the image)";
                 break;
             }
             Record(step.Site, target, calleeName, "into", null);

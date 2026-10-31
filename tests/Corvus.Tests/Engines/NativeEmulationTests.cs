@@ -429,12 +429,13 @@ public sealed class NativeEmulationGhidraTests(ITestOutputHelper output, NativeE
     }
 
     [GhidraFact]
-    public async Task Calls_step_into_the_image_or_return_the_value_of_the_any_call_stub()
+    public async Task Calls_step_into_the_image_or_return_the_value_of_a_named_stub()
     {
         Assert.Contains($"Return value: RAX = 0x{Fnv1a(HashInput) + 1:x}", await Run("HashName"));
-        var skipped = await Run("HashName", stubs: "*=7");
-        Assert.Contains("Return value: RAX = 0x8", skipped);
-        Assert.Contains("Fnv1a: skipped, returned 0x7", skipped);
+        Assert.Contains($"Return value: RAX = 0x{Fnv1a(HashInput) + 1:x}", await Run("HashName", stubs: "*=7"));
+        var stubbed = await Run("HashName", stubs: "Fnv1a=7");
+        Assert.Contains("Return value: RAX = 0x8", stubbed);
+        Assert.Contains("Fnv1a: stubbed, returned 0x7", stubbed);
     }
 
     [GhidraFact]

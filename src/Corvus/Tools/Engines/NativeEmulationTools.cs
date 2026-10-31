@@ -35,7 +35,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         [Description("rcx=0x10, rdx='key' (values as args).")] string? registers = null,
         [Description("ADDR=VALUE: 'text', u'text', hex:.., zero:N, u32:5, ptr:..; outside the image va:0x10000000.")] string? memory = null,
         [Description("Addresses to stop at.")] string? stopAt = null,
-        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call). Order: named stub, built-in memcpy/memset/strlen model (import or image routine), then *=.")] string? stubs = null,
+        [Description("Calls not run: name=value (GetTickCount=5, kernel32!Sleep=0, 0x180001000=1; *=0 any call outside the image). Order: named stub, built-in memcpy/memset/strlen model (import or image routine), then *= (imports and targets outside the image only; image routines run).")] string? stubs = null,
         [Description("Shown after the run: ADDR or register, space, length (rcx 64).")] string? read = null,
         [Description("Instruction budget (1-50000000).")] int maxInstructions = 1_000_000,
         [Description("Time budget, s (1-300).")] int timeoutSeconds = 10,
@@ -162,7 +162,7 @@ public sealed partial class NativeEmulationTools(AssemblyWorkspace workspace, Na
         ToolError? error = stop switch
         {
             "unmodelled_call" => new ToolError(ErrorCode.Unsupported, $"Emulation stopped at {where}: {detail}.",
-                "stubs=NAME=VALUE answers that call, stubs=*=0 every call") { Partial = text },
+                "stubs=NAME=VALUE answers that call, stubs=*=0 every call outside the image") { Partial = text },
             "memory_fault" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.",
                 "memory= maps bytes there, or args / registers pass a pointer to a buffer (buf:N)") { Partial = text },
             "heap_error" => new ToolError(ErrorCode.Failed, $"Emulation stopped at {where}: {detail}.",

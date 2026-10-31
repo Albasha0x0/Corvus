@@ -76,14 +76,31 @@ public sealed class IntegerEmulationTests(ITestOutputHelper output, IntegerEmula
     }
 
     [Fact]
-    public async Task Calls_step_into_the_image_or_return_the_value_of_the_any_call_stub()
+    public async Task Calls_step_into_the_image_or_return_the_value_of_a_named_stub()
     {
         var into = await Run("HashName");
         Assert.Contains($"Return value: RAX = 0x{NativeEmulationGhidraTests.Fnv1a(NativeEmulationGhidraTests.HashInput) + 1:x}", into);
         Assert.Contains("Fnv1a: stepped in", into);
-        var skipped = await Run("HashName", stubs: "*=7");
-        Assert.Contains("Return value: RAX = 0x8", skipped);
-        Assert.Contains("Fnv1a: skipped, returned 0x7", skipped);
+        var stubbed = await Run("HashName", stubs: "Fnv1a=7");
+        Assert.Contains("Return value: RAX = 0x8", stubbed);
+        Assert.Contains("Fnv1a: stubbed, returned 0x7", stubbed);
+    }
+
+    [Fact]
+    public async Task The_any_call_stub_runs_a_routine_in_the_image_instead_of_skipping_it()
+    {
+        var text = await Run("HashName", stubs: "*=7");
+        Assert.Contains($"Return value: RAX = 0x{NativeEmulationGhidraTests.Fnv1a(NativeEmulationGhidraTests.HashInput) + 1:x}", text);
+        Assert.Contains("Fnv1a: stepped in", text);
+        Assert.DoesNotContain("skipped", text);
+    }
+
+    [Fact]
+    public async Task The_any_call_stub_still_answers_a_call_outside_the_image()
+    {
+        var text = await Run("Ticks", stubs: "*=0x41");
+        Assert.Contains("Return value: RAX = 0x42", text);
+        Assert.Contains("GetTickCount: skipped, returned 0x41", text);
     }
 
     [Fact]

@@ -421,18 +421,19 @@ final class EmuOps {
             Callee c = callee(program, site, target);
             String stubValue = stub(stubs, c, target);
             // A call to the next instruction reads its own address and is never skipped.
-            String anyValue = stubValue == null && fall != null && !target.equals(fall) ? any(stubs) : null;
+            boolean outside = c.external || !program.getMemory().contains(target);
+            String anyValue = stubValue == null && outside && fall != null && !target.equals(fall) ? any(stubs) : null;
             String action;
             BigInteger result = null;
             if (stubValue != null || anyValue != null) {
                 action = stubValue != null ? "stub" : "skip";
                 result = new BigInteger(Long.toUnsignedString(va(stubValue != null ? stubValue : anyValue)));
             }
-            else if (c.external || !m.mapped(target)) {
+            else if (outside || !m.mapped(target)) {
                 stop = "unmodelled_call";
                 stopAt = site;
                 detail = "call at 0x" + Long.toHexString(site.getOffset()) + " to " + (c.name != null ? c.name : "0x" + Long.toHexString(target.getOffset())) +
-                    (c.external ? " (outside the image)" : " (unmapped)") + ": stub it (stubs=NAME=VALUE, or *=VALUE for every call)";
+                    (outside ? " (outside the image)" : " (unmapped)") + ": stub it (stubs=NAME=VALUE, or *=VALUE for every call outside the image)";
                 break;
             }
             else action = "into";
@@ -638,7 +639,7 @@ final class EmuOps {
         return null;
     }
 
-    /** The value of the * stub, which answers every call no other stub names. */
+    /** The value of the * stub, which answers every call outside the image that no other stub names. */
     private static String any(List<String[]> stubs) {
         for (String[] s : stubs) if (s[0].trim().equals("*")) return s[1];
         return null;
