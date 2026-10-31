@@ -110,13 +110,24 @@ public abstract class LiveToolCalls(ITestOutputHelper output)
         return all.ToString();
     }
 
-    protected static void Ended(int pid)
+    protected static void Ended(int pid, int waitMs = 10_000)
     {
         try
         {
             using var p = Process.GetProcessById(pid);
-            Assert.True(p.WaitForExit(10_000), $"process {pid} is still running");
+            Assert.True(p.WaitForExit(waitMs), $"process {pid} is still running{State(pid)}");
         }
         catch (ArgumentException) { /* already gone */ }
+    }
+
+    // A stopped process (T) was left held; a sleeping or running one (S, R) is only slow.
+    private static string State(int pid)
+    {
+        try
+        {
+            var stat = File.ReadAllText($"/proc/{pid}/stat");
+            return $" (state {stat[(stat.LastIndexOf(')') + 2)..].Split(' ')[0]})";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return ""; }
     }
 }

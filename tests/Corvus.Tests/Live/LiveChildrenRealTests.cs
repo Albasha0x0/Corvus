@@ -378,6 +378,7 @@ public sealed class LiveChildrenRealTests(ITestOutputHelper output) : LiveToolCa
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-2" });
         await Ok(server, "live_session", new() { ["action"] = "close", ["session"] = "live-1" });
         Ended(parent);
-        Ended(copy);
+        // The copy counts 800 ticks of a 10 ms pause from its start: wait for that on a loaded runner.
+        Ended(copy, 20_000);
     }
 }
