@@ -18,9 +18,9 @@ public sealed class BuildSummaryTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     /// <summary>A Mono build: App.exe, App_Data (globalgamemanagers 2022.3.62f1, Managed with Assembly-CSharp), MonoBleedingEdge, Burst, Addressables, EAC.</summary>
-    internal static string MonoSample(TempDir dir)
+    internal static string MonoSample(TempDir dir, string name = "MonoApp")
     {
-        var folder = Path.Combine(dir.Path, "MonoApp");
+        var folder = Path.Combine(dir.Path, name);
         if (Directory.Exists(folder)) return folder;
         var data = Path.Combine(folder, "App_Data");
         Directory.CreateDirectory(Path.Combine(data, "Managed"));
@@ -48,6 +48,69 @@ public sealed class BuildSummaryTests : IDisposable
         File.WriteAllText(Path.Combine(data, "ScriptingAssemblies.json"), """{"names":["Assembly-CSharp.dll","Unity.Burst.dll","mscorlib.dll"],"types":[16,16,16]}""");
         File.WriteAllBytes(Path.Combine(data, "il2cpp_data", "Metadata", "global-metadata.dat"), metadata ?? Metadata(27, ["Player", "Update", "a", "b"]));
         return folder;
+    }
+
+    // The fixture marks a 70-method type with XLua.HotfixAttribute, one method
+    // with IFix.PatchAttribute and a HarmonyPatch type with Prefix and Helper.
+    [Fact]
+    public void Methods_a_run_time_replacement_layer_can_replace_are_counted_per_layer()
+    {
+        var folder = MonoSample(_dir, "ReplaceApp");
+        var module = new dnlib.DotNet.ModuleDefUser("Assembly-CSharp.dll");
+        var asm = new dnlib.DotNet.AssemblyDefUser("Assembly-CSharp");
+        asm.Modules.Add(module);
+        dnlib.DotNet.TypeDef Marker(string ns, string name)
+        {
+            var t = new dnlib.DotNet.TypeDefUser(ns, name, module.CorLibTypes.Object.TypeDefOrRef);
+            var ctor = new dnlib.DotNet.MethodDefUser(".ctor", dnlib.DotNet.MethodSig.CreateInstance(module.CorLibTypes.Void),
+                dnlib.DotNet.MethodImplAttributes.IL, dnlib.DotNet.MethodAttributes.Public | dnlib.DotNet.MethodAttributes.SpecialName | dnlib.DotNet.MethodAttributes.RTSpecialName);
+            t.Methods.Add(ctor);
+            module.Types.Add(t);
+            return t;
+        }
+        dnlib.DotNet.CustomAttribute Attr(dnlib.DotNet.TypeDef t) => new(t.FindDefaultConstructor());
+        dnlib.DotNet.MethodDefUser Method(string name) => new(name, dnlib.DotNet.MethodSig.CreateStatic(module.CorLibTypes.Void),
+            dnlib.DotNet.MethodImplAttributes.IL, dnlib.DotNet.MethodAttributes.Public | dnlib.DotNet.MethodAttributes.Static);
+        var hotfix = Marker("XLua", "HotfixAttribute");
+        var patch = Marker("IFix", "PatchAttribute");
+        var player = new dnlib.DotNet.TypeDefUser("", "Player", module.CorLibTypes.Object.TypeDefOrRef);
+        player.CustomAttributes.Add(Attr(hotfix));
+        player.Methods.Add(Method("Update"));
+        player.Methods.Add(Method("Fire"));
+        for (int i = 0; i < 68; i++) player.Methods.Add(Method("Extra" + i));
+        var harmony = Marker("HarmonyLib", "HarmonyPatch");
+        var hooks = new dnlib.DotNet.TypeDefUser("", "Hooks", module.CorLibTypes.Object.TypeDefOrRef);
+        hooks.CustomAttributes.Add(Attr(harmony));
+        hooks.Methods.Add(Method("Prefix"));
+        hooks.Methods.Add(Method("Helper"));
+        module.Types.Add(hooks);
+        var scoring = new dnlib.DotNet.TypeDefUser("", "Scoring", module.CorLibTypes.Object.TypeDefOrRef);
+        var patched = Method("Add");
+        patched.CustomAttributes.Add(Attr(patch));
+        scoring.Methods.Add(patched);
+        scoring.Methods.Add(Method("Reset"));
+        module.Types.Add(player);
+        module.Types.Add(scoring);
+        module.Write(Path.Combine(folder, "App_Data", "Managed", "Assembly-CSharp.dll"));
+
+        var markers = BuildSummary.Inspect(folder, false, default).Markers;
+        Assert.Contains(markers, m => m.Name.StartsWith("xLua hotfix") && m.Evidence.StartsWith("70 methods"));
+        Assert.Contains(markers, m => m.Name.StartsWith("InjectFix patch") && m.Evidence.StartsWith("1 method in"));
+        Assert.Contains(markers, m => m.Category == "plugin_loader" && m.Name.StartsWith("Harmony patch") && m.Evidence.StartsWith("1 method in"));
+    }
+
+    [Fact]
+    public void Replacement_layers_are_named_from_assembly_names_by_exact_prefix()
+    {
+        var folder = MonoSample(_dir, "LayerApp");
+        foreach (var n in new[] { "ILRuntime.dll", "IFix.Core.dll", "Puerts.Core.dll", "MonoMod.RuntimeDetour.dll", "PuertsLike.dll" })
+            File.WriteAllBytes(Path.Combine(folder, "App_Data", "Managed", n), [0]);
+        var names = BuildSummary.Inspect(folder, false, default).Markers.Select(m => m.Name).ToList();
+        Assert.Contains(names, n => n.StartsWith("ILRuntime"));
+        Assert.Contains(names, n => n.StartsWith("InjectFix"));
+        Assert.Contains(names, n => n.StartsWith("Puerts"));
+        Assert.Single(names, n => n.StartsWith("Puerts"));
+        Assert.Contains(names, n => n.StartsWith("MonoMod"));
     }
 
     [Fact]

@@ -500,11 +500,29 @@ public static class BuildSummary
             using var module = MetadataRows.Load(File.ReadAllBytes(path));
             var full = new HashSet<string>(StringComparer.Ordinal);
             var identifiers = new List<string>();
-            foreach (var t in module.GetTypes().Take(MaxTypeNames))
+            var replaceable = new Dictionary<string, int>(StringComparer.Ordinal);
+            int typeCount = 0;
+            foreach (var t in module.GetTypes().Take(MaxTypeNames + 1))
             {
+                if (++typeCount > MaxTypeNames) break;
                 full.Add(t.FullName);
                 identifiers.Add(t.Name.String);
-                foreach (var m in t.Methods.Take(64)) if (!m.IsSpecialName && !m.IsRuntimeSpecialName) identifiers.Add(m.Name.String);
+                bool hotfixType = t.CustomAttributes.IsDefined("XLua.HotfixAttribute");
+                bool harmonyType = t.CustomAttributes.IsDefined("HarmonyLib.HarmonyPatch");
+                int named = 0;
+                foreach (var m in t.Methods)
+                {
+                    if (!m.IsSpecialName && !m.IsRuntimeSpecialName && named++ < 64) identifiers.Add(m.Name.String);
+                    var layer = ReplaceableBy(m, hotfixType, harmonyType);
+                    if (layer != null) replaceable[layer] = replaceable.GetValueOrDefault(layer) + 1;
+                }
+            }
+            string typeLimit = typeCount > MaxTypeNames ? $" (first {MaxTypeNames:N0} types only)" : "";
+            foreach (var (layer, count) in replaceable.OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                var kind = layer.StartsWith("Harmony", StringComparison.Ordinal) ? "plugin_loader" : "toolchain";
+                var noun = count == 1 ? "method" : "methods";
+                markers.Add(new MarkerFact(kind, layer, $"{count:N0} {noun} in {Path.GetFileName(path)} {(layer.StartsWith("Harmony", StringComparison.Ordinal) ? "patch a target" : "can be replaced at run time")}{typeLimit}", "assembly_markers"));
             }
             foreach (var ca in (module.Assembly?.CustomAttributes ?? []).Concat(module.CustomAttributes))
                 if (ca.AttributeType?.FullName is { } n) full.Add(n);
@@ -515,6 +533,29 @@ public static class BuildSummary
             return ("readable", identifiers.Count == 0 ? null : Math.Round((double)identifiers.Count(Markers.IsUnreadable) / identifiers.Count, 3), identifiers.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { return ("encrypted", null, 0); }
+    }
+
+    private static readonly string[] HarmonyMethodAttributes =
+    [
+        "HarmonyLib.HarmonyPatch", "HarmonyLib.HarmonyPrefix", "HarmonyLib.HarmonyPostfix",
+        "HarmonyLib.HarmonyTranspiler", "HarmonyLib.HarmonyFinalizer",
+    ];
+
+    private static readonly string[] HarmonyPatchNames = ["Prefix", "Postfix", "Transpiler", "Finalizer"];
+
+    /// <summary>Returns the layer that can replace the method at run time; null when none.</summary>
+    private static string? ReplaceableBy(MethodDef method, bool hotfixType, bool harmonyType)
+    {
+        // Abstract methods and static constructors have no replaceable body.
+        if (method.IsAbstract || (method.IsConstructor && method.IsStatic)) return null;
+        // One layer per method: xLua type marker, then InjectFix, then Harmony.
+        if (hotfixType && !method.IsSpecialName && !method.IsRuntimeSpecialName) return "xLua hotfix (methods replaced by Lua)";
+        if (method.CustomAttributes.IsDefined("IFix.PatchAttribute") || method.CustomAttributes.IsDefined("IFix.InterpretAttribute"))
+            return "InjectFix patch (methods run by its interpreter)";
+        if (HarmonyMethodAttributes.Any(a => method.CustomAttributes.IsDefined(a))
+            || (harmonyType && HarmonyPatchNames.Contains(method.Name.String, StringComparer.Ordinal)))
+            return "Harmony patch (patch methods)";
+        return null;
     }
 
     private static string? DotnetProfile(string? managed)
@@ -569,7 +610,7 @@ public static class BuildSummary
         ("middleware", "CrashSight", ["CrashSight64.dll", "CrashSight.dll"]),
     ];
 
-    /// <summary>Managed assembly name prefix (Managed folder or ScriptingAssemblies.json) -> marker.</summary>
+    /// <summary>Managed assembly name prefix (Managed folder or ScriptingAssemblies.json) -> marker; a prefix ending in a dot also matches the bare name.</summary>
     private static readonly (string Category, string Name, string Prefix)[] AssemblySignatures =
     [
         ("build", "Addressables", "Unity.Addressables"),
@@ -583,6 +624,10 @@ public static class BuildSummary
         ("plugin_loader", "Harmony", "0Harmony"),
         ("toolchain", "xLua", "XLua"),
         ("toolchain", "HybridCLR (hot-update interpreter for AOT builds)", "HybridCLR"),
+        ("toolchain", "ILRuntime (interpreter for hot-update assemblies)", "ILRuntime."),
+        ("toolchain", "InjectFix (interpreter for patched methods)", "IFix.Core."),
+        ("toolchain", "Puerts (script bridge)", "Puerts."),
+        ("plugin_loader", "MonoMod (runtime detours)", "MonoMod.RuntimeDetour."),
     ];
 
     private static void LayoutMarkers(Layout layout, BackendFacts backend, List<MarkerFact> markers, CancellationToken ct)
@@ -619,7 +664,8 @@ public static class BuildSummary
         foreach (var (category, name, prefix) in AssemblySignatures)
         {
             if (markers.Any(m => m.Name == name)) continue;
-            var hit = assemblies.FirstOrDefault(a => a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            var hit = assemblies.FirstOrDefault(a => a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || (prefix.EndsWith('.') && a.Equals(prefix[..^1], StringComparison.OrdinalIgnoreCase)));
             if (hit != null) markers.Add(new MarkerFact(category, name, $"assembly {hit}", "layout"));
         }
         if (layout.Data != null && Directory.Exists(Path.Combine(layout.Data, "StreamingAssets", "aa")) && !markers.Any(m => m.Name == "Addressables"))
